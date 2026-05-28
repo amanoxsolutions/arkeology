@@ -48,6 +48,19 @@ The server is deployment-agnostic: it is given resource names and trusts the cre
 
 ---
 
+## Deployment Prerequisites
+
+Before the server can start, the following must be provisioned externally:
+
+- An S3 bucket accessible with the configured credentials
+- An S3 Vectors index created with a vector dimension matching the configured embedding model
+- Amazon Bedrock enabled in the target AWS region with access to the configured embedding model
+- IAM credentials with read/write permissions to the S3 bucket and S3 Vectors index, and `bedrock:InvokeModel` permission for the embedding model
+
+**Regional constraint:** S3 Vectors is not available in all AWS regions. The operator is responsible for selecting a supported region. The server does not validate regional availability at startup.
+
+---
+
 ## Scope
 
 ### Core features
@@ -126,7 +139,7 @@ The server is deployment-agnostic: it is given resource names and trusts the cre
 | FR-04 | The server provides a metadata-only artifact listing capability. The agent can filter by type, feature tags, team, project, tier, and status. No semantic ranking is performed. Results from outside the deployment's own scope are restricted to permanent shared artifacts. |
 | FR-05 | The server provides an artifact archiving capability. Archiving marks an artifact as inactive, excluding it from search and listing results by default. Archiving is scoped to the deployment's own storage — artifacts from foreign scopes cannot be archived. |
 | FR-06 | The server provides a health check capability that reports the connectivity and accessibility status of each configured component independently, enabling diagnosis without log access. |
-| FR-07 | At startup, the server validates all configuration before accepting any tool calls: credential validity, read and write accessibility of the deployment's own storage scope, read accessibility of each subscribed foreign scope, and compatibility between the configured embedding model and the vector index. Any failure produces a clear, actionable error message and prevents the server from starting. |
+| FR-07 | At startup, the server validates all configuration before accepting any tool calls: credential validity, read and write accessibility of the deployment's own storage scope, read accessibility of each subscribed foreign scope, existence of the vector index, and compatibility between the configured embedding model and the vector index. If the vector index does not exist, this is treated as a hard startup failure with a clear error identifying the missing resource. Any failure produces a clear, actionable error message and prevents the server from starting. |
 | FR-08 | Artifact identifiers are generated deterministically from the artifact's own attributes — no random component. Tier 2 project-local artifacts: same type, date, and title written multiple times on the same calendar day produces the same identifier and overwrites silently; a different day produces a new identifier and a new artifact. Tier 3 project documentation artifacts: same type and title always produces the same identifier and overwrites regardless of date — living documents are updated in place. |
 | FR-09 | Each stored artifact carries the following metadata, used for filtering, display, and access control. **Required** — type, team, project, tier, date (last write), status, title, visibility, description (≤280 characters). **Optional** — feature tags (list), author role. Visibility is enforced server-side and is not exposed as an agent-facing filter parameter. |
 | FR-10 | Cross-boundary access is enforced server-side. Within the deployment's own storage scope, all artifacts are accessible regardless of tier or visibility. Across subscribed foreign scopes, only tier 3 shared artifacts are accessible. This is a soft control enforced at the server layer; it does not substitute for infrastructure-level access controls. This distinction must be documented in the server README. |
@@ -155,6 +168,13 @@ The server is deployment-agnostic: it is given resource names and trusts the cre
 | NFR-09 | **Distribution** — the server must be installable and runnable directly from the repository source using standard Python tooling. Distribution via a public or private package registry is a future consideration and not a current requirement. |
 | NFR-10 | **Encryption in transit** — all communication between the server and AWS services must use HTTPS. Encryption at rest for S3 and S3 Vectors storage is the responsibility of the admin provisioning those resources and is out of scope for the server. |
 | NFR-11 | **Partial failure handling** — the server must never silently discard a write operation. If the embedding call is throttled by Bedrock, the server retries once with back-off before surfacing a structured error to the agent. If the vector index write fails after S3 content storage succeeds, the server writes to the local failure log and surfaces a structured error including the artifact identifier. AWS service unavailability mid-session (beyond transient errors) is surfaced as a structured error per tool call — no degraded mode, no silent swallowing of failures. |
+| NFR-12 | **Setup documentation** — the server repository must include setup documentation covering: required AWS resource provisioning steps, minimum IAM policy, embedding model configuration, and MCP client configuration. This documentation must be kept current with any change to the deployment prerequisites. |
+
+---
+
+## Known Limitations
+
+**Concurrent writes** — when two agents write an artifact with the same identifier simultaneously, the outcome is last-writer-wins at both S3 and S3 Vectors. No conflict detection, locking, or merge is performed. In practice this requires two agents to write the same artifact type, title, and tier at the same moment — unlikely in normal use but possible in large automated pipelines. This is an accepted constraint and a candidate for a future resolution.
 
 ---
 
