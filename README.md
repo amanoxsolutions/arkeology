@@ -41,7 +41,24 @@ cairn-mcp is an attempt to address both problems in AWS environments: **structur
 by metadata filter, or by semantic similarity. Canonical knowledge can be flagged as shareable,
 making it discoverable by agents on other projects or teams that point at the same store.
 
-## Why AWS, and why this stack
+## Who this is for — and who it isn't?
+
+**A good fit if:**
+- Your team already runs workloads on AWS
+- You use structured AI agents and skills with explicit instructions to produce and consume structured documentation artifacts — writing findings at the end of a session and searching for prior context at the start of one
+- Your projects have real longevity: multiple sessions, multiple contributors, or both
+
+**Not a good fit if:**
+- Your team is not using AWS
+- Your project is small or short-lived and a `docs/` folder in the repo is sufficient
+- Your do not use structured agents and skills with explicit instructions for when to write artifacts and when to search for them — a store that is never written to and never queried, delivers no value. Filled with inconsistent, low-quality artifacts might be even worse.
+- You are running an open source project with public contributors — no one should grant public read/write access to an S3 bucket
+- You are already using a dedicated knowledge management system and your agents can query it
+- You need to handle high-volume automated pipelines generating hundreds of artifacts per hour — cairn-mcp is designed for interactive developer sessions and moderate CI/CD workloads, not bulk ingestion
+
+---
+
+## Why AWS, and why this stack?
 
 **Why AWS?**
 cairn-mcp is designed for teams already running workloads on AWS. Using S3, S3 Vectors, and
@@ -69,7 +86,7 @@ provides.
 ## How it works
 
 Artifacts are stored in a standard S3 bucket and indexed in AWS S3 Vectors with embeddings from
-Amazon Bedrock (Titan Text v2). Agents connect via the Model Context Protocol and call five tools:
+Amazon Bedrock (Titan Text v2). Agents connect via the Model Context Protocol and call seven tools:
 
 | Tool | Purpose |
 |---|---|
@@ -78,8 +95,12 @@ Amazon Bedrock (Titan Text v2). Agents connect via the Model Context Protocol an
 | `read_artifact` | Fetch the full content of a known artifact by ID |
 | `list_artifacts` | Browse artifacts by type, feature, team, or project |
 | `archive_artifact` | Mark an artifact inactive without deleting it |
+| `health_check` | Validate connectivity to all three AWS services |
+| `reconcile_index` | Re-index any artifacts present in S3 but missing from the vector index |
 
-A sixth tool, `health_check`, validates connectivity to all three AWS services at startup.
+The server also exposes MCP Resources — always-current schema documentation covering artifact
+types, the tier model, visibility rules, and field constraints — so any connected agent can
+discover what to provide without consulting external documentation.
 
 ## Status
 
