@@ -2,7 +2,7 @@
 status: complete
 project: amanox-artifact-store-mcp
 language: python
-decisions_locked: [D1, D2, D3, D4, D5, D6-metadata-schema, D7-deployment-agnostic, D8-tier4-sharing, D8b-confidentiality-visibility, D9-key-generation, D10-embedding-model, D11-tools-interface]
+decisions_locked: [D1, D2, D3, D4, D5, D6-metadata-schema, D7-deployment-agnostic, D8-tier3-sharing, D8b-confidentiality-visibility, D9-key-generation, D10-embedding-model, D11-tools-interface]
 decisions_closed_not_applicable: [OQ3-cross-team-iam, OQ5-vector-index-topology]
 ---
 
@@ -13,7 +13,7 @@ decisions_closed_not_applicable: [OQ3-cross-team-iam, OQ5-vector-index-topology]
 New standalone project brainstorming. An AWS S3-based agent knowledge store delivered as a Python MCP server. Enables AI agents to write, search, and retrieve structured artifacts (code reviews, implementation notes, ADRs, specs, session summaries) across projects, teams, and AI coding sessions. Inspired by the awslabs/mcp architecture. Separate repo from `amanox-ai-agents`.
 
 **Date:** 2026-05-27
-**Facilitator:** Mary (Business Analyst)
+**Facilitator Agent:** Analyst
 
 ---
 
@@ -21,9 +21,9 @@ New standalone project brainstorming. An AWS S3-based agent knowledge store deli
 
 AI coding agents are stateless. Knowledge produced in one session — code review findings, architectural decisions, implementation notes — is discarded when the context window closes. Engineers who return to a project the next day, or a second engineer joining the project, start from zero. The more agents are used, the worse this gets: decisions are re-made, patterns are re-discovered, bugs are re-fixed.
 
-This is the tier 2 artifact gap identified in F3.2 (`f3.2-research.md`): artifacts exist locally and ephemerally but are unindexed and invisible across sessions and engineers.
+This is the tier 2 artifact gap identified in the artifact store research (`research-artifact-store.md`): artifacts exist locally and ephemerally but are unindexed and invisible across sessions and engineers.
 
-The F3.2 research ruled out external object stores for the *general skill baseline* (too much infra overhead). This project is that infrastructure — built once, used everywhere.
+The research ruled out external object stores for the *general skill baseline* (too much infra overhead). This project is that infrastructure — built once, used everywhere.
 
 ### Why a separate project, not a skill
 
@@ -51,7 +51,7 @@ Key findings:
 
 Confirmed insight: awslabs chose managed vector search (Bedrock KB) over text index. This validates the vector search direction for our project.
 
-### Your blog post: The Missing Link (dev.to/mlnrt)
+### S3 Vector blog post: The Missing Link (dev.to/mlnrt)
 
 Critical architectural pattern for S3 Vectors:
 - S3 Vectors stores only vectors, not documents.
@@ -77,11 +77,21 @@ Tier 2 artifacts (session summaries, code reviews, impl notes) stay project-loca
 
 ### D1 — Auth: AWS_PROFILE + AWS_REGION env vars ✅ Locked
 
-Pattern identical to awslabs/mcp. `boto3.Session(profile_name=profile)` when `AWS_PROFILE` is set; default credential chain otherwise. Session hook calls `sts:GetCallerIdentity` at server startup to validate credentials eagerly. Mid-session credential expiry surfaces as a typed error on tool calls with a re-auth instruction.
+The server supports **all standard boto3 credential environments** — local developer machines, CI/CD pipelines, ECS tasks, Lambda, and any other runtime where AWS credentials are available. This explicitly includes automated use cases such as a code reviewer AI agent running in a CI/CD pipeline.
 
-### D2 — Session hook blocks on expired credentials ✅ Locked
+`AWS_PROFILE` is **optional and developer-facing**: when set, `boto3.Session(profile_name=profile)` is used. When absent, the standard boto3 default credential chain applies (environment variables → IAM role → instance profile → etc.). `AWS_PROFILE` is not the primary auth mechanism — it is a convenience for interactive local use. The default credential chain is the primary mechanism and works in all environments.
 
-`sts:GetCallerIdentity` is called at startup. If credentials are invalid or expired, the server surfaces a clear error with re-auth instructions. Mid-session expiry: the boto3 call fails with a credential error, which the server wraps into a typed MCP error response (not a generic exception). The agent receives a human-readable re-auth instruction.
+`AWS_REGION` is required for all API calls.
+
+This pattern is informed by awslabs/mcp but refined: awslabs frames `AWS_PROFILE` as the primary mechanism because their tools are exclusively interactive. cairn-mcp is designed for both interactive and automated use.
+
+### D2 — Startup credential check is the first guard ✅ Locked
+
+`sts:GetCallerIdentity` is called at server startup. This is the **first** guard — it catches invalid or expired credentials before any tool is ever invoked, providing a fast-fail UX improvement. It is **not** the only guard.
+
+Every boto3 API call throughout the server must independently catch credential-related errors (`ExpiredTokenException`, `InvalidClientTokenId`, and equivalents) and re-raise them as typed MCP error responses — never as raw exceptions. The agent receives a human-readable re-auth instruction on any credential failure, regardless of when in the session it occurs.
+
+The startup check does not guarantee that credentials remain valid for the life of the session. Temporary credentials (STS tokens, SSO sessions, CI/CD OIDC tokens) can expire mid-session. The per-call error wrapping is the reliability layer; the startup check is the early-warning layer.
 
 **Offline concern dismissed:** anyone running an AI agent has internet. An optional local-cache-and-push pattern (save to `.docs/` and push to S3 when connectivity is restored) is a future V2 consideration.
 
@@ -100,6 +110,12 @@ read scope = WRITE_PREFIX (always, implicit)
 
 The server does not prescribe a prefix naming convention. Users adopt whatever structure makes sense for their deployment (e.g. `{org}/{team}/{project}/`, `{team}/`, or flat). Both config values are treated as opaque string prefixes. If every project has a dedicated bucket, both can be left empty — the whole bucket is the scope.
 
+**Startup prefix access verification (mandatory, hard failure):** At startup, after the credential check (D2), the server verifies access to every configured prefix:
+- `WRITE_PREFIX`: verify both **read and write** access (the server reads from and writes to this prefix)
+- Each entry in `READ_PREFIXES`: verify **read** access
+
+Any verification failure marks the server as failed and surfaces a clear error identifying the unreachable prefix. The server does not start in a degraded state. A misconfigured foreign prefix that silently returns empty results would be extremely difficult to debug — a loud startup failure is strictly preferable.
+
 ### D4 — Standalone new MCP server, new repo ✅ Locked
 
 Not embedded in `amanox-ai-agents`. Not a fork of awslabs/mcp. New repo, new Python package. `awslabs/mcp` is an architecture and implementation reference only.
@@ -107,8 +123,10 @@ Not embedded in `amanox-ai-agents`. Not a fork of awslabs/mcp. New repo, new Pyt
 **Candidate name:** `amanox-artifact-store-mcp`
 **Language:** Python
 **Framework:** FastMCP (same as awslabs/mcp)
-**Transport:** stdio
+**Transport:** stdio — the transport for the **primary use case** (local interactive developer tooling). Not the only transport forever.
 **Distribution:** `uvx amanox-artifact-store-mcp@latest` (or local install for initial development)
+
+**Transport extensibility:** The server must be structured so that adding an HTTP/SSE transport in the future is a configuration choice, not an architectural rework. FastMCP natively supports multiple transports — no extra design work is needed now, but no design decision should close that door. The CI/CD use case (D1) may eventually require a persistent shared server rather than a per-job spawned process; when that need arises, HTTP/SSE transport should be addable without touching the tool implementations.
 
 ### D5 — Backend: S3 Bucket + S3 Vectors + Bedrock embeddings ✅ Locked
 
@@ -127,6 +145,8 @@ Single backend. No DynamoDB. No INDEX.json. No Bedrock Knowledge Base.
 
 **Why no Bedrock KB:** Requires pre-provisioning a Knowledge Base, configuring data sources, and triggering periodic sync. Sync latency (minutes to hours) breaks the immediate write-then-read workflow. Our write path must produce immediately searchable artifacts.
 
+**Layering principle:** The server must be implemented in layers — storage (S3), vector search (S3 Vectors), embedding (Bedrock), and server (FastMCP) — each behind a clean interface. This is a general design discipline: technology evolves fast, and any layer must be replaceable without touching the others. This is not a hedge against S3 Vectors specifically — S3 Vectors is the right choice. It is an architectural discipline that keeps the codebase refactorable as the ecosystem changes.
+
 **Architecture per the blog post pattern:**
 
 ```
@@ -137,8 +157,8 @@ WRITE:
 
 SEARCH:
   query → Bedrock InvokeModel → query_embedding
-  query_embedding → S3 Vectors QueryVectors(filter?) → [{key, metadata, score}]
-  keys → S3 Bucket batch GetObject → full documents
+  query_embedding → S3 Vectors QueryVectors(filter?) → [{key, metadata, description, score}]
+  → returns metadata + score only (no S3 GetObject — content fetched on demand via read_artifact)
 
 READ (direct):
   artifact_id → S3 Bucket GetObject → content
@@ -155,25 +175,39 @@ s3_vectors.query_vectors(
 )
 ```
 
-**Required metadata fields (stored in S3 Vectors per vector):**
+**⚠️ Metadata size constraints (S3 Vectors limitations):**
+- Filterable metadata per vector: **2 KB** — all filterable fields combined must stay under this limit
+- Non-filterable metadata keys per index: **10** — must be declared at index creation; cannot be changed to filterable later
+- Total metadata per vector: 40 KB (filterable + non-filterable combined)
+- Top-K results per `QueryVectors` request: **100** — hard ceiling on `top_k` in `search_artifacts`
+- Vectors per `GetVectors` API call: **100** — hard ceiling on batch size in `list_artifacts`
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `type` | string | Artifact type: `code-review`, `impl-note`, `adr`, `spec`, `issue-record`, `session-summary`, `research` |
-| `feature` | string | Feature or work-unit slug: `auth`, `vpc-peering` |
-| `team` | string | Team identifier provided by caller at write time (e.g. `platform`, `network`) |
-| `project` | string | Project slug provided by caller at write time (e.g. `my-service`, `vpc-infra`) |
-| `tier` | string | `"2"` for project-local artifacts; `"4"` for permanent/shareable knowledge |
-| `date` | string | ISO date: `YYYY-MM-DD` |
-| `status` | string | `active` (default) or `archived` — archived excluded from search by default |
-| `title` | string | Human-readable title — enables display without S3 content fetch |
-| `visibility` | string | `shared` (default) or `confidential` — controls cross-prefix read eligibility |
+Reference: https://docs.aws.amazon.com/AmazonS3/latest/userguide/s3-vectors-limitations.html
 
-**Optional metadata fields:**
+**Filterable metadata fields (stored in S3 Vectors per vector, subject to 2 KB combined limit):**
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `author_role` | string | Producing role: `developer`, `architect`, `analyst` |
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `type` | string | ✅ | Artifact type: `code-review`, `impl-note`, `adr`, `spec`, `issue-record`, `session-summary`, `research` |
+| `team` | string | ✅ | Team identifier provided by caller at write time (e.g. `platform`, `network`) |
+| `project` | string | ✅ | Project slug provided by caller at write time (e.g. `my-service`, `vpc-infra`) |
+| `tier` | string | ✅ | `"2"` for project-local artifacts; `"3"` for permanent/shareable knowledge |
+| `date` | string | ✅ | ISO date: `YYYY-MM-DD` |
+| `status` | string | ✅ | `active` (default) or `archived` — archived excluded from search by default |
+| `title` | string | ✅ | Human-readable title — enables display without S3 content fetch |
+| `visibility` | string | ✅ | `shared` (default) or `confidential` — controls cross-prefix read eligibility |
+| `features` | list[string] | ❌ | Feature or work-unit slugs: `["auth", "vpc-peering"]` — omit for cross-cutting artifacts (ADRs, research, session summaries) |
+| `author_role` | string | ❌ | Producing role: `developer`, `architect`, `analyst` |
+
+**Non-filterable metadata fields (declared at index creation, returned with query results, not usable in filters):**
+
+| Field | Type | Required | Description | Size limit |
+|-------|------|----------|-------------|------------|
+| `description` | string | ✅ | Tweet-length summary of the artifact — primary signal for agents deciding whether to call `read_artifact` | Max 280 characters |
+
+`description` is stored as non-filterable metadata: it is never filtered on, but is returned with every `QueryVectors` result at zero additional S3 read cost. This is the mechanism that allows `search_artifacts` to return useful context without fetching full artifact content from S3. It uses 1 of the 10 available non-filterable key slots per index and must be declared at index creation time.
+
+**S3 Vectors array filtering:** `features` is stored as a list. The S3 Vectors `$eq` operator matches if the query value equals **any element** in the list — `{"features": {"$eq": "auth"}}` correctly returns artifacts where `features` contains `"auth"` alongside other slugs. Validated against: https://docs.aws.amazon.com/AmazonS3/latest/userguide/s3-vectors-metadata-filtering.html
 
 **Why `team` and `project` are required (not derived from prefix):**
 
@@ -186,7 +220,7 @@ The server enforces confidentiality at query time, not via IAM. The server knows
 | Query context | Filter applied |
 |---|---|
 | Within `WRITE_PREFIX` | No restriction — all artifacts, all visibility levels, all tiers |
-| Within `READ_PREFIXES` | `tier = "4"` AND `visibility = "shared"` |
+| Within `READ_PREFIXES` | `tier = "3"` AND `visibility = "shared"` |
 
 This means:
 - Tier 2 artifacts never leak cross-prefix, even if a shared bucket is used
@@ -197,13 +231,17 @@ This is a **soft control** at the MCP layer. It is enforced by the server, not I
 
 V1 may implement `visibility` as a stored field without full enforcement (store it, return it in results, do not yet filter on it in cross-prefix reads). Full enforcement is a V2 hardening step — but the field must be in the schema from day one to avoid a breaking schema migration later.
 
-**Connection to F3.2:** This schema directly addresses R6 (Artifact schema) from `f3.2-research.md`. The server IS the "semantic / vector search (MCP tool)" that F3.2 listed as a future R3 solution. Once deployed, it becomes the tier 2 and tier 3 infrastructure for F3.2.
+**Connection to amanox-ai-agents:** This schema directly addresses R6 (Artifact schema) from `research-artifact-store.md`. The server IS the "semantic / vector search (MCP tool)" that the artifact store research listed as a future R3 solution. Once deployed, it becomes the tier 2 and tier 3 infrastructure for the three-tier document lifecycle.
 
 ### D7 — The server is deployment-agnostic ✅ Locked
 
 The server is given a bucket name, an S3 Vectors bucket name, and an index name. It uses them. It does not care about the topology behind those names.
 
 A deployment of the tool is its own independent tool. The deployment topology — one shared org-wide bucket, one bucket per team, one bucket per project, or one bucket per engineer — is entirely the user's and admin's concern. IAM policies (managed externally) control what the configured profile can actually access. The server trusts the credentials it is given.
+
+**Regional constraints are the admin's responsibility.** The admin must deploy the server in an AWS region where S3 Vectors, Bedrock, and the configured Titan embedding model are all available. The server does not validate regional service availability — permission errors and service unavailability surface as typed MCP errors at runtime (D2 per-call error wrapping).
+
+**No Bedrock model enablement step required.** Titan Text Embeddings v2 (`amazon.titan-embed-text-v2:0`) is an Amazon-native model — it is not sold through AWS Marketplace and requires no explicit opt-in or subscription. It is available by default to any IAM identity with `bedrock:InvokeModel` permission. No startup probe for model enablement is needed. Reference: https://docs.aws.amazon.com/bedrock/latest/userguide/model-access.html
 
 **Config parameters:**
 
@@ -218,32 +256,54 @@ A deployment of the tool is its own independent tool. The deployment topology �
 | `READ_PREFIXES` | No | Comma-separated additional read prefixes (default: `WRITE_PREFIX`). Example: `network/,shared/` |
 | `BEDROCK_EMBEDDING_MODEL` | No | Embedding model ID (default: `amazon.titan-embed-text-v2:0`) |
 
-### D8 — Cross-team sharing applies primarily to tier 3, not tier 2 ✅ Locked
+### D8 — Cross-team sharing is restricted to tier 3 only ✅ Locked
 
 Tier 2 artifacts are project-local working documents (code reviews, impl notes, session summaries). They are relevant to the team that produced them, not the org at large.
 
-Cross-team sharing via `READ_PREFIXES` is intended for **tier 3** artifacts — ADRs, architecture decisions, canonical patterns — content with org-wide relevance that a different team's agent legitimately needs to find.
+Cross-team sharing via `READ_PREFIXES` is **restricted to tier 3** artifacts — ADRs, architecture decisions, canonical patterns — content with org-wide relevance that a different team's agent legitimately needs to find.
+
+**The `tier=3` gate on cross-prefix access is absolute.** A tier 2 artifact with `visibility=shared` is still never accessible cross-prefix. `visibility` is an additional control *within* the tier gate, not a substitute for it. Two independent controls must both pass: tier must be 3, and visibility must be shared.
+
+**Why the absolute rule is correct:**
+
+1. **Explicit promotion over accidental leak.** If information surfacing in a code review is genuinely org-wide relevant — an architectural insight, a security finding, a design constraint — the right action is to write it into a tier 3 document (ADR, design doc, spec) explicitly. That is a deliberate decision by a human or agent. Letting `visibility=shared` bypass the tier gate would allow working notes to leak cross-prefix without any conscious promotion step.
+
+2. **Agent context quality.** Cross-prefix search results are loaded into an agent's context window. Tier 2 working documents from another team are written for that team's context — they reference their codebase, their decisions, their conventions. Loading them into an unrelated agent session introduces noise that actively misleads rather than informs. The tier=3 gate ensures cross-prefix results are signal-rich: only permanent, deliberately shared knowledge crosses team boundaries.
 
 The `tier` metadata field (D6) enables this distinction: when searching across `READ_PREFIXES`, agents can filter to `tier=3` to read only the sharing-intended permanent knowledge from another team's prefix, without accidentally surfacing their tier 2 working documents.
 
 ### D9 — Key generation: content hash ✅ Locked
 
-`{write_prefix}{type}/{sha256(type + feature + date + title)[:16]}.md`
+`{write_prefix}{type}/{sha256(type + date + title)[:16]}.md`
 
 Example: `code-review/a3f8b2c1d4e5f678.md`
 
 **Why hash over path+UUID:**
-- **Idempotent**: same logical artifact written twice (e.g. agent retries after crash) produces the same key and overwrites the previous write. No duplicate artifacts, no orphaned S3 Vectors entries.
-- **Shorter**: no date segment, no UUID segment in the key itself.
+- **Idempotent**: same logical artifact written twice on the same calendar day (e.g. agent retries after crash) produces the same key and overwrites the previous write. No duplicate artifacts, no orphaned S3 Vectors entries.
+- **Shorter**: no UUID segment in the key itself.
 - **Deterministic**: key is reconstructible from inputs — useful for targeted reads without a search.
 
-The key is opaque in the S3 console, but all meaningful context (title, type, feature, team, project, date) lives in S3 Vectors metadata returned on every query result. The key's only job is to be a stable unique pointer.
+**Hash inputs: `type + date + title`**
+
+`features` was removed from the hash inputs. It is optional (absent for ADRs, research, session summaries) and therefore carries no reliable discriminating weight. Including it would require sorting the list for stability, adding complexity for near-zero benefit.
+
+`date` (YYYY-MM-DD) is the temporal discriminator. It enables the same artifact type and title to produce different keys at different points in time — e.g. "Auth module review" written in January and again in June are two genuinely distinct artifacts, both valuable. Without `date`, the second review would silently overwrite the first.
+
+**Idempotency guarantee:** same `type + date + title` written multiple times on the same calendar day → same key → silent overwrite. A retry the following calendar day produces a new key and a new artifact. This is acceptable: crash retries happen within seconds or minutes, not across day boundaries. Cross-day retry creating a new artifact is the correct behaviour.
+
+The key is opaque in the S3 console, but all meaningful context (title, type, features, team, project, date) lives in S3 Vectors metadata returned on every query result. The key's only job is to be a stable unique pointer.
 
 ### D10 — Embedding model: Titan Text Embeddings v2 ✅ Locked
 
 Default: `amazon.titan-embed-text-v2:0` (1024 dimensions). Configurable via `BEDROCK_EMBEDDING_MODEL` env var.
 
-The S3 Vectors index dimension must match the embedding model dimension. Changing the model requires recreating the index. This constraint is documented in the server README — it is not enforced programmatically in V1.
+The S3 Vectors index dimension must match the embedding model's output dimension. Changing the model requires recreating the index — this is enforced programmatically at startup, not left to documentation.
+
+**Startup dimension check (mandatory):** At server startup, the server queries the S3 Vectors index metadata for its configured dimension and derives the embedding model's output dimension (from a known model registry or a probe call to Bedrock). If they do not match, the server refuses to start with a clear error:
+
+> *"Configured embedding model produces N-dimensional vectors but the S3 Vectors index expects M dimensions. Recreate the index with the correct dimension or restore the original model."*
+
+This turns a silent index corruption risk (mixed-dimension vectors producing meaningless search results) into a loud, actionable startup failure. "Documented in the README" is not a sufficient control for an operation that permanently corrupts the search index.
 
 ---
 
@@ -255,8 +315,9 @@ The S3 Vectors index dimension must match the embedding model dimension. Changin
 write_artifact(
     content: str,                  # Full markdown content
     title: str,                    # Human-readable title
+    description: str,              # Tweet-length summary ≤280 chars — shown in search results without fetching content
     artifact_type: str,            # One of the type values in D6 schema
-    feature: str,                  # Feature/work-unit slug
+    features: list[str] = [],      # Feature/work-unit slugs — optional, omit for cross-cutting artifacts
     team: str,                     # Team identifier (stored in D6 metadata)
     project: str,                  # Project slug (stored in D6 metadata)
     tier: str = "2",               # "2" or "4" — defaults to tier 2
@@ -266,7 +327,7 @@ write_artifact(
 ```
 
 Steps:
-1. Key = `{WRITE_PREFIX}{type}/{sha256(type+feature+date+title)[:16]}.md` (D9)
+1. Key = `{WRITE_PREFIX}{type}/{sha256(type+date+title)[:16]}.md` (D9)
 2. `S3 PutObject(key, content)`
 3. `Bedrock InvokeModel(content)` → embedding (D10)
 4. `S3 Vectors PutVector(key, embedding, metadata)` with full D6 schema
@@ -278,7 +339,7 @@ Steps:
 read_artifact(artifact_id: str) → content: str
 ```
 
-Complements `list_artifacts`: after listing metadata-only results, the agent fetches full content for a specific known artifact. Confidentiality enforced before the S3 fetch:
+Complements both `search_artifacts` and `list_artifacts`: after receiving metadata-only results from either tool, the agent fetches full content only for the specific artifacts it actually needs.
 
 1. `S3 Vectors GetVectors(key)` → retrieve metadata
 2. If key is within `WRITE_PREFIX` → allow unconditionally
@@ -291,31 +352,32 @@ Complements `list_artifacts`: after listing metadata-only results, the agent fet
 search_artifacts(
     query: str,
     artifact_type: str = "",
-    feature: str = "",
+    features: str = "",            # Matches any artifact whose features list contains this value
     team: str = "",
     project: str = "",
     tier: str = "",
-    top_k: int = 5
-) → list[{id, title, score, content, metadata}]
+    top_k: int = 5                 # Hard ceiling: 100 (S3 Vectors QueryVectors limit)
+) → list[{id, title, description, score, metadata}]
 ```
+
+Returns **metadata + score only** — no S3 content fetch. The `description` field (stored as non-filterable metadata in S3 Vectors, returned at zero additional cost) gives the agent enough context to judge relevance and decide which artifacts to read via `read_artifact`. This avoids fetching full documents the agent may not need, keeps MCP response payloads bounded, and prevents context window flooding.
 
 1. `Bedrock InvokeModel(query)` → query embedding
 2. `S3 Vectors QueryVectors` across `WRITE_PREFIX` (no restriction) and each `READ_PREFIXES` entry (filter: `tier=3 AND visibility=shared`)
 3. Merge and re-rank results by score
-4. Batch `S3 GetObject(top-K keys)` → full content
-5. Returns results ordered by semantic relevance
+4. Return results ordered by semantic relevance — no S3 `GetObject` calls
 
 ### `list_artifacts`
 
 ```
 list_artifacts(
     artifact_type: str = "",
-    feature: str = "",
+    features: str = "",            # Matches any artifact whose features list contains this value
     team: str = "",
     project: str = "",
     tier: str = "",
     status: str = "active"
-) → list[{id, title, date, type, feature, team, project, tier, visibility, status}]
+) → list[{id, title, description, date, type, features, team, project, tier, visibility, status}]
 ```
 
 Metadata-only — no content fetch, no embedding call. Intended for browsing, not semantic retrieval.
@@ -339,21 +401,23 @@ archive_artifact(artifact_id: str) → ok: bool
 ### `health_check`
 
 ```
-health_check() → {auth_ok, bucket_ok, vectors_ok, identity, region}
+health_check() → {auth_ok, bucket_ok, vectors_ok, write_prefix_ok, read_prefixes_ok, identity, region}
 ```
 
-1. `STS GetCallerIdentity`
-2. `S3 HeadBucket(ARTIFACT_BUCKET)`
-3. `S3 Vectors DescribeVectorBucket(VECTORS_BUCKET)`
-4. Returns status dict
+1. `STS GetCallerIdentity` → `auth_ok`
+2. `S3 HeadBucket(ARTIFACT_BUCKET)` → `bucket_ok`
+3. `S3 Vectors DescribeVectorBucket(VECTORS_BUCKET)` → `vectors_ok`
+4. Probe read + write access to `WRITE_PREFIX` → `write_prefix_ok`
+5. Probe read access to each `READ_PREFIXES` entry → `read_prefixes_ok` (per-prefix status map)
+6. Returns status dict — any `false` entry indicates a misconfiguration
 
 ---
 
-## Connection to amanox-ai-agents (F3.2)
+## Connection to amanox-ai-agents
 
-The new project directly resolves open questions in `f3.2-research.md`:
+The new project directly resolves open questions in `research-artifact-store.md`:
 
-| F3.2 requirement | F3.2 status | How artifact-store-mcp resolves it |
+| Requirement | Status in research | How cairn-mcp resolves it |
 |---|---|---|
 | R1 — Storage location | Open | S3 Bucket — now viable because we own the infra |
 | R2 — Naming convention | Open | Key derived from D9; type in path provides grouping |
@@ -361,7 +425,7 @@ The new project directly resolves open questions in `f3.2-research.md`:
 | R6 — Artifact schema | Open | D6 metadata schema in S3 Vectors — server-side filtering without parsing markdown |
 | Promising idea #1 | Deferred | Semantic search over project history — now the core feature |
 
-Once the MCP server exists, F3.2's tier 2 solution becomes: "configure `amanox-artifact-store-mcp`, then each skill that produces significant output includes a `write_artifact` step."
+Once cairn-mcp exists, the tier 2 solution for amanox-ai-agents skills becomes: "configure `cairn-mcp`, then each skill that produces significant output includes a `write_artifact` step."
 
 ---
 
@@ -379,6 +443,6 @@ Once the MCP server exists, F3.2's tier 2 solution becomes: "configure `amanox-a
 
 ## Next Steps
 
-1. Challenge assumptions before scaffolding (in progress — see F3.2 tier model)
-2. Begin project scaffolding: new repo, `pyproject.toml`, FastMCP skeleton
-3. Update `f3.2-research.md` with link to this project as the tier 2 infrastructure answer
+1. Challenge assumptions before scaffolding
+2. Begin project scaffolding: new repo `cairn-mcp`, `pyproject.toml`, FastMCP skeleton
+3. Update `research-artifact-store.md` with a link to this project as the tier 2 infrastructure answer
