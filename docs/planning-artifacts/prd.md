@@ -172,6 +172,39 @@ Before the server can start, the following must be provisioned externally:
 
 ---
 
+## Product Value Failure
+
+This section identifies the conditions under which cairn-mcp could work correctly as software and still fail to deliver value.
+
+**Who would not use it**
+- Teams not using AWS — accepted constraint
+- Small teams or short-lived projects where storing artifacts in the repository is sufficient — accepted constraint
+- Teams whose agents do not support the MCP protocol — hard technical exclusion
+- Solo developers on short projects where AWS setup overhead exceeds the value
+- Teams in regulated environments where storing code artifacts outside the repository requires compliance review
+- Teams already using a dedicated knowledge management pipeline
+- Highly automated pipelines generating artifacts at high volume — the server is not designed for that scale
+
+**What would make it useless**
+- Poor search quality: wrong embedding model, content truncated before embedding, a better model unavailable because the vector index dimension is locked — if the right artifact does not surface, agents re-discover instead of recall and the system stops being used
+- Write API too complex or write latency too high in an interactive session — agents skip writing; an empty store is useless regardless of search quality
+- No signal distinguishing "nothing exists" from "something exists but was not retrieved" — agents lose trust in zero-result responses
+- Cross-scope discovery silently broken by misconfigured prefixes — a key differentiator fails without any error
+
+**Assumptions that if wrong make this effort pointless**
+- Agents consistently write artifacts at significant moments — if the write discipline is not established through skills and workflows, the store stays empty
+- Context window limits remain a binding constraint — if future models hold an entire project's history in context natively, the core problem disappears
+- Prior session knowledge is more useful than misleading — on fast-moving projects, stale artifacts can confidently point agents in the wrong direction
+- Semantic search is the right retrieval mechanism — if agents mostly know what they are looking for by type and metadata, a simpler system would suffice
+
+**What failure feels like**
+- The agent retrieves an artifact, trusts it, and acts on superseded or wrong information — no error, no signal, just quietly wrong
+- The agent asks questions that were already answered and documented — the developer answers again; the problem the server was meant to solve is still present
+- Writing feels like a ritual: artifacts go in, nothing useful comes back; teams stop writing
+- The store grows over months but the agent stays blind — confidence in the system collapses
+
+---
+
 ## Known Limitations
 
 **Concurrent writes** — when two agents write an artifact with the same identifier simultaneously, the outcome is last-writer-wins at both S3 and S3 Vectors. No conflict detection, locking, or merge is performed. In practice this requires two agents to write the same artifact type, title, and tier at the same moment — unlikely in normal use but possible in large automated pipelines. This is an accepted constraint and a candidate for a future resolution.
