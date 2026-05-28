@@ -274,22 +274,33 @@ The `tier` metadata field (D6) enables this distinction: when searching across `
 
 ### D9 — Key generation: content hash ✅ Locked
 
-`{write_prefix}{type}/{sha256(type + date + title)[:16]}.md`
+Key generation differs by tier because tier 2 and tier 3 artifacts have fundamentally different lifecycle semantics.
+
+**Tier 2 — `{write_prefix}{type}/{sha256(type + date + title)[:16]}.md`**
 
 Example: `code-review/a3f8b2c1d4e5f678.md`
 
+Tier 2 artifacts are historical records. The same code review done in January and again in June are two distinct artifacts, both valuable. `date` is included in the hash as a temporal discriminator — different day → different key → different artifact. Same `type + date + title` on the same calendar day → same key → silent overwrite (idempotent retry).
+
+**Tier 3 — `{write_prefix}{type}/{sha256(type + title)[:16]}.md`**
+
+Example: `adr/b7c3e1f9a2d4e890.md`
+
+Tier 3 artifacts are living documents. There is one `plan.md`, one `prd.md`, one "VPC peering ADR". They are updated in place as decisions evolve. `date` is excluded from the hash — same `type + title` always produces the same key and overwrites the previous version regardless of when the update happens. The `date` metadata field is still stored in S3 Vectors and updated on every write to record when the artifact was last written.
+
 **Why hash over path+UUID:**
-- **Idempotent**: same logical artifact written twice on the same calendar day (e.g. agent retries after crash) produces the same key and overwrites the previous write. No duplicate artifacts, no orphaned S3 Vectors entries.
+- **Idempotent**: same logical artifact written again produces the same key and overwrites. No duplicate artifacts, no orphaned S3 Vectors entries.
 - **Shorter**: no UUID segment in the key itself.
 - **Deterministic**: key is reconstructible from inputs — useful for targeted reads without a search.
 
-**Hash inputs: `type + date + title`**
+**Hash inputs summary:**
 
-`features` was removed from the hash inputs. It is optional (absent for ADRs, research, session summaries) and therefore carries no reliable discriminating weight. Including it would require sorting the list for stability, adding complexity for near-zero benefit.
+| Tier | Hash inputs | Behaviour |
+|---|---|---|
+| Tier 2 | `type + date + title` | New day → new artifact; same day → overwrite |
+| Tier 3 | `type + title` | Always overwrites; living document |
 
-`date` (YYYY-MM-DD) is the temporal discriminator. It enables the same artifact type and title to produce different keys at different points in time — e.g. "Auth module review" written in January and again in June are two genuinely distinct artifacts, both valuable. Without `date`, the second review would silently overwrite the first.
-
-**Idempotency guarantee:** same `type + date + title` written multiple times on the same calendar day → same key → silent overwrite. A retry the following calendar day produces a new key and a new artifact. This is acceptable: crash retries happen within seconds or minutes, not across day boundaries. Cross-day retry creating a new artifact is the correct behaviour.
+`features` was removed from hash inputs for both tiers. It is optional (absent for ADRs, research, session summaries) and therefore carries no reliable discriminating weight. Including it would require sorting the list for stability, adding complexity for near-zero benefit.
 
 The key is opaque in the S3 console, but all meaningful context (title, type, features, team, project, date) lives in S3 Vectors metadata returned on every query result. The key's only job is to be a stable unique pointer.
 
@@ -327,7 +338,7 @@ write_artifact(
 ```
 
 Steps:
-1. Key = `{WRITE_PREFIX}{type}/{sha256(type+date+title)[:16]}.md` (D9)
+1. Key = `{WRITE_PREFIX}{type}/{sha256(type+date+title)[:16]}.md` for tier 2; `{WRITE_PREFIX}{type}/{sha256(type+title)[:16]}.md` for tier 3 (D9)
 2. `S3 PutObject(key, content)`
 3. `Bedrock InvokeModel(content)` → embedding (D10)
 4. `S3 Vectors PutVector(key, embedding, metadata)` with full D6 schema
@@ -438,6 +449,9 @@ Once cairn-mcp exists, the tier 2 solution for amanox-ai-agents skills becomes: 
 - **GitHub wiki hack**: GitHub-specific, not portable
 - **Local vector DB (Chroma, FAISS)**: not shared across engineers or machines
 - **Offline-first / local cache**: out of scope for V1
+- **Artifact content editing**: tier 2 artifacts are **append-only and immutable by design** — a code review, session summary, or implementation note is a historical record; its value lies in being an unmodified point-in-time snapshot. New knowledge produces a new artifact, not an edit to an existing one. The sole exception is `archive_artifact`, which changes only the `status` metadata field, not the content. Tier 3 artifacts (ADRs, plans, specs) are intentionally mutable — plans change, decisions evolve — and should be updated via a new `write_artifact` call that produces a new dated artifact superseding the previous one.
+- **Tier 2 → Tier 3 promotion tool**: if a code review or session note contains an insight important enough for org-wide permanent knowledge, the correct action is for the agent to surface that knowledge in existing or new tier 3 documentation. A `promote_artifact` tool would blur the boundary between working documents and canonical knowledge. The lifecycle is: produce artifacts → review and extract insights → write canonical tier 3 documents. This is an agent concern, not a server concern.
+- **Context positioning enforcement**: how agents position retrieved artifacts in their context window (beginning vs. end) is a skill and agent convention, not a server responsibility. The server returns results; the skill instructs the agent where to place them.
 
 ---
 
