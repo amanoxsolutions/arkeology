@@ -59,13 +59,19 @@ Before the server can start, the following must be provisioned externally:
 
 **Regional constraint:** S3 Vectors is not available in all AWS regions. The operator is responsible for selecting a supported region. The server does not validate regional availability at startup.
 
+**Cross-scope constraint:** cross-scope semantic search requires all participating deployments to share the same S3 Vectors index, embedding model, and vector dimension. Each team may have its own S3 prefix or bucket for content storage, but the vector index must be shared. Deployments using separate vector indexes per team cannot perform cross-scope semantic search.
+
+**Optional configuration:**
+
+- `EMBEDDING_SECTIONS` — a comma-separated list of markdown H2 section names to extract from artifact content for embedding generation (e.g. `description,decision` or `introduction,solution`). Section names are matched case-insensitively. If not configured, or if no listed sections are found in the artifact, the server falls back to structured metadata: title + description field + type + feature tags.
+
 ---
 
 ## Scope
 
 ### Core features
 
-- MCP server with 7 tools: write artifact, read artifact, search artifacts, list artifacts, archive artifact, health check, reconcile index
+- MCP server with 7 tools and MCP Resources: write artifact, read artifact, search artifacts, list artifacts, archive artifact, health check, reconcile index; plus schema discovery resources (artifact metadata schema, tier model, visibility model, type catalogue)
 - AWS S3 + S3 Vectors + Bedrock (Titan Text Embeddings v2) backend
 - Artifact metadata schema: type, team, project, tier, date, status, title, visibility, description (≤280 chars), optional feature tags and author role
 - Cross-scope read with tier 3 + shared visibility gate
@@ -75,6 +81,8 @@ Before the server can start, the following must be provisioned externally:
 - Layered architecture: storage, vector search, embedding, and server transport each behind clean interfaces
 - Tier 2 artifacts are append-only and immutable by design — a code review, session summary, or implementation note is a historical record; archiving is the only permitted state change
 - Tier 3 artifacts are living documents — a plan or ADR is updated in place as decisions evolve
+- Configurable section-based embedding extraction (`EMBEDDING_SECTIONS` env var) with structured metadata fallback
+- Recommended AGENTS.md snippet shipped with the repository documentation covering when to write, artifact types, description quality guidance, and tier selection
 
 ### Future considerations
 
@@ -133,7 +141,7 @@ Before the server can start, the following must be provisioned externally:
 
 | ID | Priority | Requirement |
 |---|---|---|
-| FR-01 | **Must** | The server provides an artifact writing capability. The agent provides: full content, a human-readable title, a tweet-length description (≤280 characters), artifact type, optional feature tags, team, project, storage tier (project-local or permanent/shared), visibility (shared or confidential), and optionally the producing role. The server stores the artifact durably, indexes it for semantic search immediately, and returns a unique artifact identifier. |
+| FR-01 | **Must** | The server provides an artifact writing capability. The agent provides: full content, a human-readable title, a tweet-length description (≤280 characters), artifact type, optional feature tags, team, project, storage tier (project-local or permanent/shared), visibility (shared or confidential), and optionally the producing role. The server stores the artifact durably, indexes it for semantic search immediately, and returns a unique artifact identifier. The embedding is generated from a structured combination of: configured section content extracted from named H2 headings in the artifact markdown (per `EMBEDDING_SECTIONS`), prepended with title, type, and feature tags. If no sections are configured or found, the server falls back to title + description field + type + feature tags. |
 | FR-02 | **Must** | The server provides a capability to retrieve the full content of a known artifact by its identifier. For artifacts outside the deployment's own storage scope, access is restricted to permanent shared artifacts only. |
 | FR-03 | **Must** | The server provides a semantic search capability. The agent provides a natural language query and optional metadata filters (type, feature tags, team, project, tier). The server returns a ranked list of matching artifacts with their metadata and description — no full content. Results from outside the deployment's own scope are restricted to permanent shared artifacts. Maximum results per query: 100. |
 | FR-04 | **Should** | The server provides a metadata-only artifact listing capability. The agent can filter by type, feature tags, team, project, tier, and status. No semantic ranking is performed. Results from outside the deployment's own scope are restricted to permanent shared artifacts. |
@@ -150,6 +158,7 @@ Before the server can start, the following must be provisioned externally:
 | FR-15 | **Must** | Tier 3 project documentation artifacts are living documents. Writing an artifact with the same type and title as an existing tier 3 artifact always overwrites it in place, updating content, refreshing the semantic index, and updating all metadata including the write date. |
 | FR-16 | **Should** | When a write operation partially fails — S3 content storage succeeds but vector index write fails — the server writes a structured entry to a local tier 1 failure log before surfacing a structured error to the agent. The entry records the artifact identifier, title, type, tier, and the nature of the failure. The error response to the agent includes the artifact identifier and indicates that a failure log entry was written. The failure log is a tier 1 artifact: local, ephemeral, and gitignored. |
 | FR-17 | **Could** | The server provides a reconciliation capability. When triggered, it performs two steps: (1) if a failure log exists, it re-indexes each artifact listed and removes resolved entries from the log; (2) regardless of whether a failure log exists, it scans the deployment's own S3 prefix against the vector index and re-indexes any orphaned objects found — artifacts present in S3 with no corresponding vector index entry. The tool returns a structured summary of what was found and what was reconciled. |
+| FR-18 | **Should** | The server exposes MCP Resources providing always-current schema information accessible to any connected agent at runtime: the artifact metadata schema with all required and optional fields, valid values, and constraints; the tier model explaining tier 2 vs tier 3 semantics, immutability rules, and key generation behaviour; the visibility and cross-scope access model; and an artifact type catalogue with usage guidance. These resources require no companion skill and are available to any MCP-compatible agent. |
 
 ---
 
@@ -168,7 +177,7 @@ Before the server can start, the following must be provisioned externally:
 | NFR-09 | **Must** | **Distribution** — the server must be installable and runnable directly from the repository source using standard Python tooling. Distribution via a public or private package registry is a future consideration and not a current requirement. |
 | NFR-10 | **Must** | **Encryption in transit** — all communication between the server and AWS services must use HTTPS. Encryption at rest for S3 and S3 Vectors storage is the responsibility of the admin provisioning those resources and is out of scope for the server. |
 | NFR-11 | **Should** | **Partial failure handling** — the server must never silently discard a write operation. If the embedding call is throttled by Bedrock, the server retries once with back-off before surfacing a structured error to the agent. If the vector index write fails after S3 content storage succeeds, the server writes to the local failure log and surfaces a structured error including the artifact identifier. AWS service unavailability mid-session (beyond transient errors) is surfaced as a structured error per tool call — no degraded mode, no silent swallowing of failures. |
-| NFR-12 | **Must** | **Setup documentation** — the server repository must include setup documentation covering: required AWS resource provisioning steps, minimum IAM policy, embedding model configuration, and MCP client configuration. This documentation must be kept current with any change to the deployment prerequisites. |
+| NFR-12 | **Must** | **Setup documentation** — the server repository must include: setup documentation covering required AWS resource provisioning steps, minimum IAM policy, embedding model configuration, and MCP client configuration; and a recommended AGENTS.md snippet that teams add to their root `AGENTS.md` covering when to write artifacts, artifact types and when to use each, how to write a high-quality description, tier 2 vs tier 3 selection guidance, and a pointer to the server's MCP Resources for runtime schema precision. Both must be kept current with any change to the deployment prerequisites or artifact schema. |
 
 ---
 
@@ -184,6 +193,7 @@ This section identifies the conditions under which cairn-mcp could work correctl
 - Teams in regulated environments where storing code artifacts outside the repository requires compliance review
 - Teams already using a dedicated knowledge management pipeline
 - Highly automated pipelines generating artifacts at high volume — the server is not designed for that scale
+- Teams not using highly structured agents and skills with explicit artifact writing instructions — cairn-mcp is designed for disciplined agent workflows where skills define when to write, what type to assign, and how to write the description; without that structure, the store fills with inconsistent artifacts and search quality degrades regardless of the embedding model
 
 **What would make it useless**
 - Poor search quality: wrong embedding model, content truncated before embedding, a better model unavailable because the vector index dimension is locked — if the right artifact does not surface, agents re-discover instead of recall and the system stops being used

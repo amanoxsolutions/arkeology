@@ -2,7 +2,7 @@
 status: complete
 project: amanox-artifact-store-mcp
 language: python
-decisions_locked: [D1, D2, D3, D4, D5, D6-metadata-schema, D7-deployment-agnostic, D8-tier3-sharing, D8b-confidentiality-visibility, D9-key-generation, D10-embedding-model, D11-tools-interface]
+decisions_locked: [D1, D2, D3, D4, D5, D6-metadata-schema, D7-deployment-agnostic, D8-tier3-sharing, D8b-confidentiality-visibility, D9-key-generation, D10-embedding-model, D11-tools-interface, D12-embedding-strategy, D13-schema-discovery]
 decisions_closed_not_applicable: [OQ3-cross-team-iam, OQ5-vector-index-topology]
 ---
 
@@ -440,6 +440,98 @@ Once cairn-mcp exists, the tier 2 solution for amanox-ai-agents skills becomes: 
 
 ---
 
+### D12 — Embedding strategy: section-based extraction ✅ Locked
+
+**Why not embed full content:**
+
+5 Whys analysis surfaced the root cause: full content embedding suffers from boilerplate dilution. Long artifacts (ADRs, implementation notes, specs) have structural scaffolding that occupies tokens without adding semantic meaning. The embedding ends up representing document structure rather than meaning.
+
+**Why not embed description alone:**
+
+The description field (≤280 chars) was designed to be a dense semantic signal, but 280 characters may not capture the full meaning of content-rich artifact types. An ADR's `## Decision` section or a spec's `## Solution` section carries far more searchable signal.
+
+**What gets embedded:**
+
+1. Structured metadata prefix: title + type + feature tags
+2. Configured section content: extracted from named H2 sections (e.g. `["description", "decision"]`)
+3. Fallback if no sections are configured or found: title + description field + type + feature tags
+
+**Configuration:**
+
+`EMBEDDING_SECTIONS` env var in the MCP server's `env` block in `mcp-servers.json`:
+
+```json
+"env": {
+  "EMBEDDING_SECTIONS": "description,decision"
+}
+```
+
+Section names are matched case-insensitively against H2 headings (`## Section Name`) in the artifact markdown.
+
+**Why team/deployment-level configuration:**
+
+Section conventions reflect team structure and artifact templates, not individual artifact choices. An ADR template always has `## Decision`; a session summary always has `## Key findings`. Configuring once at deployment time is simpler and more reliable than per-artifact specification.
+
+**Fallback design:**
+
+If listed sections are not found in the content, they are skipped silently. If no sections are found at all, the server falls back to metadata-only embedding. Teams with no section configuration get a functional embedding. Teams with structured artifact formats get significantly better search quality.
+
+---
+
+### D13 — Agent schema discovery: MCP Resources + recommended AGENTS.md snippet ✅ Locked
+
+**Problem:**
+
+The server's write capability requires agents to populate multiple metadata fields (type, tier, visibility, feature tags) correctly. Hardcoding valid values into each team's skills creates a version coupling problem and requires skill rewriting when the schema evolves.
+
+**Two-layer solution:**
+
+**Layer 1 — MCP Resources (runtime, server-side):**
+
+The server exposes MCP Resources providing precise, always-current schema information:
+- Artifact metadata schema: all required and optional fields, valid values, constraints
+- Tier model: tier 2 vs tier 3 semantics, immutability rules, key generation behaviour
+- Visibility and cross-scope access model
+- Artifact type catalogue with usage guidance
+
+Any MCP-compatible agent can query these resources at runtime. They are always in sync with the running server version.
+
+**Layer 2 — Recommended AGENTS.md snippet (behavioural, repo-provided):**
+
+The cairn-mcp repository ships a recommended AGENTS.md snippet in its documentation. Teams add this block to their root `AGENTS.md` once. It covers:
+- When to write artifacts (end of session, after code review, after architecture decision)
+- Artifact types and when to use each
+- How to write a high-quality description — the key lever for search quality
+- Tier 2 vs tier 3 decision guidance
+- A pointer to MCP Resources for runtime schema precision
+
+**Why AGENTS.md over a companion skill:**
+
+- AGENTS.md is the machine-readable instruction convention — any agent that reads it picks up the guidance automatically, no skill loading required
+- No skill rewriting — existing skills are untouched
+- Framework-agnostic — works with any agent following the AGENTS.md convention
+- Simple versioning — when cairn-mcp evolves, teams update their snippet from the docs
+
+**Why not a companion skill:**
+
+A companion skill requires teams to load it explicitly, creates a version coupling between the skill and the server, and adds framework dependency. The AGENTS.md + MCP Resources combination achieves the same outcome with less coupling and no framework dependency.
+
+---
+
+### D14 — Cross-scope vector index topology ✅ Locked
+
+Cross-scope semantic search requires all participating teams to share **one S3 Vectors index, one embedding model, and one vector dimension**. Each team may have its own S3 prefix (and optionally its own S3 bucket) for content storage, but the vector index is shared. All writes from all participating deployments go into the same index — scoped by prefix in the metadata.
+
+**Why a shared index:**
+
+Reverse engineering the cross-team sharing use case: for a microservices team agent to retrieve a platform team ADR via semantic search, both the query and the indexed vectors must live in the same vector space. If teams use separate indexes with different dimensions or different embedding models, cross-scope search is broken at the index layer — not at the access control layer.
+
+**Implication:**
+
+Deployments using separate vector indexes per team cannot perform cross-scope semantic search. This is a hard deployment constraint documented in the prerequisites. Single-team deployments are unaffected.
+
+---
+
 ## What We Are NOT Building (Ruled Out)
 
 - **Bedrock Knowledge Base**: sync latency, requires pre-provisioning, no direct write path
@@ -452,6 +544,7 @@ Once cairn-mcp exists, the tier 2 solution for amanox-ai-agents skills becomes: 
 - **Artifact content editing**: tier 2 artifacts are **append-only and immutable by design** — a code review, session summary, or implementation note is a historical record; its value lies in being an unmodified point-in-time snapshot. New knowledge produces a new artifact, not an edit to an existing one. The sole exception is `archive_artifact`, which changes only the `status` metadata field, not the content. Tier 3 artifacts (ADRs, plans, specs) are intentionally mutable — plans change, decisions evolve — and should be updated via a new `write_artifact` call that produces a new dated artifact superseding the previous one.
 - **Tier 2 → Tier 3 promotion tool**: if a code review or session note contains an insight important enough for org-wide permanent knowledge, the correct action is for the agent to surface that knowledge in existing or new tier 3 documentation. A `promote_artifact` tool would blur the boundary between working documents and canonical knowledge. The lifecycle is: produce artifacts → review and extract insights → write canonical tier 3 documents. This is an agent concern, not a server concern.
 - **Context positioning enforcement**: how agents position retrieved artifacts in their context window (beginning vs. end) is a skill and agent convention, not a server responsibility. The server returns results; the skill instructs the agent where to place them.
+- **Companion skill**: a dedicated skill for cairn-mcp would create a version coupling between the skill and the server schema, require skill loading by each team, and add framework dependency. Replaced by: MCP Resources for runtime schema discovery (D13) and a recommended AGENTS.md snippet shipped with the repo documentation.
 
 ---
 
