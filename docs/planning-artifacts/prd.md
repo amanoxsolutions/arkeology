@@ -194,6 +194,7 @@ This section identifies the conditions under which cairn-mcp could work correctl
 - Teams already using a dedicated knowledge management pipeline
 - Highly automated pipelines generating artifacts at high volume — the server is not designed for that scale
 - Teams not using highly structured agents and skills with explicit artifact writing instructions — cairn-mcp is designed for disciplined agent workflows where skills define when to write, what type to assign, and how to write the description; without that structure, the store fills with inconsistent artifacts and search quality degrades regardless of the embedding model
+- Open source projects with public contributors — granting public read/write access to an S3 bucket is not a viable security posture; the server assumes a closed, credentialed environment
 
 **What would make it useless**
 - Poor search quality: wrong embedding model, content truncated before embedding, a better model unavailable because the vector index dimension is locked — if the right artifact does not surface, agents re-discover instead of recall and the system stops being used
