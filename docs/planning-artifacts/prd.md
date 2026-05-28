@@ -52,7 +52,7 @@ The server is deployment-agnostic: it is given resource names and trusts the cre
 
 ### Core features
 
-- MCP server with 6 tools: write artifact, read artifact, search artifacts, list artifacts, archive artifact, health check
+- MCP server with 7 tools: write artifact, read artifact, search artifacts, list artifacts, archive artifact, health check, reconcile index
 - AWS S3 + S3 Vectors + Bedrock (Titan Text Embeddings v2) backend
 - Artifact metadata schema: type, team, project, tier, date, status, title, visibility, description (≤280 chars), optional feature tags and author role
 - Cross-scope read with tier 3 + shared visibility gate
@@ -135,6 +135,8 @@ The server is deployment-agnostic: it is given resource names and trusts the cre
 | FR-13 | Tier 2 project-local artifacts are immutable once written. Content is frozen as a permanent, point-in-time record. No content editing capability is provided. |
 | FR-14 | Archiving an artifact is the only modification permitted on an existing tier 2 project-local artifact. It marks the artifact as inactive and excludes it from search and listing results by default. No other attribute — content, tier, visibility, title, or feature tags — can be modified after the initial write. |
 | FR-15 | Tier 3 project documentation artifacts are living documents. Writing an artifact with the same type and title as an existing tier 3 artifact always overwrites it in place, updating content, refreshing the semantic index, and updating all metadata including the write date. |
+| FR-16 | When a write operation partially fails — S3 content storage succeeds but vector index write fails — the server writes a structured entry to a local tier 1 failure log before surfacing a structured error to the agent. The entry records the artifact identifier, title, type, tier, and the nature of the failure. The error response to the agent includes the artifact identifier and indicates that a failure log entry was written. The failure log is a tier 1 artifact: local, ephemeral, and gitignored. |
+| FR-17 | The server provides a reconciliation capability. When triggered, it performs two steps: (1) if a failure log exists, it re-indexes each artifact listed and removes resolved entries from the log; (2) regardless of whether a failure log exists, it scans the deployment's own S3 prefix against the vector index and re-indexes any orphaned objects found — artifacts present in S3 with no corresponding vector index entry. The tool returns a structured summary of what was found and what was reconciled. |
 
 ---
 
@@ -151,6 +153,8 @@ The server is deployment-agnostic: it is given resource names and trusts the cre
 | NFR-07 | **Test-driven development** — all business logic must be covered by tests written before implementation. AWS service interactions must be covered by integration tests. |
 | NFR-08 | **Runtime simplicity** — the server must run in a standard Python environment without requiring containerisation, orchestration, or custom infrastructure beyond the configured AWS resources and credentials. |
 | NFR-09 | **Distribution** — the server must be installable and runnable directly from the repository source using standard Python tooling. Distribution via a public or private package registry is a future consideration and not a current requirement. |
+| NFR-10 | **Encryption in transit** — all communication between the server and AWS services must use HTTPS. Encryption at rest for S3 and S3 Vectors storage is the responsibility of the admin provisioning those resources and is out of scope for the server. |
+| NFR-11 | **Partial failure handling** — the server must never silently discard a write operation. If the embedding call is throttled by Bedrock, the server retries once with back-off before surfacing a structured error to the agent. If the vector index write fails after S3 content storage succeeds, the server writes to the local failure log and surfaces a structured error including the artifact identifier. AWS service unavailability mid-session (beyond transient errors) is surfaced as a structured error per tool call — no degraded mode, no silent swallowing of failures. |
 
 ---
 
@@ -172,3 +176,5 @@ The server is deployment-agnostic: it is given resource names and trusts the cre
 | AC-12 | A credential expiry mid-session produces a structured, human-readable error response — not a raw exception. |
 | AC-13 | The health check returns an independent status for each configured component, with any misconfigured component clearly identified. |
 | AC-14 | The server is installable and runnable from the repository source using standard Python tooling with no additional infrastructure beyond AWS credentials and the configured AWS resources. |
+| AC-15 | A write that fails after S3 content storage but before vector index completion produces a structured error containing the artifact identifier, and a corresponding entry appears in the local failure log. |
+| AC-16 | Triggering reconciliation when orphaned S3 objects exist (artifacts in S3 with no vector index entry) re-indexes them and returns a summary listing each recovered artifact. |
