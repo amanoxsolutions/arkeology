@@ -1,1 +1,10 @@
 .docs/
+failure-log.jsonl
+.env
+*.egg-info
+.venv
+__pycache__
+.mypy_cache
+.ruff_cache
+dist/
+.pytest_cache/
