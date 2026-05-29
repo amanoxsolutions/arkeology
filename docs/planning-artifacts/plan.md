@@ -19,21 +19,21 @@ _Status: **ready**_
 
 Goal: the server starts, validates all configuration, and fails clearly on any misconfiguration. No tools yet — just the skeleton everything else builds on.
 
-1. ⬜ **Bootstrap Python project** — project must be installable and testable from source (NFR-08, NFR-09)
+1. ✅ **Bootstrap Python project** — project must be installable and testable from source (NFR-08, NFR-09)
    - Approach: `uv init`, `pyproject.toml`, ruff, mypy, pytest, pre-commit hooks, `.gitignore` including tier 1 artifacts path
    - Done when: `uv run pytest` passes on an empty test suite; `uv run cairn-mcp` starts without error
 
-2. ⬜ **FastMCP server skeleton** — stdio transport, structured logging, graceful shutdown; no tools registered yet (NFR-05)
+2. ✅ **FastMCP server skeleton** — stdio transport, structured logging, graceful shutdown; no tools registered yet (NFR-05)
    - Done when: server starts, logs its startup message, and exits cleanly
 
-3. ⬜ **AWS client layer** — S3, S3 Vectors, and Bedrock each behind a clean typed interface; HTTPS enforced; all boto3 calls catch credential-related exceptions and re-raise as structured typed errors (NFR-04, NFR-10, FR-12, D2)
+3. ✅ **AWS client layer** — S3, S3 Vectors, and Bedrock each behind a clean typed interface; HTTPS enforced; all boto3 calls catch credential-related exceptions and re-raise as structured typed errors (NFR-04, NFR-10, FR-12, D2)
    - Approach: one interface + one concrete implementation + one in-memory fake per service; fakes used in all unit tests
    - Done when: each interface has full test coverage via its fake; concrete implementations connect to real AWS in integration tests; a simulated credential failure at any client call produces a structured typed error, never a raw exception
 
-4. ⬜ **Configuration model** — all env vars parsed and validated at process start: `AWS_REGION`, `ARTIFACT_BUCKET`, `VECTORS_BUCKET`, `VECTORS_INDEX`, `WRITE_PREFIX`, `READ_PREFIXES`, `BEDROCK_EMBEDDING_MODEL`, `AWS_PROFILE` (optional), `SEARCH_FETCH_TOP_K` (optional, default 25), `SEARCH_MAX_ITERATIONS` (optional, default 3), `SEARCH_DEFAULT_TOP_K` (optional, default 5)
+4. ✅ **Configuration model** — all env vars parsed and validated at process start: `AWS_REGION`, `ARTIFACT_BUCKET`, `VECTORS_BUCKET`, `VECTORS_INDEX`, `WRITE_PREFIX`, `READ_PREFIXES`, `BEDROCK_EMBEDDING_MODEL`, `AWS_PROFILE` (optional), `SEARCH_FETCH_TOP_K` (optional, default 25), `SEARCH_MAX_ITERATIONS` (optional, default 3), `SEARCH_DEFAULT_TOP_K` (optional, default 5)
    - Done when: missing required vars raise a clear named error; optional vars parse to typed values with documented defaults; all vars present in configuration reference
 
-5. ⬜ **Startup validation sequence** — credentials, `WRITE_PREFIX` read/write, each `READ_PREFIXES` entry read, vector index existence, embedding model ↔ index dimension match; any failure is a hard stop with a distinct actionable error (FR-07, NFR-03)
+5. ✅ **Startup validation sequence** — credentials, `WRITE_PREFIX` read/write, each `READ_PREFIXES` entry read, vector index existence, embedding model ↔ index dimension match; any failure is a hard stop with a distinct actionable error (FR-07, NFR-03)
    - Done when: each of the 5 failure conditions produces a distinct, actionable error message with a clear remediation hint; tests cover every failure path
 
 🔁 **Phase 1 retrospective** — review structure, fakes, and configuration model before building tools on top
@@ -116,7 +116,13 @@ Goal: any agent can discover the schema at runtime; a new team can adopt the ser
 
 ## Learnings
 
-_(none yet)_
+- **S3 Vectors boto3 service client name**: `"s3vectors"` (confirmed from botocore service catalogue during Phase 1 T3 implementation)
+- **S3 Vectors `GetIndex` output**: returns `{"index": {"dimension": N, ...}}`; dimension field is nested under `index` key, not at root level
+- **S3 Vectors `QueryVectors` response**: uses `distance` field (not `score`); for cosine, lower distance = more similar. Converted to `score` via negation in `VectorsClientImpl.query_vectors()`
+- **S3 Vectors `list_vectors_by_metadata`**: `ListVectors` API has no server-side metadata filter parameter; implemented as paginated scan + client-side filter. Performance acceptable for Phase 1; consider optimizing in later phases if needed
+- **Bedrock Titan Text Embeddings v2 request shape**: `{"inputText": text}` — `dimensions` parameter is optional; response shape: `{"embedding": [...], "inputTextTokenCount": N}`
+- **pydantic-settings + mypy strict**: requires `plugins = ["pydantic.mypy"]` in `[tool.mypy]` to avoid spurious "missing required arguments" errors on `Settings()` calls
+- **`#` character in S3 Vectors keys**: not yet confirmed — will be verified in integration tests (Phase 1 T3 / Phase 2 T7)
 
 ## References
 
