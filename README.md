@@ -86,7 +86,7 @@ provides.
 ## How it works
 
 Artifacts are stored in a standard S3 bucket and indexed in AWS S3 Vectors with embeddings from
-Amazon Bedrock (Titan Text v2). Agents connect via the Model Context Protocol and call seven tools:
+Amazon Bedrock (Titan Text v2). Agents connect via the Model Context Protocol and call eight tools:
 
 | Tool | Purpose |
 |---|---|
@@ -97,6 +97,7 @@ Amazon Bedrock (Titan Text v2). Agents connect via the Model Context Protocol an
 | `archive_artifact` | Mark an artifact inactive without deleting it |
 | `health_check` | Validate connectivity to all three AWS services |
 | `reconcile_index` | Re-index any artifacts present in S3 but missing from the vector index |
+| `synthesise_artifacts` | Search and bundle source artifacts for in-context synthesis; write the result back as a `synthesis` artifact |
 
 The server also exposes MCP Resources — always-current schema documentation covering artifact
 types, the tier model, visibility rules, and field constraints — so any connected agent can
@@ -131,6 +132,9 @@ discover what to provide without consulting external documentation.
 | `WRITE_PREFIX` | No | *(empty)* | Prefix for all writes, e.g. `platform/my-service/` |
 | `READ_PREFIXES` | No | *(empty)* | Comma-separated additional read prefixes |
 | `BEDROCK_EMBEDDING_MODEL` | No | `amazon.titan-embed-text-v2:0` | Bedrock embedding model ID |
+| `SEARCH_FETCH_TOP_K` | No | `25` | Section vectors requested from S3 Vectors per search iteration (ceiling: 100) |
+| `SEARCH_MAX_ITERATIONS` | No | `3` | Maximum S3 Vectors calls per search before returning available results |
+| `SEARCH_DEFAULT_TOP_K` | No | `5` | Default number of artifacts returned when the caller does not specify |
 
 ## License
 

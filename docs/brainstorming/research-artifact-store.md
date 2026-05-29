@@ -2,7 +2,7 @@
 
 ## Description
 
-Research notes compiled 2026-05-26 for artifact store brainstorming. Covers how the industry handles cross-session, cross-engineer agent memory and scratchpad sharing. Synthesizes 11 primary sources and 2 secondary sources. Evaluated against tier 2 (artifacts: sharing and indexing) and tier 3 (project documentation: SCRATCHPAD.md, PRD, ADRs) separately.
+Research notes compiled 2026-05-26 for artifact store brainstorming; extended 2026-05-29 with two additional sources reviewed after the PRD was complete. Covers how the industry handles cross-session, cross-engineer agent memory and scratchpad sharing. Synthesizes 13 primary sources and 2 secondary sources. Evaluated against tier 2 (artifacts: sharing and indexing) and tier 3 (project documentation: SCRATCHPAD.md, PRD, ADRs) separately.
 
 ---
 
@@ -245,7 +245,44 @@ Research notes compiled 2026-05-26 for artifact store brainstorming. Covers how 
 
 ---
 
-## Design Decisions
+### Source 12 — VectifyAI: PageIndex
+- **URL:** https://github.com/VectifyAI/PageIndex
+- **Author:** VectifyAI
+- **Date:** 2025
+- **Summary:** PageIndex is a vectorless, reasoning-based RAG system for long, complex, unstructured documents (financial filings, legal manuals, academic textbooks). Instead of chunking documents and embedding chunks, it builds a hierarchical tree index (table of contents) per document by analysing heading structure and summary content. Queries are answered by using an LLM to reason over this tree to identify relevant sections, then fetching only those sections for the final answer. Core claim: *similarity ≠ relevance* — for documents where meaning requires multi-step reasoning across structure, vector similarity search systematically misses.
+- **Key insight:** Document structure matters for retrieval. For long documents where meaning is spread across sections that are individually weak signals, indexing by structure and reasoning over it outperforms pure vector similarity.
+- **Useful for tier 2 (artifacts):**
+  - Validates the EMBEDDING_SECTIONS decision (D12): structured artifacts with explicit H2 sections should not be embedded as a flat bag-of-words — section identity carries meaning and should be preserved in the retrieval signal.
+  - Raises the idea of **section-level indexing**: rather than one embedding per artifact (our current approach), index each section separately, allowing queries to match at the section level and return "section X in artifact Y is relevant" rather than just "artifact Y is relevant". This is a richer retrieval signal, especially for long artifacts with heterogeneous sections.
+  - Raises the idea of a **multi-level index** over the artifact corpus: a tree where the top level groups artifacts by type/team/project, and a leaf level groups by individual sections. Queries traverse the tree to narrow scope before issuing a vector similarity query on the narrowed set.
+- **Useful for tier 3 (working notes):**
+  - Nothing directly.
+- **Not useful:**
+  - The core PageIndex architecture (per-document tree index + LLM tree traversal at query time) is designed for documents where vector similarity fails — long, unstructured, reasoning-intensive content. cairn-mcp artifacts are short, structured, and agent-authored with explicit templates. The architecture is not directly applicable.
+  - No performance benchmark data comparing tree-based reasoning to vector search on structured markdown artifacts — any claim about relative latency or cost would be architectural reasoning, not empirical evidence.
+
+---
+
+### Source 13 — Andrej Karpathy: llm-wiki
+- **URL:** https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f
+- **Author:** Andrej Karpathy
+- **Date:** May 2025
+- **Summary:** Describes a pattern for LLM-maintained persistent knowledge bases. Instead of RAG (re-deriving knowledge from raw sources at query time), an LLM incrementally builds and maintains a structured wiki: one markdown page per concept, cross-referenced, updated in place when new sources arrive. Three layers: (1) raw sources — immutable inputs (files, web pages, code, PDFs); (2) wiki — the LLM-maintained synthesis, one page per concept; (3) schema — AGENTS.md / CLAUDE.md with instructions for the LLM wiki maintainer. Operations: Ingest (read new sources and update affected pages), Query (answer questions using the wiki, not the raw sources), Lint (check for contradictions, stale claims, orphaned pages). At moderate scale (~100 sources, hundreds of pages), index.md + LLM reasoning is sufficient; larger scale calls for hybrid BM25/vector search tools.
+- **Key quote:** *"The tedious part of maintaining a knowledge base is not the reading or the thinking — it's the bookkeeping. LLMs don't get bored."*
+- **Key insight:** There is a qualitative difference between *storing* knowledge (cairn-mcp's current model) and *synthesising* it. Retrieval from a synthesised wiki returns compiled understanding; retrieval from a raw artifact store returns point-in-time records. Both have value at different abstraction levels.
+- **Useful for tier 2 (artifacts):**
+  - Raw artifact store (tier 2) maps directly to Karpathy's "raw sources" layer — immutable, point-in-time records. This validates cairn-mcp's append-only tier 2 model.
+  - The wiki layer is a natural future layer above cairn-mcp: LLM-maintained synthesis pages stored as tier 3 shared artifacts, using cairn-mcp's existing `write_artifact` (overwrite semantics) for tier 3 updates.
+  - Raises the idea of a **synthesis tool** in cairn-mcp: a new MCP tool that searches for artifacts on a topic, generates a synthesis page using the LLM, and writes it back as a tier 3 artifact — implementing Karpathy's Ingest operation directly as an MCP tool call.
+  - Karpathy's "Lint" operation — scan the wiki for contradictions, stale claims, pages whose source artifacts have been superseded — is a more sophisticated version of the reconciliation tool (FR-17, task 16). Raises the question of whether reconciliation should extend beyond index repair to knowledge quality checks.
+- **Useful for tier 3 (working notes):**
+  - AGENTS.md as the schema layer (Karpathy's third layer) is exactly D13 — independently arrived at by two sources. Strong validation.
+  - The "current state only" discipline for the wiki (Karpathy's pages reflect latest understanding, not historical accretion) mirrors the SCRATCHPAD.md cleanup rule: current state, not history.
+- **Not useful:**
+  - The local-file wiki model (markdown in a git repo, no backend) is designed for individuals or small teams on a single project. cairn-mcp is designed for teams, cross-project, cross-team — the shared AWS backend and semantic search at scale are requirements that the local wiki model does not address.
+  - No benchmark comparison of wiki-based retrieval vs vector search at team scale.
+
+---
 
 > Revised to reflect the 4-tier model. Original D1–D9 were based on the incorrect 3-tier framing.
 
@@ -394,7 +431,8 @@ Seven requirements for a complete tier 2 solution. R1–R3 are infrastructure/st
 | https://arxiv.org/abs/2409.05591 | Primary | ✅ Read (abstract + full paper structure) |
 | https://htdocs.dev/posts/claude-code-best-practices-and-pro-tips/ | Secondary | ✅ Read |
 | https://agents.md/ | Secondary | ✅ Read |
-| https://arxiv.org/abs/2404.12345 | Referenced in agentic-design.ai | ⚠️ Likely placeholder arxiv ID — skipped |
+| https://github.com/VectifyAI/PageIndex | Primary | ✅ Read |
+| https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f | Primary | ✅ Read |
 | https://arxiv.org/abs/2405.15789 | Referenced in agentic-design.ai | ⚠️ Likely placeholder arxiv ID — skipped |
 | https://research.google/pubs/pub53421/ | Referenced in agentic-design.ai | Not fetched — generic multi-agent systems, not adding to artifact store design |
 | https://poldrack.github.io/BetterCodeBetterScience/frontmatter.html | Referenced in Poldrack | Not fetched — the Substack article captured the key content |

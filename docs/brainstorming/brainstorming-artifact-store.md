@@ -2,7 +2,7 @@
 status: complete
 project: amanox-artifact-store-mcp
 language: python
-decisions_locked: [D1, D2, D3, D4, D5, D6-metadata-schema, D7-deployment-agnostic, D8-tier3-sharing, D8b-confidentiality-visibility, D9-key-generation, D10-embedding-model, D11-tools-interface, D12-embedding-strategy, D13-schema-discovery]
+decisions_locked: [D1, D2, D3, D4, D5, D6-metadata-schema, D7-deployment-agnostic, D8-tier3-sharing, D8b-confidentiality-visibility, D9-key-generation, D10-embedding-model, D11-tools-interface, D12-section-level-indexing, D13-schema-discovery, D14-cross-scope-index-topology, D15-synthesis-tier3-artifact, D16-synthesise-artifacts-tool, D17-synthesis-granularity-any-lens, D18-synthesis-freshness-check]
 decisions_closed_not_applicable: [OQ3-cross-team-iam, OQ5-vector-index-topology]
 ---
 
@@ -188,7 +188,7 @@ Reference: https://docs.aws.amazon.com/AmazonS3/latest/userguide/s3-vectors-limi
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `type` | string | ✅ | Artifact type: `code-review`, `impl-note`, `adr`, `spec`, `issue-record`, `session-summary`, `research` |
+| `type` | string | ✅ | Artifact type: `code-review`, `impl-note`, `adr`, `spec`, `issue-record`, `session-summary`, `research`, `synthesis` |
 | `team` | string | ✅ | Team identifier provided by caller at write time (e.g. `platform`, `network`) |
 | `project` | string | ✅ | Project slug provided by caller at write time (e.g. `my-service`, `vpc-infra`) |
 | `tier` | string | ✅ | `"2"` for project-local artifacts; `"3"` for permanent/shareable knowledge |
@@ -204,8 +204,9 @@ Reference: https://docs.aws.amazon.com/AmazonS3/latest/userguide/s3-vectors-limi
 | Field | Type | Required | Description | Size limit |
 |-------|------|----------|-------------|------------|
 | `description` | string | ✅ | Tweet-length summary of the artifact — primary signal for agents deciding whether to call `read_artifact` | Max 280 characters |
+| `source_artifacts` | list[string] | ❌ | List of artifact identifiers used as source material — set only on `synthesis` type artifacts; enables staleness detection in the synthesis freshness check (FR-20) | Combined with description, must stay within 40 KB total metadata limit |
 
-`description` is stored as non-filterable metadata: it is never filtered on, but is returned with every `QueryVectors` result at zero additional S3 read cost. This is the mechanism that allows `search_artifacts` to return useful context without fetching full artifact content from S3. It uses 1 of the 10 available non-filterable key slots per index and must be declared at index creation time.
+Uses 2 of the 10 available non-filterable key slots per index. Both must be declared at index creation time.
 
 **S3 Vectors array filtering:** `features` is stored as a list. The S3 Vectors `$eq` operator matches if the query value equals **any element** in the list — `{"features": {"$eq": "auth"}}` correctly returns artifacts where `features` contains `"auth"` alongside other slugs. Validated against: https://docs.aws.amazon.com/AmazonS3/latest/userguide/s3-vectors-metadata-filtering.html
 
@@ -255,6 +256,9 @@ A deployment of the tool is its own independent tool. The deployment topology �
 | `WRITE_PREFIX` | No | Prefix for all writes (default: empty = root). Example: `platform/my-service/` |
 | `READ_PREFIXES` | No | Comma-separated additional read prefixes (default: `WRITE_PREFIX`). Example: `network/,shared/` |
 | `BEDROCK_EMBEDDING_MODEL` | No | Embedding model ID (default: `amazon.titan-embed-text-v2:0`) |
+| `SEARCH_FETCH_TOP_K` | No | Section vectors requested per S3 Vectors call in the search re-fetch loop (default: 25, ceiling: 100) |
+| `SEARCH_MAX_ITERATIONS` | No | Maximum S3 Vectors calls per search before returning whatever results are available (default: 3) |
+| `SEARCH_DEFAULT_TOP_K` | No | Default number of artifacts returned when the caller does not specify (default: 5) |
 
 ### D8 — Cross-team sharing is restricted to tier 3 only ✅ Locked
 
@@ -331,7 +335,7 @@ write_artifact(
     features: list[str] = [],      # Feature/work-unit slugs — optional, omit for cross-cutting artifacts
     team: str,                     # Team identifier (stored in D6 metadata)
     project: str,                  # Project slug (stored in D6 metadata)
-    tier: str = "2",               # "2" or "4" — defaults to tier 2
+    tier: str = "2",               # "2" or "3" — defaults to tier 2
     visibility: str = "shared",    # "shared" or "confidential"
     author_role: str = "",         # Optional producing role
 ) → artifact_id: str
@@ -340,9 +344,9 @@ write_artifact(
 Steps:
 1. Key = `{WRITE_PREFIX}{type}/{sha256(type+date+title)[:16]}.md` for tier 2; `{WRITE_PREFIX}{type}/{sha256(type+title)[:16]}.md` for tier 3 (D9)
 2. `S3 PutObject(key, content)`
-3. `Bedrock InvokeModel(content)` → embedding (D10)
-4. `S3 Vectors PutVector(key, embedding, metadata)` with full D6 schema
-5. Returns `artifact_id` (= key)
+3. Parse all `##` sections from content. For each section, `Bedrock InvokeModel(title + type + features + section_content)` → section embedding. If no `##` sections found, fall back to `Bedrock InvokeModel(title + description + type + features)` → single embedding (D12).
+4. For each section: `S3 Vectors PutVector(key="{artifact_key}#{section_name_slug}", embedding, metadata={...D6 fields..., artifact_id: artifact_key, section: section_heading})`. For the fallback: `S3 Vectors PutVector(key=artifact_key, embedding, metadata={...D6 fields..., artifact_id: artifact_key})`.
+5. Returns `artifact_id` (= artifact_key, never a section key)
 
 ### `read_artifact`
 
@@ -371,12 +375,32 @@ search_artifacts(
 ) → list[{id, title, description, score, metadata}]
 ```
 
+```
+search_artifacts(
+    query: str,
+    artifact_type: str = "",
+    features: str = "",            # Matches any artifact whose features list contains this value
+    team: str = "",
+    project: str = "",
+    tier: str = "",
+    top_k: int = SEARCH_DEFAULT_TOP_K   # Artifacts to return; server default via SEARCH_DEFAULT_TOP_K
+) → list[{id, title, description, score, metadata}]
+```
+
 Returns **metadata + score only** — no S3 content fetch. The `description` field (stored as non-filterable metadata in S3 Vectors, returned at zero additional cost) gives the agent enough context to judge relevance and decide which artifacts to read via `read_artifact`. This avoids fetching full documents the agent may not need, keeps MCP response payloads bounded, and prevents context window flooding.
 
-1. `Bedrock InvokeModel(query)` → query embedding
-2. `S3 Vectors QueryVectors` across `WRITE_PREFIX` (no restriction) and each `READ_PREFIXES` entry (filter: `tier=3 AND visibility=shared`)
-3. Merge and re-rank results by score
-4. Return results ordered by semantic relevance — no S3 `GetObject` calls
+Re-fetch loop (D12):
+1. `Bedrock InvokeModel(query)` → query embedding (once, before the loop)
+2. `seen_artifact_ids = []`; `results = []`; `iteration = 0`
+3. While `len(results) < top_k` AND `iteration < SEARCH_MAX_ITERATIONS`:
+   - Build filter: user filters AND (`artifact_id` NOT IN `seen_artifact_ids`) AND cross-scope gate (`tier=3 AND visibility=shared` for `READ_PREFIXES` keys)
+   - `S3 Vectors QueryVectors(top_k=SEARCH_FETCH_TOP_K, filter=filter)` across `WRITE_PREFIX` and each `READ_PREFIXES` entry
+   - If no results returned: break (index exhausted)
+   - Group returned section vectors by `artifact_id`; add new artifacts to `results`; extend `seen_artifact_ids`
+   - `iteration += 1`
+4. Return `results[:top_k]` ordered by best section score per artifact
+
+**Known trade-off:** each re-fetch iteration adds one S3 Vectors call. In practice the loop exits on the first iteration for the vast majority of queries (small `top_k`, 3–6 sections per artifact). `SEARCH_MAX_ITERATIONS` is the hard latency bound.
 
 ### `list_artifacts`
 
@@ -440,41 +464,39 @@ Once cairn-mcp exists, the tier 2 solution for amanox-ai-agents skills becomes: 
 
 ---
 
-### D12 — Embedding strategy: section-based extraction ✅ Locked
+### D12 — Embedding strategy: automatic section-level indexing ✅ Locked
 
 **Why not embed full content:**
 
-5 Whys analysis surfaced the root cause: full content embedding suffers from boilerplate dilution. Long artifacts (ADRs, implementation notes, specs) have structural scaffolding that occupies tokens without adding semantic meaning. The embedding ends up representing document structure rather than meaning.
+Full content embedding suffers from boilerplate dilution. Structured artifacts have scaffolding (headings, reference lists, boilerplate) that occupies tokens without adding semantic meaning. The embedding ends up representing document structure rather than meaning.
 
-**Why not embed description alone:**
+**Why not a single configurable section list (`EMBEDDING_SECTIONS`):**
 
-The description field (≤280 chars) was designed to be a dense semantic signal, but 280 characters may not capture the full meaning of content-rich artifact types. An ADR's `## Decision` section or a spec's `## Solution` section carries far more searchable signal.
+A configurable list of section names to embed was the original approach. It was replaced for three reasons: (1) it requires operator configuration that can be wrong or missing; (2) it produces one embedding per artifact, diluting the signal across heterogeneous sections; (3) a query for "trade-offs of the chosen approach" should match the `## Trade-offs` section directly, not a blended document-level embedding.
 
-**What gets embedded:**
+**What gets embedded — section-level indexing:**
 
-1. Structured metadata prefix: title + type + feature tags
-2. Configured section content: extracted from named H2 sections (e.g. `["description", "decision"]`)
-3. Fallback if no sections are configured or found: title + description field + type + feature tags
+Every `##` (H2) section in the artifact markdown is indexed as an independent vector. Each section vector is generated from: title + type + feature tags + section content. This produces N vectors per artifact (one per section), each carrying the full D6 filterable metadata plus `artifact_id` (the S3 object key) and `section` (the heading text) for grouping and display.
 
-**Configuration:**
+**Fallback — no `##` sections:**
 
-`EMBEDDING_SECTIONS` env var in the MCP server's `env` block in `mcp-servers.json`:
+If the artifact contains no H2 sections, one document-level vector is generated from: title + description field + type + feature tags. Vector key = artifact key (same as S3 object key). This preserves the "same key" property for the simple case.
 
-```json
-"env": {
-  "EMBEDDING_SECTIONS": "description,decision"
-}
-```
+**Section vector key scheme:**
 
-Section names are matched case-insensitively against H2 headings (`## Section Name`) in the artifact markdown.
+Section vectors use key `{artifact_key}#{section_name_slug}` (e.g. `platform/code-review/a3f8b2c1.md#trade-offs`). The `#` character validity in S3 Vectors keys is to be verified in integration tests; `--` is the fallback separator with no design implications. Section keys are internal to the server and never exposed to callers — the `artifact_id` in filterable metadata is what callers use.
 
-**Why team/deployment-level configuration:**
+**Re-write idempotency:**
 
-Section conventions reflect team structure and artifact templates, not individual artifact choices. An ADR template always has `## Decision`; a session summary always has `## Key findings`. Configuring once at deployment time is simpler and more reliable than per-artifact specification.
+When an artifact is re-written (tier 3 living document, or same-day tier 2 overwrite), `PutVector` on existing section keys acts as an upsert (to be verified in integration tests — existing risk item). For removed or renamed sections, the server queries by `artifact_id` to find orphaned section keys and deletes them before writing new section vectors.
 
-**Fallback design:**
+**Write cost:**
 
-If listed sections are not found in the content, they are skipped silently. If no sections are found at all, the server falls back to metadata-only embedding. Teams with no section configuration get a functional embedding. Teams with structured artifact formats get significantly better search quality.
+Each write now calls Bedrock N times (once per section) instead of once. For typical structured artifacts (3–6 sections), this is 3–6 embedding calls per write. At Titan Text Embeddings v2 pricing, the cost impact is negligible. Noted as a known trade-off; not a problem in practice.
+
+**No configuration required:**
+
+`EMBEDDING_SECTIONS` env var is eliminated. Zero configuration needed — all `##` sections are indexed automatically. Operators with no section structure still get a functional fallback embedding.
 
 ---
 
@@ -553,3 +575,69 @@ Deployments using separate vector indexes per team cannot perform cross-scope se
 1. Challenge assumptions before scaffolding
 2. Begin project scaffolding: new repo `cairn-mcp`, `pyproject.toml`, FastMCP skeleton
 3. Update `research-artifact-store.md` with a link to this project as the tier 2 infrastructure answer
+
+---
+
+## External Source Analysis — 2026-05-29
+
+Two external sources were reviewed after the PRD was complete to challenge relevance before implementation begins.
+
+### Source 1 — PageIndex (VectifyAI/PageIndex)
+
+**What it is:** A vectorless, reasoning-based RAG system. For long, complex, unstructured documents (financial filings, legal manuals, academic textbooks), it builds a hierarchical tree index per document and uses LLM reasoning to navigate it. Core claim: *similarity ≠ relevance*; vector similarity search misses multi-step reasoning across long documents.
+
+**Does it challenge cairn-mcp?** No.
+
+PageIndex targets documents where structure is implicit and reasoning-intensive navigation is required. cairn-mcp artifacts are short (a few hundred to a few thousand words), explicitly structured by agent skills using consistent markdown templates, and written to be semantically dense. Vector search with metadata filtering is well-suited to them. At team scale with thousands of artifacts, tree-index-per-document navigation would be prohibitively expensive.
+
+**What it validates:** structure matters in retrieval — which is exactly why D12 (EMBEDDING_SECTIONS) exists.
+
+---
+
+### Source 2 — Karpathy's llm-wiki
+
+**What it is:** A pattern for LLM-maintained persistent knowledge bases. Instead of RAG (re-deriving knowledge from raw sources at query time), an LLM incrementally builds and maintains a structured wiki — synthesising new inputs into existing concept pages, cross-referencing related entries, and flagging contradictions. Three layers: raw sources (immutable), wiki (LLM-maintained synthesis), schema (AGENTS.md / CLAUDE.md for agent instructions).
+
+**Does it challenge cairn-mcp?** No — complementary, not competing.
+
+| | cairn-mcp | Karpathy wiki |
+|---|---|---|
+| What is stored | Raw agent work products — point-in-time records | Synthesised knowledge — evolving understanding |
+| Scale | Teams, cross-project, thousands of artifacts | Individual to small team, one project |
+| Infrastructure | AWS-backed, shared | Local markdown files |
+| Search | Semantic + metadata filtering | index.md + LLM reasoning; optional hybrid search at scale |
+| Cross-team sharing | First-class (tier 3 + shared gate) | Not designed for it |
+| Write model | Agent writes → stored immediately | Agent writes → LLM synthesises into existing pages |
+| Maintenance cost | Zero (store-and-retrieve) | Real (synthesis, contradiction flagging, linting) |
+
+cairn-mcp stores raw artifacts; a Karpathy-style wiki synthesises them into compiled knowledge. They operate at different abstraction levels. The wiki pattern is a natural future layer *above* cairn-mcp — tier 3 shared artifacts are the natural vehicle for storing the synthesised output. This was captured as a Future Consideration in the PRD.
+
+**What it validates:**
+- The three-layer model (raw sources / wiki / schema) directly mirrors our three-tier model (tier 1 ephemeral / tier 2 working artifacts / tier 3 canonical knowledge)
+- AGENTS.md as the schema layer is independently chosen by Karpathy — validates D13
+- His "lint" operation (check knowledge quality, flag contradictions, surface stale claims) is a more sophisticated counterpart to our health check and reconciliation tools
+- The index.md approach works at small scale without vector search — but Karpathy explicitly references a hybrid BM25/vector search tool (`qmd`) as the wiki grows, validating that vector search is the right call at team scale
+
+**Small-scale nuance:** For individuals on a single project, a local Karpathy wiki may be sufficient — no AWS infrastructure required. This correctly aligns with our existing "not a good fit" list: *small teams or short-lived projects where storing artifacts in the repository is sufficient*.
+
+---
+
+### Verdict
+
+Both sources are in the same problem space (knowledge persistence for LLMs). Neither challenges the core approach. cairn-mcp is the right tool for its target use case: teams, cross-project sharing, AWS environments, semantic search at scale, immediate write-then-read consistency. The synthesis/wiki pattern is now **in scope** as of the 2026-05-29 brainstorming session — locked as D15–D17 below.
+
+**D15 — Synthesis lives as tier 3 artifacts in cairn-mcp ✅ Locked**
+
+Synthesis pages are stored as tier 3 shared artifacts with `type: synthesis`. They are living documents — overwritten when updated (tier 3 semantics). They participate in semantic search like any other artifact. No new infrastructure is required. `synthesis` is a first-class type in the type catalogue from day one.
+
+**D16 — `synthesise_artifacts` is a V1 MCP tool (8th tool) ✅ Locked**
+
+The server provides a synthesis preparation capability: semantic search + batch read of source artifact content, returned as a single response. The agent performs the synthesis in-context and writes the result back via `write_artifact` with `type=synthesis`, `tier=3`, and `source_artifacts=[...]`. The server retrieves and assembles; the agent synthesises. Covered by FR-19.
+
+**D17 — Synthesis granularity is unconstrained ✅ Locked**
+
+The `synthesise_artifacts` tool does not impose a granularity lens (per-topic, per-type, per-team). The agent provides the query and determines what to synthesise — both topic-based ("authentication architecture") and type-based ("all code review patterns for auth") are valid. The tool is a general-purpose preparation mechanism.
+
+**D18 — Synthesis freshness check is a V1 Could-have ✅ Locked**
+
+A synthesis freshness check tool scans all `synthesis` artifacts, compares their `date` against the `date` of each listed `source_artifact`, and flags stale or archived sources. Covered by FR-20. This is a metadata-only operation — no LLM call, no S3 content fetch.
