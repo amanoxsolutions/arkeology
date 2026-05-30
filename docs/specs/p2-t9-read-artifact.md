@@ -97,9 +97,9 @@ An expired token during the S3 GetObject call must not surface as a raw exceptio
 - The cross-scope gate is evaluated using stored metadata (S3 object metadata via
   `head_object`), not from the vector index. The vector index may be out of sync (partial
   write); S3 is the authoritative source of truth for content and metadata.
-- Scope determination uses prefix matching: `artifact_id.startswith(scope_prefix)`. If
-  `write_prefix` is empty (root), all artifacts belong to the own scope — treat empty
-  prefix as matching everything.
+- Scope determination uses prefix matching: `artifact_id.startswith(scope_prefix + "/")`.
+  `WRITE_PREFIX` is guaranteed non-empty (validated at startup), so every artifact key has
+  the form `{write_prefix}/{artifact_id}` and the scope check is always unambiguous.
 - The gate check reads tier and visibility from S3 object metadata using `head_object`,
   which does not fetch the object body. Only call `get_object` after the gate passes.
 - `artifact_id` is the full S3 key (including prefix), exactly as returned by
@@ -167,11 +167,9 @@ Not found:
   and wrapped).
 
 Edge cases:
-- Empty `write_prefix` (root deployment): all own-scope artifact IDs are accessible; a
-  foreign-scope artifact with an explicit READ_PREFIX still passes the gate if tier=3+shared.
 - `artifact_id` that is a prefix of another `artifact_id` (e.g. `dev/review` vs
-  `dev/review-v2`): prefix matching must not accidentally grant access to a longer key
-  whose scope does not match.
+  `dev/review-v2`): prefix matching uses `startswith(scope + "/")` so a shorter key
+  never accidentally matches a longer key from a different scope.
 - `head_object` raises `KeyError` before `get_object` is called → not-found error, not an
   unhandled exception.
 
@@ -190,8 +188,5 @@ Prerequisites: run after T7 integration tests have written known artifacts.
 
 ## Open Questions
 
-- [ ] When `write_prefix` is empty (root-level deployment), scope determination becomes
-  "artifact_id belongs to own scope if its prefix is empty". Clarify: does this mean ALL
-  artifacts in the index are own-scope? Yes — an empty write prefix means the deployment
-  owns the entire S3 bucket. This has security implications the operator should be aware of;
-  document in the setup README (Phase 4), not in the tool itself.
+*(none — all decisions resolved; `WRITE_PREFIX` is guaranteed non-empty by the config
+validator, so the empty-prefix edge case no longer exists)*

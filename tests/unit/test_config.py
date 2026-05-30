@@ -97,7 +97,7 @@ def test_optional_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     _required_env(monkeypatch)
     settings = Settings()
     assert settings.aws_profile is None
-    assert settings.write_prefix == ""
+    assert settings.write_prefix == "artifacts"
     assert settings.read_prefixes == ""
     assert settings.bedrock_embedding_model == "amazon.titan-embed-text-v2:0"
     assert settings.search_fetch_top_k == 25
@@ -136,19 +136,35 @@ def test_bedrock_embedding_model_set(monkeypatch: pytest.MonkeyPatch) -> None:
     assert settings.bedrock_embedding_model == "custom-model:1"
 
 
-def test_write_prefix_absent_is_empty_string(monkeypatch: pytest.MonkeyPatch) -> None:
-    """WRITE_PREFIX absent → write_prefix is empty string."""
+def test_write_prefix_absent_uses_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    """WRITE_PREFIX absent → write_prefix defaults to 'artifacts'."""
     _required_env(monkeypatch)
     settings = Settings()
-    assert settings.write_prefix == ""
+    assert settings.write_prefix == "artifacts"
 
 
 def test_write_prefix_set(monkeypatch: pytest.MonkeyPatch) -> None:
-    """WRITE_PREFIX set → stored as-is."""
+    """WRITE_PREFIX set → trailing slashes are stripped."""
     _required_env(monkeypatch)
     monkeypatch.setenv("WRITE_PREFIX", "platform/my-service/")
     settings = Settings()
-    assert settings.write_prefix == "platform/my-service/"
+    assert settings.write_prefix == "platform/my-service"
+
+
+def test_write_prefix_empty_string_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    """WRITE_PREFIX='' → ValidationError (must not be empty)."""
+    _required_env(monkeypatch)
+    monkeypatch.setenv("WRITE_PREFIX", "")
+    with pytest.raises(Exception):
+        Settings()
+
+
+def test_write_prefix_whitespace_only_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    """WRITE_PREFIX='   ' → ValidationError (effectively empty after strip)."""
+    _required_env(monkeypatch)
+    monkeypatch.setenv("WRITE_PREFIX", "   ")
+    with pytest.raises(Exception):
+        Settings()
 
 
 # --- SEARCH_FETCH_TOP_K validation ---
@@ -294,16 +310,16 @@ def test_effective_read_scopes_with_prefix_and_read_prefixes(
     monkeypatch.setenv("WRITE_PREFIX", "platform/")
     monkeypatch.setenv("READ_PREFIXES", "network/,shared/")
     settings = Settings()
-    assert settings.effective_read_scopes == ["platform/", "network/", "shared/"]
+    assert settings.effective_read_scopes == ["platform", "network/", "shared/"]
 
 
-def test_effective_read_scopes_no_prefix_no_read_prefixes(
+def test_effective_read_scopes_no_read_prefixes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """effective_read_scopes with no prefix and no read prefixes → ['']."""
+    """effective_read_scopes with no READ_PREFIXES → [write_prefix] only."""
     _required_env(monkeypatch)
     settings = Settings()
-    assert settings.effective_read_scopes == [""]
+    assert settings.effective_read_scopes == ["artifacts"]
 
 
 # --- BEDROCK_EMBEDDING_DIMENSIONS ---

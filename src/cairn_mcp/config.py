@@ -59,8 +59,12 @@ class Settings(BaseSettings):
     WRITE_PREFIX: Annotated[
         str,
         Field(
-            default="",
-            description="S3 key prefix for all writes; may be empty (root)",
+            default="artifacts",
+            description=(
+                "S3 key prefix for all writes (e.g. 'team/project'). "
+                "Defaults to 'artifacts'. Must not be empty — an empty prefix "
+                "breaks scope determination and cross-scope access control."
+            ),
         ),
     ]
 
@@ -160,6 +164,17 @@ class Settings(BaseSettings):
         if v < 1:
             raise ValueError(f"BEDROCK_EMBEDDING_DIMENSIONS must be at least 1 (got {v})")
         return v
+
+    @field_validator("WRITE_PREFIX")
+    @classmethod
+    def validate_write_prefix(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError(
+                "WRITE_PREFIX must not be empty. "
+                "Set it to a non-empty prefix such as 'artifacts' or 'team/project'. "
+                "An empty prefix breaks scope determination and cross-scope access control."
+            )
+        return v.strip("/")
 
     @field_validator("LOG_LEVEL")
     @classmethod

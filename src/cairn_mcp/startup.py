@@ -79,7 +79,7 @@ def _check_credentials(settings: Settings, s3: S3ClientInterface) -> None:
 def _check_write_prefix(settings: Settings, s3: S3ClientInterface) -> None:
     """Check 2: Verify read and write access to WRITE_PREFIX via a probe object."""
     write_prefix = settings.write_prefix
-    probe_key = f"{write_prefix}{_PROBE_KEY_SUFFIX}"
+    probe_key = f"{write_prefix}/{_PROBE_KEY_SUFFIX}"
     bucket = settings.artifact_bucket
 
     try:

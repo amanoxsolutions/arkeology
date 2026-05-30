@@ -34,8 +34,6 @@ and indexed; the agent receives an identifier it can share with teammates or pas
 - Given valid inputs with no `##` sections, when `write_artifact` is called, then exactly
   one vector is in the index (document-level fallback) and the returned `artifact_id` is
   correct.
-- Given an artifact written to an empty write prefix (root), when `write_artifact` is called,
-  then the S3 key and vector keys do not begin with `/`.
 
 ### Story 2 — Same-day tier 2 write is idempotent (P1)
 
@@ -107,8 +105,9 @@ exception.
 ## Boundaries
 
 **Always:**
-- S3 key for the artifact content: `{write_prefix}/{artifact_id}` if `write_prefix` is
-  non-empty, or `{artifact_id}` if `write_prefix` is empty. Never double slashes.
+- S3 key for the artifact content: `{write_prefix}/{artifact_id}`. `WRITE_PREFIX` is
+  guaranteed non-empty (validated at startup), so the key always has the form
+  `prefix/artifact-id` — no conditional branch, no risk of a leading `/`.
 - Vector key for a section: `{s3_key}#{section_slug}`. The `#` character is confirmed valid
   in S3 Vectors keys (verified in Phase 1 integration tests).
 - Vector key for the document-level fallback: same as the S3 key (no `#` suffix).
