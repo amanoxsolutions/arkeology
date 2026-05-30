@@ -164,10 +164,37 @@ Artifact model validation:
 - Artifact constructed with tier=3 and `source_artifacts` set → valid (Phase 3 use case,
   must not be rejected in Phase 2).
 
+## Key Generation Format — Decision
+
+**Use the slug approach.** Format:
+
+- Tier 2: `{type}-{date}-{title_slug}` — e.g., `code-review-2026-05-30-fix-auth-bug`
+- Tier 3: `{type}-{title_slug}` — e.g., `adr-use-postgres-for-sessions`
+
+**Why slugs, not hashes:**
+
+1. **Collisions are intentional.** Two titles that normalise to the same slug — e.g.,
+   `"Fix Auth Bug"` and `"Fix auth bug!"` — represent the same artifact. The normalisation
+   acts as a natural deduplication step, which is exactly what the idempotency contract
+   requires.
+2. **Debuggability.** The S3 console, CloudTrail, and log lines all show human-readable
+   keys. No cross-referencing a lookup table to understand what a key refers to.
+3. **Scale.** This is a single-team project store. The probability of two genuinely distinct
+   artifacts producing the same slug is negligible.
+
+**Normalisation rules for `title_slug`:**
+- Lowercase the title.
+- Replace any run of non-alphanumeric characters with a single `-`.
+- Strip leading and trailing `-`.
+- Truncate to 60 characters maximum (keeps the full S3 key well under the 1,024-byte limit
+  even with a long prefix).
+- If the result is empty after normalisation (e.g., a title of all punctuation), use the
+  fallback `"artifact"`.
+- Unicode: transliterate accented characters to ASCII equivalents before slugifying (e.g.,
+  `é` → `e`); characters with no ASCII equivalent are dropped.
+
+Document these rules in the `artifact.py` module docstring. Add a test case for each rule.
+
 ## Open Questions
 
-- [ ] Key generation implementation: slug approach (readable, e.g.,
-  `code-review-2026-05-30-fix-auth-bug`) vs truncated hash approach (collision-safe but
-  opaque). Choose one and justify — readable slugs are preferred if collision resistance
-  is acceptable (same type+date+title truncated to a safe length). Document the chosen
-  approach in a module docstring.
+*(none — all decisions resolved)*
