@@ -111,13 +111,19 @@ provides.
 ## How it works
 
 Artifacts are stored in a standard S3 bucket and indexed in AWS S3 Vectors with embeddings from
-Amazon Bedrock (Titan Text v2). Agents connect via the Model Context Protocol and call three tools:
+Amazon Bedrock (Titan Text v2). Agents connect via the Model Context Protocol and call these tools:
 
 | Tool | What it does | Key inputs | Key outputs |
 |---|---|---|---|
 | `write_artifact` | Store an artifact in S3 and index it in S3 Vectors | `type`, `team`, `project`, `tier`, `title`, `content`, `visibility`, optional filters | `artifact_id`, `sections_indexed` |
 | `search_artifacts` | Semantic search over the vector index with optional metadata filters | `query`, optional: `type`, `feature_tags`, `team`, `project`, `tier`, `status`, `top_k` | List of artifact metadata (no content) |
 | `read_artifact` | Fetch the full content of an artifact by ID | `artifact_id` | Full artifact dict including `content` |
+| `list_artifacts` | List artifact metadata with optional filters; defaults to active artifacts | optional: `type`, `team`, `project`, `tier`, `status`, `feature_tags`, `limit` | List of artifact metadata records |
+| `archive_artifact` | Set an artifact's status to inactive (own scope only) | `artifact_id` | Confirmation with updated `artifact_id` |
+| `delete_artifact` | Hard-delete an artifact from S3 and S3 Vectors; warns if referenced by a synthesis | `artifact_id`, `confirm=True` | Deletion confirmation |
+| `purge_archived` | Bulk-delete all inactive artifacts in own scope; cascade-deletes orphaned syntheses | `confirm=True` | Count of deleted artifacts and syntheses |
+| `health_check` | Per-component connectivity status (S3, vectors, Bedrock, write prefix, read prefixes) | — | Status dict; never raises |
+| `synthesise_artifacts` | Semantic search followed by full S3 content fetch for a set of top-k artifacts | `query`, optional: filters, `top_k` (clamped to 100) | List of full artifact dicts including `content` |
 
 The server also exposes MCP Resources — always-current schema documentation covering artifact
 types, the tier model, visibility rules, and field constraints — so any connected agent can
@@ -125,7 +131,7 @@ discover what to provide without consulting external documentation.
 
 ## Status
 
-> **Phase 2 complete** — `write_artifact`, `search_artifacts`, and `read_artifact` are implemented and unit-tested. Additional tools (list, archive, health check, reconcile, synthesise) are planned for future phases.
+> **Phase 3 complete** — `write_artifact`, `search_artifacts`, `read_artifact`, `list_artifacts`, `archive_artifact`, `delete_artifact`, `purge_archived`, `health_check`, and `synthesise_artifacts` are implemented and unit-tested. Setup and deployment documentation is planned for Phase 4.
 
 ## Prerequisites
 
@@ -163,6 +169,7 @@ All configuration is read from environment variables (or a `.env` file in the wo
 | `SEARCH_FETCH_TOP_K` | No | `25` | Section vectors requested from S3 Vectors per search iteration |
 | `SEARCH_MAX_ITERATIONS` | No | `3` | Maximum S3 Vectors calls per search before returning available results |
 | `SEARCH_DEFAULT_TOP_K` | No | `5` | Default number of artifacts returned when the caller does not specify |
+| `FAILURE_LOG_PATH` | No | `.cairn_failures.jsonl` | Path to the tier 1 failure log file (JSONL); appended on partial write failures |
 | `LOG_LEVEL` | No | `INFO` | Python logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
 
 ## Running the server

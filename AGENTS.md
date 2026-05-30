@@ -41,7 +41,14 @@ unavailable or misconfigured, all persisted memory is inaccessible.
 |-----------------------------------|------------------------------------------------------------|
 | `src/cairn_mcp/`                  | MCP server source                                          |
 | `src/cairn_mcp/artifact.py`       | Artifact model, key generation, section parsing            |
-| `src/cairn_mcp/tools/`            | MCP tool implementations (write, search, read)             |
+| `src/cairn_mcp/failure_log.py`    | Failure log helper: append_failure_entry, JSONL format     |
+| `src/cairn_mcp/tools/`            | MCP tool implementations (write, search, read, and more)   |
+| `src/cairn_mcp/tools/list.py`     | list_artifacts MCP tool                                    |
+| `src/cairn_mcp/tools/archive.py`  | archive_artifact MCP tool                                  |
+| `src/cairn_mcp/tools/delete.py`   | delete_artifact MCP tool                                   |
+| `src/cairn_mcp/tools/purge.py`    | purge_archived MCP tool                                    |
+| `src/cairn_mcp/tools/health.py`   | health_check MCP tool                                      |
+| `src/cairn_mcp/tools/synthesise.py` | synthesise_artifacts MCP tool                            |
 | `src/cairn_mcp/clients/`          | AWS client interfaces, implementations, fakes, filter      |
 | `src/cairn_mcp/config.py`         | Settings (pydantic-settings, all env vars)                 |
 | `src/cairn_mcp/server.py`         | FastMCP app, tool registration                             |
@@ -75,6 +82,8 @@ unavailable or misconfigured, all persisted memory is inaccessible.
 - Never bypass the cross-scope gate — read and search tools must always check tier + visibility for foreign-scope artifacts
 - Never store artifact content in S3 Vectors metadata — content belongs in S3 only
 - Never generate random or UUID artifact keys — keys are fully deterministic from artifact attributes
+- All tool public functions delegate to an `_inner` variant wrapped in `try/except Exception` — never let raw exceptions escape to the MCP caller
+- The synthesis reference check in `delete_artifact` is scoped to own scope only — foreign-scope synthesis identifiers must never appear in delete warnings
 
 ## High-Friction Areas
 <!-- TODO: Gotchas, implicit contracts, and non-obvious dependencies that have caused problems before.

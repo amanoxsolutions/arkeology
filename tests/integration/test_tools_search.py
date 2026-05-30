@@ -11,6 +11,7 @@ from cairn_mcp.clients.bedrock import BedrockClientImpl
 from cairn_mcp.clients.s3 import S3ClientImpl
 from cairn_mcp.clients.vectors import VectorsClientImpl
 from cairn_mcp.config import Settings
+from cairn_mcp.tools.delete import delete_artifact
 from cairn_mcp.tools.search import search_artifacts
 from cairn_mcp.tools.write import write_artifact
 
@@ -72,25 +73,32 @@ async def test_write_then_search_finds_artifact(
         ("spec", "Search test api spec"),
     ]
 
-    written_ids = []
-    for artifact_type, title in titles:
-        kwargs = {
-            **base_kwargs,
-            "type": artifact_type,
-            "title": title,
-            "content": f"## Summary\n\n{title} content.",
-        }
-        result = await write_artifact(
-            s3=s3, vectors=vectors, bedrock=bedrock, settings=settings, **kwargs
+    written_ids: list[str] = []
+    try:
+        for artifact_type, title in titles:
+            kwargs = {
+                **base_kwargs,
+                "type": artifact_type,
+                "title": title,
+                "content": f"## Summary\n\n{title} content.",
+            }
+            result = await write_artifact(
+                s3=s3, vectors=vectors, bedrock=bedrock, settings=settings, **kwargs
+            )
+            written_ids.append(result["artifact_id"])
+
+        search_result = await search_artifacts(
+            vectors=vectors, bedrock=bedrock, settings=settings, query="auth review", top_k=10
         )
-        written_ids.append(result["artifact_id"])
 
-    search_result = await search_artifacts(
-        vectors=vectors, bedrock=bedrock, settings=settings, query="auth review", top_k=10
-    )
-
-    found_ids = [a["artifact_id"] for a in search_result["artifacts"]]
-    assert any(aid in found_ids for aid in written_ids)
+        found_ids = [a["artifact_id"] for a in search_result["artifacts"]]
+        assert any(aid in found_ids for aid in written_ids)
+    finally:
+        for aid in written_ids:
+            await delete_artifact(
+                settings=settings, s3=s3, vectors=vectors, bedrock=bedrock,
+                artifact_id=aid, confirm=True,
+            )
 
 
 @pytest.mark.integration

@@ -5,9 +5,12 @@ Bedrock embeddings. For tier-3 artifacts, orphaned section vectors from
 previous writes are cleaned up automatically.
 """
 
+import asyncio
 import logging
+from datetime import UTC, datetime
 from typing import Any
 
+import botocore.exceptions
 from pydantic import ValidationError
 
 from cairn_mcp.artifact import (
@@ -23,6 +26,7 @@ from cairn_mcp.clients.interfaces import (
 )
 from cairn_mcp.config import Settings
 from cairn_mcp.errors import CredentialError
+from cairn_mcp.failure_log import append_failure_entry
 
 logger = logging.getLogger(__name__)
 
@@ -278,6 +282,9 @@ async def _write_artifact_inner(  # noqa: PLR0913
                 section_heading=sec.heading,
                 section_body=sec.body,
             )
+            # Embed with throttle retry
+            embedding: list[float] | None = None
+            embed_error: Exception | None = None
             try:
                 embedding = bedrock.embed(
                     embed_text,
@@ -286,12 +293,73 @@ async def _write_artifact_inner(  # noqa: PLR0913
                 )
             except CredentialError as exc:
                 return {"error": "credential_error", "message": str(exc), "artifact_id": s3_key}
+            except botocore.exceptions.ClientError as exc:
+                if exc.response.get("Error", {}).get("Code") == "ThrottlingException":
+                    await asyncio.sleep(1)
+                    try:
+                        embedding = bedrock.embed(
+                            embed_text,
+                            settings.bedrock_embedding_model,
+                            settings.bedrock_embedding_dimensions,
+                        )
+                    except CredentialError as retry_exc:
+                        return {
+                            "error": "credential_error",
+                            "message": str(retry_exc),
+                            "artifact_id": s3_key,
+                        }
+                    except Exception as retry_exc:
+                        embed_error = retry_exc
+                else:
+                    embed_error = exc
+            except Exception as exc:
+                embed_error = exc
 
+            if embed_error is not None:
+                append_failure_entry(
+                    settings.failure_log_path,
+                    {
+                        "artifact_id": s3_key,
+                        "title": title,
+                        "type": type,
+                        "tier": tier,
+                        "date": date,
+                        "failure_step": "bedrock_embed",
+                        "reason": str(embed_error),
+                        "timestamp": datetime.now(UTC).isoformat(),
+                    },
+                )
+                return {
+                    "error": "partial_write",
+                    "message": str(embed_error),
+                    "artifact_id": s3_key,
+                }
+
+            assert embedding is not None
             vec_key = f"{s3_key}#{section_slug(sec.heading)}"
             try:
                 vectors.put_vector(vec_key, embedding, vector_metadata)
             except CredentialError as exc:
                 return {"error": "credential_error", "message": str(exc), "artifact_id": s3_key}
+            except Exception as exc:
+                append_failure_entry(
+                    settings.failure_log_path,
+                    {
+                        "artifact_id": s3_key,
+                        "title": title,
+                        "type": type,
+                        "tier": tier,
+                        "date": date,
+                        "failure_step": "put_vector",
+                        "reason": str(exc),
+                        "timestamp": datetime.now(UTC).isoformat(),
+                    },
+                )
+                return {
+                    "error": "partial_write",
+                    "message": str(exc),
+                    "artifact_id": s3_key,
+                }
 
             new_keys.add(vec_key)
     else:
@@ -301,19 +369,83 @@ async def _write_artifact_inner(  # noqa: PLR0913
             feature_tags=tags,
             description=description,
         )
+        # Embed with throttle retry
+        doc_embedding: list[float] | None = None
+        doc_embed_error: Exception | None = None
         try:
-            embedding = bedrock.embed(
+            doc_embedding = bedrock.embed(
                 embed_text,
                 settings.bedrock_embedding_model,
                 settings.bedrock_embedding_dimensions,
             )
         except CredentialError as exc:
             return {"error": "credential_error", "message": str(exc), "artifact_id": s3_key}
+        except botocore.exceptions.ClientError as exc:
+            if exc.response.get("Error", {}).get("Code") == "ThrottlingException":
+                await asyncio.sleep(1)
+                try:
+                    doc_embedding = bedrock.embed(
+                        embed_text,
+                        settings.bedrock_embedding_model,
+                        settings.bedrock_embedding_dimensions,
+                    )
+                except CredentialError as retry_exc:
+                    return {
+                        "error": "credential_error",
+                        "message": str(retry_exc),
+                        "artifact_id": s3_key,
+                    }
+                except Exception as retry_exc:
+                    doc_embed_error = retry_exc
+            else:
+                doc_embed_error = exc
+        except Exception as exc:
+            doc_embed_error = exc
 
+        if doc_embed_error is not None:
+            append_failure_entry(
+                settings.failure_log_path,
+                {
+                    "artifact_id": s3_key,
+                    "title": title,
+                    "type": type,
+                    "tier": tier,
+                    "date": date,
+                    "failure_step": "bedrock_embed",
+                    "reason": str(doc_embed_error),
+                    "timestamp": datetime.now(UTC).isoformat(),
+                },
+            )
+            return {
+                "error": "partial_write",
+                "message": str(doc_embed_error),
+                "artifact_id": s3_key,
+            }
+
+        assert doc_embedding is not None
         try:
-            vectors.put_vector(s3_key, embedding, vector_metadata)
+            vectors.put_vector(s3_key, doc_embedding, vector_metadata)
         except CredentialError as exc:
             return {"error": "credential_error", "message": str(exc), "artifact_id": s3_key}
+        except Exception as exc:
+            append_failure_entry(
+                settings.failure_log_path,
+                {
+                    "artifact_id": s3_key,
+                    "title": title,
+                    "type": type,
+                    "tier": tier,
+                    "date": date,
+                    "failure_step": "put_vector",
+                    "reason": str(exc),
+                    "timestamp": datetime.now(UTC).isoformat(),
+                },
+            )
+            return {
+                "error": "partial_write",
+                "message": str(exc),
+                "artifact_id": s3_key,
+            }
 
         new_keys.add(s3_key)
 

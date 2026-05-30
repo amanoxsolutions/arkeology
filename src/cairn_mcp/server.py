@@ -12,8 +12,14 @@ from cairn_mcp.clients.interfaces import (
     VectorsClientInterface,
 )
 from cairn_mcp.config import Settings
+from cairn_mcp.tools.archive import archive_artifact as _archive_artifact
+from cairn_mcp.tools.delete import delete_artifact as _delete_artifact
+from cairn_mcp.tools.health import health_check as _health_check
+from cairn_mcp.tools.list import list_artifacts as _list_artifacts
+from cairn_mcp.tools.purge import purge_archived as _purge_archived
 from cairn_mcp.tools.read import read_artifact as _read_artifact
 from cairn_mcp.tools.search import search_artifacts as _search_artifacts
+from cairn_mcp.tools.synthesise import synthesise_artifacts as _synthesise_artifacts
 from cairn_mcp.tools.write import write_artifact as _write_artifact
 
 logger = logging.getLogger(__name__)
@@ -114,6 +120,99 @@ def register_tools(
             vectors=vectors,
             bedrock=bedrock,
             artifact_id=artifact_id,
+        )
+
+    @_app.tool()
+    async def list_artifacts(
+        type: str | None = None,
+        team: str | None = None,
+        project: str | None = None,
+        status: str = "active",
+        feature_tags: list[str] | None = None,
+        tier: int | None = None,
+    ) -> dict[str, Any]:
+        """List artifacts by metadata filters without a semantic query."""
+        return await _list_artifacts(
+            settings=settings,
+            s3=None,
+            vectors=vectors,
+            bedrock=None,
+            type=type,
+            team=team,
+            project=project,
+            status=status,
+            feature_tags=feature_tags,
+            tier=tier,
+        )
+
+    @_app.tool()
+    async def archive_artifact(artifact_id: str) -> dict[str, Any]:
+        """Archive an artifact by setting its status to 'inactive'."""
+        return await _archive_artifact(
+            settings=settings,
+            s3=s3,
+            vectors=vectors,
+            bedrock=bedrock,
+            artifact_id=artifact_id,
+        )
+
+    @_app.tool()
+    async def delete_artifact(
+        artifact_id: str,
+        confirm: bool = False,
+    ) -> dict[str, Any]:
+        """Hard-delete a single artifact from S3 and the vector index."""
+        return await _delete_artifact(
+            settings=settings,
+            s3=s3,
+            vectors=vectors,
+            bedrock=bedrock,
+            artifact_id=artifact_id,
+            confirm=confirm,
+        )
+
+    @_app.tool()
+    async def purge_archived(confirm: bool = False) -> dict[str, Any]:
+        """Hard-delete all archived (inactive) artifacts in the own scope."""
+        return await _purge_archived(
+            settings=settings,
+            s3=s3,
+            vectors=vectors,
+            bedrock=bedrock,
+            confirm=confirm,
+        )
+
+    @_app.tool()
+    async def health_check() -> dict[str, Any]:
+        """Probe all configured components and return a per-component status."""
+        return await _health_check(
+            settings=settings,
+            s3=s3,
+            vectors=vectors,
+            bedrock=bedrock,
+        )
+
+    @_app.tool()
+    async def synthesise_artifacts(
+        query: str,
+        top_k: int = 10,
+        type: str | None = None,
+        feature_tags: list[str] | None = None,
+        team: str | None = None,
+        project: str | None = None,
+    ) -> dict[str, Any]:
+        """Search artifacts and return full content for the top results."""
+        return await _synthesise_artifacts(
+            settings=settings,
+            s3=s3,
+            vectors=vectors,
+            bedrock=bedrock,
+            query=query,
+            top_k=top_k,
+            type=type,
+            feature_tags=feature_tags,
+            team=team,
+            project=project,
         )
 
 

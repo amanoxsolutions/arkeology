@@ -11,6 +11,7 @@ from cairn_mcp.clients.bedrock import BedrockClientImpl
 from cairn_mcp.clients.s3 import S3ClientImpl
 from cairn_mcp.clients.vectors import VectorsClientImpl
 from cairn_mcp.config import Settings
+from cairn_mcp.tools.delete import delete_artifact
 from cairn_mcp.tools.read import read_artifact
 from cairn_mcp.tools.write import write_artifact
 
@@ -71,14 +72,22 @@ async def test_write_then_read_content_matches(
         "feature_tags": ["auth", "read-test"],
     }
 
-    write_result = await write_artifact(
-        s3=s3, vectors=vectors, bedrock=bedrock, settings=settings, **kwargs
-    )
-    artifact_id = write_result["artifact_id"]
+    artifact_id: str = ""
+    try:
+        write_result = await write_artifact(
+            s3=s3, vectors=vectors, bedrock=bedrock, settings=settings, **kwargs
+        )
+        artifact_id = write_result["artifact_id"]
 
-    read_result = await read_artifact(s3=s3, settings=settings, artifact_id=artifact_id)
+        read_result = await read_artifact(s3=s3, settings=settings, artifact_id=artifact_id)
 
-    assert read_result["content"] == content
+        assert read_result["content"] == content
+    finally:
+        if artifact_id:
+            await delete_artifact(
+                settings=settings, s3=s3, vectors=vectors, bedrock=bedrock,
+                artifact_id=artifact_id, confirm=True,
+            )
 
 
 @pytest.mark.integration
@@ -104,23 +113,31 @@ async def test_read_metadata_fields_complete_and_typed(
         "feature_tags": ["meta", "test"],
     }
 
-    write_result = await write_artifact(
-        s3=s3, vectors=vectors, bedrock=bedrock, settings=settings, **kwargs
-    )
-    artifact_id = write_result["artifact_id"]
+    artifact_id: str = ""
+    try:
+        write_result = await write_artifact(
+            s3=s3, vectors=vectors, bedrock=bedrock, settings=settings, **kwargs
+        )
+        artifact_id = write_result["artifact_id"]
 
-    read_result = await read_artifact(s3=s3, settings=settings, artifact_id=artifact_id)
+        read_result = await read_artifact(s3=s3, settings=settings, artifact_id=artifact_id)
 
-    for field in [
-        "type", "team", "project", "tier", "date", "status", "title",
-        "visibility", "feature_tags", "description", "content",
-    ]:
-        assert field in read_result, f"Missing field: {field}"
+        for field in [
+            "type", "team", "project", "tier", "date", "status", "title",
+            "visibility", "feature_tags", "description", "content",
+        ]:
+            assert field in read_result, f"Missing field: {field}"
 
-    assert isinstance(read_result["feature_tags"], list)
-    assert "meta" in read_result["feature_tags"]
-    assert isinstance(read_result["tier"], int)
-    assert read_result["tier"] == 3
+        assert isinstance(read_result["feature_tags"], list)
+        assert "meta" in read_result["feature_tags"]
+        assert isinstance(read_result["tier"], int)
+        assert read_result["tier"] == 3
+    finally:
+        if artifact_id:
+            await delete_artifact(
+                settings=settings, s3=s3, vectors=vectors, bedrock=bedrock,
+                artifact_id=artifact_id, confirm=True,
+            )
 
 
 @pytest.mark.integration

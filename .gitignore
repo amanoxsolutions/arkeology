@@ -1,5 +1,6 @@
 .docs/
 failure-log.jsonl
+.cairn_failures.jsonl
 .env
 *.egg-info
 .venv

@@ -3,12 +3,17 @@
 Tests write_artifact() and its embedding helper functions using in-memory fakes.
 """
 
+import asyncio
+import json
+
+import botocore.exceptions
 import pytest
 
 from cairn_mcp.clients.fakes.fake_bedrock import FakeBedrockClient
 from cairn_mcp.clients.fakes.fake_s3 import FakeS3Client
 from cairn_mcp.clients.fakes.fake_vectors import FakeVectorsClient
 from cairn_mcp.config import Settings
+from cairn_mcp.errors import CredentialError
 from cairn_mcp.tools.write import (
     _build_document_embedding_text,
     _build_section_embedding_text,
@@ -677,3 +682,273 @@ async def test_s3_metadata_feature_tags_and_source_artifacts_are_strings(
         f"Expected str in S3 metadata, got {type(meta['source_artifacts'])}"
     )
     assert meta["source_artifacts"] == "adr-one,adr-two"
+
+
+# ---------------------------------------------------------------------------
+# T15: Throttle retry and partial write failure log
+# ---------------------------------------------------------------------------
+
+# ── Helpers ─────────────────────────────────────────────────────────────────
+
+
+def _throttle_error() -> botocore.exceptions.ClientError:
+    return botocore.exceptions.ClientError(
+        {"Error": {"Code": "ThrottlingException", "Message": "Rate exceeded"}},
+        "InvokeModel",
+    )
+
+
+def _non_throttle_error() -> botocore.exceptions.ClientError:
+    return botocore.exceptions.ClientError(
+        {"Error": {"Code": "ValidationException", "Message": "Bad input"}},
+        "InvokeModel",
+    )
+
+
+class _ThrottleThenSucceedBedrock(FakeBedrockClient):
+    """Raises ThrottlingException on the first embed call, then succeeds."""
+
+    def __init__(self, **kwargs: int) -> None:
+        super().__init__(**kwargs)
+        self._call_count = 0
+
+    def embed(self, text: str, model_id: str, dimensions: int) -> list[float]:
+        self._call_count += 1
+        if self._call_count == 1:
+            raise _throttle_error()
+        return super().embed(text, model_id, dimensions)
+
+
+class _ThrottleAlwaysBedrock(FakeBedrockClient):
+    """Raises ThrottlingException on every embed call."""
+
+    def embed(self, text: str, model_id: str, dimensions: int) -> list[float]:
+        raise _throttle_error()
+
+
+class _NonThrottleErrorBedrock(FakeBedrockClient):
+    """Raises a non-throttle ClientError on every embed call."""
+
+    def embed(self, text: str, model_id: str, dimensions: int) -> list[float]:
+        raise _non_throttle_error()
+
+
+class _PutVectorFailVectors(FakeVectorsClient):
+    """Raises RuntimeError from every put_vector call."""
+
+    def put_vector(self, key: str, vector: list[float], metadata: dict) -> None:
+        raise RuntimeError("simulated put_vector failure")
+
+
+class _PutVectorCredentialFailVectors(FakeVectorsClient):
+    """Raises CredentialError from every put_vector call."""
+
+    def put_vector(self, key: str, vector: list[float], metadata: dict) -> None:
+        raise CredentialError(
+            message="AWS credentials are invalid or expired (simulated).",
+            service="s3vectors",
+            original=Exception("simulated credential failure"),
+        )
+
+
+async def _instant_sleep(_seconds: float) -> None:
+    """Drop-in replacement for asyncio.sleep that returns immediately."""
+
+
+# ── Tests ────────────────────────────────────────────────────────────────────
+
+
+async def test_throttle_retry_success_returns_success_no_failure_log(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: pytest.TempPathFactory,
+) -> None:
+    """Throttle on first embed, succeed on retry → success response; no failure log entry."""
+    log_path = tmp_path / "failures.jsonl"
+    monkeypatch.setattr(asyncio, "sleep", _instant_sleep)
+    settings = _make_settings(monkeypatch, FAILURE_LOG_PATH=str(log_path))
+    s3, vectors = FakeS3Client(), FakeVectorsClient()
+    bedrock = _ThrottleThenSucceedBedrock()
+
+    result = await write_artifact(
+        s3=s3, vectors=vectors, bedrock=bedrock, settings=settings, **_ONE_SECTION_KWARGS
+    )
+
+    assert "error" not in result
+    assert "artifact_id" in result
+    assert not log_path.exists()
+
+
+async def test_throttle_retry_both_fail_returns_partial_write(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: pytest.TempPathFactory,
+) -> None:
+    """Throttle on both embed calls → partial_write error; artifact_id in response."""
+    log_path = tmp_path / "failures.jsonl"
+    monkeypatch.setattr(asyncio, "sleep", _instant_sleep)
+    settings = _make_settings(monkeypatch, FAILURE_LOG_PATH=str(log_path))
+    s3, vectors = FakeS3Client(), FakeVectorsClient()
+    bedrock = _ThrottleAlwaysBedrock()
+
+    result = await write_artifact(
+        s3=s3, vectors=vectors, bedrock=bedrock, settings=settings, **_ONE_SECTION_KWARGS
+    )
+
+    assert result.get("error") == "partial_write"
+    assert "artifact_id" in result
+
+
+async def test_throttle_retry_both_fail_writes_failure_log_bedrock_embed(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: pytest.TempPathFactory,
+) -> None:
+    """Throttle on both embed calls → failure log entry with failure_step='bedrock_embed'."""
+    log_path = tmp_path / "failures.jsonl"
+    monkeypatch.setattr(asyncio, "sleep", _instant_sleep)
+    settings = _make_settings(monkeypatch, FAILURE_LOG_PATH=str(log_path))
+    s3, vectors = FakeS3Client(), FakeVectorsClient()
+    bedrock = _ThrottleAlwaysBedrock()
+
+    await write_artifact(
+        s3=s3, vectors=vectors, bedrock=bedrock, settings=settings, **_ONE_SECTION_KWARGS
+    )
+
+    assert log_path.exists()
+    entries = [json.loads(line) for line in log_path.read_text().splitlines()]
+    assert len(entries) == 1
+    assert entries[0]["failure_step"] == "bedrock_embed"
+
+
+async def test_non_throttle_error_returns_partial_write_no_retry(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: pytest.TempPathFactory,
+) -> None:
+    """Non-throttle ClientError → no retry; partial_write error; failure log written."""
+    log_path = tmp_path / "failures.jsonl"
+    settings = _make_settings(monkeypatch, FAILURE_LOG_PATH=str(log_path))
+    s3, vectors = FakeS3Client(), FakeVectorsClient()
+    bedrock = _NonThrottleErrorBedrock()
+
+    result = await write_artifact(
+        s3=s3, vectors=vectors, bedrock=bedrock, settings=settings, **_ONE_SECTION_KWARGS
+    )
+
+    assert result.get("error") == "partial_write"
+    assert "artifact_id" in result
+    assert log_path.exists()
+    entries = [json.loads(line) for line in log_path.read_text().splitlines()]
+    assert len(entries) == 1
+    assert entries[0]["failure_step"] == "bedrock_embed"
+
+
+async def test_put_vector_failure_returns_partial_write_with_log(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: pytest.TempPathFactory,
+) -> None:
+    """S3 write succeeds, put_vector raises → partial_write error; failure log written."""
+    log_path = tmp_path / "failures.jsonl"
+    settings = _make_settings(monkeypatch, FAILURE_LOG_PATH=str(log_path))
+    s3 = FakeS3Client()
+    vectors = _PutVectorFailVectors()
+    bedrock = FakeBedrockClient()
+
+    result = await write_artifact(
+        s3=s3, vectors=vectors, bedrock=bedrock, settings=settings, **_ONE_SECTION_KWARGS
+    )
+
+    assert result.get("error") == "partial_write"
+    assert "artifact_id" in result
+    assert log_path.exists()
+    entries = [json.loads(line) for line in log_path.read_text().splitlines()]
+    assert len(entries) == 1
+    assert entries[0]["failure_step"] == "put_vector"
+
+
+async def test_failure_log_entry_contains_all_required_fields(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: pytest.TempPathFactory,
+) -> None:
+    """Failure log entry contains all required fields with correct types."""
+    log_path = tmp_path / "failures.jsonl"
+    settings = _make_settings(monkeypatch, FAILURE_LOG_PATH=str(log_path))
+    s3 = FakeS3Client()
+    vectors = _PutVectorFailVectors()
+    bedrock = FakeBedrockClient()
+
+    await write_artifact(
+        s3=s3, vectors=vectors, bedrock=bedrock, settings=settings, **_ONE_SECTION_KWARGS
+    )
+
+    entry = json.loads(log_path.read_text().splitlines()[0])
+    required_fields = (
+        "artifact_id", "title", "type", "tier", "date", "failure_step", "reason", "timestamp"
+    )
+    for field in required_fields:
+        assert field in entry, f"Missing field: {field}"
+    assert entry["title"] == _ONE_SECTION_KWARGS["title"]
+    assert entry["type"] == _ONE_SECTION_KWARGS["type"]
+    assert entry["tier"] == _ONE_SECTION_KWARGS["tier"]
+    assert entry["date"] == _ONE_SECTION_KWARGS["date"]
+    # timestamp must be a valid ISO-8601 string
+    from datetime import datetime
+    datetime.fromisoformat(entry["timestamp"])
+
+
+async def test_failure_log_appends_across_multiple_failures(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: pytest.TempPathFactory,
+) -> None:
+    """Two separate partial write failures → failure log has two entries (append behaviour)."""
+    log_path = tmp_path / "failures.jsonl"
+    settings = _make_settings(monkeypatch, FAILURE_LOG_PATH=str(log_path))
+
+    for _ in range(2):
+        s3 = FakeS3Client()
+        vectors = _PutVectorFailVectors()
+        bedrock = FakeBedrockClient()
+        await write_artifact(
+            s3=s3, vectors=vectors, bedrock=bedrock, settings=settings, **_ONE_SECTION_KWARGS
+        )
+
+    lines = log_path.read_text().splitlines()
+    assert len(lines) == 2
+    for line in lines:
+        entry = json.loads(line)
+        assert entry["failure_step"] == "put_vector"
+
+
+async def test_bedrock_credential_error_no_failure_log(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: pytest.TempPathFactory,
+) -> None:
+    """Bedrock CredentialError → credential_error response; no failure log entry written."""
+    log_path = tmp_path / "failures.jsonl"
+    settings = _make_settings(monkeypatch, FAILURE_LOG_PATH=str(log_path))
+    s3, vectors = FakeS3Client(), FakeVectorsClient()
+    bedrock = FakeBedrockClient()
+    bedrock.set_credential_failure(True)
+
+    result = await write_artifact(
+        s3=s3, vectors=vectors, bedrock=bedrock, settings=settings, **_ONE_SECTION_KWARGS
+    )
+
+    assert result.get("error") == "credential_error"
+    assert not log_path.exists()
+
+
+async def test_put_vector_credential_error_no_failure_log(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: pytest.TempPathFactory,
+) -> None:
+    """put_vector CredentialError → credential_error response; no failure log entry written."""
+    log_path = tmp_path / "failures.jsonl"
+    settings = _make_settings(monkeypatch, FAILURE_LOG_PATH=str(log_path))
+    s3 = FakeS3Client()
+    vectors = _PutVectorCredentialFailVectors()
+    bedrock = FakeBedrockClient()
+
+    result = await write_artifact(
+        s3=s3, vectors=vectors, bedrock=bedrock, settings=settings, **_ONE_SECTION_KWARGS
+    )
+
+    assert result.get("error") == "credential_error"
+    assert not log_path.exists()

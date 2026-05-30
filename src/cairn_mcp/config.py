@@ -6,6 +6,7 @@ dependency injection — it is never re-read from the environment mid-session.
 Each field carries a description with its type, default, and constraints.
 """
 
+from pathlib import Path
 from typing import Annotated, Any
 
 from pydantic import Field, field_validator, model_validator
@@ -135,6 +136,17 @@ class Settings(BaseSettings):
         ),
     ]
 
+    FAILURE_LOG_PATH: Annotated[
+        str,
+        Field(
+            default=".cairn_failures.jsonl",
+            description=(
+                "Path to the local partial-write failure log (.jsonl). "
+                "Defaults to '.cairn_failures.jsonl' in the working directory."
+            ),
+        ),
+    ]
+
     # ── Validators ────────────────────────────────────────────────────────────
 
     @field_validator("SEARCH_FETCH_TOP_K")
@@ -250,6 +262,11 @@ class Settings(BaseSettings):
     def log_level(self) -> str:
         """Logging level string (uppercase)."""
         return self.LOG_LEVEL
+
+    @property
+    def failure_log_path(self) -> Path:
+        """Path to the local partial-write failure log."""
+        return Path(self.FAILURE_LOG_PATH)
 
     @property
     def read_prefixes_list(self) -> list[str]:
