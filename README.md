@@ -111,18 +111,13 @@ provides.
 ## How it works
 
 Artifacts are stored in a standard S3 bucket and indexed in AWS S3 Vectors with embeddings from
-Amazon Bedrock (Titan Text v2). Agents connect via the Model Context Protocol and call eight tools:
+Amazon Bedrock (Titan Text v2). Agents connect via the Model Context Protocol and call three tools:
 
-| Tool | Purpose |
-|---|---|
-| `write_artifact` | Store a new artifact (embeds and indexes immediately) |
-| `search_artifacts` | Semantic search with optional metadata filters |
-| `read_artifact` | Fetch the full content of a known artifact by ID |
-| `list_artifacts` | Browse artifacts by type, feature, team, or project |
-| `archive_artifact` | Mark an artifact inactive without deleting it |
-| `health_check` | Validate connectivity to all three AWS services |
-| `reconcile_index` | Re-index any artifacts present in S3 but missing from the vector index |
-| `synthesise_artifacts` | Search and bundle source artifacts for in-context synthesis; write the result back as a `synthesis` artifact |
+| Tool | What it does | Key inputs | Key outputs |
+|---|---|---|---|
+| `write_artifact` | Store an artifact in S3 and index it in S3 Vectors | `type`, `team`, `project`, `tier`, `title`, `content`, `visibility`, optional filters | `artifact_id`, `sections_indexed` |
+| `search_artifacts` | Semantic search over the vector index with optional metadata filters | `query`, optional: `type`, `feature_tags`, `team`, `project`, `tier`, `status`, `top_k` | List of artifact metadata (no content) |
+| `read_artifact` | Fetch the full content of an artifact by ID | `artifact_id` | Full artifact dict including `content` |
 
 The server also exposes MCP Resources — always-current schema documentation covering artifact
 types, the tier model, visibility rules, and field constraints — so any connected agent can
@@ -130,36 +125,92 @@ discover what to provide without consulting external documentation.
 
 ## Status
 
-> **Early development** — project scaffolding in progress.
+> **Phase 2 complete** — `write_artifact`, `search_artifacts`, and `read_artifact` are implemented and unit-tested. Additional tools (list, archive, health check, reconcile, synthesise) are planned for future phases.
 
 ## Prerequisites
 
-<!-- TODO: fill in once pyproject.toml and AWS infrastructure requirements are finalised -->
-- Python ≥ 3.13
-- `uv`
+- Python ≥ 3.12
+- [`uv`](https://docs.astral.sh/uv/)
 - AWS credentials with access to S3, S3 Vectors, and Bedrock
 - An S3 bucket, an S3 Vectors bucket, and an S3 Vectors index (provisioned externally)
+- Amazon Bedrock Titan Text Embeddings v2 model access enabled in your AWS account
 
-## Quick start
+## Installation
 
-<!-- TODO: fill in once the package is installable -->
+```bash
+git clone https://github.com/your-org/cairn-mcp.git
+cd cairn-mcp
+uv sync
+cp .env.example .env
+# Edit .env — fill in at minimum AWS_REGION, ARTIFACT_BUCKET, VECTORS_BUCKET, VECTORS_INDEX
+```
 
 ## Configuration
 
-<!-- TODO: fill in once environment variable handling is implemented -->
+All configuration is read from environment variables (or a `.env` file in the working directory).
+
 | Variable | Required | Default | Description |
 |---|---|---|---|
 | `AWS_REGION` | Yes | — | AWS region for all API calls |
 | `ARTIFACT_BUCKET` | Yes | — | S3 bucket for artifact content |
 | `VECTORS_BUCKET` | Yes | — | S3 Vectors bucket |
 | `VECTORS_INDEX` | Yes | — | S3 Vectors index name |
-| `AWS_PROFILE` | No | default chain | Named AWS profile |
-| `WRITE_PREFIX` | No | *(empty)* | Prefix for all writes, e.g. `platform/my-service/` |
-| `READ_PREFIXES` | No | *(empty)* | Comma-separated additional read prefixes |
+| `AWS_PROFILE` | No | SDK default chain | Named AWS profile to use |
+| `WRITE_PREFIX` | No | `artifacts` | Prefix for all artifact writes — must not be empty |
+| `READ_PREFIXES` | No | *(none)* | Comma-separated foreign read scopes (e.g. `shared/org,shared/platform`) |
 | `BEDROCK_EMBEDDING_MODEL` | No | `amazon.titan-embed-text-v2:0` | Bedrock embedding model ID |
-| `SEARCH_FETCH_TOP_K` | No | `25` | Section vectors requested from S3 Vectors per search iteration (ceiling: 100) |
+| `BEDROCK_EMBEDDING_DIMENSIONS` | No | `1024` | Embedding dimensions — must match the S3 Vectors index dimension |
+| `SEARCH_FETCH_TOP_K` | No | `25` | Section vectors requested from S3 Vectors per search iteration |
 | `SEARCH_MAX_ITERATIONS` | No | `3` | Maximum S3 Vectors calls per search before returning available results |
 | `SEARCH_DEFAULT_TOP_K` | No | `5` | Default number of artifacts returned when the caller does not specify |
+| `LOG_LEVEL` | No | `INFO` | Python logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
+
+## Running the server
+
+```bash
+uv run cairn-mcp
+# or
+uv run python -m cairn_mcp
+```
+
+The server runs on stdio and is ready to accept MCP client connections.
+
+## Development
+
+```bash
+# Unit tests (no AWS required)
+uv run pytest tests/unit/ -q -m 'not integration'
+
+# Integration tests (require real AWS credentials in .env)
+uv run pytest tests/integration/ -q
+
+# Lint
+uv run ruff check src/ tests/
+
+# Type check
+uv run mypy src/
+```
+
+## Connecting to an MCP client
+
+Add the server to your MCP client configuration. Example for a client that reads `mcp-servers.json`:
+
+```json
+{
+  "mcpServers": {
+    "cairn": {
+      "command": "uv",
+      "args": ["run", "--directory", "/path/to/cairn-mcp", "cairn-mcp"],
+      "env": {
+        "AWS_REGION": "eu-central-1",
+        "ARTIFACT_BUCKET": "my-artifacts-bucket",
+        "VECTORS_BUCKET": "my-vectors-bucket",
+        "VECTORS_INDEX": "artifacts-index"
+      }
+    }
+  }
+}
+```
 
 ## License
 

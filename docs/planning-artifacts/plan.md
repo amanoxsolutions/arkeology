@@ -1,8 +1,8 @@
 # Plan: cairn-mcp
 
 _Project: cairn-mcp_
-_Generated: 2026-05-29_ · _Last updated: 2026-05-29_
-_Status: **ready**_
+_Generated: 2026-05-29_ · _Last updated: 2026-05-30_
+_Status: **in progress — Phase 2 complete**_
 
 ---
 
@@ -44,18 +44,18 @@ Goal: the server starts, validates all configuration, and fails clearly on any m
 
 Goal: an agent writes an artifact and immediately finds it via semantic search. This is the minimum viable loop — the reason the server exists.
 
-6. ⬜ **Artifact model and key generation** — metadata schema (FR-09), deterministic tier 2 hash (`type+date+title`) and tier 3 hash (`type+title`) (FR-08)
+6. ✅ **Artifact model and key generation** — metadata schema (FR-09), deterministic tier 2 slug (`type-date-title_slug`) and tier 3 slug (`type-title_slug`) (FR-08)
    - Done when: hash function is pure and tested; same inputs always produce the same key; different inputs produce different keys; edge cases (empty feature tags, same-day vs cross-day) tested
 
-7. ⬜ **Write artifact tool** — S3 PutObject → parse all `##` sections → one Bedrock embed per section (fallback: single embed from title+description+type+features if no sections) → one `S3 Vectors PutVector` per section with key `{artifact_key}#{section_name_slug}` and `artifact_id` in filterable metadata (fallback key = artifact_key); re-write: upsert existing section keys + query by `artifact_id` to delete orphaned section keys for removed sections; tier 2 immutability (FR-13); tier 3 overwrite in place (FR-15); idempotent same-key writes (NFR-06); returns identifier (FR-01)
+7. ✅ **Write artifact tool** — S3 PutObject → parse all `##` sections → one Bedrock embed per section (fallback: single embed from title+description+type+features if no sections) → one `S3 Vectors PutVector` per section with key `{artifact_key}#{section_name_slug}` and `artifact_id` in filterable metadata (fallback key = artifact_key); re-write: upsert existing section keys + query by `artifact_id` to delete orphaned section keys for removed sections; tier 2 immutability (FR-13); tier 3 overwrite in place (FR-15); idempotent same-key writes (NFR-06); returns identifier (FR-01)
    - Done when: write → read → search round-trip tested end-to-end; section vectors carry correct `artifact_id`; same-day tier 2 write is idempotent; tier 3 same-type+title overwrites and cleans orphaned section vectors; fallback (no `##` sections) produces single document-level vector; credential errors return structured responses; no raw exceptions reach the caller
    - Integration test checkpoints: PutVector upsert behaviour confirmed; `#` character validity in S3 Vectors keys confirmed (fallback separator `--` if invalid)
 
-8. ⬜ **Search artifacts tool** — one Bedrock embed of query; re-fetch loop: `S3 Vectors QueryVectors(top_k=SEARCH_FETCH_TOP_K, filter=user_filters AND artifact_id NOT IN seen_ids)` across `WRITE_PREFIX` and each `READ_PREFIXES` entry (cross-scope gate: tier 3 + shared only); group section vectors by `artifact_id`; repeat until `top_k` artifacts collected or `SEARCH_MAX_ITERATIONS` reached; metadata + description only in response, no content (NFR-02) (FR-03)
+8. ✅ **Search artifacts tool** — one Bedrock embed of query; re-fetch loop: single combined `S3 Vectors QueryVectors` call per iteration using `$or` filter covering own scope (unrestricted) and foreign scopes (tier 3 + shared only); group section vectors by `artifact_id`; repeat until `top_k` artifacts collected or `SEARCH_MAX_ITERATIONS` reached; metadata + description only in response, no content (NFR-02) (FR-03)
    - Done when: results contain no full content; cross-scope filter enforced and tested; re-fetch loop exits correctly when index is exhausted; `SEARCH_MAX_ITERATIONS` cap respected; zero results distinguished from service error; filter combinations return correct subsets
    - Integration test checkpoint: S3 Vectors `$nin` operator on `artifact_id` confirmed
 
-9. ⬜ **Read artifact tool** — S3 GetObject by identifier; cross-scope gate enforced (FR-02, FR-10)
+9. ✅ **Read artifact tool** — S3 GetObject by identifier; cross-scope gate enforced (FR-02, FR-10)
    - Done when: known artifact returns full content; tier 2 artifact from foreign scope is rejected with a clear error; tier 3 shared artifact from foreign scope is accessible
 
 🔁 **Phase 2 retrospective** — validate the write → search → read round-trip end-to-end with a real AWS deployment before proceeding
@@ -123,6 +123,11 @@ Goal: any agent can discover the schema at runtime; a new team can adopt the ser
 - **Bedrock Titan Text Embeddings v2 request shape**: `{"inputText": text}` — `dimensions` parameter is optional; response shape: `{"embedding": [...], "inputTextTokenCount": N}`
 - **pydantic-settings + mypy strict**: requires `plugins = ["pydantic.mypy"]` in `[tool.mypy]` to avoid spurious "missing required arguments" errors on `Settings()` calls
 - **`#` character in S3 Vectors keys**: not yet confirmed — will be verified in integration tests (Phase 1 T3 / Phase 2 T7)
+- **`WRITE_PREFIX` must be non-empty**: empty prefix causes `startswith("")` to always return True, silently bypassing the cross-scope access control gate; default changed to `"artifacts"` and a validator now rejects empty/whitespace values at startup
+- **Slug-based artifact IDs over hash-based**: collisions are intentional deduplication; human-readable in S3 console; two titles normalising to the same slug represent the same artifact (idempotency contract)
+- **`$or` and `$in` in S3 Vectors filters**: both confirmed supported, enabling a single combined query per search iteration rather than one query per scope; `$nin` must have a non-empty array (omit the clause on first iteration)
+- **feature_tags vector metadata storage**: stored as `list[str]` in vector metadata (not comma-joined string) so that `{"feature_tags": {"$eq": "tag"}}` filter works correctly; S3 object metadata stores as comma-joined string (S3 only supports string metadata values)
+- **Partial-write error responses include `artifact_id`**: when Bedrock/vectors calls fail after S3 write succeeds, the error response includes `artifact_id` so callers know which artifact was partially written; this is intentional and documented in write.py
 
 ## References
 

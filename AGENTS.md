@@ -36,14 +36,21 @@ unavailable or misconfigured, all persisted memory is inaccessible.
 <!-- ──────────────────────────────────────────────────────────── -->
 
 ## Repository Structure
-<!-- TODO: Fill in once the project structure is established.
-     Example:
-     | Path          | Purpose                                                    |
-     |---------------|------------------------------------------------------------|
-     | `src/`        | MCP server source — tools, resources, prompts              |
-     | `tests/`      | Unit and integration tests                                 |
-     | `docs/`       | Committed documentation and ADRs                          |
-     | `.docs/`      | Agent scratchpad — gitignored                             | -->
+
+| Path                              | Purpose                                                    |
+|-----------------------------------|------------------------------------------------------------|
+| `src/cairn_mcp/`                  | MCP server source                                          |
+| `src/cairn_mcp/artifact.py`       | Artifact model, key generation, section parsing            |
+| `src/cairn_mcp/tools/`            | MCP tool implementations (write, search, read)             |
+| `src/cairn_mcp/clients/`          | AWS client interfaces, implementations, fakes, filter      |
+| `src/cairn_mcp/config.py`         | Settings (pydantic-settings, all env vars)                 |
+| `src/cairn_mcp/server.py`         | FastMCP app, tool registration                             |
+| `src/cairn_mcp/__main__.py`       | Entry point: logging, config, clients, startup, server     |
+| `tests/unit/`                     | Unit tests (fakes only, no AWS)                            |
+| `tests/integration/`              | Integration tests (real AWS, @pytest.mark.integration)     |
+| `docs/planning-artifacts/`        | PRD and plan                                               |
+| `docs/specs/`                     | Per-task feature specs                                     |
+| `.docs/`                          | Agent scratchpad (gitignored)                              |
 
 ## Component Dependencies
 <!-- TODO: List external services, data stores, or other repos this project depends on,
@@ -53,19 +60,21 @@ unavailable or misconfigured, all persisted memory is inaccessible.
      Glue job in `src/etl/` and the Athena DDL in `sql/`." -->
 
 ## Working Conventions
-<!-- TODO: What naming rules, patterns, or structural conventions should agents follow
-     that are not obvious from reading the code?
-     Example: "All CDK stacks are named <Domain>Stack (e.g. IngestionStack, TransformStack).
-     New Lambdas go in src/functions/<name>/handler.py — business logic in a sibling module,
-     never in handler.py directly. Athena queries are append-only — never modify existing files." -->
+
+- All new tool functions go in `src/cairn_mcp/tools/<name>.py`; register on `_app` in `server.py` via `register_tools()`
+- Tool functions receive `settings`, `s3`, `vectors`, `bedrock` as injected dependencies — never import clients directly
+- `ARTIFACT_TYPES` in `artifact.py` is the single source of truth for valid artifact types — never duplicate it elsewhere
+- All metadata stored in S3 object metadata is string-valued; lists (`feature_tags`, `source_artifacts`) are comma-joined
+- Vector metadata stores `feature_tags` as `list[str]` (enables `$eq` element-in-list filtering); S3 object metadata stores them as a comma-joined string — these are intentionally different representations
+- Scope check always uses `artifact_id.startswith(scope + "/")` — never bare `startswith(scope)` (prevents false prefix matches where a scope `"team-a"` would incorrectly match `"team-abc/..."`)
+- Tier 2 artifact IDs are date-anchored: `{type_slug}-{date}-{title_slug}`; tier 3 are date-independent: `{type_slug}-{title_slug}` — do not alter this scheme
 
 ## Non-Negotiable Rules
-<!-- TODO: The 3-5 things agents must never do in this repo. Think: security boundaries,
-     architectural invariants, off-limits paths.
-     Example:
-     - Never commit secrets or credentials — use SSM Parameter Store or Secrets Manager
-     - Never modify the `sql/` directory — queries are owned by the analytics team
-     - Never deploy directly from a local machine — all deployments go through CI/CD -->
+
+- Never print to stdout — it corrupts the MCP stdio transport; use `logging.getLogger(__name__)` to write to stderr
+- Never bypass the cross-scope gate — read and search tools must always check tier + visibility for foreign-scope artifacts
+- Never store artifact content in S3 Vectors metadata — content belongs in S3 only
+- Never generate random or UUID artifact keys — keys are fully deterministic from artifact attributes
 
 ## High-Friction Areas
 <!-- TODO: Gotchas, implicit contracts, and non-obvious dependencies that have caused problems before.
@@ -74,8 +83,18 @@ unavailable or misconfigured, all persisted memory is inaccessible.
      The Glue job IAM role must be updated manually when a new S3 bucket is added to the lake." -->
 
 ## CI and Quality Gates
-<!-- TODO: What checks run in CI? What must pass before merge? What commands should agents run
-     to validate their work before pushing?
-     Example: "Run `make test` before pushing. Pre-commit hooks enforce ruff + mypy + terraform fmt.
-     CI also runs `cdk synth` and `terraform validate` — a synthesis failure blocks merge.
-     Glue jobs are validated with `pytest tests/unit/` using the local Docker Glue image." -->
+
+Run before pushing:
+
+```bash
+uv run pytest tests/unit/ -q -m 'not integration'    # must pass
+uv run ruff check src/ tests/                        # must be clean
+uv run mypy src/                                     # must be clean
+uv run cairn-mcp                                     # must start without error (requires .env)
+```
+
+Integration tests (require real AWS credentials in `.env`):
+
+```bash
+uv run pytest tests/integration/ -q
+```
