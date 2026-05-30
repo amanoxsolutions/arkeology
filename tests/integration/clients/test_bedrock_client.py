@@ -33,7 +33,7 @@ def test_embed_returns_vector_of_expected_length(bedrock_client: BedrockClientIm
 
     Integration checkpoint: document the actual response JSON shape in plan.md.
     """
-    result = bedrock_client.embed("hello world", _TITAN_MODEL)
+    result = bedrock_client.embed("hello world", _TITAN_MODEL, 1024)
     # Titan v2 default dimension is 1024
     assert len(result) == 1024
     assert all(isinstance(v, float) for v in result)
@@ -41,12 +41,12 @@ def test_embed_returns_vector_of_expected_length(bedrock_client: BedrockClientIm
 
 def test_embed_is_not_all_zeros(bedrock_client: BedrockClientImpl) -> None:
     """embed result is not a zero vector — confirms the model returned real data."""
-    result = bedrock_client.embed("test text for embedding", _TITAN_MODEL)
+    result = bedrock_client.embed("test text for embedding", _TITAN_MODEL, 1024)
     assert any(v != 0.0 for v in result)
 
 
 def test_embed_different_inputs_differ(bedrock_client: BedrockClientImpl) -> None:
     """Different inputs produce different embeddings."""
-    v1 = bedrock_client.embed("authentication and JWT tokens", _TITAN_MODEL)
-    v2 = bedrock_client.embed("database schema migrations", _TITAN_MODEL)
+    v1 = bedrock_client.embed("authentication and JWT tokens", _TITAN_MODEL, 1024)
+    v2 = bedrock_client.embed("database schema migrations", _TITAN_MODEL, 1024)
     assert v1 != v2

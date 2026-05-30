@@ -256,11 +256,15 @@ async def _write_artifact_inner(  # noqa: PLR0913
         "status": artifact.status,
         "title": artifact.title,
         "visibility": artifact.visibility,
-        "feature_tags": tags,  # stored as list for $eq filter compatibility
         "author_role": author_role or "",
         "description": description,
-        "source_artifacts": sources,  # stored as list for $eq filter compatibility
     }
+    # S3 Vectors rejects empty arrays in metadata — omit list fields when empty.
+    # Non-empty lists are stored as list[str] so $eq filters can match individual elements.
+    if tags:
+        vector_metadata["feature_tags"] = tags
+    if sources:
+        vector_metadata["source_artifacts"] = sources
 
     # ── Step 7: Embed and index ───────────────────────────────────────────────
     new_keys: set[str] = set()
