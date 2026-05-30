@@ -184,12 +184,14 @@ class BedrockClientInterface(ABC):
     """Abstract interface for Amazon Bedrock embedding operations."""
 
     @abstractmethod
-    def embed(self, text: str, model_id: str) -> list[float]:
+    def embed(self, text: str, model_id: str, dimensions: int) -> list[float]:
         """Generate an embedding for the given text.
 
         Args:
             text: Input text to embed.
             model_id: Bedrock model identifier.
+            dimensions: Desired output dimension. Must match the configured
+                BEDROCK_EMBEDDING_DIMENSIONS and the S3 Vectors index dimension.
 
         Returns:
             Embedding vector as a list of floats.

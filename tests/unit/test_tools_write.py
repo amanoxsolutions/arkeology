@@ -588,9 +588,9 @@ async def test_s3_credential_failure_returns_error_bedrock_not_called(
     call_log: list[str] = []
 
     class TrackingBedrockClient(FakeBedrockClient):
-        def embed(self, text: str, model_id: str) -> list[float]:
+        def embed(self, text: str, model_id: str, dimensions: int) -> list[float]:
             call_log.append("embed")
-            return super().embed(text, model_id)
+            return super().embed(text, model_id, dimensions)
 
     s3, vectors = FakeS3Client(), FakeVectorsClient()
     bedrock = TrackingBedrockClient()

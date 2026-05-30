@@ -275,7 +275,11 @@ async def _write_artifact_inner(  # noqa: PLR0913
                 section_body=sec.body,
             )
             try:
-                embedding = bedrock.embed(embed_text, settings.bedrock_embedding_model)
+                embedding = bedrock.embed(
+                    embed_text,
+                    settings.bedrock_embedding_model,
+                    settings.bedrock_embedding_dimensions,
+                )
             except CredentialError as exc:
                 return {"error": "credential_error", "message": str(exc), "artifact_id": s3_key}
 
@@ -294,7 +298,11 @@ async def _write_artifact_inner(  # noqa: PLR0913
             description=description,
         )
         try:
-            embedding = bedrock.embed(embed_text, settings.bedrock_embedding_model)
+            embedding = bedrock.embed(
+                embed_text,
+                settings.bedrock_embedding_model,
+                settings.bedrock_embedding_dimensions,
+            )
         except CredentialError as exc:
             return {"error": "credential_error", "message": str(exc), "artifact_id": s3_key}
 

@@ -100,7 +100,11 @@ async def _search_artifacts_inner(  # noqa: PLR0913
 
     # ── Step 2: Embed the query ───────────────────────────────────────────────
     try:
-        query_vector = bedrock.embed(query, settings.bedrock_embedding_model)
+        query_vector = bedrock.embed(
+            query,
+            settings.bedrock_embedding_model,
+            settings.bedrock_embedding_dimensions,
+        )
     except CredentialError as exc:
         return {"error": "credential_error", "message": str(exc)}
 

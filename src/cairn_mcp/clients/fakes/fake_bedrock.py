@@ -56,15 +56,18 @@ class FakeBedrockClient(BedrockClientInterface):
         """Toggle simulated credential failure for all subsequent calls."""
         self._credential_failure = value
 
-    def embed(self, text: str, model_id: str) -> list[float]:
+    def embed(self, text: str, model_id: str, dimensions: int) -> list[float]:
         """Return a deterministic unit vector derived from the input text.
 
         Args:
             text: Input text to embed.
             model_id: Ignored in the fake; present for interface compatibility.
+            dimensions: Desired vector length. Overrides the ``_dimension``
+                constructor argument so the fake mirrors the real client's
+                behaviour of respecting the caller-supplied dimension.
 
         Returns:
-            Deterministic unit vector of length ``_dimension``.
+            Deterministic unit vector of length ``dimensions``.
 
         Raises:
             CredentialError: If credential failure has been simulated.
@@ -75,4 +78,4 @@ class FakeBedrockClient(BedrockClientInterface):
                 service="bedrock",
                 original=Exception("simulated credential failure"),
             )
-        return _deterministic_unit_vector(text, self._dimension)
+        return _deterministic_unit_vector(text, dimensions)

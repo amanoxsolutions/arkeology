@@ -33,26 +33,33 @@ class BedrockClientImpl(BedrockClientInterface):
             session = boto3.Session(region_name=region)
         self._client = session.client("bedrock-runtime")
 
-    def embed(self, text: str, model_id: str) -> list[float]:
+    def embed(self, text: str, model_id: str, dimensions: int) -> list[float]:
         """Generate a text embedding using the specified Bedrock model.
 
         For Titan Text Embeddings v2, the request body is:
-            {"inputText": text}
+            {"inputText": text, "dimensions": dimensions}
         The response body contains:
             {"embedding": [...], "inputTextTokenCount": N}
 
         Args:
             text: Input text to embed.
             model_id: Bedrock model identifier (e.g. "amazon.titan-embed-text-v2:0").
+            dimensions: Desired output dimension. Must match the S3 Vectors index
+                dimension. For Titan v2 the supported values are 256, 512, or 1024.
 
         Returns:
-            Embedding vector as a list of floats.
+            Embedding vector as a list of floats of length ``dimensions``.
 
         Raises:
             CredentialError: If credentials are invalid or expired.
         """
-        logger.debug("Bedrock embed model_id=%s text_len=%d", model_id, len(text))
-        request_body: dict[str, Any] = {"inputText": text}
+        logger.debug(
+            "Bedrock embed model_id=%s dimensions=%d text_len=%d",
+            model_id,
+            dimensions,
+            len(text),
+        )
+        request_body: dict[str, Any] = {"inputText": text, "dimensions": dimensions}
         try:
             response = self._client.invoke_model(
                 modelId=model_id,
