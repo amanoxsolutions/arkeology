@@ -111,12 +111,12 @@ other types and feature tags.
 ## Boundaries
 
 **Always:**
-- Queries run independently per scope in each iteration: one S3 Vectors call for the own
-  scope, one per READ_PREFIXES entry. The cross-scope gate is applied as an additional
-  metadata filter on each READ_PREFIXES query, not as post-processing.
+- Issue **one** `query_vectors` call per iteration using a combined `$or` filter that covers
+  own scope (unrestricted) and all foreign scopes (tier=3 + visibility=shared). `$or`, `$nin`,
+  `$in`, `$and`, and `$eq` are all confirmed supported by S3 Vectors.
 - The `$nin` filter on `artifact_id` excludes already-seen artifact IDs from each subsequent
-  iteration. If S3 Vectors does not support `$nin`, use the over-fetch fallback (see Open
-  Questions).
+  iteration. Omit the `$nin` clause entirely on the first iteration (the API requires a
+  non-empty array; an empty seen set means no exclusions are needed).
 - The `scope` field in vector metadata encodes the owning deployment's WRITE_PREFIX. This is
   the field used to distinguish own-scope vectors from foreign-scope vectors in a shared
   index.
@@ -204,22 +204,79 @@ Prerequisites: run after T7 integration tests have written known artifacts.
 - Write three artifacts (via T7 tool or directly via clients); search with a semantically
   related query; verify at least one of the three appears in results.
 - Metadata filter `type` reduces results correctly.
-- **Integration checkpoint:** Verify S3 Vectors supports `$nin` operator on the `artifact_id`
-  field. If not supported, fall back to over-fetch strategy and record in `plan.md` under
-  Learnings.
 - Zero-result query (semantically unrelated query on a small index) returns empty list
   without error.
+- Confirm the combined single-query approach works end-to-end: own-scope result and a
+  foreign-scope tier 3 shared result both appear; a foreign-scope tier 2 result is absent.
+
+## Filter and Query Structure — Decision
+
+**All confirmed supported by S3 Vectors:** `$nin`, `$in`, `$eq`, `$ne`, `$and`, `$or`,
+`$exists`. Source: AWS S3 Vectors metadata filtering documentation. No over-fetch fallback
+is needed.
+
+### Single combined query per iteration (not per-scope)
+
+S3 Vectors supports `$or`, so the own-scope gate and all foreign-scope gates can be
+expressed in one filter. Issue **one** `query_vectors` call per iteration, not one per
+scope. This is simpler and makes fewer API calls.
+
+Cross-scope filter structure per iteration:
+
+```
+{
+  "$and": [
+    <user_filters: type, feature_tags, team, project, tier — omitted if not provided>,
+    {"status": {"$eq": "active"}},
+    {"artifact_id": {"$nin": [<already_seen_artifact_ids>]}},
+    {
+      "$or": [
+        {"scope": {"$eq": "<settings.write_prefix>"}},
+        {
+          "$and": [
+            {"scope": {"$in": [<settings.read_prefixes_list>]}},
+            {"tier": {"$eq": 3}},
+            {"visibility": {"$eq": "shared"}}
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+Notes:
+- If `settings.read_prefixes_list` is empty, drop the `$or` wrapper entirely — use a plain
+  `{"scope": {"$eq": settings.write_prefix}}` filter.
+- On the first iteration, `seen_artifact_ids` is empty; drop the `$nin` clause entirely
+  (the API requires a non-empty array).
+- `feature_tags` filter uses `{"feature_tags": {"$eq": tag}}` — S3 Vectors `$eq` on an
+  array field returns true if the value matches **any element** in the array.
+- The `$nin` array grows each iteration. At 100 artifacts × ~60 chars each the payload is
+  ~6 KB — well within service limits.
+
+### Re-fetch loop — single-query variant
+
+```
+seen_ids = set()
+results = []
+for iteration in 1..SEARCH_MAX_ITERATIONS:
+    build filter (omit $nin if seen_ids is empty, omit $or if no READ_PREFIXES)
+    call query_vectors(query_vector, top_k=SEARCH_FETCH_TOP_K, filter=filter)
+    group section vectors by artifact_id, keep max score per artifact
+    new = [a for a in grouped if a.artifact_id not in seen_ids]
+    if not new:
+        break  # index exhausted — stop early
+    results.extend(new)
+    seen_ids.update(a.artifact_id for a in new)
+    if len(results) >= top_k:
+        break
+return sorted(results, key=score, reverse=True)[:top_k]
+```
+
+Update unit tests accordingly: the re-fetch loop test now tracks a single `query_vectors`
+call per iteration, not one per scope.
 
 ## Open Questions
 
-- [ ] S3 Vectors `$nin` support on `artifact_id` metadata field: **must be verified in
-  integration tests before implementing the re-fetch loop**. If `$nin` is not supported,
-  use the over-fetch fallback: multiply `SEARCH_FETCH_TOP_K` by the current iteration number
-  on each call and deduplicate client-side. Document which approach is used.
-- [ ] Per-scope vs single combined query: does querying the shared index once with a combined
-  own-scope + foreign-scope filter perform better than separate per-scope queries? Start with
-  per-scope queries (simpler to reason about the cross-scope gate); optimise only if
-  integration tests reveal unacceptable latency.
-- [ ] Multi-scope result merging: when own-scope and foreign-scope queries return results in
-  the same iteration, should they be merged before deduplication or after? Merge after
-  deduplication within each scope result set, then re-rank globally.
+*(none — all decisions resolved)*
