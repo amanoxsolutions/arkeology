@@ -41,6 +41,31 @@ cairn-mcp is an attempt to address both problems in AWS environments: **structur
 by metadata filter, or by semantic similarity. Canonical knowledge can be flagged as shareable,
 making it discoverable by agents on other projects or teams that point at the same store.
 
+## Key Features
+
+- **Immediate write-then-read consistency** — an artifact written in one tool call is searchable in the next. No background sync job, no ingestion pipeline, no delay between writing and finding.
+- **Semantic search + metadata filtering** — retrieve artifacts by meaning, not just keyword. Combine a natural-language query with type, feature tag, team, or project filters in a single call. Start narrow, broaden only when needed.
+- **Section-level indexing** — every `##` section in an artifact is indexed as an independent vector. A query for "trade-offs of the auth redesign" matches the `## Trade-offs` section directly instead of a diluted document-level embedding.
+- **Cross-team knowledge sharing with a confidentiality gate** — tier 3 canonical artifacts (ADRs, architecture decisions) are discoverable across teams and projects when a shared S3 Vectors index is configured. Tier 2 working documents stay strictly project-local — a deliberate promotion step is required to share knowledge, not an accidental one.
+- **Structured, filterable metadata** — every artifact carries typed metadata (type, team, project, tier, date, status, title, visibility, feature tags) stored in S3 Vectors and returned with every search result. No S3 content fetch needed to browse and filter.
+- **AWS-native — no additional services to run** — S3, S3 Vectors, and Bedrock are the only services required. If your team already runs workloads on AWS, there is nothing new to operate or secure.
+- **CI/CD-ready** — all standard AWS credential environments are supported: local developer profiles, IAM roles, ECS tasks, CI/CD OIDC tokens. A code-review agent running in a pipeline writes findings using the same tools as an interactive developer agent.
+- **Any MCP-compatible agent** — no framework dependency. Schema documentation is exposed as MCP Resources the server publishes at runtime, so any connected agent can discover valid types, tiers, and field constraints without consulting external docs.
+
+### cairn-mcp vs. other approaches
+
+Most existing approaches solve one half of the problem — storage or retrieval — but not both, and not at team scale with immediate consistency. The table below surfaces one gap cairn-mcp closes for each, and one gap it does not.
+
+| Approach | Where cairn-mcp wins | Where they win |
+|---|---|---|
+| **Repo + `index.md`**<br>(e.g. Streamlit's GitHub wiki hack, an `artifacts/` folder with a shared index file) | - No semantic search<br>- No cross-team or cross-project sharing<br>- Potential index file write race condition or merge conflict | - Zero infrastructure and cloud cost<br>- No AWS account required<br>- Full artifact history in git |
+| **LLM wiki**<br>(Karpathy's [llm-wiki](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f) pattern) | - Not shared across engineers, machines, or CI/CD without git discipline<br>- No semantic search at team scale without bolt-on tooling<br>- No cross-team sharing mechanism | - Synthesised, compiled knowledge rather than raw point-in-time records<br>- Contradiction detection and staleness flagging (lint) |
+| **PageIndex**<br>([VectifyAI/PageIndex](https://github.com/VectifyAI/PageIndex)) | - Retrieval-only: no write path, no artifact storage<br>- No metadata schema or filtering<br>- No cross-team sharing | - Handles long unstructured documents where vector similarity fails<br>- No embedding pre-computation required |
+| **MemoRAG**<br>([qhjqhj00/MemoRAG](https://github.com/qhjqhj00/MemoRAG)) | - Retrieval-only: no write path, no artifact storage<br>- Requires training a specialised model (RLGF) — significant ML overhead<br>- No metadata schema or cross-team sharing | - Handles implicit queries where the user cannot articulate search terms<br>- Scales to massive, unstructured corpora |
+| **Bedrock Knowledge Base**<br>(AWS managed RAG) | - Ingestion latency: an artifact written now is not searchable immediately<br>- Higher cost | - Fully managed: no index to create or maintain<br>- Broader document format support beyond markdown |
+
+---
+
 ## Who this is for — and who it isn't?
 
 **A good fit if:**
