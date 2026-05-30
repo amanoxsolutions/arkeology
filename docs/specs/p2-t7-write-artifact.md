@@ -207,13 +207,61 @@ Credential failure:
 - **Integration checkpoint:** Confirm `#` separator in vector keys is valid (expected:
   already confirmed in Phase 1 — verify no regression).
 
+## Embedding Input Format — Decision
+
+Use a **labelled, structured string** so the embedding model understands the role of each
+field. Labelled inputs consistently outperform plain concatenation in retrieval benchmarks
+because the label anchors the semantic meaning of each field to the query.
+
+**Section vector embedding input:**
+```
+Title: {title}
+Type: {type}
+Tags: {tag1}, {tag2}, ...
+
+{section_heading}
+{section_body}
+```
+
+- The section heading line is included as part of the embedding (it is the strongest semantic
+  signal for that section).
+- If `feature_tags` is empty, omit the `Tags:` line entirely — do not embed `"Tags: "`.
+- A blank line separates the metadata block from the section content.
+
+**Document-level fallback embedding input (no `##` sections):**
+```
+Title: {title}
+Type: {type}
+Tags: {tag1}, {tag2}, ...
+Description: {description}
+```
+
+Implement a private helper `_build_section_embedding_text` and
+`_build_document_embedding_text` in `tools/write.py`. Both must be unit-tested directly
+(pass strings in, assert the formatted output) — these helpers are the most fragile part of
+the write pipeline.
+
+## Tier 3 Orphan Cleanup Timing — Decision
+
+**Write new vectors first, then delete orphans.**
+
+Rationale:
+- **Delete first** creates a window where the artifact has zero vectors. A concurrent search
+  during that window returns nothing — the artifact disappears briefly. Worse, if the new
+  vector writes fail, you have deleted the old index entries and cannot recover without
+  re-embedding.
+- **Write first** means new vectors are live before stale ones are removed. A concurrent
+  search during the delete phase may briefly see both old and new section vectors for the
+  same artifact, but the artifact still surfaces in results with a correct score. Far less
+  harmful than invisibility.
+
+Sequence for tier 3 re-write:
+1. S3 PutObject (content).
+2. Embed all new sections.
+3. PutVector for all new section keys (upsert — existing keys are overwritten in place).
+4. `list_vectors_by_metadata({"artifact_id": {"$eq": artifact_id}})` → get all current keys.
+5. Delete any key in the returned set that is not in the newly written key set.
+
 ## Open Questions
 
-- [ ] Embedding input format: for section vectors, is the concatenation order
-  `title + type + feature_tags + section_content`, or `section_heading + section_content`
-  only? The PRD says "title + type + feature tags + section content" — use this unless
-  empirical search quality testing shows otherwise.
-- [ ] Tier 3 orphan cleanup timing: delete orphaned vectors before or after writing new ones?
-  Deleting before risks a window where the artifact has no vectors (concurrent reads see
-  nothing). Deleting after risks a window with stale and new vectors coexisting. Choose
-  "delete after" (shorter gap) and document the decision.
+*(none — all decisions resolved)*
