@@ -1,0 +1,160 @@
+"""Integration tests for cairn_mcp.tools.write.
+
+Requires real AWS credentials and configured .env file.
+All tests are decorated with @pytest.mark.integration.
+"""
+
+import pytest
+
+from cairn_mcp.clients.bedrock import BedrockClientImpl
+from cairn_mcp.clients.s3 import S3ClientImpl
+from cairn_mcp.clients.vectors import VectorsClientImpl
+from cairn_mcp.config import Settings
+from cairn_mcp.tools.write import write_artifact
+
+
+@pytest.fixture(scope="session")
+def settings() -> Settings:
+    """Session-scoped Settings constructed from environment after load_env runs."""
+    return Settings()
+
+
+@pytest.fixture(scope="session")
+def s3(settings: Settings) -> S3ClientImpl:
+    """Session-scoped real S3 client."""
+    return S3ClientImpl(
+        region=settings.aws_region,
+        profile=settings.aws_profile,
+        bucket=settings.artifact_bucket,
+    )
+
+
+@pytest.fixture(scope="session")
+def vectors(settings: Settings) -> VectorsClientImpl:
+    """Session-scoped real S3 Vectors client."""
+    return VectorsClientImpl(
+        region=settings.aws_region,
+        profile=settings.aws_profile,
+        bucket=settings.vectors_bucket,
+        index=settings.vectors_index,
+    )
+
+
+@pytest.fixture(scope="session")
+def bedrock(settings: Settings) -> BedrockClientImpl:
+    """Session-scoped real Bedrock client."""
+    return BedrockClientImpl(
+        region=settings.aws_region,
+        profile=settings.aws_profile,
+    )
+
+
+_BASE_KWARGS: dict = {
+    "type": "code_review",
+    "team": "platform",
+    "project": "cairn",
+    "tier": 2,
+    "date": "2026-05-30",
+    "status": "active",
+    "title": "Integration test write artifact",
+    "description": "Written by integration test suite.",
+    "content": "## Summary\n\nAll good.\n\n## Details\n\nNo issues found.",
+    "visibility": "shared",
+}
+
+
+@pytest.mark.integration
+async def test_full_round_trip_s3_content_and_vector_metadata(
+    settings: Settings,
+    s3: S3ClientImpl,
+    vectors: VectorsClientImpl,
+    bedrock: BedrockClientImpl,
+) -> None:
+    """Write artifact → S3 GetObject returns exact content; vector has correct artifact_id."""
+    result = await write_artifact(
+        s3=s3, vectors=vectors, bedrock=bedrock, settings=settings, **_BASE_KWARGS
+    )
+
+    artifact_id = result["artifact_id"]
+    stored_content = s3.get_object(artifact_id)
+    assert stored_content == _BASE_KWARGS["content"]
+
+    # At least one vector key should be indexed
+    vector_results = vectors.get_vectors([artifact_id + "#summary"])
+    # Try the fallback key if no sections were indexed
+    if not vector_results:
+        vector_results = vectors.get_vectors([artifact_id])
+    assert len(vector_results) > 0
+    assert vector_results[0]["metadata"]["artifact_id"] == artifact_id
+
+
+@pytest.mark.integration
+async def test_tier3_rewrite_fewer_sections_cleans_orphans(
+    settings: Settings,
+    s3: S3ClientImpl,
+    vectors: VectorsClientImpl,
+    bedrock: BedrockClientImpl,
+) -> None:
+    """Tier 3 re-write with 2 sections after 3 → list_vectors_by_metadata returns 2 keys."""
+    three_section_content = (
+        "## Alpha\n\nBody A.\n\n## Beta\n\nBody B.\n\n## Gamma\n\nBody C."
+    )
+    two_section_content = "## Alpha\n\nBody A.\n\n## Beta\n\nBody B."
+
+    kwargs_3 = {**_BASE_KWARGS, "tier": 3, "title": "Integration rewrite test three"}
+    kwargs_2 = {**_BASE_KWARGS, "tier": 3, "title": "Integration rewrite test three"}
+
+    result = await write_artifact(
+        s3=s3,
+        vectors=vectors,
+        bedrock=bedrock,
+        settings=settings,
+        **{**kwargs_3, "content": three_section_content},
+    )
+    artifact_id = result["artifact_id"]
+
+    await write_artifact(
+        s3=s3,
+        vectors=vectors,
+        bedrock=bedrock,
+        settings=settings,
+        **{**kwargs_2, "content": two_section_content},
+    )
+
+    keys = vectors.list_vectors_by_metadata({"artifact_id": {"$eq": artifact_id}})
+    assert len(keys) == 2
+
+
+@pytest.mark.integration
+async def test_upsert_tier2_twice_one_s3_object_same_vector_count(
+    settings: Settings,
+    s3: S3ClientImpl,
+    vectors: VectorsClientImpl,
+    bedrock: BedrockClientImpl,
+) -> None:
+    """Write same tier 2 artifact twice → 1 S3 object; vector count unchanged."""
+    kwargs = {
+        **_BASE_KWARGS,
+        "title": "Integration upsert test",
+        "date": "2026-05-30",
+        "tier": 2,
+    }
+
+    result1 = await write_artifact(
+        s3=s3, vectors=vectors, bedrock=bedrock, settings=settings, **kwargs
+    )
+    artifact_id = result1["artifact_id"]
+
+    keys_after_first = vectors.list_vectors_by_metadata({"artifact_id": {"$eq": artifact_id}})
+    count_after_first = len(keys_after_first)
+
+    result2 = await write_artifact(
+        s3=s3, vectors=vectors, bedrock=bedrock, settings=settings, **kwargs
+    )
+    assert result1["artifact_id"] == result2["artifact_id"]
+
+    # S3 should have exactly 1 object at this key
+    assert s3.get_object(artifact_id) == kwargs["content"]
+
+    keys_after_second = vectors.list_vectors_by_metadata({"artifact_id": {"$eq": artifact_id}})
+    assert len(keys_after_second) == count_after_first

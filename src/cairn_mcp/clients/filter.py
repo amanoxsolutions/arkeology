@@ -7,8 +7,10 @@ same filter logic that runs in production.
 
 Supported operators:
     {"field": {"$eq": value}}  — exact match; for list fields, value-in-list.
+    {"field": {"$in": [...]}}  — field value is in the provided list.
     {"field": {"$nin": [...]}} — not-in list; for list fields, no element in list.
     {"$and": [expr, ...]}      — logical AND of sub-expressions.
+    {"$or": [expr, ...]}       — logical OR of sub-expressions.
 """
 
 from typing import Any
@@ -31,6 +33,9 @@ def matches_filter(metadata: dict[str, Any], filter: dict[str, Any]) -> bool:
         if field == "$and":
             if not all(matches_filter(metadata, sub) for sub in expr):
                 return False
+        elif field == "$or":
+            if not any(matches_filter(metadata, sub) for sub in expr):
+                return False
         elif isinstance(expr, dict):
             field_value = metadata.get(field)
             for op, operand in expr.items():
@@ -39,6 +44,12 @@ def matches_filter(metadata: dict[str, Any], filter: dict[str, Any]) -> bool:
                         if operand not in field_value:
                             return False
                     elif field_value != operand:
+                        return False
+                elif op == "$in":
+                    if isinstance(field_value, list):
+                        if not any(v in operand for v in field_value):
+                            return False
+                    elif field_value not in operand:
                         return False
                 elif op == "$nin":
                     if isinstance(field_value, list):

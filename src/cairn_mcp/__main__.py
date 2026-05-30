@@ -106,7 +106,15 @@ def main() -> None:
         print(f"Startup failed — credential error: {exc.message}", file=sys.stderr)
         sys.exit(1)
 
-    # ── Step 4: Start the server ──────────────────────────────────────────────
+    # ── Step 4: Register MCP tools ────────────────────────────────────────────
+    server.register_tools(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock_client,
+    )
+
+    # ── Step 5: Start the server ──────────────────────────────────────────────
     server.run()
 
 

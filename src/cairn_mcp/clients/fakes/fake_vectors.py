@@ -1,7 +1,7 @@
 """In-memory S3 Vectors fake for unit tests.
 
 Implements VectorsClientInterface entirely in memory using cosine similarity.
-Supports metadata filter operators: $eq, $nin, $and.
+Supports metadata filter operators: $eq, $in, $nin, $and, $or.
 Supports simulated credential failures via set_credential_failure().
 """
 
