@@ -57,7 +57,7 @@ def main() -> None:
 
     # ── Step 1: Parse and validate configuration ──────────────────────────────
     try:
-        settings = Settings()
+        settings = Settings(_env_file=".env", _env_file_encoding="utf-8")
     except ValidationError as exc:
         errors = exc.errors()
         messages = []

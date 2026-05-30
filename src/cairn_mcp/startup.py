@@ -5,7 +5,7 @@ Performs five checks in order before the server enters its MCP event loop:
   2. Write prefix access (read + write round-trip using a probe object)
   3. Read prefix access (list_objects on each entry in READ_PREFIXES)
   4. Vector index existence (describe_index)
-  5. Embedding model dimension vs. index dimension (static registry + probe fallback)
+  5. Embedding model dimension vs. index dimension (from BEDROCK_EMBEDDING_DIMENSIONS)
 
 All checks use the client interfaces — no direct boto3 calls.
 Failures raise StartupValidationError; credential errors propagate as CredentialError.
@@ -24,12 +24,6 @@ from cairn_mcp.errors import CredentialError, StartupValidationError, VectorInde
 
 logger = logging.getLogger(__name__)
 
-# Known output dimensions for Bedrock embedding models.
-# If a model is not listed here, a probe embedding call is used to determine the dimension.
-KNOWN_MODEL_DIMENSIONS: dict[str, int] = {
-    "amazon.titan-embed-text-v2:0": 1024,
-}
-
 # Key suffix for the write probe object. Starts with underscore to distinguish from real artifacts.
 _PROBE_KEY_SUFFIX = "_cairn_mcp_startup_probe"
 
@@ -46,7 +40,7 @@ def validate_startup(
         settings: Validated server configuration.
         s3: S3 client instance.
         vectors: S3 Vectors client instance.
-        bedrock: Bedrock client instance.
+        bedrock: Bedrock client instance (reserved for future checks).
 
     Returns:
         None on success.
@@ -59,7 +53,7 @@ def validate_startup(
     _check_write_prefix(settings, s3)
     _check_read_prefixes(settings, s3)
     index_info = _check_vector_index(settings, vectors)
-    _check_model_dimension(settings, vectors, bedrock, index_info)
+    _check_model_dimension(settings, index_info)
     logger.info("Startup validation passed (5/5 checks). cairn-mcp is ready.")
 
 
@@ -186,11 +180,9 @@ def _check_vector_index(settings: Settings, vectors: VectorsClientInterface) -> 
 
 def _check_model_dimension(
     settings: Settings,
-    vectors: VectorsClientInterface,
-    bedrock: BedrockClientInterface,
     index_info: dict[str, Any],
 ) -> None:
-    """Check 5: Compare index dimension against the embedding model's output dimension."""
+    """Check 5: Compare index dimension against BEDROCK_EMBEDDING_DIMENSIONS."""
     raw_dim = index_info.get("dimension")
     if raw_dim is None:
         raise StartupValidationError(
@@ -201,35 +193,22 @@ def _check_model_dimension(
             ),
         )
     index_dim = int(raw_dim)
-    model_id = settings.bedrock_embedding_model
-
-    # Strategy A: static registry for known models
-    model_dim = KNOWN_MODEL_DIMENSIONS.get(model_id)
-
-    if model_dim is None:
-        # Strategy B: probe call for unknown models
-        logger.debug(
-            "Model '%s' not in known dimension registry; probing via embedding call.", model_id
-        )
-        probe_vector = bedrock.embed(text="probe", model_id=model_id)
-        model_dim = len(probe_vector)
+    model_dim = settings.bedrock_embedding_dimensions
 
     if model_dim != index_dim:
         raise StartupValidationError(
             check="vector_index_dimension",
             message=(
-                f"Embedding model dimension mismatch: model '{model_id}' produces "
-                f"{model_dim}-dimensional vectors but index '{settings.vectors_index}' "
+                f"Embedding model dimension mismatch: BEDROCK_EMBEDDING_DIMENSIONS is "
+                f"{model_dim} but index '{settings.vectors_index}' "
                 f"expects {index_dim} dimensions. "
                 f"Either recreate the index with dimension {model_dim}, "
-                f"or set BEDROCK_EMBEDDING_MODEL to a model that produces "
-                f"{index_dim}-dimensional vectors."
+                f"or set BEDROCK_EMBEDDING_DIMENSIONS={index_dim} to match the index."
             ),
         )
 
     logger.debug(
-        "Check 5/5 passed: model '%s' dimension %d matches index dimension %d",
-        model_id,
+        "Check 5/5 passed: BEDROCK_EMBEDDING_DIMENSIONS=%d matches index dimension %d",
         model_dim,
         index_dim,
     )

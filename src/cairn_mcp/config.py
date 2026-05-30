@@ -3,23 +3,7 @@
 All configuration is read from environment variables once at startup.
 The Settings object is constructed in __main__.py and passed through
 dependency injection — it is never re-read from the environment mid-session.
-
-Environment variable reference:
-
-| Variable               | Type      | Required | Default                        | Constraint      |
-|------------------------|-----------|----------|--------------------------------|-----------------|
-| AWS_REGION             | str       | ✅       | —                              | Non-empty       |
-| ARTIFACT_BUCKET        | str       | ✅       | —                              | Non-empty       |
-| VECTORS_BUCKET         | str       | ✅       | —                              | Non-empty       |
-| VECTORS_INDEX          | str       | ✅       | —                              | Non-empty       |
-| AWS_PROFILE            | str|None  | ❌       | None                           | —               |
-| WRITE_PREFIX           | str       | ❌       | ""                             | —               |
-| READ_PREFIXES          | str       | ❌       | ""                             | —               |
-| BEDROCK_EMBEDDING_MODEL| str       | ❌       | amazon.titan-embed-text-v2:0   | Non-empty if set|
-| SEARCH_FETCH_TOP_K     | int       | ❌       | 25                             | 1–100 inclusive |
-| SEARCH_MAX_ITERATIONS  | int       | ❌       | 3                              | ≥1              |
-| SEARCH_DEFAULT_TOP_K   | int       | ❌       | 5                              | 1–100 inclusive |
-| LOG_LEVEL              | str       | ❌       | INFO           | DEBUG/INFO/WARNING/ERROR |
+Each field carries a description with its type, default, and constraints.
 """
 
 from typing import Annotated, Any
@@ -98,6 +82,20 @@ class Settings(BaseSettings):
         ),
     ]
 
+    BEDROCK_EMBEDDING_DIMENSIONS: Annotated[
+        int,
+        Field(
+            default=1024,
+            description=(
+                "Output dimension of the embedding model. "
+                "Must match the dimension of the configured VECTORS_INDEX. "
+                "Defaults to 1024 (Amazon Titan Text Embeddings v2 default). "
+                "Set explicitly when using a non-default dimension "
+                "(e.g. Titan v2 at 256 or 512, or a different model entirely)."
+            ),
+        ),
+    ]
+
     SEARCH_FETCH_TOP_K: Annotated[
         int,
         Field(
@@ -156,6 +154,13 @@ class Settings(BaseSettings):
             raise ValueError(f"SEARCH_DEFAULT_TOP_K must be between 1 and 100 (got {v})")
         return v
 
+    @field_validator("BEDROCK_EMBEDDING_DIMENSIONS")
+    @classmethod
+    def validate_bedrock_embedding_dimensions(cls, v: int) -> int:
+        if v < 1:
+            raise ValueError(f"BEDROCK_EMBEDDING_DIMENSIONS must be at least 1 (got {v})")
+        return v
+
     @field_validator("LOG_LEVEL")
     @classmethod
     def validate_log_level(cls, v: str) -> str:
@@ -205,6 +210,11 @@ class Settings(BaseSettings):
     def bedrock_embedding_model(self) -> str:
         """Bedrock embedding model ID."""
         return self.BEDROCK_EMBEDDING_MODEL
+
+    @property
+    def bedrock_embedding_dimensions(self) -> int:
+        """Output dimension of the embedding model."""
+        return self.BEDROCK_EMBEDDING_DIMENSIONS
 
     @property
     def search_fetch_top_k(self) -> int:

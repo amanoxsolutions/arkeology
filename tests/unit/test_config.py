@@ -21,6 +21,7 @@ def clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
         "WRITE_PREFIX",
         "READ_PREFIXES",
         "BEDROCK_EMBEDDING_MODEL",
+        "BEDROCK_EMBEDDING_DIMENSIONS",
         "SEARCH_FETCH_TOP_K",
         "SEARCH_MAX_ITERATIONS",
         "SEARCH_DEFAULT_TOP_K",
@@ -303,3 +304,45 @@ def test_effective_read_scopes_no_prefix_no_read_prefixes(
     _required_env(monkeypatch)
     settings = Settings()
     assert settings.effective_read_scopes == [""]
+
+
+# --- BEDROCK_EMBEDDING_DIMENSIONS ---
+
+
+def test_bedrock_embedding_dimensions_defaults_to_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """BEDROCK_EMBEDDING_DIMENSIONS defaults to 1024 when not set."""
+    _required_env(monkeypatch)
+    settings = Settings()
+    assert settings.bedrock_embedding_dimensions == 1024
+
+
+def test_bedrock_embedding_dimensions_parses_positive_integer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """BEDROCK_EMBEDDING_DIMENSIONS accepts a positive integer."""
+    _required_env(monkeypatch)
+    monkeypatch.setenv("BEDROCK_EMBEDDING_DIMENSIONS", "2048")
+    settings = Settings()
+    assert settings.bedrock_embedding_dimensions == 2048
+
+
+def test_bedrock_embedding_dimensions_rejects_zero(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """BEDROCK_EMBEDDING_DIMENSIONS=0 raises ValidationError."""
+    _required_env(monkeypatch)
+    monkeypatch.setenv("BEDROCK_EMBEDDING_DIMENSIONS", "0")
+    with pytest.raises(Exception):
+        Settings()
+
+
+def test_bedrock_embedding_dimensions_rejects_negative(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """BEDROCK_EMBEDDING_DIMENSIONS=-1 raises ValidationError."""
+    _required_env(monkeypatch)
+    monkeypatch.setenv("BEDROCK_EMBEDDING_DIMENSIONS", "-1")
+    with pytest.raises(Exception):
+        Settings()

@@ -174,7 +174,7 @@ def test_check4_index_missing_raises_startup_error(settings: Settings) -> None:
 
 
 def test_check5_dimension_mismatch_raises_startup_error(settings: Settings) -> None:
-    """Index dim=512 but Titan v2 expects 1024 → dimension mismatch error."""
+    """Default BEDROCK_EMBEDDING_DIMENSIONS=1024 but index=512 → mismatch error."""
     s3 = FakeS3Client()
     vectors = FakeVectorsClient(dimension=512)
     bedrock = FakeBedrockClient(dimension=1024)
@@ -186,14 +186,16 @@ def test_check5_dimension_mismatch_raises_startup_error(settings: Settings) -> N
     assert "1024" in exc_info.value.message
 
 
-def test_check5_passes_known_model_registry(
-    settings: Settings, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Titan model in registry, index dim=1024 → no bedrock.embed call needed."""
-    # Titan v2 has dimension 1024 in registry → no probe needed
+def test_check5_passes_when_dimensions_match(settings: Settings) -> None:
+    """BEDROCK_EMBEDDING_DIMENSIONS=1024 (default) and index=1024 → passes."""
     s3 = FakeS3Client()
     vectors = FakeVectorsClient(dimension=1024)
+    bedrock = FakeBedrockClient(dimension=1024)
+    validate_startup(settings=settings, s3=s3, vectors=vectors, bedrock=bedrock)
 
+
+def test_check5_no_bedrock_embed_call_ever(settings: Settings) -> None:
+    """Check 5 never calls bedrock.embed — dimension comes from settings."""
     embed_called: list[bool] = []
 
     class TrackingBedrock(FakeBedrockClient):
@@ -201,38 +203,11 @@ def test_check5_passes_known_model_registry(
             embed_called.append(True)
             return super().embed(text, model_id)
 
+    s3 = FakeS3Client()
+    vectors = FakeVectorsClient(dimension=1024)
     bedrock = TrackingBedrock(dimension=1024)
     validate_startup(settings=settings, s3=s3, vectors=vectors, bedrock=bedrock)
-    assert not embed_called, "Known model should not trigger a probe embed call"
-
-
-def test_check5_passes_unknown_model_uses_probe(
-    settings: Settings, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Unknown model → probe embed call used to determine dimension."""
-    monkeypatch.setenv("BEDROCK_EMBEDDING_MODEL", "custom-model:v1")
-    settings_custom = Settings()
-
-    s3 = FakeS3Client()
-    vectors = FakeVectorsClient(dimension=1024)
-    bedrock = FakeBedrockClient(dimension=1024)
-    # Should pass: probe returns 1024-dim vector, index is 1024
-    validate_startup(settings=settings_custom, s3=s3, vectors=vectors, bedrock=bedrock)
-
-
-def test_check5_unknown_model_dimension_mismatch_raises(
-    settings: Settings, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Unknown model probe returns 512-dim, index is 1024 → mismatch error."""
-    monkeypatch.setenv("BEDROCK_EMBEDDING_MODEL", "custom-model:v1")
-    settings_custom = Settings()
-
-    s3 = FakeS3Client()
-    vectors = FakeVectorsClient(dimension=1024)
-    bedrock = FakeBedrockClient(dimension=512)  # probe will return 512-dim vector
-    with pytest.raises(StartupValidationError) as exc_info:
-        validate_startup(settings=settings_custom, s3=s3, vectors=vectors, bedrock=bedrock)
-    assert exc_info.value.check == "vector_index_dimension"
+    assert not embed_called, "bedrock.embed must never be called during startup"
 
 
 # ── Credential error mid-startup propagates ────────────────────────────────────
@@ -266,3 +241,52 @@ def test_credential_error_in_check3_propagates(
             vectors=vectors,
             bedrock=bedrock,
         )
+
+
+# ── Check 5: BEDROCK_EMBEDDING_DIMENSIONS override ────────────────────────────
+
+
+def test_check5_explicit_dimensions_override_skips_registry_and_probe(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """BEDROCK_EMBEDDING_DIMENSIONS=2048 with index=2048 → passes; no embed call."""
+    monkeypatch.setenv("AWS_REGION", "us-east-1")
+    monkeypatch.setenv("ARTIFACT_BUCKET", "my-artifacts")
+    monkeypatch.setenv("VECTORS_BUCKET", "my-vectors")
+    monkeypatch.setenv("VECTORS_INDEX", "my-index")
+    monkeypatch.setenv("BEDROCK_EMBEDDING_DIMENSIONS", "2048")
+    settings_custom = Settings()
+
+    embed_called: list[bool] = []
+
+    class TrackingBedrock(FakeBedrockClient):
+        def embed(self, text: str, model_id: str) -> list[float]:
+            embed_called.append(True)
+            return super().embed(text, model_id)
+
+    s3 = FakeS3Client()
+    vectors = FakeVectorsClient(dimension=2048)
+    bedrock = TrackingBedrock(dimension=2048)
+    validate_startup(settings=settings_custom, s3=s3, vectors=vectors, bedrock=bedrock)
+    assert not embed_called, "bedrock.embed must never be called during startup"
+
+
+def test_check5_explicit_dimensions_override_mismatch_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """BEDROCK_EMBEDDING_DIMENSIONS=512 but index=2048 → mismatch error."""
+    monkeypatch.setenv("AWS_REGION", "us-east-1")
+    monkeypatch.setenv("ARTIFACT_BUCKET", "my-artifacts")
+    monkeypatch.setenv("VECTORS_BUCKET", "my-vectors")
+    monkeypatch.setenv("VECTORS_INDEX", "my-index")
+    monkeypatch.setenv("BEDROCK_EMBEDDING_DIMENSIONS", "512")
+    settings_custom = Settings()
+
+    s3 = FakeS3Client()
+    vectors = FakeVectorsClient(dimension=2048)
+    bedrock = FakeBedrockClient(dimension=512)
+    with pytest.raises(StartupValidationError) as exc_info:
+        validate_startup(settings=settings_custom, s3=s3, vectors=vectors, bedrock=bedrock)
+    assert exc_info.value.check == "vector_index_dimension"
+    assert "512" in exc_info.value.message
+    assert "2048" in exc_info.value.message
