@@ -135,7 +135,44 @@ discover what to provide without consulting external documentation.
 
 ## Status
 
-> **Phase 3 complete** — `write_artifact`, `search_artifacts`, `read_artifact`, `list_artifacts`, `archive_artifact`, `delete_artifact`, `purge_archived`, `health_check`, and `synthesise_artifacts` are implemented and unit-tested. MCP Resources, setup documentation, AGENTS.md snippet, and migration skill are planned for Phase 4.
+> **Phase 3 complete** — `write_artifact`, `search_artifacts`, `read_artifact`, `list_artifacts`, `archive_artifact`, `delete_artifact`, `purge_archived`, `health_check`, and `synthesise_artifacts` are implemented and unit-tested. Integration tests, setup documentation, and AGENTS.md snippet are planned to complete Phase 4.
+
+## Using the Migration Skill
+
+The migration skill provides a structured one-time workflow for importing
+existing repository documentation into cairn-mcp. Use it when adopting
+cairn-mcp on a project that already has months or years of accumulated docs
+in `docs/`.
+
+The skill covers discovery, classification by directory convention, metadata
+enrichment (descriptions, git-recovered dates), and two execution paths:
+
+- **< 30 files (agent-only):** the agent reads each file, generates
+  descriptions in-context, and calls `write_artifact` for each. No extra
+  tooling required.
+- **≥ 30 files (manifest + script):** the agent produces a `CAIRN_IMPORT.yaml`
+  manifest, the operator reviews it, then `migrate.py` executes bulk writes
+  with Bedrock-generated descriptions and `--dry-run` preview before
+  committing.
+
+### Installation
+
+Copy the skill into your IDE's skills directory:
+
+```bash
+cp -r skills/migration /path/to/ide-skills-directory/
+```
+
+| IDE | Skills directory |
+|-----|-----------------|
+| Claude Code | `.claude/skills/` or `~/.claude/skills/` |
+| GitHub Copilot (VS Code) | `.github/copilot-instructions.d/` |
+| OpenCode | `~/.config/opencode/skills/` |
+| Codex | `.codex/skills/` |
+
+Once installed, load the skill and follow the seven-step workflow in
+`SKILL.md` — from pre-migration health check through to post-migration
+`AGENTS.md` update.
 
 ## Prerequisites
 
@@ -175,6 +212,124 @@ All configuration is read from environment variables (or a `.env` file in the wo
 | `SEARCH_DEFAULT_TOP_K` | No | `5` | Default number of artifacts returned when the caller does not specify |
 | `FAILURE_LOG_PATH` | No | `.cairn_failures.jsonl` | Path to the tier 1 failure log file (JSONL); appended on partial write failures |
 | `LOG_LEVEL` | No | `INFO` | Python logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
+
+## AWS Provisioning
+
+Provision the four required resources in order. All commands use the AWS CLI; substitute
+`YOUR-*` placeholders with your actual values.
+
+### Step 1 — Create the S3 artifact bucket
+
+```bash
+aws s3api create-bucket \
+  --bucket YOUR-ARTIFACT-BUCKET \
+  --region YOUR-REGION \
+  --create-bucket-configuration LocationConstraint=YOUR-REGION
+  # Omit --create-bucket-configuration for us-east-1
+```
+
+This is a standard S3 bucket — it stores artifact content as S3 objects. Enable versioning
+and server-side encryption according to your team's data policy; cairn-mcp works with either.
+
+### Step 2 — Create the S3 Vectors bucket
+
+```bash
+aws s3vectors create-vector-bucket \
+  --vector-bucket-name YOUR-VECTORS-BUCKET \
+  --region YOUR-REGION
+```
+
+### Step 3 — Create the S3 Vectors index
+
+> **⚠️ Warning — the following index properties are immutable after creation.** They cannot
+> be changed without destroying and recreating the index:
+> - Vector dimension
+> - Distance metric
+> - Index name
+> - Non-filterable metadata key names
+>
+> A dimension, metric, or key mismatch after creation requires creating a new index and
+> re-indexing all artifacts. Choose these values carefully before running the command below.
+
+```bash
+aws s3vectors create-index \
+  --vector-bucket-name YOUR-VECTORS-BUCKET \
+  --index-name YOUR-INDEX-NAME \
+  --data-type float32 \
+  --dimension 1024 \
+  --distance-metric cosine \
+  --metadata-configuration '{
+    "nonFilterableMetadataKeys": ["description", "source_artifacts"]
+  }'
+```
+
+Two metadata keys are declared non-filterable because filtering on them is never needed:
+
+- `description` — tweet-length summary stored with each vector; returned in search results
+  but not used as a filter predicate.
+- `source_artifacts` — comma-joined list of source artifact IDs carried by `synthesis` type
+  artifacts; not used for filtering.
+
+`1024` is the default output dimension for Amazon Titan Text Embeddings v2. Titan v2 also
+supports 256 and 512. If you use a non-default dimension, set `BEDROCK_EMBEDDING_DIMENSIONS`
+to the same value — the server validates that the configured dimension matches the index at
+startup.
+
+### Step 4 — Enable Bedrock model access
+
+Go to **AWS Console → Amazon Bedrock → Model access** and enable access to
+**Amazon Titan Text Embeddings V2** (`amazon.titan-embed-text-v2:0`) in the same region
+you used for the index. Model access must be in the same AWS region as `AWS_REGION`.
+
+### Minimum IAM Policy
+
+Attach the following policy to the IAM user or role that runs cairn-mcp. Replace each
+`YOUR-*` placeholder with real values — account ID, region, and resource names.
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "S3ArtifactBucket",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:DeleteObject",
+        "s3:ListObjectsV2",
+        "s3:HeadBucket",
+        "s3:HeadObject"
+      ],
+      "Resource": [
+        "arn:aws:s3:::YOUR-ARTIFACT-BUCKET",
+        "arn:aws:s3:::YOUR-ARTIFACT-BUCKET/*"
+      ]
+    },
+    {
+      "Sid": "S3VectorsIndex",
+      "Effect": "Allow",
+      "Action": [
+        "s3vectors:PutVectors",
+        "s3vectors:GetVectors",
+        "s3vectors:QueryVectors",
+        "s3vectors:DeleteVectors",
+        "s3vectors:DescribeIndex",
+        "s3vectors:ListVectors",
+        "s3vectors:CreateIndex",
+        "s3vectors:DeleteIndex"
+      ],
+      "Resource": "arn:aws:s3vectors:YOUR-REGION:YOUR-ACCOUNT-ID:bucket/YOUR-VECTORS-BUCKET/index/YOUR-INDEX-NAME"
+    },
+    {
+      "Sid": "BedrockEmbeddingModel",
+      "Effect": "Allow",
+      "Action": "bedrock:InvokeModel",
+      "Resource": "arn:aws:bedrock:YOUR-REGION::foundation-model/amazon.titan-embed-text-v2:0"
+    }
+  ]
+}
+```
 
 ## Running the server
 
@@ -222,6 +377,104 @@ Add the server to your MCP client configuration. Example for a client that reads
   }
 }
 ```
+
+## Recommended AGENTS.md Snippet
+
+Copy and paste this block into your project's root `AGENTS.md`. It gives every agent the
+guidance it needs to write, search, and synthesise effectively using cairn-mcp.
+
+````markdown
+## cairn-mcp — Persistent Artifact Memory
+
+cairn-mcp is connected to this project. Use it to persist knowledge across sessions.
+
+### When to write artifacts
+
+- **Start of session** — search for prior context before doing any substantial work.
+- **End of session** — write findings, decisions, and implementation notes before closing.
+- **After a key decision** — write a `decision_note` or `adr` while the reasoning is fresh.
+- **After a code review** — write a `code_review` artifact with findings and recommendations.
+
+### Artifact type selection
+
+| Type | When to use |
+|------|-------------|
+| `code_review` | After completing a code review — findings, issues, recommendations |
+| `session_summary` | At the end of any productive session — what was decided, implemented, or discovered |
+| `implementation_note` | When implementing a non-obvious solution — why this approach, constraints, edge cases |
+| `spec` | Feature specifications and requirements documents — living documents updated as features evolve |
+| `adr` | Architectural Decision Records — a decision that affects system design; tier 3, shared by default |
+| `bug_report` | When a bug is diagnosed — root cause, affected behaviour, fix applied |
+| `decision_note` | A lightweight decision with rationale — smaller than an ADR, larger than a code comment |
+| `synthesis` | When consolidating multiple prior artifacts into a summary — must include `source_artifacts` |
+
+### Description quality
+
+The `description` field is the primary search signal. Invest in it.
+
+- Write it as a tweet: ≤ 280 characters, present tense, concrete.
+- **Bad:** `"Notes from the session on 2024-11-15"`
+- **Good:** `"Evaluates three auth strategies for the payments API; recommends JWT with rotating keys; identifies Redis session cache as a dependency"`
+- Include the key outcome, technology involved, and any named constraints.
+
+### Tier selection
+
+- **Tier 2** — point-in-time records that document a moment: `code_review`, `session_summary`,
+  `implementation_note`, `bug_report`. Immutable after write; keyed by type + date + title.
+- **Tier 3** — living documents that evolve: `spec`, `adr`, `decision_note`, `synthesis`.
+  Overwrite in place on re-write; keyed by type + title only (no date).
+
+### Query strategy — start narrow, broaden only if needed
+
+```python
+# Step 1 — Filter by type + feature tags (fastest, most precise)
+search_artifacts(query="auth token refresh", type="implementation_note", feature_tags=["auth"])
+
+# Step 2 — If step 1 returns too few results, drop the type filter
+search_artifacts(query="auth token refresh", feature_tags=["auth"])
+
+# Step 3 — If still insufficient, pure semantic search
+search_artifacts(query="auth token refresh")
+
+# For browsing without a query
+list_artifacts(type="adr", project="payments-api")
+```
+
+### Synthesis workflow
+
+Use `synthesise_artifacts` when you need to compile multiple prior artifacts into a
+single reference document (e.g. summarise an epic, compile related code-review findings,
+consolidate session notes).
+
+```python
+# 1. Prepare source material — returns full content for top-k matches
+result = synthesise_artifacts(query="auth module code reviews", type="code_review", top_k=5)
+
+# 2. Synthesise in-context using the returned content
+
+# 3. Write result back as a tier 3 synthesis artifact
+write_artifact(
+    type="synthesis",
+    tier=3,
+    visibility="shared",
+    title="Auth Module Code Review Synthesis — Q4 2024",
+    description="Consolidated findings from 5 code reviews of the auth module; identifies 3 recurring issues and 2 best-practice patterns.",
+    source_artifacts=[r["artifact_id"] for r in result["results"]],
+    content="..."  # your synthesis
+)
+```
+
+### Runtime schema precision
+
+For always-current field definitions, valid values, and query strategy guidance, call the
+MCP Resources the server exposes at runtime:
+
+- `cairn://schema/artifact` — all fields, valid values, constraints
+- `cairn://schema/types` — type catalogue with usage notes
+- `cairn://schema/tiers` — tier 2 vs tier 3 semantics
+- `cairn://schema/query-strategy` — query strategy guidance
+- `cairn://schema/visibility` — cross-scope access rules
+````
 
 ## License
 

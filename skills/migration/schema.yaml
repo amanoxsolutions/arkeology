@@ -1,0 +1,75 @@
+# CAIRN_IMPORT.yaml — schema documentation
+# This file documents the manifest format used by skills/migration/scripts/migrate.py
+#
+# Usage:
+#   uv run skills/migration/scripts/migrate.py --manifest CAIRN_IMPORT.yaml --dry-run
+#   uv run skills/migration/scripts/migrate.py --manifest CAIRN_IMPORT.yaml
+#
+# All AWS configuration (ARTIFACT_BUCKET, VECTORS_BUCKET, VECTORS_INDEX, AWS_REGION,
+# BEDROCK_EMBEDDING_MODEL, BEDROCK_EMBEDDING_DIMENSIONS) is read from environment
+# variables — the same env vars used by the cairn-mcp server.
+
+# ── Global settings ────────────────────────────────────────────────────────────
+# Applied to all artifact entries unless overridden per entry.
+
+global:
+  team: "my-team"         # required: team identifier (e.g. "platform", "backend")
+  project: "my-project"   # required: project identifier (e.g. "cairn-mcp", "billing")
+  write_prefix: ""        # optional: override WRITE_PREFIX env var for this import
+                          #   leave empty to use the env var value
+  visibility: "shared"    # optional: default visibility for all entries
+                          #   values: "shared" | "hidden"
+                          #   default: "shared"
+
+  # The following settings are read from environment variables, not the manifest.
+  # See the README Configuration section for the full env-var reference:
+  #   AWS_REGION, ARTIFACT_BUCKET, VECTORS_BUCKET, VECTORS_INDEX
+  #   BEDROCK_EMBEDDING_MODEL, BEDROCK_EMBEDDING_DIMENSIONS
+  #   WRITE_PREFIX (used as the S3 key prefix for all writes)
+
+# ── Artifact entries ───────────────────────────────────────────────────────────
+# Each entry maps one file from the repository to one cairn-mcp artifact.
+
+artifacts:
+
+  # Minimal entry — only required fields
+  - path: "docs/adr/001-use-s3-vectors.md"  # required: path relative to repo root
+    type: "adr"                               # required: one of ARTIFACT_TYPES:
+                                              #   adr, spec, code_review, session_summary,
+                                              #   implementation_note, bug_report,
+                                              #   decision_note, synthesis
+    tier: 3                                   # required: 2 or 3
+                                              #   tier 2: date-anchored, immutable
+                                              #   tier 3: date-independent, overwrites in place
+
+  # Full entry — all optional overrides
+  - path: "docs/specs/feature-search.md"
+    type: "spec"
+    tier: 3
+    visibility: "shared"                      # optional: overrides global.visibility
+                                              #   values: "shared" | "hidden"
+    title: "Feature Spec: Semantic Search"    # optional: overrides H1 heading / filename
+                                              #   if omitted, extracted from first H1 heading
+                                              #   or derived from filename
+    description_override: >-                  # optional: verbatim description string
+      Specification for the semantic search   #   if provided, Bedrock generation is skipped
+      feature with metadata filtering.        #   max 280 characters
+    date_override: "2024-11-15"              # optional: YYYY-MM-DD, overrides all auto-detection
+                                               #   if omitted, date is recovered from:
+                                               #   1. frontmatter date: field
+                                               #   2. YYYY-MM-DD pattern in filename
+                                               #   3. git log (first commit for tier 2,
+                                               #      last commit for tier 3)
+                                               #   4. today's date (fallback, logged to stderr)
+    feature_tags:                            # optional: list of searchable tag strings
+      - "search"
+      - "vectors"
+
+  # Tier 2 example — date-anchored working record
+  - path: "docs/code-reviews/2024-11-20-auth-pr.md"
+    type: "code_review"
+    tier: 2                                   # tier 2: key includes date in the artifact_id
+                                              # artifact_id = code-review-{date}-{title-slug}
+    feature_tags:
+      - "auth"
+      - "security"

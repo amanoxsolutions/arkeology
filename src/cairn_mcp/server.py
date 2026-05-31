@@ -12,6 +12,7 @@ from cairn_mcp.clients.interfaces import (
     VectorsClientInterface,
 )
 from cairn_mcp.config import Settings
+from cairn_mcp.resources import register_resources
 from cairn_mcp.tools.archive import archive_artifact as _archive_artifact
 from cairn_mcp.tools.delete import delete_artifact as _delete_artifact
 from cairn_mcp.tools.health import health_check as _health_check
@@ -26,6 +27,7 @@ logger = logging.getLogger(__name__)
 
 _version = importlib.metadata.version("cairn-mcp")
 _app = fastmcp.FastMCP(name="cairn-mcp", version=_version)
+register_resources(_app)
 
 
 def register_tools(
