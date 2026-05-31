@@ -57,7 +57,7 @@ their listing.
   scope filters, then the artifact appears in the response.
 - Given a tier 2 artifact in a foreign scope, when `list_artifacts` is called, then the
   artifact is excluded from results.
-- Given a tier 3 confidential artifact in a foreign scope, when `list_artifacts` is called,
+- Given a tier 3 hidden artifact in a foreign scope, when `list_artifacts` is called,
   then the artifact is excluded from results.
 
 ### Story 4 — Credential errors return structured responses (P1)
@@ -132,7 +132,7 @@ their listing.
 Seed the fake vector index with vectors covering: own-scope active tier 2, own-scope active
 tier 3 shared, own-scope inactive tier 2, own-scope active tier 2 with type `code_review`
 and feature tag `auth`, foreign-scope active tier 3 shared, foreign-scope active tier 2,
-foreign-scope active tier 3 confidential. Each artifact has multiple section vectors to
+foreign-scope active tier 3 hidden. Each artifact has multiple section vectors to
 verify deduplication.
 
 Default behaviour:
@@ -158,7 +158,7 @@ Deduplication:
 Cross-scope gate:
 - Foreign-scope tier 3 shared → included.
 - Foreign-scope tier 2 → excluded.
-- Foreign-scope tier 3 confidential → excluded.
+- Foreign-scope tier 3 hidden → excluded.
 
 Credential failure:
 - `list_vectors_by_metadata` raises `CredentialError` → structured error response.

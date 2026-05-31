@@ -18,7 +18,7 @@ When an agent selects an artifact from search results, it needs the full content
 tool fetches it by identifier, enforcing the cross-scope gate: own-scope artifacts are
 always accessible; foreign-scope artifacts are gated to tier 3 + shared visibility.
 Without this gate, the tier model breaks — a team subscribed to a foreign scope could read
-confidential tier 2 documents simply by knowing their identifier.
+hidden tier 2 documents simply by knowing their identifier.
 
 ## User Stories
 
@@ -38,7 +38,7 @@ After finding an artifact via `search_artifacts`, the agent passes its `artifact
 
 ### Story 2 — Foreign-scope tier 2 artifacts are rejected (P1)
 
-A tier 2 confidential artifact from a subscribed foreign scope must be inaccessible via
+A tier 2 hidden artifact from a subscribed foreign scope must be inaccessible via
 `read_artifact` even if the caller knows its exact identifier.
 
 **Acceptance criteria:**
@@ -56,7 +56,7 @@ team agent that knows its identifier.
 **Acceptance criteria:**
 - Given a tier 3 artifact with `visibility="shared"` whose scope matches a READ_PREFIX,
   when `read_artifact` is called, then the full content is returned.
-- Given a tier 3 artifact with `visibility="confidential"` in a foreign scope, when
+- Given a tier 3 artifact with `visibility="hidden"` in a foreign scope, when
   `read_artifact` is called, then a structured access-denied error is returned.
 
 ### Story 4 — Credential errors return structured responses (P1)
@@ -116,7 +116,7 @@ An expired token during the S3 GetObject call must not surface as a raw exceptio
   authoritative metadata source.
 - Do not return partial content if the S3 `get_object` call is interrupted mid-stream;
   surface as a structured error.
-- Do not silently downgrade a confidential foreign artifact to "not found" — the error
+- Do not silently downgrade a hidden foreign artifact to "not found" — the error
   message must clearly distinguish "access denied" from "not found" so the agent can
   understand why retrieval failed.
 
@@ -143,13 +143,13 @@ An expired token during the S3 GetObject call must not surface as a raw exceptio
 **`test_tools_read.py` — unit tests (FakeS3Client, no vectors or bedrock calls):**
 
 Seed the fake S3 with objects covering: own-scope tier 2, own-scope tier 3 shared,
-own-scope tier 3 confidential, foreign-scope tier 2, foreign-scope tier 3 shared,
-foreign-scope tier 3 confidential.
+own-scope tier 3 hidden, foreign-scope tier 2, foreign-scope tier 3 shared,
+foreign-scope tier 3 hidden.
 
 Happy path:
 - Own-scope tier 2 artifact returned with correct content and all metadata fields.
 - Own-scope tier 3 shared artifact returned.
-- Own-scope tier 3 confidential artifact returned (no gate on own scope).
+- Own-scope tier 3 hidden artifact returned (no gate on own scope).
 - Foreign-scope tier 3 shared artifact returned.
 - All metadata fields present in response: type, team, project, tier, date, status, title,
   visibility, feature_tags, author_role, description, content.
@@ -158,7 +158,7 @@ Happy path:
 
 Access control:
 - Foreign-scope tier 2 artifact → access-denied error; `get_object` never called on fake.
-- Foreign-scope tier 3 confidential → access-denied error.
+- Foreign-scope tier 3 hidden → access-denied error.
 - Artifact whose prefix matches no known scope → access-denied error.
 - Error type distinguishes "access denied" from "not found" (different message or field).
 

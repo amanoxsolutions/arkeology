@@ -408,11 +408,18 @@ def test_artifact_visibility_shared_valid() -> None:
     assert artifact.visibility == "shared"
 
 
-def test_artifact_visibility_confidential_valid() -> None:
-    """visibility='confidential' → accepted."""
-    kwargs = {**VALID_ARTIFACT_KWARGS, "visibility": "confidential"}
+def test_artifact_visibility_hidden_valid() -> None:
+    """visibility='hidden' → accepted."""
+    kwargs = {**VALID_ARTIFACT_KWARGS, "visibility": "hidden"}
     artifact = Artifact(**kwargs)
-    assert artifact.visibility == "confidential"
+    assert artifact.visibility == "hidden"
+
+
+def test_artifact_visibility_confidential_invalid() -> None:
+    """visibility='confidential' → ValidationError (renamed to 'hidden')."""
+    kwargs = {**VALID_ARTIFACT_KWARGS, "visibility": "confidential"}
+    with pytest.raises(ValidationError):
+        Artifact(**kwargs)
 
 
 def test_artifact_status_pending_invalid() -> None:

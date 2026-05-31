@@ -86,7 +86,7 @@ If vectors fail, S3 is untouched and the artifact is fully intact — cleaner fa
 
 **D2 — Bulk delete by metadata filter, dry-run supported**
 Useful for cleanup scenarios: decommission a project, purge all bug_reports before a certain
-date, remove all confidential artifacts before a team offboards. Dry-run (`dry_run=True`)
+date, remove all hidden artifacts before a team offboards. Dry-run (`dry_run=True`)
 returns what would be deleted before committing. Requires a `max_items` ceiling (suggested:
 100) to prevent runaway bulk operations. Bulk can be a separate tool or a parameter variant
 of D1.

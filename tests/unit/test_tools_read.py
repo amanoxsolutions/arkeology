@@ -56,11 +56,11 @@ def _seed_objects(s3: FakeS3Client) -> None:
         {**_BASE_METADATA, "tier": "2", "visibility": "shared"},
     )
 
-    # own-scope tier 2 confidential
+    # own-scope tier 2 hidden
     s3.put_object(
-        "artifacts/t2-confidential",
+        "artifacts/t2-hidden",
         content,
-        {**_BASE_METADATA, "tier": "2", "visibility": "confidential"},
+        {**_BASE_METADATA, "tier": "2", "visibility": "hidden"},
     )
 
     # own-scope tier 3 shared
@@ -70,11 +70,11 @@ def _seed_objects(s3: FakeS3Client) -> None:
         {**_BASE_METADATA, "tier": "3", "visibility": "shared"},
     )
 
-    # own-scope tier 3 confidential
+    # own-scope tier 3 hidden
     s3.put_object(
-        "artifacts/t3-confidential",
+        "artifacts/t3-hidden",
         content,
-        {**_BASE_METADATA, "tier": "3", "visibility": "confidential"},
+        {**_BASE_METADATA, "tier": "3", "visibility": "hidden"},
     )
 
     # foreign-scope tier 2 shared — access DENIED
@@ -91,11 +91,11 @@ def _seed_objects(s3: FakeS3Client) -> None:
         {**_BASE_METADATA, "tier": "3", "visibility": "shared", "team": "network"},
     )
 
-    # foreign-scope tier 3 confidential — access DENIED
+    # foreign-scope tier 3 hidden — access DENIED
     s3.put_object(
-        "other-team/t3-foreign-confidential",
+        "other-team/t3-foreign-hidden",
         content,
-        {**_BASE_METADATA, "tier": "3", "visibility": "confidential", "team": "network"},
+        {**_BASE_METADATA, "tier": "3", "visibility": "hidden", "team": "network"},
     )
 
 
@@ -131,15 +131,15 @@ async def test_own_scope_tier3_shared_returned(
     assert "content" in result
 
 
-async def test_own_scope_tier3_confidential_returned(
+async def test_own_scope_tier3_hidden_returned(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """own-scope tier 3 confidential → returned (no gate on own scope)."""
+    """own-scope tier 3 hidden → returned (no gate on own scope)."""
     settings = _make_settings(monkeypatch)
     s3 = FakeS3Client()
     _seed_objects(s3)
 
-    result = await read_artifact(s3=s3, settings=settings, artifact_id="artifacts/t3-confidential")
+    result = await read_artifact(s3=s3, settings=settings, artifact_id="artifacts/t3-hidden")
 
     assert "content" in result
 
@@ -267,16 +267,16 @@ async def test_foreign_tier2_access_denied(
     assert "other-team/t2-foreign-shared" not in get_object_calls
 
 
-async def test_foreign_tier3_confidential_access_denied(
+async def test_foreign_tier3_hidden_access_denied(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """foreign-scope tier 3 confidential → access-denied error."""
+    """foreign-scope tier 3 hidden → access-denied error."""
     settings = _make_settings(monkeypatch)
     s3 = FakeS3Client()
     _seed_objects(s3)
 
     result = await read_artifact(
-        s3=s3, settings=settings, artifact_id="other-team/t3-foreign-confidential"
+        s3=s3, settings=settings, artifact_id="other-team/t3-foreign-hidden"
     )
 
     assert "error" in result or result.get("error_type") is not None

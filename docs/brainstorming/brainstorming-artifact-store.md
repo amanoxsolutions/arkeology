@@ -2,7 +2,7 @@
 status: complete
 project: amanox-artifact-store-mcp
 language: python
-decisions_locked: [D1, D2, D3, D4, D5, D6-metadata-schema, D7-deployment-agnostic, D8-tier3-sharing, D8b-confidentiality-visibility, D9-key-generation, D10-embedding-model, D11-tools-interface, D12-section-level-indexing, D13-schema-discovery, D14-cross-scope-index-topology, D15-synthesis-tier3-artifact, D16-synthesise-artifacts-tool, D17-synthesis-granularity-any-lens, D18-synthesis-freshness-check]
+decisions_locked: [D1, D2, D3, D4, D5, D6-metadata-schema, D7-deployment-agnostic, D8-tier3-sharing, D8b-visibility-control, D9-key-generation, D10-embedding-model, D11-tools-interface, D12-section-level-indexing, D13-schema-discovery, D14-cross-scope-index-topology, D15-synthesis-tier3-artifact, D16-synthesise-artifacts-tool, D17-synthesis-granularity-any-lens, D18-synthesis-freshness-check]
 decisions_closed_not_applicable: [OQ3-cross-team-iam, OQ5-vector-index-topology]
 ---
 
@@ -195,7 +195,7 @@ Reference: https://docs.aws.amazon.com/AmazonS3/latest/userguide/s3-vectors-limi
 | `date` | string | ✅ | ISO date: `YYYY-MM-DD` |
 | `status` | string | ✅ | `active` (default) or `archived` — archived excluded from search by default |
 | `title` | string | ✅ | Human-readable title — enables display without S3 content fetch |
-| `visibility` | string | ✅ | `shared` (default) or `confidential` — controls cross-prefix read eligibility |
+| `visibility` | string | ✅ | `shared` (default) or `hidden` — controls cross-prefix read eligibility |
 | `features` | list[string] | ❌ | Feature or work-unit slugs: `["auth", "vpc-peering"]` — omit for cross-cutting artifacts (ADRs, research, session summaries) |
 | `author_role` | string | ❌ | Producing role: `developer`, `architect`, `analyst` |
 
@@ -216,7 +216,7 @@ After a `QueryVectors` call across multiple prefixes, results are a flat list `{
 
 **Visibility and cross-prefix read scoping:**
 
-The server enforces confidentiality at query time, not via IAM. The server knows its `WRITE_PREFIX`. When searching across `READ_PREFIXES`, it automatically adds a filter to exclude confidential artifacts:
+The server enforces visibility control at query time, not via IAM. The server knows its `WRITE_PREFIX`. When searching across `READ_PREFIXES`, it automatically adds a filter to exclude hidden artifacts:
 
 | Query context | Filter applied |
 |---|---|
@@ -225,10 +225,10 @@ The server enforces confidentiality at query time, not via IAM. The server knows
 
 This means:
 - Tier 2 artifacts never leak cross-prefix, even if a shared bucket is used
-- Confidential artifacts (any tier) never appear in cross-prefix results
-- An ADR containing security-sensitive details can be tier 3 but `visibility: confidential` — permanent but not shared
+- Hidden artifacts (any tier) never appear in cross-prefix results
+- An ADR containing security-sensitive details can be tier 3 but `visibility: hidden` — permanent but not shared
 
-This is a **soft control** at the MCP layer. It is enforced by the server, not IAM. Engineers with direct S3 or S3 Vectors access can still read all objects. The MCP layer ensures agents operating via the server cannot surface confidential artifacts from foreign prefixes. Documenting this distinction in the server's README is mandatory.
+This is a **soft control** at the MCP layer. It is enforced by the server, not IAM. Engineers with direct S3 or S3 Vectors access can still read all objects. The MCP layer ensures agents operating via the server cannot surface hidden artifacts from foreign prefixes. Documenting this distinction in the server's README is mandatory.
 
 V1 may implement `visibility` as a stored field without full enforcement (store it, return it in results, do not yet filter on it in cross-prefix reads). Full enforcement is a V2 hardening step — but the field must be in the schema from day one to avoid a breaking schema migration later.
 
@@ -336,7 +336,7 @@ write_artifact(
     team: str,                     # Team identifier (stored in D6 metadata)
     project: str,                  # Project slug (stored in D6 metadata)
     tier: str = "2",               # "2" or "3" — defaults to tier 2
-    visibility: str = "shared",    # "shared" or "confidential"
+    visibility: str = "shared",    # "shared" or "hidden"
     author_role: str = "",         # Optional producing role
 ) → artifact_id: str
 ```
@@ -358,7 +358,7 @@ Complements both `search_artifacts` and `list_artifacts`: after receiving metada
 
 1. `S3 Vectors GetVectors(key)` → retrieve metadata
 2. If key is within `WRITE_PREFIX` → allow unconditionally
-3. If key is within a foreign prefix → allow only if `tier=3 AND visibility=shared`; otherwise return "not found" (never leak existence of a confidential artifact)
+3. If key is within a foreign prefix → allow only if `tier=3 AND visibility=shared`; otherwise return "not found" (never leak existence of a hidden artifact)
 4. `S3 GetObject(key)` → return content
 
 ### `search_artifacts`
@@ -420,7 +420,7 @@ Metadata-only — no content fetch, no embedding call. Intended for browsing, no
 1. `S3 ListObjects(prefix=WRITE_PREFIX)` → all keys in write scope
 2. For each `READ_PREFIXES` entry: `S3 ListObjects(prefix=...)` → keys
 3. Batch `S3 Vectors GetVectors(keys)` → metadata
-4. Apply confidentiality client-side: keys from `WRITE_PREFIX` — no restriction; keys from `READ_PREFIXES` — keep only `tier=3 AND visibility=shared`
+4. Apply visibility control client-side: keys from `WRITE_PREFIX` — no restriction; keys from `READ_PREFIXES` — keep only `tier=3 AND visibility=shared`
 5. Apply caller's metadata filters (type, feature, status…) and return
 
 ### `archive_artifact`

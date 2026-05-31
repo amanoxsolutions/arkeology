@@ -15,7 +15,7 @@ task: 12
 
 Archive hides an artifact from search and list but the content remains in S3 and is still
 reachable by identifier. For stale or sensitive artifacts — a three-year-old bug report, a
-superseded spec, a confidential draft — permanent removal is the correct remedy. The delete
+superseded spec, a hidden artifact — permanent removal is the correct remedy. The delete
 tool hard-deletes a single artifact (S3 object + all section vectors) from the deployment's
 own scope. It requires explicit confirmation to prevent accidental one-liner deletion.
 Deletion ordering (vectors first, then S3) ensures the worst-case partial failure leaves an

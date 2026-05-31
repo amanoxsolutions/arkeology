@@ -93,7 +93,7 @@ rejected before any AWS call is made.
   `spec`, `adr`, `bug_report`, `decision_note`, `synthesis`. This set is the single source
   of truth; tools and MCP Resources in later phases import it from here.
 - Tier values are `2` (project-local, append-only) and `3` (shared, living document).
-- Visibility values are `"shared"` and `"confidential"`.
+- Visibility values are `"shared"` and `"hidden"`.
 - Status values are `"active"` and `"inactive"`.
 - The `Artifact` model is an internal data class — it is never serialised directly to MCP
   output. Tools convert it to dicts for responses.

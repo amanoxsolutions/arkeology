@@ -158,7 +158,7 @@ at migration time (they apply uniformly to all files being migrated for a given 
 | `team` | Provided once by operator for the whole project migration |
 | `project` | Provided once by operator for the whole project migration |
 | `tier` | Directory-convention mapping; manual override for ambiguous files |
-| `visibility` | Default `shared`; `confidential` for files the operator explicitly flags |
+| `visibility` | Default `shared`; `hidden` for files the operator explicitly flags |
 | `features` | Omit unless frontmatter provides them; optional and not blocking |
 | `author_role` | Omit (unknown for historical files) |
 | `status` | `active` unless operator explicitly flags as superseded/archived |

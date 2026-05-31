@@ -152,7 +152,7 @@ class Artifact(BaseModel):
         title: Human-readable title.
         description: Short summary (max 280 characters).
         content: Full Markdown content.
-        visibility: ``"shared"`` or ``"confidential"``.
+        visibility: ``"shared"`` or ``"hidden"``.
         feature_tags: Optional list of tag strings.
         author_role: Optional role identifier of the author.
         source_artifacts: Optional list of artifact IDs that this synthesises.
@@ -189,8 +189,8 @@ class Artifact(BaseModel):
     @field_validator("visibility")
     @classmethod
     def validate_visibility(cls, v: str) -> str:
-        if v not in {"shared", "confidential"}:
-            raise ValueError(f"visibility must be 'shared' or 'confidential', got '{v}'")
+        if v not in {"shared", "hidden"}:
+            raise ValueError(f"visibility must be 'shared' or 'hidden', got '{v}'")
         return v
 
     @field_validator("status")

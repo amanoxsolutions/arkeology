@@ -47,8 +47,8 @@ visibility setting.
   then that artifact is absent from the results even if it matches the query perfectly.
 - Given a tier 3 shared artifact in a subscribed foreign scope, when `search_artifacts` is
   called, then that artifact appears in the results if it matches the query.
-- Given a tier 3 confidential artifact in a subscribed foreign scope, when `search_artifacts`
-  is called, then that artifact is absent from the results.
+- Given a tier 3 hidden artifact in a subscribed foreign scope, when `search_artifacts`
+   is called, then that artifact is absent from the results.
 
 ### Story 3 — Re-fetch loop collects the requested count without exceeding iteration cap (P1)
 
@@ -161,7 +161,7 @@ other types and feature tags.
 **`test_tools_search.py` — unit tests (FakeVectorsClient + FakeBedrockClient):**
 
 Seed the fake with a known set of vectors covering: own scope + foreign scope, tier 2 + tier
-3, shared + confidential visibility, multiple sections per artifact, active + archived.
+3, shared + hidden visibility, multiple sections per artifact, active + archived.
 
 Happy path:
 - Query returns up to `top_k` distinct artifacts (no artifact appears twice).
@@ -180,8 +180,8 @@ Metadata filters (test each independently):
 Cross-scope gate:
 - Tier 2 foreign-scope artifact: absent from results regardless of query match.
 - Tier 3 shared foreign-scope artifact: present in results when it matches.
-- Tier 3 confidential foreign-scope artifact: absent from results.
-- Own-scope tier 2 confidential artifact: present in results.
+- Tier 3 hidden foreign-scope artifact: absent from results.
+- Own-scope tier 2 hidden artifact: present in results.
 
 Re-fetch loop:
 - With `top_k=2` and 5 artifacts in fake: exactly 2 returned.

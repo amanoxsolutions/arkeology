@@ -7,10 +7,10 @@ import math
 from typing import Any
 
 import pytest
-from cairn_mcp.tools.list import list_artifacts
 
 from cairn_mcp.clients.fakes.fake_vectors import FakeVectorsClient
 from cairn_mcp.config import Settings
+from cairn_mcp.tools.list import list_artifacts
 
 # ---------------------------------------------------------------------------
 # Settings helper
@@ -170,17 +170,17 @@ def _seed_vectors(vectors: FakeVectorsClient) -> None:
         },
     )
 
-    # foreign-scope active tier 3 confidential — DENIED
+    # foreign-scope active tier 3 hidden — DENIED
     vectors.put_vector(
-        "other-team/t3-foreign-confidential-adr#summary",
+        "other-team/t3-foreign-hidden-adr#summary",
         _unit_vec(0.4),
         {
             **_BASE_VECTOR_META,
-            "artifact_id": "other-team/t3-foreign-confidential-adr",
+            "artifact_id": "other-team/t3-foreign-hidden-adr",
             "scope": "other-team",
             "team": "network",
             "tier": 3,
-            "visibility": "confidential",
+            "visibility": "hidden",
             "status": "active",
             "type": "adr",
             "feature_tags": [],
@@ -460,10 +460,10 @@ async def test_foreign_tier2_excluded(
     assert "other-team/t2-foreign-review" not in ids
 
 
-async def test_foreign_tier3_confidential_excluded(
+async def test_foreign_tier3_hidden_excluded(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Foreign-scope tier 3 confidential artifact is excluded from results."""
+    """Foreign-scope tier 3 hidden artifact is excluded from results."""
     settings = _make_settings(monkeypatch)
     vectors = FakeVectorsClient(dimension=8)
     _seed_vectors(vectors)
@@ -471,7 +471,7 @@ async def test_foreign_tier3_confidential_excluded(
     result = await list_artifacts(settings=settings, vectors=vectors, s3=None, bedrock=None)
 
     ids = [a["artifact_id"] for a in result["artifacts"]]
-    assert "other-team/t3-foreign-confidential-adr" not in ids
+    assert "other-team/t3-foreign-hidden-adr" not in ids
 
 
 # ---------------------------------------------------------------------------

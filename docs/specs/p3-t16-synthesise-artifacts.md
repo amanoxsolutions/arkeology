@@ -149,7 +149,7 @@ top_k:
 Cross-scope gate:
 - Foreign-scope tier 2 artifact → excluded from results.
 - Foreign-scope tier 3 shared → included with full content.
-- Foreign-scope tier 3 confidential → excluded.
+- Foreign-scope tier 3 hidden → excluded.
 
 Resilience:
 - One artifact's S3 read fails (fake raises `KeyError`) → that artifact skipped; other

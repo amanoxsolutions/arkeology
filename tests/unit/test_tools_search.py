@@ -68,21 +68,21 @@ def _seed_vectors(vectors: FakeVectorsClient, write_prefix: str = "artifacts") -
         },
     )
 
-    # own-scope tier 2 confidential
+    # own-scope tier 2 hidden
     vectors.put_vector(
-        f"{write_prefix}/t2-confidential-review#summary",
+        f"{write_prefix}/t2-hidden-review#summary",
         _vec(1.1),
         {
-            "artifact_id": f"{write_prefix}/t2-confidential-review",
+            "artifact_id": f"{write_prefix}/t2-hidden-review",
             "scope": write_prefix,
             "type": "code_review",
             "team": "platform",
             "project": "cairn",
             "tier": 2,
-            "visibility": "confidential",
+            "visibility": "hidden",
             "status": "active",
             "feature_tags": [],
-            "title": "Confidential tier 2 review",
+            "title": "Hidden tier 2 review",
         },
     )
 
@@ -140,21 +140,21 @@ def _seed_vectors(vectors: FakeVectorsClient, write_prefix: str = "artifacts") -
         },
     )
 
-    # foreign-scope tier 3 confidential — SHOULD NOT appear
+    # foreign-scope tier 3 hidden — SHOULD NOT appear
     vectors.put_vector(
-        "other-team/t3-foreign-confidential-adr",
+        "other-team/t3-foreign-hidden-adr",
         _vec(0.7),
         {
-            "artifact_id": "other-team/t3-foreign-confidential-adr",
+            "artifact_id": "other-team/t3-foreign-hidden-adr",
             "scope": "other-team",
             "type": "adr",
             "team": "network",
             "project": "router",
             "tier": 3,
-            "visibility": "confidential",
+            "visibility": "hidden",
             "status": "active",
             "feature_tags": [],
-            "title": "Foreign tier 3 confidential ADR",
+            "title": "Foreign tier 3 hidden ADR",
         },
     )
 
@@ -475,10 +475,10 @@ async def test_foreign_tier3_shared_present(
     assert "other-team/t3-foreign-shared-adr" in artifact_ids
 
 
-async def test_foreign_tier3_confidential_absent(
+async def test_foreign_tier3_hidden_absent(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Foreign-scope tier 3 confidential artifact is absent from results."""
+    """Foreign-scope tier 3 hidden artifact is absent from results."""
     settings = _make_settings(monkeypatch)
     vectors = FakeVectorsClient(dimension=8)
     bedrock = FakeBedrockClient(dimension=8)
@@ -489,13 +489,13 @@ async def test_foreign_tier3_confidential_absent(
     )
 
     artifact_ids = [a["artifact_id"] for a in result["artifacts"]]
-    assert "other-team/t3-foreign-confidential-adr" not in artifact_ids
+    assert "other-team/t3-foreign-hidden-adr" not in artifact_ids
 
 
-async def test_own_scope_tier2_confidential_present(
+async def test_own_scope_tier2_hidden_present(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Own-scope tier 2 confidential artifact appears in results (no gate on own scope)."""
+    """Own-scope tier 2 hidden artifact appears in results (no gate on own scope)."""
     settings = _make_settings(monkeypatch)
     vectors = FakeVectorsClient(dimension=8)
     bedrock = FakeBedrockClient(dimension=8)
@@ -506,7 +506,7 @@ async def test_own_scope_tier2_confidential_present(
     )
 
     artifact_ids = [a["artifact_id"] for a in result["artifacts"]]
-    assert "artifacts/t2-confidential-review" in artifact_ids
+    assert "artifacts/t2-hidden-review" in artifact_ids
 
 
 # ---------------------------------------------------------------------------

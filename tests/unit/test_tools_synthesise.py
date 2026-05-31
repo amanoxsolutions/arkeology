@@ -139,22 +139,22 @@ def _seed_all(s3: FakeS3Client, vectors: FakeVectorsClient) -> None:
         },
     )
 
-    # foreign-scope tier 3 confidential — should be EXCLUDED
+    # foreign-scope tier 3 hidden — should be EXCLUDED
     s3.put_object(
-        "other-team/t3-confidential-foreign",
+        "other-team/t3-hidden-foreign",
         _CONTENT + " (foreign T3C)",
-        {**_BASE_S3_META, "tier": "3", "visibility": "confidential", "team": "network"},
+        {**_BASE_S3_META, "tier": "3", "visibility": "hidden", "team": "network"},
     )
     vectors.put_vector(
-        "other-team/t3-confidential-foreign#summary",
+        "other-team/t3-hidden-foreign#summary",
         _unit_vec(0.6),
         {
             **_BASE_VECTOR_META,
-            "artifact_id": "other-team/t3-confidential-foreign",
+            "artifact_id": "other-team/t3-hidden-foreign",
             "scope": "other-team",
             "team": "network",
             "tier": 3,
-            "visibility": "confidential",
+            "visibility": "hidden",
         },
     )
 
@@ -347,10 +347,10 @@ async def test_synthesise_foreign_tier3_shared_included(
     assert "content" in foreign
 
 
-async def test_synthesise_foreign_tier3_confidential_excluded(
+async def test_synthesise_foreign_tier3_hidden_excluded(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Foreign-scope tier 3 confidential artifact excluded from results."""
+    """Foreign-scope tier 3 hidden artifact excluded from results."""
     settings = _make_settings(monkeypatch)
     s3 = FakeS3Client()
     vectors = FakeVectorsClient(dimension=8)
@@ -362,7 +362,7 @@ async def test_synthesise_foreign_tier3_confidential_excluded(
     )
 
     ids = [a["artifact_id"] for a in result["artifacts"]]
-    assert "other-team/t3-confidential-foreign" not in ids
+    assert "other-team/t3-hidden-foreign" not in ids
 
 
 # ---------------------------------------------------------------------------

@@ -136,7 +136,7 @@ async def write_artifact(
         title: Human-readable artifact title.
         description: Short summary (max 280 chars).
         content: Full Markdown content.
-        visibility: ``"shared"`` or ``"confidential"``.
+        visibility: ``"shared"`` or ``"hidden"``.
         feature_tags: Optional list of tag strings.
         author_role: Optional author role.
         source_artifacts: Optional list of source artifact IDs.
