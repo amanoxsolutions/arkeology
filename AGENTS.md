@@ -75,6 +75,7 @@ unavailable or misconfigured, all persisted memory is inaccessible.
 - Vector metadata stores `feature_tags` as `list[str]` (enables `$eq` element-in-list filtering); S3 object metadata stores them as a comma-joined string — these are intentionally different representations
 - Scope check always uses `artifact_id.startswith(scope + "/")` — never bare `startswith(scope)` (prevents false prefix matches where a scope `"team-a"` would incorrectly match `"team-abc/..."`)
 - Tier 2 artifact IDs are date-anchored: `{type_slug}-{date}-{title_slug}`; tier 3 are date-independent: `{type_slug}-{title_slug}` — do not alter this scheme
+- Client interfaces in `src/cairn_mcp/clients/interfaces.py` use `typing.Protocol` — concrete implementations (`s3.py`, `vectors.py`, `bedrock.py`) and fakes satisfy the structural contract without inheriting from the interface class; never add `ABC` or `abstractmethod` to client code
 
 ## Non-Negotiable Rules
 
