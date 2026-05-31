@@ -15,10 +15,12 @@ from cairn_mcp.config import Settings
 from cairn_mcp.resources import register_resources
 from cairn_mcp.tools.archive import archive_artifact as _archive_artifact
 from cairn_mcp.tools.delete import delete_artifact as _delete_artifact
+from cairn_mcp.tools.freshness import check_synthesis_freshness as _check_synthesis_freshness
 from cairn_mcp.tools.health import health_check as _health_check
 from cairn_mcp.tools.list import list_artifacts as _list_artifacts
 from cairn_mcp.tools.purge import purge_archived as _purge_archived
 from cairn_mcp.tools.read import read_artifact as _read_artifact
+from cairn_mcp.tools.reconcile import reconcile_index as _reconcile_index
 from cairn_mcp.tools.search import search_artifacts as _search_artifacts
 from cairn_mcp.tools.synthesise import synthesise_artifacts as _synthesise_artifacts
 from cairn_mcp.tools.write import write_artifact as _write_artifact
@@ -215,6 +217,27 @@ def register_tools(
             feature_tags=feature_tags,
             team=team,
             project=project,
+        )
+
+    @_app.tool()
+    async def reconcile_index() -> dict[str, Any]:
+        """Replay failure log and scan for orphaned S3 objects, re-indexing any found."""
+        return await _reconcile_index(
+            settings=settings,
+            s3=s3,
+            vectors=vectors,
+            bedrock=bedrock,
+        )
+
+    @_app.tool()
+    async def check_synthesis_freshness(confirm: bool = False) -> dict[str, Any]:
+        """Audit synthesis freshness; delete malformed (empty-source) syntheses if confirm=True."""
+        return await _check_synthesis_freshness(
+            settings=settings,
+            s3=s3,
+            vectors=vectors,
+            bedrock=bedrock,
+            confirm=confirm,
         )
 
 

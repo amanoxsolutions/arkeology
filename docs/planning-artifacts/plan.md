@@ -2,7 +2,7 @@
 
 _Project: cairn-mcp_
 _Generated: 2026-05-29_ · _Last updated: 2026-05-31_
-_Status: **in progress — Phases 1–3 complete; Phase 4: T17 ✅ T18 ✅ T19 ✅ T20 ✅ (395 unit tests + 44 integration tests passing; setup docs complete)**_
+_Status: **complete — Phases 1–5 complete; T21 ✅ T22 ✅ (431 unit tests + 54 integration tests passing; all tools documented)**_
 
 ---
 
@@ -114,10 +114,10 @@ Goal: any agent can discover the schema at runtime; a new team can adopt the ser
 
 ## Phase 5 — Could-have: reconciliation and synthesis freshness
 
-21. ⬜ **Reconciliation tool** — failure log replay + full S3 vs vector index orphan scan (including partial-delete orphans); re-index missing entries; remove resolved failure log entries; return structured summary (FR-17)
+21. ✅ **Reconciliation tool** — failure log replay + full S3 vs vector index orphan scan (including partial-delete orphans); re-index missing entries; remove resolved failure log entries; return structured summary (FR-17)
     - Done when: an orphaned S3 object (present in S3, absent from vector index) is detected and re-indexed; partial-delete orphans are handled identically to write-failure orphans; failure log entries are resolved and cleared; summary identifies each recovered artifact by identifier and title
 
-22. ⬜ **Synthesis freshness check tool** — scan all `synthesis` type artifacts; compare synthesis `date` against `date` of each listed `source_artifact`; flag stale (source updated more recently) and orphaned (source archived) entries; return structured report (FR-20)
+22. ✅ **Synthesis freshness check tool** — scan all `synthesis` type artifacts; compare synthesis `date` against `date` of each listed `source_artifact`; flag stale (source updated more recently) and orphaned (source archived) entries; return structured report (FR-20)
     - Done when: a synthesis artifact with a source artifact updated after the synthesis date is flagged correctly; an archived source artifact is flagged correctly; all-fresh case returns an empty report; no S3 content fetch required (metadata-only operation)
 
 ---
@@ -149,6 +149,12 @@ Goal: any agent can discover the schema at runtime; a new team can adopt the ser
 - **Phase 3 top-level exception handler pattern**: all tool public functions delegate to `_<name>_inner` and wrap the await in `try/except Exception` returning `{"error": "internal_error", "message": str(exc)}` — this prevents any unexpected exception from escaping as a raw Python exception to the MCP caller; follow this pattern for Phase 4+
 - **Delete synthesis reference check must be scoped**: the `list_vectors_by_metadata` query for synthesis references in `delete_artifact` must include a `scope` filter; without it, foreign-scope synthesis identifiers leak into the `warnings` list
 - **Phase 3 implementation complete**: 370 unit tests passing (264 Phase 1+2 + 106 Phase 3 new); 6 new tools registered; integration test teardown updated for T7–T9; failure log module added
+
+- **Phase 5 implementation complete**: 431 unit tests + 54 integration tests passing; 2 new tools registered (`reconcile_index`, `check_synthesis_freshness`); ruff + mypy clean (32 source files)
+- **Scope guard must use `startswith(prefix + "/")` in failure log and malformed deletion paths**: foreign-scope entries in the failure log must be skipped before any `head_object` call; malformed synthesis IDs from vector metadata must be validated against `write_prefix + "/"` before vectors or S3 deletion — bare `startswith(prefix)` would match `"team-abc/..."` against `"team-a"` silently
+- **`CredentialError` must be imported and handled at every AWS call site in every tool**: not just at the outer `_inner` boundary — each call site needs its own `except CredentialError` guard so the structured error is returned immediately rather than falling through to a generic `Exception` handler
+- **`all_fresh` semantics**: `True` iff `stale`, `archived_sources`, `missing_sources`, AND `malformed` are all empty — applies after any deletions triggered by `confirm=True`
+- **Source deduplication in freshness**: collect all distinct source IDs across all synthesis artifacts first, then fetch each unique ID exactly once; without deduplication, a shared source referenced by N syntheses would trigger N `list_vectors_by_metadata` calls
 
 ## References
 
