@@ -8,8 +8,16 @@ import hashlib
 import math
 import struct
 
-from cairn_mcp.clients.interfaces import BedrockClientInterface
+from cairn_mcp.clients.interfaces import BedrockClientInterface  # noqa: F401 (structural only)
 from cairn_mcp.errors import CredentialError
+
+
+class ThrottlingError(Exception):
+    """Simulates a Bedrock ThrottlingException for testing retry logic."""
+
+
+class ModelTimeoutError(Exception):
+    """Simulates a Bedrock ModelTimeoutException for testing retry logic."""
 
 
 def _deterministic_unit_vector(text: str, dimension: int) -> list[float]:
@@ -45,32 +53,49 @@ def _deterministic_unit_vector(text: str, dimension: int) -> list[float]:
     return [v / norm for v in values]
 
 
-class FakeBedrockClient(BedrockClientInterface):
+class FakeBedrockClient:
     """Deterministic in-memory Bedrock client for use in unit tests."""
 
     def __init__(self, dimension: int = 1024) -> None:
         self._dimension = dimension
         self._credential_failure: bool = False
+        self._throttle_remaining: int = 0
+        self._timeout_remaining: int = 0
 
     def set_credential_failure(self, value: bool) -> None:
         """Toggle simulated credential failure for all subsequent calls."""
         self._credential_failure = value
 
+    def set_throttle_once(self) -> None:
+        """Simulate a single throttle on the next embed call."""
+        self._throttle_remaining = 1
+
+    def set_throttle_count(self, count: int) -> None:
+        """Simulate multiple consecutive throttles."""
+        self._throttle_remaining = count
+
+    def set_timeout_once(self) -> None:
+        """Simulate a single model timeout on the next embed call."""
+        self._timeout_remaining = 1
+
     def embed(self, text: str, model_id: str, dimensions: int) -> list[float]:
         """Return a deterministic unit vector derived from the input text.
+
+        Includes single-retry logic for transient errors (throttling, timeout),
+        matching the behavior of the real Bedrock client.
 
         Args:
             text: Input text to embed.
             model_id: Ignored in the fake; present for interface compatibility.
-            dimensions: Desired vector length. Overrides the ``_dimension``
-                constructor argument so the fake mirrors the real client's
-                behaviour of respecting the caller-supplied dimension.
+            dimensions: Desired vector length.
 
         Returns:
             Deterministic unit vector of length ``dimensions``.
 
         Raises:
             CredentialError: If credential failure has been simulated.
+            ThrottlingError: If throttle persists after retry.
+            ModelTimeoutError: If timeout persists after retry.
         """
         if self._credential_failure:
             raise CredentialError(
@@ -78,4 +103,20 @@ class FakeBedrockClient(BedrockClientInterface):
                 service="bedrock",
                 original=Exception("simulated credential failure"),
             )
+        for attempt in range(2):
+            try:
+                return self._do_embed(text, dimensions)
+            except (ThrottlingError, ModelTimeoutError):
+                if attempt == 1:
+                    raise
+        raise RuntimeError("Unreachable: retry loop always returns or raises")
+
+    def _do_embed(self, text: str, dimensions: int) -> list[float]:
+        """Single embed attempt — may raise transient errors."""
+        if self._throttle_remaining > 0:
+            self._throttle_remaining -= 1
+            raise ThrottlingError("simulated throttle")
+        if self._timeout_remaining > 0:
+            self._timeout_remaining -= 1
+            raise ModelTimeoutError("simulated model timeout")
         return _deterministic_unit_vector(text, dimensions)

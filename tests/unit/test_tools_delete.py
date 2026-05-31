@@ -6,27 +6,16 @@ Tests delete_artifact() using FakeS3Client + FakeVectorsClient.
 from typing import Any
 
 import pytest
-from cairn_mcp.tools.delete import delete_artifact
 
 from cairn_mcp.clients.fakes.fake_s3 import FakeS3Client
 from cairn_mcp.clients.fakes.fake_vectors import FakeVectorsClient
 from cairn_mcp.config import Settings
-
-# ---------------------------------------------------------------------------
-# Settings helper
-# ---------------------------------------------------------------------------
+from cairn_mcp.tools.delete import delete_artifact
+from tests.unit.conftest import _make_settings as _make_settings_base
 
 
 def _make_settings(monkeypatch: pytest.MonkeyPatch, **overrides: str) -> Settings:
-    monkeypatch.setenv("AWS_REGION", "us-east-1")
-    monkeypatch.setenv("ARTIFACT_BUCKET", "my-bucket")
-    monkeypatch.setenv("VECTORS_BUCKET", "my-vectors")
-    monkeypatch.setenv("VECTORS_INDEX", "my-index")
-    monkeypatch.setenv("WRITE_PREFIX", "artifacts")
-    monkeypatch.setenv("READ_PREFIXES", "other-team")
-    for k, v in overrides.items():
-        monkeypatch.setenv(k, v)
-    return Settings()
+    return _make_settings_base(monkeypatch, READ_PREFIXES="other-team", **overrides)
 
 
 # ---------------------------------------------------------------------------
@@ -638,3 +627,37 @@ async def test_delete_s3_delete_credential_error_partial_failure(
     assert "error" in result or result.get("error_type") is not None
     result_str = str(result)
     assert "artifacts/t2-active" in result_str
+
+
+# ---------------------------------------------------------------------------
+# Spec 01 — CredentialError from S3 returns credential_error (not partial_delete)
+# ---------------------------------------------------------------------------
+
+
+async def test_credential_error_on_delete_returns_credential_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """CredentialError during S3 delete → response is credential_error, not partial_delete."""
+    settings = _make_settings(monkeypatch)
+    s3 = FakeS3Client()
+    vectors = FakeVectorsClient()
+
+    s3.put_object("artifacts/t2-active", "content", {**_BASE_S3_META})
+    vectors.put_vector(
+        "artifacts/t2-active#summary",
+        [1.0, 0.0],
+        {**_BASE_VECTOR_META, "artifact_id": "artifacts/t2-active"},
+    )
+
+    s3.set_credential_failure(True)
+
+    result = await delete_artifact(
+        settings=settings,
+        s3=s3,
+        vectors=vectors,
+        bedrock=None,
+        artifact_id="artifacts/t2-active",
+        confirm=True,
+    )
+
+    assert result.get("error") == "credential_error"

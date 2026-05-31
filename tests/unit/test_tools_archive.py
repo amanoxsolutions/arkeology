@@ -6,27 +6,16 @@ Tests archive_artifact() using FakeS3Client + FakeVectorsClient.
 from typing import Any
 
 import pytest
-from cairn_mcp.tools.archive import archive_artifact
 
 from cairn_mcp.clients.fakes.fake_s3 import FakeS3Client
 from cairn_mcp.clients.fakes.fake_vectors import FakeVectorsClient
 from cairn_mcp.config import Settings
-
-# ---------------------------------------------------------------------------
-# Settings helper
-# ---------------------------------------------------------------------------
+from cairn_mcp.tools.archive import archive_artifact
+from tests.unit.conftest import _make_settings as _make_settings_base
 
 
 def _make_settings(monkeypatch: pytest.MonkeyPatch, **overrides: str) -> Settings:
-    monkeypatch.setenv("AWS_REGION", "us-east-1")
-    monkeypatch.setenv("ARTIFACT_BUCKET", "my-bucket")
-    monkeypatch.setenv("VECTORS_BUCKET", "my-vectors")
-    monkeypatch.setenv("VECTORS_INDEX", "my-index")
-    monkeypatch.setenv("WRITE_PREFIX", "artifacts")
-    monkeypatch.setenv("READ_PREFIXES", "other-team")
-    for k, v in overrides.items():
-        monkeypatch.setenv(k, v)
-    return Settings()
+    return _make_settings_base(monkeypatch, READ_PREFIXES="other-team", **overrides)
 
 
 # ---------------------------------------------------------------------------
@@ -81,9 +70,7 @@ def _seed_all(s3: FakeS3Client, vectors: FakeVectorsClient) -> None:
     )
 
     # own-scope already-archived artifact
-    s3.put_object(
-        "artifacts/already-archived", _CONTENT, {**_BASE_S3_META, "status": "inactive"}
-    )
+    s3.put_object("artifacts/already-archived", _CONTENT, {**_BASE_S3_META, "status": "inactive"})
     vectors.put_vector(
         "artifacts/already-archived#summary",
         [0.8, 0.2],
@@ -516,3 +503,72 @@ async def test_archive_put_vector_credential_error(
     )
 
     assert "error" in result or result.get("error_type") is not None
+
+
+# ---------------------------------------------------------------------------
+# Spec 09 — Archive idempotency
+# ---------------------------------------------------------------------------
+
+
+async def test_archive_already_inactive_returns_already_archived(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Archiving already-inactive artifact returns already_archived: True."""
+    settings = _make_settings(monkeypatch)
+    s3 = FakeS3Client()
+    vectors = FakeVectorsClient(dimension=2)
+
+    s3.put_object(
+        "artifacts/already-archived-v2",
+        _CONTENT,
+        {**_BASE_S3_META, "status": "inactive"},
+    )
+    vectors.put_vector(
+        "artifacts/already-archived-v2#summary",
+        [1.0, 0.0],
+        {**_BASE_VECTOR_META, "artifact_id": "artifacts/already-archived-v2", "status": "inactive"},
+    )
+
+    result = await archive_artifact(
+        settings=settings,
+        s3=s3,
+        vectors=vectors,
+        bedrock=None,
+        artifact_id="artifacts/already-archived-v2",
+    )
+
+    assert result.get("already_archived") is True
+
+
+async def test_archive_already_inactive_makes_no_writes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Archiving already-inactive artifact makes no put_object or put_vector calls."""
+    settings = _make_settings(monkeypatch)
+    s3 = FakeS3Client()
+    vectors = FakeVectorsClient(dimension=2)
+
+    s3.put_object(
+        "artifacts/already-archived-v3",
+        _CONTENT,
+        {**_BASE_S3_META, "status": "inactive"},
+    )
+    vectors.put_vector(
+        "artifacts/already-archived-v3#summary",
+        [1.0, 0.0],
+        {**_BASE_VECTOR_META, "artifact_id": "artifacts/already-archived-v3", "status": "inactive"},
+    )
+
+    put_object_count_before = len(s3._store)
+    put_vector_count_before = len(vectors._vectors)
+
+    await archive_artifact(
+        settings=settings,
+        s3=s3,
+        vectors=vectors,
+        bedrock=None,
+        artifact_id="artifacts/already-archived-v3",
+    )
+
+    assert len(s3._store) == put_object_count_before
+    assert len(vectors._vectors) == put_vector_count_before

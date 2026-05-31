@@ -17,7 +17,7 @@ import botocore.exceptions
 
 from cairn_mcp.clients.credentials import is_credential_error
 from cairn_mcp.clients.filter import matches_filter
-from cairn_mcp.clients.interfaces import VectorsClientInterface
+from cairn_mcp.clients.interfaces import VectorsClientInterface  # noqa: F401 (structural only)
 from cairn_mcp.errors import CredentialError, VectorIndexNotFoundError
 
 logger = logging.getLogger(__name__)
@@ -38,7 +38,7 @@ def _is_index_not_found(exc: botocore.exceptions.ClientError) -> bool:
     return code in _INDEX_NOT_FOUND_CODES
 
 
-class VectorsClientImpl(VectorsClientInterface):
+class VectorsClientImpl:
     """boto3-backed S3 Vectors client.
 
     Args:
@@ -117,7 +117,7 @@ class VectorsClientImpl(VectorsClientInterface):
         self,
         vector: list[float],
         top_k: int,
-        filter: dict[str, Any] | None,
+        filter_expr: dict[str, Any] | None,
     ) -> list[dict[str, Any]]:
         logger.debug("S3Vectors query_vectors top_k=%d", top_k)
         kwargs: dict[str, Any] = {
@@ -127,19 +127,23 @@ class VectorsClientImpl(VectorsClientInterface):
             "queryVector": {"float32": vector},
             "returnMetadata": True,
         }
-        if filter is not None:
-            kwargs["filter"] = filter
+        if filter_expr is not None:
+            kwargs["filter"] = filter_expr
         try:
             response = self._client.query_vectors(**kwargs)
             results = []
             for item in response.get("vectors", []):
-                # S3 Vectors returns 'distance'; lower is more similar (cosine).
-                # Negate to produce a score where higher = more similar.
+                # S3 Vectors returns 'distance'; lower is more similar (cosine distance
+                # for normalised vectors is in [0, 2]). score = 1.0 - distance → [-1, 1].
+                # NOTE: FakeVectorsClient uses cosine *similarity* offset by +1.0, so its
+                # score range is [0, 2]. The ranges differ intentionally — the fake was
+                # designed for unit-test ordering correctness, not range parity.
+                # TODO: add an integration test to confirm the real API's score range.
                 distance = item.get("distance", 0.0)
                 results.append(
                     {
                         "key": item["key"],
-                        "score": -distance,
+                        "score": 1.0 - distance,
                         "metadata": item.get("metadata", {}),
                     }
                 )
@@ -183,7 +187,7 @@ class VectorsClientImpl(VectorsClientInterface):
                 ) from exc
             raise
 
-    def list_vectors_by_metadata(self, filter: dict[str, Any]) -> list[str]:
+    def list_vectors_by_metadata(self, filter: dict[str, Any]) -> list[str]:  # noqa: A002
         """Return all vector keys matching the given filter.
 
         Uses ListVectors with pagination and filters client-side because the

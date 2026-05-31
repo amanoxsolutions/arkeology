@@ -64,10 +64,9 @@ def main() -> None:
         for err in errors:
             field = " → ".join(str(loc) for loc in err["loc"]) if err.get("loc") else "unknown"
             messages.append(f"  {field}: {err['msg']}")
-        print(
-            "Configuration error — fix the following before starting cairn-mcp:\n"
-            + "\n".join(messages),
-            file=sys.stderr,
+        logger.critical(
+            "Configuration error — fix the following before starting cairn-mcp:\n%s",
+            "\n".join(messages),
         )
         sys.exit(1)
 
@@ -100,10 +99,10 @@ def main() -> None:
             bedrock=bedrock_client,
         )
     except StartupValidationError as exc:
-        print(f"Startup validation failed: {exc.message}", file=sys.stderr)
+        logger.critical("Startup validation failed: %s", exc.message)
         sys.exit(1)
     except CredentialError as exc:
-        print(f"Startup failed — credential error: {exc.message}", file=sys.stderr)
+        logger.critical("Startup failed — credential error: %s", exc.message)
         sys.exit(1)
 
     # ── Step 4: Register MCP tools ────────────────────────────────────────────

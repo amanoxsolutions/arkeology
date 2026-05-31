@@ -15,6 +15,7 @@ from cairn_mcp.clients.interfaces import (
     VectorsClientInterface,
 )
 from cairn_mcp.config import Settings
+from cairn_mcp.errors import CredentialError
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +69,8 @@ async def _health_check_inner(
     try:
         s3.head_bucket(settings.artifact_bucket)
         result["s3"] = {"status": "ok"}
+    except CredentialError as exc:
+        result["s3"] = {"status": "error", "message": str(exc), "cause": "credential_error"}
     except Exception as exc:
         result["s3"] = {"status": "error", "message": str(exc)}
 
@@ -75,6 +78,8 @@ async def _health_check_inner(
     try:
         vectors.describe_index()
         result["vectors"] = {"status": "ok"}
+    except CredentialError as exc:
+        result["vectors"] = {"status": "error", "message": str(exc), "cause": "credential_error"}
     except Exception as exc:
         result["vectors"] = {"status": "error", "message": str(exc)}
 
@@ -86,6 +91,8 @@ async def _health_check_inner(
             settings.bedrock_embedding_dimensions,
         )
         result["bedrock"] = {"status": "ok"}
+    except CredentialError as exc:
+        result["bedrock"] = {"status": "error", "message": str(exc), "cause": "credential_error"}
     except Exception as exc:
         result["bedrock"] = {"status": "error", "message": str(exc)}
 
@@ -96,6 +103,8 @@ async def _health_check_inner(
         s3.get_object(probe_key)
         s3.delete_object(probe_key)
         result["write_prefix"] = {"status": "ok"}
+    except CredentialError:
+        pass  # Credential errors on write_prefix are reported via the s3 probe
     except Exception as exc:
         result["write_prefix"] = {"status": "error", "message": str(exc)}
 
@@ -105,6 +114,12 @@ async def _health_check_inner(
         try:
             s3.list_objects(prefix)
             result[key] = {"status": "ok"}
+        except CredentialError as exc:
+            result[key] = {
+                "status": "error",
+                "message": str(exc),
+                "cause": "credential_error",
+            }
         except Exception as exc:
             result[key] = {"status": "error", "message": str(exc)}
 

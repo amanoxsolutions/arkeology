@@ -56,7 +56,15 @@ def test_register_resources_all_five_uris_present() -> None:
 # ---------------------------------------------------------------------------
 
 _REQUIRED_FIELDS = [
-    "type", "team", "project", "tier", "date", "status", "title", "visibility", "description"
+    "type",
+    "team",
+    "project",
+    "tier",
+    "date",
+    "status",
+    "title",
+    "visibility",
+    "description",
 ]
 _OPTIONAL_FIELDS = ["feature_tags", "author_role", "source_artifacts"]
 
@@ -251,9 +259,9 @@ def test_types_schema_content_each_type_has_description() -> None:
         lines_with_type = [line for line in content.splitlines() if artifact_type in line]
         assert len(lines_with_type) > 0, f"No line contains type {artifact_type!r}"
         # At least one such line should have other content too (description present)
-        assert any(
-            len(line.strip()) > len(artifact_type) for line in lines_with_type
-        ), f"Type {artifact_type!r} appears without a description in types schema"
+        assert any(len(line.strip()) > len(artifact_type) for line in lines_with_type), (
+            f"Type {artifact_type!r} appears without a description in types schema"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -286,9 +294,7 @@ def test_query_strategy_content_mentions_feature_tags() -> None:
     content = query_strategy_content()
 
     # Assert
-    assert "feature_tags" in content, (
-        "'feature_tags' guidance missing from query-strategy content"
-    )
+    assert "feature_tags" in content, "'feature_tags' guidance missing from query-strategy content"
 
 
 def test_query_strategy_content_mentions_synthesise_artifacts() -> None:
@@ -308,12 +314,8 @@ def test_query_strategy_content_mentions_narrow_before_broad() -> None:
     content = query_strategy_content().lower()
 
     # Assert — look for 'narrow' and 'broad' as key guidance terms
-    assert "narrow" in content, (
-        "Start-narrow guidance missing from query-strategy content"
-    )
-    assert "broad" in content, (
-        "Broaden guidance missing from query-strategy content"
-    )
+    assert "narrow" in content, "Start-narrow guidance missing from query-strategy content"
+    assert "broad" in content, "Broaden guidance missing from query-strategy content"
 
 
 # ---------------------------------------------------------------------------

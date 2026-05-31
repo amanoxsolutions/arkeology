@@ -65,7 +65,7 @@ def _check_credentials(settings: Settings, s3: S3ClientInterface) -> None:
     try:
         s3.head_bucket(settings.artifact_bucket)
         logger.debug("Check 1/5 passed: credentials valid")
-    except CredentialError:
+    except CredentialError as exc:
         raise StartupValidationError(
             check="credentials",
             message=(
@@ -73,7 +73,7 @@ def _check_credentials(settings: Settings, s3: S3ClientInterface) -> None:
                 "Re-authenticate (e.g. aws sso login --profile "
                 f"{settings.aws_profile or '<profile>'}) and restart the server."
             ),
-        )
+        ) from exc
 
 
 def _check_write_prefix(settings: Settings, s3: S3ClientInterface) -> None:
@@ -86,7 +86,7 @@ def _check_write_prefix(settings: Settings, s3: S3ClientInterface) -> None:
         s3.put_object(probe_key, "startup-probe", {})
     except CredentialError:
         raise
-    except Exception:
+    except Exception as exc:
         raise StartupValidationError(
             check="write_prefix",
             message=(
@@ -95,11 +95,11 @@ def _check_write_prefix(settings: Settings, s3: S3ClientInterface) -> None:
                 f"Ensure the IAM policy includes s3:PutObject on "
                 f"arn:aws:s3:::{bucket}/{write_prefix}*."
             ),
-        )
+        ) from exc
 
     try:
         s3.get_object(probe_key)
-    except KeyError:
+    except KeyError as exc:
         raise StartupValidationError(
             check="write_prefix",
             message=(
@@ -108,13 +108,14 @@ def _check_write_prefix(settings: Settings, s3: S3ClientInterface) -> None:
                 f"Ensure the IAM policy includes s3:GetObject on "
                 f"arn:aws:s3:::{bucket}/{write_prefix}*."
             ),
-        )
+        ) from exc
     finally:
-        # Best-effort cleanup; ignore errors (object is tiny and clearly named)
+        # Best-effort cleanup; log a warning rather than raising so the original
+        # exception (if any) is not masked.
         try:
             s3.delete_object(probe_key)
-        except Exception:
-            pass
+        except Exception as cleanup_exc:
+            logger.warning("Failed to clean up write probe '%s': %s", probe_key, cleanup_exc)
 
     logger.debug("Check 2/5 passed: write prefix '%s' is readable and writable", write_prefix)
 
@@ -132,7 +133,7 @@ def _check_read_prefixes(settings: Settings, s3: S3ClientInterface) -> None:
             s3.list_objects(prefix)
         except CredentialError:
             raise
-        except Exception:
+        except Exception as exc:
             raise StartupValidationError(
                 check="read_prefix",
                 message=(
@@ -140,7 +141,7 @@ def _check_read_prefixes(settings: Settings, s3: S3ClientInterface) -> None:
                     "Ensure the IAM policy includes s3:ListBucket with condition "
                     f"StringLike s3:prefix '{prefix}*'."
                 ),
-            )
+            ) from exc
 
     logger.debug("Check 3/5 passed: %d foreign read prefix(es) accessible", len(read_prefixes))
 
@@ -158,7 +159,7 @@ def _check_vector_index(settings: Settings, vectors: VectorsClientInterface) -> 
         index_info = vectors.describe_index()
     except CredentialError:
         raise
-    except VectorIndexNotFoundError:
+    except VectorIndexNotFoundError as exc:
         raise StartupValidationError(
             check="vector_index",
             message=(
@@ -167,8 +168,7 @@ def _check_vector_index(settings: Settings, vectors: VectorsClientInterface) -> 
                 f"Create it with the correct dimension for model "
                 f"'{settings.bedrock_embedding_model}' before starting the server."
             ),
-        )
-
+        ) from exc
     dim = index_info.get("dimension")
     logger.debug(
         "Check 4/5 passed: vector index '%s' found with dimension %s",
@@ -192,7 +192,16 @@ def _check_model_dimension(
                 "Check that the index exists and is correctly provisioned."
             ),
         )
-    index_dim = int(raw_dim)
+    try:
+        index_dim = int(raw_dim)
+    except (TypeError, ValueError) as exc:
+        raise StartupValidationError(
+            check="vector_index_dimension",
+            message=(
+                f"Vector index '{settings.vectors_index}' returned a non-numeric "
+                f"dimension value: '{raw_dim}'. Expected an integer."
+            ),
+        ) from exc
     model_dim = settings.bedrock_embedding_dimensions
 
     if model_dim != index_dim:

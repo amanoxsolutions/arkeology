@@ -138,7 +138,14 @@ async def _check_synthesis_freshness_inner(
             else:
                 source_meta[source_id] = None
         else:
-            source_meta[source_id] = None
+            # Fallback: try S3 head_object for source metadata
+            try:
+                s3_meta = s3.head_object(source_id)
+                source_meta[source_id] = s3_meta
+            except CredentialError as exc:
+                return {"error": "credential_error", "message": str(exc)}
+            except KeyError:
+                source_meta[source_id] = None
 
     # ── Step 7: Build stale, archived_sources, missing_sources per synthesis ──
     stale: list[dict[str, Any]] = []
@@ -227,6 +234,9 @@ async def _check_synthesis_freshness_inner(
         deleted = []
 
     # ── Step 9: Build response ────────────────────────────────────────────────
+    # all_fresh=True means no issues remain; it does NOT mean nothing was deleted.
+    # A run with confirm=True that deletes all malformed syntheses yields all_fresh=True
+    # if no stale/archived/missing issues remain after deletion.
     all_fresh = not (
         stale or archived_sources_report or missing_sources_report or malformed_reported
     )

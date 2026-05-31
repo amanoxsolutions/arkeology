@@ -11,13 +11,27 @@ import boto3
 import botocore.exceptions
 
 from cairn_mcp.clients.credentials import is_credential_error
-from cairn_mcp.clients.interfaces import S3ClientInterface
+from cairn_mcp.clients.interfaces import S3ClientInterface  # noqa: F401 (structural only)
 from cairn_mcp.errors import CredentialError
 
 logger = logging.getLogger(__name__)
 
+_CREDENTIAL_ERROR_MESSAGE = (
+    "AWS credentials are invalid or expired. "
+    "Re-authenticate (e.g. aws sso login) and restart the server."
+)
 
-class S3ClientImpl(S3ClientInterface):
+
+def _credential_error(exc: botocore.exceptions.ClientError) -> CredentialError:
+    """Wrap a boto3 ClientError as a CredentialError for the S3 service."""
+    return CredentialError(
+        message=_CREDENTIAL_ERROR_MESSAGE,
+        service="s3",
+        original=exc,
+    )
+
+
+class S3ClientImpl:
     """boto3-backed S3 client.
 
     Args:
@@ -45,14 +59,7 @@ class S3ClientImpl(S3ClientInterface):
             )
         except botocore.exceptions.ClientError as exc:
             if is_credential_error(exc):
-                raise CredentialError(
-                    message=(
-                        "AWS credentials are invalid or expired. "
-                        "Re-authenticate (e.g. aws sso login) and restart the server."
-                    ),
-                    service="s3",
-                    original=exc,
-                ) from exc
+                raise _credential_error(exc) from exc
             raise
 
     def get_object(self, key: str) -> str:
@@ -62,14 +69,7 @@ class S3ClientImpl(S3ClientInterface):
             return response["Body"].read().decode("utf-8")
         except botocore.exceptions.ClientError as exc:
             if is_credential_error(exc):
-                raise CredentialError(
-                    message=(
-                        "AWS credentials are invalid or expired. "
-                        "Re-authenticate (e.g. aws sso login) and restart the server."
-                    ),
-                    service="s3",
-                    original=exc,
-                ) from exc
+                raise _credential_error(exc) from exc
             code = exc.response.get("Error", {}).get("Code", "")
             if code in ("NoSuchKey", "404"):
                 raise KeyError(key) from exc
@@ -82,14 +82,7 @@ class S3ClientImpl(S3ClientInterface):
             return dict(response.get("Metadata", {}))
         except botocore.exceptions.ClientError as exc:
             if is_credential_error(exc):
-                raise CredentialError(
-                    message=(
-                        "AWS credentials are invalid or expired. "
-                        "Re-authenticate (e.g. aws sso login) and restart the server."
-                    ),
-                    service="s3",
-                    original=exc,
-                ) from exc
+                raise _credential_error(exc) from exc
             code = exc.response.get("Error", {}).get("Code", "")
             if code in ("NoSuchKey", "404", "403"):
                 raise KeyError(key) from exc
@@ -106,14 +99,7 @@ class S3ClientImpl(S3ClientInterface):
             return keys
         except botocore.exceptions.ClientError as exc:
             if is_credential_error(exc):
-                raise CredentialError(
-                    message=(
-                        "AWS credentials are invalid or expired. "
-                        "Re-authenticate (e.g. aws sso login) and restart the server."
-                    ),
-                    service="s3",
-                    original=exc,
-                ) from exc
+                raise _credential_error(exc) from exc
             raise
 
     def head_bucket(self, bucket: str) -> None:
@@ -122,14 +108,7 @@ class S3ClientImpl(S3ClientInterface):
             self._s3.head_bucket(Bucket=bucket)
         except botocore.exceptions.ClientError as exc:
             if is_credential_error(exc):
-                raise CredentialError(
-                    message=(
-                        "AWS credentials are invalid or expired. "
-                        "Re-authenticate (e.g. aws sso login) and restart the server."
-                    ),
-                    service="s3",
-                    original=exc,
-                ) from exc
+                raise _credential_error(exc) from exc
             raise
 
     def delete_object(self, key: str) -> None:
@@ -138,12 +117,5 @@ class S3ClientImpl(S3ClientInterface):
             self._s3.delete_object(Bucket=self._bucket, Key=key)
         except botocore.exceptions.ClientError as exc:
             if is_credential_error(exc):
-                raise CredentialError(
-                    message=(
-                        "AWS credentials are invalid or expired. "
-                        "Re-authenticate (e.g. aws sso login) and restart the server."
-                    ),
-                    service="s3",
-                    original=exc,
-                ) from exc
+                raise _credential_error(exc) from exc
             raise

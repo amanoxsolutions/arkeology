@@ -12,10 +12,10 @@ import pytest
 
 from cairn_mcp.clients.fakes.fake_s3 import FakeS3Client
 from cairn_mcp.clients.fakes.fake_vectors import FakeVectorsClient
-from cairn_mcp.config import Settings
 
 # Implementation import — will fail until src/cairn_mcp/tools/freshness.py is created
 from cairn_mcp.tools.freshness import check_synthesis_freshness
+from tests.unit.conftest import _make_settings
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -23,21 +23,6 @@ from cairn_mcp.tools.freshness import check_synthesis_freshness
 
 DIMENSION = 8
 DUMMY_VEC = [1.0] + [0.0] * (DIMENSION - 1)
-
-# ---------------------------------------------------------------------------
-# Settings helper
-# ---------------------------------------------------------------------------
-
-
-def _make_settings(monkeypatch: pytest.MonkeyPatch, **overrides: str) -> Settings:
-    monkeypatch.setenv("AWS_REGION", "us-east-1")
-    monkeypatch.setenv("ARTIFACT_BUCKET", "my-bucket")
-    monkeypatch.setenv("VECTORS_BUCKET", "my-vectors")
-    monkeypatch.setenv("VECTORS_INDEX", "my-index")
-    monkeypatch.setenv("WRITE_PREFIX", "artifacts")
-    for k, v in overrides.items():
-        monkeypatch.setenv(k, v)
-    return Settings()
 
 
 # ---------------------------------------------------------------------------
@@ -122,8 +107,7 @@ def _filter_matches_artifact_id(filter_expr: dict[str, Any], artifact_id: str) -
         return eq_val == artifact_id
     if "$and" in filter_expr:
         return any(
-            _filter_matches_artifact_id(clause, artifact_id)
-            for clause in filter_expr["$and"]
+            _filter_matches_artifact_id(clause, artifact_id) for clause in filter_expr["$and"]
         )
     return False
 
@@ -735,3 +719,44 @@ async def test_confirm_true_all_malformed_all_fresh_true(
     assert result["all_fresh"] is True
     assert synth_id in result["deleted_malformed"]
     assert result["malformed"] == []
+
+
+# ---------------------------------------------------------------------------
+# Spec 13 — CredentialError test coverage for freshness
+# ---------------------------------------------------------------------------
+
+
+async def test_credential_error_on_list_vectors_returns_credential_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """CredentialError from vectors.list_vectors_by_metadata → credential_error response."""
+    settings = _make_settings(monkeypatch)
+    s3 = FakeS3Client()
+    vectors = FakeVectorsClient(dimension=DIMENSION)
+    vectors.set_credential_failure(True)
+
+    result = await check_synthesis_freshness(settings=settings, s3=s3, vectors=vectors)
+
+    assert result.get("error") == "credential_error"
+
+
+async def test_credential_error_on_s3_head_object_returns_credential_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """CredentialError from s3.head_object → credential_error response."""
+    settings = _make_settings(monkeypatch)
+    s3 = FakeS3Client()
+    vectors = FakeVectorsClient(dimension=DIMENSION)
+
+    synth_id = "artifacts/synthesis-test-cred"
+    vectors.put_vector(
+        f"{synth_id}#section",
+        DUMMY_VEC,
+        _synthesis_meta(synth_id, "2026-01-01", ["artifacts/src-a"]),
+    )
+
+    s3.set_credential_failure(True)
+
+    result = await check_synthesis_freshness(settings=settings, s3=s3, vectors=vectors)
+
+    assert result.get("error") == "credential_error"

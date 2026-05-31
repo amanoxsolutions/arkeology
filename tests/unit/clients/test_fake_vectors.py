@@ -57,7 +57,7 @@ def test_query_vectors_returns_most_similar() -> None:
     client.put_vector("close", vec_close, {"artifact_id": "art-close"})
     client.put_vector("far", vec_far, {"artifact_id": "art-far"})
     query = _unit_vec([1.0, 0.0, 0.0])
-    results = client.query_vectors(query, top_k=1, filter=None)
+    results = client.query_vectors(query, top_k=1, filter_expr=None)
     assert len(results) == 1
     assert results[0]["key"] == "close"
 
@@ -72,7 +72,7 @@ def test_query_vectors_results_ordered_by_score_descending() -> None:
     client.put_vector("b", vec_b, {"artifact_id": "art-b"})
     client.put_vector("c", vec_c, {"artifact_id": "art-c"})
     query = _unit_vec([1.0, 0.0, 0.0])
-    results = client.query_vectors(query, top_k=3, filter=None)
+    results = client.query_vectors(query, top_k=3, filter_expr=None)
     assert len(results) == 3
     scores = [r["score"] for r in results]
     assert scores == sorted(scores, reverse=True)
@@ -84,7 +84,7 @@ def test_query_vectors_eq_filter() -> None:
     vec = _unit_vec([1.0, 0.0, 0.0])
     client.put_vector("review-01", vec, {"type": "review", "artifact_id": "a1"})
     client.put_vector("adr-01", vec, {"type": "adr", "artifact_id": "a2"})
-    results = client.query_vectors(vec, top_k=10, filter={"type": {"$eq": "review"}})
+    results = client.query_vectors(vec, top_k=10, filter_expr={"type": {"$eq": "review"}})
     assert len(results) == 1
     assert results[0]["key"] == "review-01"
 
@@ -97,7 +97,7 @@ def test_query_vectors_nin_filter() -> None:
     client.put_vector("key-b", vec, {"artifact_id": "art-b"})
     client.put_vector("key-c", vec, {"artifact_id": "art-c"})
     results = client.query_vectors(
-        vec, top_k=10, filter={"artifact_id": {"$nin": ["art-a", "art-b"]}}
+        vec, top_k=10, filter_expr={"artifact_id": {"$nin": ["art-a", "art-b"]}}
     )
     assert len(results) == 1
     assert results[0]["metadata"]["artifact_id"] == "art-c"
@@ -113,7 +113,7 @@ def test_query_vectors_and_filter() -> None:
     results = client.query_vectors(
         vec,
         top_k=10,
-        filter={"$and": [{"type": {"$eq": "review"}}, {"status": {"$eq": "active"}}]},
+        filter_expr={"$and": [{"type": {"$eq": "review"}}, {"status": {"$eq": "active"}}]},
     )
     assert len(results) == 1
     assert results[0]["key"] == "k1"
@@ -181,10 +181,99 @@ def test_credential_failure_all_methods() -> None:
     with pytest.raises(CredentialError):
         client.get_vectors(["k"])
     with pytest.raises(CredentialError):
-        client.query_vectors(vec, top_k=1, filter=None)
+        client.query_vectors(vec, top_k=1, filter_expr=None)
     with pytest.raises(CredentialError):
         client.delete_vectors(["k"])
     with pytest.raises(CredentialError):
         client.describe_index()
     with pytest.raises(CredentialError):
         client.list_vectors_by_metadata({})
+
+
+# ---------------------------------------------------------------------------
+# Spec 02 — Score semantics: range [0, 2], known values
+# ---------------------------------------------------------------------------
+
+
+def test_identical_query_and_vector_score_equals_two() -> None:
+    """Identical query and stored vector → score == 2.0."""
+    client = FakeVectorsClient()
+    vec = _unit_vec([1.0, 0.0, 0.0])
+    client.put_vector("same", vec, {"artifact_id": "a"})
+    results = client.query_vectors(vec, top_k=1, filter_expr=None)
+    assert len(results) == 1
+    assert results[0]["score"] == pytest.approx(2.0, abs=1e-6)
+
+
+def test_orthogonal_query_and_vector_score_equals_one() -> None:
+    """Orthogonal query and stored vector → score == 1.0 (cosine_sim=0)."""
+    client = FakeVectorsClient()
+    vec_stored = _unit_vec([1.0, 0.0, 0.0])
+    vec_query = _unit_vec([0.0, 1.0, 0.0])
+    client.put_vector("orth", vec_stored, {"artifact_id": "a"})
+    results = client.query_vectors(vec_query, top_k=1, filter_expr=None)
+    assert len(results) == 1
+    assert results[0]["score"] == pytest.approx(1.0, abs=1e-6)
+
+
+def test_all_scores_in_valid_range() -> None:
+    """All returned scores are in range [0, 2]."""
+    client = FakeVectorsClient()
+    for i in range(5):
+        vec = _unit_vec([float(i), float(5 - i), 1.0])
+        client.put_vector(f"v{i}", vec, {"artifact_id": f"a{i}"})
+    query = _unit_vec([1.0, 1.0, 1.0])
+    results = client.query_vectors(query, top_k=5, filter_expr=None)
+    for r in results:
+        assert 0.0 <= r["score"] <= 2.0, f"Score {r['score']} out of range"
+
+
+def test_more_similar_vector_has_higher_score() -> None:
+    """More similar vector has higher score than less similar one."""
+    client = FakeVectorsClient()
+    vec_close = _unit_vec([1.0, 0.1, 0.0])
+    vec_far = _unit_vec([0.0, 0.0, 1.0])
+    client.put_vector("close", vec_close, {"artifact_id": "c"})
+    client.put_vector("far", vec_far, {"artifact_id": "f"})
+    query = _unit_vec([1.0, 0.0, 0.0])
+    results = client.query_vectors(query, top_k=2, filter_expr=None)
+    scores = {r["key"]: r["score"] for r in results}
+    assert scores["close"] > scores["far"]
+
+
+# ---------------------------------------------------------------------------
+# Spec 19 — FakeVectorsClient.query() filter correctness
+# ---------------------------------------------------------------------------
+
+
+def test_query_filter_matches_only_matching_vector() -> None:
+    """Two vectors, filter matches only one → query returns only that one."""
+    client = FakeVectorsClient()
+    vec = _unit_vec([1.0, 0.0, 0.0])
+    client.put_vector("a", vec, {"type": "review"})
+    client.put_vector("b", vec, {"type": "adr"})
+    results = client.query_vectors(vec, top_k=10, filter_expr={"type": {"$eq": "review"}})
+    assert len(results) == 1
+    assert results[0]["key"] == "a"
+
+
+def test_query_filter_matches_neither_returns_empty() -> None:
+    """Filter matches neither vector → empty list."""
+    client = FakeVectorsClient()
+    vec = _unit_vec([1.0, 0.0, 0.0])
+    client.put_vector("a", vec, {"type": "review"})
+    client.put_vector("b", vec, {"type": "adr"})
+    results = client.query_vectors(vec, top_k=10, filter_expr={"type": {"$eq": "spec"}})
+    assert results == []
+
+
+def test_query_no_filter_returns_all_up_to_top_k() -> None:
+    """No filter → query returns all vectors up to top_k."""
+    client = FakeVectorsClient()
+    vec = _unit_vec([1.0, 0.0, 0.0])
+    for i in range(5):
+        client.put_vector(f"v{i}", vec, {"type": "review"})
+    results = client.query_vectors(vec, top_k=3, filter_expr=None)
+    assert len(results) == 3
+    results_all = client.query_vectors(vec, top_k=10, filter_expr=None)
+    assert len(results_all) == 5

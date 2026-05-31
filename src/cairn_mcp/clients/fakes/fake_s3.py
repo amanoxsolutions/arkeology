@@ -6,11 +6,11 @@ Supports simulated credential failures via set_credential_failure().
 
 from typing import Any
 
-from cairn_mcp.clients.interfaces import S3ClientInterface
+from cairn_mcp.clients.interfaces import S3ClientInterface  # noqa: F401 (structural only)
 from cairn_mcp.errors import CredentialError
 
 
-class FakeS3Client(S3ClientInterface):
+class FakeS3Client:
     """Stateful in-memory S3 client for use in unit tests."""
 
     def __init__(self) -> None:
@@ -48,7 +48,7 @@ class FakeS3Client(S3ClientInterface):
 
     def list_objects(self, prefix: str) -> list[str]:
         self._check_credentials()
-        return [k for k in self._objects if k.startswith(prefix)]
+        return sorted(k for k in self._objects if k.startswith(prefix))
 
     def head_bucket(self, bucket: str) -> None:
         self._check_credentials()
@@ -56,3 +56,8 @@ class FakeS3Client(S3ClientInterface):
     def delete_object(self, key: str) -> None:
         self._check_credentials()
         self._objects.pop(key, None)
+
+    @property
+    def _store(self) -> dict[str, tuple[str, dict[str, str]]]:
+        """Alias for _objects, used in tests."""
+        return self._objects

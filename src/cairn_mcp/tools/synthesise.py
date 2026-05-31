@@ -15,6 +15,7 @@ from cairn_mcp.clients.interfaces import (
 )
 from cairn_mcp.config import Settings
 from cairn_mcp.errors import CredentialError
+from cairn_mcp.tools._search_helper import run_search_loop
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +86,7 @@ async def _synthesise_artifacts_inner(
     """Inner implementation of synthesise_artifacts (separated to enable top-level catch-all)."""
     # ── Step 1: Clamp top_k ───────────────────────────────────────────────────
     effective_top_k = min(top_k, 100)
+    clamped = effective_top_k < top_k
 
     # ── Step 2: Embed the query ───────────────────────────────────────────────
     try:
@@ -108,72 +110,24 @@ async def _synthesise_artifacts_inner(
         for tag in feature_tags:
             user_filters.append({"feature_tags": {"$eq": tag}})
 
-    # ── Step 4: Scope filter (same as search_artifacts) ───────────────────────
+    # ── Step 4: Status gate — always "active" for synthesis ───────────────────
     status_filter: dict[str, Any] = {"status": {"$eq": "active"}}
-    read_prefixes = settings.read_prefixes_list
-    write_prefix = settings.write_prefix
 
-    if read_prefixes:
-        scope_filter: dict[str, Any] = {
-            "$or": [
-                {"scope": {"$eq": write_prefix}},
-                {
-                    "$and": [
-                        {"scope": {"$in": read_prefixes}},
-                        {"tier": {"$eq": 3}},
-                        {"visibility": {"$eq": "shared"}},
-                    ]
-                },
-            ]
-        }
-    else:
-        scope_filter = {"scope": {"$eq": write_prefix}}
+    # ── Step 5: Run shared re-fetch loop (no tier filter for synthesise) ──────
+    loop_result = run_search_loop(
+        settings=settings,
+        vectors=vectors,
+        query_vector=query_vector,
+        user_filters=user_filters,
+        status_filter=status_filter,
+        effective_top_k=effective_top_k,
+    )
 
-    # ── Step 5: Re-fetch search loop ─────────────────────────────────────────
-    seen_ids: set[str] = set()
-    search_results: list[dict[str, Any]] = []
+    # Propagate credential errors from the loop
+    if isinstance(loop_result, dict):
+        return loop_result
 
-    for _ in range(settings.search_max_iterations):
-        and_clauses: list[dict[str, Any]] = [*user_filters, status_filter, scope_filter]
-        if seen_ids:
-            and_clauses.append({"artifact_id": {"$nin": list(seen_ids)}})
-
-        combined_filter: dict[str, Any] = (
-            {"$and": and_clauses} if len(and_clauses) > 1 else and_clauses[0]
-        )
-
-        try:
-            raw = vectors.query_vectors(
-                query_vector, settings.search_fetch_top_k, combined_filter
-            )
-        except CredentialError as exc:
-            return {"error": "credential_error", "message": str(exc)}
-
-        best_by_id: dict[str, tuple[float, dict[str, Any]]] = {}
-        for item in raw:
-            item_meta: dict[str, Any] = item["metadata"]
-            aid: str = str(item_meta["artifact_id"])
-            score: float = float(item["score"])
-            if aid not in best_by_id or score > best_by_id[aid][0]:
-                best_by_id[aid] = (score, item_meta)
-
-        new_entries = [
-            (aid, data) for aid, data in best_by_id.items() if aid not in seen_ids
-        ]
-
-        if not new_entries:
-            break
-
-        for aid, (score, item_meta2) in new_entries:
-            search_results.append({"artifact_id": aid, "score": score, "meta": item_meta2})
-            seen_ids.add(aid)
-
-        if len(search_results) >= effective_top_k:
-            break
-
-    # Sort and trim
-    search_results.sort(key=lambda r: float(r["score"]), reverse=True)
-    search_results = search_results[:effective_top_k]
+    search_results: list[dict[str, Any]] = loop_result
 
     if not search_results:
         return {"artifacts": []}
@@ -221,4 +175,8 @@ async def _synthesise_artifacts_inner(
         len(artifacts),
         query,
     )
-    return {"artifacts": artifacts}
+    response: dict[str, Any] = {"artifacts": artifacts}
+    if clamped:
+        response["clamped"] = True
+        response["effective_top_k"] = effective_top_k
+    return response

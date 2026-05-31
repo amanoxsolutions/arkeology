@@ -84,6 +84,10 @@ async def _archive_artifact_inner(
             "message": f"Artifact '{artifact_id}' not found.",
         }
 
+    # ── Step 2b: Idempotency — already inactive → early return ───────────────
+    if s3_meta.get("status") == "inactive":
+        return {"artifact_id": artifact_id, "status": "inactive", "already_archived": True}
+
     # ── Step 3: Fetch current content ────────────────────────────────────────
     try:
         content = s3.get_object(artifact_id)
@@ -99,9 +103,7 @@ async def _archive_artifact_inner(
 
     # ── Step 5: Update all section vectors ───────────────────────────────────
     try:
-        vec_keys = vectors.list_vectors_by_metadata(
-            {"artifact_id": {"$eq": artifact_id}}
-        )
+        vec_keys = vectors.list_vectors_by_metadata({"artifact_id": {"$eq": artifact_id}})
     except CredentialError as exc:
         return {"error": "credential_error", "message": str(exc)}
 

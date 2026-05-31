@@ -13,22 +13,11 @@ from cairn_mcp.clients.fakes.fake_s3 import FakeS3Client
 from cairn_mcp.clients.fakes.fake_vectors import FakeVectorsClient
 from cairn_mcp.config import Settings
 from cairn_mcp.tools.synthesise import synthesise_artifacts
-
-# ---------------------------------------------------------------------------
-# Settings helper
-# ---------------------------------------------------------------------------
+from tests.unit.conftest import _make_settings as _make_settings_base
 
 
 def _make_settings(monkeypatch: pytest.MonkeyPatch, **overrides: str) -> Settings:
-    monkeypatch.setenv("AWS_REGION", "us-east-1")
-    monkeypatch.setenv("ARTIFACT_BUCKET", "my-bucket")
-    monkeypatch.setenv("VECTORS_BUCKET", "my-vectors")
-    monkeypatch.setenv("VECTORS_INDEX", "my-index")
-    monkeypatch.setenv("WRITE_PREFIX", "artifacts")
-    monkeypatch.setenv("READ_PREFIXES", "other-team")
-    for k, v in overrides.items():
-        monkeypatch.setenv(k, v)
-    return Settings()
+    return _make_settings_base(monkeypatch, READ_PREFIXES="other-team", **overrides)
 
 
 # ---------------------------------------------------------------------------
@@ -199,8 +188,19 @@ async def test_synthesise_result_has_all_required_fields(
     )
 
     required = [
-        "artifact_id", "content", "type", "team", "project", "tier", "date",
-        "status", "title", "visibility", "feature_tags", "author_role", "description",
+        "artifact_id",
+        "content",
+        "type",
+        "team",
+        "project",
+        "tier",
+        "date",
+        "status",
+        "title",
+        "visibility",
+        "feature_tags",
+        "author_role",
+        "description",
     ]
     assert len(result["artifacts"]) > 0
     for artifact in result["artifacts"]:
@@ -488,3 +488,53 @@ async def test_synthesise_get_object_credential_error_is_hard_failure(
     )
 
     assert "error" in result or result.get("error_type") is not None
+
+
+# ---------------------------------------------------------------------------
+# Spec 18 — top_k clamping
+# ---------------------------------------------------------------------------
+
+
+async def test_synthesise_top_k_over_limit_clamped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """top_k=200 → response contains clamped: True and effective_top_k: 100."""
+    settings = _make_settings(monkeypatch)
+    s3 = FakeS3Client()
+    vectors = FakeVectorsClient(dimension=8)
+    bedrock = FakeBedrockClient(dimension=8)
+    _seed_all(s3, vectors)
+
+    result = await synthesise_artifacts(
+        settings=settings,
+        s3=s3,
+        vectors=vectors,
+        bedrock=bedrock,
+        query="review",
+        top_k=200,
+    )
+
+    assert result.get("clamped") is True
+    assert result.get("effective_top_k") == 100
+
+
+async def test_synthesise_top_k_within_limit_not_clamped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """top_k=5 → response does not contain clamped: True."""
+    settings = _make_settings(monkeypatch)
+    s3 = FakeS3Client()
+    vectors = FakeVectorsClient(dimension=8)
+    bedrock = FakeBedrockClient(dimension=8)
+    _seed_all(s3, vectors)
+
+    result = await synthesise_artifacts(
+        settings=settings,
+        s3=s3,
+        vectors=vectors,
+        bedrock=bedrock,
+        query="review",
+        top_k=5,
+    )
+
+    assert result.get("clamped") is not True

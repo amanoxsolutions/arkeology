@@ -96,8 +96,12 @@ async def test_write_then_search_finds_artifact(
     finally:
         for aid in written_ids:
             await delete_artifact(
-                settings=settings, s3=s3, vectors=vectors, bedrock=bedrock,
-                artifact_id=aid, confirm=True,
+                settings=settings,
+                s3=s3,
+                vectors=vectors,
+                bedrock=bedrock,
+                artifact_id=aid,
+                confirm=True,
             )
 
 

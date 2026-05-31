@@ -8,6 +8,7 @@ import logging
 from pathlib import Path
 
 import pytest
+
 from cairn_mcp.failure_log import append_failure_entry
 
 # ---------------------------------------------------------------------------
@@ -90,8 +91,14 @@ def test_entry_contains_all_required_fields(tmp_path: Path) -> None:
     line = log_path.read_text().splitlines()[0]
     parsed = json.loads(line)
     required = [
-        "artifact_id", "title", "type", "tier", "date",
-        "failure_step", "reason", "timestamp",
+        "artifact_id",
+        "title",
+        "type",
+        "tier",
+        "date",
+        "failure_step",
+        "reason",
+        "timestamp",
     ]
     for field in required:
         assert field in parsed, f"Missing required field: {field}"

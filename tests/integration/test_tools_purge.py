@@ -5,15 +5,15 @@ All tests decorated with @pytest.mark.integration.
 """
 
 import pytest
-from cairn_mcp.tools.archive import archive_artifact
-from cairn_mcp.tools.delete import delete_artifact
-from cairn_mcp.tools.list import list_artifacts
-from cairn_mcp.tools.purge import purge_archived
 
 from cairn_mcp.clients.bedrock import BedrockClientImpl
 from cairn_mcp.clients.s3 import S3ClientImpl
 from cairn_mcp.clients.vectors import VectorsClientImpl
 from cairn_mcp.config import Settings
+from cairn_mcp.tools.archive import archive_artifact
+from cairn_mcp.tools.delete import delete_artifact
+from cairn_mcp.tools.list import list_artifacts
+from cairn_mcp.tools.purge import purge_archived
 from cairn_mcp.tools.write import write_artifact
 
 
@@ -75,12 +75,18 @@ async def test_purge_two_archived_artifacts_both_absent(
     id2: str = ""
     try:
         r1 = await write_artifact(
-            s3=s3, vectors=vectors, bedrock=bedrock, settings=settings,
+            s3=s3,
+            vectors=vectors,
+            bedrock=bedrock,
+            settings=settings,
             **{**_BASE_KWARGS, "title": "Integration purge test artifact one"},
         )
         id1 = r1["artifact_id"]
         r2 = await write_artifact(
-            s3=s3, vectors=vectors, bedrock=bedrock, settings=settings,
+            s3=s3,
+            vectors=vectors,
+            bedrock=bedrock,
+            settings=settings,
             **{**_BASE_KWARGS, "title": "Integration purge test artifact two"},
         )
         id2 = r2["artifact_id"]
@@ -112,8 +118,12 @@ async def test_purge_two_archived_artifacts_both_absent(
         for aid in [id1, id2]:
             if aid:
                 await delete_artifact(
-                    settings=settings, s3=s3, vectors=vectors, bedrock=bedrock,
-                    artifact_id=aid, confirm=True,
+                    settings=settings,
+                    s3=s3,
+                    vectors=vectors,
+                    bedrock=bedrock,
+                    artifact_id=aid,
+                    confirm=True,
                 )
 
 
@@ -131,7 +141,10 @@ async def test_purge_active_artifact_untouched(
     written_id: str = ""
     try:
         r = await write_artifact(
-            s3=s3, vectors=vectors, bedrock=bedrock, settings=settings,
+            s3=s3,
+            vectors=vectors,
+            bedrock=bedrock,
+            settings=settings,
             **{**_BASE_KWARGS, "title": "Integration purge active keep test"},
         )
         written_id = r["artifact_id"]
@@ -150,8 +163,12 @@ async def test_purge_active_artifact_untouched(
     finally:
         if written_id:
             await delete_artifact(
-                settings=settings, s3=s3, vectors=vectors, bedrock=bedrock,
-                artifact_id=written_id, confirm=True,
+                settings=settings,
+                s3=s3,
+                vectors=vectors,
+                bedrock=bedrock,
+                artifact_id=written_id,
+                confirm=True,
             )
 
 
@@ -167,13 +184,19 @@ async def test_purge_synthesis_cascade_deleted(
     synthesis_id: str = ""
     try:
         source_r = await write_artifact(
-            s3=s3, vectors=vectors, bedrock=bedrock, settings=settings,
+            s3=s3,
+            vectors=vectors,
+            bedrock=bedrock,
+            settings=settings,
             **{**_BASE_KWARGS, "title": "Integration purge cascade source"},
         )
         source_id = source_r["artifact_id"]
 
         synth_r = await write_artifact(
-            s3=s3, vectors=vectors, bedrock=bedrock, settings=settings,
+            s3=s3,
+            vectors=vectors,
+            bedrock=bedrock,
+            settings=settings,
             **{
                 **_BASE_KWARGS,
                 "type": "synthesis",
@@ -200,13 +223,21 @@ async def test_purge_synthesis_cascade_deleted(
     finally:
         if source_id:
             await delete_artifact(
-                settings=settings, s3=s3, vectors=vectors, bedrock=bedrock,
-                artifact_id=source_id, confirm=True,
+                settings=settings,
+                s3=s3,
+                vectors=vectors,
+                bedrock=bedrock,
+                artifact_id=source_id,
+                confirm=True,
             )
         if synthesis_id:
             await delete_artifact(
-                settings=settings, s3=s3, vectors=vectors, bedrock=bedrock,
-                artifact_id=synthesis_id, confirm=True,
+                settings=settings,
+                s3=s3,
+                vectors=vectors,
+                bedrock=bedrock,
+                artifact_id=synthesis_id,
+                confirm=True,
             )
 
 
@@ -219,9 +250,7 @@ async def test_purge_no_inactive_returns_zero(
 ) -> None:
     """Purge with no inactive artifacts in own scope → purged_count=0, no error."""
     # Ensure nothing inactive by running a purge first, then immediately run again
-    await purge_archived(
-        settings=settings, s3=s3, vectors=vectors, bedrock=bedrock, confirm=True
-    )
+    await purge_archived(settings=settings, s3=s3, vectors=vectors, bedrock=bedrock, confirm=True)
 
     result = await purge_archived(
         settings=settings, s3=s3, vectors=vectors, bedrock=bedrock, confirm=True

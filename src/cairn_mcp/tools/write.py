@@ -1,8 +1,8 @@
 """cairn_mcp.tools.write — write_artifact MCP tool implementation.
 
 Stores an artifact to S3 and indexes its section vectors in S3 Vectors using
-Bedrock embeddings. For tier-3 artifacts, orphaned section vectors from
-previous writes are cleaned up automatically.
+Bedrock embeddings. When an artifact already exists (any tier), orphaned section
+vectors from the previous write are cleaned up automatically.
 """
 
 import asyncio
@@ -239,7 +239,16 @@ async def _write_artifact_inner(  # noqa: PLR0913
         "source_artifacts": ",".join(sources),
     }
 
-    # ── Step 4: Write to S3 ───────────────────────────────────────────────────
+    # ── Step 4: Write to S3 (check existence first for orphan cleanup) ───────
+    is_existing = False
+    try:
+        s3.head_object(s3_key)
+        is_existing = True
+    except KeyError:
+        pass
+    except CredentialError as exc:
+        return {"error": "credential_error", "message": str(exc)}
+
     try:
         s3.put_object(s3_key, content, s3_metadata)
     except CredentialError as exc:
@@ -449,12 +458,10 @@ async def _write_artifact_inner(  # noqa: PLR0913
 
         new_keys.add(s3_key)
 
-    # ── Step 8: Orphan cleanup for tier 3 ────────────────────────────────────
-    if tier == 3:
+    # ── Step 8: Orphan cleanup for existing artifacts (any tier) ────────────
+    if is_existing:
         try:
-            existing_keys = vectors.list_vectors_by_metadata(
-                {"artifact_id": {"$eq": s3_key}}
-            )
+            existing_keys = vectors.list_vectors_by_metadata({"artifact_id": {"$eq": s3_key}})
         except CredentialError as exc:
             return {"error": "credential_error", "message": str(exc), "artifact_id": s3_key}
 
@@ -469,7 +476,5 @@ async def _write_artifact_inner(  # noqa: PLR0913
                     "artifact_id": s3_key,
                 }
 
-    logger.info(
-        "Artifact written: key=%s sections=%d tier=%d", s3_key, len(new_keys), tier
-    )
+    logger.info("Artifact written: key=%s sections=%d tier=%d", s3_key, len(new_keys), tier)
     return {"artifact_id": s3_key, "sections_indexed": len(new_keys)}

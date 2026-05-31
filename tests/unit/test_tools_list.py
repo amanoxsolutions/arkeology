@@ -11,22 +11,11 @@ import pytest
 from cairn_mcp.clients.fakes.fake_vectors import FakeVectorsClient
 from cairn_mcp.config import Settings
 from cairn_mcp.tools.list import list_artifacts
-
-# ---------------------------------------------------------------------------
-# Settings helper
-# ---------------------------------------------------------------------------
+from tests.unit.conftest import _make_settings as _make_settings_base
 
 
 def _make_settings(monkeypatch: pytest.MonkeyPatch, **overrides: str) -> Settings:
-    monkeypatch.setenv("AWS_REGION", "us-east-1")
-    monkeypatch.setenv("ARTIFACT_BUCKET", "my-bucket")
-    monkeypatch.setenv("VECTORS_BUCKET", "my-vectors")
-    monkeypatch.setenv("VECTORS_INDEX", "my-index")
-    monkeypatch.setenv("WRITE_PREFIX", "artifacts")
-    monkeypatch.setenv("READ_PREFIXES", "other-team")
-    for k, v in overrides.items():
-        monkeypatch.setenv(k, v)
-    return Settings()
+    return _make_settings_base(monkeypatch, READ_PREFIXES="other-team", **overrides)
 
 
 # ---------------------------------------------------------------------------
@@ -346,9 +335,7 @@ async def test_filter_tier3(
     vectors = FakeVectorsClient(dimension=8)
     _seed_vectors(vectors)
 
-    result = await list_artifacts(
-        settings=settings, vectors=vectors, s3=None, bedrock=None, tier=3
-    )
+    result = await list_artifacts(settings=settings, vectors=vectors, s3=None, bedrock=None, tier=3)
 
     assert len(result["artifacts"]) > 0
     for artifact in result["artifacts"]:
@@ -402,8 +389,18 @@ async def test_result_has_required_fields(
 
     assert len(result["artifacts"]) > 0
     required = [
-        "artifact_id", "type", "team", "project", "tier", "date", "status",
-        "title", "visibility", "feature_tags", "author_role", "description",
+        "artifact_id",
+        "type",
+        "team",
+        "project",
+        "tier",
+        "date",
+        "status",
+        "title",
+        "visibility",
+        "feature_tags",
+        "author_role",
+        "description",
     ]
     for artifact in result["artifacts"]:
         for field in required:
@@ -514,3 +511,64 @@ async def test_get_vectors_credential_error_returns_structured(
     result = await list_artifacts(settings=settings, vectors=vectors, s3=None, bedrock=None)
 
     assert "error" in result or result.get("error_type") is not None
+
+
+# ---------------------------------------------------------------------------
+# Spec 10 — Scope filter in vector query
+# ---------------------------------------------------------------------------
+
+
+async def test_list_vectors_called_with_scope_filter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """list_artifacts with a known scope → filter arg contains scope clause."""
+    settings = _make_settings(monkeypatch)
+    vectors = FakeVectorsClient(dimension=8)
+    _seed_vectors(vectors)
+
+    call_log: list[dict] = []  # type: ignore[type-arg]
+    original_list = vectors.list_vectors_by_metadata
+
+    def tracking_list(filter: dict[str, Any]) -> list[str]:  # noqa: A002
+        call_log.append(filter)
+        return original_list(filter)
+
+    vectors.list_vectors_by_metadata = tracking_list  # type: ignore[assignment]
+
+    await list_artifacts(settings=settings, vectors=vectors, s3=None, bedrock=None)
+
+    assert len(call_log) >= 1
+    last_filter = call_log[-1]
+    filter_str = str(last_filter)
+    assert "scope" in filter_str or "artifacts" in filter_str
+
+
+# ---------------------------------------------------------------------------
+# Spec 18 — source_artifacts in list result
+# ---------------------------------------------------------------------------
+
+
+async def test_list_result_includes_source_artifacts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Artifact with source_artifacts metadata → present in result dict."""
+    settings = _make_settings(monkeypatch)
+    vectors = FakeVectorsClient(dimension=8)
+    vectors.put_vector(
+        "artifacts/synth-t3#summary",
+        _unit_vec(2.0),
+        {
+            **_BASE_VECTOR_META,
+            "artifact_id": "artifacts/synth-t3",
+            "tier": 3,
+            "type": "synthesis",
+            "source_artifacts": ["adr-2026-x"],
+        },
+    )
+
+    result = await list_artifacts(settings=settings, vectors=vectors, s3=None, bedrock=None)
+
+    artifacts = result.get("artifacts", [])
+    synth = [a for a in artifacts if a.get("artifact_id") == "artifacts/synth-t3"]
+    assert len(synth) == 1
+    assert "source_artifacts" in synth[0]

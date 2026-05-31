@@ -5,12 +5,12 @@ All tests decorated with @pytest.mark.integration.
 """
 
 import pytest
-from cairn_mcp.tools.health import health_check
 
 from cairn_mcp.clients.bedrock import BedrockClientImpl
 from cairn_mcp.clients.s3 import S3ClientImpl
 from cairn_mcp.clients.vectors import VectorsClientImpl
 from cairn_mcp.config import Settings
+from cairn_mcp.tools.health import health_check
 
 
 @pytest.fixture(scope="session")
@@ -53,9 +53,7 @@ async def test_health_check_all_components_ok(
     bedrock: BedrockClientImpl,
 ) -> None:
     """Correctly configured environment → all components report 'ok'."""
-    result = await health_check(
-        settings=settings, s3=s3, vectors=vectors, bedrock=bedrock
-    )
+    result = await health_check(settings=settings, s3=s3, vectors=vectors, bedrock=bedrock)
 
     assert result["s3"]["status"] == "ok"
     assert result["vectors"]["status"] == "ok"
@@ -71,9 +69,7 @@ async def test_health_check_expected_keys_present(
     bedrock: BedrockClientImpl,
 ) -> None:
     """Health check response contains all expected top-level keys."""
-    result = await health_check(
-        settings=settings, s3=s3, vectors=vectors, bedrock=bedrock
-    )
+    result = await health_check(settings=settings, s3=s3, vectors=vectors, bedrock=bedrock)
 
     assert "s3" in result
     assert "vectors" in result
@@ -94,9 +90,7 @@ async def test_health_check_never_raises(
     bedrock: BedrockClientImpl,
 ) -> None:
     """health_check never raises — always returns a structured dict."""
-    result = await health_check(
-        settings=settings, s3=s3, vectors=vectors, bedrock=bedrock
-    )
+    result = await health_check(settings=settings, s3=s3, vectors=vectors, bedrock=bedrock)
 
     assert isinstance(result, dict)
     for key, entry in result.items():

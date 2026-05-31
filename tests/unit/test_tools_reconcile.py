@@ -19,6 +19,7 @@ from cairn_mcp.config import Settings
 
 # Implementation import — will fail until src/cairn_mcp/tools/reconcile.py is created
 from cairn_mcp.tools.reconcile import reconcile_index
+from tests.unit.conftest import _make_settings as _make_settings_base
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -32,15 +33,7 @@ DIMENSION = 8
 
 
 def _make_settings(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, **overrides: str) -> Settings:
-    monkeypatch.setenv("AWS_REGION", "us-east-1")
-    monkeypatch.setenv("ARTIFACT_BUCKET", "my-bucket")
-    monkeypatch.setenv("VECTORS_BUCKET", "my-vectors")
-    monkeypatch.setenv("VECTORS_INDEX", "my-index")
-    monkeypatch.setenv("WRITE_PREFIX", "artifacts")
-    monkeypatch.setenv("FAILURE_LOG_PATH", str(tmp_path / ".cairn_failures.jsonl"))
-    for k, v in overrides.items():
-        monkeypatch.setenv(k, v)
-    return Settings()
+    return _make_settings_base(monkeypatch, tmp_path=tmp_path, **overrides)
 
 
 # ---------------------------------------------------------------------------
@@ -550,3 +543,221 @@ async def test_list_vectors_exception_returns_internal_error(
 
     assert result.get("error") == "internal_error"
     assert "message" in result
+
+
+# ---------------------------------------------------------------------------
+# Spec 01 — CredentialError from list_objects → credential_error response
+# ---------------------------------------------------------------------------
+
+
+async def test_credential_error_on_list_objects_returns_credential_error(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """CredentialError from s3.list_objects → response is credential_error."""
+    settings = _make_settings(monkeypatch, tmp_path)
+    s3 = FakeS3Client()
+    vectors = FakeVectorsClient(dimension=DIMENSION)
+    bedrock = FakeBedrockClient(dimension=DIMENSION)
+
+    s3.set_credential_failure(True)
+
+    result = await reconcile_index(settings=settings, s3=s3, vectors=vectors, bedrock=bedrock)
+
+    assert result.get("error") == "credential_error"
+
+
+# ---------------------------------------------------------------------------
+# Spec 03 — Health probe keys excluded from reconciliation
+# ---------------------------------------------------------------------------
+
+
+async def test_health_probe_key_excluded_from_orphans(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """S3 has only _cairn_health_probe key → orphans_found == 0."""
+    settings = _make_settings(monkeypatch, tmp_path)
+    s3 = FakeS3Client()
+    vectors = FakeVectorsClient(dimension=DIMENSION)
+    bedrock = FakeBedrockClient(dimension=DIMENSION)
+
+    s3.put_object("artifacts/_cairn_health_probe", "probe", {})
+
+    result = await reconcile_index(settings=settings, s3=s3, vectors=vectors, bedrock=bedrock)
+
+    assert result.get("orphans_found", 0) == 0
+    reconciled = result.get("reconciled", [])
+    assert "_cairn_health_probe" not in str(reconciled)
+
+
+async def test_health_probe_excluded_but_real_orphan_found(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """S3 has probe + real orphan → orphans_found == 1, only real artifact reconciled."""
+    settings = _make_settings(monkeypatch, tmp_path)
+    s3 = FakeS3Client()
+    vectors = FakeVectorsClient(dimension=DIMENSION)
+    bedrock = FakeBedrockClient(dimension=DIMENSION)
+
+    s3.put_object("artifacts/_cairn_health_probe", "probe", {})
+    s3.put_object(
+        "artifacts/code-review-2026-05-30-orphan",
+        "## Summary\n\nOrphan content.",
+        {
+            "type": "code_review",
+            "team": "platform",
+            "project": "cairn",
+            "tier": "2",
+            "date": "2026-05-30",
+            "status": "active",
+            "title": "Orphan",
+            "visibility": "shared",
+            "description": "An orphan",
+        },
+    )
+
+    result = await reconcile_index(settings=settings, s3=s3, vectors=vectors, bedrock=bedrock)
+
+    assert result.get("orphans_found", 0) == 1
+    reconciled = result.get("reconciled", [])
+    assert "_cairn_health_probe" not in str(reconciled)
+
+
+async def test_nested_probe_key_also_excluded(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Probe key at nested path (endswith match) → excluded."""
+    settings = _make_settings(monkeypatch, tmp_path)
+    s3 = FakeS3Client()
+    vectors = FakeVectorsClient(dimension=DIMENSION)
+    bedrock = FakeBedrockClient(dimension=DIMENSION)
+
+    s3.put_object("artifacts/subdir/_cairn_health_probe", "probe", {})
+
+    result = await reconcile_index(settings=settings, s3=s3, vectors=vectors, bedrock=bedrock)
+
+    assert result.get("orphans_found", 0) == 0
+
+
+# ---------------------------------------------------------------------------
+# Spec 13 — CredentialError tests for reconcile call sites
+# ---------------------------------------------------------------------------
+
+
+async def test_credential_error_on_bedrock_embed_returns_credential_error(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """CredentialError from bedrock.embed during reconcile → credential_error response."""
+    settings = _make_settings(monkeypatch, tmp_path)
+    s3 = FakeS3Client()
+    vectors = FakeVectorsClient(dimension=DIMENSION)
+    bedrock = FakeBedrockClient(dimension=DIMENSION)
+
+    s3.put_object(
+        "artifacts/code-review-2026-05-30-orphan",
+        "## Summary\n\nOrphan.",
+        {
+            "type": "code_review",
+            "team": "platform",
+            "project": "cairn",
+            "tier": "2",
+            "date": "2026-05-30",
+            "status": "active",
+            "title": "Orphan",
+            "visibility": "shared",
+            "description": "An orphan",
+        },
+    )
+
+    bedrock.set_credential_failure(True)
+
+    result = await reconcile_index(settings=settings, s3=s3, vectors=vectors, bedrock=bedrock)
+
+    assert result.get("error") == "credential_error"
+
+
+async def test_credential_error_on_vectors_put_returns_credential_error(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """CredentialError from vectors.put_vector during reconcile → credential_error response."""
+    settings = _make_settings(monkeypatch, tmp_path)
+    s3 = FakeS3Client()
+    vectors = FakeVectorsClient(dimension=DIMENSION)
+    bedrock = FakeBedrockClient(dimension=DIMENSION)
+
+    s3.put_object(
+        "artifacts/code-review-2026-05-30-orphan",
+        "## Summary\n\nOrphan.",
+        {
+            "type": "code_review",
+            "team": "platform",
+            "project": "cairn",
+            "tier": "2",
+            "date": "2026-05-30",
+            "status": "active",
+            "title": "Orphan",
+            "visibility": "shared",
+            "description": "An orphan",
+        },
+    )
+
+    vectors.set_credential_failure(True)
+
+    result = await reconcile_index(settings=settings, s3=s3, vectors=vectors, bedrock=bedrock)
+
+    assert result.get("error") == "credential_error"
+
+
+@pytest.mark.asyncio
+async def test_startup_probe_key_excluded_from_orphan_scan(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Orphan scan skips S3 keys containing '_cairn_mcp_startup_probe'."""
+    settings = _make_settings(monkeypatch, tmp_path)
+    s3 = FakeS3Client()
+    vectors = FakeVectorsClient(dimension=DIMENSION)
+    bedrock = FakeBedrockClient(dimension=DIMENSION)
+
+    # Seed a real artifact so reconcile has something to verify against
+    s3.put_object(
+        "artifacts/code-review-2026-01-01-real",
+        "## Summary\n\nReal artifact.",
+        {
+            "type": "code_review",
+            "team": "platform",
+            "project": "cairn",
+            "tier": "2",
+            "date": "2026-01-01",
+            "status": "active",
+            "title": "Real",
+            "visibility": "shared",
+            "description": "A real artifact",
+        },
+    )
+    # Seed a startup probe key — must NOT be picked up as an orphan
+    s3.put_object(
+        "artifacts/_cairn_mcp_startup_probe",
+        "startup-probe",
+        {},
+    )
+    # Index the real artifact so it is not reported as an orphan
+    vectors.put_vector(
+        "artifacts/code-review-2026-01-01-real",
+        [1.0] + [0.0] * (DIMENSION - 1),
+        {"artifact_id": "artifacts/code-review-2026-01-01-real", "scope": "artifacts"},
+    )
+
+    result = await reconcile_index(settings=settings, s3=s3, vectors=vectors, bedrock=bedrock)
+
+    assert "error" not in result
+    # The startup probe must not appear in reconciled or failed lists
+    all_ids = [e["artifact_id"] for e in result.get("reconciled", []) + result.get("failed", [])]
+    assert not any("_cairn_mcp_startup_probe" in aid for aid in all_ids)
+    # orphans_found should be 0 — the real artifact is already indexed
+    assert result["orphans_found"] == 0

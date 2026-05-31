@@ -6,27 +6,16 @@ Tests purge_archived() using FakeS3Client + FakeVectorsClient.
 from typing import Any
 
 import pytest
-from cairn_mcp.tools.purge import purge_archived
 
 from cairn_mcp.clients.fakes.fake_s3 import FakeS3Client
 from cairn_mcp.clients.fakes.fake_vectors import FakeVectorsClient
 from cairn_mcp.config import Settings
-
-# ---------------------------------------------------------------------------
-# Settings helper
-# ---------------------------------------------------------------------------
+from cairn_mcp.tools.purge import purge_archived
+from tests.unit.conftest import _make_settings as _make_settings_base
 
 
 def _make_settings(monkeypatch: pytest.MonkeyPatch, **overrides: str) -> Settings:
-    monkeypatch.setenv("AWS_REGION", "us-east-1")
-    monkeypatch.setenv("ARTIFACT_BUCKET", "my-bucket")
-    monkeypatch.setenv("VECTORS_BUCKET", "my-vectors")
-    monkeypatch.setenv("VECTORS_INDEX", "my-index")
-    monkeypatch.setenv("WRITE_PREFIX", "artifacts")
-    monkeypatch.setenv("READ_PREFIXES", "other-team")
-    for k, v in overrides.items():
-        monkeypatch.setenv(k, v)
-    return Settings()
+    return _make_settings_base(monkeypatch, READ_PREFIXES="other-team", **overrides)
 
 
 # ---------------------------------------------------------------------------
@@ -207,9 +196,7 @@ async def test_purge_confirm_absent_returns_error(
     _seed_all(s3, vectors)
     initial_count = len(s3._objects)
 
-    result = await purge_archived(
-        settings=settings, s3=s3, vectors=vectors, bedrock=None
-    )
+    result = await purge_archived(settings=settings, s3=s3, vectors=vectors, bedrock=None)
 
     assert "error" in result or result.get("error_type") is not None
     assert len(s3._objects) == initial_count
@@ -280,9 +267,7 @@ async def test_purge_leaves_active_artifacts_untouched(
     vectors = FakeVectorsClient(dimension=2)
     _seed_all(s3, vectors)
 
-    await purge_archived(
-        settings=settings, s3=s3, vectors=vectors, bedrock=None, confirm=True
-    )
+    await purge_archived(settings=settings, s3=s3, vectors=vectors, bedrock=None, confirm=True)
 
     assert "artifacts/active-keep" in s3._objects
 
@@ -296,9 +281,7 @@ async def test_purge_leaves_foreign_scope_inactive_untouched(
     vectors = FakeVectorsClient(dimension=2)
     _seed_all(s3, vectors)
 
-    await purge_archived(
-        settings=settings, s3=s3, vectors=vectors, bedrock=None, confirm=True
-    )
+    await purge_archived(settings=settings, s3=s3, vectors=vectors, bedrock=None, confirm=True)
 
     assert "other-team/foreign-inactive" in s3._objects
 
@@ -478,3 +461,36 @@ async def test_purge_delete_object_credential_error_partial_failure(
     assert "error" in result or result.get("error_type") is not None
     result_str = str(result)
     assert "artifacts/inactive-t2" in result_str
+
+
+# ---------------------------------------------------------------------------
+# Spec 01 — CredentialError from S3 returns credential_error (not partial_delete)
+# ---------------------------------------------------------------------------
+
+
+async def test_credential_error_on_purge_returns_credential_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """CredentialError during S3 delete → response is credential_error, not partial_purge."""
+    settings = _make_settings(monkeypatch)
+    s3 = FakeS3Client()
+    vectors = FakeVectorsClient()
+
+    s3.put_object(
+        "artifacts/inactive-t2",
+        "archived content",
+        {**_BASE_S3_META, "status": "inactive"},
+    )
+    vectors.put_vector(
+        "artifacts/inactive-t2#summary",
+        [1.0, 0.0],
+        {**_BASE_VECTOR_META, "artifact_id": "artifacts/inactive-t2", "status": "inactive"},
+    )
+
+    s3.set_credential_failure(True)
+
+    result = await purge_archived(
+        settings=settings, s3=s3, vectors=vectors, bedrock=None, confirm=True
+    )
+
+    assert result.get("error") == "credential_error"

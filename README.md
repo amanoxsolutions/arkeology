@@ -122,7 +122,7 @@ Amazon Bedrock (Titan Text v2). Agents connect via the Model Context Protocol an
 | `write_artifact` | Store an artifact in S3 and index it in S3 Vectors | `type`, `team`, `project`, `tier`, `title`, `content`, `visibility`, optional filters | `artifact_id`, `sections_indexed` |
 | `search_artifacts` | Semantic search over the vector index with optional metadata filters | `query`, optional: `type`, `feature_tags`, `team`, `project`, `tier`, `status`, `top_k` | List of artifact metadata (no content) |
 | `read_artifact` | Fetch the full content of an artifact by ID | `artifact_id` | Full artifact dict including `content` |
-| `list_artifacts` | List artifact metadata with optional filters; defaults to active artifacts | optional: `type`, `team`, `project`, `tier`, `status`, `feature_tags`, `limit` | List of artifact metadata records |
+| `list_artifacts` | List artifact metadata with optional filters; defaults to active artifacts | optional: `type`, `team`, `project`, `tier`, `status`, `feature_tags` | List of artifact metadata records |
 | `archive_artifact` | Set an artifact's status to inactive (own scope only) | `artifact_id` | Confirmation with updated `artifact_id` |
 | `delete_artifact` | Hard-delete an artifact from S3 and S3 Vectors; warns if referenced by a synthesis | `artifact_id`, `confirm=True` | Deletion confirmation |
 | `purge_archived` | Bulk-delete all inactive artifacts in own scope; cascade-deletes orphaned syntheses | `confirm=True` | Count of deleted artifacts and syntheses |
@@ -137,7 +137,7 @@ discover what to provide without consulting external documentation.
 
 ## Status
 
-> **Phase 3 complete** — `write_artifact`, `search_artifacts`, `read_artifact`, `list_artifacts`, `archive_artifact`, `delete_artifact`, `purge_archived`, `health_check`, and `synthesise_artifacts` are implemented and unit-tested. Integration tests, setup documentation, and AGENTS.md snippet are planned to complete Phase 4.
+> **Phase 5 complete** — `write_artifact`, `search_artifacts`, `read_artifact`, `list_artifacts`, `archive_artifact`, `delete_artifact`, `purge_archived`, `health_check`, `synthesise_artifacts`, `reconcile_index`, and `check_synthesis_freshness` are implemented and unit-tested.
 
 ## Using the Migration Skill
 
@@ -187,7 +187,7 @@ Once installed, load the skill and follow the seven-step workflow in
 ## Installation
 
 ```bash
-git clone https://github.com/your-org/cairn-mcp.git
+git clone https://github.com/amanoxsolutions/cairn-mcp.git
 cd cairn-mcp
 uv sync
 cp .env.example .env
@@ -299,7 +299,7 @@ Attach the following policy to the IAM user or role that runs cairn-mcp. Replace
         "s3:GetObject",
         "s3:PutObject",
         "s3:DeleteObject",
-        "s3:ListObjectsV2",
+        "s3:ListBucket",
         "s3:HeadBucket",
         "s3:HeadObject"
       ],
@@ -317,9 +317,7 @@ Attach the following policy to the IAM user or role that runs cairn-mcp. Replace
         "s3vectors:QueryVectors",
         "s3vectors:DeleteVectors",
         "s3vectors:DescribeIndex",
-        "s3vectors:ListVectors",
-        "s3vectors:CreateIndex",
-        "s3vectors:DeleteIndex"
+        "s3vectors:ListVectors"
       ],
       "Resource": "arn:aws:s3vectors:YOUR-REGION:YOUR-ACCOUNT-ID:bucket/YOUR-VECTORS-BUCKET/index/YOUR-INDEX-NAME"
     },
@@ -328,6 +326,29 @@ Attach the following policy to the IAM user or role that runs cairn-mcp. Replace
       "Effect": "Allow",
       "Action": "bedrock:InvokeModel",
       "Resource": "arn:aws:bedrock:YOUR-REGION::foundation-model/amazon.titan-embed-text-v2:0"
+    }
+  ]
+}
+```
+
+#### Provisioning IAM policy (one-time setup only)
+
+The actions below are required only when creating or deleting the vector index.
+**Do not include these in your runtime role policy** — `DeleteIndex` in a runtime
+policy is a destructive misconfiguration risk.
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "S3VectorsProvisioning",
+      "Effect": "Allow",
+      "Action": [
+        "s3vectors:CreateIndex",
+        "s3vectors:DeleteIndex"
+      ],
+      "Resource": "arn:aws:s3vectors:YOUR-REGION:YOUR-ACCOUNT-ID:bucket/YOUR-VECTORS-BUCKET/index/YOUR-INDEX-NAME"
     }
   ]
 }
@@ -354,6 +375,9 @@ uv run pytest tests/integration/ -q
 
 # Lint
 uv run ruff check src/ tests/
+
+# Format check
+uv run ruff format --check src/ tests/
 
 # Type check
 uv run mypy src/
@@ -480,4 +504,6 @@ MCP Resources the server exposes at runtime:
 
 ## License
 
-<!-- TODO -->
+Apache License 2.0 — see [LICENSE](LICENSE) for the full text.
+
+Copyright 2026 Amanox Solutions

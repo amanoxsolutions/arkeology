@@ -27,7 +27,10 @@ from cairn_mcp.tools.write import write_artifact as _write_artifact
 
 logger = logging.getLogger(__name__)
 
-_version = importlib.metadata.version("cairn-mcp")
+try:
+    _version = importlib.metadata.version("cairn-mcp")
+except importlib.metadata.PackageNotFoundError:
+    _version = "0.0.0-dev"
 _app = fastmcp.FastMCP(name="cairn-mcp", version=_version)
 register_resources(_app)
 

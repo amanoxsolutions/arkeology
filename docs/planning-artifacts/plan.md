@@ -2,7 +2,7 @@
 
 _Project: cairn-mcp_
 _Generated: 2026-05-29_ · _Last updated: 2026-05-31_
-_Status: **complete — Phases 1–5 complete; T21 ✅ T22 ✅ (431 unit tests + 54 integration tests passing; all tools documented)**_
+_Status: **complete — Phases 1–5 + Review Hardening complete (486 unit tests passing; ruff + mypy clean; Apache 2.0 licensed; production-hardened)**_
 
 ---
 
@@ -122,6 +122,16 @@ Goal: any agent can discover the schema at runtime; a new team can adopt the ser
 
 ---
 
+## Phase 6 — Production Hardening (Review Fix Cycle)
+
+Goal: resolve all 76 findings from the full project code review (12 critical, 27 major, 37 minor). No new functionality — correctness, security, and maintainability only.
+
+23. ✅ **Implement all 20 review-fix specs** — credential error hardening, vector score semantics, health probe filter, README IAM fixes, exception chaining, S3/Bedrock hardening, health CredentialError distinction, archive idempotency, list scope filter, shared search helper, test infrastructure consolidation, CredentialError test coverage, integration test isolation, project config fixes, minor foundation/client/tool/test/doc improvements, ABC→Protocol migration, `filter`→`filter_expr` rename, Apache 2.0 licence, repo URL
+    - Done when: all 486 unit tests passing; ruff + mypy clean; all 20 specs implemented; full post-implementation review passed clean (0 critical, 0 major, 0 minor)
+    - Spec files: `docs/specs/review-fix-01-*.md` through `docs/specs/review-fix-20-*.md`
+
+---
+
 ## Risks and Open Questions
 
 - **~~S3 Vectors `PutVector` upsert behaviour~~** — **CLOSED (2026-05-31, T17 confirmed)**: `PutVectors` silently overwrites an existing key (upsert confirmed). 44 integration tests passed green; tier 3 overwrite logic is correct as written; no code change required.
@@ -155,6 +165,9 @@ Goal: any agent can discover the schema at runtime; a new team can adopt the ser
 - **`CredentialError` must be imported and handled at every AWS call site in every tool**: not just at the outer `_inner` boundary — each call site needs its own `except CredentialError` guard so the structured error is returned immediately rather than falling through to a generic `Exception` handler
 - **`all_fresh` semantics**: `True` iff `stale`, `archived_sources`, `missing_sources`, AND `malformed` are all empty — applies after any deletions triggered by `confirm=True`
 - **Source deduplication in freshness**: collect all distinct source IDs across all synthesis artifacts first, then fetch each unique ID exactly once; without deduplication, a shared source referenced by N syntheses would trigger N `list_vectors_by_metadata` calls
+
+- **Phase 6 (review hardening) complete (2026-05-31)**: 486 unit tests passing; all 76 review findings resolved across 20 specs; ruff + mypy clean (33 source files); Apache 2.0 licence added; `interfaces.py` migrated ABC→Protocol; `filter`→`filter_expr` rename; shared `_search_helper.py` extracted; README IAM policy corrected (`s3:ListBucket`, `DeleteIndex` moved to provisioning section); credential error handling hardened across all tools; vector score formula aligned (`1.0 - distance`); integration tests isolated with `unique_run_id` fixture
+- **Vector score range (known limitation)**: `VectorsClientImpl` returns `score = 1.0 - cosine_distance` ∈ [−1, 1]; `FakeVectorsClient` returns `1.0 + cosine_similarity` ∈ [0, 2]. Both preserve "higher = more similar" ordering. Numeric ranges differ; no tool applies absolute score thresholds today. A future integration test should confirm the real API's distance range.
 
 ## References
 

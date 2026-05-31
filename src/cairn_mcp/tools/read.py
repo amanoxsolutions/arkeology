@@ -125,12 +125,8 @@ async def _read_artifact_inner(
         return {"error": "credential_error", "message": str(exc)}
 
     # ── Step 4: Deserialise metadata ──────────────────────────────────────────
-    feature_tags: list[str] = [
-        t for t in str(meta.get("feature_tags", "")).split(",") if t
-    ]
-    source_artifacts: list[str] = [
-        s for s in str(meta.get("source_artifacts", "")).split(",") if s
-    ]
+    feature_tags: list[str] = [t for t in str(meta.get("feature_tags", "")).split(",") if t]
+    source_artifacts: list[str] = [s for s in str(meta.get("source_artifacts", "")).split(",") if s]
 
     logger.info("Artifact read: key=%s", artifact_id)
     return {

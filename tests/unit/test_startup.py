@@ -290,3 +290,134 @@ def test_check5_explicit_dimensions_override_mismatch_raises(
     assert exc_info.value.check == "vector_index_dimension"
     assert "512" in exc_info.value.message
     assert "2048" in exc_info.value.message
+
+
+# ── Spec 05: Exception chaining (__cause__) ───────────────────────────────────
+
+
+def test_check2_write_probe_failure_chains_cause(settings: Settings) -> None:
+    """Write probe raises → __cause__ is the original exception."""
+
+    class WriteDeniedS3(FakeS3Client):
+        def put_object(self, key: str, body: str, metadata: dict) -> None:  # type: ignore[override]
+            if "_cairn_mcp_startup_probe" in key:
+                raise PermissionError("write denied")
+            super().put_object(key, body, metadata)
+
+    s3 = WriteDeniedS3()
+    vectors = FakeVectorsClient()
+    bedrock = FakeBedrockClient()
+    with pytest.raises(StartupValidationError) as exc_info:
+        validate_startup(settings=settings, s3=s3, vectors=vectors, bedrock=bedrock)
+    assert exc_info.value.__cause__ is not None
+    assert isinstance(exc_info.value.__cause__, PermissionError)
+
+
+def test_check2_delete_probe_failure_logs_warning_not_raises(
+    settings: Settings, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Delete probe failure logs a warning but does NOT raise StartupValidationError."""
+    import logging
+
+    class DeleteDeniedS3(FakeS3Client):
+        def delete_object(self, key: str) -> None:
+            if "_cairn_mcp_startup_probe" in key:
+                raise PermissionError("delete denied")
+            super().delete_object(key)
+
+    s3 = DeleteDeniedS3()
+    vectors = FakeVectorsClient()
+    bedrock = FakeBedrockClient()
+    with caplog.at_level(logging.WARNING, logger="cairn_mcp.startup"):
+        validate_startup(settings=settings, s3=s3, vectors=vectors, bedrock=bedrock)
+    assert any("_cairn_mcp_startup_probe" in r.message for r in caplog.records)
+
+
+def test_check3_read_prefix_failure_chains_cause(
+    settings_with_read_prefix: Settings,
+) -> None:
+    """Read-prefix probe raises → __cause__ is the original exception."""
+
+    class ListDeniedS3(FakeS3Client):
+        def list_objects(self, prefix: str) -> list[str]:
+            if prefix == "network/":
+                raise PermissionError("list denied")
+            return super().list_objects(prefix)
+
+    s3 = ListDeniedS3()
+    vectors = FakeVectorsClient()
+    bedrock = FakeBedrockClient()
+    with pytest.raises(StartupValidationError) as exc_info:
+        validate_startup(
+            settings=settings_with_read_prefix,
+            s3=s3,
+            vectors=vectors,
+            bedrock=bedrock,
+        )
+    assert exc_info.value.__cause__ is not None
+    assert isinstance(exc_info.value.__cause__, PermissionError)
+
+
+def test_check4_vector_index_missing_chains_cause(settings: Settings) -> None:
+    """VectorIndexNotFoundError → __cause__ is the original exception."""
+    from cairn_mcp.errors import VectorIndexNotFoundError
+
+    s3 = FakeS3Client()
+    vectors = FakeVectorsClient(index_missing=True)
+    bedrock = FakeBedrockClient()
+    with pytest.raises(StartupValidationError) as exc_info:
+        validate_startup(settings=settings, s3=s3, vectors=vectors, bedrock=bedrock)
+    assert exc_info.value.__cause__ is not None
+    assert isinstance(exc_info.value.__cause__, VectorIndexNotFoundError)
+
+
+# ── Spec 16: Bad dimension string ─────────────────────────────────────────────
+
+
+def test_check5_nan_dimension_raises_startup_error(settings: Settings) -> None:
+    """describe_index returns dimensions='nan' → StartupValidationError."""
+
+    class NanDimensionVectors(FakeVectorsClient):
+        def describe_index(self) -> dict:  # type: ignore[override]
+            return {"dimension": "nan"}
+
+    s3 = FakeS3Client()
+    vectors = NanDimensionVectors()
+    bedrock = FakeBedrockClient()
+    with pytest.raises(StartupValidationError) as exc_info:
+        validate_startup(settings=settings, s3=s3, vectors=vectors, bedrock=bedrock)
+    assert "nan" in exc_info.value.message.lower()
+
+
+def test_check5_none_dimension_raises_startup_error(settings: Settings) -> None:
+    """describe_index returns dimensions=None → StartupValidationError."""
+
+    class NoneDimensionVectors(FakeVectorsClient):
+        def describe_index(self) -> dict:  # type: ignore[override]
+            return {"dimension": None}
+
+    s3 = FakeS3Client()
+    vectors = NoneDimensionVectors()
+    bedrock = FakeBedrockClient()
+    with pytest.raises(StartupValidationError):
+        validate_startup(settings=settings, s3=s3, vectors=vectors, bedrock=bedrock)
+
+
+def test_check1_credential_failure_chains_cause(settings: Settings) -> None:
+    """CredentialError in check 1 → __cause__ is the original exception."""
+
+    class CredFailS3(FakeS3Client):
+        def head_bucket(self, bucket: str) -> None:
+            raise CredentialError(
+                message="simulated",
+                service="s3",
+                original=PermissionError("no creds"),
+            )
+
+    s3 = CredFailS3()
+    vectors = FakeVectorsClient()
+    bedrock = FakeBedrockClient()
+    with pytest.raises(StartupValidationError) as exc_info:
+        validate_startup(settings=settings, s3=s3, vectors=vectors, bedrock=bedrock)
+    assert exc_info.value.__cause__ is not None
+    assert isinstance(exc_info.value.__cause__, CredentialError)

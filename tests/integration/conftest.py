@@ -23,9 +23,12 @@ WHY a session fixture instead of pytest_configure:
 """
 
 import os
+import uuid
 from pathlib import Path
 
 import pytest
+
+from cairn_mcp.config import Settings
 
 # .env lives at the project root — three levels up from this file:
 # tests/integration/conftest.py → tests/integration → tests → project root
@@ -65,3 +68,24 @@ def require_env_vars(load_env: None) -> None:
             f"Integration test skipped — set these variables in .env or your shell: "
             f"{', '.join(missing)}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Spec 14 — Unique run ID for integration test isolation
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="session")
+def unique_run_id() -> str:
+    """Session-scoped unique run ID to isolate parallel test runs.
+
+    Appended to artifact titles/IDs so concurrent test sessions do not
+    collide. Format: 8-char hex from uuid4.
+    """
+    return uuid.uuid4().hex[:8]
+
+
+@pytest.fixture(scope="session")
+def integration_settings(load_env: None) -> Settings:
+    """Session-scoped Settings constructed from environment after load_env runs."""
+    return Settings()

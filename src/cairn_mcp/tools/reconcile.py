@@ -57,9 +57,7 @@ def _reindex_artifact(
     tier_raw = raw_s3_meta.get("tier", "2")
     tier = int(tier_raw)
     feature_tags = [t for t in raw_s3_meta.get("feature_tags", "").split(",") if t]
-    source_artifacts_list = [
-        s for s in raw_s3_meta.get("source_artifacts", "").split(",") if s
-    ]
+    source_artifacts_list = [s for s in raw_s3_meta.get("source_artifacts", "").split(",") if s]
 
     vector_metadata: dict[str, Any] = {
         "artifact_id": artifact_id,
@@ -183,13 +181,13 @@ async def _reconcile_index_inner(
     if log_path.exists():
         raw_lines = log_path.read_text(encoding="utf-8").splitlines()
         entries: list[dict[str, Any]] = []
-        for line in raw_lines:
-            line = line.strip()
-            if line:
+        for raw_line in raw_lines:
+            entry_line = raw_line.strip()
+            if entry_line:
                 try:
-                    entries.append(json.loads(line))
+                    entries.append(json.loads(entry_line))
                 except json.JSONDecodeError:
-                    logger.warning("Skipping malformed failure log line: %s", line)
+                    logger.warning("Skipping malformed failure log line: %s", entry_line)
 
         failure_log_entries_before = len(entries)
 
@@ -251,9 +249,7 @@ async def _reconcile_index_inner(
                 failed_ids.add(artifact_id)
 
         # Rewrite the failure log — retain only entries whose artifact_id was NOT resolved.
-        remaining_entries = [
-            e for e in entries if e.get("artifact_id", "") not in resolved_ids
-        ]
+        remaining_entries = [e for e in entries if e.get("artifact_id", "") not in resolved_ids]
         failure_log_entries_after = len(remaining_entries)
 
         if remaining_entries:
@@ -269,8 +265,17 @@ async def _reconcile_index_inner(
 
     # ── Phase 2: Orphan scan ──────────────────────────────────────────────────
     own_prefix = settings.write_prefix + "/"
-    all_s3_keys = s3.list_objects(settings.write_prefix)
-    own_keys = [k for k in all_s3_keys if k.startswith(own_prefix)]
+    try:
+        all_s3_keys = s3.list_objects(settings.write_prefix)
+    except CredentialError as exc:
+        return {"error": "credential_error", "message": str(exc)}
+    own_keys = [
+        k
+        for k in all_s3_keys
+        if k.startswith(own_prefix)
+        and "_cairn_health_probe" not in k
+        and "_cairn_mcp_startup_probe" not in k
+    ]
 
     try:
         indexed_keys_raw = vectors.list_vectors_by_metadata(

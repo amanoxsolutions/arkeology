@@ -130,3 +130,38 @@ def test_credential_failure_can_be_cleared() -> None:
     client.set_credential_failure(True)
     client.set_credential_failure(False)
     client.put_object("artifacts/foo.md", "content", {})  # should not raise
+
+
+# ---------------------------------------------------------------------------
+# Spec 01 — Missing error codes + NoCredentialsError → CredentialError
+# ---------------------------------------------------------------------------
+
+
+def test_credential_error_message_contains_service() -> None:
+    """CredentialError from fake S3 mentions 's3' as the service (spec 17)."""
+    client = FakeS3Client()
+    client.set_credential_failure(True)
+    with pytest.raises(CredentialError) as exc_info:
+        client.get_object("artifacts/foo.md")
+    assert exc_info.value.service == "s3"
+
+
+# ---------------------------------------------------------------------------
+# Spec 06 — Lexicographic order + 403 handling
+# ---------------------------------------------------------------------------
+
+
+def test_list_objects_lexicographic_order() -> None:
+    """list_objects returns keys in lexicographic order."""
+    client = FakeS3Client()
+    client.put_object("b/key", "b", {})
+    client.put_object("a/key", "a", {})
+    client.put_object("c/key", "c", {})
+    result = client.list_objects("")
+    assert result == ["a/key", "b/key", "c/key"]
+
+
+def test_list_objects_empty() -> None:
+    """list_objects on empty store returns []."""
+    client = FakeS3Client()
+    assert client.list_objects("any-prefix/") == []

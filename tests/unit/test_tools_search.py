@@ -12,22 +12,11 @@ from cairn_mcp.clients.fakes.fake_bedrock import FakeBedrockClient
 from cairn_mcp.clients.fakes.fake_vectors import FakeVectorsClient
 from cairn_mcp.config import Settings
 from cairn_mcp.tools.search import search_artifacts
-
-# ---------------------------------------------------------------------------
-# Settings helpers
-# ---------------------------------------------------------------------------
+from tests.unit.conftest import _make_settings as _make_settings_base
 
 
 def _make_settings(monkeypatch: pytest.MonkeyPatch, **overrides: str) -> Settings:
-    monkeypatch.setenv("AWS_REGION", "us-east-1")
-    monkeypatch.setenv("ARTIFACT_BUCKET", "my-bucket")
-    monkeypatch.setenv("VECTORS_BUCKET", "my-vectors")
-    monkeypatch.setenv("VECTORS_INDEX", "my-index")
-    monkeypatch.setenv("WRITE_PREFIX", "artifacts")
-    monkeypatch.setenv("READ_PREFIXES", "other-team")
-    for k, v in overrides.items():
-        monkeypatch.setenv(k, v)
-    return Settings()
+    return _make_settings_base(monkeypatch, READ_PREFIXES="other-team", **overrides)
 
 
 def _unit_vec(values: list[float]) -> list[float]:
@@ -543,11 +532,11 @@ async def test_search_max_iterations_limits_query_calls(
             self,
             vector: list[float],
             top_k: int,
-            filter: dict[str, Any] | None,
+            filter_expr: dict[str, Any] | None,
         ) -> list[dict[str, Any]]:
             nonlocal call_count
             call_count += 1
-            return super().query_vectors(vector, top_k, filter)
+            return super().query_vectors(vector, top_k, filter_expr)
 
     vectors = TrackingVectorsClient(dimension=8)
     bedrock = FakeBedrockClient(dimension=8)
@@ -573,11 +562,11 @@ async def test_early_exit_when_no_new_artifact_ids(
             self,
             vector: list[float],
             top_k: int,
-            filter: dict[str, Any] | None,
+            filter_expr: dict[str, Any] | None,
         ) -> list[dict[str, Any]]:
             nonlocal call_count
             call_count += 1
-            return super().query_vectors(vector, top_k, filter)
+            return super().query_vectors(vector, top_k, filter_expr)
 
     vectors = TrackingVectorsClient(dimension=8)
     bedrock = FakeBedrockClient(dimension=8)
@@ -713,11 +702,11 @@ async def test_bedrock_credential_failure_returns_error_no_query(
             self,
             vector: list[float],
             top_k: int,
-            filter: dict[str, Any] | None,
+            filter_expr: dict[str, Any] | None,
         ) -> list[dict[str, Any]]:
             nonlocal call_count
             call_count += 1
-            return super().query_vectors(vector, top_k, filter)
+            return super().query_vectors(vector, top_k, filter_expr)
 
     vectors = TrackingVectorsClient(dimension=8)
     bedrock = FakeBedrockClient(dimension=8)
@@ -765,11 +754,11 @@ async def test_first_iteration_filter_has_no_nin(
             self,
             vector: list[float],
             top_k: int,
-            filter: dict[str, Any] | None,
+            filter_expr: dict[str, Any] | None,
         ) -> list[dict[str, Any]]:
-            if filter is not None:
-                captured_filters.append(filter)
-            return super().query_vectors(vector, top_k, filter)
+            if filter_expr is not None:
+                captured_filters.append(filter_expr)
+            return super().query_vectors(vector, top_k, filter_expr)
 
     vectors = CapturingVectorsClient(dimension=8)
     bedrock = FakeBedrockClient(dimension=8)
@@ -826,9 +815,7 @@ async def test_search_results_include_source_artifacts(
 
     assert len(result["artifacts"]) > 0
     for artifact in result["artifacts"]:
-        assert "source_artifacts" in artifact, (
-            f"'source_artifacts' missing from result: {artifact}"
-        )
+        assert "source_artifacts" in artifact, f"'source_artifacts' missing from result: {artifact}"
     # The specific artifact seeded with sources should have them
     seeded = next(
         (a for a in result["artifacts"] if a["artifact_id"] == "artifacts/adr-with-sources"),
@@ -836,3 +823,51 @@ async def test_search_results_include_source_artifacts(
     )
     assert seeded is not None
     assert seeded["source_artifacts"] == ["adr-one"]
+
+
+# ---------------------------------------------------------------------------
+# Spec 18 — top_k clamping
+# ---------------------------------------------------------------------------
+
+
+async def test_search_top_k_over_limit_clamped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """top_k=200 → response contains clamped: True and effective_top_k: 100."""
+    settings = _make_settings(monkeypatch)
+    vectors = FakeVectorsClient(dimension=8)
+    bedrock = FakeBedrockClient(dimension=8)
+    _seed_vectors(vectors)
+
+    result = await search_artifacts(
+        settings=settings,
+        vectors=vectors,
+        bedrock=bedrock,
+        s3=None,
+        query="auth review",
+        top_k=200,
+    )
+
+    assert result.get("clamped") is True
+    assert result.get("effective_top_k") == 100
+
+
+async def test_search_top_k_within_limit_not_clamped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """top_k=10 → response does not contain clamped: True."""
+    settings = _make_settings(monkeypatch)
+    vectors = FakeVectorsClient(dimension=8)
+    bedrock = FakeBedrockClient(dimension=8)
+    _seed_vectors(vectors)
+
+    result = await search_artifacts(
+        settings=settings,
+        vectors=vectors,
+        bedrock=bedrock,
+        s3=None,
+        query="auth review",
+        top_k=10,
+    )
+
+    assert result.get("clamped") is not True

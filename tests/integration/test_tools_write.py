@@ -92,8 +92,12 @@ async def test_full_round_trip_s3_content_and_vector_metadata(
     finally:
         if artifact_id:
             await delete_artifact(
-                settings=settings, s3=s3, vectors=vectors, bedrock=bedrock,
-                artifact_id=artifact_id, confirm=True,
+                settings=settings,
+                s3=s3,
+                vectors=vectors,
+                bedrock=bedrock,
+                artifact_id=artifact_id,
+                confirm=True,
             )
 
 
@@ -105,9 +109,7 @@ async def test_tier3_rewrite_fewer_sections_cleans_orphans(
     bedrock: BedrockClientImpl,
 ) -> None:
     """Tier 3 re-write with 2 sections after 3 → list_vectors_by_metadata returns 2 keys."""
-    three_section_content = (
-        "## Alpha\n\nBody A.\n\n## Beta\n\nBody B.\n\n## Gamma\n\nBody C."
-    )
+    three_section_content = "## Alpha\n\nBody A.\n\n## Beta\n\nBody B.\n\n## Gamma\n\nBody C."
     two_section_content = "## Alpha\n\nBody A.\n\n## Beta\n\nBody B."
 
     kwargs_3 = {**_BASE_KWARGS, "tier": 3, "title": "Integration rewrite test three"}
@@ -137,8 +139,12 @@ async def test_tier3_rewrite_fewer_sections_cleans_orphans(
     finally:
         if artifact_id:
             await delete_artifact(
-                settings=settings, s3=s3, vectors=vectors, bedrock=bedrock,
-                artifact_id=artifact_id, confirm=True,
+                settings=settings,
+                s3=s3,
+                vectors=vectors,
+                bedrock=bedrock,
+                artifact_id=artifact_id,
+                confirm=True,
             )
 
 
@@ -180,6 +186,10 @@ async def test_upsert_tier2_twice_one_s3_object_same_vector_count(
     finally:
         if artifact_id:
             await delete_artifact(
-                settings=settings, s3=s3, vectors=vectors, bedrock=bedrock,
-                artifact_id=artifact_id, confirm=True,
+                settings=settings,
+                s3=s3,
+                vectors=vectors,
+                bedrock=bedrock,
+                artifact_id=artifact_id,
+                confirm=True,
             )

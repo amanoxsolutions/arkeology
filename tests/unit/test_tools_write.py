@@ -12,29 +12,13 @@ import pytest
 from cairn_mcp.clients.fakes.fake_bedrock import FakeBedrockClient
 from cairn_mcp.clients.fakes.fake_s3 import FakeS3Client
 from cairn_mcp.clients.fakes.fake_vectors import FakeVectorsClient
-from cairn_mcp.config import Settings
 from cairn_mcp.errors import CredentialError
 from cairn_mcp.tools.write import (
     _build_document_embedding_text,
     _build_section_embedding_text,
     write_artifact,
 )
-
-# ---------------------------------------------------------------------------
-# Settings fixture helpers
-# ---------------------------------------------------------------------------
-
-
-def _make_settings(monkeypatch: pytest.MonkeyPatch, **overrides: str) -> Settings:
-    """Build a Settings object with required env vars set, plus any overrides."""
-    monkeypatch.setenv("AWS_REGION", "us-east-1")
-    monkeypatch.setenv("ARTIFACT_BUCKET", "my-bucket")
-    monkeypatch.setenv("VECTORS_BUCKET", "my-vectors")
-    monkeypatch.setenv("VECTORS_INDEX", "my-index")
-    monkeypatch.setenv("WRITE_PREFIX", "artifacts")
-    for k, v in overrides.items():
-        monkeypatch.setenv(k, v)
-    return Settings()
+from tests.unit.conftest import _make_settings
 
 
 def _make_fakes(dimension: int = 1024) -> tuple[FakeS3Client, FakeVectorsClient, FakeBedrockClient]:
@@ -408,9 +392,7 @@ async def test_tier3_rewrite_fewer_sections_cleans_orphans(
     settings = _make_settings(monkeypatch)
     s3, vectors, bedrock = _make_fakes()
 
-    three_section_content = (
-        "## Alpha\n\nBody A.\n\n## Beta\n\nBody B.\n\n## Gamma\n\nBody C."
-    )
+    three_section_content = "## Alpha\n\nBody A.\n\n## Beta\n\nBody B.\n\n## Gamma\n\nBody C."
     two_section_content = "## Alpha\n\nBody A.\n\n## Beta\n\nBody B."
 
     kwargs_3 = {**_BASE_WRITE_KWARGS, "tier": 3, "content": three_section_content}
@@ -425,9 +407,7 @@ async def test_tier3_rewrite_fewer_sections_cleans_orphans(
     keys_before = [k for k in vectors._vectors if k.startswith(artifact_id)]
     assert len(keys_before) == 3
 
-    await write_artifact(
-        s3=s3, vectors=vectors, bedrock=bedrock, settings=settings, **kwargs_2
-    )
+    await write_artifact(s3=s3, vectors=vectors, bedrock=bedrock, settings=settings, **kwargs_2)
 
     keys_after = [k for k in vectors._vectors if k.startswith(artifact_id)]
     assert len(keys_after) == 2
@@ -452,9 +432,7 @@ async def test_tier3_rewrite_more_sections(
     )
     artifact_id = result["artifact_id"]
 
-    await write_artifact(
-        s3=s3, vectors=vectors, bedrock=bedrock, settings=settings, **kwargs_3
-    )
+    await write_artifact(s3=s3, vectors=vectors, bedrock=bedrock, settings=settings, **kwargs_3)
 
     keys_after = [k for k in vectors._vectors if k.startswith(artifact_id)]
     assert len(keys_after) == 3
@@ -470,14 +448,10 @@ async def test_tier3_rewrite_identical_sections_count_unchanged(
     content = "## Alpha\n\nBody A.\n\n## Beta\n\nBody B."
     kwargs = {**_BASE_WRITE_KWARGS, "tier": 3, "content": content}
 
-    await write_artifact(
-        s3=s3, vectors=vectors, bedrock=bedrock, settings=settings, **kwargs
-    )
+    await write_artifact(s3=s3, vectors=vectors, bedrock=bedrock, settings=settings, **kwargs)
     count_after_first = len(vectors._vectors)
 
-    await write_artifact(
-        s3=s3, vectors=vectors, bedrock=bedrock, settings=settings, **kwargs
-    )
+    await write_artifact(s3=s3, vectors=vectors, bedrock=bedrock, settings=settings, **kwargs)
     assert len(vectors._vectors) == count_after_first
 
 
@@ -880,7 +854,14 @@ async def test_failure_log_entry_contains_all_required_fields(
 
     entry = json.loads(log_path.read_text().splitlines()[0])
     required_fields = (
-        "artifact_id", "title", "type", "tier", "date", "failure_step", "reason", "timestamp"
+        "artifact_id",
+        "title",
+        "type",
+        "tier",
+        "date",
+        "failure_step",
+        "reason",
+        "timestamp",
     )
     for field in required_fields:
         assert field in entry, f"Missing field: {field}"
@@ -890,6 +871,7 @@ async def test_failure_log_entry_contains_all_required_fields(
     assert entry["date"] == _ONE_SECTION_KWARGS["date"]
     # timestamp must be a valid ISO-8601 string
     from datetime import datetime
+
     datetime.fromisoformat(entry["timestamp"])
 
 
@@ -952,3 +934,97 @@ async def test_put_vector_credential_error_no_failure_log(
 
     assert result.get("error") == "credential_error"
     assert not log_path.exists()
+
+
+# ---------------------------------------------------------------------------
+# Spec 18 — Orphan cleanup skipped for new artifacts
+# ---------------------------------------------------------------------------
+
+
+async def test_new_artifact_skips_orphan_cleanup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """New artifact (head_object 404) → list_vectors_by_metadata NOT called."""
+    settings = _make_settings(monkeypatch)
+    s3 = FakeS3Client()
+    vectors = FakeVectorsClient()
+    bedrock = FakeBedrockClient()
+
+    call_log: list[str] = []
+    original_list = vectors.list_vectors_by_metadata
+
+    def tracking_list(filter: dict) -> list[str]:  # type: ignore[type-arg]  # noqa: A002
+        call_log.append("list_vectors_by_metadata")
+        return original_list(filter)
+
+    vectors.list_vectors_by_metadata = tracking_list  # type: ignore[assignment]
+
+    await write_artifact(
+        s3=s3, vectors=vectors, bedrock=bedrock, settings=settings, **_BASE_WRITE_KWARGS
+    )
+
+    assert "list_vectors_by_metadata" not in call_log
+
+
+async def test_existing_artifact_runs_orphan_cleanup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Existing artifact (head_object returns meta) → list_vectors_by_metadata called."""
+    settings = _make_settings(monkeypatch)
+    s3 = FakeS3Client()
+    vectors = FakeVectorsClient()
+    bedrock = FakeBedrockClient()
+
+    # Write once to create the artifact
+    await write_artifact(
+        s3=s3, vectors=vectors, bedrock=bedrock, settings=settings, **_BASE_WRITE_KWARGS
+    )
+
+    call_log: list[str] = []
+    original_list = vectors.list_vectors_by_metadata
+
+    def tracking_list(filter: dict) -> list[str]:  # type: ignore[type-arg]  # noqa: A002
+        call_log.append("list_vectors_by_metadata")
+        return original_list(filter)
+
+    vectors.list_vectors_by_metadata = tracking_list  # type: ignore[assignment]
+
+    # Write again — now artifact exists
+    await write_artifact(
+        s3=s3, vectors=vectors, bedrock=bedrock, settings=settings, **_BASE_WRITE_KWARGS
+    )
+
+    assert "list_vectors_by_metadata" in call_log
+
+
+# ---------------------------------------------------------------------------
+# Spec 19 — CredentialError from head_object returns credential_error
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_head_object_credential_error_returns_credential_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """CredentialError raised by head_object → credential_error response; write not attempted."""
+    settings = _make_settings(monkeypatch)
+    s3 = FakeS3Client()
+    vectors = FakeVectorsClient()
+    bedrock = FakeBedrockClient()
+
+    def head_raises(_key: str) -> dict:
+        raise CredentialError(
+            message="AWS credentials are invalid or expired (simulated).",
+            service="s3",
+            original=Exception("simulated"),
+        )
+
+    s3.head_object = head_raises  # type: ignore[assignment]
+
+    result = await write_artifact(
+        s3=s3, vectors=vectors, bedrock=bedrock, settings=settings, **_BASE_WRITE_KWARGS
+    )
+
+    assert result.get("error") == "credential_error"
+    # S3 must be empty — the write was aborted before put_object
+    assert len(s3._objects) == 0

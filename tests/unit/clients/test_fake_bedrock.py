@@ -60,3 +60,41 @@ def test_embed_credential_failure_can_be_cleared() -> None:
     client.set_credential_failure(False)
     result = client.embed("hello", _MODEL_ID, 1024)
     assert len(result) > 0
+
+
+# ---------------------------------------------------------------------------
+# Spec 07 — Throttle-retry behaviour
+# ---------------------------------------------------------------------------
+
+
+def test_throttle_on_first_call_succeeds_on_retry() -> None:
+    """Fake simulates throttle on first call; second call succeeds."""
+    client = FakeBedrockClient()
+    client.set_throttle_once()  # type: ignore[attr-defined]
+    # After throttle simulation + retry, embed should succeed
+    result = client.embed("hello", _MODEL_ID, 1024)
+    assert len(result) == 1024
+
+
+def test_two_consecutive_throttles_raises_error() -> None:
+    """Two consecutive throttles → error propagates (retry exhausted)."""
+    client = FakeBedrockClient()
+    client.set_throttle_count(2)  # type: ignore[attr-defined]
+    with pytest.raises(Exception):
+        client.embed("hello", _MODEL_ID, 1024)
+
+
+def test_model_timeout_retried_once() -> None:
+    """ModelTimeoutException on first call, succeed on second → embedding returned."""
+    client = FakeBedrockClient()
+    client.set_timeout_once()  # type: ignore[attr-defined]
+    result = client.embed("hello", _MODEL_ID, 1024)
+    assert len(result) == 1024
+
+
+def test_non_transient_error_not_retried() -> None:
+    """CredentialError is not retried — propagates immediately."""
+    client = FakeBedrockClient()
+    client.set_credential_failure(True)
+    with pytest.raises(CredentialError):
+        client.embed("hello", _MODEL_ID, 1024)

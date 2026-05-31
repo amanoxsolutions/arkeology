@@ -5,13 +5,13 @@ All tests decorated with @pytest.mark.integration.
 """
 
 import pytest
-from cairn_mcp.tools.delete import delete_artifact
-from cairn_mcp.tools.synthesise import synthesise_artifacts
 
 from cairn_mcp.clients.bedrock import BedrockClientImpl
 from cairn_mcp.clients.s3 import S3ClientImpl
 from cairn_mcp.clients.vectors import VectorsClientImpl
 from cairn_mcp.config import Settings
+from cairn_mcp.tools.delete import delete_artifact
+from cairn_mcp.tools.synthesise import synthesise_artifacts
 from cairn_mcp.tools.write import write_artifact
 
 
@@ -76,7 +76,10 @@ async def test_synthesise_top_k_limits_results_with_content(
     try:
         for i in range(3):
             r = await write_artifact(
-                s3=s3, vectors=vectors, bedrock=bedrock, settings=settings,
+                s3=s3,
+                vectors=vectors,
+                bedrock=bedrock,
+                settings=settings,
                 **{**_BASE_KWARGS, "title": f"Integration synthesise test artifact {i + 1}"},
             )
             written_ids.append(r["artifact_id"])
@@ -98,8 +101,12 @@ async def test_synthesise_top_k_limits_results_with_content(
     finally:
         for aid in written_ids:
             await delete_artifact(
-                settings=settings, s3=s3, vectors=vectors, bedrock=bedrock,
-                artifact_id=aid, confirm=True,
+                settings=settings,
+                s3=s3,
+                vectors=vectors,
+                bedrock=bedrock,
+                artifact_id=aid,
+                confirm=True,
             )
 
 
@@ -114,7 +121,10 @@ async def test_synthesise_all_required_fields_present(
     written_ids: list[str] = []
     try:
         r = await write_artifact(
-            s3=s3, vectors=vectors, bedrock=bedrock, settings=settings,
+            s3=s3,
+            vectors=vectors,
+            bedrock=bedrock,
+            settings=settings,
             **{**_BASE_KWARGS, "title": "Integration synthesise fields test"},
         )
         written_ids.append(r["artifact_id"])
@@ -129,8 +139,18 @@ async def test_synthesise_all_required_fields_present(
         )
 
         required = [
-            "artifact_id", "content", "type", "team", "project", "tier", "date",
-            "status", "title", "visibility", "feature_tags", "description",
+            "artifact_id",
+            "content",
+            "type",
+            "team",
+            "project",
+            "tier",
+            "date",
+            "status",
+            "title",
+            "visibility",
+            "feature_tags",
+            "description",
         ]
         for artifact in result["artifacts"]:
             for field in required:
@@ -138,8 +158,12 @@ async def test_synthesise_all_required_fields_present(
     finally:
         for aid in written_ids:
             await delete_artifact(
-                settings=settings, s3=s3, vectors=vectors, bedrock=bedrock,
-                artifact_id=aid, confirm=True,
+                settings=settings,
+                s3=s3,
+                vectors=vectors,
+                bedrock=bedrock,
+                artifact_id=aid,
+                confirm=True,
             )
 
 

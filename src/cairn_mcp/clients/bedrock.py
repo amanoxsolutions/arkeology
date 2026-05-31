@@ -6,19 +6,27 @@ All credential errors are caught and re-raised as CredentialError.
 
 import json
 import logging
-from typing import Any
+import time
 
 import boto3
 import botocore.exceptions
 
 from cairn_mcp.clients.credentials import is_credential_error
-from cairn_mcp.clients.interfaces import BedrockClientInterface
+from cairn_mcp.clients.interfaces import BedrockClientInterface  # noqa: F401 (structural only)
 from cairn_mcp.errors import CredentialError
 
 logger = logging.getLogger(__name__)
 
+# Transient error codes that warrant a single retry
+_TRANSIENT_ERROR_CODES = frozenset(
+    {"ThrottlingException", "ModelTimeoutException", "ServiceUnavailableException"}
+)
 
-class BedrockClientImpl(BedrockClientInterface):
+# Sleep duration between attempts for transient errors (seconds)
+_RETRY_SLEEP_SECONDS: float = 2.0
+
+
+class BedrockClientImpl:
     """boto3-backed Bedrock embeddings client.
 
     Args:
@@ -59,25 +67,37 @@ class BedrockClientImpl(BedrockClientInterface):
             dimensions,
             len(text),
         )
-        request_body: dict[str, Any] = {"inputText": text, "dimensions": dimensions}
-        try:
-            response = self._client.invoke_model(
-                modelId=model_id,
-                body=json.dumps(request_body),
-                contentType="application/json",
-                accept="application/json",
-            )
-            response_body = json.loads(response["body"].read())
-            embedding: list[float] = response_body["embedding"]
-            return embedding
-        except botocore.exceptions.ClientError as exc:
-            if is_credential_error(exc):
-                raise CredentialError(
-                    message=(
-                        "AWS credentials are invalid or expired. "
-                        "Re-authenticate (e.g. aws sso login) and restart the server."
-                    ),
-                    service="bedrock",
-                    original=exc,
-                ) from exc
-            raise
+        request_body: dict[str, str | int] = {"inputText": text, "dimensions": dimensions}
+        for attempt in range(2):
+            try:
+                response = self._client.invoke_model(
+                    modelId=model_id,
+                    body=json.dumps(request_body),
+                    contentType="application/json",
+                    accept="application/json",
+                )
+                response_body = json.loads(response["body"].read())
+                embedding: list[float] = response_body["embedding"]
+                return embedding
+            except botocore.exceptions.ClientError as exc:
+                if is_credential_error(exc):
+                    raise CredentialError(
+                        message=(
+                            "AWS credentials are invalid or expired. "
+                            "Re-authenticate (e.g. aws sso login) and restart the server."
+                        ),
+                        service="bedrock",
+                        original=exc,
+                    ) from exc
+                code = exc.response.get("Error", {}).get("Code", "")
+                if code in _TRANSIENT_ERROR_CODES and attempt == 0:
+                    logger.warning(
+                        "Bedrock transient error %s on attempt 1; retrying after %.1fs",
+                        code,
+                        _RETRY_SLEEP_SECONDS,
+                    )
+                    time.sleep(_RETRY_SLEEP_SECONDS)
+                    continue
+                raise
+        # Should not reach here, but satisfies type checker
+        raise RuntimeError("Unreachable")

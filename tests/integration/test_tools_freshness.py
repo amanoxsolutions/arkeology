@@ -130,9 +130,7 @@ async def test_freshness_stale_source_detected(
         )
 
         assert "error" not in result
-        stale_entry = next(
-            (e for e in result["stale"] if e["artifact_id"] == synthesis_id), None
-        )
+        stale_entry = next((e for e in result["stale"] if e["artifact_id"] == synthesis_id), None)
         assert stale_entry is not None, f"Synthesis {synthesis_id} not found in stale list"
         assert source_id in stale_entry["stale_sources"]
     finally:

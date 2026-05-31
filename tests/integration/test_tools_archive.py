@@ -5,14 +5,14 @@ All tests decorated with @pytest.mark.integration.
 """
 
 import pytest
-from cairn_mcp.tools.archive import archive_artifact
-from cairn_mcp.tools.delete import delete_artifact
-from cairn_mcp.tools.list import list_artifacts
 
 from cairn_mcp.clients.bedrock import BedrockClientImpl
 from cairn_mcp.clients.s3 import S3ClientImpl
 from cairn_mcp.clients.vectors import VectorsClientImpl
 from cairn_mcp.config import Settings
+from cairn_mcp.tools.archive import archive_artifact
+from cairn_mcp.tools.delete import delete_artifact
+from cairn_mcp.tools.list import list_artifacts
 from cairn_mcp.tools.read import read_artifact
 from cairn_mcp.tools.write import write_artifact
 
@@ -74,13 +74,19 @@ async def test_archive_then_absent_from_list_present_in_inactive(
     written_id: str = ""
     try:
         r = await write_artifact(
-            s3=s3, vectors=vectors, bedrock=bedrock, settings=settings,
+            s3=s3,
+            vectors=vectors,
+            bedrock=bedrock,
+            settings=settings,
             **{**_BASE_KWARGS, "title": "Integration archive round-trip"},
         )
         written_id = r["artifact_id"]
 
         archive_result = await archive_artifact(
-            settings=settings, s3=s3, vectors=vectors, bedrock=bedrock,
+            settings=settings,
+            s3=s3,
+            vectors=vectors,
+            bedrock=bedrock,
             artifact_id=written_id,
         )
         assert archive_result["status"] == "inactive"
@@ -100,15 +106,17 @@ async def test_archive_then_absent_from_list_present_in_inactive(
         assert written_id in inactive_ids
 
         # Direct read — content must still be accessible
-        read_result = await read_artifact(
-            s3=s3, settings=settings, artifact_id=written_id
-        )
+        read_result = await read_artifact(s3=s3, settings=settings, artifact_id=written_id)
         assert read_result["content"] == _BASE_KWARGS["content"]
     finally:
         if written_id:
             await delete_artifact(
-                settings=settings, s3=s3, vectors=vectors, bedrock=bedrock,
-                artifact_id=written_id, confirm=True,
+                settings=settings,
+                s3=s3,
+                vectors=vectors,
+                bedrock=bedrock,
+                artifact_id=written_id,
+                confirm=True,
             )
 
 

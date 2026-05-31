@@ -14,6 +14,7 @@ from cairn_mcp.clients.interfaces import (
 )
 from cairn_mcp.config import Settings
 from cairn_mcp.errors import CredentialError
+from cairn_mcp.tools._search_helper import run_search_loop
 
 logger = logging.getLogger(__name__)
 
@@ -95,8 +96,12 @@ async def _search_artifacts_inner(  # noqa: PLR0913
     status: str | None = None,
 ) -> dict[str, Any]:
     """Inner implementation of search_artifacts (separated to enable top-level catch-all)."""
+    _ = s3
+
     # ── Step 1: Resolve top_k ─────────────────────────────────────────────────
-    effective_top_k = min(top_k if top_k is not None else settings.search_default_top_k, 100)
+    requested_top_k = top_k if top_k is not None else settings.search_default_top_k
+    effective_top_k = min(requested_top_k, 100)
+    clamped = effective_top_k < requested_top_k
 
     # ── Step 2: Embed the query ───────────────────────────────────────────────
     try:
@@ -125,103 +130,64 @@ async def _search_artifacts_inner(  # noqa: PLR0913
     # ── Step 4: Status gate ───────────────────────────────────────────────────
     status_filter: dict[str, Any] = {"status": {"$eq": status if status is not None else "active"}}
 
-    # ── Step 5: Scope filter ──────────────────────────────────────────────────
-    read_prefixes = settings.read_prefixes_list
-    write_prefix = settings.write_prefix
+    # ── Step 5: Run shared re-fetch loop ──────────────────────────────────────
+    loop_result = run_search_loop(
+        settings=settings,
+        vectors=vectors,
+        query_vector=query_vector,
+        user_filters=user_filters,
+        status_filter=status_filter,
+        effective_top_k=effective_top_k,
+    )
 
-    if read_prefixes:
-        scope_filter: dict[str, Any] = {
-            "$or": [
-                {"scope": {"$eq": write_prefix}},
-                {
-                    "$and": [
-                        {"scope": {"$in": read_prefixes}},
-                        {"tier": {"$eq": 3}},
-                        {"visibility": {"$eq": "shared"}},
-                    ]
-                },
-            ]
-        }
-    else:
-        scope_filter = {"scope": {"$eq": write_prefix}}
+    # Propagate credential errors from the loop
+    if isinstance(loop_result, dict):
+        return loop_result
 
-    # ── Step 6: Re-fetch loop ─────────────────────────────────────────────────
-    seen_ids: set[str] = set()
+    raw_results: list[dict[str, Any]] = loop_result
+
+    # ── Step 6: Build response entries ───────────────────────────────────────
     results: list[dict[str, Any]] = []
+    for entry in raw_results:
+        aid: str = entry["artifact_id"]
+        score: float = entry["score"]
+        meta: dict[str, Any] = entry["meta"]
 
-    for _ in range(settings.search_max_iterations):
-        # Build combined filter
-        and_clauses: list[dict[str, Any]] = [*user_filters, status_filter, scope_filter]
-
-        if seen_ids:
-            and_clauses.append({"artifact_id": {"$nin": list(seen_ids)}})
-
-        combined_filter: dict[str, Any] = (
-            {"$and": and_clauses} if len(and_clauses) > 1 else and_clauses[0]
+        feature_tags_val: list[str] = (
+            meta["feature_tags"]
+            if isinstance(meta.get("feature_tags"), list)
+            else [t for t in str(meta.get("feature_tags", "")).split(",") if t]
         )
-
-        try:
-            raw = vectors.query_vectors(query_vector, settings.search_fetch_top_k, combined_filter)
-        except CredentialError as exc:
-            return {"error": "credential_error", "message": str(exc)}
-
-        # Group by artifact_id, keep highest score per artifact
-        best_by_id: dict[str, tuple[float, dict[str, Any]]] = {}
-        for item in raw:
-            item_meta: dict[str, Any] = item["metadata"]
-            aid: str = str(item_meta["artifact_id"])
-            score: float = float(item["score"])
-            if aid not in best_by_id or score > best_by_id[aid][0]:
-                best_by_id[aid] = (score, item_meta)
-
-        new_entries = [
-            (aid, data) for aid, data in best_by_id.items() if aid not in seen_ids
-        ]
-
-        if not new_entries:
-            break
-
-        for aid, data in new_entries:
-            score, meta = data
-            feature_tags_val: list[str] = (
-                meta["feature_tags"]
-                if isinstance(meta.get("feature_tags"), list)
-                else [t for t in str(meta.get("feature_tags", "")).split(",") if t]
-            )
-            source_artifacts_val: list[str] = (
-                meta["source_artifacts"]
-                if isinstance(meta.get("source_artifacts"), list)
-                else [s for s in str(meta.get("source_artifacts", "")).split(",") if s]
-            )
-            results.append(
-                {
-                    "artifact_id": aid,
-                    "score": score,
-                    "type": meta.get("type"),
-                    "team": meta.get("team"),
-                    "project": meta.get("project"),
-                    "tier": int(meta["tier"]),
-                    "date": meta.get("date"),
-                    "status": meta.get("status"),
-                    "title": meta.get("title"),
-                    "visibility": meta.get("visibility"),
-                    "feature_tags": feature_tags_val,
-                    "author_role": meta.get("author_role") or None,
-                    "description": meta.get("description"),
-                    "source_artifacts": source_artifacts_val,
-                }
-            )
-            seen_ids.add(aid)
-
-        if len(results) >= effective_top_k:
-            break
-
-    # ── Step 7: Sort and trim ─────────────────────────────────────────────────
-    results.sort(key=lambda r: float(r["score"]), reverse=True)
-    results = results[:effective_top_k]
+        source_artifacts_val: list[str] = (
+            meta["source_artifacts"]
+            if isinstance(meta.get("source_artifacts"), list)
+            else [s for s in str(meta.get("source_artifacts", "")).split(",") if s]
+        )
+        results.append(
+            {
+                "artifact_id": aid,
+                "score": score,
+                "type": meta.get("type"),
+                "team": meta.get("team"),
+                "project": meta.get("project"),
+                "tier": int(meta["tier"]),
+                "date": meta.get("date"),
+                "status": meta.get("status"),
+                "title": meta.get("title"),
+                "visibility": meta.get("visibility"),
+                "feature_tags": feature_tags_val,
+                "author_role": meta.get("author_role") or None,
+                "description": meta.get("description"),
+                "source_artifacts": source_artifacts_val,
+            }
+        )
 
     if not results:
         return {"artifacts": [], "zero_results": True}
 
     logger.info("Search returned %d artifacts for query=%r", len(results), query)
-    return {"artifacts": results}
+    response: dict[str, Any] = {"artifacts": results}
+    if clamped:
+        response["clamped"] = True
+        response["effective_top_k"] = effective_top_k
+    return response

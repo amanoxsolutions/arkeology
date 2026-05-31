@@ -73,7 +73,7 @@ Before the server can start, the following must be provisioned externally:
 
 ### Core features
 
-- MCP server with 10 tools and MCP Resources: write artifact, read artifact, search artifacts, list artifacts, archive artifact, delete artifact, purge archived, health check, reconcile index, synthesise artifacts; plus schema discovery resources (artifact metadata schema, tier model, visibility model, type catalogue, query strategy guidance)
+- MCP server with 11 tools and MCP Resources: write artifact, read artifact, search artifacts, list artifacts, archive artifact, delete artifact, purge archived, health check, reconcile index, synthesise artifacts, check synthesis freshness; plus schema discovery resources (artifact metadata schema, tier model, visibility model, type catalogue, query strategy guidance)
 - AWS S3 + S3 Vectors + Bedrock (Titan Text Embeddings v2) backend
 - Artifact metadata schema: type, team, project, tier, date, status, title, visibility, description (≤280 chars), optional feature tags and author role
 - Cross-scope read with tier 3 + shared visibility gate

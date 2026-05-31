@@ -103,9 +103,29 @@ async def _list_artifacts_inner(
         for tag in feature_tags:
             clauses.append({"feature_tags": {"$eq": tag}})
 
-    combined_filter: dict[str, Any] = (
-        {"$and": clauses} if len(clauses) > 1 else clauses[0]
-    )
+    # ── Step 1b: Scope filter (same logic as search.py) ──────────────────────
+    own_scope = settings.write_prefix
+    read_prefixes = settings.read_prefixes_list
+
+    if read_prefixes:
+        scope_filter: dict[str, Any] = {
+            "$or": [
+                {"scope": {"$eq": own_scope}},
+                {
+                    "$and": [
+                        {"scope": {"$in": read_prefixes}},
+                        {"tier": {"$eq": 3}},
+                        {"visibility": {"$eq": "shared"}},
+                    ]
+                },
+            ]
+        }
+    else:
+        scope_filter = {"scope": {"$eq": own_scope}}
+
+    clauses.append(scope_filter)
+
+    combined_filter: dict[str, Any] = {"$and": clauses} if len(clauses) > 1 else clauses[0]
 
     # ── Step 2: Query vector index ────────────────────────────────────────────
     try:
@@ -152,6 +172,11 @@ async def _list_artifacts_inner(
             if isinstance(meta.get("feature_tags"), list)
             else [t for t in str(meta.get("feature_tags", "")).split(",") if t]
         )
+        source_artifacts_val: list[str] = (
+            meta["source_artifacts"]
+            if isinstance(meta.get("source_artifacts"), list)
+            else [s for s in str(meta.get("source_artifacts", "")).split(",") if s]
+        )
 
         artifacts.append(
             {
@@ -167,6 +192,7 @@ async def _list_artifacts_inner(
                 "feature_tags": feature_tags_val,
                 "author_role": meta.get("author_role") or None,
                 "description": meta.get("description"),
+                "source_artifacts": source_artifacts_val,
             }
         )
 

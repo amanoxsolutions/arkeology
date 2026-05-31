@@ -9,7 +9,7 @@ import math
 from typing import Any
 
 from cairn_mcp.clients.filter import matches_filter
-from cairn_mcp.clients.interfaces import VectorsClientInterface
+from cairn_mcp.clients.interfaces import VectorMetadata, VectorsClientInterface  # noqa: F401
 from cairn_mcp.errors import CredentialError, VectorIndexNotFoundError
 
 
@@ -23,7 +23,7 @@ def _cosine_similarity(a: list[float], b: list[float]) -> float:
     return dot / (norm_a * norm_b)
 
 
-class FakeVectorsClient(VectorsClientInterface):
+class FakeVectorsClient:
     """Stateful in-memory S3 Vectors client for use in unit tests."""
 
     def __init__(self, dimension: int = 1024, index_missing: bool = False) -> None:
@@ -45,9 +45,9 @@ class FakeVectorsClient(VectorsClientInterface):
                 original=Exception("simulated credential failure"),
             )
 
-    def put_vector(self, key: str, vector: list[float], metadata: dict[str, Any]) -> None:
+    def put_vector(self, key: str, vector: list[float], metadata: VectorMetadata) -> None:
         self._check_credentials()
-        self._vectors[key] = (vector, metadata)
+        self._vectors[key] = (vector, dict(metadata))
 
     def get_vectors(self, keys: list[str]) -> list[dict[str, Any]]:
         self._check_credentials()
@@ -62,14 +62,19 @@ class FakeVectorsClient(VectorsClientInterface):
         self,
         vector: list[float],
         top_k: int,
-        filter: dict[str, Any] | None,
+        filter_expr: dict[str, Any] | None,
     ) -> list[dict[str, Any]]:
         self._check_credentials()
         candidates: list[dict[str, Any]] = []
         for key, (vec, meta) in self._vectors.items():
-            if filter is not None and not matches_filter(meta, filter):
+            if filter_expr is not None and not matches_filter(meta, filter_expr):
                 continue
-            score = _cosine_similarity(vector, vec)
+            # score = 1.0 + cosine_similarity ∈ [0, 2]; identical unit vectors → 2.0.
+            # NOTE: VectorsClientImpl scores are in [-1, 1] (1.0 - cosine_distance).
+            # The fake uses a shifted range so tests can assert positive scores for
+            # semantic matches without floating-point edge cases. Range parity with the
+            # real API is NOT guaranteed — see TODO in clients/vectors.py.
+            score = 1.0 + _cosine_similarity(vector, vec)
             candidates.append({"key": key, "score": score, "metadata": meta})
         candidates.sort(key=lambda r: float(r["score"]), reverse=True)
         return candidates[:top_k]
@@ -88,6 +93,6 @@ class FakeVectorsClient(VectorsClientInterface):
             )
         return {"dimension": self._dimension}
 
-    def list_vectors_by_metadata(self, filter: dict[str, Any]) -> list[str]:
+    def list_vectors_by_metadata(self, filter: dict[str, Any]) -> list[str]:  # noqa: A002
         self._check_credentials()
         return [k for k, (_, meta) in self._vectors.items() if matches_filter(meta, filter)]

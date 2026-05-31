@@ -8,22 +8,11 @@ import pytest
 from cairn_mcp.clients.fakes.fake_s3 import FakeS3Client
 from cairn_mcp.config import Settings
 from cairn_mcp.tools.read import read_artifact
-
-# ---------------------------------------------------------------------------
-# Settings helpers
-# ---------------------------------------------------------------------------
+from tests.unit.conftest import _make_settings as _make_settings_base
 
 
 def _make_settings(monkeypatch: pytest.MonkeyPatch, **overrides: str) -> Settings:
-    monkeypatch.setenv("AWS_REGION", "us-east-1")
-    monkeypatch.setenv("ARTIFACT_BUCKET", "my-bucket")
-    monkeypatch.setenv("VECTORS_BUCKET", "my-vectors")
-    monkeypatch.setenv("VECTORS_INDEX", "my-index")
-    monkeypatch.setenv("WRITE_PREFIX", "artifacts")
-    monkeypatch.setenv("READ_PREFIXES", "other-team")
-    for k, v in overrides.items():
-        monkeypatch.setenv(k, v)
-    return Settings()
+    return _make_settings_base(monkeypatch, READ_PREFIXES="other-team", **overrides)
 
 
 # ---------------------------------------------------------------------------
@@ -172,8 +161,18 @@ async def test_all_metadata_fields_present_in_response(
     result = await read_artifact(s3=s3, settings=settings, artifact_id="artifacts/t2-shared")
 
     for field in [
-        "type", "team", "project", "tier", "date", "status", "title",
-        "visibility", "feature_tags", "author_role", "description", "content",
+        "type",
+        "team",
+        "project",
+        "tier",
+        "date",
+        "status",
+        "title",
+        "visibility",
+        "feature_tags",
+        "author_role",
+        "description",
+        "content",
     ]:
         assert field in result, f"Missing field: {field}"
 
@@ -332,9 +331,7 @@ async def test_own_scope_missing_object_returns_not_found(
     s3 = FakeS3Client()
     # Do NOT seed the object
 
-    result = await read_artifact(
-        s3=s3, settings=settings, artifact_id="artifacts/nonexistent"
-    )
+    result = await read_artifact(s3=s3, settings=settings, artifact_id="artifacts/nonexistent")
 
     assert "error" in result or result.get("error_type") is not None
     result_str = str(result).lower()

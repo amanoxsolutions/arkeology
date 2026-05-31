@@ -91,7 +91,7 @@ def test_query_vectors_returns_result(
     vec = _unit_vec(index_dimension)
     vectors_client.put_vector(test_key, vec, {"artifact_id": "test-001"})
     try:
-        results = vectors_client.query_vectors(vec, top_k=5, filter=None)
+        results = vectors_client.query_vectors(vec, top_k=5, filter_expr=None)
         assert any(r["key"] == test_key for r in results)
     finally:
         vectors_client.delete_vectors([test_key])
@@ -105,9 +105,7 @@ def test_describe_index_returns_dimension(vectors_client: VectorsClientImpl) -> 
     assert info["dimension"] > 0
 
 
-def test_hash_in_vector_key(
-    vectors_client: VectorsClientImpl, index_dimension: int
-) -> None:
+def test_hash_in_vector_key(vectors_client: VectorsClientImpl, index_dimension: int) -> None:
     """Verify '#' is a valid character in S3 Vectors vector keys.
 
     Integration checkpoint: document result in plan.md under Learnings.

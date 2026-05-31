@@ -5,13 +5,13 @@ All tests decorated with @pytest.mark.integration.
 """
 
 import pytest
-from cairn_mcp.tools.delete import delete_artifact
-from cairn_mcp.tools.list import list_artifacts
 
 from cairn_mcp.clients.bedrock import BedrockClientImpl
 from cairn_mcp.clients.s3 import S3ClientImpl
 from cairn_mcp.clients.vectors import VectorsClientImpl
 from cairn_mcp.config import Settings
+from cairn_mcp.tools.delete import delete_artifact
+from cairn_mcp.tools.list import list_artifacts
 from cairn_mcp.tools.read import read_artifact
 from cairn_mcp.tools.write import write_artifact
 
@@ -71,14 +71,21 @@ async def test_delete_confirm_true_artifact_not_retrievable(
 ) -> None:
     """Write → delete confirm=True → not retrievable by ID; absent from list."""
     r = await write_artifact(
-        s3=s3, vectors=vectors, bedrock=bedrock, settings=settings,
+        s3=s3,
+        vectors=vectors,
+        bedrock=bedrock,
+        settings=settings,
         **{**_BASE_KWARGS, "title": "Integration delete confirm test"},
     )
     artifact_id = r["artifact_id"]
 
     result = await delete_artifact(
-        settings=settings, s3=s3, vectors=vectors, bedrock=bedrock,
-        artifact_id=artifact_id, confirm=True,
+        settings=settings,
+        s3=s3,
+        vectors=vectors,
+        bedrock=bedrock,
+        artifact_id=artifact_id,
+        confirm=True,
     )
 
     assert result["deleted"] is True
@@ -88,9 +95,7 @@ async def test_delete_confirm_true_artifact_not_retrievable(
     assert "error" in read_result or read_result.get("error_type") is not None
 
     # Not in list
-    list_result = await list_artifacts(
-        settings=settings, s3=s3, vectors=vectors, bedrock=bedrock
-    )
+    list_result = await list_artifacts(settings=settings, s3=s3, vectors=vectors, bedrock=bedrock)
     assert artifact_id not in [a["artifact_id"] for a in list_result["artifacts"]]
 
 
@@ -105,13 +110,19 @@ async def test_delete_without_confirm_error_artifact_still_retrievable(
     written_id: str = ""
     try:
         r = await write_artifact(
-            s3=s3, vectors=vectors, bedrock=bedrock, settings=settings,
+            s3=s3,
+            vectors=vectors,
+            bedrock=bedrock,
+            settings=settings,
             **{**_BASE_KWARGS, "title": "Integration delete no confirm test"},
         )
         written_id = r["artifact_id"]
 
         result = await delete_artifact(
-            settings=settings, s3=s3, vectors=vectors, bedrock=bedrock,
+            settings=settings,
+            s3=s3,
+            vectors=vectors,
+            bedrock=bedrock,
             artifact_id=written_id,
         )
 
@@ -123,8 +134,12 @@ async def test_delete_without_confirm_error_artifact_still_retrievable(
     finally:
         if written_id:
             await delete_artifact(
-                settings=settings, s3=s3, vectors=vectors, bedrock=bedrock,
-                artifact_id=written_id, confirm=True,
+                settings=settings,
+                s3=s3,
+                vectors=vectors,
+                bedrock=bedrock,
+                artifact_id=written_id,
+                confirm=True,
             )
 
 
@@ -184,13 +199,19 @@ async def test_delete_synthesis_source_includes_warnings(
     synthesis_id: str = ""
     try:
         source_r = await write_artifact(
-            s3=s3, vectors=vectors, bedrock=bedrock, settings=settings,
+            s3=s3,
+            vectors=vectors,
+            bedrock=bedrock,
+            settings=settings,
             **{**_BASE_KWARGS, "title": "Integration delete source artifact"},
         )
         source_id = source_r["artifact_id"]
 
         synth_r = await write_artifact(
-            s3=s3, vectors=vectors, bedrock=bedrock, settings=settings,
+            s3=s3,
+            vectors=vectors,
+            bedrock=bedrock,
+            settings=settings,
             **{
                 **_BASE_KWARGS,
                 "type": "synthesis",
@@ -203,8 +224,12 @@ async def test_delete_synthesis_source_includes_warnings(
         synthesis_id = synth_r["artifact_id"]
 
         result = await delete_artifact(
-            settings=settings, s3=s3, vectors=vectors, bedrock=bedrock,
-            artifact_id=source_id, confirm=True,
+            settings=settings,
+            s3=s3,
+            vectors=vectors,
+            bedrock=bedrock,
+            artifact_id=source_id,
+            confirm=True,
         )
 
         assert result.get("deleted") is True
@@ -214,11 +239,19 @@ async def test_delete_synthesis_source_includes_warnings(
     finally:
         if source_id:
             await delete_artifact(
-                settings=settings, s3=s3, vectors=vectors, bedrock=bedrock,
-                artifact_id=source_id, confirm=True,
+                settings=settings,
+                s3=s3,
+                vectors=vectors,
+                bedrock=bedrock,
+                artifact_id=source_id,
+                confirm=True,
             )
         if synthesis_id:
             await delete_artifact(
-                settings=settings, s3=s3, vectors=vectors, bedrock=bedrock,
-                artifact_id=synthesis_id, confirm=True,
+                settings=settings,
+                s3=s3,
+                vectors=vectors,
+                bedrock=bedrock,
+                artifact_id=synthesis_id,
+                confirm=True,
             )

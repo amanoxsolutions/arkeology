@@ -135,9 +135,7 @@ async def _delete_artifact_inner(
 
     # ── Step 5: Find all vector keys for this artifact ────────────────────────
     try:
-        vec_keys = vectors.list_vectors_by_metadata(
-            {"artifact_id": {"$eq": artifact_id}}
-        )
+        vec_keys = vectors.list_vectors_by_metadata({"artifact_id": {"$eq": artifact_id}})
     except CredentialError as exc:
         return {"error": "credential_error", "message": str(exc)}
 
@@ -153,7 +151,9 @@ async def _delete_artifact_inner(
     # ── Step 7: Delete S3 object ──────────────────────────────────────────────
     try:
         s3.delete_object(artifact_id)
-    except (CredentialError, Exception) as exc:
+    except CredentialError as exc:
+        return {"error": "credential_error", "message": str(exc), "artifact_id": artifact_id}
+    except Exception as exc:
         return {
             "error": "partial_delete",
             "message": str(exc),

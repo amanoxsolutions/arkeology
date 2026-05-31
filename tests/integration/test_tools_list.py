@@ -5,13 +5,13 @@ All tests decorated with @pytest.mark.integration.
 """
 
 import pytest
-from cairn_mcp.tools.delete import delete_artifact
-from cairn_mcp.tools.list import list_artifacts
 
 from cairn_mcp.clients.bedrock import BedrockClientImpl
 from cairn_mcp.clients.s3 import S3ClientImpl
 from cairn_mcp.clients.vectors import VectorsClientImpl
 from cairn_mcp.config import Settings
+from cairn_mcp.tools.delete import delete_artifact
+from cairn_mcp.tools.list import list_artifacts
 from cairn_mcp.tools.write import write_artifact
 
 
@@ -72,18 +72,22 @@ async def test_list_no_filters_returns_written_artifacts(
     written_ids: list[str] = []
     try:
         r1 = await write_artifact(
-            s3=s3, vectors=vectors, bedrock=bedrock, settings=settings,
+            s3=s3,
+            vectors=vectors,
+            bedrock=bedrock,
+            settings=settings,
             **{**_BASE_KWARGS, "title": "Integration list test one"},
         )
         r2 = await write_artifact(
-            s3=s3, vectors=vectors, bedrock=bedrock, settings=settings,
+            s3=s3,
+            vectors=vectors,
+            bedrock=bedrock,
+            settings=settings,
             **{**_BASE_KWARGS, "title": "Integration list test two"},
         )
         written_ids = [r1["artifact_id"], r2["artifact_id"]]
 
-        result = await list_artifacts(
-            settings=settings, s3=s3, vectors=vectors, bedrock=bedrock
-        )
+        result = await list_artifacts(settings=settings, s3=s3, vectors=vectors, bedrock=bedrock)
 
         listed_ids = [a["artifact_id"] for a in result["artifacts"]]
         for aid in written_ids:
@@ -91,8 +95,12 @@ async def test_list_no_filters_returns_written_artifacts(
     finally:
         for aid in written_ids:
             await delete_artifact(
-                settings=settings, s3=s3, vectors=vectors, bedrock=bedrock,
-                artifact_id=aid, confirm=True,
+                settings=settings,
+                s3=s3,
+                vectors=vectors,
+                bedrock=bedrock,
+                artifact_id=aid,
+                confirm=True,
             )
 
 
@@ -109,13 +117,19 @@ async def test_list_archived_absent_from_default_filter(
     written_id: str = ""
     try:
         r = await write_artifact(
-            s3=s3, vectors=vectors, bedrock=bedrock, settings=settings,
+            s3=s3,
+            vectors=vectors,
+            bedrock=bedrock,
+            settings=settings,
             **{**_BASE_KWARGS, "title": "Integration list archive test"},
         )
         written_id = r["artifact_id"]
 
         await archive_artifact(
-            settings=settings, s3=s3, vectors=vectors, bedrock=bedrock,
+            settings=settings,
+            s3=s3,
+            vectors=vectors,
+            bedrock=bedrock,
             artifact_id=written_id,
         )
 
@@ -135,8 +149,12 @@ async def test_list_archived_absent_from_default_filter(
     finally:
         if written_id:
             await delete_artifact(
-                settings=settings, s3=s3, vectors=vectors, bedrock=bedrock,
-                artifact_id=written_id, confirm=True,
+                settings=settings,
+                s3=s3,
+                vectors=vectors,
+                bedrock=bedrock,
+                artifact_id=written_id,
+                confirm=True,
             )
 
 
@@ -151,11 +169,17 @@ async def test_list_type_filter_returns_correct_subset(
     written_ids: list[str] = []
     try:
         r1 = await write_artifact(
-            s3=s3, vectors=vectors, bedrock=bedrock, settings=settings,
+            s3=s3,
+            vectors=vectors,
+            bedrock=bedrock,
+            settings=settings,
             **{**_BASE_KWARGS, "type": "code_review", "title": "Integration list type code review"},
         )
         r2 = await write_artifact(
-            s3=s3, vectors=vectors, bedrock=bedrock, settings=settings,
+            s3=s3,
+            vectors=vectors,
+            bedrock=bedrock,
+            settings=settings,
             **{
                 **_BASE_KWARGS,
                 "type": "adr",
@@ -175,8 +199,12 @@ async def test_list_type_filter_returns_correct_subset(
     finally:
         for aid in written_ids:
             await delete_artifact(
-                settings=settings, s3=s3, vectors=vectors, bedrock=bedrock,
-                artifact_id=aid, confirm=True,
+                settings=settings,
+                s3=s3,
+                vectors=vectors,
+                bedrock=bedrock,
+                artifact_id=aid,
+                confirm=True,
             )
 
 

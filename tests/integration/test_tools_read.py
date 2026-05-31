@@ -85,8 +85,12 @@ async def test_write_then_read_content_matches(
     finally:
         if artifact_id:
             await delete_artifact(
-                settings=settings, s3=s3, vectors=vectors, bedrock=bedrock,
-                artifact_id=artifact_id, confirm=True,
+                settings=settings,
+                s3=s3,
+                vectors=vectors,
+                bedrock=bedrock,
+                artifact_id=artifact_id,
+                confirm=True,
             )
 
 
@@ -123,8 +127,17 @@ async def test_read_metadata_fields_complete_and_typed(
         read_result = await read_artifact(s3=s3, settings=settings, artifact_id=artifact_id)
 
         for field in [
-            "type", "team", "project", "tier", "date", "status", "title",
-            "visibility", "feature_tags", "description", "content",
+            "type",
+            "team",
+            "project",
+            "tier",
+            "date",
+            "status",
+            "title",
+            "visibility",
+            "feature_tags",
+            "description",
+            "content",
         ]:
             assert field in read_result, f"Missing field: {field}"
 
@@ -135,8 +148,12 @@ async def test_read_metadata_fields_complete_and_typed(
     finally:
         if artifact_id:
             await delete_artifact(
-                settings=settings, s3=s3, vectors=vectors, bedrock=bedrock,
-                artifact_id=artifact_id, confirm=True,
+                settings=settings,
+                s3=s3,
+                vectors=vectors,
+                bedrock=bedrock,
+                artifact_id=artifact_id,
+                confirm=True,
             )
 
 

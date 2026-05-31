@@ -6,6 +6,7 @@ dependency injection — it is never re-read from the environment mid-session.
 Each field carries a description with its type, default, and constraints.
 """
 
+import logging
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -13,6 +14,7 @@ from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _VALID_LOG_LEVELS: frozenset[str] = frozenset({"DEBUG", "INFO", "WARNING", "ERROR"})
+_config_logger = logging.getLogger(__name__)
 
 
 class Settings(BaseSettings):
@@ -197,6 +199,12 @@ class Settings(BaseSettings):
         return upper
 
     # ── Computed properties ───────────────────────────────────────────────────
+    # These snake_case properties provide IDE-friendly access to the UPPER_CASE
+    # pydantic-settings fields. We use explicit properties rather than an
+    # alias_generator because alias_generator produces aliases on all fields
+    # (including internal validators), requires careful mode="serialization"
+    # handling, and loses IDE autocomplete on the property names. The explicit
+    # approach is more verbose but fully transparent to type checkers and IDEs.
 
     @property
     def aws_region(self) -> str:
@@ -284,8 +292,14 @@ class Settings(BaseSettings):
     @classmethod
     def check_required_non_empty(cls, values: Any) -> Any:
         """Validate required string fields are non-empty."""
+        if not isinstance(values, dict):
+            _config_logger.warning(
+                "check_required_non_empty received non-dict values (%s); skipping field checks",
+                type(values).__name__,
+            )
+            return values
         for field_name in ("AWS_REGION", "ARTIFACT_BUCKET", "VECTORS_BUCKET", "VECTORS_INDEX"):
-            val = values.get(field_name) if isinstance(values, dict) else None
+            val = values.get(field_name)
             if val is not None and not str(val).strip():
                 raise ValueError(f"{field_name} must be a non-empty string")
         return values

@@ -12,6 +12,7 @@ section_slug — applied in this order:
   6. If empty after all steps → fallback ("artifact" for IDs, "section" for slugs).
 """
 
+import datetime as _dt
 import re
 import unicodedata
 from dataclasses import dataclass
@@ -198,6 +199,15 @@ class Artifact(BaseModel):
     def validate_status(cls, v: str) -> str:
         if v not in {"active", "inactive"}:
             raise ValueError(f"status must be 'active' or 'inactive', got '{v}'")
+        return v
+
+    @field_validator("date")
+    @classmethod
+    def validate_date(cls, v: str) -> str:
+        try:
+            _dt.date.fromisoformat(v)
+        except ValueError as exc:
+            raise ValueError(f"date must be a valid ISO-8601 date string, got '{v}'") from exc
         return v
 
     @field_validator("description")

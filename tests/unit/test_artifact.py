@@ -476,3 +476,28 @@ def test_artifact_tier3_with_source_artifacts_valid() -> None:
     }
     artifact = Artifact(**kwargs)
     assert len(artifact.source_artifacts) == 1
+
+
+# ---------------------------------------------------------------------------
+# Spec 16 — Date field validation
+# ---------------------------------------------------------------------------
+
+
+def test_artifact_valid_iso_date_accepted() -> None:
+    """Valid ISO-8601 date '2026-05-31' → constructs without error."""
+    kwargs = {**VALID_ARTIFACT_KWARGS, "date": "2026-05-31"}
+    Artifact(**kwargs)  # must not raise
+
+
+def test_artifact_invalid_date_string_rejected() -> None:
+    """Invalid date string 'not-a-date' → ValidationError."""
+    kwargs = {**VALID_ARTIFACT_KWARGS, "date": "not-a-date"}
+    with pytest.raises(ValidationError):
+        Artifact(**kwargs)
+
+
+def test_artifact_invalid_month_rejected() -> None:
+    """Month 13 in date → ValidationError."""
+    kwargs = {**VALID_ARTIFACT_KWARGS, "date": "2026-13-01"}
+    with pytest.raises(ValidationError):
+        Artifact(**kwargs)

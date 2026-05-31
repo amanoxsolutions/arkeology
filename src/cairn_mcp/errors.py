@@ -5,7 +5,11 @@ but contain no business logic.
 """
 
 
-class CredentialError(Exception):
+class CairnError(Exception):
+    """Base class for all cairn-mcp domain errors."""
+
+
+class CredentialError(CairnError):
     """Raised when an AWS call fails due to expired, invalid, or missing credentials.
 
     Attributes:
@@ -21,7 +25,7 @@ class CredentialError(Exception):
         self.original = original
 
 
-class StartupValidationError(Exception):
+class StartupValidationError(CairnError):
     """Raised during the startup sequence when a configuration check fails.
 
     Attributes:
@@ -36,7 +40,7 @@ class StartupValidationError(Exception):
         self.message = message
 
 
-class VectorIndexNotFoundError(Exception):
+class VectorIndexNotFoundError(CairnError):
     """Raised when the configured S3 Vectors index does not exist.
 
     Attributes:

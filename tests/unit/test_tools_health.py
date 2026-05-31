@@ -3,30 +3,13 @@
 Tests health_check() using all three fakes (FakeS3, FakeVectors, FakeBedrock).
 """
 
-
 import pytest
-from cairn_mcp.tools.health import health_check
 
 from cairn_mcp.clients.fakes.fake_bedrock import FakeBedrockClient
 from cairn_mcp.clients.fakes.fake_s3 import FakeS3Client
 from cairn_mcp.clients.fakes.fake_vectors import FakeVectorsClient
-from cairn_mcp.config import Settings
-
-# ---------------------------------------------------------------------------
-# Settings helper
-# ---------------------------------------------------------------------------
-
-
-def _make_settings(monkeypatch: pytest.MonkeyPatch, **overrides: str) -> Settings:
-    monkeypatch.setenv("AWS_REGION", "us-east-1")
-    monkeypatch.setenv("ARTIFACT_BUCKET", "my-bucket")
-    monkeypatch.setenv("VECTORS_BUCKET", "my-vectors")
-    monkeypatch.setenv("VECTORS_INDEX", "my-index")
-    monkeypatch.setenv("WRITE_PREFIX", "artifacts")
-    for k, v in overrides.items():
-        monkeypatch.setenv(k, v)
-    return Settings()
-
+from cairn_mcp.tools.health import health_check
+from tests.unit.conftest import _make_settings
 
 # ---------------------------------------------------------------------------
 # All healthy
@@ -42,9 +25,7 @@ async def test_all_healthy_all_ok(
     vectors = FakeVectorsClient(dimension=8)
     bedrock = FakeBedrockClient(dimension=8)
 
-    result = await health_check(
-        settings=settings, s3=s3, vectors=vectors, bedrock=bedrock
-    )
+    result = await health_check(settings=settings, s3=s3, vectors=vectors, bedrock=bedrock)
 
     assert result["s3"]["status"] == "ok"
     assert result["vectors"]["status"] == "ok"
@@ -61,9 +42,7 @@ async def test_response_keys_present_no_read_prefixes(
     vectors = FakeVectorsClient(dimension=8)
     bedrock = FakeBedrockClient(dimension=8)
 
-    result = await health_check(
-        settings=settings, s3=s3, vectors=vectors, bedrock=bedrock
-    )
+    result = await health_check(settings=settings, s3=s3, vectors=vectors, bedrock=bedrock)
 
     assert "s3" in result
     assert "vectors" in result
@@ -82,9 +61,7 @@ async def test_two_read_prefixes_two_keys(
     vectors = FakeVectorsClient(dimension=8)
     bedrock = FakeBedrockClient(dimension=8)
 
-    result = await health_check(
-        settings=settings, s3=s3, vectors=vectors, bedrock=bedrock
-    )
+    result = await health_check(settings=settings, s3=s3, vectors=vectors, bedrock=bedrock)
 
     read_prefix_keys = [k for k in result if k.startswith("read_prefix:")]
     assert len(read_prefix_keys) == 2
@@ -105,9 +82,7 @@ async def test_s3_head_bucket_credential_error(
     vectors = FakeVectorsClient(dimension=8)
     bedrock = FakeBedrockClient(dimension=8)
 
-    result = await health_check(
-        settings=settings, s3=s3, vectors=vectors, bedrock=bedrock
-    )
+    result = await health_check(settings=settings, s3=s3, vectors=vectors, bedrock=bedrock)
 
     assert result["s3"]["status"] == "error"
 
@@ -121,9 +96,7 @@ async def test_vectors_describe_index_not_found_error(
     vectors = FakeVectorsClient(dimension=8, index_missing=True)
     bedrock = FakeBedrockClient(dimension=8)
 
-    result = await health_check(
-        settings=settings, s3=s3, vectors=vectors, bedrock=bedrock
-    )
+    result = await health_check(settings=settings, s3=s3, vectors=vectors, bedrock=bedrock)
 
     assert result["vectors"]["status"] == "error"
     assert result["s3"]["status"] == "ok"
@@ -139,9 +112,7 @@ async def test_bedrock_embed_credential_error(
     bedrock = FakeBedrockClient(dimension=8)
     bedrock.set_credential_failure(True)
 
-    result = await health_check(
-        settings=settings, s3=s3, vectors=vectors, bedrock=bedrock
-    )
+    result = await health_check(settings=settings, s3=s3, vectors=vectors, bedrock=bedrock)
 
     assert result["bedrock"]["status"] == "error"
     assert result["s3"]["status"] == "ok"
@@ -162,9 +133,7 @@ async def test_write_prefix_put_object_failure(
     vectors = FakeVectorsClient(dimension=8)
     bedrock = FakeBedrockClient(dimension=8)
 
-    result = await health_check(
-        settings=settings, s3=s3, vectors=vectors, bedrock=bedrock
-    )
+    result = await health_check(settings=settings, s3=s3, vectors=vectors, bedrock=bedrock)
 
     assert result["write_prefix"]["status"] == "error"
     assert result["s3"]["status"] == "ok"
@@ -187,9 +156,7 @@ async def test_read_prefix_list_objects_failure(
     vectors = FakeVectorsClient(dimension=8)
     bedrock = FakeBedrockClient(dimension=8)
 
-    result = await health_check(
-        settings=settings, s3=s3, vectors=vectors, bedrock=bedrock
-    )
+    result = await health_check(settings=settings, s3=s3, vectors=vectors, bedrock=bedrock)
 
     read_prefix_keys = [k for k in result if k.startswith("read_prefix:")]
     assert len(read_prefix_keys) == 1
@@ -224,9 +191,7 @@ async def test_all_failures_all_error_no_exception(
     bedrock.set_credential_failure(True)
 
     # Must not raise
-    result = await health_check(
-        settings=settings, s3=s3, vectors=vectors, bedrock=bedrock
-    )
+    result = await health_check(settings=settings, s3=s3, vectors=vectors, bedrock=bedrock)
 
     assert isinstance(result, dict)
     for key in ["s3", "vectors", "bedrock", "write_prefix"]:
@@ -247,9 +212,7 @@ async def test_ok_entries_have_no_message(
     vectors = FakeVectorsClient(dimension=8)
     bedrock = FakeBedrockClient(dimension=8)
 
-    result = await health_check(
-        settings=settings, s3=s3, vectors=vectors, bedrock=bedrock
-    )
+    result = await health_check(settings=settings, s3=s3, vectors=vectors, bedrock=bedrock)
 
     for component in ["s3", "vectors", "bedrock", "write_prefix"]:
         entry = result[component]
@@ -269,9 +232,7 @@ async def test_error_entries_have_nonempty_message(
     bedrock = FakeBedrockClient(dimension=8)
     bedrock.set_credential_failure(True)
 
-    result = await health_check(
-        settings=settings, s3=s3, vectors=vectors, bedrock=bedrock
-    )
+    result = await health_check(settings=settings, s3=s3, vectors=vectors, bedrock=bedrock)
 
     for component in ["s3", "vectors", "bedrock"]:
         entry = result[component]
@@ -290,12 +251,108 @@ async def test_status_field_only_ok_or_error(
     vectors = FakeVectorsClient(dimension=8)
     bedrock = FakeBedrockClient(dimension=8)
 
-    result = await health_check(
-        settings=settings, s3=s3, vectors=vectors, bedrock=bedrock
-    )
+    result = await health_check(settings=settings, s3=s3, vectors=vectors, bedrock=bedrock)
 
     for key, entry in result.items():
         assert isinstance(entry, dict), f"Entry for '{key}' is not a dict: {entry}"
         assert entry["status"] in ("ok", "error"), (
             f"Unexpected status '{entry['status']}' for key '{key}'"
         )
+
+
+# ---------------------------------------------------------------------------
+# Spec 08 — CredentialError cause distinction in health probes
+# ---------------------------------------------------------------------------
+
+
+async def test_s3_probe_credential_error_returns_cause(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """S3 probe CredentialError → cause is 'credential_error'."""
+    settings = _make_settings(monkeypatch, READ_PREFIXES="")
+    s3 = FakeS3Client()
+    s3.set_credential_failure(True)
+    vectors = FakeVectorsClient(dimension=8)
+    bedrock = FakeBedrockClient(dimension=8)
+
+    result = await health_check(settings=settings, s3=s3, vectors=vectors, bedrock=bedrock)
+
+    s3_entry = result.get("s3", result.get("s3_write", {}))
+    assert s3_entry.get("status") == "error"
+    assert s3_entry.get("cause") == "credential_error"
+
+
+async def test_vectors_probe_credential_error_returns_cause(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Vectors probe CredentialError → cause is 'credential_error'."""
+    settings = _make_settings(monkeypatch, READ_PREFIXES="")
+    s3 = FakeS3Client()
+    vectors = FakeVectorsClient(dimension=8)
+    vectors.set_credential_failure(True)
+    bedrock = FakeBedrockClient(dimension=8)
+
+    result = await health_check(settings=settings, s3=s3, vectors=vectors, bedrock=bedrock)
+
+    vec_entry = result.get("vectors", result.get("s3_vectors", {}))
+    assert vec_entry.get("status") == "error"
+    assert vec_entry.get("cause") == "credential_error"
+
+
+async def test_bedrock_probe_credential_error_returns_cause(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Bedrock probe CredentialError → cause is 'credential_error'."""
+    settings = _make_settings(monkeypatch, READ_PREFIXES="")
+    s3 = FakeS3Client()
+    vectors = FakeVectorsClient(dimension=8)
+    bedrock = FakeBedrockClient(dimension=8)
+    bedrock.set_credential_failure(True)
+
+    result = await health_check(settings=settings, s3=s3, vectors=vectors, bedrock=bedrock)
+
+    bedrock_entry = result.get("bedrock", result.get("bedrock_embed", {}))
+    assert bedrock_entry.get("status") == "error"
+    assert bedrock_entry.get("cause") == "credential_error"
+
+
+async def test_generic_error_has_no_cause_field(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Generic RuntimeError in probe → no 'cause' key in result."""
+    settings = _make_settings(monkeypatch, READ_PREFIXES="")
+
+    class ExplodingS3(FakeS3Client):
+        def head_bucket(self, bucket: str) -> None:
+            raise RuntimeError("boom")
+
+        def put_object(self, key: str, body: str, metadata: dict) -> None:  # type: ignore[override]
+            raise RuntimeError("boom")
+
+    s3 = ExplodingS3()
+    vectors = FakeVectorsClient(dimension=8)
+    bedrock = FakeBedrockClient(dimension=8)
+
+    result = await health_check(settings=settings, s3=s3, vectors=vectors, bedrock=bedrock)
+
+    s3_entry = result.get("s3", result.get("s3_write", {}))
+    assert s3_entry.get("status") == "error"
+    assert "cause" not in s3_entry
+
+
+async def test_credential_error_in_one_probe_does_not_skip_others(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """S3 CredentialError → other probes still return 'ok'."""
+    settings = _make_settings(monkeypatch, READ_PREFIXES="")
+    s3 = FakeS3Client()
+    s3.set_credential_failure(True)
+    vectors = FakeVectorsClient(dimension=8)
+    bedrock = FakeBedrockClient(dimension=8)
+
+    result = await health_check(settings=settings, s3=s3, vectors=vectors, bedrock=bedrock)
+
+    # At least vectors and bedrock should be OK
+    for key, entry in result.items():
+        if isinstance(entry, dict) and "s3" not in key:
+            assert entry.get("status") == "ok", f"{key} should still be ok"

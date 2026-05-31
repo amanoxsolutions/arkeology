@@ -166,7 +166,9 @@ async def _purge_archived_inner(
         # Delete S3 object
         try:
             s3.delete_object(artifact_id)
-        except (CredentialError, Exception) as exc:
+        except CredentialError as exc:
+            return {"error": "credential_error", "message": str(exc), "artifact_id": artifact_id}
+        except Exception as exc:
             return {
                 "error": "partial_delete",
                 "message": str(exc),
