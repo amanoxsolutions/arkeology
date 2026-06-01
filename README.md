@@ -499,6 +499,11 @@ cairn-mcp is connected to this project. Use it to persist knowledge across sessi
 | `bug_report` | When a bug is diagnosed — root cause, affected behaviour, fix applied |
 | `decision_note` | A lightweight decision with rationale — smaller than an ADR, larger than a code comment |
 | `synthesis` | When consolidating multiple prior artifacts into a summary — must include `source_artifacts` |
+| `prd` | Product Requirements Documents — defines what to build, user needs, goals, and non-goals; tier 3, shared |
+| `plan` | Project or sprint plans — ordered task breakdown, milestones, and dependencies; tier 3 |
+| `runbook` | Operational runbooks — step-by-step procedures for deployment, rollback, and incident response; tier 3 |
+| `changelog` | Changelog entries — records features shipped, bugs fixed, and breaking changes for a release; tier 2 |
+| `postmortem` | Post-incident analyses — timeline, root cause, customer impact, remediation, and follow-up actions; tier 2 |
 
 ### Description quality
 
@@ -512,8 +517,8 @@ The `description` field is the primary search signal. Invest in it.
 ### Tier selection
 
 - **Tier 2** — point-in-time records that document a moment: `brainstorming`, `code_review`, `session_summary`,
-  `implementation_note`, `bug_report`. Immutable after write; keyed by type + date + title.
-- **Tier 3** — living documents that evolve: `spec`, `adr`, `decision_note`, `synthesis`.
+  `implementation_note`, `bug_report`, `changelog`, `postmortem`. Immutable after write; keyed by type + date + title.
+- **Tier 3** — living documents that evolve: `spec`, `adr`, `decision_note`, `synthesis`, `plan`, `prd`, `runbook`.
   Overwrite in place on re-write; keyed by type + title only (no date).
 
 ### Query strategy — start narrow, broaden only if needed

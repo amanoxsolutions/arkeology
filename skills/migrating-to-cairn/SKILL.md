@@ -7,7 +7,7 @@ description: Migrate existing repository documentation into cairn-mcp — one-ti
 
 This skill guides you through a one-time migration of existing repository
 documentation into cairn-mcp. Use it when adopting cairn-mcp on a project that
-already has months or years of accumulated docs in `docs/`.
+already has months or years of accumulated docs (in `docs/`, `documentation/`, or wherever the project organises its documentation).
 
 The skill supports two execution paths:
 
@@ -70,17 +70,29 @@ mapping below. When a directory listed here exists in the repo, enumerate all
 `.md` files inside it (recursive). If the operator chose **git only** for ADRs,
 exclude ADR directories from the scan entirely.
 
+Before applying the mapping below, discover the project's documentation root:
+1. Check for these candidates in order: `docs/`, `documentation/`, `doc/`, `wiki/`.
+2. If exactly one exists, use it as the docs root. Announce it to the operator.
+3. If multiple exist, list them and ask the operator which is the primary docs root.
+4. If none exist, treat the repo root as the docs root and note this to the operator.
+5. All subdirectory patterns in the table below are relative to the confirmed docs root.
+
 ### Directory → type mapping
 
-| Directory | Default type | Default tier |
-|-----------|-------------|-------------|
-| `docs/adr/`, `docs/architecture/` | `adr` | 3 |
-| `docs/specs/` | `spec` | 3 |
-| `docs/planning-artifacts/` | `spec` | 3 (prd.md, plan.md → spec tier 3) |
-| `docs/brainstorming/` | `brainstorming` | 2 |
-| `docs/sessions/`, `docs/notes/` | `session_summary` | 2 |
-| `docs/code-reviews/` | `code_review` | 2 |
-| `docs/implementation-notes/`, `docs/impl-notes/` | `implementation_note` | 2 |
+| Subdirectory pattern | Default type | Default tier |
+|---|---|---|
+| `adr/`, `architecture/` | `adr` | 3 |
+| `specs/` | `spec` | 3 |
+| `planning-artifacts/`, `planning/` | see note below | 3 |
+| `brainstorming/` | `brainstorming` | 2 |
+| `sessions/`, `notes/` | `session_summary` | 2 |
+| `code-reviews/` | `code_review` | 2 |
+| `implementation-notes/`, `impl-notes/` | `implementation_note` | 2 |
+| `runbooks/`, `runbook/`, `ops/` | `runbook` | 3 |
+| `changelogs/`, `releases/` | `changelog` | 2 |
+| `postmortems/`, `incidents/` | `postmortem` | 2 |
+
+> **Note for `planning-artifacts/` and `planning/`:** classify by filename within the directory — `prd.md` → `type=prd`; `plan.md` → `type=plan`; all other files → `type=spec`.
 
 ### Exclusion list — always skip these
 
@@ -279,6 +291,11 @@ Once verified in cairn-mcp, the operator may remove these files from the repo:
 | `adr` | **Depends on your ADR strategy (chosen in Step 2).** If you chose **cairn-mcp only**: yes, remove the git files — cairn-mcp is now the single source of truth. If you chose **git only**: you should not have migrated ADRs at all (Step 2 told you to skip them). |
 | `spec` | Judgment call — keep specs that are actively referenced in code PRs; remove old, completed specs |
 | `decision_note` | Judgment call — keep if referenced by other docs; otherwise remove |
+| `changelog` | Judgment call — keep if the changelog is actively referenced in release PRs; remove old entries already captured in cairn-mcp |
+| `plan` | Judgment call — keep if the plan file is actively updated in the repo; remove if cairn-mcp is now the live version |
+| `postmortem` | Yes — point-in-time incident records; cairn-mcp is the right home |
+| `prd` | Judgment call — keep if the PRD is referenced in active development; remove once the feature is shipped and the cairn-mcp copy is the archive |
+| `runbook` | Judgment call — keep if the team needs runbooks reachable outside cairn-mcp (e.g. via git during an incident); remove if cairn-mcp is the agreed operational home |
 
 Before removing any file, confirm with the operator which files they are
 comfortable removing.

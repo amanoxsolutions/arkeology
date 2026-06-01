@@ -22,9 +22,14 @@ from pydantic import BaseModel, Field, field_validator
 ARTIFACT_TYPES: frozenset[str] = frozenset(
     {
         "brainstorming",
+        "changelog",
         "code_review",
         "session_summary",
         "implementation_note",
+        "plan",
+        "postmortem",
+        "prd",
+        "runbook",
         "spec",
         "adr",
         "bug_report",
@@ -145,7 +150,7 @@ class Artifact(BaseModel):
     ``pydantic.ValidationError``.
 
     Attributes:
-        type: One of the nine valid artifact types in :data:`ARTIFACT_TYPES`.
+        type: One of the fourteen valid artifact types in :data:`ARTIFACT_TYPES`.
         team: Team that owns the artifact.
         project: Project the artifact belongs to.
         tier: 2 (session-scoped) or 3 (persistent/cross-session).

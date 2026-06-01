@@ -2,7 +2,7 @@
 
 _Project: cairn-mcp_
 _Generated: 2026-05-29_ · _Last updated: 2026-06-01_
-_Status: **V1 — Phases 1–7 complete (451 unit tests + integration suite passing against live AWS; ruff + mypy clean; Apache 2.0 licensed; production-hardened; moto migration complete)**_
+_Status: **V1 — Phases 1–7 complete + artifact type vocabulary extended to 14 types (457 unit tests + integration suite passing against live AWS; ruff + mypy clean; Apache 2.0 licensed; production-hardened; moto migration complete)**_
 
 ---
 
@@ -183,6 +183,8 @@ Goal: replace hand-rolled in-memory fakes for S3 and S3 Vectors with moto-backed
 - **Vector score range (known limitation)**: ~~`FakeVectorsClient` returned `1.0 + cosine_similarity` ∈ [0, 2] while `VectorsClientImpl` returns `score = 1.0 − cosine_distance` ∈ [−1, 1].~~ **RESOLVED (Phase 7, 2026-06-01)**: fakes deleted; moto extension returns `score = 1.0 − cosine_distance` ∈ [−1, 1], matching production exactly. All absolute score assertions updated.
 
 - **Moto migration complete (2026-06-01)**: `FakeS3Client` and `FakeVectorsClient` deleted; all 12 unit test files migrated to moto-backed `S3ClientImpl` / `VectorsClientImpl`; `query_vectors` moto extension patched onto `S3VectorsBackend` in `conftest.py`; 451 unit tests passing; ruff + mypy clean. Unit test count dropped from 486 to 451 — the 35-test difference accounts for the deleted fake client test files (`test_fake_s3.py`, `test_fake_vectors.py`), partially offset by 6 new extension tests.
+
+- **Artifact type vocabulary extended to 14 types (2026-06-01)**: added `changelog`, `plan`, `postmortem`, `prd`, `runbook` to `ARTIFACT_TYPES` in `artifact.py` (9 → 14); `resources.py` descriptions and tier guidance updated for all 14 types; README type table and tier lists updated; 5 new parametrized test cases added (`test_artifact.py`); migration skill (`skills/migrating-to-cairn/SKILL.md`) updated with docs-root discovery sub-step, subdirectory-pattern table replacing hardcoded `docs/` paths, and Step 7 removal guidance for the 5 new types; `schema.yaml` type comment updated to list all 14 types. Quality gate: 457 unit tests passing, ruff clean, mypy clean. Spec: `docs/specs/extend-artifact-types-and-flexible-docs-root.md`.
 
 ## References
 

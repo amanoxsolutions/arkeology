@@ -1,8 +1,4 @@
-"""Unit tests for cairn_mcp.artifact (TDD Red phase — module does not exist yet).
-
-All tests in this file are expected to fail with ImportError until the
-implementation is created.
-"""
+"""Unit tests for cairn_mcp.artifact."""
 
 import re
 
@@ -351,10 +347,15 @@ def test_artifact_unknown_type_invalid() -> None:
         "bug_report",
         "decision_note",
         "synthesis",
+        "changelog",
+        "plan",
+        "postmortem",
+        "prd",
+        "runbook",
     ],
 )
 def test_artifact_all_valid_types_accepted(artifact_type: str) -> None:
-    """All 9 valid artifact types are accepted."""
+    """All 14 valid artifact types are accepted."""
     kwargs = {**VALID_ARTIFACT_KWARGS, "type": artifact_type}
     artifact = Artifact(**kwargs)
     assert artifact.type == artifact_type
