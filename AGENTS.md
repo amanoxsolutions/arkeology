@@ -69,8 +69,8 @@ unavailable or misconfigured, all persisted memory is inaccessible.
 | `src/cairn_mcp/clients/bedrock.py`| Concrete boto3 Bedrock embeddings client                   |
 | `src/cairn_mcp/clients/credentials.py` | Credential error code detection helper                |
 | `src/cairn_mcp/clients/filter.py` | In-process metadata filter evaluator ($eq, $in, $nin, …)   |
-| `src/cairn_mcp/clients/fakes/`    | In-memory test fakes (FakeS3Client, FakeVectorsClient, …)  |
-| `tests/unit/`                     | Unit tests (fakes only, no AWS)                            |
+| `src/cairn_mcp/clients/fakes/`    | `FakeBedrockClient` only — S3 and S3 Vectors are mocked via moto |
+| `tests/unit/`                     | Unit tests (moto + `FakeBedrockClient`, no real AWS)       |
 | `tests/integration/`              | Integration tests (real AWS, @pytest.mark.integration)     |
 | `docs/planning-artifacts/`        | PRD and plan                                               |
 | `docs/specs/`                     | Per-task feature specs                                     |
@@ -97,6 +97,23 @@ one makes all persisted memory inaccessible:
   operations. Changing the embedding model after data has been written produces semantically
   incompatible vectors — search results degrade silently. Model changes require a full
   re-index. Throttle transients are retried once; persistent throttling surfaces as an error.
+
+## Testing Conventions
+
+- **Mock AWS services with moto** — before writing any test that touches S3 or S3 Vectors,
+  confirm the operation is supported at https://docs.getmoto.org/en/latest/docs/services/index.html.
+  Use `@mock_aws` (or the `aws_mock` fixture from `tests/unit/conftest.py`) for all unit tests.
+- **`query_vectors` is not implemented in moto** — `S3VectorsBackend.query_vectors` is patched
+  with a cosine similarity extension in `tests/unit/conftest.py`. This patch is applied once at
+  module load and is active for all unit tests. Do not reimplement it per-test. The extension
+  returns `score = 1.0 − cosine_distance` (cosine similarity, range [−1, 1]), matching
+  `VectorsClientImpl` exactly.
+- **`FakeBedrockClient` is kept intentionally** — moto's `invoke_model` returns a generic
+  stub, not deterministic per-text embedding vectors. `FakeBedrockClient` generates
+  hash-derived unit vectors (SHA-256) so the same text always produces the same vector,
+  enabling search ordering assertions. Do not replace it with moto.
+- **Credential error simulation** — use `mocker.patch.object(client, "method", side_effect=CredentialError(...))` to simulate credential failures in unit tests. Do not create hand-rolled fakes with `set_credential_failure` for this purpose.
+- **Call tracking and failure injection** — use `mocker.spy(client, "method")` to track call counts; use `mocker.patch.object(client, "method", side_effect=...)` to inject failures. Do not subclass concrete clients for tracking or failure simulation.
 
 ## Working Conventions
 
@@ -145,9 +162,9 @@ one makes all persisted memory inaccessible:
   Fix the loop there; do not patch individual tools.
 
 - **Vector scores are `1.0 - distance`, not raw distance**: Search results carry
-  `score = 1.0 - cosine_distance`, so scores are in `[0.0, 1.0]` where `1.0` is most
-  similar. Do not negate scores or treat them as distances; the conversion is already
-  applied before results are returned to callers.
+  `score = 1.0 - cosine_distance`, which equals cosine similarity, so scores are in `[−1, 1]`
+  where `1.0` is most similar and `−1.0` is most dissimilar. Do not negate scores or treat
+  them as distances; the conversion is already applied before results are returned to callers.
 
 ## CI and Quality Gates
 
