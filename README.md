@@ -385,7 +385,36 @@ uv run mypy src/
 
 ## Connecting to an MCP client
 
-Add the server to your MCP client configuration. Example for a client that reads `mcp-servers.json`:
+### OpenCode (`opencode.json` or `opencode.jsonc`)
+
+OpenCode uses a different config schema from the generic MCP JSON format. The `command` field
+must be an **array** (command + arguments combined), environment variables go under
+`"environment"` (not `"env"`), and `"type"` and `"enabled"` are required.
+
+Place this in your project's `opencode.json` or in the global `~/.config/opencode/opencode.json`:
+
+```jsonc
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "cairn": {
+      "type": "local",
+      "enabled": true,
+      "command": ["uv", "run", "--directory", "/path/to/cairn-mcp", "cairn-mcp"],
+      "environment": {
+        "AWS_REGION": "eu-central-1",
+        "ARTIFACT_BUCKET": "my-artifacts-bucket",
+        "VECTORS_BUCKET": "my-vectors-bucket",
+        "VECTORS_INDEX": "artifacts-index"
+      }
+    }
+  }
+}
+```
+
+### Claude Desktop, Cursor, and other clients (`mcp-servers.json` / `claude_desktop_config.json`)
+
+For MCP clients that use the standard `mcpServers` format:
 
 ```json
 {
