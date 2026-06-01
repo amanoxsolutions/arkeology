@@ -5,6 +5,7 @@ Non-credential errors propagate unchanged.
 """
 
 import logging
+import unicodedata
 from typing import Any
 
 import boto3
@@ -20,6 +21,25 @@ _CREDENTIAL_ERROR_MESSAGE = (
     "AWS credentials are invalid or expired. "
     "Re-authenticate (e.g. aws sso login) and restart the server."
 )
+
+
+def _ascii_safe_metadata(metadata: dict[str, str]) -> dict[str, str]:
+    """Return a copy of metadata with all values sanitized to ASCII.
+
+    S3 object metadata is transmitted as HTTP headers, which only support ASCII.
+    NFKD normalization decomposes accented characters to their ASCII base
+    (e.g. é → e); remaining non-ASCII characters (e.g. em dash) are dropped.
+
+    Args:
+        metadata: Original metadata dict with potentially non-ASCII string values.
+
+    Returns:
+        New dict with all values sanitized to ASCII.
+    """
+    return {
+        k: unicodedata.normalize("NFKD", v).encode("ascii", errors="ignore").decode("ascii")
+        for k, v in metadata.items()
+    }
 
 
 def _credential_error(exc: botocore.exceptions.ClientError) -> CredentialError:
@@ -55,7 +75,7 @@ class S3ClientImpl:
                 Bucket=self._bucket,
                 Key=key,
                 Body=body.encode("utf-8"),
-                Metadata=metadata,
+                Metadata=_ascii_safe_metadata(metadata),
             )
         except botocore.exceptions.ClientError as exc:
             if is_credential_error(exc):
