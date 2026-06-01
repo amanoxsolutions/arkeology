@@ -43,18 +43,17 @@ making it discoverable by agents on other projects or teams that point at the sa
 
 ## Key Features
 
-- **Immediate write-then-read consistency** — an artifact written in one tool call is searchable in the next. No background sync job, no ingestion pipeline, no delay between writing and finding.
-- **Semantic search + metadata filtering** — retrieve artifacts by meaning, not just keyword. Combine a natural-language query with type, feature tag, team, or project filters in a single call. Start narrow, broaden only when needed.
-- **Section-level indexing** — every `##` section in an artifact is indexed as an independent vector. A query for "trade-offs of the auth redesign" matches the `## Trade-offs` section directly instead of a diluted document-level embedding.
-- **Cross-team knowledge sharing with a visibility gate** — tier 3 canonical artifacts (ADRs, architecture decisions) are discoverable across teams and projects when a shared S3 Vectors index is configured. Tier 2 working documents stay strictly project-local — a deliberate promotion step is required to share knowledge, not an accidental one. 
-  > **IMPORTANT:** Cross-scope visibility control is enforced at the MCP server layer. True access restriction (keeping content private from unauthorized AWS principals) requires IAM permissions.
-- **Structured, filterable metadata** — every artifact carries typed metadata (type, team, project, tier, date, status, title, visibility, feature tags) stored in S3 Vectors and returned with every search result. No S3 content fetch needed to browse and filter.
-- **Knowledge synthesis** — `synthesise_artifacts` finds the most relevant artifacts for a query, fetches their full content in a single bundled response, and hands the material to the agent to synthesise in-context. The agent writes the result back as a tier 3 `synthesis` artifact with source identifiers recorded — bridging the gap between raw point-in-time records and compiled, referenceable knowledge. E.g. summarise an epic once it ships, compile related code-review findings, consolidate session notes.
-- **Full artifact lifecycle — archive, delete, and purge** — archive hides an artifact from search and listing without removing it; delete permanently removes it from S3 and the vector index (vectors deleted first, so a failed S3 delete leaves no dangling search results); purge bulk-cleans all archived artifacts in one call. Synthesis reference safety is built in: deleting a source artifact warns which synthesis artifacts reference it; purging cascade-deletes any synthesis whose every source is in the purge set.
-- **Migration skill for existing projects** — adopting cairn-mcp on a project with years of accumulated docs doesn't mean starting from zero. An [agentskills.io](https://agentskills.io)-compatible migration skill ships with the repository. The agent classifies existing docs by type and tier using directory conventions, generates search-quality descriptions in-context for high-value artifacts, and recovers original creation dates from git history. A bundled `migrate.py` script handles bulk operations for large migrations. Post-migration, the skill appends the cairn-mcp usage block to the project `AGENTS.md` so future agents write to cairn-mcp by default.
-- **AWS-native — no additional services to run** — S3, S3 Vectors, and Bedrock are the only services required. If your team already runs workloads on AWS, there is nothing new to operate or secure.
-- **CI/CD-ready** — all standard AWS credential environments are supported: local developer profiles, IAM roles, ECS tasks, CI/CD OIDC tokens. A code-review agent running in a pipeline writes findings using the same tools as an interactive developer agent.
-- **Any MCP-compatible agent** — no framework dependency. Schema documentation is exposed as MCP Resources the server publishes at runtime, so any connected agent can discover valid types, tiers, and field constraints without consulting external docs.
+- **Immediate write-then-read consistency** — an artifact written in one agent call is searchable in the next. There is no ingestion delay between producing knowledge and finding it.
+- **Semantic search with metadata filtering** — retrieve artifacts by meaning, not just keyword. Combine a natural-language query with filters for type, feature tag, team, or project in a single call.
+- **Section-level search precision** — queries match the specific section of an artifact that is relevant, not a whole-document average. Precision improves as artifacts grow longer.
+- **Cross-team knowledge sharing** — canonical artifacts such as ADRs and architecture decisions can be made discoverable by agents on other projects or teams. Working documents stay project-local by default; sharing requires a deliberate promotion step, not an accidental one.
+- **Rich, filterable metadata** — every artifact carries structured metadata that is returned with every search result. Browse and filter without fetching full content.
+- **Knowledge synthesis** — compile multiple related artifacts into a single reference document. The result is stored as a first-class artifact with source identifiers recorded, so provenance is always traceable.
+- **Full artifact lifecycle** — archive, delete, and purge artifacts as projects evolve. Referential safety checks warn before removing an artifact that other synthesis documents depend on.
+- **Migration skill for existing projects** — adopt cairn-mcp on a project with years of accumulated docs without starting from zero. A bundled skill classifies, enriches, and imports existing documentation in a single structured workflow.
+- **AWS-native — no extra services** — S3, S3 Vectors, and Bedrock are the only dependencies. Teams already running on AWS have nothing new to operate or secure.
+- **CI/CD-ready** — works with any standard AWS credential environment: local developer profiles, IAM roles, ECS tasks, or CI/CD OIDC tokens. A pipeline agent and an interactive developer agent use identical tools.
+- **Any MCP-compatible agent** — no framework lock-in. Schema documentation is published at runtime so any connected agent can discover valid types, tiers, and field constraints without consulting external documentation.
 
 ### cairn-mcp vs. other approaches
 
@@ -162,7 +161,7 @@ enrichment (descriptions, git-recovered dates), and two execution paths:
 Copy the skill into your IDE's skills directory:
 
 ```bash
-cp -r skills/migration /path/to/ide-skills-directory/
+cp -r skills/migrating-to-cairn /path/to/ide-skills-directory/
 ```
 
 | IDE | Skills directory |

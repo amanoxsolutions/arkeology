@@ -184,7 +184,7 @@ Present the generated `CAIRN_IMPORT.yaml` to the operator. Ask them to:
 Run the preview:
 
 ```bash
-uv run skills/migration/scripts/migrate.py \
+uv run skills/migrating-to-cairn/scripts/migrate.py \
   --manifest CAIRN_IMPORT.yaml \
   --dry-run
 ```
@@ -199,7 +199,7 @@ correct the manifest before any writes occur.
 After operator confirmation, run the full import:
 
 ```bash
-uv run skills/migration/scripts/migrate.py \
+uv run skills/migrating-to-cairn/scripts/migrate.py \
   --manifest CAIRN_IMPORT.yaml
 ```
 
