@@ -1,16 +1,17 @@
 """Unit tests for cairn_mcp.tools.search.
 
-Tests search_artifacts() using FakeVectorsClient and FakeBedrockClient.
+Tests search_artifacts() using moto-backed VectorsClientImpl and FakeBedrockClient.
 """
 
 import math
-from typing import Any
 
 import pytest
+from pytest_mock import MockerFixture
 
 from cairn_mcp.clients.fakes.fake_bedrock import FakeBedrockClient
-from cairn_mcp.clients.fakes.fake_vectors import FakeVectorsClient
+from cairn_mcp.clients.vectors import VectorsClientImpl
 from cairn_mcp.config import Settings
+from cairn_mcp.errors import CredentialError
 from cairn_mcp.tools.search import search_artifacts
 from tests.unit.conftest import _make_settings as _make_settings_base
 
@@ -31,9 +32,9 @@ def _unit_vec(values: list[float]) -> list[float]:
 # ---------------------------------------------------------------------------
 
 
-def _seed_vectors(vectors: FakeVectorsClient, write_prefix: str = "artifacts") -> None:
-    """Seed a FakeVectorsClient with a representative set of vectors for search tests."""
-    dim = 8  # small dimension sufficient for fake cosine similarity
+def _seed_vectors(vectors: VectorsClientImpl, write_prefix: str = "artifacts") -> None:
+    """Seed a VectorsClientImpl with a representative set of vectors for search tests."""
+    dim = 8
 
     def _vec(seed: float) -> list[float]:
         raw = [seed + i * 0.1 for i in range(dim)]
@@ -225,15 +226,15 @@ def _seed_vectors(vectors: FakeVectorsClient, write_prefix: str = "artifacts") -
 
 async def test_search_returns_up_to_top_k_distinct_artifacts(
     monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
 ) -> None:
     """Query returns up to top_k distinct artifacts (no artifact appears twice)."""
     settings = _make_settings(monkeypatch)
-    vectors = FakeVectorsClient(dimension=8)
     bedrock = FakeBedrockClient(dimension=8)
-    _seed_vectors(vectors)
+    _seed_vectors(vectors_client_8)
 
     result = await search_artifacts(
-        vectors=vectors, bedrock=bedrock, settings=settings, query="auth review", top_k=2
+        vectors=vectors_client_8, bedrock=bedrock, settings=settings, query="auth review", top_k=2
     )
 
     artifacts = result["artifacts"]
@@ -244,15 +245,15 @@ async def test_search_returns_up_to_top_k_distinct_artifacts(
 
 async def test_search_results_have_no_content_field(
     monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
 ) -> None:
     """Search results do not contain a 'content' field (content is fetched via read)."""
     settings = _make_settings(monkeypatch)
-    vectors = FakeVectorsClient(dimension=8)
     bedrock = FakeBedrockClient(dimension=8)
-    _seed_vectors(vectors)
+    _seed_vectors(vectors_client_8)
 
     result = await search_artifacts(
-        vectors=vectors, bedrock=bedrock, settings=settings, query="review", top_k=10
+        vectors=vectors_client_8, bedrock=bedrock, settings=settings, query="review", top_k=10
     )
 
     for artifact in result["artifacts"]:
@@ -261,15 +262,15 @@ async def test_search_results_have_no_content_field(
 
 async def test_search_results_ordered_by_score_descending(
     monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
 ) -> None:
     """Search results are ordered by score descending."""
     settings = _make_settings(monkeypatch)
-    vectors = FakeVectorsClient(dimension=8)
     bedrock = FakeBedrockClient(dimension=8)
-    _seed_vectors(vectors)
+    _seed_vectors(vectors_client_8)
 
     result = await search_artifacts(
-        vectors=vectors, bedrock=bedrock, settings=settings, query="review", top_k=10
+        vectors=vectors_client_8, bedrock=bedrock, settings=settings, query="review", top_k=10
     )
 
     scores = [a["score"] for a in result["artifacts"]]
@@ -278,15 +279,15 @@ async def test_search_results_ordered_by_score_descending(
 
 async def test_search_each_result_has_artifact_id(
     monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
 ) -> None:
     """Each result has an 'artifact_id' field."""
     settings = _make_settings(monkeypatch)
-    vectors = FakeVectorsClient(dimension=8)
     bedrock = FakeBedrockClient(dimension=8)
-    _seed_vectors(vectors)
+    _seed_vectors(vectors_client_8)
 
     result = await search_artifacts(
-        vectors=vectors, bedrock=bedrock, settings=settings, query="review", top_k=10
+        vectors=vectors_client_8, bedrock=bedrock, settings=settings, query="review", top_k=10
     )
 
     for artifact in result["artifacts"]:
@@ -300,15 +301,15 @@ async def test_search_each_result_has_artifact_id(
 
 async def test_filter_type_restricts_results(
     monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
 ) -> None:
     """type='code_review' filter → all results have type=='code_review'."""
     settings = _make_settings(monkeypatch)
-    vectors = FakeVectorsClient(dimension=8)
     bedrock = FakeBedrockClient(dimension=8)
-    _seed_vectors(vectors)
+    _seed_vectors(vectors_client_8)
 
     result = await search_artifacts(
-        vectors=vectors,
+        vectors=vectors_client_8,
         bedrock=bedrock,
         settings=settings,
         query="review",
@@ -322,15 +323,15 @@ async def test_filter_type_restricts_results(
 
 async def test_filter_feature_tags_restricts_results(
     monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
 ) -> None:
     """feature_tags=['payments'] → all results contain 'payments' in feature_tags."""
     settings = _make_settings(monkeypatch)
-    vectors = FakeVectorsClient(dimension=8)
     bedrock = FakeBedrockClient(dimension=8)
-    _seed_vectors(vectors)
+    _seed_vectors(vectors_client_8)
 
     result = await search_artifacts(
-        vectors=vectors,
+        vectors=vectors_client_8,
         bedrock=bedrock,
         settings=settings,
         query="payments",
@@ -344,15 +345,15 @@ async def test_filter_feature_tags_restricts_results(
 
 async def test_filter_team_restricts_results(
     monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
 ) -> None:
     """team='platform' → all results have team=='platform'."""
     settings = _make_settings(monkeypatch)
-    vectors = FakeVectorsClient(dimension=8)
     bedrock = FakeBedrockClient(dimension=8)
-    _seed_vectors(vectors)
+    _seed_vectors(vectors_client_8)
 
     result = await search_artifacts(
-        vectors=vectors,
+        vectors=vectors_client_8,
         bedrock=bedrock,
         settings=settings,
         query="review",
@@ -366,15 +367,15 @@ async def test_filter_team_restricts_results(
 
 async def test_filter_project_restricts_results(
     monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
 ) -> None:
     """project='cairn' → all results have project=='cairn'."""
     settings = _make_settings(monkeypatch)
-    vectors = FakeVectorsClient(dimension=8)
     bedrock = FakeBedrockClient(dimension=8)
-    _seed_vectors(vectors)
+    _seed_vectors(vectors_client_8)
 
     result = await search_artifacts(
-        vectors=vectors,
+        vectors=vectors_client_8,
         bedrock=bedrock,
         settings=settings,
         query="cairn",
@@ -388,15 +389,15 @@ async def test_filter_project_restricts_results(
 
 async def test_filter_tier_restricts_results(
     monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
 ) -> None:
     """tier=3 → all results have tier==3."""
     settings = _make_settings(monkeypatch)
-    vectors = FakeVectorsClient(dimension=8)
     bedrock = FakeBedrockClient(dimension=8)
-    _seed_vectors(vectors)
+    _seed_vectors(vectors_client_8)
 
     result = await search_artifacts(
-        vectors=vectors,
+        vectors=vectors_client_8,
         bedrock=bedrock,
         settings=settings,
         query="decision",
@@ -410,15 +411,15 @@ async def test_filter_tier_restricts_results(
 
 async def test_inactive_artifacts_excluded_by_default(
     monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
 ) -> None:
     """status='inactive' artifacts are excluded from results by default."""
     settings = _make_settings(monkeypatch)
-    vectors = FakeVectorsClient(dimension=8)
     bedrock = FakeBedrockClient(dimension=8)
-    _seed_vectors(vectors)
+    _seed_vectors(vectors_client_8)
 
     result = await search_artifacts(
-        vectors=vectors, bedrock=bedrock, settings=settings, query="review", top_k=10
+        vectors=vectors_client_8, bedrock=bedrock, settings=settings, query="review", top_k=10
     )
 
     artifact_ids = [a["artifact_id"] for a in result["artifacts"]]
@@ -432,15 +433,15 @@ async def test_inactive_artifacts_excluded_by_default(
 
 async def test_foreign_tier2_absent_from_results(
     monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
 ) -> None:
     """Foreign-scope tier 2 artifact is absent from results regardless of similarity."""
     settings = _make_settings(monkeypatch)
-    vectors = FakeVectorsClient(dimension=8)
     bedrock = FakeBedrockClient(dimension=8)
-    _seed_vectors(vectors)
+    _seed_vectors(vectors_client_8)
 
     result = await search_artifacts(
-        vectors=vectors, bedrock=bedrock, settings=settings, query="review", top_k=20
+        vectors=vectors_client_8, bedrock=bedrock, settings=settings, query="review", top_k=20
     )
 
     artifact_ids = [a["artifact_id"] for a in result["artifacts"]]
@@ -449,15 +450,15 @@ async def test_foreign_tier2_absent_from_results(
 
 async def test_foreign_tier3_shared_present(
     monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
 ) -> None:
     """Foreign-scope tier 3 shared artifact appears in results when matching."""
     settings = _make_settings(monkeypatch)
-    vectors = FakeVectorsClient(dimension=8)
     bedrock = FakeBedrockClient(dimension=8)
-    _seed_vectors(vectors)
+    _seed_vectors(vectors_client_8)
 
     result = await search_artifacts(
-        vectors=vectors, bedrock=bedrock, settings=settings, query="adr decision", top_k=20
+        vectors=vectors_client_8, bedrock=bedrock, settings=settings, query="adr decision", top_k=20
     )
 
     artifact_ids = [a["artifact_id"] for a in result["artifacts"]]
@@ -466,15 +467,15 @@ async def test_foreign_tier3_shared_present(
 
 async def test_foreign_tier3_hidden_absent(
     monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
 ) -> None:
     """Foreign-scope tier 3 hidden artifact is absent from results."""
     settings = _make_settings(monkeypatch)
-    vectors = FakeVectorsClient(dimension=8)
     bedrock = FakeBedrockClient(dimension=8)
-    _seed_vectors(vectors)
+    _seed_vectors(vectors_client_8)
 
     result = await search_artifacts(
-        vectors=vectors, bedrock=bedrock, settings=settings, query="adr", top_k=20
+        vectors=vectors_client_8, bedrock=bedrock, settings=settings, query="adr", top_k=20
     )
 
     artifact_ids = [a["artifact_id"] for a in result["artifacts"]]
@@ -483,15 +484,15 @@ async def test_foreign_tier3_hidden_absent(
 
 async def test_own_scope_tier2_hidden_present(
     monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
 ) -> None:
     """Own-scope tier 2 hidden artifact appears in results (no gate on own scope)."""
     settings = _make_settings(monkeypatch)
-    vectors = FakeVectorsClient(dimension=8)
     bedrock = FakeBedrockClient(dimension=8)
-    _seed_vectors(vectors)
+    _seed_vectors(vectors_client_8)
 
     result = await search_artifacts(
-        vectors=vectors, bedrock=bedrock, settings=settings, query="review", top_k=20
+        vectors=vectors_client_8, bedrock=bedrock, settings=settings, query="review", top_k=20
     )
 
     artifact_ids = [a["artifact_id"] for a in result["artifacts"]]
@@ -505,15 +506,15 @@ async def test_own_scope_tier2_hidden_present(
 
 async def test_top_k_limits_results(
     monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
 ) -> None:
     """top_k=2 with multiple artifacts seeded → exactly 2 results returned."""
     settings = _make_settings(monkeypatch)
-    vectors = FakeVectorsClient(dimension=8)
     bedrock = FakeBedrockClient(dimension=8)
-    _seed_vectors(vectors)
+    _seed_vectors(vectors_client_8)
 
     result = await search_artifacts(
-        vectors=vectors, bedrock=bedrock, settings=settings, query="review", top_k=2
+        vectors=vectors_client_8, bedrock=bedrock, settings=settings, query="review", top_k=2
     )
 
     assert len(result["artifacts"]) == 2
@@ -521,59 +522,36 @@ async def test_top_k_limits_results(
 
 async def test_search_max_iterations_limits_query_calls(
     monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
+    mocker: MockerFixture,
 ) -> None:
     """search_max_iterations=1 → at most 1 query_vectors call."""
     settings = _make_settings(monkeypatch, SEARCH_MAX_ITERATIONS="1")
-
-    call_count = 0
-
-    class TrackingVectorsClient(FakeVectorsClient):
-        def query_vectors(
-            self,
-            vector: list[float],
-            top_k: int,
-            filter_expr: dict[str, Any] | None,
-        ) -> list[dict[str, Any]]:
-            nonlocal call_count
-            call_count += 1
-            return super().query_vectors(vector, top_k, filter_expr)
-
-    vectors = TrackingVectorsClient(dimension=8)
     bedrock = FakeBedrockClient(dimension=8)
-    _seed_vectors(vectors)
+    _seed_vectors(vectors_client_8)
+    spy = mocker.spy(vectors_client_8, "query_vectors")
 
     await search_artifacts(
-        vectors=vectors, bedrock=bedrock, settings=settings, query="review", top_k=10
+        vectors=vectors_client_8, bedrock=bedrock, settings=settings, query="review", top_k=10
     )
 
-    assert call_count <= 1
+    assert spy.call_count <= 1
 
 
 async def test_early_exit_when_no_new_artifact_ids(
     monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
+    mocker: MockerFixture,
 ) -> None:
     """Loop exits early when no new artifact IDs are returned in an iteration."""
     settings = _make_settings(monkeypatch, SEARCH_MAX_ITERATIONS="3")
-
-    call_count = 0
-
-    class TrackingVectorsClient(FakeVectorsClient):
-        def query_vectors(
-            self,
-            vector: list[float],
-            top_k: int,
-            filter_expr: dict[str, Any] | None,
-        ) -> list[dict[str, Any]]:
-            nonlocal call_count
-            call_count += 1
-            return super().query_vectors(vector, top_k, filter_expr)
-
-    vectors = TrackingVectorsClient(dimension=8)
     bedrock = FakeBedrockClient(dimension=8)
+    spy = mocker.spy(vectors_client_8, "query_vectors")
+
     # Seed only 2 vectors with the same artifact_id so second iteration yields nothing new
     raw = [1.0] + [0.0] * 7
     v = _unit_vec(raw)
-    vectors.put_vector(
+    vectors_client_8.put_vector(
         "artifacts/only-one#s1",
         v,
         {
@@ -589,7 +567,7 @@ async def test_early_exit_when_no_new_artifact_ids(
             "title": "Only one",
         },
     )
-    vectors.put_vector(
+    vectors_client_8.put_vector(
         "artifacts/only-one#s2",
         v,
         {
@@ -607,24 +585,24 @@ async def test_early_exit_when_no_new_artifact_ids(
     )
 
     await search_artifacts(
-        vectors=vectors, bedrock=bedrock, settings=settings, query="adr decision", top_k=5
+        vectors=vectors_client_8, bedrock=bedrock, settings=settings, query="adr decision", top_k=5
     )
 
     # Should exit after 1 or 2 iterations at most (not 3)
-    assert call_count < 3
+    assert spy.call_count < 3
 
 
 async def test_top_k_defaults_to_search_default_top_k(
     monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
 ) -> None:
     """top_k not passed → defaults to settings.search_default_top_k."""
     settings = _make_settings(monkeypatch, SEARCH_DEFAULT_TOP_K="2")
-    vectors = FakeVectorsClient(dimension=8)
     bedrock = FakeBedrockClient(dimension=8)
-    _seed_vectors(vectors)
+    _seed_vectors(vectors_client_8)
 
     result = await search_artifacts(
-        vectors=vectors, bedrock=bedrock, settings=settings, query="review"
+        vectors=vectors_client_8, bedrock=bedrock, settings=settings, query="review"
     )
 
     assert len(result["artifacts"]) <= settings.search_default_top_k
@@ -632,16 +610,15 @@ async def test_top_k_defaults_to_search_default_top_k(
 
 async def test_top_k_capped_at_100(
     monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
 ) -> None:
     """top_k=200 is capped at 100 internally."""
     settings = _make_settings(monkeypatch)
-    vectors = FakeVectorsClient(dimension=8)
     bedrock = FakeBedrockClient(dimension=8)
-    _seed_vectors(vectors)
+    _seed_vectors(vectors_client_8)
 
-    # Should not raise; result set is naturally small so just verify no exception
     result = await search_artifacts(
-        vectors=vectors, bedrock=bedrock, settings=settings, query="review", top_k=200
+        vectors=vectors_client_8, bedrock=bedrock, settings=settings, query="review", top_k=200
     )
 
     assert isinstance(result["artifacts"], list)
@@ -655,14 +632,14 @@ async def test_top_k_capped_at_100(
 
 async def test_empty_index_returns_empty_list(
     monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
 ) -> None:
-    """Empty fake index → results list is empty."""
+    """Empty vector index → results list is empty."""
     settings = _make_settings(monkeypatch)
-    vectors = FakeVectorsClient(dimension=8)
     bedrock = FakeBedrockClient(dimension=8)
 
     result = await search_artifacts(
-        vectors=vectors, bedrock=bedrock, settings=settings, query="anything", top_k=5
+        vectors=vectors_client_8, bedrock=bedrock, settings=settings, query="anything", top_k=5
     )
 
     assert result["artifacts"] == []
@@ -670,17 +647,16 @@ async def test_empty_index_returns_empty_list(
 
 async def test_empty_index_has_zero_results_signal(
     monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
 ) -> None:
-    """Empty fake index → response contains a zero_results signal."""
+    """Empty vector index → response contains a zero_results signal."""
     settings = _make_settings(monkeypatch)
-    vectors = FakeVectorsClient(dimension=8)
     bedrock = FakeBedrockClient(dimension=8)
 
     result = await search_artifacts(
-        vectors=vectors, bedrock=bedrock, settings=settings, query="anything", top_k=5
+        vectors=vectors_client_8, bedrock=bedrock, settings=settings, query="anything", top_k=5
     )
 
-    # zero_results field is truthy (True or count=0 is falsy, so use explicit check)
     assert result.get("zero_results") is True or len(result["artifacts"]) == 0
 
 
@@ -691,46 +667,43 @@ async def test_empty_index_has_zero_results_signal(
 
 async def test_bedrock_credential_failure_returns_error_no_query(
     monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
+    mocker: MockerFixture,
 ) -> None:
     """Bedrock credential failure → error response; query_vectors NOT called."""
     settings = _make_settings(monkeypatch)
-
-    call_count = 0
-
-    class TrackingVectorsClient(FakeVectorsClient):
-        def query_vectors(
-            self,
-            vector: list[float],
-            top_k: int,
-            filter_expr: dict[str, Any] | None,
-        ) -> list[dict[str, Any]]:
-            nonlocal call_count
-            call_count += 1
-            return super().query_vectors(vector, top_k, filter_expr)
-
-    vectors = TrackingVectorsClient(dimension=8)
     bedrock = FakeBedrockClient(dimension=8)
     bedrock.set_credential_failure(True)
+    spy = mocker.spy(vectors_client_8, "query_vectors")
 
     result = await search_artifacts(
-        vectors=vectors, bedrock=bedrock, settings=settings, query="review", top_k=5
+        vectors=vectors_client_8, bedrock=bedrock, settings=settings, query="review", top_k=5
     )
 
     assert "error" in result or result.get("success") is False
-    assert call_count == 0
+    assert spy.call_count == 0
 
 
 async def test_vectors_credential_failure_returns_error(
     monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
+    mocker: MockerFixture,
 ) -> None:
     """Vectors credential failure → structured error in response."""
     settings = _make_settings(monkeypatch)
-    vectors = FakeVectorsClient(dimension=8)
     bedrock = FakeBedrockClient(dimension=8)
-    vectors.set_credential_failure(True)
+    mocker.patch.object(
+        vectors_client_8,
+        "query_vectors",
+        side_effect=CredentialError(
+            message="Credential failure (simulated).",
+            service="s3vectors",
+            original=Exception("simulated"),
+        ),
+    )
 
     result = await search_artifacts(
-        vectors=vectors, bedrock=bedrock, settings=settings, query="review", top_k=5
+        vectors=vectors_client_8, bedrock=bedrock, settings=settings, query="review", top_k=5
     )
 
     assert "error" in result or result.get("success") is False
@@ -743,35 +716,26 @@ async def test_vectors_credential_failure_returns_error(
 
 async def test_first_iteration_filter_has_no_nin(
     monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
+    mocker: MockerFixture,
 ) -> None:
     """On the very first query_vectors call (seen_ids empty), $nin is NOT in the filter."""
     settings = _make_settings(monkeypatch)
-
-    captured_filters: list[dict[str, Any]] = []
-
-    class CapturingVectorsClient(FakeVectorsClient):
-        def query_vectors(
-            self,
-            vector: list[float],
-            top_k: int,
-            filter_expr: dict[str, Any] | None,
-        ) -> list[dict[str, Any]]:
-            if filter_expr is not None:
-                captured_filters.append(filter_expr)
-            return super().query_vectors(vector, top_k, filter_expr)
-
-    vectors = CapturingVectorsClient(dimension=8)
     bedrock = FakeBedrockClient(dimension=8)
-    _seed_vectors(vectors)
+    _seed_vectors(vectors_client_8)
+    spy = mocker.spy(vectors_client_8, "query_vectors")
 
     await search_artifacts(
-        vectors=vectors, bedrock=bedrock, settings=settings, query="review", top_k=5
+        vectors=vectors_client_8, bedrock=bedrock, settings=settings, query="review", top_k=5
     )
 
-    assert len(captured_filters) >= 1
-    first_filter_str = str(captured_filters[0])
-    assert "$nin" not in first_filter_str, (
-        f"$nin found in first iteration filter: {captured_filters[0]}"
+    assert spy.call_count >= 1
+    first_call_filter = spy.call_args_list[0].kwargs.get(
+        "filter_expr",
+        spy.call_args_list[0].args[2] if len(spy.call_args_list[0].args) > 2 else None,
+    )
+    assert first_call_filter is None or "$nin" not in str(first_call_filter), (
+        f"$nin found in first iteration filter: {first_call_filter}"
     )
 
 
@@ -782,16 +746,15 @@ async def test_first_iteration_filter_has_no_nin(
 
 async def test_search_results_include_source_artifacts(
     monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
 ) -> None:
     """Search results include a 'source_artifacts' field for each artifact."""
     settings = _make_settings(monkeypatch)
-    vectors = FakeVectorsClient(dimension=8)
     bedrock = FakeBedrockClient(dimension=8)
 
-    # Seed a vector with source_artifacts populated
     raw = [1.0] + [0.0] * 7
     v: list[float] = [x / math.sqrt(sum(y * y for y in raw)) for x in raw]
-    vectors.put_vector(
+    vectors_client_8.put_vector(
         "artifacts/adr-with-sources",
         v,
         {
@@ -810,13 +773,12 @@ async def test_search_results_include_source_artifacts(
     )
 
     result = await search_artifacts(
-        vectors=vectors, bedrock=bedrock, settings=settings, query="adr", top_k=5
+        vectors=vectors_client_8, bedrock=bedrock, settings=settings, query="adr", top_k=5
     )
 
     assert len(result["artifacts"]) > 0
     for artifact in result["artifacts"]:
         assert "source_artifacts" in artifact, f"'source_artifacts' missing from result: {artifact}"
-    # The specific artifact seeded with sources should have them
     seeded = next(
         (a for a in result["artifacts"] if a["artifact_id"] == "artifacts/adr-with-sources"),
         None,
@@ -832,16 +794,16 @@ async def test_search_results_include_source_artifacts(
 
 async def test_search_top_k_over_limit_clamped(
     monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
 ) -> None:
     """top_k=200 → response contains clamped: True and effective_top_k: 100."""
     settings = _make_settings(monkeypatch)
-    vectors = FakeVectorsClient(dimension=8)
     bedrock = FakeBedrockClient(dimension=8)
-    _seed_vectors(vectors)
+    _seed_vectors(vectors_client_8)
 
     result = await search_artifacts(
         settings=settings,
-        vectors=vectors,
+        vectors=vectors_client_8,
         bedrock=bedrock,
         s3=None,
         query="auth review",
@@ -854,16 +816,16 @@ async def test_search_top_k_over_limit_clamped(
 
 async def test_search_top_k_within_limit_not_clamped(
     monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
 ) -> None:
     """top_k=10 → response does not contain clamped: True."""
     settings = _make_settings(monkeypatch)
-    vectors = FakeVectorsClient(dimension=8)
     bedrock = FakeBedrockClient(dimension=8)
-    _seed_vectors(vectors)
+    _seed_vectors(vectors_client_8)
 
     result = await search_artifacts(
         settings=settings,
-        vectors=vectors,
+        vectors=vectors_client_8,
         bedrock=bedrock,
         s3=None,
         query="auth review",

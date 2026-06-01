@@ -70,7 +70,10 @@ unavailable or misconfigured, all persisted memory is inaccessible.
 | `src/cairn_mcp/clients/credentials.py` | Credential error code detection helper                |
 | `src/cairn_mcp/clients/filter.py` | In-process metadata filter evaluator ($eq, $in, $nin, …)   |
 | `src/cairn_mcp/clients/fakes/`    | `FakeBedrockClient` only — S3 and S3 Vectors are mocked via moto |
+| `src/cairn_mcp/clients/fakes/fake_bedrock.py` | Deterministic hash-derived embeddings fake for tests |
 | `tests/unit/`                     | Unit tests (moto + `FakeBedrockClient`, no real AWS)       |
+| `tests/unit/conftest.py`          | moto `query_vectors` extension + shared fixtures (settings, aws_mock, s3_client, vectors_client_*) |
+| `tests/unit/clients/test_moto_query_vectors_extension.py` | Verifies the cosine-similarity moto extension |
 | `tests/integration/`              | Integration tests (real AWS, @pytest.mark.integration)     |
 | `docs/planning-artifacts/`        | PRD and plan                                               |
 | `docs/specs/`                     | Per-task feature specs                                     |

@@ -1,7 +1,7 @@
 """Metadata filter evaluation for S3 Vectors.
 
 Used by both the concrete VectorsClientImpl (client-side filtering in
-list_vectors_by_metadata) and the FakeVectorsClient (unit test simulation).
+list_vectors_by_metadata) and the moto query_vectors extension in tests/unit/conftest.py.
 Having a single implementation guarantees that tests exercise exactly the
 same filter logic that runs in production.
 

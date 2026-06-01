@@ -1,17 +1,19 @@
 """Unit tests for cairn_mcp.tools.synthesise.
 
-Tests synthesise_artifacts() using all three fakes: FakeS3, FakeVectors, FakeBedrock.
+Tests synthesise_artifacts() using moto-backed S3 + Vectors clients and FakeBedrockClient.
 """
 
 import math
 from typing import Any
 
 import pytest
+from pytest_mock import MockerFixture
 
 from cairn_mcp.clients.fakes.fake_bedrock import FakeBedrockClient
-from cairn_mcp.clients.fakes.fake_s3 import FakeS3Client
-from cairn_mcp.clients.fakes.fake_vectors import FakeVectorsClient
+from cairn_mcp.clients.s3 import S3ClientImpl
+from cairn_mcp.clients.vectors import VectorsClientImpl
 from cairn_mcp.config import Settings
+from cairn_mcp.errors import CredentialError
 from cairn_mcp.tools.synthesise import synthesise_artifacts
 from tests.unit.conftest import _make_settings as _make_settings_base
 
@@ -63,9 +65,8 @@ _BASE_VECTOR_META: dict[str, Any] = {
 _CONTENT = "## Summary\n\nAll looks good."
 
 
-def _seed_all(s3: FakeS3Client, vectors: FakeVectorsClient) -> None:
+def _seed_all(s3: S3ClientImpl, vectors: VectorsClientImpl) -> None:
     """Seed S3 + vectors with representative artifacts for synthesise tests."""
-    # own-scope tier 2 active
     s3.put_object("artifacts/t2-review", _CONTENT + " (T2)", {**_BASE_S3_META})
     vectors.put_vector(
         "artifacts/t2-review#summary",
@@ -73,7 +74,6 @@ def _seed_all(s3: FakeS3Client, vectors: FakeVectorsClient) -> None:
         {**_BASE_VECTOR_META, "artifact_id": "artifacts/t2-review"},
     )
 
-    # own-scope tier 3 shared
     s3.put_object(
         "artifacts/t3-shared-adr",
         _CONTENT + " (T3S)",
@@ -155,16 +155,21 @@ def _seed_all(s3: FakeS3Client, vectors: FakeVectorsClient) -> None:
 
 async def test_synthesise_returns_results_with_content(
     monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
 ) -> None:
     """Query with no filters → results contain full content."""
     settings = _make_settings(monkeypatch)
-    s3 = FakeS3Client()
-    vectors = FakeVectorsClient(dimension=8)
     bedrock = FakeBedrockClient(dimension=8)
-    _seed_all(s3, vectors)
+    _seed_all(s3_client, vectors_client_8)
 
     result = await synthesise_artifacts(
-        settings=settings, s3=s3, vectors=vectors, bedrock=bedrock, query="review", top_k=10
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_8,
+        bedrock=bedrock,
+        query="review",
+        top_k=10,
     )
 
     assert len(result["artifacts"]) > 0
@@ -175,16 +180,21 @@ async def test_synthesise_returns_results_with_content(
 
 async def test_synthesise_result_has_all_required_fields(
     monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
 ) -> None:
     """Each result dict contains all required fields including content."""
     settings = _make_settings(monkeypatch)
-    s3 = FakeS3Client()
-    vectors = FakeVectorsClient(dimension=8)
     bedrock = FakeBedrockClient(dimension=8)
-    _seed_all(s3, vectors)
+    _seed_all(s3_client, vectors_client_8)
 
     result = await synthesise_artifacts(
-        settings=settings, s3=s3, vectors=vectors, bedrock=bedrock, query="review", top_k=10
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_8,
+        bedrock=bedrock,
+        query="review",
+        top_k=10,
     )
 
     required = [
@@ -210,16 +220,21 @@ async def test_synthesise_result_has_all_required_fields(
 
 async def test_synthesise_feature_tags_is_list(
     monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
 ) -> None:
     """feature_tags in results is a list, not a comma-separated string."""
     settings = _make_settings(monkeypatch)
-    s3 = FakeS3Client()
-    vectors = FakeVectorsClient(dimension=8)
     bedrock = FakeBedrockClient(dimension=8)
-    _seed_all(s3, vectors)
+    _seed_all(s3_client, vectors_client_8)
 
     result = await synthesise_artifacts(
-        settings=settings, s3=s3, vectors=vectors, bedrock=bedrock, query="review", top_k=10
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_8,
+        bedrock=bedrock,
+        query="review",
+        top_k=10,
     )
 
     for artifact in result["artifacts"]:
@@ -228,20 +243,25 @@ async def test_synthesise_feature_tags_is_list(
 
 async def test_synthesise_content_matches_s3_content(
     monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
 ) -> None:
-    """content in results matches what was written to fake S3."""
+    """content in results matches what was written to S3."""
     settings = _make_settings(monkeypatch)
-    s3 = FakeS3Client()
-    vectors = FakeVectorsClient(dimension=8)
     bedrock = FakeBedrockClient(dimension=8)
-    _seed_all(s3, vectors)
+    _seed_all(s3_client, vectors_client_8)
 
     result = await synthesise_artifacts(
-        settings=settings, s3=s3, vectors=vectors, bedrock=bedrock, query="review", top_k=10
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_8,
+        bedrock=bedrock,
+        query="review",
+        top_k=10,
     )
 
     for artifact in result["artifacts"]:
-        expected_content = s3.get_object(artifact["artifact_id"])
+        expected_content = s3_client.get_object(artifact["artifact_id"])
         assert artifact["content"] == expected_content
 
 
@@ -252,16 +272,21 @@ async def test_synthesise_content_matches_s3_content(
 
 async def test_synthesise_top_k_limits_results(
     monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
 ) -> None:
     """top_k=2 → at most 2 results."""
     settings = _make_settings(monkeypatch)
-    s3 = FakeS3Client()
-    vectors = FakeVectorsClient(dimension=8)
     bedrock = FakeBedrockClient(dimension=8)
-    _seed_all(s3, vectors)
+    _seed_all(s3_client, vectors_client_8)
 
     result = await synthesise_artifacts(
-        settings=settings, s3=s3, vectors=vectors, bedrock=bedrock, query="review", top_k=2
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_8,
+        bedrock=bedrock,
+        query="review",
+        top_k=2,
     )
 
     assert len(result["artifacts"]) <= 2
@@ -269,16 +294,16 @@ async def test_synthesise_top_k_limits_results(
 
 async def test_synthesise_top_k_default_is_10(
     monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
 ) -> None:
     """top_k absent → at most 10 results."""
     settings = _make_settings(monkeypatch)
-    s3 = FakeS3Client()
-    vectors = FakeVectorsClient(dimension=8)
     bedrock = FakeBedrockClient(dimension=8)
-    _seed_all(s3, vectors)
+    _seed_all(s3_client, vectors_client_8)
 
     result = await synthesise_artifacts(
-        settings=settings, s3=s3, vectors=vectors, bedrock=bedrock, query="review"
+        settings=settings, s3=s3_client, vectors=vectors_client_8, bedrock=bedrock, query="review"
     )
 
     assert len(result["artifacts"]) <= 10
@@ -286,16 +311,21 @@ async def test_synthesise_top_k_default_is_10(
 
 async def test_synthesise_top_k_above_ceiling_clamped(
     monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
 ) -> None:
     """top_k=150 → clamped to 100; no error."""
     settings = _make_settings(monkeypatch)
-    s3 = FakeS3Client()
-    vectors = FakeVectorsClient(dimension=8)
     bedrock = FakeBedrockClient(dimension=8)
-    _seed_all(s3, vectors)
+    _seed_all(s3_client, vectors_client_8)
 
     result = await synthesise_artifacts(
-        settings=settings, s3=s3, vectors=vectors, bedrock=bedrock, query="review", top_k=150
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_8,
+        bedrock=bedrock,
+        query="review",
+        top_k=150,
     )
 
     assert len(result["artifacts"]) <= 100
@@ -309,16 +339,21 @@ async def test_synthesise_top_k_above_ceiling_clamped(
 
 async def test_synthesise_foreign_tier2_excluded(
     monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
 ) -> None:
     """Foreign-scope tier 2 artifact excluded from results."""
     settings = _make_settings(monkeypatch)
-    s3 = FakeS3Client()
-    vectors = FakeVectorsClient(dimension=8)
     bedrock = FakeBedrockClient(dimension=8)
-    _seed_all(s3, vectors)
+    _seed_all(s3_client, vectors_client_8)
 
     result = await synthesise_artifacts(
-        settings=settings, s3=s3, vectors=vectors, bedrock=bedrock, query="review", top_k=20
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_8,
+        bedrock=bedrock,
+        query="review",
+        top_k=20,
     )
 
     ids = [a["artifact_id"] for a in result["artifacts"]]
@@ -327,16 +362,21 @@ async def test_synthesise_foreign_tier2_excluded(
 
 async def test_synthesise_foreign_tier3_shared_included(
     monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
 ) -> None:
     """Foreign-scope tier 3 shared artifact included with full content."""
     settings = _make_settings(monkeypatch)
-    s3 = FakeS3Client()
-    vectors = FakeVectorsClient(dimension=8)
     bedrock = FakeBedrockClient(dimension=8)
-    _seed_all(s3, vectors)
+    _seed_all(s3_client, vectors_client_8)
 
     result = await synthesise_artifacts(
-        settings=settings, s3=s3, vectors=vectors, bedrock=bedrock, query="review", top_k=20
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_8,
+        bedrock=bedrock,
+        query="review",
+        top_k=20,
     )
 
     ids = [a["artifact_id"] for a in result["artifacts"]]
@@ -349,16 +389,21 @@ async def test_synthesise_foreign_tier3_shared_included(
 
 async def test_synthesise_foreign_tier3_hidden_excluded(
     monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
 ) -> None:
     """Foreign-scope tier 3 hidden artifact excluded from results."""
     settings = _make_settings(monkeypatch)
-    s3 = FakeS3Client()
-    vectors = FakeVectorsClient(dimension=8)
     bedrock = FakeBedrockClient(dimension=8)
-    _seed_all(s3, vectors)
+    _seed_all(s3_client, vectors_client_8)
 
     result = await synthesise_artifacts(
-        settings=settings, s3=s3, vectors=vectors, bedrock=bedrock, query="review", top_k=20
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_8,
+        bedrock=bedrock,
+        query="review",
+        top_k=20,
     )
 
     ids = [a["artifact_id"] for a in result["artifacts"]]
@@ -372,29 +417,33 @@ async def test_synthesise_foreign_tier3_hidden_excluded(
 
 async def test_synthesise_s3_read_failure_skips_artifact(
     monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
+    mocker: MockerFixture,
 ) -> None:
     """S3 get_object raises KeyError for one artifact → that artifact skipped; others returned."""
     settings = _make_settings(monkeypatch)
-
-    class FailFirstRead(FakeS3Client):
-        def __init__(self) -> None:
-            super().__init__()
-            self._call_count = 0
-
-        def get_object(self, key: str) -> str:
-            self._call_count += 1
-            if self._call_count == 1:
-                raise KeyError(key)
-            return super().get_object(key)
-
-    s3 = FailFirstRead()
-    vectors = FakeVectorsClient(dimension=8)
     bedrock = FakeBedrockClient(dimension=8)
-    _seed_all(s3, vectors)
+    _seed_all(s3_client, vectors_client_8)
 
-    # Must not raise; should return remaining results
+    call_count: dict[str, int] = {"n": 0}
+    original_get = s3_client.get_object
+
+    def fail_first(key: str) -> str:
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            raise KeyError(key)
+        return original_get(key)
+
+    mocker.patch.object(s3_client, "get_object", side_effect=fail_first)
+
     result = await synthesise_artifacts(
-        settings=settings, s3=s3, vectors=vectors, bedrock=bedrock, query="review", top_k=10
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_8,
+        bedrock=bedrock,
+        query="review",
+        top_k=10,
     )
 
     assert isinstance(result["artifacts"], list)
@@ -402,16 +451,20 @@ async def test_synthesise_s3_read_failure_skips_artifact(
 
 async def test_synthesise_empty_search_returns_empty_list(
     monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
 ) -> None:
     """Search returns no results → empty list, no error."""
     settings = _make_settings(monkeypatch)
-    s3 = FakeS3Client()
-    vectors = FakeVectorsClient(dimension=8)
     bedrock = FakeBedrockClient(dimension=8)
-    # Do not seed any vectors
 
     result = await synthesise_artifacts(
-        settings=settings, s3=s3, vectors=vectors, bedrock=bedrock, query="anything", top_k=5
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_8,
+        bedrock=bedrock,
+        query="anything",
+        top_k=5,
     )
 
     assert result["artifacts"] == []
@@ -424,17 +477,22 @@ async def test_synthesise_empty_search_returns_empty_list(
 
 async def test_synthesise_embed_credential_error(
     monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
 ) -> None:
     """Embed call raises CredentialError → structured error response."""
     settings = _make_settings(monkeypatch)
-    s3 = FakeS3Client()
-    vectors = FakeVectorsClient(dimension=8)
     bedrock = FakeBedrockClient(dimension=8)
     bedrock.set_credential_failure(True)
-    _seed_all(s3, vectors)
+    _seed_all(s3_client, vectors_client_8)
 
     result = await synthesise_artifacts(
-        settings=settings, s3=s3, vectors=vectors, bedrock=bedrock, query="review", top_k=5
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_8,
+        bedrock=bedrock,
+        query="review",
+        top_k=5,
     )
 
     assert "error" in result or result.get("error_type") is not None
@@ -442,17 +500,31 @@ async def test_synthesise_embed_credential_error(
 
 async def test_synthesise_query_vectors_credential_error(
     monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
+    mocker: MockerFixture,
 ) -> None:
     """query_vectors raises CredentialError → structured error response."""
     settings = _make_settings(monkeypatch)
-    s3 = FakeS3Client()
-    vectors = FakeVectorsClient(dimension=8)
     bedrock = FakeBedrockClient(dimension=8)
-    _seed_all(s3, vectors)
-    vectors.set_credential_failure(True)
+    _seed_all(s3_client, vectors_client_8)
+    mocker.patch.object(
+        vectors_client_8,
+        "query_vectors",
+        side_effect=CredentialError(
+            message="Credential failure (simulated).",
+            service="s3vectors",
+            original=Exception("simulated"),
+        ),
+    )
 
     result = await synthesise_artifacts(
-        settings=settings, s3=s3, vectors=vectors, bedrock=bedrock, query="review", top_k=5
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_8,
+        bedrock=bedrock,
+        query="review",
+        top_k=5,
     )
 
     assert "error" in result or result.get("error_type") is not None
@@ -460,28 +532,28 @@ async def test_synthesise_query_vectors_credential_error(
 
 async def test_synthesise_get_object_credential_error_is_hard_failure(
     monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
+    mocker: MockerFixture,
 ) -> None:
     """get_object raises CredentialError (not KeyError) → structured error (hard failure)."""
     settings = _make_settings(monkeypatch)
-    s3 = FakeS3Client()
-    vectors = FakeVectorsClient(dimension=8)
     bedrock = FakeBedrockClient(dimension=8)
-    _seed_all(s3, vectors)
-
-    class CredFailGetObject(FakeS3Client):
-        def get_object(self, key: str) -> str:
-            from cairn_mcp.errors import CredentialError as CE
-
-            raise CE(message="Simulated.", service="s3", original=Exception("sim"))
-
-    s3_fail = CredFailGetObject()
-    # Copy seeded objects into the failing client
-    s3_fail._objects = s3._objects.copy()
+    _seed_all(s3_client, vectors_client_8)
+    mocker.patch.object(
+        s3_client,
+        "get_object",
+        side_effect=CredentialError(
+            message="Simulated.",
+            service="s3",
+            original=Exception("sim"),
+        ),
+    )
 
     result = await synthesise_artifacts(
         settings=settings,
-        s3=s3_fail,
-        vectors=vectors,
+        s3=s3_client,
+        vectors=vectors_client_8,
         bedrock=bedrock,
         query="review",
         top_k=5,
@@ -497,18 +569,18 @@ async def test_synthesise_get_object_credential_error_is_hard_failure(
 
 async def test_synthesise_top_k_over_limit_clamped(
     monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
 ) -> None:
     """top_k=200 → response contains clamped: True and effective_top_k: 100."""
     settings = _make_settings(monkeypatch)
-    s3 = FakeS3Client()
-    vectors = FakeVectorsClient(dimension=8)
     bedrock = FakeBedrockClient(dimension=8)
-    _seed_all(s3, vectors)
+    _seed_all(s3_client, vectors_client_8)
 
     result = await synthesise_artifacts(
         settings=settings,
-        s3=s3,
-        vectors=vectors,
+        s3=s3_client,
+        vectors=vectors_client_8,
         bedrock=bedrock,
         query="review",
         top_k=200,
@@ -520,18 +592,18 @@ async def test_synthesise_top_k_over_limit_clamped(
 
 async def test_synthesise_top_k_within_limit_not_clamped(
     monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
 ) -> None:
     """top_k=5 → response does not contain clamped: True."""
     settings = _make_settings(monkeypatch)
-    s3 = FakeS3Client()
-    vectors = FakeVectorsClient(dimension=8)
     bedrock = FakeBedrockClient(dimension=8)
-    _seed_all(s3, vectors)
+    _seed_all(s3_client, vectors_client_8)
 
     result = await synthesise_artifacts(
         settings=settings,
-        s3=s3,
-        vectors=vectors,
+        s3=s3_client,
+        vectors=vectors_client_8,
         bedrock=bedrock,
         query="review",
         top_k=5,

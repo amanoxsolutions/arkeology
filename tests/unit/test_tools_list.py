@@ -1,15 +1,17 @@
 """Unit tests for cairn_mcp.tools.list.
 
-Tests list_artifacts() using FakeVectorsClient only — no S3 or Bedrock calls.
+Tests list_artifacts() using moto-backed VectorsClientImpl — no S3 or Bedrock calls.
 """
 
 import math
 from typing import Any
 
 import pytest
+from pytest_mock import MockerFixture
 
-from cairn_mcp.clients.fakes.fake_vectors import FakeVectorsClient
+from cairn_mcp.clients.vectors import VectorsClientImpl
 from cairn_mcp.config import Settings
+from cairn_mcp.errors import CredentialError
 from cairn_mcp.tools.list import list_artifacts
 from tests.unit.conftest import _make_settings as _make_settings_base
 
@@ -19,7 +21,7 @@ def _make_settings(monkeypatch: pytest.MonkeyPatch, **overrides: str) -> Setting
 
 
 # ---------------------------------------------------------------------------
-# Fake vector helpers
+# Vector seed helpers
 # ---------------------------------------------------------------------------
 
 
@@ -45,7 +47,7 @@ _BASE_VECTOR_META: dict[str, Any] = {
 }
 
 
-def _seed_vectors(vectors: FakeVectorsClient) -> None:
+def _seed_vectors(vectors: VectorsClientImpl) -> None:
     """Seed a rich set of vectors for list tests."""
     # own-scope active tier 2 (two section vectors — dedup test)
     for section in ["#summary", "#details"]:
@@ -184,13 +186,15 @@ def _seed_vectors(vectors: FakeVectorsClient) -> None:
 
 async def test_no_filters_returns_own_scope_and_foreign_tier3_shared(
     monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
 ) -> None:
     """No filters → own-scope active artifacts and foreign-scope tier 3 shared returned."""
     settings = _make_settings(monkeypatch)
-    vectors = FakeVectorsClient(dimension=8)
-    _seed_vectors(vectors)
+    _seed_vectors(vectors_client_8)
 
-    result = await list_artifacts(settings=settings, vectors=vectors, s3=None, bedrock=None)
+    result = await list_artifacts(
+        settings=settings, vectors=vectors_client_8, s3=None, bedrock=None
+    )
 
     ids = [a["artifact_id"] for a in result["artifacts"]]
     assert "artifacts/t2-active-review" in ids
@@ -200,13 +204,15 @@ async def test_no_filters_returns_own_scope_and_foreign_tier3_shared(
 
 async def test_default_status_active_excludes_inactive(
     monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
 ) -> None:
     """No status filter → status defaults to 'active'; inactive artifacts absent."""
     settings = _make_settings(monkeypatch)
-    vectors = FakeVectorsClient(dimension=8)
-    _seed_vectors(vectors)
+    _seed_vectors(vectors_client_8)
 
-    result = await list_artifacts(settings=settings, vectors=vectors, s3=None, bedrock=None)
+    result = await list_artifacts(
+        settings=settings, vectors=vectors_client_8, s3=None, bedrock=None
+    )
 
     ids = [a["artifact_id"] for a in result["artifacts"]]
     assert "artifacts/t2-inactive-review" not in ids
@@ -214,20 +220,18 @@ async def test_default_status_active_excludes_inactive(
 
 async def test_status_inactive_override_returns_only_inactive(
     monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
 ) -> None:
     """status='inactive' → only inactive artifacts returned."""
     settings = _make_settings(monkeypatch)
-    vectors = FakeVectorsClient(dimension=8)
-    _seed_vectors(vectors)
+    _seed_vectors(vectors_client_8)
 
     result = await list_artifacts(
-        settings=settings, vectors=vectors, s3=None, bedrock=None, status="inactive"
+        settings=settings, vectors=vectors_client_8, s3=None, bedrock=None, status="inactive"
     )
 
     ids = [a["artifact_id"] for a in result["artifacts"]]
     assert "artifacts/t2-inactive-review" in ids
-    for artifact_id in ids:
-        assert "inactive" in artifact_id or True  # check via status field
     for artifact in result["artifacts"]:
         assert artifact["status"] == "inactive"
 
@@ -239,14 +243,14 @@ async def test_status_inactive_override_returns_only_inactive(
 
 async def test_filter_type_code_review(
     monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
 ) -> None:
     """type='code_review' → only code reviews in results."""
     settings = _make_settings(monkeypatch)
-    vectors = FakeVectorsClient(dimension=8)
-    _seed_vectors(vectors)
+    _seed_vectors(vectors_client_8)
 
     result = await list_artifacts(
-        settings=settings, vectors=vectors, s3=None, bedrock=None, type="code_review"
+        settings=settings, vectors=vectors_client_8, s3=None, bedrock=None, type="code_review"
     )
 
     assert len(result["artifacts"]) > 0
@@ -256,14 +260,14 @@ async def test_filter_type_code_review(
 
 async def test_filter_feature_tags(
     monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
 ) -> None:
     """feature_tags=['auth'] → only artifacts with 'auth' tag."""
     settings = _make_settings(monkeypatch)
-    vectors = FakeVectorsClient(dimension=8)
-    _seed_vectors(vectors)
+    _seed_vectors(vectors_client_8)
 
     result = await list_artifacts(
-        settings=settings, vectors=vectors, s3=None, bedrock=None, feature_tags=["auth"]
+        settings=settings, vectors=vectors_client_8, s3=None, bedrock=None, feature_tags=["auth"]
     )
 
     assert len(result["artifacts"]) > 0
@@ -273,15 +277,15 @@ async def test_filter_feature_tags(
 
 async def test_filter_type_and_feature_tags_intersection(
     monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
 ) -> None:
     """type='code_review' + feature_tags=['auth'] → intersection of both constraints."""
     settings = _make_settings(monkeypatch)
-    vectors = FakeVectorsClient(dimension=8)
-    _seed_vectors(vectors)
+    _seed_vectors(vectors_client_8)
 
     result = await list_artifacts(
         settings=settings,
-        vectors=vectors,
+        vectors=vectors_client_8,
         s3=None,
         bedrock=None,
         type="code_review",
@@ -296,14 +300,14 @@ async def test_filter_type_and_feature_tags_intersection(
 
 async def test_filter_team(
     monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
 ) -> None:
     """team='platform' → only platform team artifacts."""
     settings = _make_settings(monkeypatch)
-    vectors = FakeVectorsClient(dimension=8)
-    _seed_vectors(vectors)
+    _seed_vectors(vectors_client_8)
 
     result = await list_artifacts(
-        settings=settings, vectors=vectors, s3=None, bedrock=None, team="platform"
+        settings=settings, vectors=vectors_client_8, s3=None, bedrock=None, team="platform"
     )
 
     assert len(result["artifacts"]) > 0
@@ -313,14 +317,14 @@ async def test_filter_team(
 
 async def test_filter_project(
     monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
 ) -> None:
     """project='infra' → only infra project artifacts."""
     settings = _make_settings(monkeypatch)
-    vectors = FakeVectorsClient(dimension=8)
-    _seed_vectors(vectors)
+    _seed_vectors(vectors_client_8)
 
     result = await list_artifacts(
-        settings=settings, vectors=vectors, s3=None, bedrock=None, project="infra"
+        settings=settings, vectors=vectors_client_8, s3=None, bedrock=None, project="infra"
     )
 
     for artifact in result["artifacts"]:
@@ -329,13 +333,15 @@ async def test_filter_project(
 
 async def test_filter_tier3(
     monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
 ) -> None:
     """tier=3 → only tier 3 artifacts."""
     settings = _make_settings(monkeypatch)
-    vectors = FakeVectorsClient(dimension=8)
-    _seed_vectors(vectors)
+    _seed_vectors(vectors_client_8)
 
-    result = await list_artifacts(settings=settings, vectors=vectors, s3=None, bedrock=None, tier=3)
+    result = await list_artifacts(
+        settings=settings, vectors=vectors_client_8, s3=None, bedrock=None, tier=3
+    )
 
     assert len(result["artifacts"]) > 0
     for artifact in result["artifacts"]:
@@ -344,14 +350,14 @@ async def test_filter_tier3(
 
 async def test_no_matching_artifacts_returns_empty_list(
     monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
 ) -> None:
     """Filters that match no artifacts → empty list, no error."""
     settings = _make_settings(monkeypatch)
-    vectors = FakeVectorsClient(dimension=8)
-    _seed_vectors(vectors)
+    _seed_vectors(vectors_client_8)
 
     result = await list_artifacts(
-        settings=settings, vectors=vectors, s3=None, bedrock=None, type="session_summary"
+        settings=settings, vectors=vectors_client_8, s3=None, bedrock=None, type="session_summary"
     )
 
     assert result["artifacts"] == []
@@ -364,13 +370,15 @@ async def test_no_matching_artifacts_returns_empty_list(
 
 async def test_deduplication_two_sections_one_record(
     monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
 ) -> None:
     """Two section vectors for same artifact_id → exactly one record in results."""
     settings = _make_settings(monkeypatch)
-    vectors = FakeVectorsClient(dimension=8)
-    _seed_vectors(vectors)
+    _seed_vectors(vectors_client_8)
 
-    result = await list_artifacts(settings=settings, vectors=vectors, s3=None, bedrock=None)
+    result = await list_artifacts(
+        settings=settings, vectors=vectors_client_8, s3=None, bedrock=None
+    )
 
     ids = [a["artifact_id"] for a in result["artifacts"]]
     assert ids.count("artifacts/t2-active-review") == 1
@@ -379,13 +387,15 @@ async def test_deduplication_two_sections_one_record(
 
 async def test_result_has_required_fields(
     monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
 ) -> None:
     """Each result contains all required metadata fields; no 'content' field."""
     settings = _make_settings(monkeypatch)
-    vectors = FakeVectorsClient(dimension=8)
-    _seed_vectors(vectors)
+    _seed_vectors(vectors_client_8)
 
-    result = await list_artifacts(settings=settings, vectors=vectors, s3=None, bedrock=None)
+    result = await list_artifacts(
+        settings=settings, vectors=vectors_client_8, s3=None, bedrock=None
+    )
 
     assert len(result["artifacts"]) > 0
     required = [
@@ -410,13 +420,15 @@ async def test_result_has_required_fields(
 
 async def test_feature_tags_in_response_is_list(
     monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
 ) -> None:
     """feature_tags in response is a list, not a comma-separated string."""
     settings = _make_settings(monkeypatch)
-    vectors = FakeVectorsClient(dimension=8)
-    _seed_vectors(vectors)
+    _seed_vectors(vectors_client_8)
 
-    result = await list_artifacts(settings=settings, vectors=vectors, s3=None, bedrock=None)
+    result = await list_artifacts(
+        settings=settings, vectors=vectors_client_8, s3=None, bedrock=None
+    )
 
     for artifact in result["artifacts"]:
         assert isinstance(artifact["feature_tags"], list), (
@@ -431,13 +443,15 @@ async def test_feature_tags_in_response_is_list(
 
 async def test_foreign_tier3_shared_included(
     monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
 ) -> None:
     """Foreign-scope tier 3 shared artifact appears in results."""
     settings = _make_settings(monkeypatch)
-    vectors = FakeVectorsClient(dimension=8)
-    _seed_vectors(vectors)
+    _seed_vectors(vectors_client_8)
 
-    result = await list_artifacts(settings=settings, vectors=vectors, s3=None, bedrock=None)
+    result = await list_artifacts(
+        settings=settings, vectors=vectors_client_8, s3=None, bedrock=None
+    )
 
     ids = [a["artifact_id"] for a in result["artifacts"]]
     assert "other-team/t3-foreign-shared-adr" in ids
@@ -445,13 +459,15 @@ async def test_foreign_tier3_shared_included(
 
 async def test_foreign_tier2_excluded(
     monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
 ) -> None:
     """Foreign-scope tier 2 artifact is excluded from results."""
     settings = _make_settings(monkeypatch)
-    vectors = FakeVectorsClient(dimension=8)
-    _seed_vectors(vectors)
+    _seed_vectors(vectors_client_8)
 
-    result = await list_artifacts(settings=settings, vectors=vectors, s3=None, bedrock=None)
+    result = await list_artifacts(
+        settings=settings, vectors=vectors_client_8, s3=None, bedrock=None
+    )
 
     ids = [a["artifact_id"] for a in result["artifacts"]]
     assert "other-team/t2-foreign-review" not in ids
@@ -459,13 +475,15 @@ async def test_foreign_tier2_excluded(
 
 async def test_foreign_tier3_hidden_excluded(
     monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
 ) -> None:
     """Foreign-scope tier 3 hidden artifact is excluded from results."""
     settings = _make_settings(monkeypatch)
-    vectors = FakeVectorsClient(dimension=8)
-    _seed_vectors(vectors)
+    _seed_vectors(vectors_client_8)
 
-    result = await list_artifacts(settings=settings, vectors=vectors, s3=None, bedrock=None)
+    result = await list_artifacts(
+        settings=settings, vectors=vectors_client_8, s3=None, bedrock=None
+    )
 
     ids = [a["artifact_id"] for a in result["artifacts"]]
     assert "other-team/t3-foreign-hidden-adr" not in ids
@@ -478,37 +496,49 @@ async def test_foreign_tier3_hidden_excluded(
 
 async def test_list_vectors_by_metadata_credential_error_returns_structured(
     monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
+    mocker: MockerFixture,
 ) -> None:
     """list_vectors_by_metadata raises CredentialError → structured error response."""
     settings = _make_settings(monkeypatch)
-    vectors = FakeVectorsClient(dimension=8)
-    vectors.set_credential_failure(True)
+    mocker.patch.object(
+        vectors_client_8,
+        "list_vectors_by_metadata",
+        side_effect=CredentialError(
+            message="Credential failure (simulated).",
+            service="s3vectors",
+            original=Exception("simulated"),
+        ),
+    )
 
-    result = await list_artifacts(settings=settings, vectors=vectors, s3=None, bedrock=None)
+    result = await list_artifacts(
+        settings=settings, vectors=vectors_client_8, s3=None, bedrock=None
+    )
 
     assert "error" in result or result.get("error_type") is not None
 
 
 async def test_get_vectors_credential_error_returns_structured(
     monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
+    mocker: MockerFixture,
 ) -> None:
     """get_vectors raises CredentialError → structured error response."""
     settings = _make_settings(monkeypatch)
+    _seed_vectors(vectors_client_8)
+    mocker.patch.object(
+        vectors_client_8,
+        "get_vectors",
+        side_effect=CredentialError(
+            message="Credential failure on get_vectors (simulated).",
+            service="s3vectors",
+            original=Exception("simulated"),
+        ),
+    )
 
-    class CredFailOnGetVectors(FakeVectorsClient):
-        def get_vectors(self, keys: list[str]) -> list[dict[str, Any]]:
-            from cairn_mcp.errors import CredentialError as CE
-
-            raise CE(
-                message="Credential failure on get_vectors (simulated).",
-                service="s3vectors",
-                original=Exception("simulated"),
-            )
-
-    vectors = CredFailOnGetVectors(dimension=8)
-    _seed_vectors(vectors)
-
-    result = await list_artifacts(settings=settings, vectors=vectors, s3=None, bedrock=None)
+    result = await list_artifacts(
+        settings=settings, vectors=vectors_client_8, s3=None, bedrock=None
+    )
 
     assert "error" in result or result.get("error_type") is not None
 
@@ -520,26 +550,20 @@ async def test_get_vectors_credential_error_returns_structured(
 
 async def test_list_vectors_called_with_scope_filter(
     monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
+    mocker: MockerFixture,
 ) -> None:
     """list_artifacts with a known scope → filter arg contains scope clause."""
     settings = _make_settings(monkeypatch)
-    vectors = FakeVectorsClient(dimension=8)
-    _seed_vectors(vectors)
+    _seed_vectors(vectors_client_8)
 
-    call_log: list[dict] = []  # type: ignore[type-arg]
-    original_list = vectors.list_vectors_by_metadata
+    spy = mocker.spy(vectors_client_8, "list_vectors_by_metadata")
 
-    def tracking_list(filter: dict[str, Any]) -> list[str]:  # noqa: A002
-        call_log.append(filter)
-        return original_list(filter)
+    await list_artifacts(settings=settings, vectors=vectors_client_8, s3=None, bedrock=None)
 
-    vectors.list_vectors_by_metadata = tracking_list  # type: ignore[assignment]
-
-    await list_artifacts(settings=settings, vectors=vectors, s3=None, bedrock=None)
-
-    assert len(call_log) >= 1
-    last_filter = call_log[-1]
-    filter_str = str(last_filter)
+    assert spy.call_count >= 1
+    all_filter_args = [str(call.args[0]) for call in spy.call_args_list]
+    filter_str = " ".join(all_filter_args)
     assert "scope" in filter_str or "artifacts" in filter_str
 
 
@@ -550,11 +574,11 @@ async def test_list_vectors_called_with_scope_filter(
 
 async def test_list_result_includes_source_artifacts(
     monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
 ) -> None:
     """Artifact with source_artifacts metadata → present in result dict."""
     settings = _make_settings(monkeypatch)
-    vectors = FakeVectorsClient(dimension=8)
-    vectors.put_vector(
+    vectors_client_8.put_vector(
         "artifacts/synth-t3#summary",
         _unit_vec(2.0),
         {
@@ -566,7 +590,9 @@ async def test_list_result_includes_source_artifacts(
         },
     )
 
-    result = await list_artifacts(settings=settings, vectors=vectors, s3=None, bedrock=None)
+    result = await list_artifacts(
+        settings=settings, vectors=vectors_client_8, s3=None, bedrock=None
+    )
 
     artifacts = result.get("artifacts", [])
     synth = [a for a in artifacts if a.get("artifact_id") == "artifacts/synth-t3"]

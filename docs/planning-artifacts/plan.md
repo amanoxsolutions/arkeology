@@ -1,8 +1,8 @@
 # Plan: cairn-mcp
 
 _Project: cairn-mcp_
-_Generated: 2026-05-29_ · _Last updated: 2026-05-31_
-_Status: **V1 — Phases 1–6 complete (486 unit tests + integration suite passing against live AWS; ruff + mypy clean; Apache 2.0 licensed; production-hardened)**_
+_Generated: 2026-05-29_ · _Last updated: 2026-06-01_
+_Status: **V1 — Phases 1–7 complete (451 unit tests + integration suite passing against live AWS; ruff + mypy clean; Apache 2.0 licensed; production-hardened; moto migration complete)**_
 
 ---
 
@@ -135,6 +135,15 @@ Goal: resolve all 76 findings from the full project code review (12 critical, 27
 
 ---
 
+## Phase 7 — Test infrastructure: moto migration
+
+Goal: replace hand-rolled in-memory fakes for S3 and S3 Vectors with moto-backed real client implementations. Fixes the score range inconsistency between unit and production and aligns with the project's testing convention.
+
+25. ✅ **Migrate unit tests from hand-rolled fakes to moto** — delete `FakeS3Client` and `FakeVectorsClient`; replace with moto-backed `S3ClientImpl` / `VectorsClientImpl` throughout the unit test suite; patch `S3VectorsBackend.query_vectors` with a cosine similarity extension in `conftest.py`; fix score range from `[0, 2]` (fake) to `[−1, 1]` (cosine similarity, matching production) in all score assertions (FR-mock-conv)
+    - Done when: 451 unit tests passing; `FakeS3Client`, `FakeVectorsClient` deleted; `test_fake_s3.py`, `test_fake_vectors.py` deleted; `test_moto_query_vectors_extension.py` added with 6 targeted tests; ruff + mypy clean; AGENTS.md Testing Conventions accurate
+
+---
+
 ## Risks and Open Questions
 
 - **~~S3 Vectors `PutVector` upsert behaviour~~** — **CLOSED (2026-05-31, T17 confirmed)**: `PutVectors` silently overwrites an existing key (upsert confirmed). 44 integration tests passed green; tier 3 overwrite logic is correct as written; no code change required.
@@ -171,7 +180,9 @@ Goal: resolve all 76 findings from the full project code review (12 critical, 27
 
 - **Phase 6 (review hardening) complete (2026-05-31)**: 486 unit tests passing; all 76 review findings resolved across 20 specs; ruff + mypy clean (33 source files); Apache 2.0 licence added; `interfaces.py` migrated ABC→Protocol; `filter`→`filter_expr` rename; shared `_search_helper.py` extracted; README IAM policy corrected (`s3:ListBucket`, `DeleteIndex` moved to provisioning section); credential error handling hardened across all tools; vector score formula aligned (`1.0 - distance`); integration tests isolated with `unique_run_id` fixture
 - **V1 integration suite baseline (2026-06-01)**: full integration test suite re-run against live AWS after Phase 6 hardening; all integration tests pass; cairn-mcp declared V1-ready
-- **Vector score range (known limitation)**: `VectorsClientImpl` returns `score = 1.0 - cosine_distance` ∈ [−1, 1]; `FakeVectorsClient` returns `1.0 + cosine_similarity` ∈ [0, 2]. Both preserve "higher = more similar" ordering. Numeric ranges differ; no tool applies absolute score thresholds today. A future integration test should confirm the real API's distance range.
+- **Vector score range (known limitation)**: ~~`FakeVectorsClient` returned `1.0 + cosine_similarity` ∈ [0, 2] while `VectorsClientImpl` returns `score = 1.0 − cosine_distance` ∈ [−1, 1].~~ **RESOLVED (Phase 7, 2026-06-01)**: fakes deleted; moto extension returns `score = 1.0 − cosine_distance` ∈ [−1, 1], matching production exactly. All absolute score assertions updated.
+
+- **Moto migration complete (2026-06-01)**: `FakeS3Client` and `FakeVectorsClient` deleted; all 12 unit test files migrated to moto-backed `S3ClientImpl` / `VectorsClientImpl`; `query_vectors` moto extension patched onto `S3VectorsBackend` in `conftest.py`; 451 unit tests passing; ruff + mypy clean. Unit test count dropped from 486 to 451 — the 35-test difference accounts for the deleted fake client test files (`test_fake_s3.py`, `test_fake_vectors.py`), partially offset by 6 new extension tests.
 
 ## References
 

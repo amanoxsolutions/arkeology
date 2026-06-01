@@ -29,6 +29,7 @@ _INDEX_NOT_FOUND_CODES = frozenset(
         "IndexNotFoundException",
         "ResourceNotFoundException",
         "NoSuchResource",
+        "NotFoundException",
     }
 )
 
@@ -134,11 +135,8 @@ class VectorsClientImpl:
             results = []
             for item in response.get("vectors", []):
                 # S3 Vectors returns 'distance'; lower is more similar (cosine distance
-                # for normalised vectors is in [0, 2]). score = 1.0 - distance → [-1, 1].
-                # NOTE: FakeVectorsClient uses cosine *similarity* offset by +1.0, so its
-                # score range is [0, 2]. The ranges differ intentionally — the fake was
-                # designed for unit-test ordering correctness, not range parity.
-                # TODO: add an integration test to confirm the real API's score range.
+                # for normalised vectors is in [0, 2]). score = 1.0 - distance → [-1, 1],
+                # matching the moto query_vectors extension in tests/unit/conftest.py.
                 distance = item.get("distance", 0.0)
                 results.append(
                     {

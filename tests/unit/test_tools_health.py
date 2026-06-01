@@ -1,13 +1,14 @@
 """Unit tests for cairn_mcp.tools.health.
 
-Tests health_check() using all three fakes (FakeS3, FakeVectors, FakeBedrock).
+Tests health_check() using moto-backed S3 and S3 Vectors clients plus FakeBedrockClient.
 """
 
 import pytest
 
 from cairn_mcp.clients.fakes.fake_bedrock import FakeBedrockClient
-from cairn_mcp.clients.fakes.fake_s3 import FakeS3Client
-from cairn_mcp.clients.fakes.fake_vectors import FakeVectorsClient
+from cairn_mcp.clients.s3 import S3ClientImpl
+from cairn_mcp.clients.vectors import VectorsClientImpl
+from cairn_mcp.errors import CredentialError
 from cairn_mcp.tools.health import health_check
 from tests.unit.conftest import _make_settings
 
@@ -18,14 +19,16 @@ from tests.unit.conftest import _make_settings
 
 async def test_all_healthy_all_ok(
     monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
 ) -> None:
     """All components healthy → all entries have status='ok'."""
     settings = _make_settings(monkeypatch, READ_PREFIXES="")
-    s3 = FakeS3Client()
-    vectors = FakeVectorsClient(dimension=8)
     bedrock = FakeBedrockClient(dimension=8)
 
-    result = await health_check(settings=settings, s3=s3, vectors=vectors, bedrock=bedrock)
+    result = await health_check(
+        settings=settings, s3=s3_client, vectors=vectors_client_8, bedrock=bedrock
+    )
 
     assert result["s3"]["status"] == "ok"
     assert result["vectors"]["status"] == "ok"
@@ -35,14 +38,16 @@ async def test_all_healthy_all_ok(
 
 async def test_response_keys_present_no_read_prefixes(
     monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
 ) -> None:
     """No read prefixes → response has s3, vectors, bedrock, write_prefix; no read_prefix keys."""
     settings = _make_settings(monkeypatch, READ_PREFIXES="")
-    s3 = FakeS3Client()
-    vectors = FakeVectorsClient(dimension=8)
     bedrock = FakeBedrockClient(dimension=8)
 
-    result = await health_check(settings=settings, s3=s3, vectors=vectors, bedrock=bedrock)
+    result = await health_check(
+        settings=settings, s3=s3_client, vectors=vectors_client_8, bedrock=bedrock
+    )
 
     assert "s3" in result
     assert "vectors" in result
@@ -54,14 +59,16 @@ async def test_response_keys_present_no_read_prefixes(
 
 async def test_two_read_prefixes_two_keys(
     monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
 ) -> None:
     """Two read prefixes configured → two 'read_prefix:...' keys in response."""
     settings = _make_settings(monkeypatch, READ_PREFIXES="team-a,team-b")
-    s3 = FakeS3Client()
-    vectors = FakeVectorsClient(dimension=8)
     bedrock = FakeBedrockClient(dimension=8)
 
-    result = await health_check(settings=settings, s3=s3, vectors=vectors, bedrock=bedrock)
+    result = await health_check(
+        settings=settings, s3=s3_client, vectors=vectors_client_8, bedrock=bedrock
+    )
 
     read_prefix_keys = [k for k in result if k.startswith("read_prefix:")]
     assert len(read_prefix_keys) == 2
@@ -74,29 +81,42 @@ async def test_two_read_prefixes_two_keys(
 
 async def test_s3_head_bucket_credential_error(
     monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
 ) -> None:
     """head_bucket raises CredentialError → s3 entry is 'error'; others 'ok'."""
     settings = _make_settings(monkeypatch, READ_PREFIXES="")
-    s3 = FakeS3Client()
-    s3.set_credential_failure(True)
-    vectors = FakeVectorsClient(dimension=8)
+    mocker.patch.object(
+        s3_client,
+        "head_bucket",
+        side_effect=CredentialError(
+            message="simulated",
+            service="s3",
+            original=Exception("simulated"),
+        ),
+    )
     bedrock = FakeBedrockClient(dimension=8)
 
-    result = await health_check(settings=settings, s3=s3, vectors=vectors, bedrock=bedrock)
+    result = await health_check(
+        settings=settings, s3=s3_client, vectors=vectors_client_8, bedrock=bedrock
+    )
 
     assert result["s3"]["status"] == "error"
 
 
 async def test_vectors_describe_index_not_found_error(
     monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_no_index: VectorsClientImpl,
 ) -> None:
     """describe_index raises VectorIndexNotFoundError → vectors entry is 'error'; others 'ok'."""
     settings = _make_settings(monkeypatch, READ_PREFIXES="")
-    s3 = FakeS3Client()
-    vectors = FakeVectorsClient(dimension=8, index_missing=True)
     bedrock = FakeBedrockClient(dimension=8)
 
-    result = await health_check(settings=settings, s3=s3, vectors=vectors, bedrock=bedrock)
+    result = await health_check(
+        settings=settings, s3=s3_client, vectors=vectors_client_no_index, bedrock=bedrock
+    )
 
     assert result["vectors"]["status"] == "error"
     assert result["s3"]["status"] == "ok"
@@ -104,15 +124,17 @@ async def test_vectors_describe_index_not_found_error(
 
 async def test_bedrock_embed_credential_error(
     monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
 ) -> None:
     """embed raises CredentialError → bedrock entry is 'error'; others 'ok'."""
     settings = _make_settings(monkeypatch, READ_PREFIXES="")
-    s3 = FakeS3Client()
-    vectors = FakeVectorsClient(dimension=8)
     bedrock = FakeBedrockClient(dimension=8)
     bedrock.set_credential_failure(True)
 
-    result = await health_check(settings=settings, s3=s3, vectors=vectors, bedrock=bedrock)
+    result = await health_check(
+        settings=settings, s3=s3_client, vectors=vectors_client_8, bedrock=bedrock
+    )
 
     assert result["bedrock"]["status"] == "error"
     assert result["s3"]["status"] == "ok"
@@ -121,19 +143,18 @@ async def test_bedrock_embed_credential_error(
 
 async def test_write_prefix_put_object_failure(
     monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
 ) -> None:
     """put_object raises on write-prefix probe → write_prefix entry is 'error'; others 'ok'."""
     settings = _make_settings(monkeypatch, READ_PREFIXES="")
-
-    class FailPutObject(FakeS3Client):
-        def put_object(self, key: str, body: str, metadata: dict[str, str]) -> None:
-            raise RuntimeError("Simulated put failure")
-
-    s3 = FailPutObject()
-    vectors = FakeVectorsClient(dimension=8)
+    mocker.patch.object(s3_client, "put_object", side_effect=RuntimeError("Simulated put failure"))
     bedrock = FakeBedrockClient(dimension=8)
 
-    result = await health_check(settings=settings, s3=s3, vectors=vectors, bedrock=bedrock)
+    result = await health_check(
+        settings=settings, s3=s3_client, vectors=vectors_client_8, bedrock=bedrock
+    )
 
     assert result["write_prefix"]["status"] == "error"
     assert result["s3"]["status"] == "ok"
@@ -141,22 +162,20 @@ async def test_write_prefix_put_object_failure(
 
 async def test_read_prefix_list_objects_failure(
     monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
 ) -> None:
     """list_objects raises on first read prefix → that entry 'error'; others 'ok'."""
     settings = _make_settings(monkeypatch, READ_PREFIXES="team-a")
-
-    call_count = {"n": 0}
-
-    class FailListObjects(FakeS3Client):
-        def list_objects(self, prefix: str) -> list[str]:
-            call_count["n"] += 1
-            raise RuntimeError("Simulated list failure")
-
-    s3 = FailListObjects()
-    vectors = FakeVectorsClient(dimension=8)
+    mocker.patch.object(
+        s3_client, "list_objects", side_effect=RuntimeError("Simulated list failure")
+    )
     bedrock = FakeBedrockClient(dimension=8)
 
-    result = await health_check(settings=settings, s3=s3, vectors=vectors, bedrock=bedrock)
+    result = await health_check(
+        settings=settings, s3=s3_client, vectors=vectors_client_8, bedrock=bedrock
+    )
 
     read_prefix_keys = [k for k in result if k.startswith("read_prefix:")]
     assert len(read_prefix_keys) == 1
@@ -171,27 +190,21 @@ async def test_read_prefix_list_objects_failure(
 
 async def test_all_failures_all_error_no_exception(
     monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_no_index: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
 ) -> None:
-    """All fakes raise → all entries 'error'; no unhandled exception propagates."""
+    """All probes raise → all entries 'error'; no unhandled exception propagates."""
     settings = _make_settings(monkeypatch, READ_PREFIXES="team-a")
-
-    class AllFailS3(FakeS3Client):
-        def head_bucket(self, bucket: str) -> None:
-            raise RuntimeError("Simulated head_bucket failure")
-
-        def put_object(self, key: str, body: str, metadata: dict[str, str]) -> None:
-            raise RuntimeError("Simulated put failure")
-
-        def list_objects(self, prefix: str) -> list[str]:
-            raise RuntimeError("Simulated list failure")
-
-    s3 = AllFailS3()
-    vectors = FakeVectorsClient(dimension=8, index_missing=True)
+    mocker.patch.object(s3_client, "head_bucket", side_effect=RuntimeError("simulated"))
+    mocker.patch.object(s3_client, "put_object", side_effect=RuntimeError("simulated"))
+    mocker.patch.object(s3_client, "list_objects", side_effect=RuntimeError("simulated"))
     bedrock = FakeBedrockClient(dimension=8)
     bedrock.set_credential_failure(True)
 
-    # Must not raise
-    result = await health_check(settings=settings, s3=s3, vectors=vectors, bedrock=bedrock)
+    result = await health_check(
+        settings=settings, s3=s3_client, vectors=vectors_client_no_index, bedrock=bedrock
+    )
 
     assert isinstance(result, dict)
     for key in ["s3", "vectors", "bedrock", "write_prefix"]:
@@ -205,34 +218,46 @@ async def test_all_failures_all_error_no_exception(
 
 async def test_ok_entries_have_no_message(
     monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
 ) -> None:
     """'ok' entries have no 'message' field (or it is absent/null)."""
     settings = _make_settings(monkeypatch, READ_PREFIXES="")
-    s3 = FakeS3Client()
-    vectors = FakeVectorsClient(dimension=8)
     bedrock = FakeBedrockClient(dimension=8)
 
-    result = await health_check(settings=settings, s3=s3, vectors=vectors, bedrock=bedrock)
+    result = await health_check(
+        settings=settings, s3=s3_client, vectors=vectors_client_8, bedrock=bedrock
+    )
 
     for component in ["s3", "vectors", "bedrock", "write_prefix"]:
         entry = result[component]
         assert entry["status"] == "ok"
-        # message should be absent or None for ok entries
         assert entry.get("message") is None or "message" not in entry
 
 
 async def test_error_entries_have_nonempty_message(
     monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_no_index: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
 ) -> None:
     """'error' entries always include a non-empty 'message' string."""
     settings = _make_settings(monkeypatch, READ_PREFIXES="")
-    s3 = FakeS3Client()
-    s3.set_credential_failure(True)
-    vectors = FakeVectorsClient(dimension=8, index_missing=True)
+    mocker.patch.object(
+        s3_client,
+        "head_bucket",
+        side_effect=CredentialError(
+            message="simulated",
+            service="s3",
+            original=Exception("simulated"),
+        ),
+    )
     bedrock = FakeBedrockClient(dimension=8)
     bedrock.set_credential_failure(True)
 
-    result = await health_check(settings=settings, s3=s3, vectors=vectors, bedrock=bedrock)
+    result = await health_check(
+        settings=settings, s3=s3_client, vectors=vectors_client_no_index, bedrock=bedrock
+    )
 
     for component in ["s3", "vectors", "bedrock"]:
         entry = result[component]
@@ -244,14 +269,16 @@ async def test_error_entries_have_nonempty_message(
 
 async def test_status_field_only_ok_or_error(
     monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
 ) -> None:
     """status field is always 'ok' or 'error' — no other values."""
     settings = _make_settings(monkeypatch, READ_PREFIXES="team-x")
-    s3 = FakeS3Client()
-    vectors = FakeVectorsClient(dimension=8)
     bedrock = FakeBedrockClient(dimension=8)
 
-    result = await health_check(settings=settings, s3=s3, vectors=vectors, bedrock=bedrock)
+    result = await health_check(
+        settings=settings, s3=s3_client, vectors=vectors_client_8, bedrock=bedrock
+    )
 
     for key, entry in result.items():
         assert isinstance(entry, dict), f"Entry for '{key}' is not a dict: {entry}"
@@ -267,15 +294,26 @@ async def test_status_field_only_ok_or_error(
 
 async def test_s3_probe_credential_error_returns_cause(
     monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
 ) -> None:
     """S3 probe CredentialError → cause is 'credential_error'."""
     settings = _make_settings(monkeypatch, READ_PREFIXES="")
-    s3 = FakeS3Client()
-    s3.set_credential_failure(True)
-    vectors = FakeVectorsClient(dimension=8)
+    mocker.patch.object(
+        s3_client,
+        "head_bucket",
+        side_effect=CredentialError(
+            message="simulated",
+            service="s3",
+            original=Exception("simulated"),
+        ),
+    )
     bedrock = FakeBedrockClient(dimension=8)
 
-    result = await health_check(settings=settings, s3=s3, vectors=vectors, bedrock=bedrock)
+    result = await health_check(
+        settings=settings, s3=s3_client, vectors=vectors_client_8, bedrock=bedrock
+    )
 
     s3_entry = result.get("s3", result.get("s3_write", {}))
     assert s3_entry.get("status") == "error"
@@ -284,15 +322,26 @@ async def test_s3_probe_credential_error_returns_cause(
 
 async def test_vectors_probe_credential_error_returns_cause(
     monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
 ) -> None:
     """Vectors probe CredentialError → cause is 'credential_error'."""
     settings = _make_settings(monkeypatch, READ_PREFIXES="")
-    s3 = FakeS3Client()
-    vectors = FakeVectorsClient(dimension=8)
-    vectors.set_credential_failure(True)
+    mocker.patch.object(
+        vectors_client_8,
+        "describe_index",
+        side_effect=CredentialError(
+            message="simulated",
+            service="s3vectors",
+            original=Exception("simulated"),
+        ),
+    )
     bedrock = FakeBedrockClient(dimension=8)
 
-    result = await health_check(settings=settings, s3=s3, vectors=vectors, bedrock=bedrock)
+    result = await health_check(
+        settings=settings, s3=s3_client, vectors=vectors_client_8, bedrock=bedrock
+    )
 
     vec_entry = result.get("vectors", result.get("s3_vectors", {}))
     assert vec_entry.get("status") == "error"
@@ -301,15 +350,17 @@ async def test_vectors_probe_credential_error_returns_cause(
 
 async def test_bedrock_probe_credential_error_returns_cause(
     monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
 ) -> None:
     """Bedrock probe CredentialError → cause is 'credential_error'."""
     settings = _make_settings(monkeypatch, READ_PREFIXES="")
-    s3 = FakeS3Client()
-    vectors = FakeVectorsClient(dimension=8)
     bedrock = FakeBedrockClient(dimension=8)
     bedrock.set_credential_failure(True)
 
-    result = await health_check(settings=settings, s3=s3, vectors=vectors, bedrock=bedrock)
+    result = await health_check(
+        settings=settings, s3=s3_client, vectors=vectors_client_8, bedrock=bedrock
+    )
 
     bedrock_entry = result.get("bedrock", result.get("bedrock_embed", {}))
     assert bedrock_entry.get("status") == "error"
@@ -318,22 +369,19 @@ async def test_bedrock_probe_credential_error_returns_cause(
 
 async def test_generic_error_has_no_cause_field(
     monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
 ) -> None:
     """Generic RuntimeError in probe → no 'cause' key in result."""
     settings = _make_settings(monkeypatch, READ_PREFIXES="")
-
-    class ExplodingS3(FakeS3Client):
-        def head_bucket(self, bucket: str) -> None:
-            raise RuntimeError("boom")
-
-        def put_object(self, key: str, body: str, metadata: dict) -> None:  # type: ignore[override]
-            raise RuntimeError("boom")
-
-    s3 = ExplodingS3()
-    vectors = FakeVectorsClient(dimension=8)
+    mocker.patch.object(s3_client, "head_bucket", side_effect=RuntimeError("boom"))
+    mocker.patch.object(s3_client, "put_object", side_effect=RuntimeError("boom"))
     bedrock = FakeBedrockClient(dimension=8)
 
-    result = await health_check(settings=settings, s3=s3, vectors=vectors, bedrock=bedrock)
+    result = await health_check(
+        settings=settings, s3=s3_client, vectors=vectors_client_8, bedrock=bedrock
+    )
 
     s3_entry = result.get("s3", result.get("s3_write", {}))
     assert s3_entry.get("status") == "error"
@@ -342,17 +390,27 @@ async def test_generic_error_has_no_cause_field(
 
 async def test_credential_error_in_one_probe_does_not_skip_others(
     monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
 ) -> None:
     """S3 CredentialError → other probes still return 'ok'."""
     settings = _make_settings(monkeypatch, READ_PREFIXES="")
-    s3 = FakeS3Client()
-    s3.set_credential_failure(True)
-    vectors = FakeVectorsClient(dimension=8)
+    mocker.patch.object(
+        s3_client,
+        "head_bucket",
+        side_effect=CredentialError(
+            message="simulated",
+            service="s3",
+            original=Exception("simulated"),
+        ),
+    )
     bedrock = FakeBedrockClient(dimension=8)
 
-    result = await health_check(settings=settings, s3=s3, vectors=vectors, bedrock=bedrock)
+    result = await health_check(
+        settings=settings, s3=s3_client, vectors=vectors_client_8, bedrock=bedrock
+    )
 
-    # At least vectors and bedrock should be OK
     for key, entry in result.items():
         if isinstance(entry, dict) and "s3" not in key:
             assert entry.get("status") == "ok", f"{key} should still be ok"

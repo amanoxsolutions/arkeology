@@ -47,14 +47,14 @@ making it discoverable by agents on other projects or teams that point at the sa
 - **Semantic search with metadata filtering** — retrieve artifacts by meaning, not just keyword. Combine a natural-language query with filters for type, feature tag, team, or project in a single call.
 - **Section-level search precision** — queries match the specific section of an artifact that is relevant, not a whole-document average. Precision improves as artifacts grow longer.
 - **Cross-team knowledge sharing** — canonical artifacts such as ADRs and architecture decisions can be made discoverable by agents on other projects or teams. Working documents stay project-local by default; sharing requires a deliberate promotion step, not an accidental one.
-- **Flexible ADR strategy** — teams choose one authoritative home for ADRs: git (where the PR merge is the approval record) or cairn-mcp (single source of truth for teams without a formal PR-based ceremony). The choice is declared once in the project's `AGENTS.md` and respected by every agent that reads it.
+  > IMPORTANT: Cross-team visibility control is enforced at the MCP server layer. True access control (keeping content private from unauthorized AWS principals) requires enforcing permissions at the IAM or S3 resource permissions level.
 - **Rich, filterable metadata** — every artifact carries structured metadata that is returned with every search result. Browse and filter without fetching full content.
 - **Knowledge synthesis** — compile multiple related artifacts into a single reference document. The result is stored as a first-class artifact with source identifiers recorded, so provenance is always traceable.
 - **Full artifact lifecycle** — archive, delete, and purge artifacts as projects evolve. Referential safety checks warn before removing an artifact that other synthesis documents depend on.
 - **Migration skill for existing projects** — adopt cairn-mcp on a project with years of accumulated docs without starting from zero. A bundled skill classifies, enriches, and imports existing documentation in a single structured workflow.
 - **AWS-native — no extra services** — S3, S3 Vectors, and Bedrock are the only dependencies. Teams already running on AWS have nothing new to operate or secure.
 - **CI/CD-ready** — works with any standard AWS credential environment: local developer profiles, IAM roles, ECS tasks, or CI/CD OIDC tokens. A pipeline agent and an interactive developer agent use identical tools.
-- **Any MCP-compatible agent** — no framework lock-in. Schema documentation is published at runtime so any connected agent can discover valid types, tiers, and field constraints without consulting external documentation.
+- **Flexible ADR strategy** — teams choose one authoritative home for ADRs: git (where the PR merge is the approval record) or cairn-mcp (single source of truth for teams without a formal PR-based ceremony). The choice is declared once in the project's `AGENTS.md` and respected by every agent that reads it.
 
 ### cairn-mcp vs. other approaches
 
