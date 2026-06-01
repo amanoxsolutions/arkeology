@@ -1,4 +1,9 @@
-# Migration Skill — Import existing documentation into cairn-mcp
+---
+name: migrating-to-cairn
+description: Migrate existing repository documentation into cairn-mcp — one-time bulk import for projects adopting cairn-mcp on an existing codebase with accumulated docs.
+---
+
+# Migrating to cairn-mcp
 
 This skill guides you through a one-time migration of existing repository
 documentation into cairn-mcp. Use it when adopting cairn-mcp on a project that
@@ -11,6 +16,16 @@ The skill supports two execution paths:
 - **≥ 30 files (manifest + script):** You produce a `CAIRN_IMPORT.yaml`
   manifest, the operator reviews it, then `migrate.py` executes bulk writes
   with Bedrock-generated descriptions and git-recovered dates.
+
+## Workflow
+
+1. **Pre-migration health check** — verify cairn-mcp is reachable and all components return `"status": "ok"`.
+2. **Discovery** — declare the ADR strategy (git only vs cairn-mcp only), then scan the repo for migration candidates using the directory mapping.
+3. **Classification table** — present the proposed type/tier/visibility mapping per file; wait for operator confirmation.
+4. **Metadata enrichment** — resolve title, date, description, team, and project for each confirmed file.
+5. **Two-path gate** — fewer than 30 files: agent writes directly via `write_artifact`; 30 or more: produce `CAIRN_IMPORT.yaml`, dry-run, then execute with `migrate.py`.
+6. **Verification** — confirm all artifacts appear in `list_artifacts` and are semantically discoverable via `search_artifacts`.
+7. **Post-migration cleanup** — remove migrated files from git (per type guidance) and append the cairn-mcp usage snippet with the correct ADR variant to the project's `AGENTS.md`.
 
 ---
 
@@ -29,9 +44,31 @@ Call the `health_check` MCP tool (no arguments). Examine the response:
 
 ## Step 2 — Discovery
 
+### ADR strategy — decide before cataloguing files
+
+Before scanning for migration candidates, the operator must declare their ADR storage strategy.
+This is a binary, one-time decision. Keeping ADRs in two systems creates a sync problem that is
+not acceptable; choose one authoritative home and commit to it.
+
+**The deciding question:** Does your team use pull request review as the approval mechanism
+for ADRs?
+
+| Answer | Strategy | What this means for migration |
+|--------|----------|-------------------------------|
+| **Yes — PR merge is the approval act** | **Git only** | ADRs stay in git. **Skip all `adr`-type files in the discovery scan below** — do not migrate them into cairn-mcp. The git file is the single source of truth; the PR discussion is part of the approval record and cannot be replicated in cairn-mcp. |
+| **No — no formal PR-based approval** | **cairn-mcp only** | Migrate ADRs into cairn-mcp. cairn-mcp becomes the single source of truth. After migration you may remove the git files. |
+
+This choice must be recorded in the project's `AGENTS.md` — Step 7 provides the correct snippet
+for each option.
+
+**Wait for the operator to confirm their ADR strategy before continuing.**
+
+---
+
 Scan the repository for migration candidates. Apply the directory convention
 mapping below. When a directory listed here exists in the repo, enumerate all
-`.md` files inside it (recursive).
+`.md` files inside it (recursive). If the operator chose **git only** for ADRs,
+exclude ADR directories from the scan entirely.
 
 ### Directory → type mapping
 
@@ -237,7 +274,7 @@ Once verified in cairn-mcp, the operator may remove these files from the repo:
 | `code_review` | Yes — point-in-time review records; no need in git history |
 | `implementation_note` | Yes — non-code context; cairn-mcp is the right home |
 | `bug_report` | Yes — if the bug is resolved and the ticket is closed |
-| `adr` | **No** — keep ADRs in the repo. They are canonical decision records and belong in git alongside the code they govern |
+| `adr` | **Depends on your ADR strategy (chosen in Step 2).** If you chose **cairn-mcp only**: yes, remove the git files — cairn-mcp is now the single source of truth. If you chose **git only**: you should not have migrated ADRs at all (Step 2 told you to skip them). |
 | `spec` | Judgment call — keep specs that are actively referenced in code PRs; remove old, completed specs |
 | `decision_note` | Judgment call — keep if referenced by other docs; otherwise remove |
 
@@ -246,29 +283,30 @@ comfortable removing.
 
 ### AGENTS.md update
 
-Append the cairn-mcp usage snippet to the project's `AGENTS.md`. The snippet
-to append is in the README's "Recommended AGENTS.md Snippet" section. If no
-such section exists yet in the README, use the following template:
+Append the cairn-mcp usage snippet to the project's `AGENTS.md`. Start from the
+README's "Recommended AGENTS.md Snippet" section. Then, based on the ADR strategy
+confirmed in Step 2, insert the appropriate ADR guidance block — **Variant A** for
+**git only**, **Variant B** for **cairn-mcp only** — under the artifact type selection
+table in the snippet. Confirm with the operator before writing.
+
+**Variant A — git only (team uses PR-based ADR approval)**
 
 ```markdown
-## cairn-mcp — Persistent Artifact Memory
+**ADRs:** This project keeps ADRs in git. Do NOT write `type=adr` artifacts to
+cairn-mcp. When you create or update an ADR, commit it to the project's ADR
+directory in git. After committing, you may index it in cairn-mcp by calling
+`write_artifact` (type=adr, tier=3, visibility=shared) so agents can search it
+semantically — but the git file is the authoritative source. Draft ADRs that
+have not yet been committed may be written to cairn-mcp with `visibility=hidden`.
+```
 
-This project uses cairn-mcp to store and retrieve structured knowledge artifacts.
+**Variant B — cairn-mcp only (no formal PR-based ADR approval)**
 
-**Start of session:** call `search_artifacts` with a query about the current task
-to recall prior context, decisions, and findings.
-
-**End of session:** call `write_artifact` to record what was built, decided, or
-discovered. Choose the right type:
-- `code_review` / `implementation_note` / `session_summary` / `bug_report` → tier 2
-- `adr` / `spec` / `decision_note` / `synthesis` → tier 3, visibility=shared
-
-**Descriptions:** write ≤ 280-character search-optimised summaries — specific
-outcomes, decisions, and scope. Avoid "This document describes..." preamble.
-
-**Query strategy:** start narrow (type + feature_tags filters), broaden only when
-narrow returns insufficient results. Use `synthesise_artifacts` to compile
-knowledge from multiple related artifacts and write back as a tier 3 synthesis.
+```markdown
+**ADRs:** This project stores ADRs in cairn-mcp only. Write ADRs using
+`write_artifact` (type=adr, tier=3, visibility=shared). Do NOT commit ADR files
+to git — cairn-mcp is the single source of truth. Draft ADRs use `visibility=hidden`
+until approved.
 ```
 
 Confirm with the operator before writing to `AGENTS.md`.
