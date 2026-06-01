@@ -294,10 +294,7 @@ table in the snippet. Confirm with the operator before writing.
 ```markdown
 **ADRs:** This project keeps ADRs in git. Do NOT write `type=adr` artifacts to
 cairn-mcp. When you create or update an ADR, commit it to the project's ADR
-directory in git. After committing, you may index it in cairn-mcp by calling
-`write_artifact` (type=adr, tier=3, visibility=shared) so agents can search it
-semantically — but the git file is the authoritative source. Draft ADRs that
-have not yet been committed may be written to cairn-mcp with `visibility=hidden`.
+directory in git. Git is the single source of truth for ADRs.
 ```
 
 **Variant B — cairn-mcp only (no formal PR-based ADR approval)**

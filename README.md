@@ -47,7 +47,7 @@ making it discoverable by agents on other projects or teams that point at the sa
 - **Semantic search with metadata filtering** — retrieve artifacts by meaning, not just keyword. Combine a natural-language query with filters for type, feature tag, team, or project in a single call.
 - **Section-level search precision** — queries match the specific section of an artifact that is relevant, not a whole-document average. Precision improves as artifacts grow longer.
 - **Cross-team knowledge sharing** — canonical artifacts such as ADRs and architecture decisions can be made discoverable by agents on other projects or teams. Working documents stay project-local by default; sharing requires a deliberate promotion step, not an accidental one.
-- **Flexible ADR strategy** — teams that approve ADRs through pull request review keep them in git (preserving the PR as the approval record) while still making them semantically searchable through cairn-mcp. Teams without a formal PR-based approval ceremony can store ADRs in cairn-mcp as the single source of truth. The choice is declared once in the project's `AGENTS.md` and respected by every agent that reads it.
+- **Flexible ADR strategy** — teams choose one authoritative home for ADRs: git (where the PR merge is the approval record) or cairn-mcp (single source of truth for teams without a formal PR-based ceremony). The choice is declared once in the project's `AGENTS.md` and respected by every agent that reads it.
 - **Rich, filterable metadata** — every artifact carries structured metadata that is returned with every search result. Browse and filter without fetching full content.
 - **Knowledge synthesis** — compile multiple related artifacts into a single reference document. The result is stored as a first-class artifact with source identifiers recorded, so provenance is always traceable.
 - **Full artifact lifecycle** — archive, delete, and purge artifacts as projects evolve. Referential safety checks warn before removing an artifact that other synthesis documents depend on.
@@ -431,10 +431,7 @@ artifact type selection table:
 ```markdown
 **ADRs:** This project keeps ADRs in git. Do NOT write `type=adr` artifacts to
 cairn-mcp. When you create or update an ADR, commit it to the project's ADR
-directory in git. After committing, you may index it in cairn-mcp by calling
-`write_artifact` (type=adr, tier=3, visibility=shared) so agents can search it
-semantically — but the git file is the authoritative source. Draft ADRs that
-have not yet been committed may be written to cairn-mcp with `visibility=hidden`.
+directory in git. Git is the single source of truth for ADRs.
 ```
 
 **Variant B — cairn-mcp only (no formal PR-based ADR approval)**
