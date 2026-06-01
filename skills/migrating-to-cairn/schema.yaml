@@ -35,9 +35,10 @@ artifacts:
   # Minimal entry — only required fields
   - path: "docs/adr/001-use-s3-vectors.md"  # required: path relative to repo root
     type: "adr"                               # required: one of ARTIFACT_TYPES:
-                                              #   adr, spec, code_review, session_summary,
-                                              #   implementation_note, bug_report,
-                                              #   decision_note, synthesis
+                                               #   adr, brainstorming, bug_report,
+                                               #   code_review, decision_note,
+                                               #   implementation_note, session_summary,
+                                               #   spec, synthesis
     tier: 3                                   # required: 2 or 3
                                               #   tier 2: date-anchored, immutable
                                               #   tier 3: date-independent, overwrites in place

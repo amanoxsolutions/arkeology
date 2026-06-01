@@ -89,7 +89,7 @@ produces the same key (idempotent), but the content cannot be updated.
 Example: a code review written on 2026-05-31 with title "Auth module review" becomes
 `code-review-2026-05-31-auth-module-review`.
 
-**Use for:** code_review, session_summary, implementation_note, bug_report
+**Use for:** brainstorming, code_review, session_summary, implementation_note, bug_report
 
 **Cross-scope access:** tier 2 artifacts are strictly project-local. They are never
 accessible outside the deployment's own `WRITE_PREFIX` scope, regardless of visibility.
@@ -173,6 +173,10 @@ def types_schema_content() -> str:
         "adr": (
             "Architectural Decision Record — records a significant design decision,"
             " its context, and rationale. Tier 3, shared."
+        ),
+        "brainstorming": (
+            "Brainstorming — captures options explored, trade-offs weighed, and"
+            " directions considered during ideation. Tier 2."
         ),
         "spec": (
             "Feature or technical specification — defines requirements, acceptance"

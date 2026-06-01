@@ -342,6 +342,7 @@ def test_artifact_unknown_type_invalid() -> None:
 @pytest.mark.parametrize(
     "artifact_type",
     [
+        "brainstorming",
         "code_review",
         "session_summary",
         "implementation_note",
@@ -353,7 +354,7 @@ def test_artifact_unknown_type_invalid() -> None:
     ],
 )
 def test_artifact_all_valid_types_accepted(artifact_type: str) -> None:
-    """All 8 valid artifact types are accepted."""
+    """All 9 valid artifact types are accepted."""
     kwargs = {**VALID_ARTIFACT_KWARGS, "type": artifact_type}
     artifact = Artifact(**kwargs)
     assert artifact.type == artifact_type

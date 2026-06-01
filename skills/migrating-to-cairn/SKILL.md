@@ -77,7 +77,8 @@ exclude ADR directories from the scan entirely.
 | `docs/adr/`, `docs/architecture/` | `adr` | 3 |
 | `docs/specs/` | `spec` | 3 |
 | `docs/planning-artifacts/` | `spec` | 3 (prd.md, plan.md → spec tier 3) |
-| `docs/brainstorming/`, `docs/sessions/`, `docs/notes/` | `session_summary` | 2 |
+| `docs/brainstorming/` | `brainstorming` | 2 |
+| `docs/sessions/`, `docs/notes/` | `session_summary` | 2 |
 | `docs/code-reviews/` | `code_review` | 2 |
 | `docs/implementation-notes/`, `docs/impl-notes/` | `implementation_note` | 2 |
 
@@ -270,6 +271,7 @@ Once verified in cairn-mcp, the operator may remove these files from the repo:
 
 | Type | Safe to remove from repo |
 |------|--------------------------|
+| `brainstorming` | Yes — ideation records; cairn-mcp is the right home |
 | `session_summary` | Yes — ephemeral session records; cairn-mcp is the right home |
 | `code_review` | Yes — point-in-time review records; no need in git history |
 | `implementation_note` | Yes — non-code context; cairn-mcp is the right home |

@@ -492,6 +492,7 @@ cairn-mcp is connected to this project. Use it to persist knowledge across sessi
 |------|-------------|
 | `code_review` | After completing a code review — findings, issues, recommendations |
 | `session_summary` | At the end of any productive session — what was decided, implemented, or discovered |
+| `brainstorming` | When exploring options or ideating — directions considered, trade-offs weighed, before a decision is made |
 | `implementation_note` | When implementing a non-obvious solution — why this approach, constraints, edge cases |
 | `spec` | Feature specifications and requirements documents — living documents updated as features evolve |
 | `adr` | Architectural Decision Records — a decision that affects system design; tier 3, shared by default |
@@ -510,7 +511,7 @@ The `description` field is the primary search signal. Invest in it.
 
 ### Tier selection
 
-- **Tier 2** — point-in-time records that document a moment: `code_review`, `session_summary`,
+- **Tier 2** — point-in-time records that document a moment: `brainstorming`, `code_review`, `session_summary`,
   `implementation_note`, `bug_report`. Immutable after write; keyed by type + date + title.
 - **Tier 3** — living documents that evolve: `spec`, `adr`, `decision_note`, `synthesis`.
   Overwrite in place on re-write; keyed by type + title only (no date).
