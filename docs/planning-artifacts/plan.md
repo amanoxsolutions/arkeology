@@ -2,7 +2,7 @@
 
 _Project: cairn-mcp_
 _Generated: 2026-05-29_ · _Last updated: 2026-05-31_
-_Status: **complete — Phases 1–5 + Review Hardening complete (486 unit tests passing; ruff + mypy clean; Apache 2.0 licensed; production-hardened)**_
+_Status: **V1 — Phases 1–6 complete (486 unit tests + integration suite passing against live AWS; ruff + mypy clean; Apache 2.0 licensed; production-hardened)**_
 
 ---
 
@@ -130,6 +130,9 @@ Goal: resolve all 76 findings from the full project code review (12 critical, 27
     - Done when: all 486 unit tests passing; ruff + mypy clean; all 20 specs implemented; full post-implementation review passed clean (0 critical, 0 major, 0 minor)
     - Spec files: `docs/specs/review-fix-01-*.md` through `docs/specs/review-fix-20-*.md`
 
+24. ✅ **V1 integration suite re-run** — full integration test suite re-run against live AWS after Phase 6 hardening; all tests pass; V1 declared clean
+    - Done when: `uv run pytest tests/integration/ -q` passes green post-hardening — confirmed 2026-06-01
+
 ---
 
 ## Risks and Open Questions
@@ -167,6 +170,7 @@ Goal: resolve all 76 findings from the full project code review (12 critical, 27
 - **Source deduplication in freshness**: collect all distinct source IDs across all synthesis artifacts first, then fetch each unique ID exactly once; without deduplication, a shared source referenced by N syntheses would trigger N `list_vectors_by_metadata` calls
 
 - **Phase 6 (review hardening) complete (2026-05-31)**: 486 unit tests passing; all 76 review findings resolved across 20 specs; ruff + mypy clean (33 source files); Apache 2.0 licence added; `interfaces.py` migrated ABC→Protocol; `filter`→`filter_expr` rename; shared `_search_helper.py` extracted; README IAM policy corrected (`s3:ListBucket`, `DeleteIndex` moved to provisioning section); credential error handling hardened across all tools; vector score formula aligned (`1.0 - distance`); integration tests isolated with `unique_run_id` fixture
+- **V1 integration suite baseline (2026-06-01)**: full integration test suite re-run against live AWS after Phase 6 hardening; all integration tests pass; cairn-mcp declared V1-ready
 - **Vector score range (known limitation)**: `VectorsClientImpl` returns `score = 1.0 - cosine_distance` ∈ [−1, 1]; `FakeVectorsClient` returns `1.0 + cosine_similarity` ∈ [0, 2]. Both preserve "higher = more similar" ordering. Numeric ranges differ; no tool applies absolute score thresholds today. A future integration test should confirm the real API's distance range.
 
 ## References
