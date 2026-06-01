@@ -20,7 +20,7 @@ The skill supports two execution paths:
 ## Workflow
 
 1. **Pre-migration health check** — verify cairn-mcp is reachable and all components return `"status": "ok"`.
-2. **Discovery** — declare the ADR strategy (git only vs cairn-mcp only), then scan the repo for migration candidates using the directory mapping.
+2. **Discovery** — declare the ADR strategy (git only vs cairn-mcp only), then scan the repo for migration candidates using the two-pass classification system.
 3. **Classification table** — present the proposed type/tier/visibility mapping per file; wait for operator confirmation.
 4. **Metadata enrichment** — resolve title, date, description, team, and project for each confirmed file.
 5. **Two-path gate** — fewer than 30 files: agent writes directly via `write_artifact`; 30 or more: produce `CAIRN_IMPORT.yaml`, dry-run, then execute with `migrate.py`.
@@ -65,34 +65,49 @@ for each option.
 
 ---
 
-Scan the repository for migration candidates. Apply the directory convention
-mapping below. When a directory listed here exists in the repo, enumerate all
-`.md` files inside it (recursive). If the operator chose **git only** for ADRs,
-exclude ADR directories from the scan entirely.
+Scan the repository for migration candidates. Classify every `.md` file found using
+the two passes below, in order. If the operator chose **git only** for ADRs, apply
+the classification first and then exclude files that resolved to `adr`.
 
-Before applying the mapping below, discover the project's documentation root:
-1. Check for these candidates in order: `docs/`, `documentation/`, `doc/`, `wiki/`.
-2. If exactly one exists, use it as the docs root. Announce it to the operator.
-3. If multiple exist, list them and ask the operator which is the primary docs root.
-4. If none exist, treat the repo root as the docs root and note this to the operator.
-5. All subdirectory patterns in the table below are relative to the confirmed docs root.
+### Pass 1 — Filename rules (highest priority)
 
-### Directory → type mapping
+Match on the file's stem (filename without extension), case-insensitive, exact match.
+Applies regardless of where the file sits in the repo. If a rule matches, **stop —
+do not consult Pass 2**.
 
-| Subdirectory pattern | Default type | Default tier |
+| Filename stems (exact, case-insensitive) | Type | Tier |
 |---|---|---|
-| `adr/`, `architecture/` | `adr` | 3 |
-| `specs/` | `spec` | 3 |
-| `planning-artifacts/`, `planning/` | see note below | 3 |
-| `brainstorming/` | `brainstorming` | 2 |
-| `sessions/`, `notes/` | `session_summary` | 2 |
-| `code-reviews/` | `code_review` | 2 |
-| `implementation-notes/`, `impl-notes/` | `implementation_note` | 2 |
-| `runbooks/`, `runbook/`, `ops/` | `runbook` | 3 |
-| `changelogs/`, `releases/` | `changelog` | 2 |
-| `postmortems/`, `incidents/` | `postmortem` | 2 |
+| `prd`, `product-requirements`, `requirements` | `prd` | 3 |
+| `plan`, `planning`, `project-plan`, `roadmap` | `plan` | 3 |
+| `changelog`, `change-log`, `changes`, `release-notes` | `changelog` | 2 |
+| `runbook`, `run-book`, `playbook` | `runbook` | 3 |
+| `postmortem`, `post-mortem`, `incident-report` | `postmortem` | 2 |
 
-> **Note for `planning-artifacts/` and `planning/`:** classify by filename within the directory — `prd.md` → `type=prd`; `plan.md` → `type=plan`; all other files → `type=spec`.
+### Pass 2 — Path segment rules
+
+If no filename rule matched, check every **directory segment** of the file's path,
+case-insensitive. The `**/pattern` notation means the segment can appear at any depth —
+`docs/brainstorming/`, `_bmad-output/brainstorming/`, and `work/project/brainstorming/`
+all match `**/brainstorming`. Use the **first matching row**.
+
+| Path segment pattern(s) | Type | Tier |
+|---|---|---|
+| `**/brainstorming`, `**/brainstorm`, `**/research`, `**/ideas`, `**/investigation`, `**/investigations`, `**/explore`, `**/exploration` | `brainstorming` | 2 |
+| `**/adr`, `**/adrs`, `**/architecture`, `**/architectural-decisions`, `**/decisions` | `adr` | 3 |
+| `**/specs`, `**/spec`, `**/specifications`, `**/specification` | `spec` | 3 |
+| `**/planning-artifacts`, `**/planning`, `**/plans` | `spec` | 3 |
+| `**/sessions`, `**/session-notes`, `**/notes`, `**/logs` | `session_summary` | 2 |
+| `**/code-reviews`, `**/code_reviews`, `**/reviews`, `**/review` | `code_review` | 2 |
+| `**/implementation-notes`, `**/impl-notes`, `**/implementation`, `**/dev-notes` | `implementation_note` | 2 |
+| `**/runbooks`, `**/runbook`, `**/ops`, `**/operations`, `**/procedures`, `**/playbooks` | `runbook` | 3 |
+| `**/changelogs`, `**/changelog`, `**/releases`, `**/release-notes` | `changelog` | 2 |
+| `**/postmortems`, `**/postmortem`, `**/incidents`, `**/incident-reports` | `postmortem` | 2 |
+
+### Pass 3 — Judgment fallback
+
+If neither pass matched, read the file content and use judgment to assign a type and
+tier. Default to `visibility=shared` unless the content is clearly team-internal or
+sensitive.
 
 ### Exclusion list — always skip these
 
@@ -101,13 +116,6 @@ Before applying the mapping below, discover the project's documentation root:
 - Auto-generated documentation (anything under `docs/_build/`, `site/`, `dist/`)
 - The `.docs/` scratchpad directory (agent scratch space, not canonical docs)
 - Files the operator explicitly asks to exclude
-
-### Ambiguous files
-
-For any file that does not match the directory convention (wrong directory,
-mixed content, unclear purpose), read the file and use judgment to assign a
-type and tier. Default to `visibility=shared` unless the content is clearly
-team-internal or sensitive.
 
 ---
 
