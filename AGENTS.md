@@ -120,6 +120,7 @@ one makes all persisted memory inaccessible:
 
 ## Working Conventions
 
+- **PRD describes what, never how** — no env var names, file names, paths, CLI flags, or formula strings anywhere in the PRD; describe observable behaviours and constraints only
 - All new tool functions go in `src/cairn_mcp/tools/<name>.py`; register on `_app` in `server.py` via `register_tools()`
 - Tool functions receive `settings`, `s3`, `vectors`, `bedrock` as injected dependencies — never import clients directly
 - `ARTIFACT_TYPES` in `artifact.py` is the single source of truth for valid artifact types — never duplicate it elsewhere
