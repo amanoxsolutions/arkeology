@@ -2,7 +2,7 @@
 
 _Project: cairn-mcp_
 _Generated: 2026-05-29_ · _Last updated: 2026-06-02_
-_Status: **V1 — Phases 1–7 complete + artifact type vocabulary extended to 14 types (457 unit tests + integration suite passing against live AWS; ruff + mypy clean; Apache 2.0 licensed; production-hardened; moto migration complete) · Phase 8 (write performance) in planning · Phase 9 (pre-v1 release improvements) added**_
+_Status: **V1 — Phases 1–8 complete + artifact type vocabulary extended to 14 types (489 unit tests + integration suite passing against live AWS; ruff + mypy clean; Apache 2.0 licensed; production-hardened; moto migration complete; write performance hardened) · Phase 9 (pre-v1 release improvements) in progress**_
 
 ---
 
@@ -154,19 +154,19 @@ Specs: `docs/specs/write-perf-p1-*.md` through `docs/specs/write-perf-l1-l2-*.md
 T27 and T28 can proceed in parallel after T26 merges; T29 is independent and can start at any
 point.
 
-26. ☐ **P1 — Concurrent embedding + batched put_vectors** *(highest impact)* — replace the serial section `for` loop in `write_artifact` with `asyncio.to_thread` + `asyncio.gather` bounded by `asyncio.Semaphore(SECTION_CONCURRENCY)`; collapse all per-section `put_vector` calls into one `vectors.put_vectors_batch` call per artifact; add `SECTION_CONCURRENCY` config var (default 5); add `put_vectors_batch` to `VectorsClientInterface` and `VectorsClientImpl` (chunk at 500) (NFR-13, NFR-14)
+26. ✅ **P1 — Concurrent embedding + batched put_vectors** *(highest impact)* — replace the serial section `for` loop in `write_artifact` with `asyncio.to_thread` + `asyncio.gather` bounded by `asyncio.Semaphore(SECTION_CONCURRENCY)`; collapse all per-section `put_vector` calls into one `vectors.put_vectors_batch` call per artifact; add `SECTION_CONCURRENCY` config var (default 5); add `put_vectors_batch` to `VectorsClientInterface` and `VectorsClientImpl` (chunk at 500) (NFR-13, NFR-14)
     - Done when: 8-section write makes 8 concurrent embed calls and 1 batch put call (verified by unit test spy); `SECTION_CONCURRENCY=0` rejected at startup; all existing write tests pass; ruff + mypy clean
     - Spec: `docs/specs/write-perf-p1-concurrent-embedding.md`
 
-27. ☐ **P2 — Retry and throttle fix** *(correctness fix)* — remove the duplicate `ThrottlingException` catch-and-retry blocks from `write.py` (redundant with `bedrock.py`'s internal retry; adds up to 5 s per throttled section); add `random.uniform(0, 1)` jitter to the `bedrock.py` retry sleep to prevent thundering-herd when concurrent embeds throttle simultaneously (NFR-11)
+27. ✅ **P2 — Retry and throttle fix** *(correctness fix)* — remove the duplicate `ThrottlingException` catch-and-retry blocks from `write.py` (redundant with `bedrock.py`'s internal retry; adds up to 5 s per throttled section); add `random.uniform(0, 1)` jitter to the `bedrock.py` retry sleep to prevent thundering-herd when concurrent embeds throttle simultaneously (NFR-11)
     - Done when: a `ThrottlingException` exhausting both `bedrock.py` retries results in exactly 2 `embed` calls total (no third attempt from `write.py`); `asyncio.sleep` is never called from `write.py` on a throttle event; jitter is applied (verified by patching `random.uniform`); ruff + mypy clean
     - Spec: `docs/specs/write-perf-p2-retry-throttle-fix.md`
 
-28. ☐ **P3 — Configurable section caps** *(defensive bound)* — add `EMBED_MAX_SECTIONS` (default 20) and `EMBED_MIN_SECTION_LENGTH` (default 50 chars) config vars; apply as filters in `write.py` immediately after `parse_sections`; fall back to document-level embed if no sections remain; log dropped sections at DEBUG (FR-01, NFR-13)
+28. ✅ **P3 — Configurable section caps** *(defensive bound)* — add `EMBED_MAX_SECTIONS` (default 20) and `EMBED_MIN_SECTION_LENGTH` (default 50 chars) config vars; apply as filters in `write.py` immediately after `parse_sections`; fall back to document-level embed if no sections remain; log dropped sections at DEBUG (FR-01, NFR-13)
     - Done when: a section with a 30-char body is not embedded when `EMBED_MIN_SECTION_LENGTH=50`; a 25-section document indexes only 20 vectors when `EMBED_MAX_SECTIONS=20`; full content is still returned by `read_artifact`; `EMBED_MAX_SECTIONS=0` rejected at startup; ruff + mypy clean
     - Spec: `docs/specs/write-perf-p3-section-caps.md`
 
-29. ☐ **L1+L2 — Migration skill parallel writes** *(skill + script)* — restructure SKILL.md Path A for ≥ 10 files into two phases (enrich all first, then spawn sub-agent batches of 4–5 via `task` tool); lower Path B threshold from 30 → 5 files; add `asyncio.gather` + `asyncio.Semaphore(MIGRATE_CONCURRENCY)` to `migrate.py` for concurrent writes; read `MIGRATE_CONCURRENCY` from env (default 3); wrap `main()` with `asyncio.run` (FR-23, NFR-15)
+29. ✅ **L1+L2 — Migration skill parallel writes** *(skill + script)* — restructure SKILL.md into three mutually exclusive bands (1–4 files → Path A sequential; 5–9 files → Path B manifest+script; ≥10 files → Path C parallel sub-agents via `task` tool, batches of 4–5); lower Path B threshold from 30 → 5 files; add `asyncio.gather` + `asyncio.Semaphore(MIGRATE_CONCURRENCY)` to `migrate.py` for concurrent writes; read `MIGRATE_CONCURRENCY` from env (default 3); wrap `main()` with `asyncio.run` (FR-23, NFR-15)
     - Done when: SKILL.md Step 5 clearly describes the two-phase enrichment + parallel-write path for ≥ 10 files with a sub-agent fallback; Path B gate reads "< 5 files" and "≥ 5 files"; `migrate.py --dry-run` on a 5-entry manifest outputs correct JSON preview; `migrate.py` on a 9-entry manifest processes entries concurrently (not strictly ordered in log); `MIGRATE_CONCURRENCY=0` exits with a clear error
     - Spec: `docs/specs/write-perf-l1-l2-migrate-skill.md`
     - **Open question:** Do sub-agents spawned by the `task` tool inherit cairn-mcp MCP connections? Test empirically during implementation; the SKILL.md fallback path (sub-agent returns metadata → main agent writes) must be in place regardless.
@@ -248,6 +248,8 @@ tools — skill authoring, README reduction, and any additional fixes identified
 - **Moto migration complete (2026-06-01)**: `FakeS3Client` and `FakeVectorsClient` deleted; all 12 unit test files migrated to moto-backed `S3ClientImpl` / `VectorsClientImpl`; `query_vectors` moto extension patched onto `S3VectorsBackend` in `conftest.py`; 451 unit tests passing; ruff + mypy clean. Unit test count dropped from 486 to 451 — the 35-test difference accounts for the deleted fake client test files (`test_fake_s3.py`, `test_fake_vectors.py`), partially offset by 6 new extension tests.
 
 - **Artifact type vocabulary extended to 14 types (2026-06-01)**: added `changelog`, `plan`, `postmortem`, `prd`, `runbook` to `ARTIFACT_TYPES` in `artifact.py` (9 → 14); `resources.py` descriptions and tier guidance updated for all 14 types; README type table and tier lists updated; 5 new parametrized test cases added (`test_artifact.py`); migration skill (`skills/migrating-to-cairn/SKILL.md`) updated with docs-root discovery sub-step, subdirectory-pattern table replacing hardcoded `docs/` paths, and Step 7 removal guidance for the 5 new types; `schema.yaml` type comment updated to list all 14 types. Quality gate: 457 unit tests passing, ruff clean, mypy clean. Spec: `docs/specs/extend-artifact-types-and-flexible-docs-root.md`.
+
+- **Phase 8 (write performance) complete (2026-06-02)**: 489 unit tests passing; ruff + mypy clean (31 source files); all 4 tasks delivered: P1 concurrent embedding + batched `put_vectors` (single `put_vectors_batch` call per artifact, `asyncio.Semaphore(SECTION_CONCURRENCY)`), P2 retry/throttle correctness fix (duplicate `write.py` retry removed; `random.uniform` jitter added to `bedrock.py`), P3 configurable section caps (`EMBED_MAX_SECTIONS=20`, `EMBED_MIN_SECTION_LENGTH=50`; length filter before cap; fallback to document-level embed), L1+L2 migration skill restructured into three mutually exclusive bands (1–4 → Path A sequential; 5–9 → Path B script; ≥10 → Path C sub-agents) with concurrent `asyncio.gather` writes in `migrate.py`.
 
 ## References
 

@@ -31,6 +31,7 @@ Environment variables (same as cairn-mcp server):
 """
 
 import argparse
+import asyncio
 import datetime
 import json
 import logging
@@ -626,6 +627,7 @@ Environment variables (same as cairn-mcp server):
   BEDROCK_EMBEDDING_DIMENSIONS  Embedding dimensions (default: 1024)
   BEDROCK_TEXT_MODEL          Text generation model for descriptions
                               (default: amazon.nova-lite-v1:0)
+  MIGRATE_CONCURRENCY         Max concurrent artifact writes (default: 3, min: 1)
 """,
     )
     parser.add_argument(
@@ -657,6 +659,22 @@ Environment variables (same as cairn-mcp server):
     embedding_dimensions = int(os.environ.get("BEDROCK_EMBEDDING_DIMENSIONS", "1024"))
     text_model = os.environ.get("BEDROCK_TEXT_MODEL", "amazon.nova-lite-v1:0")
     aws_profile = os.environ.get("AWS_PROFILE") or None
+
+    _concurrency_raw = os.environ.get("MIGRATE_CONCURRENCY", "3")
+    try:
+        migrate_concurrency = int(_concurrency_raw)
+    except ValueError:
+        print(  # noqa: T201
+            f"ERROR: MIGRATE_CONCURRENCY must be an integer (got '{_concurrency_raw}')",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    if migrate_concurrency < 1:
+        print(  # noqa: T201
+            f"ERROR: MIGRATE_CONCURRENCY must be ≥ 1 (got {migrate_concurrency})",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
     missing = [
         name
@@ -717,37 +735,49 @@ Environment variables (same as cairn-mcp server):
         print(f"ERROR: Failed to initialise AWS clients: {exc}", file=sys.stderr)  # noqa: T201
         sys.exit(1)
 
+    # ── Common kwargs for process_entry ──────────────────────────────────────
+    common_kwargs: dict[str, Any] = {
+        "global_cfg": global_cfg,
+        "bedrock_client": bedrock_client,
+        "text_model": text_model,
+        "embedding_model": embedding_model,
+        "embedding_dimensions": embedding_dimensions,
+        "s3_client": s3_client,
+        "vectors_client": vectors_client,
+        "artifact_bucket": artifact_bucket,
+        "vectors_bucket": vectors_bucket,
+        "vectors_index": vectors_index,
+        "write_prefix": write_prefix,
+    }
+
     # ── Process entries ───────────────────────────────────────────────────────
-    results = []
-    for i, entry in enumerate(entries):
-        logger.info(
-            "[%d/%d] Processing: %s", i + 1, len(entries), entry.get("path", "<no path>")
-        )
-        try:
-            result = process_entry(
-                entry=entry,
-                global_cfg=global_cfg,
-                bedrock_client=bedrock_client,
-                text_model=text_model,
-                embedding_model=embedding_model,
-                embedding_dimensions=embedding_dimensions,
-                dry_run=args.dry_run,
-                s3_client=s3_client,
-                vectors_client=vectors_client,
-                artifact_bucket=artifact_bucket,
-                vectors_bucket=vectors_bucket,
-                vectors_index=vectors_index,
-                write_prefix=write_prefix,
+    if args.dry_run:
+        # Dry-run: sequential, no concurrency needed
+        results = []
+        for i, entry in enumerate(entries):
+            logger.info(
+                "[%d/%d] Processing: %s", i + 1, len(entries), entry.get("path", "<no path>")
             )
-        except Exception as exc:
-            logger.error("Unexpected error processing %s: %s", entry.get("path"), exc)
-            result = {
-                "path": entry.get("path"),
-                "artifact_id": None,
-                "error": str(exc),
-                "written": False,
-            }
-        results.append(result)
+            try:
+                result = process_entry(entry=entry, dry_run=True, **common_kwargs)
+            except Exception as exc:
+                logger.error("Unexpected error processing %s: %s", entry.get("path"), exc)
+                result = {
+                    "path": entry.get("path"),
+                    "artifact_id": None,
+                    "error": str(exc),
+                    "written": False,
+                }
+            results.append(result)
+    else:
+        # Live run: concurrent writes bounded by MIGRATE_CONCURRENCY
+        results = asyncio.run(
+            _run_concurrent(
+                entries=entries,
+                common_kwargs=common_kwargs,
+                concurrency=migrate_concurrency,
+            )
+        )
 
     # ── Output JSON to stdout ─────────────────────────────────────────────────
     print(json.dumps(results, indent=2, default=str))  # noqa: T201 — JSON to stdout
@@ -759,6 +789,49 @@ Environment variables (same as cairn-mcp server):
         logger.info("Done: %d written, %d failed", written, failed)
     else:
         logger.info("Dry run complete: %d entries previewed (no writes)", len(results))
+
+
+async def _run_concurrent(
+    *,
+    entries: list[dict[str, Any]],
+    common_kwargs: dict[str, Any],
+    concurrency: int,
+) -> list[dict[str, Any]]:
+    """Run process_entry for all entries concurrently, bounded by a semaphore.
+
+    Partial failures are recorded per entry; processing continues regardless.
+    Results are returned in the same order as entries.
+    """
+    semaphore = asyncio.Semaphore(concurrency)
+    logger.info(
+        "Starting concurrent writes: %d entries | MIGRATE_CONCURRENCY=%d",
+        len(entries),
+        concurrency,
+    )
+
+    async def _write_one(index: int, entry: dict[str, Any]) -> dict[str, Any]:
+        async with semaphore:
+            logger.info(
+                "[%d/%d] Writing: %s", index + 1, len(entries), entry.get("path", "<no path>")
+            )
+            try:
+                return await asyncio.to_thread(
+                    process_entry, entry=entry, dry_run=False, **common_kwargs
+                )
+            except Exception as exc:
+                logger.error("Unexpected error processing %s: %s", entry.get("path"), exc)
+                return {
+                    "path": entry.get("path"),
+                    "artifact_id": None,
+                    "error": str(exc),
+                    "written": False,
+                }
+
+    results = await asyncio.gather(
+        *[_write_one(i, entry) for i, entry in enumerate(entries)],
+        return_exceptions=False,
+    )
+    return list(results)
 
 
 if __name__ == "__main__":

@@ -2,7 +2,7 @@
 type: feature-spec
 feature: write-perf-l1-l2-migrate-skill
 created: 2026-06-02
-status: ready
+status: implemented
 ---
 
 # Write Performance L1+L2 — Migration Skill Parallel Writes

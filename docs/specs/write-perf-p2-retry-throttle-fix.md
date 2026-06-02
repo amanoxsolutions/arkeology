@@ -2,7 +2,7 @@
 type: feature-spec
 feature: write-perf-p2-retry-throttle-fix
 created: 2026-06-02
-status: ready
+status: implemented
 ---
 
 # Write Performance P2 — Retry and Throttle Fix

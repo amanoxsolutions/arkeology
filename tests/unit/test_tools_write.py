@@ -816,17 +816,20 @@ async def _instant_sleep(_seconds: float) -> None:
     """Drop-in replacement for asyncio.sleep that returns immediately."""
 
 
-async def test_throttle_retry_success_returns_success_no_failure_log(
+async def test_throttle_on_doc_fallback_returns_partial_write_no_retry(
     monkeypatch: pytest.MonkeyPatch,
     s3_client: S3ClientImpl,
     vectors_client: VectorsClientImpl,
     tmp_path: pytest.TempPathFactory,
 ) -> None:
-    """Throttle on first embed, succeed on retry → success response; no failure log entry."""
+    """Throttle on doc-level embed → immediate partial_write; no write.py-level retry.
+
+    write.py delegates retry to BedrockClientImpl; the document-level fallback path
+    does not retry throttle errors itself.
+    """
     log_path = tmp_path / "failures.jsonl"
-    monkeypatch.setattr(asyncio, "sleep", _instant_sleep)
     settings = _make_settings(monkeypatch, FAILURE_LOG_PATH=str(log_path))
-    bedrock = _ThrottleThenSucceedBedrock()
+    bedrock = _ThrottleAlwaysBedrock()
 
     result = await write_artifact(
         s3=s3_client,
@@ -836,9 +839,9 @@ async def test_throttle_retry_success_returns_success_no_failure_log(
         **_ONE_SECTION_KWARGS,
     )
 
-    assert "error" not in result
+    assert result.get("error") == "partial_write"
     assert "artifact_id" in result
-    assert not log_path.exists()
+    assert log_path.exists()
 
 
 async def test_throttle_retry_both_fail_returns_partial_write(
@@ -925,12 +928,14 @@ async def test_put_vector_failure_returns_partial_write_with_log(
     tmp_path: pytest.TempPathFactory,
     mocker: pytest.MonkeyPatch,
 ) -> None:
-    """S3 write succeeds, put_vector raises → partial_write error; failure log written."""
+    """S3 write succeeds, put_vectors_batch raises → partial_write error; failure log written."""
     log_path = tmp_path / "failures.jsonl"
     settings = _make_settings(monkeypatch, FAILURE_LOG_PATH=str(log_path))
     bedrock = FakeBedrockClient(dimension=1024)
     mocker.patch.object(
-        vectors_client, "put_vector", side_effect=RuntimeError("simulated put_vector failure")
+        vectors_client,
+        "put_vectors_batch",
+        side_effect=RuntimeError("simulated put_vectors_batch failure"),
     )
 
     result = await write_artifact(
@@ -961,7 +966,9 @@ async def test_failure_log_entry_contains_all_required_fields(
     settings = _make_settings(monkeypatch, FAILURE_LOG_PATH=str(log_path))
     bedrock = FakeBedrockClient(dimension=1024)
     mocker.patch.object(
-        vectors_client, "put_vector", side_effect=RuntimeError("simulated put_vector failure")
+        vectors_client,
+        "put_vectors_batch",
+        side_effect=RuntimeError("simulated put_vectors_batch failure"),
     )
 
     await write_artifact(
@@ -1006,7 +1013,9 @@ async def test_failure_log_appends_across_multiple_failures(
     settings = _make_settings(monkeypatch, FAILURE_LOG_PATH=str(log_path))
     bedrock = FakeBedrockClient(dimension=1024)
     mocker.patch.object(
-        vectors_client, "put_vector", side_effect=RuntimeError("simulated put_vector failure")
+        vectors_client,
+        "put_vectors_batch",
+        side_effect=RuntimeError("simulated put_vectors_batch failure"),
     )
 
     for _ in range(2):
@@ -1056,13 +1065,13 @@ async def test_put_vector_credential_error_no_failure_log(
     tmp_path: pytest.TempPathFactory,
     mocker: pytest.MonkeyPatch,
 ) -> None:
-    """put_vector CredentialError → credential_error response; no failure log entry written."""
+    """put_vectors_batch CredentialError → credential_error response; no failure log written."""
     log_path = tmp_path / "failures.jsonl"
     settings = _make_settings(monkeypatch, FAILURE_LOG_PATH=str(log_path))
     bedrock = FakeBedrockClient(dimension=1024)
     mocker.patch.object(
         vectors_client,
-        "put_vector",
+        "put_vectors_batch",
         side_effect=CredentialError(
             message="AWS credentials are invalid or expired (simulated).",
             service="s3vectors",
@@ -1175,3 +1184,426 @@ async def test_head_object_credential_error_returns_credential_error(
 
     assert result.get("error") == "credential_error"
     assert len(s3_client.list_objects("")) == 0
+
+
+# ---------------------------------------------------------------------------
+# Helpers shared by T26 / T28 tests
+# ---------------------------------------------------------------------------
+
+
+def _make_sections_content(count: int, body_length: int = 120) -> str:
+    """Build Markdown with ``count`` H2 sections, each body ``body_length`` chars long."""
+    parts = [f"## Section {i}\n\n{'x' * body_length}" for i in range(1, count + 1)]
+    return "\n\n".join(parts)
+
+
+def _make_mixed_sections_content(
+    long_count: int, short_count: int, long_len: int = 120, short_len: int = 10
+) -> str:
+    """Build Markdown with a mix of long and short sections (long sections first)."""
+    parts = [f"## Long {i}\n\n{'x' * long_len}" for i in range(1, long_count + 1)]
+    parts += [f"## Short {i}\n\n{'x' * short_len}" for i in range(1, short_count + 1)]
+    return "\n\n".join(parts)
+
+
+# ---------------------------------------------------------------------------
+# T26 — Concurrent embedding and batched put_vectors
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_write_sections_embeds_all_concurrently(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """8-section document → embed called 8 times; put_vectors_batch called exactly once."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+    embed_spy = mocker.spy(bedrock, "embed")
+    batch_spy = mocker.spy(vectors_client, "put_vectors_batch")
+
+    content = _make_sections_content(8)
+    kwargs = {**_BASE_WRITE_KWARGS, "content": content}
+
+    result = await write_artifact(
+        s3=s3_client, vectors=vectors_client, bedrock=bedrock, settings=settings, **kwargs
+    )
+
+    assert "error" not in result
+    assert embed_spy.call_count == 8
+    assert batch_spy.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_write_sections_batch_put_called_once(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """5-section document → put_vectors_batch called exactly once (not 5 times)."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+    batch_spy = mocker.spy(vectors_client, "put_vectors_batch")
+
+    content = _make_sections_content(5)
+    kwargs = {**_BASE_WRITE_KWARGS, "content": content}
+
+    result = await write_artifact(
+        s3=s3_client, vectors=vectors_client, bedrock=bedrock, settings=settings, **kwargs
+    )
+
+    assert "error" not in result
+    assert batch_spy.call_count == 1
+
+
+class _FailOnSecondEmbedBedrock(FakeBedrockClient):
+    """Raises RuntimeError on the 2nd outer embed() call — thread-safe counter."""
+
+    import threading
+
+    def __init__(self, **kwargs: int) -> None:
+        super().__init__(**kwargs)
+        self._call_count = 0
+        self._lock = __import__("threading").Lock()
+
+    def embed(self, text: str, model_id: str, dimensions: int) -> list[float]:
+        with self._lock:
+            self._call_count += 1
+            count = self._call_count
+        if count == 2:
+            raise RuntimeError("simulated embed failure on 2nd call")
+        return super().embed(text, model_id, dimensions)
+
+
+@pytest.mark.asyncio
+async def test_write_any_embed_failure_aborts_atomically(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """Any embed failure → put_vectors_batch never called; response contains partial_write."""
+    settings = _make_settings(monkeypatch)
+    bedrock = _FailOnSecondEmbedBedrock(dimension=1024)
+    batch_spy = mocker.spy(vectors_client, "put_vectors_batch")
+
+    # 8 sections: the 2nd embed call will raise, aborting the whole batch
+    content = _make_sections_content(8)
+    kwargs = {**_BASE_WRITE_KWARGS, "content": content}
+
+    result = await write_artifact(
+        s3=s3_client, vectors=vectors_client, bedrock=bedrock, settings=settings, **kwargs
+    )
+
+    assert result.get("error") == "partial_write"
+    assert batch_spy.call_count == 0
+
+
+@pytest.mark.asyncio
+async def test_write_embed_credential_error_aborts(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """CredentialError on any embed → response error == 'credential_error'; no vectors written."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock.set_credential_failure(True)
+    batch_spy = mocker.spy(vectors_client, "put_vectors_batch")
+
+    content = _make_sections_content(3)
+    kwargs = {**_BASE_WRITE_KWARGS, "content": content}
+
+    result = await write_artifact(
+        s3=s3_client, vectors=vectors_client, bedrock=bedrock, settings=settings, **kwargs
+    )
+
+    assert result.get("error") == "credential_error"
+    assert batch_spy.call_count == 0
+
+
+@pytest.mark.asyncio
+async def test_write_sections_semaphore_default(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+) -> None:
+    """10-section write completes without error under default SECTION_CONCURRENCY=5."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+
+    content = _make_sections_content(10)
+    kwargs = {**_BASE_WRITE_KWARGS, "content": content}
+
+    result = await write_artifact(
+        s3=s3_client, vectors=vectors_client, bedrock=bedrock, settings=settings, **kwargs
+    )
+
+    assert "error" not in result
+    assert result["sections_indexed"] == 10
+
+
+# ---------------------------------------------------------------------------
+# T27 — Throttle fix: no asyncio.sleep from write.py
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_throttle_exhausted_calls_embed_exactly_twice(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """Throttle exhausted → embed called exactly once; error is partial_write.
+
+    write.py delegates retry to BedrockClientImpl; the write tool itself calls
+    embed exactly once per document-level fallback and propagates any exception.
+    """
+    settings = _make_settings(monkeypatch)
+    # _ThrottleAlwaysBedrock raises botocore ThrottlingException on every call
+    bedrock = _ThrottleAlwaysBedrock()
+    embed_spy = mocker.spy(bedrock, "embed")
+
+    result = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        **_ONE_SECTION_KWARGS,
+    )
+
+    assert embed_spy.call_count == 1
+    assert result.get("error") == "partial_write"
+
+
+@pytest.mark.asyncio
+async def test_no_extra_sleep_from_write_on_throttle(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """write.py must not call asyncio.sleep with a positive argument on throttle.
+
+    The sleep-with-jitter belongs in BedrockClientImpl, not in the write tool.
+    Any asyncio.sleep(0) is acceptable (yield-to-event-loop pattern); only positive
+    values indicate a retry delay injected by write.py.
+    """
+    settings = _make_settings(monkeypatch)
+    bedrock = _ThrottleAlwaysBedrock()
+
+    positive_sleep_calls: list[float] = []
+
+    async def capture_sleep(delay: float) -> None:
+        if delay > 0:
+            positive_sleep_calls.append(delay)
+
+    mocker.patch("asyncio.sleep", side_effect=capture_sleep)
+
+    await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        **_ONE_SECTION_KWARGS,
+    )
+
+    assert positive_sleep_calls == [], (
+        f"write.py called asyncio.sleep with positive delay(s): {positive_sleep_calls}. "
+        "The retry sleep must live in BedrockClientImpl, not in write.py."
+    )
+
+
+# ---------------------------------------------------------------------------
+# T28 — Configurable section caps and min-length filter
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_short_section_skipped(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """Sections shorter than EMBED_MIN_SECTION_LENGTH are skipped; only longer ones are embedded."""
+    settings = _make_settings(monkeypatch, EMBED_MIN_SECTION_LENGTH="50")
+    bedrock = FakeBedrockClient(dimension=1024)
+    embed_spy = mocker.spy(bedrock, "embed")
+
+    # Section 1: 10 chars (skipped). Sections 2 & 3: 200 chars each (pass filter).
+    content = (
+        "## Short Section\n\n" + "x" * 10 + "\n\n"
+        "## Long Section A\n\n" + "x" * 200 + "\n\n"
+        "## Long Section B\n\n" + "x" * 200
+    )
+    kwargs = {**_BASE_WRITE_KWARGS, "content": content}
+
+    result = await write_artifact(
+        s3=s3_client, vectors=vectors_client, bedrock=bedrock, settings=settings, **kwargs
+    )
+
+    assert "error" not in result
+    assert embed_spy.call_count == 2
+    assert result["sections_indexed"] == 2
+
+
+@pytest.mark.asyncio
+async def test_all_sections_short_falls_back_to_document(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """When all sections are filtered by min-length, document-level embed is used as fallback."""
+    settings = _make_settings(monkeypatch, EMBED_MIN_SECTION_LENGTH="50")
+    bedrock = FakeBedrockClient(dimension=1024)
+    embed_spy = mocker.spy(bedrock, "embed")
+
+    # Both sections have bodies of only 10 chars — both below the 50-char threshold
+    content = "## Tiny A\n\n" + "x" * 10 + "\n\n## Tiny B\n\n" + "x" * 10
+    kwargs = {**_BASE_WRITE_KWARGS, "content": content}
+
+    result = await write_artifact(
+        s3=s3_client, vectors=vectors_client, bedrock=bedrock, settings=settings, **kwargs
+    )
+
+    assert "error" not in result
+    # Document-level fallback: exactly one embed call, one vector indexed
+    assert embed_spy.call_count == 1
+    assert result["sections_indexed"] == 1
+
+
+@pytest.mark.asyncio
+async def test_min_length_zero_skips_no_sections(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """EMBED_MIN_SECTION_LENGTH=0 disables the filter — all sections are embedded."""
+    settings = _make_settings(monkeypatch, EMBED_MIN_SECTION_LENGTH="0")
+    bedrock = FakeBedrockClient(dimension=1024)
+    embed_spy = mocker.spy(bedrock, "embed")
+
+    # Mix of very short and longer sections; with min=0 all 4 pass
+    content = (
+        "## Tiny\n\nx\n\n"
+        "## Small\n\n" + "x" * 5 + "\n\n"
+        "## Medium\n\n" + "x" * 80 + "\n\n"
+        "## Large\n\n" + "x" * 200
+    )
+    kwargs = {**_BASE_WRITE_KWARGS, "content": content}
+
+    result = await write_artifact(
+        s3=s3_client, vectors=vectors_client, bedrock=bedrock, settings=settings, **kwargs
+    )
+
+    assert "error" not in result
+    assert embed_spy.call_count == 4
+    assert result["sections_indexed"] == 4
+
+
+@pytest.mark.asyncio
+async def test_sections_capped_at_max(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """25-section document with EMBED_MAX_SECTIONS=20 → only 20 sections are embedded."""
+    settings = _make_settings(monkeypatch, EMBED_MAX_SECTIONS="20")
+    bedrock = FakeBedrockClient(dimension=1024)
+    embed_spy = mocker.spy(bedrock, "embed")
+
+    content = _make_sections_content(25)
+    kwargs = {**_BASE_WRITE_KWARGS, "content": content}
+
+    result = await write_artifact(
+        s3=s3_client, vectors=vectors_client, bedrock=bedrock, settings=settings, **kwargs
+    )
+
+    assert "error" not in result
+    assert embed_spy.call_count == 20
+    assert result["sections_indexed"] == 20
+
+
+@pytest.mark.asyncio
+async def test_sections_under_cap_not_truncated(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """10-section document with EMBED_MAX_SECTIONS=20 → all 10 sections are embedded (no cap)."""
+    settings = _make_settings(monkeypatch, EMBED_MAX_SECTIONS="20")
+    bedrock = FakeBedrockClient(dimension=1024)
+    embed_spy = mocker.spy(bedrock, "embed")
+
+    content = _make_sections_content(10)
+    kwargs = {**_BASE_WRITE_KWARGS, "content": content}
+
+    result = await write_artifact(
+        s3=s3_client, vectors=vectors_client, bedrock=bedrock, settings=settings, **kwargs
+    )
+
+    assert "error" not in result
+    assert embed_spy.call_count == 10
+    assert result["sections_indexed"] == 10
+
+
+@pytest.mark.asyncio
+async def test_length_filter_then_cap(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """Filter applied first, then cap: 30 sections (5 short) → 25 pass filter, capped at 20."""
+    settings = _make_settings(monkeypatch, EMBED_MIN_SECTION_LENGTH="50", EMBED_MAX_SECTIONS="20")
+    bedrock = FakeBedrockClient(dimension=1024)
+    embed_spy = mocker.spy(bedrock, "embed")
+
+    # 25 long sections (120 chars) + 5 short sections (10 chars)
+    content = _make_mixed_sections_content(long_count=25, short_count=5)
+    kwargs = {**_BASE_WRITE_KWARGS, "content": content}
+
+    result = await write_artifact(
+        s3=s3_client, vectors=vectors_client, bedrock=bedrock, settings=settings, **kwargs
+    )
+
+    assert "error" not in result
+    # 25 long pass filter; capped at 20
+    assert embed_spy.call_count == 20
+    assert result["sections_indexed"] == 20
+
+
+@pytest.mark.asyncio
+async def test_all_filtered_then_capped_falls_back(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """All sections filtered by a very large min-length → document-level fallback (1 embed)."""
+    # Set min-length so large that all section bodies are below threshold
+    settings = _make_settings(monkeypatch, EMBED_MIN_SECTION_LENGTH="10000")
+    bedrock = FakeBedrockClient(dimension=1024)
+    embed_spy = mocker.spy(bedrock, "embed")
+
+    content = _make_sections_content(5, body_length=50)  # 50 chars each — far below 10000
+    kwargs = {**_BASE_WRITE_KWARGS, "content": content}
+
+    result = await write_artifact(
+        s3=s3_client, vectors=vectors_client, bedrock=bedrock, settings=settings, **kwargs
+    )
+
+    assert "error" not in result
+    # All filtered → document-level fallback: one embed, one vector
+    assert embed_spy.call_count == 1
+    assert result["sections_indexed"] == 1

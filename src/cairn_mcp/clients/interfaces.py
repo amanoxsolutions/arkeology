@@ -109,6 +109,18 @@ class VectorsClientInterface(Protocol):
         """
         ...
 
+    def put_vectors_batch(self, items: list[dict[str, Any]]) -> None:
+        """Put a batch of vectors; chunks at 500 per PutVectors API limit.
+
+        Args:
+            items: List of dicts with keys ``key`` (str), ``vector`` (list[float]),
+                and ``metadata`` (dict).
+
+        Raises:
+            CredentialError: If credentials are invalid or expired.
+        """
+        ...
+
     def get_vectors(self, keys: list[str]) -> list[dict[str, Any]]:
         """Retrieve vectors (with metadata) by key list.
 

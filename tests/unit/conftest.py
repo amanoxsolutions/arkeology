@@ -121,6 +121,10 @@ def _make_settings(
     monkeypatch.setenv("VECTORS_BUCKET", "my-vectors")
     monkeypatch.setenv("VECTORS_INDEX", "my-index")
     monkeypatch.setenv("WRITE_PREFIX", "artifacts")
+    # Disable min-length filter by default so short test section bodies are not filtered.
+    # Tests that exercise the filter explicitly override this via **overrides.
+    if "EMBED_MIN_SECTION_LENGTH" not in overrides:
+        monkeypatch.setenv("EMBED_MIN_SECTION_LENGTH", "0")
     if tmp_path is not None:
         monkeypatch.setenv("FAILURE_LOG_PATH", str(tmp_path / ".cairn_failures.jsonl"))
     for k, v in overrides.items():

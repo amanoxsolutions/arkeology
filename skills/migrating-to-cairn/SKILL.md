@@ -9,13 +9,16 @@ This skill guides you through a one-time migration of existing repository
 documentation into cairn-mcp. Use it when adopting cairn-mcp on a project that
 already has months or years of accumulated docs (in `docs/`, `documentation/`, or wherever the project organises its documentation).
 
-The skill supports two execution paths:
+The skill supports three execution paths:
 
-- **< 30 files (agent-only):** You read each file, generate descriptions
+- **1–4 files (agent-only, sequential):** You read each file, generate descriptions
   in-context, and call `write_artifact` for each. No extra tooling needed.
-- **≥ 30 files (manifest + script):** You produce a `CAIRN_IMPORT.yaml`
+- **5–9 files (manifest + script):** You produce a `CAIRN_IMPORT.yaml`
   manifest, the operator reviews it, then `migrate.py` executes bulk writes
   with Bedrock-generated descriptions and git-recovered dates.
+- **≥ 10 files (agent-only, parallel via sub-agents):** You enrich all files
+  first, then dispatch batches of 4–5 to sub-agents via the `task` tool for
+  concurrent `write_artifact` calls.
 
 ## Workflow
 
@@ -23,7 +26,7 @@ The skill supports two execution paths:
 2. **Discovery** — declare the ADR strategy (git only vs cairn-mcp only), then scan the repo for migration candidates using the two-pass classification system.
 3. **Classification table** — present the proposed type/tier/visibility mapping per file; wait for operator confirmation.
 4. **Metadata enrichment** — resolve title, date, description, team, and project for each confirmed file.
-5. **Two-path gate** — fewer than 30 files: agent writes directly via `write_artifact`; 30 or more: produce `CAIRN_IMPORT.yaml`, dry-run, then execute with `migrate.py`.
+5. **Two-path gate** — 1–4 files: agent writes directly via `write_artifact`; 5–9 files: produce `CAIRN_IMPORT.yaml`, dry-run, then execute with `migrate.py`; 10 or more files: agent enriches all files then dispatches batches of 4–5 to sub-agents.
 6. **Verification** — confirm all artifacts appear in `list_artifacts` and are semantically discoverable via `search_artifacts`.
 7. **Post-migration cleanup** — remove migrated files from git (per type guidance) and append the cairn-mcp usage snippet with the correct ADR variant to the project's `AGENTS.md`.
 
@@ -189,11 +192,11 @@ Omit for historical files (unknown at migration time).
 
 ---
 
-## Step 5 — Two-path decision gate
+## Step 5 — Three-path decision gate
 
 Count the files confirmed in Step 3.
 
-### Path A — Agent-only (< 30 files)
+### Path A — Agent-only, sequential (1–4 files)
 
 For each file:
 1. Read the file content.
@@ -205,7 +208,38 @@ For each file:
 
 After all files: skip to Step 6.
 
-### Path B — Manifest + script (≥ 30 files)
+### Path C — Agent-only, parallel (≥ 10 files via sub-agents)
+
+When the confirmed file count is 10 or more, use a two-phase parallel approach
+to avoid long single-context write loops:
+
+**Phase 1 — Enrich all files first (sequential, in this agent):**
+For every confirmed file, gather all metadata in this context window without
+writing:
+1. Read the file content.
+2. Generate a ≤ 280-character description in-context.
+3. Run `git log` commands to recover the date.
+4. Record the enriched metadata (title, date, description, type, tier, etc.)
+   for every file before writing any of them.
+
+**Phase 2 — Write in parallel batches (sub-agents via `task` tool):**
+Split the enriched list into batches of 4–5 files. For each batch, spawn a
+sub-agent using the `task` tool with explicit instructions:
+- Pass all enriched metadata for the batch in the task prompt (do not ask the
+  sub-agent to re-read files or re-generate descriptions).
+- Instruct the sub-agent to call `write_artifact` once per file in sequence.
+- Ask the sub-agent to return a JSON array of results with `artifact_id` and
+  any `error`.
+
+**Fallback if `write_artifact` is unavailable to sub-agents:**
+If the sub-agent reports that `write_artifact` is not available in its tool
+set, fall back to writing all files sequentially in this agent context. Report
+this fallback to the operator.
+
+**After all batches complete:** collect results from all sub-agents, log any
+errors, then proceed to Step 6.
+
+### Path B — Manifest + script (5–9 files)
 
 **5a — Produce the manifest**
 
@@ -258,6 +292,18 @@ After operator confirmation, run the full import:
 
 ```bash
 uv run skills/migrating-to-cairn/scripts/migrate.py \
+  --manifest CAIRN_IMPORT.yaml
+```
+
+The script writes artifacts concurrently (bounded by `MIGRATE_CONCURRENCY`,
+default 3). Set `MIGRATE_CONCURRENCY=1` to force sequential writes if rate
+limiting is a concern, or increase it (e.g. `MIGRATE_CONCURRENCY=5`) for
+faster bulk imports on large manifests. The value must be ≥ 1; the script
+exits with a clear error if an invalid value is provided.
+
+```bash
+# Example: faster import with higher concurrency
+MIGRATE_CONCURRENCY=5 uv run skills/migrating-to-cairn/scripts/migrate.py \
   --manifest CAIRN_IMPORT.yaml
 ```
 

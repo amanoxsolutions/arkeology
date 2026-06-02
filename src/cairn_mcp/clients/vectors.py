@@ -10,7 +10,7 @@ zero-query approach is deemed appropriate.
 """
 
 import logging
-from typing import Any
+from typing import Any, cast
 
 import boto3
 import botocore.exceptions
@@ -23,6 +23,8 @@ from cairn_mcp.errors import CredentialError, VectorIndexNotFoundError
 logger = logging.getLogger(__name__)
 
 # Error codes that indicate the index does not exist
+_PUT_VECTORS_CHUNK_SIZE: int = 500  # S3 Vectors PutVectors API limit
+
 _INDEX_NOT_FOUND_CODES = frozenset(
     {
         "NoSuchIndex",
@@ -88,6 +90,32 @@ class VectorsClientImpl:
             if is_credential_error(exc):
                 raise self._wrap_credential_error(exc) from exc
             raise
+
+    def put_vectors_batch(self, items: list[dict[str, Any]]) -> None:
+        """Put a batch of vectors, chunked at 500 per PutVectors API limit."""
+        if not items:
+            return
+        for i in range(0, len(items), _PUT_VECTORS_CHUNK_SIZE):
+            chunk = items[i : i + _PUT_VECTORS_CHUNK_SIZE]
+            vectors_payload = [
+                {
+                    "key": item["key"],
+                    "data": {"float32": item["vector"]},
+                    "metadata": item["metadata"],
+                }
+                for item in chunk
+            ]
+            logger.debug("S3Vectors put_vectors_batch chunk size=%d", len(chunk))
+            try:
+                self._client.put_vectors(
+                    vectorBucketName=self._bucket,
+                    indexName=self._index,
+                    vectors=cast(list[Any], vectors_payload),
+                )
+            except botocore.exceptions.ClientError as exc:
+                if is_credential_error(exc):
+                    raise self._wrap_credential_error(exc) from exc
+                raise
 
     def get_vectors(self, keys: list[str]) -> list[dict[str, Any]]:
         logger.debug("S3Vectors get_vectors count=%d", len(keys))

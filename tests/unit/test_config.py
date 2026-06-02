@@ -26,6 +26,9 @@ def clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
         "SEARCH_MAX_ITERATIONS",
         "SEARCH_DEFAULT_TOP_K",
         "LOG_LEVEL",
+        "SECTION_CONCURRENCY",
+        "EMBED_MAX_SECTIONS",
+        "EMBED_MIN_SECTION_LENGTH",
     ]:
         monkeypatch.delenv(var, raising=False)
 
@@ -360,5 +363,89 @@ def test_bedrock_embedding_dimensions_rejects_negative(
     """BEDROCK_EMBEDDING_DIMENSIONS=-1 raises ValidationError."""
     _required_env(monkeypatch)
     monkeypatch.setenv("BEDROCK_EMBEDDING_DIMENSIONS", "-1")
+    with pytest.raises(Exception):
+        Settings()
+
+
+# ---------------------------------------------------------------------------
+# T26 — SECTION_CONCURRENCY
+# ---------------------------------------------------------------------------
+
+
+def test_section_concurrency_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    """SECTION_CONCURRENCY absent → section_concurrency defaults to 5."""
+    _required_env(monkeypatch)
+    settings = Settings()
+    assert settings.section_concurrency == 5
+
+
+def test_section_concurrency_zero_invalid(monkeypatch: pytest.MonkeyPatch) -> None:
+    """SECTION_CONCURRENCY=0 → ValidationError (must be ≥1)."""
+    _required_env(monkeypatch)
+    monkeypatch.setenv("SECTION_CONCURRENCY", "0")
+    with pytest.raises(Exception):
+        Settings()
+
+
+def test_section_concurrency_negative_invalid(monkeypatch: pytest.MonkeyPatch) -> None:
+    """SECTION_CONCURRENCY=-1 → ValidationError (must be ≥1)."""
+    _required_env(monkeypatch)
+    monkeypatch.setenv("SECTION_CONCURRENCY", "-1")
+    with pytest.raises(Exception):
+        Settings()
+
+
+# ---------------------------------------------------------------------------
+# T28 — EMBED_MAX_SECTIONS
+# ---------------------------------------------------------------------------
+
+
+def test_embed_max_sections_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    """EMBED_MAX_SECTIONS absent → embed_max_sections defaults to 20."""
+    _required_env(monkeypatch)
+    settings = Settings()
+    assert settings.embed_max_sections == 20
+
+
+def test_embed_max_sections_custom(monkeypatch: pytest.MonkeyPatch) -> None:
+    """EMBED_MAX_SECTIONS=5 → embed_max_sections == 5."""
+    _required_env(monkeypatch)
+    monkeypatch.setenv("EMBED_MAX_SECTIONS", "5")
+    settings = Settings()
+    assert settings.embed_max_sections == 5
+
+
+def test_embed_max_sections_zero_invalid(monkeypatch: pytest.MonkeyPatch) -> None:
+    """EMBED_MAX_SECTIONS=0 → ValidationError (must be ≥1)."""
+    _required_env(monkeypatch)
+    monkeypatch.setenv("EMBED_MAX_SECTIONS", "0")
+    with pytest.raises(Exception):
+        Settings()
+
+
+# ---------------------------------------------------------------------------
+# T28 — EMBED_MIN_SECTION_LENGTH
+# ---------------------------------------------------------------------------
+
+
+def test_embed_min_section_length_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    """EMBED_MIN_SECTION_LENGTH absent → embed_min_section_length defaults to 50."""
+    _required_env(monkeypatch)
+    settings = Settings()
+    assert settings.embed_min_section_length == 50
+
+
+def test_embed_min_section_length_zero_valid(monkeypatch: pytest.MonkeyPatch) -> None:
+    """EMBED_MIN_SECTION_LENGTH=0 → valid (disables the minimum-length filter)."""
+    _required_env(monkeypatch)
+    monkeypatch.setenv("EMBED_MIN_SECTION_LENGTH", "0")
+    settings = Settings()
+    assert settings.embed_min_section_length == 0
+
+
+def test_embed_min_section_length_negative_invalid(monkeypatch: pytest.MonkeyPatch) -> None:
+    """EMBED_MIN_SECTION_LENGTH=-1 → ValidationError (must be ≥0)."""
+    _required_env(monkeypatch)
+    monkeypatch.setenv("EMBED_MIN_SECTION_LENGTH", "-1")
     with pytest.raises(Exception):
         Settings()

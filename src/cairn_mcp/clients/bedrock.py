@@ -6,6 +6,7 @@ All credential errors are caught and re-raised as CredentialError.
 
 import json
 import logging
+import random
 import time
 
 import boto3
@@ -96,7 +97,7 @@ class BedrockClientImpl:
                         code,
                         _RETRY_SLEEP_SECONDS,
                     )
-                    time.sleep(_RETRY_SLEEP_SECONDS)
+                    time.sleep(_RETRY_SLEEP_SECONDS + random.uniform(0, 1))
                     continue
                 raise
         # Should not reach here, but satisfies type checker

@@ -137,7 +137,7 @@ discover what to provide without consulting external documentation.
 
 ## Status
 
-> **Phase 5 complete** — `write_artifact`, `search_artifacts`, `read_artifact`, `list_artifacts`, `archive_artifact`, `delete_artifact`, `purge_archived`, `health_check`, `synthesise_artifacts`, `reconcile_index`, and `check_synthesis_freshness` are implemented and unit-tested.
+> **Phase 8 complete** — `write_artifact`, `search_artifacts`, `read_artifact`, `list_artifacts`, `archive_artifact`, `delete_artifact`, `purge_archived`, `health_check`, `synthesise_artifacts`, `reconcile_index`, and `check_synthesis_freshness` are implemented and unit-tested.
 
 ## Using the Migration Skill
 
@@ -149,13 +149,15 @@ in `docs/`.
 The skill covers discovery, classification by directory convention, metadata
 enrichment (descriptions, git-recovered dates), and two execution paths:
 
-- **< 30 files (agent-only):** the agent reads each file, generates
-  descriptions in-context, and calls `write_artifact` for each. No extra
+- **1–4 files (agent-only):** the agent reads each file, generates
+  descriptions in-context, and calls `write_artifact` sequentially. No extra
   tooling required.
-- **≥ 30 files (manifest + script):** the agent produces a `CAIRN_IMPORT.yaml`
+- **5–9 files (manifest + script):** the agent produces a `CAIRN_IMPORT.yaml`
   manifest, the operator reviews it, then `migrate.py` executes bulk writes
   with Bedrock-generated descriptions and `--dry-run` preview before
-  committing.
+  committing. Concurrency is controlled via `MIGRATE_CONCURRENCY` (default 3).
+- **≥ 10 files (parallel sub-agents):** the agent fans out across parallel
+  sub-agents processing batches of 4–5 files each for maximum throughput.
 
 ### Installation
 
@@ -213,6 +215,9 @@ All configuration is read from environment variables (or a `.env` file in the wo
 | `SEARCH_MAX_ITERATIONS` | No | `3` | Maximum S3 Vectors calls per search before returning available results |
 | `SEARCH_DEFAULT_TOP_K` | No | `5` | Default number of artifacts returned when the caller does not specify |
 | `FAILURE_LOG_PATH` | No | `.cairn_failures.jsonl` | Path to the tier 1 failure log file (JSONL); appended on partial write failures |
+| `SECTION_CONCURRENCY` | No | `5` | Max concurrent Bedrock embed calls per artifact write. Increase for faster bulk writes; lower to avoid throttling. Must be ≥ 1. |
+| `EMBED_MAX_SECTIONS` | No | `20` | Maximum number of `##` sections indexed per artifact. Sections beyond the cap are dropped from the vector index; full content is still stored in S3. Must be ≥ 1. |
+| `EMBED_MIN_SECTION_LENGTH` | No | `50` | Minimum body length (chars, stripped) for a section to be indexed. Sections shorter than this are dropped from the vector index. Set to `0` to disable. |
 | `LOG_LEVEL` | No | `INFO` | Python logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
 
 ## AWS Provisioning

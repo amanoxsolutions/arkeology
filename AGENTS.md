@@ -99,7 +99,8 @@ one makes all persisted memory inaccessible:
 - **Amazon Bedrock** (`BEDROCK_EMBEDDING_MODEL`): generates embeddings for write and search
   operations. Changing the embedding model after data has been written produces semantically
   incompatible vectors — search results degrade silently. Model changes require a full
-  re-index. Throttle transients are retried once; persistent throttling surfaces as an error.
+  re-index. Throttle transients are retried with jitter; persistent throttling surfaces as an error.
+  Concurrent embed calls per artifact write are bounded by `SECTION_CONCURRENCY` (default 5).
 
 ## Testing Conventions
 
@@ -130,6 +131,7 @@ one makes all persisted memory inaccessible:
 - Tier 2 artifact IDs are date-anchored: `{type_slug}-{date}-{title_slug}`; tier 3 are date-independent: `{type_slug}-{title_slug}` — do not alter this scheme
 - Client interfaces in `src/cairn_mcp/clients/interfaces.py` use `typing.Protocol` — concrete implementations (`s3.py`, `vectors.py`, `bedrock.py`) and fakes satisfy the structural contract without inheriting from the interface class; never add `ABC` or `abstractmethod` to client code
 - Vector client methods use the parameter name `filter_expr` (not `filter`) — never use the bare name `filter` in vector client calls; `filter` is a Python builtin and the rename avoids shadowing it
+- `SECTION_CONCURRENCY`, `EMBED_MAX_SECTIONS`, and `EMBED_MIN_SECTION_LENGTH` control write-path embedding behaviour; all three are validated at startup — setting any to an out-of-range value prevents the server from starting
 
 ## Non-Negotiable Rules
 

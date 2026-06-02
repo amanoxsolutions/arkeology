@@ -149,6 +149,33 @@ class Settings(BaseSettings):
         ),
     ]
 
+    SECTION_CONCURRENCY: Annotated[
+        int,
+        Field(
+            default=5,
+            description="Maximum number of concurrent section embedding calls during write.",
+        ),
+    ]
+
+    EMBED_MAX_SECTIONS: Annotated[
+        int,
+        Field(
+            default=20,
+            description="Maximum number of sections to embed per artifact write.",
+        ),
+    ]
+
+    EMBED_MIN_SECTION_LENGTH: Annotated[
+        int,
+        Field(
+            default=50,
+            description=(
+                "Minimum section body length (chars) to embed. "
+                "Sections shorter than this are skipped. Set to 0 to disable."
+            ),
+        ),
+    ]
+
     # ── Validators ────────────────────────────────────────────────────────────
 
     @field_validator("SEARCH_FETCH_TOP_K")
@@ -197,6 +224,27 @@ class Settings(BaseSettings):
         if upper not in _VALID_LOG_LEVELS:
             raise ValueError(f"LOG_LEVEL must be one of {sorted(_VALID_LOG_LEVELS)} (got '{v}')")
         return upper
+
+    @field_validator("SECTION_CONCURRENCY")
+    @classmethod
+    def validate_section_concurrency(cls, v: int) -> int:
+        if v < 1:
+            raise ValueError(f"SECTION_CONCURRENCY must be at least 1 (got {v})")
+        return v
+
+    @field_validator("EMBED_MAX_SECTIONS")
+    @classmethod
+    def validate_embed_max_sections(cls, v: int) -> int:
+        if v < 1:
+            raise ValueError(f"EMBED_MAX_SECTIONS must be at least 1 (got {v})")
+        return v
+
+    @field_validator("EMBED_MIN_SECTION_LENGTH")
+    @classmethod
+    def validate_embed_min_section_length(cls, v: int) -> int:
+        if v < 0:
+            raise ValueError(f"EMBED_MIN_SECTION_LENGTH must be at least 0 (got {v})")
+        return v
 
     # ── Computed properties ───────────────────────────────────────────────────
     # These snake_case properties provide IDE-friendly access to the UPPER_CASE
@@ -275,6 +323,21 @@ class Settings(BaseSettings):
     def failure_log_path(self) -> Path:
         """Path to the local partial-write failure log."""
         return Path(self.FAILURE_LOG_PATH)
+
+    @property
+    def section_concurrency(self) -> int:
+        """Maximum concurrent section embedding calls."""
+        return self.SECTION_CONCURRENCY
+
+    @property
+    def embed_max_sections(self) -> int:
+        """Maximum sections to embed per artifact write."""
+        return self.EMBED_MAX_SECTIONS
+
+    @property
+    def embed_min_section_length(self) -> int:
+        """Minimum section body length to embed (0 disables filter)."""
+        return self.EMBED_MIN_SECTION_LENGTH
 
     @property
     def read_prefixes_list(self) -> list[str]:

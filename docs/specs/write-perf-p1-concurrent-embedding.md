@@ -2,7 +2,7 @@
 type: feature-spec
 feature: write-perf-p1-concurrent-embedding
 created: 2026-06-02
-status: ready
+status: implemented
 ---
 
 # Write Performance P1 — Concurrent Embedding + Batched put_vectors
