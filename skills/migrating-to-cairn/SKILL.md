@@ -222,9 +222,34 @@ writing:
 4. Record the enriched metadata (title, date, description, type, tier, etc.)
    for every file before writing any of them.
 
-**Phase 2 — Write in parallel batches (sub-agents via `task` tool):**
-Split the enriched list into batches of 4–5 files. For each batch, spawn a
-sub-agent using the `task` tool with explicit instructions:
+**Phase 2 — Confirm parallelism, then write:**
+
+Before spawning any sub-agents, present the operator with the two parallelism
+knobs and their combined effect. Compute the default agent count from the file
+count (ceil(N / 5), capped at 5). Example for 12 files:
+
+> I'm ready to start writing. Before I begin, please confirm the parallelism
+> settings (or give me different numbers):
+>
+> | What | Proposed | Default |
+> |---|---|---|
+> | Parallel agents | 3 agents (4–5 files each) | 3 |
+> | Sections embedded at the same time per file | 5 | 5 |
+> | Combined parallel AI calls | 15 | 15 |
+>
+> ⚠️ Keep parallel agents × sections per file ≤ 15 to stay within Bedrock
+> quota. To change "sections per file", you need to restart the cairn-mcp
+> server with a different `SECTION_CONCURRENCY` value before proceeding.
+>
+> Reply **confirm** to use these values, or give me updated numbers.
+
+Wait for the operator's reply before spawning anything. If the operator
+provides a different agent count, recompute the files-per-agent split and
+confirm the new combined call count stays ≤ 15.
+
+**Write in parallel batches (sub-agents via `task` tool):**
+Split the enriched list into equal batches, one per agent. For each batch,
+spawn a sub-agent using the `task` tool with explicit instructions:
 - Pass all enriched metadata for the batch in the task prompt (do not ask the
   sub-agent to re-read files or re-generate descriptions).
 - Instruct the sub-agent to call `write_artifact` once per file in sequence.
@@ -288,22 +313,28 @@ correct the manifest before any writes occur.
 
 **5d — Execute**
 
-After operator confirmation, run the full import:
+Before running, present the operator with the two parallelism knobs and
+their combined effect. Example for 7 files:
+
+> The dry run looks good. Before I start writing, please confirm the
+> parallelism settings (or give me different numbers):
+>
+> | What | Proposed | Default |
+> |---|---|---|
+> | Files written at the same time | 3 | 3 |
+> | Sections embedded at the same time per file | 5 | 5 |
+> | Combined parallel AI calls | 15 | 15 |
+>
+> ⚠️ Keep files at a time × sections per file ≤ 15 to stay within Bedrock
+> quota. To change "sections per file", you need to restart the cairn-mcp
+> server with a different `SECTION_CONCURRENCY` value before proceeding.
+>
+> Reply **confirm** to use these values, or give me updated numbers.
+
+Wait for the operator's reply, then run with the confirmed values:
 
 ```bash
-uv run skills/migrating-to-cairn/scripts/migrate.py \
-  --manifest CAIRN_IMPORT.yaml
-```
-
-The script writes artifacts concurrently (bounded by `MIGRATE_CONCURRENCY`,
-default 3). Set `MIGRATE_CONCURRENCY=1` to force sequential writes if rate
-limiting is a concern, or increase it (e.g. `MIGRATE_CONCURRENCY=5`) for
-faster bulk imports on large manifests. The value must be ≥ 1; the script
-exits with a clear error if an invalid value is provided.
-
-```bash
-# Example: faster import with higher concurrency
-MIGRATE_CONCURRENCY=5 uv run skills/migrating-to-cairn/scripts/migrate.py \
+MIGRATE_CONCURRENCY=<confirmed_files_at_a_time> uv run skills/migrating-to-cairn/scripts/migrate.py \
   --manifest CAIRN_IMPORT.yaml
 ```
 

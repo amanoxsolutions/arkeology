@@ -20,9 +20,19 @@ from cairn_mcp.startup import validate_startup
 
 logger = logging.getLogger(__name__)
 
+# Third-party loggers that emit AWS credentials and full HTTP bodies at DEBUG.
+# Always clamped to WARNING regardless of the configured LOG_LEVEL to prevent
+# secretAccessKey, sessionToken, and request/response bodies from appearing in logs.
+_NOISY_LOGGERS: tuple[str, ...] = ("botocore", "boto3", "urllib3", "s3transfer")
+
 
 def configure_logging(level: str) -> None:
     """Configure the root logger with a stderr stream handler.
+
+    Third-party AWS SDK and HTTP library loggers (botocore, boto3, urllib3,
+    s3transfer) are always clamped to WARNING to prevent AWS temporary
+    credentials and full HTTP bodies from appearing in logs, even when
+    LOG_LEVEL=DEBUG is configured.
 
     Args:
         level: Desired log level string (DEBUG, INFO, WARNING, ERROR).
@@ -48,6 +58,12 @@ def configure_logging(level: str) -> None:
     handler = logging.StreamHandler(sys.stderr)
     handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s"))
     root.addHandler(handler)
+
+    # Suppress noisy third-party loggers unconditionally — they emit full HTTP
+    # bodies including AWS temporary credentials (secretAccessKey, sessionToken)
+    # at DEBUG level, which must never appear in the log regardless of LOG_LEVEL.
+    for name in _NOISY_LOGGERS:
+        logging.getLogger(name).setLevel(logging.WARNING)
 
 
 def main() -> None:

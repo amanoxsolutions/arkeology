@@ -217,6 +217,32 @@ class Settings(BaseSettings):
             )
         return v.strip("/")
 
+    @field_validator("READ_PREFIXES")
+    @classmethod
+    def validate_read_prefixes(cls, v: str) -> str:
+        """Filter comment tokens and reject tokens containing internal whitespace.
+
+        Tokens starting with '#' are silently dropped — they are comment artifacts
+        from .env files where inline comments were not stripped by python-dotenv.
+        Tokens containing internal whitespace (e.g. 'or leave blank') are invalid
+        S3 prefixes and raise an error so the operator knows to fix their .env.
+        """
+        if not v:
+            return v
+        clean: list[str] = []
+        for token in v.split(","):
+            stripped = token.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            if any(c in stripped for c in (" ", "\t")):
+                raise ValueError(
+                    f"READ_PREFIXES contains an invalid prefix '{stripped}': "
+                    "S3 prefixes must not contain whitespace. "
+                    "Check your .env file for template placeholder text."
+                )
+            clean.append(stripped)
+        return ",".join(clean)
+
     @field_validator("LOG_LEVEL")
     @classmethod
     def validate_log_level(cls, v: str) -> str:

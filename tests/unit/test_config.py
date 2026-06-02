@@ -449,3 +449,52 @@ def test_embed_min_section_length_negative_invalid(monkeypatch: pytest.MonkeyPat
     monkeypatch.setenv("EMBED_MIN_SECTION_LENGTH", "-1")
     with pytest.raises(Exception):
         Settings()
+
+
+# ---------------------------------------------------------------------------
+# READ_PREFIXES validator — comment filtering and whitespace rejection
+# ---------------------------------------------------------------------------
+
+
+def test_read_prefixes_comment_only_token_silently_dropped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """READ_PREFIXES='# comma-separated' → comment token dropped → empty list."""
+    _required_env(monkeypatch)
+    monkeypatch.setenv("READ_PREFIXES", "# comma-separated")
+    settings = Settings()
+    assert settings.read_prefixes_list == []
+
+
+def test_read_prefixes_valid_and_comment_token_mixed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """READ_PREFIXES='platform/, # a comment' → only valid prefix retained."""
+    _required_env(monkeypatch)
+    monkeypatch.setenv("READ_PREFIXES", "platform/, # a comment")
+    settings = Settings()
+    assert settings.read_prefixes_list == ["platform/"]
+
+
+def test_read_prefixes_internal_whitespace_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """READ_PREFIXES='or leave blank' → ValidationError (whitespace in prefix)."""
+    _required_env(monkeypatch)
+    monkeypatch.setenv("READ_PREFIXES", "or leave blank")
+    with pytest.raises(Exception, match="whitespace"):
+        Settings()
+
+
+def test_read_prefixes_comment_then_whitespace_token_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """READ_PREFIXES='# comma-separated, or leave blank' → ValidationError.
+
+    The comment token is dropped first; the whitespace token still triggers the error.
+    This is the exact value observed in the live-test log (line 580).
+    """
+    _required_env(monkeypatch)
+    monkeypatch.setenv("READ_PREFIXES", "# comma-separated, or leave blank")
+    with pytest.raises(Exception, match="whitespace"):
+        Settings()
