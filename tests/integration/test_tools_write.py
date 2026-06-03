@@ -109,8 +109,13 @@ async def test_tier3_rewrite_fewer_sections_cleans_orphans(
     bedrock: BedrockClientImpl,
 ) -> None:
     """Tier 3 re-write with 2 sections after 3 → list_vectors_by_metadata returns 2 keys."""
-    three_section_content = "## Alpha\n\nBody A.\n\n## Beta\n\nBody B.\n\n## Gamma\n\nBody C."
-    two_section_content = "## Alpha\n\nBody A.\n\n## Beta\n\nBody B."
+    _body_a = "Body for Alpha — long enough to pass the default min section length filter."
+    _body_b = "Body for Beta — long enough to pass the default min section length filter."
+    _body_c = "Body for Gamma — long enough to pass the default min section length filter."
+    three_section_content = (
+        f"## Alpha\n\n{_body_a}\n\n## Beta\n\n{_body_b}\n\n## Gamma\n\n{_body_c}"
+    )
+    two_section_content = f"## Alpha\n\n{_body_a}\n\n## Beta\n\n{_body_b}"
 
     kwargs_3 = {**_BASE_KWARGS, "tier": 3, "title": "Integration rewrite test three"}
     kwargs_2 = {**_BASE_KWARGS, "tier": 3, "title": "Integration rewrite test three"}

@@ -1685,6 +1685,47 @@ async def test_section_full_body_stored_in_s3_despite_embed_truncation(
 
 
 @pytest.mark.asyncio
+async def test_sections_under_max_length_are_all_embedded(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """Sections whose bodies are below EMBED_MAX_SECTION_LENGTH are embedded unchanged.
+
+    This is the normal-path case: every section should appear in sections_indexed
+    and bedrock.embed must receive the full (untruncated) body for each section.
+    """
+    settings = _make_settings(monkeypatch, EMBED_MAX_SECTION_LENGTH="200")
+    bedrock = FakeBedrockClient(dimension=1024)
+    embed_spy = mocker.spy(bedrock, "embed")
+
+    body_a = "a" * 50  # well under the 200-char limit
+    body_b = "b" * 75  # well under the 200-char limit
+    content = f"## Section A\n\n{body_a}\n\n## Section B\n\n{body_b}"
+    kwargs = {**_BASE_WRITE_KWARGS, "content": content}
+
+    result = await write_artifact(
+        s3=s3_client, vectors=vectors_client, bedrock=bedrock, settings=settings, **kwargs
+    )
+
+    # Both sections must be indexed — document-level fallback must NOT fire
+    assert result["sections_indexed"] == 2, (
+        f"Expected 2 sections indexed, got {result['sections_indexed']}. "
+        "Sections under embed_max_section_length may have been silently dropped."
+    )
+
+    # Each embed call must carry the full (untruncated) body
+    embed_texts = [call.args[0] for call in embed_spy.call_args_list]
+    assert any(body_a in text for text in embed_texts), (
+        "Full body_a not found in any bedrock.embed call — section was dropped or truncated"
+    )
+    assert any(body_b in text for text in embed_texts), (
+        "Full body_b not found in any bedrock.embed call — section was dropped or truncated"
+    )
+
+
+@pytest.mark.asyncio
 async def test_embed_max_section_length_zero_disables_truncation(
     monkeypatch: pytest.MonkeyPatch,
     s3_client: S3ClientImpl,
