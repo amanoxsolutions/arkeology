@@ -51,7 +51,7 @@ making it discoverable by agents on other projects or teams that point at the sa
 - **Rich, filterable metadata** — every artifact carries structured metadata that is returned with every search result. Browse and filter without fetching full content.
 - **Knowledge synthesis** — compile multiple related artifacts into a single reference document. The result is stored as a first-class artifact with source identifiers recorded, so provenance is always traceable.
 - **Full artifact lifecycle** — archive, delete, and purge artifacts as projects evolve. Referential safety checks warn before removing an artifact that other synthesis documents depend on.
-- **Migration skill for existing projects** — adopt cairn-mcp on a project with years of accumulated docs without starting from zero. A bundled skill classifies, enriches, and imports existing documentation in a single structured workflow.
+- **Migration skill and server tools for existing projects** — adopt cairn-mcp on a project with years of accumulated docs without starting from zero. A bundled skill and a dedicated `migrate_artifacts` server tool classify, enrich, and import existing documentation in a single structured workflow. For large batches (> 10 files), Bedrock generates artifact descriptions server-side — avoiding the agent consuming and summarising hundreds of files in-context — using Amazon Nova Lite by default.
 - **AWS-native — no extra services** — S3, S3 Vectors, and Bedrock are the only dependencies. Teams already running on AWS have nothing new to operate or secure.
 - **CI/CD-ready** — works with any standard AWS credential environment: local developer profiles, IAM roles, ECS tasks, or CI/CD OIDC tokens. A pipeline agent and an interactive developer agent use identical tools.
 - **Flexible ADR strategy** — teams choose one authoritative home for ADRs: git (where the PR merge is the approval record) or cairn-mcp (single source of truth for teams without a formal PR-based ceremony). The choice is declared once in the project's `AGENTS.md` and respected by every agent that reads it.
@@ -120,6 +120,8 @@ Amazon Bedrock (Titan Text v2). Agents connect via the Model Context Protocol an
 | Tool | What it does | Key inputs | Key outputs |
 |---|---|---|---|
 | `write_artifact` | Store an artifact in S3 and index it in S3 Vectors | `type`, `team`, `project`, `tier`, `title`, `content`, `visibility`, optional filters | `artifact_id`, `sections_indexed` |
+| `write_artifacts` | Bulk-write multiple artifacts in a single call with per-entry success/error reporting | list of artifact descriptors | per-artifact list of `artifact_id` + `written: true` or `error` |
+| `migrate_artifacts` | Migration-specific bulk write; generates descriptions server-side via Bedrock when omitted; `dry_run=True` previews enriched descriptors without writing | list of artifact descriptors, `dry_run` | enriched descriptor list (dry run) or per-artifact write results |
 | `search_artifacts` | Semantic search over the vector index with optional metadata filters | `query`, optional: `type`, `feature_tags`, `team`, `project`, `tier`, `status`, `top_k` | List of artifact metadata (no content) |
 | `read_artifact` | Fetch the full content of an artifact by ID | `artifact_id` | Full artifact dict including `content` |
 | `list_artifacts` | List artifact metadata with optional filters; defaults to active artifacts | optional: `type`, `team`, `project`, `tier`, `status`, `feature_tags` | List of artifact metadata records |
@@ -137,27 +139,29 @@ discover what to provide without consulting external documentation.
 
 ## Status
 
-> **Phase 8 complete** — `write_artifact`, `search_artifacts`, `read_artifact`, `list_artifacts`, `archive_artifact`, `delete_artifact`, `purge_archived`, `health_check`, `synthesise_artifacts`, `reconcile_index`, and `check_synthesis_freshness` are implemented and unit-tested.
+> **v0.2.0** — all tools implemented and unit-tested: `write_artifact`, `write_artifacts`, `migrate_artifacts`, `search_artifacts`, `read_artifact`, `list_artifacts`, `archive_artifact`, `delete_artifact`, `purge_archived`, `health_check`, `synthesise_artifacts`, `reconcile_index`, and `check_synthesis_freshness`.
 
 ## Using the Migration Skill
 
-The migration skill provides a structured one-time workflow for importing
-existing repository documentation into cairn-mcp. Use it when adopting
-cairn-mcp on a project that already has months or years of accumulated docs
-in `docs/`.
+The migration skill and the `migrate_artifacts` server tool together provide a structured
+one-time workflow for importing existing repository documentation into cairn-mcp. Use them
+when adopting cairn-mcp on a project that already has months or years of accumulated docs.
 
-The skill covers discovery, classification by directory convention, metadata
-enrichment (descriptions, git-recovered dates), and two execution paths:
+The skill covers discovery, classification by directory convention, and two execution paths
+based on the number of files to import:
 
-- **1–4 files (agent-only):** the agent reads each file, generates
-  descriptions in-context, and calls `write_artifact` sequentially. No extra
-  tooling required.
-- **5–9 files (manifest + script):** the agent produces a `CAIRN_IMPORT.yaml`
-  manifest, the operator reviews it, then `migrate.py` executes bulk writes
-  with Bedrock-generated descriptions and `--dry-run` preview before
-  committing. Concurrency is controlled via `MIGRATE_CONCURRENCY` (default 3).
-- **≥ 10 files (parallel sub-agents):** the agent fans out across parallel
-  sub-agents processing batches of 4–5 files each for maximum throughput.
+- **≤ 10 files — agent-generated descriptions:** the agent reads each file, writes a
+  description in-context (≤ 280 chars), presents the list to the operator for review, then
+  calls `migrate_artifacts` directly. No external model call is made.
+- **> 10 files — server-generated descriptions:** the agent produces a `CAIRN_IMPORT.yaml`
+  manifest, calls `migrate_artifacts(dry_run=True)` to trigger server-side description
+  generation via Bedrock (Amazon Nova Lite by default), writes the generated descriptions
+  back into the manifest for operator review, then executes with `dry_run=False`. The agent
+  never consumes file content to produce descriptions — Bedrock handles it server-side,
+  keeping the agent context window free regardless of batch size.
+
+Both paths support resume: if a migration is interrupted or partially fails, the skill
+detects the existing manifest at startup and resumes from the correct step.
 
 ### Installation
 
@@ -184,7 +188,8 @@ Once installed, load the skill and follow the seven-step workflow in
 - [`uv`](https://docs.astral.sh/uv/)
 - AWS credentials with access to S3, S3 Vectors, and Bedrock
 - An S3 bucket, an S3 Vectors bucket, and an S3 Vectors index (provisioned externally)
-- Amazon Bedrock Titan Text Embeddings v2 model access enabled in your AWS account
+- Access to **Amazon Titan Text Embeddings v2** (`amazon.titan-embed-text-v2:0`) — or another Bedrock embedding model of your choice — for artifact indexing and search
+- Access to **Amazon Nova Lite** (`amazon.nova-lite-v1:0`) — or another Bedrock text model of your choice — for server-side description generation during migration (only required when using `migrate_artifacts`)
 
 ## Installation
 
@@ -218,6 +223,9 @@ All configuration is read from environment variables (or a `.env` file in the wo
 | `SECTION_CONCURRENCY` | No | `5` | Max concurrent Bedrock embed calls per artifact write. Increase for faster bulk writes; lower to avoid throttling. Must be ≥ 1. |
 | `EMBED_MAX_SECTIONS` | No | `20` | Maximum number of `##` sections indexed per artifact. Sections beyond the cap are dropped from the vector index; full content is still stored in S3. Must be ≥ 1. |
 | `EMBED_MIN_SECTION_LENGTH` | No | `50` | Minimum body length (chars, stripped) for a section to be indexed. Sections shorter than this are dropped from the vector index. Set to `0` to disable. |
+| `EMBED_MAX_SECTION_LENGTH` | No | `24000` | Maximum body length (chars) per section before truncation for embedding. Set to `0` to disable. |
+| `ARTIFACT_CONCURRENCY` | No | `3` | Max artifacts processed concurrently by `write_artifacts` and `migrate_artifacts`. Must be ≥ 1. |
+| `BEDROCK_TEXT_MODEL` | No | `amazon.nova-lite-v1:0` | Bedrock text model used by `migrate_artifacts` to generate artifact descriptions server-side. Set to empty to disable server-side generation. |
 | `LOG_LEVEL` | No | `INFO` | Python logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
 
 ## AWS Provisioning
@@ -282,11 +290,11 @@ supports 256 and 512. If you use a non-default dimension, set `BEDROCK_EMBEDDING
 to the same value — the server validates that the configured dimension matches the index at
 startup.
 
-### Step 4 — Enable Bedrock model access
+### Step 4 — Verify Bedrock model access
 
-Go to **AWS Console → Amazon Bedrock → Model access** and enable access to
-**Amazon Titan Text Embeddings V2** (`amazon.titan-embed-text-v2:0`) in the same region
-you used for the index. Model access must be in the same AWS region as `AWS_REGION`.
+Confirm that **Amazon Titan Text Embeddings v2** (`amazon.titan-embed-text-v2:0`) and, if
+you plan to use `migrate_artifacts`, **Amazon Nova Lite** (`amazon.nova-lite-v1:0`) are
+available in your AWS region. Both models are enabled by default in supported regions.
 
 ### Minimum IAM Policy
 
@@ -331,6 +339,13 @@ Attach the following policy to the IAM user or role that runs cairn-mcp. Replace
       "Effect": "Allow",
       "Action": "bedrock:InvokeModel",
       "Resource": "arn:aws:bedrock:YOUR-REGION::foundation-model/amazon.titan-embed-text-v2:0"
+    },
+    {
+      "Sid": "BedrockTextModel",
+      "Comment": "Required only if using migrate_artifacts. Adjust the resource ARN if your region requires a cross-region inference profile for Nova Lite.",
+      "Effect": "Allow",
+      "Action": "bedrock:InvokeModel",
+      "Resource": "arn:aws:bedrock:YOUR-REGION::foundation-model/amazon.nova-lite-v1:0"
     }
   ]
 }
