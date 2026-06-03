@@ -9,30 +9,29 @@ This skill guides you through a one-time migration of existing repository
 documentation into cairn-mcp. Use it when adopting cairn-mcp on a project that
 already has months or years of accumulated docs (in `docs/`, `documentation/`, or wherever the project organises its documentation).
 
-The skill supports three execution paths:
+`migrate_artifacts` is the only migration tool. After the shared discovery and
+classification steps, the file count determines which path to follow:
 
-- **1–4 files (agent-only, sequential):** You read each file, generate descriptions
-  in-context, and call `write_artifact` for each. No extra tooling needed.
-- **5–9 files (manifest + script):** You produce a `CAIRN_IMPORT.yaml`
-  manifest, the operator reviews it, then `migrate.py` executes bulk writes
-  with Bedrock-generated descriptions and git-recovered dates.
-- **≥ 10 files (agent-only, parallel via sub-agents):** You enrich all files
-  first, then dispatch batches of 4–5 to sub-agents via the `task` tool for
-  concurrent `write_artifact` calls.
+- **Step 3.A — ≤ 10 files:** agent generates descriptions in-context, presents them
+  to the operator, then calls `migrate_artifacts(dry_run=False)` directly — Nova
+  Lite is never called.
+- **Step 3.B — > 10 files:** agent produces `CAIRN_IMPORT.yaml` for progress
+  tracking, previews with `migrate_artifacts(dry_run=True)` so the operator can
+  review server-generated descriptions before committing, then executes with `dry_run=False`.
 
 ## Workflow
 
-1. **Pre-migration health check** — verify cairn-mcp is reachable and all components return `"status": "ok"`.
-2. **Discovery** — declare the ADR strategy (git only vs cairn-mcp only), then scan the repo for migration candidates using the two-pass classification system.
-3. **Classification table** — present the proposed type/tier/visibility mapping per file; wait for operator confirmation.
-4. **Metadata enrichment** — resolve title, date, description, team, and project for each confirmed file.
-5. **Two-path gate** — 1–4 files: agent writes directly via `write_artifact`; 5–9 files: produce `CAIRN_IMPORT.yaml`, dry-run, then execute with `migrate.py`; 10 or more files: agent enriches all files then dispatches batches of 4–5 to sub-agents.
-6. **Verification** — confirm all artifacts appear in `list_artifacts` and are semantically discoverable via `search_artifacts`.
-7. **Post-migration cleanup** — remove migrated files from git (per type guidance) and append the cairn-mcp usage snippet with the correct ADR variant to the project's `AGENTS.md`.
+1. **Health check** — verify cairn-mcp is reachable.
+2. **Discovery** — scope the migration, declare ADR strategy, classify files.
+3. **Classification table** — operator confirms type/tier/visibility per file and provides team/project; file count determines the path.
+   - → **Step 3.A (≤ 10 files):** build descriptors with in-context descriptions → present to operator → execute.
+   - → **Step 3.B (> 10 files):** produce manifest → operator review → read files + dry-run preview → execute.
+4. **Verification** — confirm artifacts appear in `list_artifacts` and `search_artifacts`.
+5. **Post-migration cleanup** — remove migrated files from git (per type guidance) and update `AGENTS.md`.
 
 ---
 
-## Step 1 — Pre-migration health check
+## Step 1 — Health check
 
 Before touching any files, verify cairn-mcp is configured and reachable.
 
@@ -47,30 +46,63 @@ Call the `health_check` MCP tool (no arguments). Examine the response:
 
 ## Step 2 — Discovery
 
-### ADR strategy — decide before cataloguing files
+### 2a — Check for existing manifest
+
+Before scanning the repository, check whether `CAIRN_IMPORT.yaml` exists in the repo root.
+
+- **No manifest found** → continue to 2b.
+- **All entries `status: written`** → a previous run completed successfully. Skip to Step 4 — Verification.
+- **All entries `status: pending`** → the manifest was produced but the dry-run preview has not run yet. Ask the operator: continue from 3.B3, or discard the manifest and restart from scratch?
+- **Mix of `status: written` / `status: pending` / `status: failed`** → migration is in progress or partially failed. Present a summary (X written, Y pending, Z failed). Skip to 3.B3 with only the `pending` and `failed` entries.
+
+**Do not proceed further until the operator has confirmed how to continue.**
+
+---
+
+### 2b — Scope the migration
+
+Scan the repository's directory tree (one level at a time, top-down) and identify
+folders that are likely to contain documentation artifacts. Look for names such as
+`docs`, `documentation`, `adr`, `adrs`, `specs`, `spec`, `decisions`, `architecture`,
+`sessions`, `notes`, `reviews`, `runbooks`, `planning`, `brainstorming`, etc.
+Do **not** descend into source code directories (`src/`, `lib/`, `app/`, `tests/`,
+`node_modules/`, `.git/`, build outputs, etc.).
+
+Present the candidate folder list to the operator and ask them to:
+1. Confirm which folders to include.
+2. Add any folders you missed.
+3. Name any files or subdirectories within those folders to exclude
+   (e.g. auto-generated files, WIP drafts, files already migrated).
+
+**Do not proceed to 2c until the operator has confirmed the scope.**
+
+---
+
+### 2c — ADR strategy
 
 Before scanning for migration candidates, the operator must declare their ADR storage strategy.
-This is a binary, one-time decision. Keeping ADRs in two systems creates a sync problem that is
-not acceptable; choose one authoritative home and commit to it.
+This is a binary, one-time decision. Keeping ADRs in two systems creates a sync problem; choose
+one authoritative home and commit to it.
 
-**The deciding question:** Does your team use pull request review as the approval mechanism
-for ADRs?
+| Strategy | What this means for migration |
+|----------|-------------------------------|
+| **Git only** | ADRs stay in git. Skip all `adr`-type files in the scan — do not migrate them into cairn-mcp. The git file is the single source of truth. |
+| **cairn-mcp only** | Migrate ADRs into cairn-mcp. cairn-mcp becomes the single source of truth. After migration you may remove the git files. |
 
-| Answer | Strategy | What this means for migration |
-|--------|----------|-------------------------------|
-| **Yes — PR merge is the approval act** | **Git only** | ADRs stay in git. **Skip all `adr`-type files in the discovery scan below** — do not migrate them into cairn-mcp. The git file is the single source of truth; the PR discussion is part of the approval record and cannot be replicated in cairn-mcp. |
-| **No — no formal PR-based approval** | **cairn-mcp only** | Migrate ADRs into cairn-mcp. cairn-mcp becomes the single source of truth. After migration you may remove the git files. |
-
-This choice must be recorded in the project's `AGENTS.md` — Step 7 provides the correct snippet
+Ask the operator which strategy they want, without suggesting one over the other.
+This choice must be recorded in the project's `AGENTS.md` — Step 5 provides the correct snippet
 for each option.
 
 **Wait for the operator to confirm their ADR strategy before continuing.**
 
 ---
 
-Scan the repository for migration candidates. Classify every `.md` file found using
-the two passes below, in order. If the operator chose **git only** for ADRs, apply
-the classification first and then exclude files that resolved to `adr`.
+### 2d — Scan and classify
+
+Scan only the directories and files confirmed in 2b. Classify each `.md` file using
+the two passes below, in order. Apply the exclusion list the operator provided, plus
+the always-skip rules at the bottom of this section. If the operator chose **git only**
+for ADRs, exclude any file that resolves to type `adr`.
 
 ### Pass 1 — Filename rules (highest priority)
 
@@ -122,13 +154,10 @@ sensitive.
 
 ---
 
-## Step 3 — Classification table
+## Step 3 — Classification table and path selection
 
-After discovery, present a classification table to the operator showing the
-proposed mapping for every candidate file. The operator may correct any row
-before you proceed.
-
-Example table format:
+Present a classification table to the operator showing the proposed mapping for
+every candidate file. The operator may correct any row before you proceed.
 
 | File | Type | Tier | Visibility | Notes |
 |------|------|------|-----------|-------|
@@ -136,140 +165,94 @@ Example table format:
 | docs/specs/search.md | spec | 3 | shared | |
 | docs/sessions/2026-01-sprint.md | session_summary | 2 | hidden | internal notes |
 
-Wait for operator confirmation before proceeding to Step 4.
+Also ask the operator for:
+- **team** — team identifier (e.g. `platform`, `backend`)
+- **project** — project identifier (e.g. `cairn-mcp`, `billing`)
+
+Wait for operator confirmation of both the table and team/project before continuing.
+
+**Count the confirmed files.**
+- ≤ 10 files → follow **Step 3.A** below.
+- > 10 files → follow **Step 3.B** below.
 
 ---
 
-## Step 4 — Metadata enrichment
+## Step 3.A — ≤ 10 files
 
-For each file in the confirmed classification table, determine:
+> Agent generates descriptions in-context.
+> No manifest is produced. The only `migrate_artifacts` call is `dry_run=False`.
 
-### Title
-1. Extract the first `# H1` heading from the file content.
-2. If no H1, clean the filename: strip path, extension, date prefixes; replace
-   hyphens/underscores with spaces; title-case.
+### 3.A1 — Build descriptors
 
-### Date
-- **Tier 2:** first commit date (when the file was originally created in git).
-- **Tier 3:** last commit date (when the canonical version was last updated).
-- Override with `date:` frontmatter field if present (takes precedence over git log and filename).
-- Override with a `YYYY-MM-DD` pattern in the filename if present (takes precedence over git log).
-- Fall back to git log when neither frontmatter nor filename provides a date.
-- Fallback to today's date (log a warning to stderr).
+For each file, read its full content and build a descriptor:
 
-Priority order used by `migrate.py`:
-1. `date_override` in manifest entry
-2. frontmatter `date:` field
-3. `YYYY-MM-DD` pattern in filename
-4. `git log` (first commit for tier 2, last commit for tier 3)
-5. today's date (fallback, logged to stderr)
+| Field | How to populate |
+|-------|----------------|
+| `type` | from classification table |
+| `tier` | from classification table |
+| `team` | from operator (Step 3) |
+| `project` | from operator (Step 3) |
+| `visibility` | from classification table |
+| `title` | first `# H1` heading; if none, clean the filename (strip path/extension/date prefix, replace hyphens with spaces, title-case) |
+| `date` | frontmatter `date:` field → `YYYY-MM-DD` in filename → `git log` (tier 2: first commit; tier 3: last commit) → today as fallback |
+| `content` | **full file text — must not be empty** |
+| `feature_tags` | from frontmatter only; omit if not present |
+| `description` | **write in-context, ≤ 280 chars** — be specific, mention decision/outcome/scope; avoid "This document describes…" preamble |
 
-In the agent-only path (< 30 files), recover dates by running:
+Git date commands:
 ```bash
 # Tier 2 — first commit date
 git log --diff-filter=A --format="%ad" --date=short -- <file> | head -1
-
 # Tier 3 — last commit date
 git log --format="%ad" --date=short -1 -- <file>
 ```
 
-### Description
-- **Agent-only path:** generate a ≤ 280-character search-optimised description
-  in-context from the file's title and first ~500 words.
-- **Manifest path:** `migrate.py` generates descriptions via Amazon Nova Lite
-  (Bedrock) for entries without a `description_override` in the manifest.
-- Good description: specific, mentions the decision/outcome/scope. Avoid "This
-  document describes..." preamble.
+### 3.A2 — Operator confirmation
 
-### team and project
-Provided once by the operator at the start of this step. Apply to all files.
+Present the complete list to the operator — one row per file showing title,
+date, and description. Wait for explicit confirmation.
 
-### feature_tags
-Omit unless the file's frontmatter provides them explicitly. Do not invent tags.
+> **Checkpoint before calling `migrate_artifacts`:**
+> Every descriptor must have a non-empty `content` **and** a non-empty
+> `description`. If any field is missing, go back and fill it now.
 
-### author_role
-Omit for historical files (unknown at migration time).
+### 3.A3 — Execute
+
+Call `migrate_artifacts` with `dry_run=False` and the full descriptor list.
+Since all descriptions are agent-provided, the server writes them as-is.
+
+If any entry in the response carries `error`:
+- Report the failed entries (title + error) to the operator.
+- Re-call `migrate_artifacts(dry_run=False)` with only the failed entries
+  (re-read file contents from disk before retrying).
+- Repeat until all entries show `written: true`.
+
+→ Proceed to **Step 4 — Verification**.
 
 ---
 
-## Step 5 — Three-path decision gate
+## Step 3.B — > 10 files
 
-Count the files confirmed in Step 3.
+> When no description is provided, the server generates one automatically.
+> A `CAIRN_IMPORT.yaml` manifest tracks progress across runs. The operator
+> reviews server-generated descriptions via a dry-run before any writes occur.
 
-### Path A — Agent-only, sequential (1–4 files)
+### 3.B1 — Produce the manifest
 
-For each file:
-1. Read the file content.
-2. Generate a ≤ 280-character description in-context.
-3. Run the `git log` commands from Step 4 to recover the date.
-4. Call `write_artifact` with all fields populated.
-5. Check the response for `artifact_id`. If the response contains `"error"`,
-   log the filename and error, then continue with the next file.
+For each file in the classification table, extract:
+- **title** — first `# H1` heading; if none, clean the filename.
+- **date** — frontmatter `date:` → `YYYY-MM-DD` in filename → `git log` (tier 2: first commit; tier 3: last commit) → today as fallback.
 
-After all files: skip to Step 6.
+Git date commands:
+```bash
+# Tier 2 — first commit date
+git log --diff-filter=A --format="%ad" --date=short -- <file> | head -1
+# Tier 3 — last commit date
+git log --format="%ad" --date=short -1 -- <file>
+```
 
-### Path C — Agent-only, parallel (≥ 10 files via sub-agents)
-
-When the confirmed file count is 10 or more, use a two-phase parallel approach
-to avoid long single-context write loops:
-
-**Phase 1 — Enrich all files first (sequential, in this agent):**
-For every confirmed file, gather all metadata in this context window without
-writing:
-1. Read the file content.
-2. Generate a ≤ 280-character description in-context.
-3. Run `git log` commands to recover the date.
-4. Record the enriched metadata (title, date, description, type, tier, etc.)
-   for every file before writing any of them.
-
-**Phase 2 — Confirm parallelism, then write:**
-
-Before spawning any sub-agents, present the operator with the two parallelism
-knobs and their combined effect. Compute the default agent count from the file
-count (ceil(N / 5), capped at 5). Example for 12 files:
-
-> I'm ready to start writing. Before I begin, please confirm the parallelism
-> settings (or give me different numbers):
->
-> | What | Proposed | Default |
-> |---|---|---|
-> | Parallel agents | 3 agents (4–5 files each) | 3 |
-> | Sections embedded at the same time per file | 5 | 5 |
-> | Combined parallel AI calls | 15 | 15 |
->
-> ⚠️ Keep parallel agents × sections per file ≤ 15 to stay within Bedrock
-> quota. To change "sections per file", you need to restart the cairn-mcp
-> server with a different `SECTION_CONCURRENCY` value before proceeding.
->
-> Reply **confirm** to use these values, or give me updated numbers.
-
-Wait for the operator's reply before spawning anything. If the operator
-provides a different agent count, recompute the files-per-agent split and
-confirm the new combined call count stays ≤ 15.
-
-**Write in parallel batches (sub-agents via `task` tool):**
-Split the enriched list into equal batches, one per agent. For each batch,
-spawn a sub-agent using the `task` tool with explicit instructions:
-- Pass all enriched metadata for the batch in the task prompt (do not ask the
-  sub-agent to re-read files or re-generate descriptions).
-- Instruct the sub-agent to call `write_artifact` once per file in sequence.
-- Ask the sub-agent to return a JSON array of results with `artifact_id` and
-  any `error`.
-
-**Fallback if `write_artifact` is unavailable to sub-agents:**
-If the sub-agent reports that `write_artifact` is not available in its tool
-set, fall back to writing all files sequentially in this agent context. Report
-this fallback to the operator.
-
-**After all batches complete:** collect results from all sub-agents, log any
-errors, then proceed to Step 6.
-
-### Path B — Manifest + script (5–9 files)
-
-**5a — Produce the manifest**
-
-Generate `CAIRN_IMPORT.yaml` in the repo root. See `schema.yaml` for the
-full manifest format. For each file in the classification table, add an entry:
+Generate `CAIRN_IMPORT.yaml` in the repo root (see `schema.yaml` for the full
+format). Set every entry to `status: pending`. Leave `description` empty.
 
 ```yaml
 global:
@@ -281,71 +264,96 @@ artifacts:
   - path: "docs/adr/001-use-s3.md"
     type: "adr"
     tier: 3
+    status: pending
+    date_override: "2024-03-15"
+
   - path: "docs/specs/search.md"
     type: "spec"
     tier: 3
-    # description_override: "Optional verbatim description — skip Bedrock if set"
-    # date_override: "2024-11-15"
+    status: pending
+    date_override: "2024-11-20"
+    # description_override: "Optional — supply your own description; skips server-side generation"
     # feature_tags: ["search", "vectors"]
 ```
 
-**5b — Operator review**
+### 3.B2 — Operator review of manifest
 
 Present the generated `CAIRN_IMPORT.yaml` to the operator. Ask them to:
-- Verify types and tiers are correct.
-- Add `description_override` for any file with unusual content.
-- Add `date_override` for any file where git history is unavailable.
+- Verify types, tiers, and dates.
+- Add `description_override` for any entry where they want to supply the
+  description and skip server-side generation.
+- Correct any `date_override` values where git history was unavailable.
 
-**5c — Dry run**
+Wait for operator confirmation before continuing.
 
-Run the preview:
+### 3.B3 — Read files and preview descriptions
+
+For every `status: pending` entry, read the file at `path`. Build a descriptor:
+
+| Field | Source |
+|-------|--------|
+| `type`, `tier`, `visibility` | manifest entry |
+| `team`, `project` | manifest `global` section |
+| `title` | extracted H1 or cleaned filename |
+| `date` | `date_override` from manifest, else git log |
+| `content` | **full file text — must not be empty** |
+| `feature_tags` | manifest entry, if set |
+| `description` | `description_override` if set, else **leave empty** |
+
+> **Checkpoint before calling `migrate_artifacts`:**
+> Every descriptor must have a non-empty `content`. If any is missing,
+> go back and read that file now.
+
+Call `migrate_artifacts` with `dry_run=True` and this descriptor list.
+
+The response contains enriched descriptors with server-generated descriptions clipped
+to ≤ 280 chars. For every entry that did not already have a `description_override`,
+write the server-generated description back into `CAIRN_IMPORT.yaml` as
+`description_override`.
+
+### 3.B4 — Operator review
+
+This is the final opportunity for the operator to review descriptions before any
+writes occur. Instruct the operator to open `CAIRN_IMPORT.yaml` and review every
+`description_override` value. The operator may edit any entry freely.
+
+Wait for the operator to confirm before proceeding.
+
+Before moving to 3.B5, validate that every `status: pending` entry has all required
+fields populated. Run from the repo root (where `CAIRN_IMPORT.yaml` lives):
 
 ```bash
-uv run skills/migrating-to-cairn/scripts/migrate.py \
-  --manifest CAIRN_IMPORT.yaml \
-  --dry-run
+uv run skills/migrating-to-cairn/scripts/validate_manifest.py
 ```
 
-Show the JSON output to the operator. Each entry shows the resolved
-`artifact_id`, `title`, `type`, `tier`, `date`, `date_source`,
-`description`, and `sections_count`. This is the operator's last chance to
-correct the manifest before any writes occur.
+If the script reports errors, show them to the operator and wait for the manifest to
+be corrected before re-running. Do not proceed to 3.B5 until the script exits clean.
 
-**5d — Execute**
+### 3.B5 — Execute
 
-Before running, present the operator with the two parallelism knobs and
-their combined effect. Example for 7 files:
+Re-read `CAIRN_IMPORT.yaml`. For every `status: pending` entry, read the file at
+`path` and build a descriptor using the same field mapping as 3.B3 — the
+`description_override` field is now populated for every entry, so server-side
+generation is not triggered.
 
-> The dry run looks good. Before I start writing, please confirm the
-> parallelism settings (or give me different numbers):
->
-> | What | Proposed | Default |
-> |---|---|---|
-> | Files written at the same time | 3 | 3 |
-> | Sections embedded at the same time per file | 5 | 5 |
-> | Combined parallel AI calls | 15 | 15 |
->
-> ⚠️ Keep files at a time × sections per file ≤ 15 to stay within Bedrock
-> quota. To change "sections per file", you need to restart the cairn-mcp
-> server with a different `SECTION_CONCURRENCY` value before proceeding.
->
-> Reply **confirm** to use these values, or give me updated numbers.
+Call `migrate_artifacts` with `dry_run=False` and this descriptor list.
 
-Wait for the operator's reply, then run with the confirmed values:
+After the call, update `CAIRN_IMPORT.yaml` for every entry:
+- `written: true` in the response → set `status: written`
+- `error` in the response → set `status: failed` and record the error in an
+  `error:` field on that manifest entry
 
-```bash
-MIGRATE_CONCURRENCY=<confirmed_files_at_a_time> uv run skills/migrating-to-cairn/scripts/migrate.py \
-  --manifest CAIRN_IMPORT.yaml
-```
+If any entries have `status: failed`:
+- Report every failed entry (path + error) to the operator.
+- On next run, re-read those files, rebuild their descriptors with content,
+  and call `migrate_artifacts(dry_run=False)` with only those entries.
+- Repeat until all entries carry `status: written`.
 
-The script outputs a JSON array with one object per artifact. Each object
-includes `written: true` on success or `error: "<message>"` on failure.
-Re-running the same manifest is safe — the same `artifact_id` values overwrite
-silently (idempotent via S3 and S3 Vectors upsert semantics).
+→ Proceed to **Step 4 — Verification**.
 
 ---
 
-## Step 6 — Verification
+## Step 4 — Verification
 
 After all writes (either path), verify the migration succeeded:
 
@@ -359,7 +367,7 @@ After all writes (either path), verify the migration succeeded:
 
 ---
 
-## Step 7 — Post-migration cleanup
+## Step 5 — Post-migration cleanup
 
 ### Tier 2 file removal guidance
 

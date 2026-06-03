@@ -20,10 +20,14 @@ from cairn_mcp.startup import validate_startup
 
 logger = logging.getLogger(__name__)
 
-# Third-party loggers that emit AWS credentials and full HTTP bodies at DEBUG.
+# Third-party loggers that emit sensitive or very large content at DEBUG.
 # Always clamped to WARNING regardless of the configured LOG_LEVEL to prevent
-# secretAccessKey, sessionToken, and request/response bodies from appearing in logs.
-_NOISY_LOGGERS: tuple[str, ...] = ("botocore", "boto3", "urllib3", "s3transfer")
+# secretAccessKey, sessionToken, full HTTP bodies, and artifact content from
+# appearing in logs.
+# - botocore/boto3/urllib3/s3transfer: AWS credentials and HTTP request/response bodies
+# - fastmcp: logs full tool call arguments (including artifact content) at DEBUG via
+#   fastmcp.server.mixins.mcp_operations — line "Handler called: call_tool <name> with <args>"
+_NOISY_LOGGERS: tuple[str, ...] = ("botocore", "boto3", "urllib3", "s3transfer", "fastmcp")
 
 
 def configure_logging(level: str) -> None:

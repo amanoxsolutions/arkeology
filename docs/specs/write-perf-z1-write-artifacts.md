@@ -43,8 +43,9 @@ Any individual failure is reported per-artifact without aborting the batch.
 **Acceptance criteria:**
 - Given 10 descriptors and `ARTIFACT_CONCURRENCY=3`, when `write_artifacts` is called, then at
   most 3 artifacts are in-flight simultaneously (verifiable by log ordering or spy).
-- Given a mixed list where entry 4 has an invalid field, when `write_artifacts` returns, then
-  entries 1–3 and 5–10 are written and report `written=True`; entry 4 carries an `error` field.
+- Given a mixed list where entry 4 has a missing required field (e.g. `content`), when
+  `write_artifacts` returns, then entries 1–3 and 5–10 are written and report `written=True`;
+  entry 4 carries `error="validation_error"` and a `message` naming the missing field.
 - Given `ARTIFACT_CONCURRENCY=0`, when the server starts, then it exits with a clear validation
   error before accepting any tool call.
 
@@ -98,7 +99,7 @@ truncates the body before calling Bedrock but stores the full body in S3 unchang
 
 ### Story 5 — Partial-failure recovery via CAIRN_IMPORT.yaml status tracking (FR-27)
 
-An operator runs a ≥5 file migration. During the `migrate_artifacts(dry_run=False)` call, 2 of
+An operator runs a > 10 file migration. During the `migrate_artifacts(dry_run=False)` call, 2 of
 10 artifacts fail due to a transient Bedrock throttle. The per-artifact response identifies the
 2 failures. The agent updates the CAIRN_IMPORT.yaml manifest: 8 entries become `written`, 2
 become `failed` with the error detail. On re-run, the agent reads the manifest, filters to only
@@ -123,6 +124,9 @@ migration complete.
 
 ## Requirements
 
+- WHEN `write_artifacts` receives a descriptor missing a required field THE SYSTEM SHALL return
+  `error="validation_error"` with a message naming the missing field for that entry, without
+  aborting the batch.
 - WHEN `write_artifacts` is called with a list of descriptors THE SYSTEM SHALL process all
   concurrently using `asyncio.gather` bounded by `asyncio.Semaphore(settings.artifact_concurrency)`.
 - WHEN any individual artifact in `write_artifacts` fails THE SYSTEM SHALL record the error in
@@ -169,6 +173,12 @@ migration complete.
 ## Boundaries
 
 **Always:**
+- `write_artifacts` is a bulk-write primitive for contexts where all descriptor
+  fields — including `description` and `content` — are already known by the caller.
+  It is appropriate for non-migration bulk writes (e.g. writing multiple code reviews
+  or session summaries in a single call). It never generates missing fields.
+  **Agents performing migration must always call `migrate_artifacts`**, which handles
+  description generation and delegates to `write_artifacts` internally.
 - `write_artifacts` requires `description` on every descriptor — it delegates to the existing
   `_write_artifact_inner` shared logic; it never generates descriptions.
 - `migrate_artifacts` delegates to `write_artifacts` internally for the write phase — it never
@@ -222,7 +232,7 @@ migration complete.
 | `src/cairn_mcp/tools/migrate_artifacts.py` | Create | `migrate_artifacts` MCP tool: generate missing descriptions via Nova Lite (bounded by `ARTIFACT_CONCURRENCY` semaphore); clip all descriptions to 280 chars; `dry_run=True` returns enriched list; `dry_run=False` delegates to `write_artifacts` |
 | `src/cairn_mcp/server.py` | Modify | Register `write_artifacts` and `migrate_artifacts` tools via `register_tools()` |
 | `skills/migrating-to-cairn/scripts/migrate.py` | Delete | Script eliminated — all logic now server-side |
-| `skills/migrating-to-cairn/scripts/` | Delete | Directory removed entirely |
+| `skills/migrating-to-cairn/scripts/validate_manifest.py` | Create | PEP 723 standalone script; validates all required fields in `CAIRN_IMPORT.yaml` before step 3.B5; exits non-zero if any `status: pending` entry is missing a required field |
 | `skills/migrating-to-cairn/schema.yaml` | Modify | Add `status` field (`pending` \| `written` \| `failed`) with optional `error` string per artifact entry; update header comment to remove `migrate.py` script reference |
 
 ## Testing Approach
@@ -275,9 +285,9 @@ simplification) must describe the manifest update step explicitly.
 
 ## Open Questions
 
-- [ ] Should each failed artifact in `write_artifacts` also produce a failure log entry (matching
-  `write_artifact` behaviour), or only surface errors in the response list? Recommendation: yes,
-  write failure log for partial-write failures — consistency with existing behaviour.
-- [ ] What is the Nova Lite prompt template for description generation — a hardcoded constant or a
-  configurable value? Recommendation: hardcode a descriptive prompt constant in `migrate_artifacts.py`;
-  keep it visible and documented, not hidden in config.
+All open questions resolved during implementation:
+
+- [x] Should each failed artifact in `write_artifacts` also produce a failure log entry? **Yes** —
+  consistent with `write_artifact` behaviour.
+- [x] Nova Lite prompt template — hardcoded constant in `migrate_artifacts.py`; visible and
+  documented, not in config.
