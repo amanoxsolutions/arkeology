@@ -21,6 +21,26 @@ from cairn_mcp.tools.write import _write_artifact_inner
 
 logger = logging.getLogger(__name__)
 
+_REQUIRED_FIELDS: tuple[str, ...] = (
+    "type",
+    "team",
+    "project",
+    "tier",
+    "date",
+    "title",
+    "description",
+    "content",
+    "visibility",
+)
+
+
+def _validate_descriptor(descriptor: dict[str, Any]) -> str | None:
+    """Return a human-readable error message if any required field is missing, else None."""
+    for field in _REQUIRED_FIELDS:
+        if field not in descriptor:
+            return f"missing required field: {field}"
+    return None
+
 
 async def write_artifacts(
     *,
@@ -71,6 +91,9 @@ async def _write_artifacts_inner(
 
     async def write_one(descriptor: dict[str, Any]) -> dict[str, Any]:
         async with semaphore:
+            validation_error = _validate_descriptor(descriptor)
+            if validation_error:
+                return {"error": "validation_error", "message": validation_error}
             try:
                 result = await _write_artifact_inner(
                     settings=settings,

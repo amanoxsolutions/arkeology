@@ -280,3 +280,54 @@ async def test_write_artifacts_concurrency_2_all_succeed(
     assert len(results) == 5, f"Expected 5 results, got {len(results)}"
     for entry in results:
         assert entry.get("written") is True, f"Expected written=True, got: {entry}"
+
+
+# ---------------------------------------------------------------------------
+# C6 — Missing required field → validation_error per entry, others succeed
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_write_artifacts_missing_required_field_validation_error(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+) -> None:
+    """A descriptor missing a required field (e.g. 'content') must return
+    error='validation_error' with a message naming the missing field — not
+    a raw KeyError / internal_error — while all other entries still succeed.
+    """
+    try:
+        from cairn_mcp.tools.write_artifacts import write_artifacts
+    except ImportError:
+        pytest.fail("cairn_mcp.tools.write_artifacts is not yet implemented")
+
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+
+    descriptors = [_make_descriptor(i) for i in range(3)]
+    # Remove 'content' from entry 1 to simulate what happens when the agent
+    # forgets to read file contents before calling write_artifacts.
+    del descriptors[1]["content"]
+
+    result = await write_artifacts(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        artifacts=descriptors,
+    )
+
+    results = result.get("results", [])
+    assert len(results) == 3, f"Expected 3 results, got {len(results)}"
+
+    failed = results[1]
+    assert failed.get("error") == "validation_error", (
+        f"Expected error='validation_error', got: {failed}"
+    )
+    assert "content" in failed.get("message", ""), (
+        f"Error message should name the missing field, got: {failed}"
+    )
+
+    assert results[0].get("written") is True, f"Entry 0 should succeed: {results[0]}"
+    assert results[2].get("written") is True, f"Entry 2 should succeed: {results[2]}"
