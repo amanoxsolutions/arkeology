@@ -1,8 +1,8 @@
 # Plan: cairn-mcp
 
 _Project: cairn-mcp_
-_Generated: 2026-05-29_ · _Last updated: 2026-06-02_
-_Status: **V1 — Phases 1–8 complete + artifact type vocabulary extended to 14 types (489 unit tests + integration suite passing against live AWS; ruff + mypy clean; Apache 2.0 licensed; production-hardened; moto migration complete; write performance hardened) · Phase 9 (pre-v1 release improvements) in progress**_
+_Generated: 2026-05-29_ · _Last updated: 2026-06-03_
+_Status: **V1 — Phases 1–8 complete + artifact type vocabulary extended to 14 types (489 unit tests + integration suite passing against live AWS; ruff + mypy clean; Apache 2.0 licensed; production-hardened; moto migration complete; write performance hardened) · Phase 9 (pre-v1 release improvements) in progress — T30 (Z1 write_artifacts + migrate_artifacts) complete (547 unit tests passing); T32 (reconcile Phase 3 dangling vectors) is next priority**_
 
 ---
 
@@ -175,10 +175,21 @@ point.
 
 ## Phase 9 — Pre-v1 Release: Improvements and Fixes
 
-Goal: quality-of-life improvements and documentation polish before declaring v1. No new server
-tools — skill authoring, README reduction, and any additional fixes identified as v1 blockers.
+Goal: quality-of-life improvements and documentation polish before declaring v1.
 
-30. ☐ **Installing-cairn skill** — `skills/installing-cairn/SKILL.md` with 9-step structured
+30. ✅ **Z1 — `write_artifacts` + `migrate_artifacts` bulk tools** *(priority 1 — unblocks correct migration performance)* — add two new MCP tools:
+    - **`write_artifacts`** (FR-25): accepts a list of artifact descriptors (same fields as `write_artifact`; `description` required); processes all concurrently via `asyncio.gather` + `asyncio.Semaphore(ARTIFACT_CONCURRENCY)`, default 3; section-level concurrency (P1, `SECTION_CONCURRENCY`) applied within each artifact; partial failures recorded per-artifact in response list without aborting the batch; add `ARTIFACT_CONCURRENCY` config var (int, default 3, ≥ 1).
+    - **`migrate_artifacts`** (FR-26): accepts a list of artifact descriptors with `description` optional; for each descriptor missing a description, generates one concurrently via Bedrock Nova Lite (bounded by semaphore, reusing `ARTIFACT_CONCURRENCY` — no separate `DESCRIPTION_CONCURRENCY` needed); generated descriptions clipped to 280 chars (`dry_run=False` = silent clip + DEBUG log; `dry_run=True` = return clipped in enriched list for agent review; same rule applies to agent-provided descriptions that already exceed 280 chars); `dry_run=True` returns enriched descriptor list without writing; `dry_run=False` generates descriptions then delegates to `write_artifacts`; add `BEDROCK_TEXT_MODEL` config var (string, default `amazon.nova-lite-v1:0`); add 6th startup health check validating Nova Lite accessibility when `BEDROCK_TEXT_MODEL` is configured.
+    - **P4 — `EMBED_MAX_SECTION_LENGTH`** (FR-01): add `EMBED_MAX_SECTION_LENGTH` config var (int, default 24,000 chars; 0 = disabled); sections exceeding the limit are truncated before the embedding call (not skipped); truncation applies to embedding input only — S3 content is never modified; log at DEBUG; default 24,000 chars targets ≈ 6,000–8,000 tokens depending on content type (code ~3 chars/token ≈ 8,000 tokens; prose ~4 chars/token ≈ 6,000 tokens) — comfortably under Titan's 8,192-token hard limit across content types.
+    - **migrate.py eliminated**: delete `skills/migrating-to-cairn/scripts/migrate.py` and the `scripts/` directory entirely; all Bedrock and write logic lives in the server.
+    - **SKILL.md simplified**: remove all sub-agent/task-tool references; two paths — agent-only (< 5 files: agent classifies + generates descriptions in-context + calls `write_artifacts` once) and manifest + `migrate_artifacts` (≥ 5 files: agent classifies into CAIRN_IMPORT.yaml with git dates → calls `migrate_artifacts(dry_run=True)` to preview → reviews → calls `migrate_artifacts(dry_run=False)` to write); CAIRN_IMPORT.yaml as progress tracker enabling partial-failure retry; ≤ 500 lines; cross-IDE compatible (no IDE-specific tool references).
+    - Update plan.md, PRD, and brainstorming docs.
+    - Done when: `write_artifacts` on a 10-entry list processes entries concurrently (verified by log order); any failed entry appears in the response with an error field while successful entries report `written=True`; `ARTIFACT_CONCURRENCY=0` exits with a clear error at startup; `migrate_artifacts` with `dry_run=True` returns enriched descriptors with generated descriptions and writes nothing; descriptions in the enriched list are clipped to 280 chars; `migrate_artifacts` with `dry_run=False` writes all artifacts and makes them immediately searchable; `BEDROCK_TEXT_MODEL` startup check fires when configured; a section body exceeding `EMBED_MAX_SECTION_LENGTH` is truncated before embedding but the full body is returned unchanged by `read_artifact`; `EMBED_MAX_SECTION_LENGTH=0` disables truncation; `skills/migrating-to-cairn/scripts/` directory absent; SKILL.md ≤ 500 lines and references no IDE-specific tool; full round-trip: agent classifies → `migrate_artifacts(dry_run=True)` → `migrate_artifacts(dry_run=False)` → `list_artifacts` confirms all entries
+    - Spec: `docs/specs/write-perf-z1-write-artifacts.md` (status: **approved + complete** — 547 unit tests passing; SKILL.md 354 lines; scripts/ deleted; ruff + mypy clean; integration tests pending live AWS run)
+    - **New config vars**: `ARTIFACT_CONCURRENCY` (int, default 3, ≥ 1); `BEDROCK_TEXT_MODEL` (string, default `None` — operator opt-in); `EMBED_MAX_SECTION_LENGTH` (int, default 24,000, ≥ 0; 0 = disabled); combined `ARTIFACT_CONCURRENCY × SECTION_CONCURRENCY ≤ 15` rule of thumb (safe Bedrock quota ceiling)
+    - **Supersedes**: L1+L2 spec (`write-perf-l1-l2-migrate-skill.md`) — both made redundant by server-side parallelism; spec marked `status: superseded`
+
+31. ☐ **Installing-cairn skill** — `skills/installing-cairn/SKILL.md` with 9-step structured
     workflow: (1) parameter collection upfront — region, resource names, embedding dimension,
     IAM principal ARN, IDE choice, team/project names, optional cross-scope read prefixes;
     (2) pre-flight checks — AWS CLI availability, active credentials (`aws sts get-caller-identity`),
@@ -204,6 +215,10 @@ tools — skill authoring, README reduction, and any additional fixes identified
       contains the complete AGENTS.md snippet with both ADR variants; `SKILL.md` ≤ 500 lines;
       README shrinks to ~255 lines with no `YOUR-*` placeholder blocks remaining; a new operator
       following the skill reaches a server confirmed healthy by `health_check` returning all-ok
+
+32. ☐ **Reconcile Phase 3 — dangling vector pruning** *(priority 2)* — extend `reconcile_index` with a third phase that detects and deletes vector index entries whose backing S3 object no longer exists. Dangling vectors arise when an S3 object is deleted externally (outside cairn-mcp) while its vector index entries remain; they surface in search and list results with valid-seeming metadata but cause `read_artifact` to return a not-found error. Phase 3 reuses data already collected in Phase 2 at zero additional API cost: `indexed_artifact_ids − set(own_keys)` identifies all dangling artifact IDs; their vector keys are already grouped from the existing `indexed_keys_raw` listing and are deleted. Phase 3 always runs automatically — no new parameters, consistent with Phases 1+2 which also auto-repair without confirmation. Response schema gains three additive fields: `dangling_artifacts_found` (int), `dangling_vectors_pruned` (int), `dangling_artifacts` (list[str]). Existing callers that ignore unknown keys are unaffected.
+    - Done when: an artifact whose S3 object was deleted externally while its vector entries remain is detected by Phase 3 and its vector entries are removed; `dangling_artifacts_found` and `dangling_vectors_pruned` report correct counts; `dangling_artifacts` lists affected IDs; clean state (no dangling vectors) reports all zeros in the new fields; own-scope gate enforced — foreign-scope vector entries never pruned; credential error during vector deletion returns structured error; Phase 2 orphan scan and Phase 3 dangling prune both execute within a single `reconcile_index` call
+    - Spec: `docs/specs/reconcile-phase3-dangling-vectors.md` (status: draft — awaiting approval)
 
 ---
 
@@ -251,6 +266,8 @@ tools — skill authoring, README reduction, and any additional fixes identified
 
 - **Phase 8 (write performance) complete (2026-06-02)**: 489 unit tests passing; ruff + mypy clean (31 source files); all 4 tasks delivered: P1 concurrent embedding + batched `put_vectors` (single `put_vectors_batch` call per artifact, `asyncio.Semaphore(SECTION_CONCURRENCY)`), P2 retry/throttle correctness fix (duplicate `write.py` retry removed; `random.uniform` jitter added to `bedrock.py`), P3 configurable section caps (`EMBED_MAX_SECTIONS=20`, `EMBED_MIN_SECTION_LENGTH=50`; length filter before cap; fallback to document-level embed), L1+L2 migration skill restructured into three mutually exclusive bands (1–4 → Path A sequential; 5–9 → Path B script; ≥10 → Path C sub-agents) with concurrent `asyncio.gather` writes in `migrate.py`.
 
+- **L1+L2 superseded by Z1 (2026-06-03)**: Post-implementation review revealed two structural problems with the L1+L2 approach. (1) L1 assumed sub-agents spawned via the `task` tool receive independent cairn-mcp MCP connections — empirical evidence (persistent performance problems) indicates sub-agents share the parent's stdio pipe, serializing all write_artifact calls and collapsing write parallelism to zero. (2) migrate.py duplicated the write path and was never updated with P1's concurrent section embedding — the script's write_artifact() still uses the old sequential for-loop, making it 2× slower per artifact than calling the MCP server with P1. Both problems trace to the same root cause: bypassing MCP required duplicating write logic, and duplicated code does not inherit fixes. Z1 (write_artifacts + migrate_artifacts MCP tools) resolves all three problems: moves all document-level and section-level parallelism inside a single MCP call; eliminates the transport bottleneck; eliminates duplication by moving description generation server-side into migrate_artifacts. migrate.py is deleted entirely — the skill ships SKILL.md + schema only, with no bundled scripts, and is fully cross-IDE compatible (OpenCode, Claude Code, Codex, Copilot). See brainstorming-write-performance-2026-06-01.md Sessions 2026-06-03 Part 1 and Part 2 for full analysis.
+
 ## References
 
 - [`docs/planning-artifacts/prd.md`](./prd.md)
@@ -264,3 +281,5 @@ tools — skill authoring, README reduction, and any additional fixes identified
 - [`docs/specs/write-perf-p3-section-caps.md`](../specs/write-perf-p3-section-caps.md)
 - [`docs/specs/write-perf-l1-l2-migrate-skill.md`](../specs/write-perf-l1-l2-migrate-skill.md)
 - [`docs/brainstorming/brainstorming-installing-cairn-skill-2026-06-02.md`](../brainstorming/brainstorming-installing-cairn-skill-2026-06-02.md)
+- [`docs/brainstorming/brainstorming-reconcile-dangling-vectors-2026-06-03.md`](../brainstorming/brainstorming-reconcile-dangling-vectors-2026-06-03.md)
+- [`docs/specs/reconcile-phase3-dangling-vectors.md`](../specs/reconcile-phase3-dangling-vectors.md)

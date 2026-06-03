@@ -18,12 +18,14 @@ from cairn_mcp.tools.delete import delete_artifact as _delete_artifact
 from cairn_mcp.tools.freshness import check_synthesis_freshness as _check_synthesis_freshness
 from cairn_mcp.tools.health import health_check as _health_check
 from cairn_mcp.tools.list import list_artifacts as _list_artifacts
+from cairn_mcp.tools.migrate_artifacts import migrate_artifacts as _migrate_artifacts
 from cairn_mcp.tools.purge import purge_archived as _purge_archived
 from cairn_mcp.tools.read import read_artifact as _read_artifact
 from cairn_mcp.tools.reconcile import reconcile_index as _reconcile_index
 from cairn_mcp.tools.search import search_artifacts as _search_artifacts
 from cairn_mcp.tools.synthesise import synthesise_artifacts as _synthesise_artifacts
 from cairn_mcp.tools.write import write_artifact as _write_artifact
+from cairn_mcp.tools.write_artifacts import write_artifacts as _write_artifacts
 
 logger = logging.getLogger(__name__)
 
@@ -241,6 +243,32 @@ def register_tools(
             vectors=vectors,
             bedrock=bedrock,
             confirm=confirm,
+        )
+
+    @_app.tool()
+    async def write_artifacts(artifacts: list[dict[str, Any]]) -> dict[str, Any]:
+        """Write a list of artifact descriptors concurrently."""
+        return await _write_artifacts(
+            settings=settings,
+            s3=s3,
+            vectors=vectors,
+            bedrock=bedrock,
+            artifacts=artifacts,
+        )
+
+    @_app.tool()
+    async def migrate_artifacts(
+        descriptors: list[dict[str, Any]],
+        dry_run: bool = True,
+    ) -> dict[str, Any]:
+        """Migrate artifacts, generating missing descriptions via Nova Lite."""
+        return await _migrate_artifacts(
+            settings=settings,
+            s3=s3,
+            vectors=vectors,
+            bedrock=bedrock,
+            descriptors=descriptors,
+            dry_run=dry_run,
         )
 
 

@@ -2,7 +2,17 @@
 type: feature-spec
 feature: write-perf-l1-l2-migrate-skill
 created: 2026-06-02
-status: implemented
+status: superseded
+superseded-by: write-perf-z1-write-artifacts
+superseded-date: 2026-06-03
+superseded-reason: >
+  L1 (task-tool sub-agent write batching) failed because sub-agents share the parent's MCP
+  stdio pipe, serialising all write_artifact calls. L2 (asyncio.gather in migrate.py) never
+  received P1's section-level concurrency, making it 2× slower per artifact than calling the
+  MCP server directly. Both problems trace to the same root cause: bypassing MCP required
+  duplicating the write path, and duplicated code does not inherit fixes. Z1 (write_artifacts
+  + migrate_artifacts MCP tools) moves all parallelism server-side inside a single MCP call,
+  eliminating the transport bottleneck and the duplication. migrate.py is deleted entirely.
 ---
 
 # Write Performance L1+L2 — Migration Skill Parallel Writes

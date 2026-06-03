@@ -1,11 +1,12 @@
 """Startup validation sequence for cairn-mcp.
 
-Performs five checks in order before the server enters its MCP event loop:
+Performs six checks in order before the server enters its MCP event loop:
   1. Credential check (via head_bucket on ARTIFACT_BUCKET)
   2. Write prefix access (read + write round-trip using a probe object)
   3. Read prefix access (list_objects on each entry in READ_PREFIXES)
   4. Vector index existence (describe_index)
   5. Embedding model dimension vs. index dimension (from BEDROCK_EMBEDDING_DIMENSIONS)
+  6. Text model accessibility (invoke_text_model probe, only when BEDROCK_TEXT_MODEL is set)
 
 All checks use the client interfaces — no direct boto3 calls.
 Failures raise StartupValidationError; credential errors propagate as CredentialError.
@@ -34,13 +35,13 @@ def validate_startup(
     vectors: VectorsClientInterface,
     bedrock: BedrockClientInterface,
 ) -> None:
-    """Run all five startup checks in order.
+    """Run all six startup checks in order.
 
     Args:
         settings: Validated server configuration.
         s3: S3 client instance.
         vectors: S3 Vectors client instance.
-        bedrock: Bedrock client instance (reserved for future checks).
+        bedrock: Bedrock client instance (used for check 6 when BEDROCK_TEXT_MODEL is set).
 
     Returns:
         None on success.
@@ -54,7 +55,8 @@ def validate_startup(
     _check_read_prefixes(settings, s3)
     index_info = _check_vector_index(settings, vectors)
     _check_model_dimension(settings, index_info)
-    logger.info("Startup validation passed (5/5 checks). cairn-mcp is ready.")
+    _check_text_model(settings, bedrock)
+    logger.info("Startup validation passed (6/6 checks). cairn-mcp is ready.")
 
 
 # ── Individual checks ──────────────────────────────────────────────────────────
@@ -64,7 +66,7 @@ def _check_credentials(settings: Settings, s3: S3ClientInterface) -> None:
     """Check 1: Verify credentials are valid via head_bucket on ARTIFACT_BUCKET."""
     try:
         s3.head_bucket(settings.artifact_bucket)
-        logger.debug("Check 1/5 passed: credentials valid")
+        logger.debug("Check 1/6 passed: credentials valid")
     except CredentialError as exc:
         raise StartupValidationError(
             check="credentials",
@@ -117,7 +119,7 @@ def _check_write_prefix(settings: Settings, s3: S3ClientInterface) -> None:
         except Exception as cleanup_exc:
             logger.warning("Failed to clean up write probe '%s': %s", probe_key, cleanup_exc)
 
-    logger.debug("Check 2/5 passed: write prefix '%s' is readable and writable", write_prefix)
+    logger.debug("Check 2/6 passed: write prefix '%s' is readable and writable", write_prefix)
 
 
 def _check_read_prefixes(settings: Settings, s3: S3ClientInterface) -> None:
@@ -125,7 +127,7 @@ def _check_read_prefixes(settings: Settings, s3: S3ClientInterface) -> None:
     read_prefixes = settings.read_prefixes_list
 
     if not read_prefixes:
-        logger.debug("Check 3/5 skipped: no foreign read prefixes configured")
+        logger.debug("Check 3/6 skipped: no foreign read prefixes configured")
         return
 
     for prefix in read_prefixes:
@@ -143,7 +145,7 @@ def _check_read_prefixes(settings: Settings, s3: S3ClientInterface) -> None:
                 ),
             ) from exc
 
-    logger.debug("Check 3/5 passed: %d foreign read prefix(es) accessible", len(read_prefixes))
+    logger.debug("Check 3/6 passed: %d foreign read prefix(es) accessible", len(read_prefixes))
 
 
 def _check_vector_index(settings: Settings, vectors: VectorsClientInterface) -> dict[str, Any]:
@@ -171,7 +173,7 @@ def _check_vector_index(settings: Settings, vectors: VectorsClientInterface) -> 
         ) from exc
     dim = index_info.get("dimension")
     logger.debug(
-        "Check 4/5 passed: vector index '%s' found with dimension %s",
+        "Check 4/6 passed: vector index '%s' found with dimension %s",
         settings.vectors_index,
         dim,
     )
@@ -217,7 +219,34 @@ def _check_model_dimension(
         )
 
     logger.debug(
-        "Check 5/5 passed: BEDROCK_EMBEDDING_DIMENSIONS=%d matches index dimension %d",
+        "Check 5/6 passed: BEDROCK_EMBEDDING_DIMENSIONS=%d matches index dimension %d",
         model_dim,
         index_dim,
     )
+
+
+def _check_text_model(settings: Settings, bedrock: BedrockClientInterface) -> None:
+    """Check 6: When BEDROCK_TEXT_MODEL is configured, probe it with a minimal call.
+
+    When settings.bedrock_text_model is None, this check is skipped entirely.
+    """
+    if settings.bedrock_text_model is None:
+        logger.debug("Check 6/6 skipped: BEDROCK_TEXT_MODEL not configured")
+        return
+
+    try:
+        bedrock.invoke_text_model(settings.bedrock_text_model, "ping")
+        logger.debug(
+            "Check 6/6 passed: BEDROCK_TEXT_MODEL '%s' is reachable",
+            settings.bedrock_text_model,
+        )
+    except Exception as exc:
+        raise StartupValidationError(
+            check="bedrock_text_model",
+            message=(
+                f"Text model startup check failed: BEDROCK_TEXT_MODEL "
+                f"'{settings.bedrock_text_model}' is unreachable. "
+                f"Verify the model ID is correct and the IAM policy includes "
+                f"bedrock:InvokeModel for this model. Error: {exc}"
+            ),
+        ) from exc

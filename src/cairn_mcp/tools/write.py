@@ -301,19 +301,32 @@ async def _write_artifact_inner(  # noqa: PLR0913
         # Concurrent embedding with bounded semaphore
         semaphore = asyncio.Semaphore(settings.section_concurrency)
 
-        sections_to_embed = [
-            (
-                f"{s3_key}#{section_slug(sec.heading)}",
-                _build_section_embedding_text(
-                    title=title,
-                    artifact_type=type,
-                    feature_tags=tags,
-                    section_heading=sec.heading,
-                    section_body=sec.body,
-                ),
+        sections_to_embed: list[tuple[str, str]] = []
+        limit = settings.embed_max_section_length
+        for sec in sections:
+            vec_key = f"{s3_key}#{section_slug(sec.heading)}"
+            if limit > 0 and len(sec.body) > limit:
+                logger.debug(
+                    "Section '%s' body truncated from %d to %d chars for embedding",
+                    sec.heading,
+                    len(sec.body),
+                    limit,
+                )
+                embed_body = sec.body[:limit]
+            else:
+                embed_body = sec.body
+            sections_to_embed.append(
+                (
+                    vec_key,
+                    _build_section_embedding_text(
+                        title=title,
+                        artifact_type=type,
+                        feature_tags=tags,
+                        section_heading=sec.heading,
+                        section_body=embed_body,
+                    ),
+                )
             )
-            for sec in sections
-        ]
 
         async def embed_section(vec_key: str, text: str) -> tuple[str, list[float]]:
             async with semaphore:

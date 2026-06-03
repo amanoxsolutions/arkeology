@@ -292,11 +292,106 @@ def test_check5_explicit_dimensions_override_mismatch_raises(
     bedrock = FakeBedrockClient(dimension=512)
     with pytest.raises(StartupValidationError) as exc_info:
         validate_startup(
-            settings=settings_custom, s3=s3_client, vectors=vectors_client, bedrock=bedrock
+            settings=settings_custom,
+            s3=s3_client,
+            vectors=vectors_client,
+            bedrock=bedrock,
         )
     assert exc_info.value.check == "vector_index_dimension"
     assert "512" in exc_info.value.message
     assert "2048" in exc_info.value.message
+
+
+# ── Check 6: BEDROCK_TEXT_MODEL startup probe ──────────────────────────────────
+
+
+def test_check6_text_model_configured_invoke_called(
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    monkeypatch: pytest.MonkeyPatch,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """BEDROCK_TEXT_MODEL configured + invoke_text_model succeeds → startup passes
+    AND invoke_text_model is called exactly once (the check must actually run).
+
+    Red: validate_startup has no check 6 yet; mock_invoke.call_count stays 0 → FAILED.
+    """
+    monkeypatch.setenv("BEDROCK_TEXT_MODEL", "amazon.nova-lite-v1:0")
+    settings_with_model = Settings()
+    bedrock = FakeBedrockClient(dimension=1024)
+    mock_invoke = mocker.patch.object(
+        bedrock, "invoke_text_model", create=True, return_value="Probe OK."
+    )
+
+    validate_startup(
+        settings=settings_with_model, s3=s3_client, vectors=vectors_client, bedrock=bedrock
+    )
+
+    assert mock_invoke.call_count >= 1, (
+        "Check 6 must call bedrock.invoke_text_model when BEDROCK_TEXT_MODEL is configured — "
+        "not yet implemented"
+    )
+
+
+def test_check6_text_model_unreachable_startup_fails(
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    monkeypatch: pytest.MonkeyPatch,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """BEDROCK_TEXT_MODEL configured + invoke_text_model raises any exception →
+    startup fails with a StartupValidationError that identifies the text model check.
+
+    Red: validate_startup has no check 6 yet; no exception is raised → pytest.raises FAILS.
+    """
+    monkeypatch.setenv("BEDROCK_TEXT_MODEL", "amazon.nova-lite-v1:0")
+    settings_with_model = Settings()
+    bedrock = FakeBedrockClient(dimension=1024)
+    mocker.patch.object(
+        bedrock,
+        "invoke_text_model",
+        create=True,
+        side_effect=RuntimeError("model unreachable"),
+    )
+
+    with pytest.raises(StartupValidationError) as exc_info:
+        validate_startup(
+            settings=settings_with_model, s3=s3_client, vectors=vectors_client, bedrock=bedrock
+        )
+
+    # The check field must identify the text model check clearly
+    check = exc_info.value.check
+    assert "text_model" in check or "bedrock_text" in check, (
+        f"StartupValidationError.check should identify the text model check, got: '{check}'"
+    )
+
+
+def test_check6_text_model_absent_invoke_skipped(
+    settings: Settings,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """BEDROCK_TEXT_MODEL absent → invoke_text_model is never called AND
+    settings.bedrock_text_model is None.
+
+    Red: Settings.bedrock_text_model does not exist yet; getattr returns sentinel → FAILED.
+    """
+    bedrock = FakeBedrockClient(dimension=1024)
+    mock_invoke = mocker.patch.object(
+        bedrock, "invoke_text_model", create=True, return_value="should not be called"
+    )
+
+    validate_startup(settings=settings, s3=s3_client, vectors=vectors_client, bedrock=bedrock)
+
+    # Red: attribute doesn't exist yet; getattr returns sentinel, assertion fails
+    assert getattr(settings, "bedrock_text_model", "NOT_SET") is None, (
+        "Settings.bedrock_text_model must be None when BEDROCK_TEXT_MODEL is absent — "
+        "not yet implemented"
+    )
+    assert mock_invoke.call_count == 0, (
+        "invoke_text_model must not be called when BEDROCK_TEXT_MODEL is absent"
+    )
 
 
 # ── Spec 05: Exception chaining (__cause__) ───────────────────────────────────

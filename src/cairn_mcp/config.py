@@ -176,6 +176,41 @@ class Settings(BaseSettings):
         ),
     ]
 
+    ARTIFACT_CONCURRENCY: Annotated[
+        int,
+        Field(
+            default=3,
+            description=(
+                "Maximum number of artifacts processed concurrently by write_artifacts "
+                "and migrate_artifacts. Must be at least 1."
+            ),
+        ),
+    ]
+
+    BEDROCK_TEXT_MODEL: Annotated[
+        str | None,
+        Field(
+            default=None,
+            description=(
+                "Bedrock text generation model ID used by migrate_artifacts to generate "
+                "missing descriptions (e.g. amazon.nova-lite-v1:0). "
+                "When absent, the text model startup check is skipped entirely."
+            ),
+        ),
+    ]
+
+    EMBED_MAX_SECTION_LENGTH: Annotated[
+        int,
+        Field(
+            default=24000,
+            description=(
+                "Maximum section body length (chars) passed to bedrock.embed. "
+                "Bodies longer than this are truncated before embedding but stored "
+                "in full in S3. Set to 0 to disable truncation."
+            ),
+        ),
+    ]
+
     # ── Validators ────────────────────────────────────────────────────────────
 
     @field_validator("SEARCH_FETCH_TOP_K")
@@ -272,6 +307,20 @@ class Settings(BaseSettings):
             raise ValueError(f"EMBED_MIN_SECTION_LENGTH must be at least 0 (got {v})")
         return v
 
+    @field_validator("ARTIFACT_CONCURRENCY")
+    @classmethod
+    def validate_artifact_concurrency(cls, v: int) -> int:
+        if v < 1:
+            raise ValueError(f"ARTIFACT_CONCURRENCY must be at least 1 (got {v})")
+        return v
+
+    @field_validator("EMBED_MAX_SECTION_LENGTH")
+    @classmethod
+    def validate_embed_max_section_length(cls, v: int) -> int:
+        if v < 0:
+            raise ValueError(f"EMBED_MAX_SECTION_LENGTH must be at least 0 (got {v})")
+        return v
+
     # ── Computed properties ───────────────────────────────────────────────────
     # These snake_case properties provide IDE-friendly access to the UPPER_CASE
     # pydantic-settings fields. We use explicit properties rather than an
@@ -364,6 +413,21 @@ class Settings(BaseSettings):
     def embed_min_section_length(self) -> int:
         """Minimum section body length to embed (0 disables filter)."""
         return self.EMBED_MIN_SECTION_LENGTH
+
+    @property
+    def artifact_concurrency(self) -> int:
+        """Maximum concurrent artifact processing in write_artifacts/migrate_artifacts."""
+        return self.ARTIFACT_CONCURRENCY
+
+    @property
+    def bedrock_text_model(self) -> str | None:
+        """Bedrock text generation model ID, or None if not configured."""
+        return self.BEDROCK_TEXT_MODEL
+
+    @property
+    def embed_max_section_length(self) -> int:
+        """Maximum section body length passed to embed (0 disables truncation)."""
+        return self.EMBED_MAX_SECTION_LENGTH
 
     @property
     def read_prefixes_list(self) -> list[str]:

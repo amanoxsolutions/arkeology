@@ -29,6 +29,9 @@ def clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
         "SECTION_CONCURRENCY",
         "EMBED_MAX_SECTIONS",
         "EMBED_MIN_SECTION_LENGTH",
+        "ARTIFACT_CONCURRENCY",
+        "BEDROCK_TEXT_MODEL",
+        "EMBED_MAX_SECTION_LENGTH",
     ]:
         monkeypatch.delenv(var, raising=False)
 
@@ -497,4 +500,94 @@ def test_read_prefixes_comment_then_whitespace_token_raises(
     _required_env(monkeypatch)
     monkeypatch.setenv("READ_PREFIXES", "# comma-separated, or leave blank")
     with pytest.raises(Exception, match="whitespace"):
+        Settings()
+
+
+# ---------------------------------------------------------------------------
+# Z1 — ARTIFACT_CONCURRENCY
+# ---------------------------------------------------------------------------
+
+
+def test_artifact_concurrency_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    """ARTIFACT_CONCURRENCY absent → artifact_concurrency defaults to 3."""
+    _required_env(monkeypatch)
+    settings = Settings()
+    # Red: Settings doesn't have artifact_concurrency yet; getattr returns sentinel
+    assert getattr(settings, "artifact_concurrency", "NOT_SET") == 3
+
+
+def test_artifact_concurrency_custom(monkeypatch: pytest.MonkeyPatch) -> None:
+    """ARTIFACT_CONCURRENCY=5 → artifact_concurrency == 5."""
+    _required_env(monkeypatch)
+    monkeypatch.setenv("ARTIFACT_CONCURRENCY", "5")
+    settings = Settings()
+    assert getattr(settings, "artifact_concurrency", "NOT_SET") == 5
+
+
+def test_artifact_concurrency_zero_invalid(monkeypatch: pytest.MonkeyPatch) -> None:
+    """ARTIFACT_CONCURRENCY=0 → ValidationError (must be ≥1)."""
+    _required_env(monkeypatch)
+    monkeypatch.setenv("ARTIFACT_CONCURRENCY", "0")
+    # Red: pydantic-settings ignores unknown fields, so Settings() succeeds — no exception raised.
+    # Once the field is added, the validator will reject 0.
+    with pytest.raises(Exception):
+        Settings()
+
+
+def test_artifact_concurrency_negative_invalid(monkeypatch: pytest.MonkeyPatch) -> None:
+    """ARTIFACT_CONCURRENCY=-1 → ValidationError (must be ≥1)."""
+    _required_env(monkeypatch)
+    monkeypatch.setenv("ARTIFACT_CONCURRENCY", "-1")
+    with pytest.raises(Exception):
+        Settings()
+
+
+# ---------------------------------------------------------------------------
+# Z1 — BEDROCK_TEXT_MODEL
+# ---------------------------------------------------------------------------
+
+
+def test_bedrock_text_model_absent_is_none(monkeypatch: pytest.MonkeyPatch) -> None:
+    """BEDROCK_TEXT_MODEL absent → bedrock_text_model is None."""
+    _required_env(monkeypatch)
+    settings = Settings()
+    # Red: Settings doesn't have bedrock_text_model yet; getattr returns sentinel
+    assert getattr(settings, "bedrock_text_model", "NOT_SET") is None
+
+
+def test_bedrock_text_model_set(monkeypatch: pytest.MonkeyPatch) -> None:
+    """BEDROCK_TEXT_MODEL set → bedrock_text_model holds the value."""
+    _required_env(monkeypatch)
+    monkeypatch.setenv("BEDROCK_TEXT_MODEL", "amazon.nova-lite-v1:0")
+    settings = Settings()
+    assert getattr(settings, "bedrock_text_model", "NOT_SET") == "amazon.nova-lite-v1:0"
+
+
+# ---------------------------------------------------------------------------
+# Z1 — EMBED_MAX_SECTION_LENGTH
+# ---------------------------------------------------------------------------
+
+
+def test_embed_max_section_length_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    """EMBED_MAX_SECTION_LENGTH absent → embed_max_section_length defaults to 24000."""
+    _required_env(monkeypatch)
+    settings = Settings()
+    # Red: Settings doesn't have embed_max_section_length yet; getattr returns sentinel
+    assert getattr(settings, "embed_max_section_length", "NOT_SET") == 24000
+
+
+def test_embed_max_section_length_zero_valid(monkeypatch: pytest.MonkeyPatch) -> None:
+    """EMBED_MAX_SECTION_LENGTH=0 → valid (disables truncation)."""
+    _required_env(monkeypatch)
+    monkeypatch.setenv("EMBED_MAX_SECTION_LENGTH", "0")
+    settings = Settings()
+    assert getattr(settings, "embed_max_section_length", "NOT_SET") == 0
+
+
+def test_embed_max_section_length_negative_invalid(monkeypatch: pytest.MonkeyPatch) -> None:
+    """EMBED_MAX_SECTION_LENGTH=-1 → ValidationError (must be ≥0)."""
+    _required_env(monkeypatch)
+    monkeypatch.setenv("EMBED_MAX_SECTION_LENGTH", "-1")
+    # Red: unknown field is ignored, no exception raised until field is added with validator.
+    with pytest.raises(Exception):
         Settings()

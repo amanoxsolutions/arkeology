@@ -102,3 +102,63 @@ class BedrockClientImpl:
                 raise
         # Should not reach here, but satisfies type checker
         raise RuntimeError("Unreachable")
+
+    def invoke_text_model(self, model_id: str, prompt: str) -> str:
+        """Invoke a Bedrock text generation model and return the response text.
+
+        Uses the Amazon Nova Lite request/response shape:
+          Request body:  {"messages": [{"role": "user", "content": [{"type": "text",
+                          "text": prompt}]}], "inferenceConfig": {"maxTokens": 300}}
+          Response:      response["output"]["message"]["content"][0]["text"]
+
+        Retries once on transient errors (ThrottlingException, ModelTimeoutException,
+        ServiceUnavailableException), matching the retry behaviour of ``embed``.
+
+        Args:
+            model_id: Bedrock model identifier (e.g. "amazon.nova-lite-v1:0").
+            prompt: User prompt text.
+
+        Returns:
+            Generated text as a string.
+
+        Raises:
+            CredentialError: If credentials are invalid or expired.
+        """
+        logger.debug("Bedrock invoke_text_model model_id=%s prompt_len=%d", model_id, len(prompt))
+        request_body = {
+            "messages": [{"role": "user", "content": [{"type": "text", "text": prompt}]}],
+            "inferenceConfig": {"maxTokens": 300},
+        }
+        for attempt in range(2):
+            try:
+                response = self._client.invoke_model(
+                    modelId=model_id,
+                    body=json.dumps(request_body),
+                    contentType="application/json",
+                    accept="application/json",
+                )
+                response_body = json.loads(response["body"].read())
+                text: str = response_body["output"]["message"]["content"][0]["text"]
+                return text
+            except botocore.exceptions.ClientError as exc:
+                if is_credential_error(exc):
+                    raise CredentialError(
+                        message=(
+                            "AWS credentials are invalid or expired. "
+                            "Re-authenticate (e.g. aws sso login) and restart the server."
+                        ),
+                        service="bedrock",
+                        original=exc,
+                    ) from exc
+                code = exc.response.get("Error", {}).get("Code", "")
+                if code in _TRANSIENT_ERROR_CODES and attempt == 0:
+                    logger.warning(
+                        "Bedrock transient error %s on attempt 1; retrying after %.1fs",
+                        code,
+                        _RETRY_SLEEP_SECONDS,
+                    )
+                    time.sleep(_RETRY_SLEEP_SECONDS + random.uniform(0, 1))
+                    continue
+                raise
+        # Should not reach here, but satisfies type checker
+        raise RuntimeError("Unreachable")

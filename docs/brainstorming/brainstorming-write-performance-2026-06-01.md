@@ -814,5 +814,367 @@ Reference URLs:
 
 | Question | Impact | Resolution path |
 |---|---|---|
-| Do sub-agents spawned by `task` tool inherit cairn-mcp MCP connections? | High — determines whether L1 write parallelism works or falls back to metadata-return | Test empirically during L1 implementation |
+| Do sub-agents spawned by `task` tool inherit cairn-mcp MCP connections? | High — determines whether L1 write parallelism works or falls back to metadata-return | Resolved in Session 4: Z1 makes this moot |
 | Is the 6,000 RPM quota enforced for embedding models or only listed? | Medium — determines whether RPM or TPM is the actual throttle trigger | Verify empirically or via AWS support |
+
+---
+
+## Session 2026-06-03 — Architecture re-evaluation: L1 collapse, migrate.py gap, and Z1 decision
+
+### Context
+
+The previous sessions (1–3) designed and implemented P1+P2+P3 (section-level concurrency) and
+L1+L2 (document-level concurrency via sub-agents and migrate.py). After implementation,
+significant performance problems remain. A code review surfaced three compounding structural
+problems that explain why the implemented design does not deliver the expected speedups.
+
+---
+
+### Problem 1 — L1 sub-agent parallelism depends on an unverified topology assumption
+
+The L1 design assumed that sub-agents spawned via the `task` tool each receive their own
+cairn-mcp MCP connection (their own stdio pipe to their own server process). If true,
+three sub-agents give three independent write pipelines. The brainstorming flagged this as
+an open empirical question but the spec was written and implemented without resolving it.
+
+**The two topologies and their consequences:**
+
+| Topology | What happens to write_artifact calls | L1 write parallelism |
+|---|---|---|
+| **Shared connection** (sub-agents share parent's MCP pipe) | All calls serialized through one pipe | None — only LLM enrichment parallelizes |
+| **Separate process per sub-agent** | Each call goes to its own cairn-mcp instance | Full — as designed |
+
+Persistent performance problems after L1 implementation constitute empirical evidence that the
+shared-connection topology is the actual behaviour. In this topology L1 only parallelizes LLM
+description generation (~5 s/file of LLM inference), not the writes. The write phase remains
+serial regardless of how many sub-agents are spawned.
+
+---
+
+### Problem 2 — migrate.py never received P1's section-level improvement
+
+When P1 was implemented in `src/cairn_mcp/tools/write.py` (concurrent embedding via
+`asyncio.to_thread` + `asyncio.gather` + batched `put_vectors`), `migrate.py`'s own
+`write_artifact()` function was not updated. It contains the original sequential section
+loop:
+
+```python
+for heading, body in sections:           # ← sequential, blocking
+    vec = embed_text(...)                # ← one Bedrock call at a time
+    vectors_client.put_vectors(          # ← one put_vectors call per section
+        vectors=[{"key": vec_key, ...}]
+    )
+```
+
+This means:
+- `migrate.py` has document-level concurrency (MIGRATE_CONCURRENCY, from L2)
+- `migrate.py` has **no** section-level concurrency (P1 never reached it)
+- The MCP server has section-level concurrency (P1) but document-level concurrency is
+  limited by the transport and the L1 topology uncertainty
+
+The two paths have **inverted** parallelism profiles. Neither has both levels.
+
+**Quantified impact:**
+
+At 8 sections/artifact, 300 ms/embed, MIGRATE_CONCURRENCY=3:
+
+| Scenario | Per-artifact write time | 10-doc wall-clock write time |
+|---|---|---|
+| MCP server + P1 (one agent, serial docs) | ceil(8/5)×300ms + 150ms = **750 ms** | 10 × 750ms = **7.5 s** |
+| migrate.py + L2, no P1 (3 concurrent docs) | 8×300ms + 8×150ms = **3.6 s** | ceil(10/3) × 3.6s = **~14.4 s** |
+| MCP server + P1 + L1 (3 sub-agents, shared connection) | 750 ms each, serial through pipe | 10 × 750ms = **7.5 s** |
+
+`migrate.py` is **2× slower per artifact** than simply calling the MCP server. The bypass
+introduced to improve performance is actively harmful compared to the baseline.
+
+---
+
+### Problem 3 — Duplication is a maintenance trap: fixing one copy does not fix the other
+
+`migrate.py` duplicates slug logic, section parsing, artifact-ID generation, embedding
+calls, and the entire write path. The P1 improvement demonstrates the failure mode: writing
+code twice means each improvement must be applied twice, and at least one copy will lag. The
+"must not import cairn_mcp" constraint in the L2 spec was not a deliberate product decision
+but an implicit consequence of the "PEP 723 self-contained script" framing — it was not
+reviewed as a constraint.
+
+---
+
+### Root cause: the wrong transport workaround
+
+The bypass in migrate.py was chosen because:
+
+> "MCP stdio is sequential. Concurrent `write_artifact` calls serialize through the pipe.
+> Therefore we bypass MCP to get document-level parallelism."
+
+This reasoning is correct — but it attacks the wrong level. The transport serialization
+is a property of the *call boundary*, not of the server's internal execution. A server-side
+bulk tool (`write_artifacts`) moves all parallelism *inside* the single call. The transport
+sees one request and one response; the event loop inside that call is fully concurrent.
+
+---
+
+### Selected direction: Z1 — `write_artifacts` bulk MCP tool (previously deferred)
+
+Z1 was assessed as "Very high impact, Medium effort, V2" in Session 2. Given that we have
+not yet released V1, this is the right moment to implement it properly rather than carry
+technical debt forward.
+
+**What Z1 provides:**
+
+A new MCP tool `write_artifacts` accepting a list of artifact descriptors. The server
+processes all artifacts concurrently (via `asyncio.gather` + `asyncio.Semaphore` keyed on
+`ARTIFACT_CONCURRENCY`, default 3) with section-level concurrency (P1) applied within each
+artifact. The caller receives a list of per-artifact results.
+
+```
+Caller (agent or migrate.py):
+  Phase 1: Enrich all N files — resolve dates, generate descriptions. Sequential, cheap.
+  Phase 2: write_artifacts([descriptor_1, ..., descriptor_N])  ← ONE MCP call
+
+Server (inside the single call):
+  asyncio.gather(N artifacts, semaphore=ARTIFACT_CONCURRENCY)     ← document-level
+    └─ each artifact: asyncio.gather(sections, semaphore=SECTION_CONCURRENCY)  ← section-level
+         └─ one batched put_vectors per artifact (A3 / P1)
+```
+
+**How Z1 resolves all three problems:**
+
+| Problem | Resolution |
+|---|---|
+| L1 topology uncertainty (shared vs. separate connections) | Irrelevant — one call, all parallelism server-side |
+| migrate.py missing P1 | migrate.py's write logic is deleted; it calls `write_artifacts` instead |
+| Duplication maintenance trap | No duplication — single write path in write.py |
+
+**Implications for L1 and migrate.py:**
+
+- **L1 (sub-agent batching for writes) is no longer needed.** Sub-agents were a workaround for
+  the transport bottleneck. With Z1, the main agent enriches all files and fires one tool call.
+  If sub-agents are still useful for parallelizing LLM enrichment (description generation),
+  they can be retained for that phase only — but they do not need write_artifact access.
+
+- **migrate.py write path is deleted.** The `write_artifact()` function, `embed_text()`,
+  `_section_embed_text()`, `_document_embed_text()`, slug logic, and section parsing are all
+  removed. What remains: manifest loading, file reading, date recovery (`git log`), title
+  extraction, and description generation via Bedrock Nova Lite. The script's output changes
+  from "call AWS directly" to "call `write_artifacts` via MCP or Python API".
+
+- **"Must not import cairn_mcp" constraint is lifted.** This constraint was never a deliberate
+  decision. migrate.py is bundled with cairn-mcp and always has the package available. If
+  migrate.py calls the Python API directly (importing `write_artifacts_inner` or equivalent),
+  it avoids MCP transport entirely while sharing the single write path. Alternatively it can
+  call via the FastMCP Python client SDK.
+
+---
+
+### New concurrency picture with Z1
+
+With `ARTIFACT_CONCURRENCY=3` and `SECTION_CONCURRENCY=5` (unchanged):
+
+```
+10 docs × 8 sections, 300 ms/embed:
+
+Server: asyncio.gather(10 artifacts, sem=3)
+  Batch 1 (3 docs in parallel, each: ceil(8/5)×300ms + 1 put): 600ms + 150ms = 750ms
+  Batch 2 (3 docs):  750ms
+  Batch 3 (3 docs):  750ms
+  Batch 4 (1 doc):   750ms
+  Wall-clock: 4 × 750ms = 3.0 s  (write phase)
+
+Agent enrichment (10 descriptions, sequential):
+  10 × ~3s LLM inference = ~30s  ← still the dominant cost
+
+Total: 30s + 3s = ~33s  (vs. ~10 minutes today)
+```
+
+Enrichment parallelism (sub-agents for description generation) is a separate orthogonal
+optimisation — still valid, now cleanly separated from the write path.
+
+**Combined Bedrock quota headroom with Z1:**
+
+`ARTIFACT_CONCURRENCY=3` × `SECTION_CONCURRENCY=5` = 15 concurrent embed calls — identical
+to the previous safe ceiling from Session 3. The quota analysis (5 × 3 = 15 < 100 req/s RPM
+limit, comfortable TPM margin) is unchanged.
+
+---
+
+### Impact on SKILL.md
+
+> **⚠️ Superseded by Session 2026-06-03 Part 2.** The description below is an intermediate decision in which `migrate.py` was retained as an enrichment-only script. Part 2 concluded that all enrichment belongs in the `migrate_artifacts` MCP tool — no script at all. The final two-path design (agent-only < 5 files; manifest + `migrate_artifacts` ≥ 5 files) is documented in [Part 2](#session-2026-06-03--part-2-migrate_artifacts-tool-design).
+
+The skill's Path A and Path B distinction becomes less meaningful:
+
+- **Path A (< 5 files, agent-only):** Agent enriches and calls `write_artifacts([all])` once.
+  Sequential enrichment, one tool call. No sub-agents needed.
+- **Path B (≥ 5 files, manifest-driven):** `migrate.py` handles enrichment (dates, descriptions),
+  then calls `write_artifacts` (via MCP or Python API). The threshold may be re-evaluated —
+  with Z1, Path A scales well to larger batches since the write step is no longer the bottleneck.
+
+The L1 two-phase parallel enrichment design (spawn sub-agents for writing) is superseded by
+Z1. If future enrichment parallelism is desired (for very large imports, >50 files, where
+sequential LLM description generation is still the bottleneck), sub-agents can be used for
+enrichment only — they return descriptors to the main agent, which makes a single
+`write_artifacts` call. No `write_artifact` access needed in sub-agents.
+
+---
+
+### Summary table
+
+| Option | Layer | Status before this session | Status after this session |
+|---|---|---|---|
+| P1 — concurrent embed + batch put | Section | ✅ Implemented in server | ✅ Carried forward; Z1 inherits it |
+| P2 — fix retry/throttle | Section | ✅ Implemented | ✅ Unchanged |
+| P3 — section count + length caps | Section | ✅ Implemented | ✅ Unchanged |
+| L1 — two-phase Path A (task sub-agents for writes) | Document | ✅ Implemented | ❌ Superseded by Z1; write sub-agents not needed |
+| L2 — lower Path B threshold + async migrate.py | Document | ✅ Implemented | ⚠️ Partially superseded; threshold may stay; migrate.py write logic deleted |
+| Z1 — `write_artifacts` bulk tool | Both | Deferred (V2) | ✅ **Selected for V1** |
+| A2 — async Bedrock client | Section | Deferred (V2) | Unchanged; lower priority with Z1 |
+
+---
+
+## Session 2026-06-03 — Part 2: migrate_artifacts tool design
+
+### Context
+
+Session 2026-06-03 Part 1 concluded that Z1 (`write_artifacts` bulk tool) is the right foundation and that migrate.py's write path should be deleted. This session addresses what migrate.py's remaining responsibilities become and whether they belong in a script or a server-side tool.
+
+---
+
+### The enrichment responsibility question
+
+After Z1, migrate.py's remaining scope is:
+
+- Date recovery from `git log`
+- Title extraction from H1 headings
+- Description generation via Bedrock Nova Lite (the expensive concurrent step)
+- Manifest output for agent review
+
+Two possible homes for this work:
+
+**Option A — Enrichment stays in migrate.py (script)**
+
+- migrate.py becomes enrichment-only: git dates, Nova Lite descriptions, CAIRN_ENRICHED.json output
+- Agent calls `write_artifacts` with the enriched manifest
+- Skill ships migrate.py (enrichment-only) + CAIRN_IMPORT.yaml schema
+
+**Option B — Enrichment moves into `migrate_artifacts` server tool**
+
+- `migrate_artifacts` accepts a list of descriptors with optional `description` field
+- For descriptors missing descriptions, the server generates them concurrently via Nova Lite
+- Delegates to `write_artifacts` for the actual writing
+- Skill ships SKILL.md + schema only — no bundled scripts
+
+---
+
+### Analysis
+
+| Factor | Option A (script) | Option B (`migrate_artifacts` tool) |
+|---|---|---|
+| Code duplication | Bedrock client logic duplicated in script | Single path — Nova Lite calls go through server's existing Bedrock client |
+| Deployment topology | Script needs separate boto3 client setup with same env vars | No additional setup — uses server's configured credentials |
+| Date recovery | Script runs `git log` locally | Agent runs `git log` locally and passes dates to tool |
+| IDE compatibility | Script bundled with skill; operators must run it manually | No script — SKILL.md only; cross-IDE compatible without caveats |
+| Dry-run support | Script `--dry-run` outputs enriched JSON preview | Tool `dry_run=True` returns enriched descriptor list without writing |
+| Maintenance surface | Two Bedrock call sites (server + script) | One Bedrock call site (server only) |
+| Failure recovery | Failed artifacts require re-running script with filtered manifest | Failed entries visible in per-artifact response; agent can retry with failed subset |
+
+Option B eliminates the duplication identified in Problem 3 (Part 1). Option A creates a new Bedrock call site in migrate.py — exactly the pattern that motivated deleting the write path.
+
+---
+
+### Selected direction: Option B — `migrate_artifacts` MCP tool
+
+**Tool interface:**
+
+- Input: list of artifact descriptors (same fields as `write_artifacts` / FR-01); `description` is optional
+- For each descriptor missing a `description`: call Bedrock Nova Lite concurrently (bounded by semaphore)
+- `dry_run=True` (controlled/preview mode): resolve all metadata + generate missing descriptions → return enriched descriptor list, write nothing
+- `dry_run=False` (autonomous mode): generate missing descriptions then delegate to `write_artifacts` → write all artifacts, return per-artifact results
+- Config: `BEDROCK_TEXT_MODEL` (env var, default `amazon.nova-lite-v1:0`); validated at startup via a live `bedrock:InvokeModel` check (6th startup health check, only active when `BEDROCK_TEXT_MODEL` is configured)
+- Description generation concurrency: reuse `ARTIFACT_CONCURRENCY` or introduce a separate `DESCRIPTION_CONCURRENCY` var — decision at spec time; default 3 is safe either way
+
+**dry_run parameter semantics (resolved):**
+
+- `dry_run=True` = controlled/preview mode: no writes, returns enriched list for agent review
+- `dry_run=False` = autonomous mode: generate descriptions + write in one call
+
+---
+
+### Impact on the migration skill
+
+With `migrate_artifacts` handling both description generation and writing, the skill is fully script-free:
+
+- **Path A — agent-only (< 5 files):** agent reads files, generates descriptions in-context, calls `write_artifacts` once
+- **Path B — manifest + `migrate_artifacts` (≥ 5 files):** agent produces CAIRN_IMPORT.yaml (classification + git dates recovered via `git log`; no descriptions needed); agent calls `migrate_artifacts(manifest, dry_run=True)` to preview resolved metadata + generated descriptions → reviews → calls `migrate_artifacts(enriched_list, dry_run=False)` to write
+- No bundled scripts — `skills/migrating-to-cairn/SKILL.md` + `schema.yaml` only; `scripts/` directory deleted
+- CAIRN_IMPORT.yaml role changes: from "input to migrate.py script" to "agent-maintained classification and progress tracker" — failed artifacts can be retried by re-calling `migrate_artifacts` with only the failed entries
+
+---
+
+### migrate.py elimination (final)
+
+With `migrate_artifacts` handling description generation server-side and the agent running `git log` directly:
+
+- migrate.py has no remaining responsibilities
+- The "must not import cairn_mcp" constraint is no longer relevant (script is gone)
+- `skills/migrating-to-cairn/scripts/` directory is deleted entirely
+
+---
+
+### Updated concurrency picture with migrate_artifacts + write_artifacts
+
+```
+Agent (Path B, ≥ 5 files):
+  Phase 1 — classify + git log (agent in-context, sequential, fast)
+  Phase 2 — migrate_artifacts(manifest, dry_run=True)
+    Server:
+      asyncio.gather(N descriptors, sem=ARTIFACT_CONCURRENCY)  ← description generation
+        └─ each missing description: Nova Lite InvokeModel
+    → returns enriched list with all descriptions resolved
+  Phase 3 — agent reviews enriched list
+  Phase 4 — migrate_artifacts(enriched_list, dry_run=False)
+    Server:
+      asyncio.gather(N artifacts, sem=ARTIFACT_CONCURRENCY)    ← write_artifacts internally
+        └─ each artifact: asyncio.gather(sections, sem=SECTION_CONCURRENCY)  ← P1
+             └─ one batched put_vectors per artifact (P1)
+    → returns per-artifact write results
+```
+
+Total Bedrock quota headroom unchanged: ARTIFACT_CONCURRENCY(3) × SECTION_CONCURRENCY(5) = 15 concurrent calls, same safe ceiling as before.
+
+---
+
+### Remaining open questions
+
+All open questions from this session have been resolved — see **Resolved Findings** below.
+
+---
+
+### Resolved findings (post-session research)
+
+#### Nova Lite batch inference — rejected
+
+AWS Batch Inference for Bedrock is asynchronous and S3-based (submit job → wait → collect output from S3). It also requires a **minimum of 100 records per batch job**. Both constraints make it unusable for `migrate_artifacts` workloads, which are interactive and typically involve 5–50 files. `asyncio.gather` + `asyncio.Semaphore(ARTIFACT_CONCURRENCY)` is the only viable pattern.
+
+#### Nova Lite in eu-central-1
+
+Amazon Nova Lite is **not available as a single-region endpoint in eu-central-1**. It is only accessible via a **cross-region inference profile** (e.g. `eu.amazon.nova-lite-v1:0`). Quota limits in eu-central-1 via cross-region profile: **400 RPM / 400,000 TPM** (not adjustable on request). At `ARTIFACT_CONCURRENCY=3` and ~1–2 s/call, effective throughput is ~1.5–2 req/s ≈ 90–120 RPM — well within the 400 RPM ceiling. No separate `DESCRIPTION_CONCURRENCY` is needed; reuse `ARTIFACT_CONCURRENCY` (default 3) for description generation.
+
+#### Description generation concurrency — reuse `ARTIFACT_CONCURRENCY`
+
+**Decision: reuse `ARTIFACT_CONCURRENCY`.** At concurrency 3 and ~1–2 s per Nova Lite call, effective throughput is ~1.5–2 req/s — safe relative to the 400 RPM eu-central-1 quota. A separate `DESCRIPTION_CONCURRENCY` variable would add complexity without benefit at typical migration scales (5–50 files).
+
+#### Description clipping semantics
+
+Nova Lite output is **clipped to 280 characters** to satisfy the `description` ≤ 280-char constraint (FR-01/FR-09).
+
+- **`dry_run=False` (autonomous mode):** clip silently + log at DEBUG.
+- **`dry_run=True` (controlled/preview mode):** return the clipped description in the enriched list so the agent can review and optionally revise before committing.
+
+The same clipping rule applies when the calling agent provides a description that already exceeds 280 characters — rather than rejecting it, clip silently in autonomous mode; return clipped in controlled mode. This is a deliberate departure from `write_artifact`'s strict validation behaviour: migration workloads prioritise throughput over hard rejection.
+
+#### P4 — Titan embedding input length (`EMBED_MAX_SECTION_LENGTH`)
+
+Amazon Titan Text Embeddings v2 accepts up to **8,192 tokens / 50,000 characters** per embedding call. The current write path has no upper-bound guard on section body length, meaning a section larger than the model's limit causes the embed call to fail at runtime.
+
+**Decision:** add `EMBED_MAX_SECTION_LENGTH` (int; default 24,000 chars; `0` = disabled). Sections exceeding the limit are **truncated** before the embedding call — not skipped. The truncation applies only to the embedding input; the full section body is always stored in S3 unchanged. Truncation is logged at DEBUG. Default 24,000 chars targets ≈ 6,000–8,000 tokens depending on content type (code at ~3 chars/token ≈ 8,000 tokens; prose at ~4 chars/token ≈ 6,000 tokens) — comfortably under Titan's 8,192-token hard limit across content types. This is classified as P4 and rolls into the T30 scope alongside `write_artifacts` and `migrate_artifacts`.

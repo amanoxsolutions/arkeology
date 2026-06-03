@@ -120,3 +120,18 @@ class FakeBedrockClient:
             self._timeout_remaining -= 1
             raise ModelTimeoutError("simulated model timeout")
         return _deterministic_unit_vector(text, dimensions)
+
+    def invoke_text_model(self, model_id: str, prompt: str) -> str:
+        """Return a deterministic short string for any prompt.
+
+        The return value is fixed regardless of model_id or prompt, making call
+        count assertions reliable in tests.
+
+        Args:
+            model_id: Ignored in the fake; present for interface compatibility.
+            prompt: Ignored in the fake; present for interface compatibility.
+
+        Returns:
+            The constant string ``"Fake description."``
+        """
+        return "Fake description."

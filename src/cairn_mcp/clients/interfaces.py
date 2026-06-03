@@ -215,3 +215,18 @@ class BedrockClientInterface(Protocol):
             CredentialError: If credentials are invalid or expired.
         """
         ...
+
+    def invoke_text_model(self, model_id: str, prompt: str) -> str:
+        """Invoke a Bedrock text generation model and return the response text.
+
+        Args:
+            model_id: Bedrock model identifier (e.g. "amazon.nova-lite-v1:0").
+            prompt: User prompt text to send to the model.
+
+        Returns:
+            Generated text as a string.
+
+        Raises:
+            CredentialError: If credentials are invalid or expired.
+        """
+        ...

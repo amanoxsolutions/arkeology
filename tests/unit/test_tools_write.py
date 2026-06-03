@@ -5,6 +5,7 @@ Tests write_artifact() and its embedding helper functions using moto-backed clie
 
 import asyncio
 import json
+import logging
 
 import botocore.exceptions
 import pytest
@@ -1607,3 +1608,142 @@ async def test_all_filtered_then_capped_falls_back(
     # All filtered → document-level fallback: one embed, one vector
     assert embed_spy.call_count == 1
     assert result["sections_indexed"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Z1 — P4 Section body truncation before embed (EMBED_MAX_SECTION_LENGTH)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_section_body_truncated_before_embed(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """Section body > embed_max_section_length → bedrock.embed receives truncated body.
+
+    The embed text must not contain the full 200-char body; only the first 100 chars
+    of the body should appear in the embedding input.
+    """
+    # Red: EMBED_MAX_SECTION_LENGTH is not a Settings field yet; write.py never truncates.
+    settings = _make_settings(monkeypatch, EMBED_MAX_SECTION_LENGTH="100")
+    bedrock = FakeBedrockClient(dimension=1024)
+    embed_spy = mocker.spy(bedrock, "embed")
+
+    body = "a" * 200
+    content = f"## Truncation Test\n\n{body}"
+    kwargs = {**_BASE_WRITE_KWARGS, "content": content}
+
+    result = await write_artifact(
+        s3=s3_client, vectors=vectors_client, bedrock=bedrock, settings=settings, **kwargs
+    )
+
+    assert "error" not in result
+    embed_texts = [call.args[0] for call in embed_spy.call_args_list]
+    assert len(embed_texts) >= 1
+    # With EMBED_MAX_SECTION_LENGTH=100, no embed call should contain 101+ consecutive 'a's
+    assert all("a" * 101 not in text for text in embed_texts), (
+        "bedrock.embed received the full untruncated body — truncation not implemented"
+    )
+
+
+@pytest.mark.asyncio
+async def test_section_full_body_stored_in_s3_despite_embed_truncation(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """S3 stores the full untruncated body even when EMBED_MAX_SECTION_LENGTH is set.
+
+    The truncation is embedding-input-only; the stored content is always the original.
+    """
+    settings = _make_settings(monkeypatch, EMBED_MAX_SECTION_LENGTH="100")
+    bedrock = FakeBedrockClient(dimension=1024)
+    embed_spy = mocker.spy(bedrock, "embed")
+
+    body = "a" * 200
+    content = f"## Truncation Test\n\n{body}"
+    kwargs = {**_BASE_WRITE_KWARGS, "content": content}
+
+    result = await write_artifact(
+        s3=s3_client, vectors=vectors_client, bedrock=bedrock, settings=settings, **kwargs
+    )
+
+    assert "error" not in result
+    # S3 must store the full untruncated content
+    stored = s3_client.get_object(result["artifact_id"])
+    assert body in stored, "S3 must contain the full untruncated body"
+
+    # Embed must have received the truncated body (not the full 200 chars)
+    embed_texts = [call.args[0] for call in embed_spy.call_args_list]
+    assert all("a" * 101 not in text for text in embed_texts), (
+        "bedrock.embed received the full untruncated body — truncation not implemented"
+    )
+
+
+@pytest.mark.asyncio
+async def test_embed_max_section_length_zero_disables_truncation(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """EMBED_MAX_SECTION_LENGTH=0 → section bodies passed to embed unmodified.
+
+    Zero is the special sentinel that disables the truncation guard entirely.
+    """
+    settings = _make_settings(monkeypatch, EMBED_MAX_SECTION_LENGTH="0")
+    bedrock = FakeBedrockClient(dimension=1024)
+    embed_spy = mocker.spy(bedrock, "embed")
+
+    body = "b" * 500
+    content = f"## Big Section\n\n{body}"
+    kwargs = {**_BASE_WRITE_KWARGS, "content": content}
+
+    await write_artifact(
+        s3=s3_client, vectors=vectors_client, bedrock=bedrock, settings=settings, **kwargs
+    )
+
+    # Red: Settings doesn't have embed_max_section_length yet — attribute access fails
+    assert getattr(settings, "embed_max_section_length", "NOT_SET") == 0, (
+        "Settings.embed_max_section_length not yet implemented"
+    )
+    embed_texts = [call.args[0] for call in embed_spy.call_args_list]
+    # With limit=0, the full 500-char body must appear in at least one embed call
+    assert any("b" * 500 in text for text in embed_texts), (
+        "Full body should be passed unchanged when embed_max_section_length=0"
+    )
+
+
+@pytest.mark.asyncio
+async def test_section_truncation_logged_at_debug(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """When a section body is truncated, the event is logged at DEBUG level."""
+    settings = _make_settings(monkeypatch, EMBED_MAX_SECTION_LENGTH="50")
+    bedrock = FakeBedrockClient(dimension=1024)
+
+    body = "c" * 200  # body exceeds the 50-char limit
+    content = f"## Long Section\n\n{body}"
+    kwargs = {**_BASE_WRITE_KWARGS, "content": content}
+
+    with caplog.at_level(logging.DEBUG, logger="cairn_mcp.tools.write"):
+        await write_artifact(
+            s3=s3_client,
+            vectors=vectors_client,
+            bedrock=bedrock,
+            settings=settings,
+            **kwargs,
+        )
+
+    # Red: write.py does not log truncation yet
+    truncation_logs = [r for r in caplog.records if "truncat" in r.message.lower()]
+    assert len(truncation_logs) >= 1, (
+        "Expected at least one DEBUG log message mentioning 'truncat' — not yet implemented"
+    )
