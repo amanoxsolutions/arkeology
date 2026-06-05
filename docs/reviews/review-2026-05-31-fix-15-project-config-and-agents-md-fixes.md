@@ -1,10 +1,13 @@
 ---
-type: feature-spec
-feature: review-fix-15-project-config-and-agents-md-fixes
-created: 2026-05-31
 status: ready
+references: []
+authored:
+  by: "developer"
+  date: "2026-05-31"
+revised:
+  by: ""
+  date: ""
 ---
-
 # Review Fix 15 — Project Config and AGENTS.md Fixes
 
 ## Problem Statement

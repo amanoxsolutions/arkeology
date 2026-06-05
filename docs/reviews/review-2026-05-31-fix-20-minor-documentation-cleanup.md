@@ -1,10 +1,13 @@
 ---
-type: feature-spec
-feature: review-fix-20-minor-documentation-cleanup
-created: 2026-05-31
 status: ready
+references: []
+authored:
+  by: "developer"
+  date: "2026-05-31"
+revised:
+  by: ""
+  date: ""
 ---
-
 # Review Fix 20 — Minor Documentation Cleanup
 
 ## Problem Statement

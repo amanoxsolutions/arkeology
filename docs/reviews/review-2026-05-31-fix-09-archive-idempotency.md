@@ -1,10 +1,13 @@
 ---
-type: feature-spec
-feature: review-fix-09-archive-idempotency
-created: 2026-05-31
 status: ready
+references: []
+authored:
+  by: "developer"
+  date: "2026-05-31"
+revised:
+  by: ""
+  date: ""
 ---
-
 # Review Fix 09 — Archive Idempotency (M10)
 
 ## Problem Statement

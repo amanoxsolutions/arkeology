@@ -1,10 +1,13 @@
 ---
-type: feature-spec
-feature: review-fix-13-credential-error-test-coverage
-created: 2026-05-31
 status: ready
+references: []
+authored:
+  by: "developer"
+  date: "2026-05-31"
+revised:
+  by: ""
+  date: ""
 ---
-
 # Review Fix 13 — CredentialError Test Coverage for Freshness and Reconcile
 
 ## Problem Statement

@@ -1,8 +1,14 @@
 ---
-type: feature-spec
-feature: brainstorming-artifact-type
-created: 2026-06-01
-status: ready
+status: complete
+references: []
+authored:
+  by: "analyst"
+  date: "2026-06-01"
+revised:
+  by: ""
+  date: ""
+techniques_used: []
+assumptions_challenged: []
 ---
 
 # Add `brainstorming` Artifact Type

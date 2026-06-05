@@ -1,10 +1,13 @@
 ---
-type: feature-spec
-feature: review-fix-17-minor-client-layer-improvements
-created: 2026-05-31
 status: ready
+references: []
+authored:
+  by: "developer"
+  date: "2026-05-31"
+revised:
+  by: ""
+  date: ""
 ---
-
 # Review Fix 17 — Minor Client Layer Improvements
 
 ## Problem Statement

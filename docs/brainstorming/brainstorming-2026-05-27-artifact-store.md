@@ -1,7 +1,14 @@
 ---
 status: complete
-project: amanox-artifact-store-mcp
-language: python
+references: []
+authored:
+  by: "analyst"
+  date: "2026-05-27"
+revised:
+  by: ""
+  date: ""
+techniques_used: []
+assumptions_challenged: []
 decisions_locked: [D1, D2, D3, D4, D5, D6-metadata-schema, D7-deployment-agnostic, D8-tier3-sharing, D8b-visibility-control, D9-key-generation, D10-embedding-model, D11-tools-interface, D12-section-level-indexing, D13-schema-discovery, D14-cross-scope-index-topology, D15-synthesis-tier3-artifact, D16-synthesise-artifacts-tool, D17-synthesis-granularity-any-lens, D18-synthesis-freshness-check]
 decisions_closed_not_applicable: [OQ3-cross-team-iam, OQ5-vector-index-topology]
 ---

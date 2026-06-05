@@ -1,10 +1,13 @@
 ---
-type: feature-spec
-feature: review-fix-12-test-infrastructure-consolidation
-created: 2026-05-31
 status: ready
+references: []
+authored:
+  by: "developer"
+  date: "2026-05-31"
+revised:
+  by: ""
+  date: ""
 ---
-
 # Review Fix 12 — Test Infrastructure Consolidation
 
 ## Problem Statement

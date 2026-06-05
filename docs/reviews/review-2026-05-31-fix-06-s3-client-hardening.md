@@ -1,10 +1,13 @@
 ---
-type: feature-spec
-feature: review-fix-06-s3-client-hardening
-created: 2026-05-31
 status: ready
+references: []
+authored:
+  by: "developer"
+  date: "2026-05-31"
+revised:
+  by: ""
+  date: ""
 ---
-
 # Review Fix 06 — S3 Client Hardening (M5, M8)
 
 ## Problem Statement

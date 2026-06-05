@@ -1,10 +1,13 @@
 ---
-type: feature-spec
-feature: review-fix-18-minor-tool-improvements
-created: 2026-05-31
 status: ready
+references: []
+authored:
+  by: "developer"
+  date: "2026-05-31"
+revised:
+  by: ""
+  date: ""
 ---
-
 # Review Fix 18 — Minor Tool Improvements
 
 ## Problem Statement

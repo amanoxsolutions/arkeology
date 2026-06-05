@@ -1,10 +1,13 @@
 ---
-type: feature-spec
-feature: review-fix-05-startup-exception-chaining
-created: 2026-05-31
 status: ready
+references: []
+authored:
+  by: "developer"
+  date: "2026-05-31"
+revised:
+  by: ""
+  date: ""
 ---
-
 # Review Fix 05 — Startup Exception Chaining
 
 <!-- SCOPE BLOCK — frozen after approval -->

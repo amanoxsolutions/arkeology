@@ -1,10 +1,13 @@
 ---
-type: feature-spec
-feature: review-fix-08-health-tool-credential-error-distinction
-created: 2026-05-31
 status: ready
+references: []
+authored:
+  by: "developer"
+  date: "2026-05-31"
+revised:
+  by: ""
+  date: ""
 ---
-
 # Review Fix 08 — Health Tool Credential Error Distinction (M9)
 
 ## Problem Statement
