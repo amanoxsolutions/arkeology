@@ -1,10 +1,16 @@
 ---
 type: feature-spec
 feature: p1-t1-bootstrap-python-project
-created: 2026-05-29
 status: ready
 phase: 1
 task: 1
+references: []
+authored:
+  by: "architect"
+  date: "2026-05-29"
+revised:
+  by: ""
+  date: ""
 ---
 
 # T1 — Bootstrap Python Project

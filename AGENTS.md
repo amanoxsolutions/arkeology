@@ -26,6 +26,8 @@ unavailable or misconfigured, all persisted memory is inaccessible.
 
 ## Conventions
 - **Testing approach:** test driven development
+- **Versioning:** semver
+- **Changelog format:** keep-a-changelog
 - **Python:**
   - **Logging:** logging
 

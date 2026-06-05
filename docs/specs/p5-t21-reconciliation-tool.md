@@ -1,10 +1,16 @@
 ---
 type: feature-spec
 feature: p5-t21-reconciliation-tool
-created: 2026-05-31
 status: ready
 phase: 5
 task: 21
+references: []
+authored:
+  by: "architect"
+  date: "2026-05-31"
+revised:
+  by: ""
+  date: ""
 ---
 
 # T21 — Reconciliation Tool

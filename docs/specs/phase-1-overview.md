@@ -1,8 +1,15 @@
 ---
-type: phase-overview
-phase: 1
-created: 2026-05-29
+type: feature-spec
+feature: phase-1-overview
 status: ready
+phase: 1
+references: []
+authored:
+  by: "architect"
+  date: "2026-05-29"
+revised:
+  by: ""
+  date: ""
 ---
 
 # Phase 1 — Foundation: Runnable Server with Startup Validation

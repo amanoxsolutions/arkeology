@@ -1,3 +1,14 @@
+---
+status: complete
+references: []
+authored:
+  by: "pm"
+  date: "2026-05-29"
+revised:
+  by: ""
+  date: ""
+---
+
 # Product Requirements Document — cairn-mcp
 
 ## Description

@@ -1,10 +1,16 @@
 ---
 type: feature-spec
 feature: p4-t20-migration-skill
-created: 2026-05-31
 status: ready
 phase: 4
 task: 20
+references: []
+authored:
+  by: "architect"
+  date: "2026-05-31"
+revised:
+  by: ""
+  date: ""
 ---
 
 # T20 — Migration Skill

@@ -1,10 +1,16 @@
 ---
 type: feature-spec
 feature: p3-t11-archive-artifact
-created: 2026-05-30
 status: ready
 phase: 3
 task: 11
+references: []
+authored:
+  by: "architect"
+  date: "2026-05-30"
+revised:
+  by: ""
+  date: ""
 ---
 
 # T11 — Archive Artifact Tool

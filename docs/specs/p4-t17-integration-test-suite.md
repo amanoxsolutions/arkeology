@@ -1,10 +1,16 @@
 ---
 type: feature-spec
 feature: p4-t17-integration-test-suite
-created: 2026-05-31
 status: ready
 phase: 4
 task: 17
+references: []
+authored:
+  by: "architect"
+  date: "2026-05-31"
+revised:
+  by: ""
+  date: ""
 ---
 
 # T17 — Run Full Integration Test Suite

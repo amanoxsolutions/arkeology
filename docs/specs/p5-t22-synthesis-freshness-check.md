@@ -1,10 +1,16 @@
 ---
 type: feature-spec
 feature: p5-t22-synthesis-freshness-check
-created: 2026-05-31
 status: ready
 phase: 5
 task: 22
+references: []
+authored:
+  by: "architect"
+  date: "2026-05-31"
+revised:
+  by: ""
+  date: ""
 ---
 
 # T22 — Synthesis Freshness Check Tool

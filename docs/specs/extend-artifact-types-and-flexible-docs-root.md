@@ -1,8 +1,14 @@
 ---
 type: feature-spec
 feature: extend-artifact-types-and-flexible-docs-root
-created: 2026-06-01
 status: ready
+references: []
+authored:
+  by: "architect"
+  date: "2026-06-01"
+revised:
+  by: ""
+  date: ""
 ---
 
 # Extend Artifact Type Vocabulary (+5 types) and Flexible Migration Docs Root

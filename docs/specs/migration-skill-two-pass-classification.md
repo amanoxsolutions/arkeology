@@ -1,8 +1,14 @@
 ---
 type: feature-spec
 feature: migration-skill-two-pass-classification
-created: 2026-06-01
 status: ready
+references: []
+authored:
+  by: "architect"
+  date: "2026-06-01"
+revised:
+  by: ""
+  date: ""
 ---
 
 # Migration Skill — Two-Pass File Classification

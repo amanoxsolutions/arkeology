@@ -1,10 +1,16 @@
 ---
 type: feature-spec
 feature: p1-t3-aws-client-layer
-created: 2026-05-29
 status: ready
 phase: 1
 task: 3
+references: []
+authored:
+  by: "architect"
+  date: "2026-05-29"
+revised:
+  by: ""
+  date: ""
 ---
 
 # T3 — AWS Client Layer

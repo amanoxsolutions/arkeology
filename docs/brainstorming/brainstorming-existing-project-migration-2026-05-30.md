@@ -1,3 +1,16 @@
+---
+status: complete
+references: []
+authored:
+  by: "analyst"
+  date: "2026-05-30"
+revised:
+  by: ""
+  date: ""
+techniques_used: []
+assumptions_challenged: []
+---
+
 # Existing Project Migration
 
 ## Description

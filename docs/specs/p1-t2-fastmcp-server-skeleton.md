@@ -1,10 +1,16 @@
 ---
 type: feature-spec
 feature: p1-t2-fastmcp-server-skeleton
-created: 2026-05-29
 status: ready
 phase: 1
 task: 2
+references: []
+authored:
+  by: "architect"
+  date: "2026-05-29"
+revised:
+  by: ""
+  date: ""
 ---
 
 # T2 — FastMCP Server Skeleton

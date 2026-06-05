@@ -1,10 +1,16 @@
 ---
 type: feature-spec
 feature: p1-t4-configuration-model
-created: 2026-05-29
 status: ready
 phase: 1
 task: 4
+references: []
+authored:
+  by: "architect"
+  date: "2026-05-29"
+revised:
+  by: ""
+  date: ""
 ---
 
 # T4 — Configuration Model

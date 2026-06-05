@@ -1,10 +1,16 @@
 ---
 type: feature-spec
 feature: p2-t9-read-artifact
-created: 2026-05-30
 status: ready
 phase: 2
 task: 9
+references: []
+authored:
+  by: "architect"
+  date: "2026-05-30"
+revised:
+  by: ""
+  date: ""
 ---
 
 # T9 — Read Artifact Tool

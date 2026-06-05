@@ -1,8 +1,14 @@
 ---
 type: feature-spec
 feature: moto-migration
-created: 2026-06-01
 status: ready
+references: []
+authored:
+  by: "architect"
+  date: "2026-06-01"
+revised:
+  by: ""
+  date: ""
 ---
 
 # Migrate unit tests from hand-rolled fakes to moto

@@ -1,10 +1,16 @@
 ---
 type: feature-spec
 feature: p2-t6-artifact-model
-created: 2026-05-30
 status: ready
 phase: 2
 task: 6
+references: []
+authored:
+  by: "architect"
+  date: "2026-05-30"
+revised:
+  by: ""
+  date: ""
 ---
 
 # T6 — Artifact Model and Key Generation

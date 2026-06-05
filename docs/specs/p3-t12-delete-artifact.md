@@ -1,10 +1,16 @@
 ---
 type: feature-spec
 feature: p3-t12-delete-artifact
-created: 2026-05-30
 status: ready
 phase: 3
 task: 12
+references: []
+authored:
+  by: "architect"
+  date: "2026-05-30"
+revised:
+  by: ""
+  date: ""
 ---
 
 # T12 — Delete Artifact Tool

@@ -1,3 +1,16 @@
+---
+status: complete
+references: []
+authored:
+  by: "analyst"
+  date: "2026-06-02"
+revised:
+  by: ""
+  date: ""
+techniques_used: []
+assumptions_challenged: []
+---
+
 # Installing-Cairn Skill
 
 ## Description

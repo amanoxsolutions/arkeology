@@ -1,3 +1,14 @@
+---
+status: closed
+references: []
+authored:
+  by: "developer"
+  date: "2026-06-02"
+revised:
+  by: ""
+  date: ""
+---
+
 # Issue: Migration Ran Sequentially Despite Parallelism Improvements
 
 **Date:** 2026-06-02

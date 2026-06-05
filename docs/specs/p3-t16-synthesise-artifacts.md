@@ -1,10 +1,16 @@
 ---
 type: feature-spec
 feature: p3-t16-synthesise-artifacts
-created: 2026-05-30
 status: ready
 phase: 3
 task: 16
+references: []
+authored:
+  by: "architect"
+  date: "2026-05-30"
+revised:
+  by: ""
+  date: ""
 ---
 
 # T16 — Synthesise Artifacts Tool

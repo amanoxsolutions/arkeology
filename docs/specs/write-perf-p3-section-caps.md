@@ -1,8 +1,14 @@
 ---
 type: feature-spec
 feature: write-perf-p3-section-caps
-created: 2026-06-02
 status: implemented
+references: []
+authored:
+  by: "architect"
+  date: "2026-06-02"
+revised:
+  by: ""
+  date: ""
 ---
 
 # Write Performance P3 — Configurable Section Caps

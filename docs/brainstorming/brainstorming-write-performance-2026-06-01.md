@@ -1,3 +1,16 @@
+---
+status: complete
+references: []
+authored:
+  by: "analyst"
+  date: "2026-06-01"
+revised:
+  by: ""
+  date: ""
+techniques_used: []
+assumptions_challenged: []
+---
+
 # Write Performance — Reducing `write_artifact` Latency
 
 ## Description

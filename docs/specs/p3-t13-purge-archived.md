@@ -1,10 +1,16 @@
 ---
 type: feature-spec
 feature: p3-t13-purge-archived
-created: 2026-05-30
 status: ready
 phase: 3
 task: 13
+references: []
+authored:
+  by: "architect"
+  date: "2026-05-30"
+revised:
+  by: ""
+  date: ""
 ---
 
 # T13 — Purge Archived Tool

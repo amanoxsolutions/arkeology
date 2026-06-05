@@ -1,3 +1,14 @@
+---
+status: closed
+references: []
+authored:
+  by: "developer"
+  date: "2026-06-02"
+revised:
+  by: ""
+  date: ""
+---
+
 # Issue: `.env` Template Placeholder Text Accepted as S3 Prefixes
 
 **Date:** 2026-06-02

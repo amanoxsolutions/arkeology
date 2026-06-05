@@ -1,3 +1,14 @@
+---
+status: closed
+references: []
+authored:
+  by: "developer"
+  date: "2026-06-02"
+revised:
+  by: ""
+  date: ""
+---
+
 # Issue: AWS Credentials Written to Log File
 
 **Date:** 2026-06-02

@@ -1,10 +1,16 @@
 ---
 type: feature-spec
 feature: p1-t5-startup-validation-sequence
-created: 2026-05-29
 status: ready
 phase: 1
 task: 5
+references: []
+authored:
+  by: "architect"
+  date: "2026-05-29"
+revised:
+  by: ""
+  date: ""
 ---
 
 # T5 — Startup Validation Sequence

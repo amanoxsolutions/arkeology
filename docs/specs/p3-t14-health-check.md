@@ -1,10 +1,16 @@
 ---
 type: feature-spec
 feature: p3-t14-health-check
-created: 2026-05-30
 status: ready
 phase: 3
 task: 14
+references: []
+authored:
+  by: "architect"
+  date: "2026-05-30"
+revised:
+  by: ""
+  date: ""
 ---
 
 # T14 — Health Check Tool

@@ -1,8 +1,14 @@
 ---
 type: feature-spec
 feature: write-perf-z1-write-artifacts
-created: 2026-06-03
 status: complete
+references: []
+authored:
+  by: "architect"
+  date: "2026-06-03"
+revised:
+  by: ""
+  date: ""
 ---
 
 # Write Performance Z1 — write_artifacts + migrate_artifacts + P4 Section Truncation

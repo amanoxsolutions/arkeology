@@ -1,10 +1,16 @@
 ---
 type: feature-spec
 feature: p4-t18-mcp-resources
-created: 2026-05-31
 status: ready
 phase: 4
 task: 18
+references: []
+authored:
+  by: "architect"
+  date: "2026-05-31"
+revised:
+  by: ""
+  date: ""
 ---
 
 # T18 — MCP Resources

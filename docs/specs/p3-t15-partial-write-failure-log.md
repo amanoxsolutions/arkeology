@@ -1,10 +1,16 @@
 ---
 type: feature-spec
 feature: p3-t15-partial-write-failure-log
-created: 2026-05-30
 status: ready
 phase: 3
 task: 15
+references: []
+authored:
+  by: "architect"
+  date: "2026-05-30"
+revised:
+  by: ""
+  date: ""
 ---
 
 # T15 — Partial Write Failure Log

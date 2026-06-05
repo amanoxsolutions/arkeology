@@ -1,10 +1,16 @@
 ---
 type: feature-spec
 feature: p2-t8-search-artifacts
-created: 2026-05-30
 status: ready
 phase: 2
 task: 8
+references: []
+authored:
+  by: "architect"
+  date: "2026-05-30"
+revised:
+  by: ""
+  date: ""
 ---
 
 # T8 — Search Artifacts Tool

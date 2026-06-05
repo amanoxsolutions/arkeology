@@ -1,10 +1,16 @@
 ---
 type: feature-spec
 feature: p2-t7-write-artifact
-created: 2026-05-30
 status: ready
 phase: 2
 task: 7
+references: []
+authored:
+  by: "architect"
+  date: "2026-05-30"
+revised:
+  by: ""
+  date: ""
 ---
 
 # T7 — Write Artifact Tool

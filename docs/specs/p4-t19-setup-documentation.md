@@ -1,10 +1,16 @@
 ---
 type: feature-spec
 feature: p4-t19-setup-documentation
-created: 2026-05-31
 status: ready
 phase: 4
 task: 19
+references: []
+authored:
+  by: "architect"
+  date: "2026-05-31"
+revised:
+  by: ""
+  date: ""
 ---
 
 # T19 — Setup Documentation and AGENTS.md Snippet

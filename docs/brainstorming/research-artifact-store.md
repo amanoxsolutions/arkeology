@@ -1,3 +1,16 @@
+---
+status: complete
+references: []
+authored:
+  by: "analyst"
+  date: "2026-05-26"
+revised:
+  by: ""
+  date: ""
+techniques_used: []
+assumptions_challenged: []
+---
+
 # Research — Artifact Store (cairn-mcp)
 
 ## Description
