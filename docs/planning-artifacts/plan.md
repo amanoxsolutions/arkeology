@@ -1,8 +1,8 @@
 # Plan: cairn-mcp
 
 _Project: cairn-mcp_
-_Generated: 2026-05-29_ · _Last updated: 2026-06-03_
-_Status: **V1 — Phases 1–8 complete + artifact type vocabulary extended to 14 types (489 unit tests + integration suite passing against live AWS; ruff + mypy clean; Apache 2.0 licensed; production-hardened; moto migration complete; write performance hardened) · Phase 9 (pre-v1 release improvements) in progress — T30 (Z1 write_artifacts + migrate_artifacts) complete (547 unit tests passing); T32 (reconcile Phase 3 dangling vectors) is next priority**_
+_Generated: 2026-05-29_ · _Last updated: 2026-06-06_
+_Status: **V1 — Phases 1–8 complete + artifact type vocabulary extended to 14 types (489 unit tests + integration suite passing against live AWS; ruff + mypy clean; Apache 2.0 licensed; production-hardened; moto migration complete; write performance hardened) · Phase 9 (pre-v1 release improvements) in progress — T30 (Z1 write_artifacts + migrate_artifacts) complete (547 unit tests passing); T31 (installing-cairn skill) and T32 (reconcile Phase 3 dangling vectors) pending · Phase 10 (v0.3.0 — artifact commit references) planned — specs ready (T33–T36)**_
 
 ---
 
@@ -222,6 +222,38 @@ Goal: quality-of-life improvements and documentation polish before declaring v1.
 
 ---
 
+## Phase 10 — v0.3.0: Artifact Commit References
+
+Goal: close the traceability gap between artifacts and git commits. Agents can associate any
+written artifact with a commit SHA after the fact — without re-embedding — and discover
+which session artifacts still need linking. The write-time ULID timestamp enables efficient
+time-range discovery scoped to the current session.
+
+**Execution order:** T33 is an independent prerequisite (filter.py only); T34 depends on
+T33 (`$gte`/`$lte` operators required) and must complete before T35 and T36; T35 and T36
+depend on T34 and can be worked in parallel once T34 merges. This phase is independent of
+T31 and T32 — the two tracks share no files and can proceed concurrently.
+
+33. ☐ **Filter range operators ($gte / $lte)** *(prerequisite — filter.py only; no tool changes)* — add `$gte` and `$lte` inclusive string-comparison operators to `filter.py`; update module docstring (FR-30)
+    - Done when: `matches_filter(meta, {"field": {"$gte": v}})` returns `True` iff `meta["field"] >= v`; `$lte` symmetric; absent field → `False`; combined `$and` interval works; `$gt` / `$lt` (strict) raise `ValueError`; all existing operator tests pass; ruff + mypy clean
+    - Spec: `docs/specs/p6-t23-filter-range-operators.md`
+
+34. ☐ **`commit_refs` and `last_edited_ulid` metadata fields** *(core data model)* — add `commit_refs: list[str]` to `Artifact`; generate `last_edited_ulid` via `python-ulid` on every `write_artifact` call; store both fields in S3 object metadata and vector metadata following the `feature_tags` encoding pattern (comma-joined string in S3, `list[str]` in vectors, key omitted when empty in vectors); include `last_edited_ulid` in `write_artifact` response; expose both fields in `list_artifacts` (with `commit_refs` filter parameter) and `read_artifact` responses; legacy artifacts (missing fields) return `None` — no error (FR-28, FR-29)
+    - Done when: `write_artifact` response includes `last_edited_ulid`; `read_artifact` and `list_artifacts` return both fields; `commit_refs` filter in `list_artifacts` returns correct subset; empty `commit_refs` stores `""` in S3 and omits key from vector metadata; legacy artifacts return `None` for `last_edited_ulid` and `[]` for `commit_refs`; ruff + mypy clean
+    - Spec: `docs/specs/p6-t24-commit-refs-metadata-fields.md`
+    - **New dependency**: `python-ulid` added to `pyproject.toml`
+
+35. ☐ **`propose_commit_links` tool** *(read-only discovery)* — scan own-scope artifacts in the vector index optionally bounded by `last_edited_ulid >= since_ulid`; deduplicate by `artifact_id`; filter client-side for artifacts with absent or empty `commit_refs`; return candidate list with human-readable timestamps; no writes (FR-31)
+    - Done when: tool called with `since_ulid` returns only own-scope artifacts written at or after that timestamp with no `commit_refs`; called without `since_ulid` returns all unlinked own-scope artifacts; foreign-scope artifacts never included; empty result returns `{"proposed": [], "commit_sha": "..."}` not an error; credential errors return structured responses; ruff + mypy clean
+    - Spec: `docs/specs/p6-t25-propose-commit-links.md`
+
+36. ☐ **`link_commit` tool + AGENTS.md post-commit protocol** *(write, no re-embed)* — for each confirmed `artifact_id`: `list_vectors_by_metadata` → `get_vectors` → merge `commit_sha` into `commit_refs` (append + deduplicate) → `put_vectors_batch` with same float32 embeddings and updated metadata; scope-gate rejects foreign-scope IDs (counted in `skipped`); generate `next_since_ulid` after all artifacts processed; return `{linked, skipped, commit_sha, next_since_ulid}`; add AGENTS.md post-commit protocol snippet to installing-cairn skill (FR-32)
+    - Done when: `link_commit` appends SHA to all section vectors without Bedrock call; existing SHA not duplicated; foreign-scope IDs skipped and counted; `next_since_ulid` returned; two successive calls produce monotonically non-decreasing cursors; Bedrock `embed` never called (verified by spy); credential errors return structured responses; AGENTS.md snippet includes session-start ULID capture, post-commit proposal, confirmation, linking, and cursor-advance steps; known reconcile limitation documented in module docstring; ruff + mypy clean
+    - Spec: `docs/specs/p6-t26-link-commit.md`
+    - **Known limitation (V1)**: commit references are stored in vector metadata only; `reconcile_index` will drop them on any reconcile run — documented in spec and module docstring; S3 `copy_object` update deferred to a future milestone
+
+---
+
 ## Risks and Open Questions
 
 - **~~S3 Vectors `PutVector` upsert behaviour~~** — **CLOSED (2026-05-31, T17 confirmed)**: `PutVectors` silently overwrites an existing key (upsert confirmed). 44 integration tests passed green; tier 3 overwrite logic is correct as written; no code change required.
@@ -283,3 +315,8 @@ Goal: quality-of-life improvements and documentation polish before declaring v1.
 - [`docs/brainstorming/brainstorming-installing-cairn-skill-2026-06-02.md`](../brainstorming/brainstorming-installing-cairn-skill-2026-06-02.md)
 - [`docs/brainstorming/brainstorming-reconcile-dangling-vectors-2026-06-03.md`](../brainstorming/brainstorming-reconcile-dangling-vectors-2026-06-03.md)
 - [`docs/specs/reconcile-phase3-dangling-vectors.md`](../specs/reconcile-phase3-dangling-vectors.md)
+- [`docs/brainstorming/brainstorming-2026-06-06-artifact-commit-refs.md`](../brainstorming/brainstorming-2026-06-06-artifact-commit-refs.md)
+- [`docs/specs/p6-t23-filter-range-operators.md`](../specs/p6-t23-filter-range-operators.md)
+- [`docs/specs/p6-t24-commit-refs-metadata-fields.md`](../specs/p6-t24-commit-refs-metadata-fields.md)
+- [`docs/specs/p6-t25-propose-commit-links.md`](../specs/p6-t25-propose-commit-links.md)
+- [`docs/specs/p6-t26-link-commit.md`](../specs/p6-t26-link-commit.md)
