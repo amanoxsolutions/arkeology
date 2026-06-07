@@ -1,6 +1,8 @@
 ---
 type: feature-spec
-feature: write-perf-p1-concurrent-embedding
+feature: p8-t26-concurrent-embedding
+phase: 8
+task: 26
 status: implemented
 references: []
 authored:

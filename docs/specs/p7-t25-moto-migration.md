@@ -1,6 +1,8 @@
 ---
 type: feature-spec
-feature: moto-migration
+feature: p7-t25-moto-migration
+phase: 7
+task: 25
 status: ready
 references: []
 authored:

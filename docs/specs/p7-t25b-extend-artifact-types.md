@@ -1,6 +1,8 @@
 ---
 type: feature-spec
-feature: extend-artifact-types-and-flexible-docs-root
+feature: p7-t25b-extend-artifact-types
+phase: 7
+task: 25b
 status: ready
 references: []
 authored:

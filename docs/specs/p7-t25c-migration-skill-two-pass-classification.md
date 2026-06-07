@@ -1,6 +1,8 @@
 ---
 type: feature-spec
-feature: migration-skill-two-pass-classification
+feature: p7-t25c-migration-skill-two-pass-classification
+phase: 7
+task: 25c
 status: ready
 references: []
 authored:

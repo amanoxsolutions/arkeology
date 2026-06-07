@@ -1,6 +1,8 @@
 ---
 type: feature-spec
-feature: write-perf-l1-l2-migrate-skill
+feature: p8-t29-migrate-skill
+phase: 8
+task: 29
 status: superseded
 references: []
 authored:

@@ -1,6 +1,8 @@
 ---
 type: feature-spec
-feature: write-perf-p2-retry-throttle-fix
+feature: p8-t27-retry-throttle-fix
+phase: 8
+task: 27
 status: implemented
 references: []
 authored:

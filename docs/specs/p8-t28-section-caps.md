@@ -1,6 +1,8 @@
 ---
 type: feature-spec
-feature: write-perf-p3-section-caps
+feature: p8-t28-section-caps
+phase: 8
+task: 28
 status: implemented
 references: []
 authored:

@@ -1,6 +1,8 @@
 ---
 type: feature-spec
-feature: write-perf-z1-write-artifacts
+feature: p9-t30-write-artifacts
+phase: 9
+task: 30
 status: complete
 references: []
 authored:

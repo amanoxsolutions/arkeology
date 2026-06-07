@@ -1,6 +1,8 @@
 ---
 type: feature-spec
-feature: reconcile-phase3-dangling-vectors
+feature: p9-t32-reconcile-phase3-dangling-vectors
+phase: 9
+task: 32
 status: draft
 references: []
 authored:

@@ -1,13 +1,13 @@
 ---
 type: feature-spec
-feature: p6-t26-link-commit
+feature: p9-t36-link-commit
 status: ready
-phase: 6
-task: 26
+phase: 9
+task: 36
 references:
   - docs/brainstorming/brainstorming-2026-06-06-artifact-commit-refs.md
-  - docs/specs/p6-t24-commit-refs-metadata-fields.md
-  - docs/specs/p6-t25-propose-commit-links.md
+  - docs/specs/p9-t34-commit-refs-metadata-fields.md
+  - docs/specs/p9-t35-propose-commit-links.md
 authored:
   by: "analyst"
   date: "2026-06-06"

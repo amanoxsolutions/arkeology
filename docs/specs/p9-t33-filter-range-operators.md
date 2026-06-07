@@ -1,9 +1,9 @@
 ---
 type: feature-spec
-feature: p6-t23-filter-range-operators
+feature: p9-t33-filter-range-operators
 status: ready
-phase: 6
-task: 23
+phase: 9
+task: 33
 references:
   - docs/brainstorming/brainstorming-2026-06-06-artifact-commit-refs.md
 authored:

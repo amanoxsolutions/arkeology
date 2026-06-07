@@ -2,7 +2,7 @@
 
 _Project: cairn-mcp_
 _Generated: 2026-05-29_ · _Last updated: 2026-06-06_
-_Status: **V1 — Phases 1–8 complete + artifact type vocabulary extended to 14 types (489 unit tests + integration suite passing against live AWS; ruff + mypy clean; Apache 2.0 licensed; production-hardened; moto migration complete; write performance hardened) · Phase 9 (pre-v1 release improvements) in progress — T30 (Z1 write_artifacts + migrate_artifacts) complete (547 unit tests passing); T31 (installing-cairn skill) and T32 (reconcile Phase 3 dangling vectors) pending · Phase 10 (v0.3.0 — artifact commit references) planned — specs ready (T33–T36)**_
+_Status: **V1 — Phases 1–8 complete + artifact type vocabulary extended to 14 types (489 unit tests + integration suite passing against live AWS; ruff + mypy clean; Apache 2.0 licensed; production-hardened; moto migration complete; write performance hardened) · Phase 9 (pre-v1 release improvements) in progress — T30 (Z1 write_artifacts + migrate_artifacts) complete (547 unit tests passing); T31 (installing-cairn skill) and T32 (reconcile Phase 3 dangling vectors) pending; T33–T36 (v0.3.0 — artifact commit references) planned, specs ready**_
 
 ---
 
@@ -148,7 +148,7 @@ Goal: replace hand-rolled in-memory fakes for S3 and S3 Vectors with moto-backed
 
 Goal: eliminate the dominant latency bottlenecks in `write_artifact` and `migrate.py`. No new
 tools, no breaking changes — pure performance, correctness, and usability improvements.
-Specs: `docs/specs/write-perf-p1-*.md` through `docs/specs/write-perf-l1-l2-*.md`.
+Specs: `docs/specs/p8-t26-*.md` through `docs/specs/p8-t29-*.md`.
 
 **Execution order:** T26 first (establishes concurrent embed foundation all others benefit from);
 T27 and T28 can proceed in parallel after T26 merges; T29 is independent and can start at any
@@ -156,26 +156,26 @@ point.
 
 26. ✅ **P1 — Concurrent embedding + batched put_vectors** *(highest impact)* — replace the serial section `for` loop in `write_artifact` with `asyncio.to_thread` + `asyncio.gather` bounded by `asyncio.Semaphore(SECTION_CONCURRENCY)`; collapse all per-section `put_vector` calls into one `vectors.put_vectors_batch` call per artifact; add `SECTION_CONCURRENCY` config var (default 5); add `put_vectors_batch` to `VectorsClientInterface` and `VectorsClientImpl` (chunk at 500) (NFR-13, NFR-14)
     - Done when: 8-section write makes 8 concurrent embed calls and 1 batch put call (verified by unit test spy); `SECTION_CONCURRENCY=0` rejected at startup; all existing write tests pass; ruff + mypy clean
-    - Spec: `docs/specs/write-perf-p1-concurrent-embedding.md`
+    - Spec: `docs/specs/p8-t26-concurrent-embedding.md`
 
 27. ✅ **P2 — Retry and throttle fix** *(correctness fix)* — remove the duplicate `ThrottlingException` catch-and-retry blocks from `write.py` (redundant with `bedrock.py`'s internal retry; adds up to 5 s per throttled section); add `random.uniform(0, 1)` jitter to the `bedrock.py` retry sleep to prevent thundering-herd when concurrent embeds throttle simultaneously (NFR-11)
     - Done when: a `ThrottlingException` exhausting both `bedrock.py` retries results in exactly 2 `embed` calls total (no third attempt from `write.py`); `asyncio.sleep` is never called from `write.py` on a throttle event; jitter is applied (verified by patching `random.uniform`); ruff + mypy clean
-    - Spec: `docs/specs/write-perf-p2-retry-throttle-fix.md`
+    - Spec: `docs/specs/p8-t27-retry-throttle-fix.md`
 
 28. ✅ **P3 — Configurable section caps** *(defensive bound)* — add `EMBED_MAX_SECTIONS` (default 20) and `EMBED_MIN_SECTION_LENGTH` (default 50 chars) config vars; apply as filters in `write.py` immediately after `parse_sections`; fall back to document-level embed if no sections remain; log dropped sections at DEBUG (FR-01, NFR-13)
     - Done when: a section with a 30-char body is not embedded when `EMBED_MIN_SECTION_LENGTH=50`; a 25-section document indexes only 20 vectors when `EMBED_MAX_SECTIONS=20`; full content is still returned by `read_artifact`; `EMBED_MAX_SECTIONS=0` rejected at startup; ruff + mypy clean
-    - Spec: `docs/specs/write-perf-p3-section-caps.md`
+    - Spec: `docs/specs/p8-t28-section-caps.md`
 
 29. ✅ **L1+L2 — Migration skill parallel writes** *(skill + script)* — restructure SKILL.md into three mutually exclusive bands (1–4 files → Path A sequential; 5–9 files → Path B manifest+script; ≥10 files → Path C parallel sub-agents via `task` tool, batches of 4–5); lower Path B threshold from 30 → 5 files; add `asyncio.gather` + `asyncio.Semaphore(MIGRATE_CONCURRENCY)` to `migrate.py` for concurrent writes; read `MIGRATE_CONCURRENCY` from env (default 3); wrap `main()` with `asyncio.run` (FR-23, NFR-15)
     - Done when: SKILL.md Step 5 clearly describes the two-phase enrichment + parallel-write path for ≥ 10 files with a sub-agent fallback; Path B gate reads "< 5 files" and "≥ 5 files"; `migrate.py --dry-run` on a 5-entry manifest outputs correct JSON preview; `migrate.py` on a 9-entry manifest processes entries concurrently (not strictly ordered in log); `MIGRATE_CONCURRENCY=0` exits with a clear error
-    - Spec: `docs/specs/write-perf-l1-l2-migrate-skill.md`
+    - Spec: `docs/specs/p8-t29-migrate-skill.md`
     - **Open question:** Do sub-agents spawned by the `task` tool inherit cairn-mcp MCP connections? Test empirically during implementation; the SKILL.md fallback path (sub-agent returns metadata → main agent writes) must be in place regardless.
 
 ---
 
 ## Phase 9 — Pre-v1 Release: Improvements and Fixes
 
-Goal: quality-of-life improvements and documentation polish before declaring v1.
+Goal: quality-of-life improvements and documentation polish before declaring v1, plus the v0.3.0 artifact commit-references feature.
 
 30. ✅ **Z1 — `write_artifacts` + `migrate_artifacts` bulk tools** *(priority 1 — unblocks correct migration performance)* — add two new MCP tools:
     - **`write_artifacts`** (FR-25): accepts a list of artifact descriptors (same fields as `write_artifact`; `description` required); processes all concurrently via `asyncio.gather` + `asyncio.Semaphore(ARTIFACT_CONCURRENCY)`, default 3; section-level concurrency (P1, `SECTION_CONCURRENCY`) applied within each artifact; partial failures recorded per-artifact in response list without aborting the batch; add `ARTIFACT_CONCURRENCY` config var (int, default 3, ≥ 1).
@@ -185,9 +185,9 @@ Goal: quality-of-life improvements and documentation polish before declaring v1.
     - **SKILL.md simplified**: remove all sub-agent/task-tool references; two paths — agent-only (< 5 files: agent classifies + generates descriptions in-context + calls `write_artifacts` once) and manifest + `migrate_artifacts` (≥ 5 files: agent classifies into CAIRN_IMPORT.yaml with git dates → calls `migrate_artifacts(dry_run=True)` to preview → reviews → calls `migrate_artifacts(dry_run=False)` to write); CAIRN_IMPORT.yaml as progress tracker enabling partial-failure retry; ≤ 500 lines; cross-IDE compatible (no IDE-specific tool references).
     - Update plan.md, PRD, and brainstorming docs.
     - Done when: `write_artifacts` on a 10-entry list processes entries concurrently (verified by log order); any failed entry appears in the response with an error field while successful entries report `written=True`; `ARTIFACT_CONCURRENCY=0` exits with a clear error at startup; `migrate_artifacts` with `dry_run=True` returns enriched descriptors with generated descriptions and writes nothing; descriptions in the enriched list are clipped to 280 chars; `migrate_artifacts` with `dry_run=False` writes all artifacts and makes them immediately searchable; `BEDROCK_TEXT_MODEL` startup check fires when configured; a section body exceeding `EMBED_MAX_SECTION_LENGTH` is truncated before embedding but the full body is returned unchanged by `read_artifact`; `EMBED_MAX_SECTION_LENGTH=0` disables truncation; `skills/migrating-to-cairn/scripts/` directory absent; SKILL.md ≤ 500 lines and references no IDE-specific tool; full round-trip: agent classifies → `migrate_artifacts(dry_run=True)` → `migrate_artifacts(dry_run=False)` → `list_artifacts` confirms all entries
-    - Spec: `docs/specs/write-perf-z1-write-artifacts.md` (status: **approved + complete** — 547 unit tests passing; SKILL.md 354 lines; scripts/ deleted; ruff + mypy clean; integration tests pending live AWS run)
+    - Spec: `docs/specs/p9-t30-write-artifacts.md` (status: **approved + complete** — 547 unit tests passing; SKILL.md 354 lines; scripts/ deleted; ruff + mypy clean; integration tests pending live AWS run)
     - **New config vars**: `ARTIFACT_CONCURRENCY` (int, default 3, ≥ 1); `BEDROCK_TEXT_MODEL` (string, default `None` — operator opt-in); `EMBED_MAX_SECTION_LENGTH` (int, default 24,000, ≥ 0; 0 = disabled); combined `ARTIFACT_CONCURRENCY × SECTION_CONCURRENCY ≤ 15` rule of thumb (safe Bedrock quota ceiling)
-    - **Supersedes**: L1+L2 spec (`write-perf-l1-l2-migrate-skill.md`) — both made redundant by server-side parallelism; spec marked `status: superseded`
+    - **Supersedes**: L1+L2 spec (`p8-t29-migrate-skill.md`) — both made redundant by server-side parallelism; spec marked `status: superseded`
 
 31. ☐ **Installing-cairn skill** — `skills/installing-cairn/SKILL.md` with 9-step structured
     workflow: (1) parameter collection upfront — region, resource names, embedding dimension,
@@ -218,11 +218,11 @@ Goal: quality-of-life improvements and documentation polish before declaring v1.
 
 32. ☐ **Reconcile Phase 3 — dangling vector pruning** *(priority 2)* — extend `reconcile_index` with a third phase that detects and deletes vector index entries whose backing S3 object no longer exists. Dangling vectors arise when an S3 object is deleted externally (outside cairn-mcp) while its vector index entries remain; they surface in search and list results with valid-seeming metadata but cause `read_artifact` to return a not-found error. Phase 3 reuses data already collected in Phase 2 at zero additional API cost: `indexed_artifact_ids − set(own_keys)` identifies all dangling artifact IDs; their vector keys are already grouped from the existing `indexed_keys_raw` listing and are deleted. Phase 3 always runs automatically — no new parameters, consistent with Phases 1+2 which also auto-repair without confirmation. Response schema gains three additive fields: `dangling_artifacts_found` (int), `dangling_vectors_pruned` (int), `dangling_artifacts` (list[str]). Existing callers that ignore unknown keys are unaffected.
     - Done when: an artifact whose S3 object was deleted externally while its vector entries remain is detected by Phase 3 and its vector entries are removed; `dangling_artifacts_found` and `dangling_vectors_pruned` report correct counts; `dangling_artifacts` lists affected IDs; clean state (no dangling vectors) reports all zeros in the new fields; own-scope gate enforced — foreign-scope vector entries never pruned; credential error during vector deletion returns structured error; Phase 2 orphan scan and Phase 3 dangling prune both execute within a single `reconcile_index` call
-    - Spec: `docs/specs/reconcile-phase3-dangling-vectors.md` (status: draft — awaiting approval)
+    - Spec: `docs/specs/p9-t32-reconcile-phase3-dangling-vectors.md` (status: draft — awaiting approval)
 
 ---
 
-## Phase 10 — v0.3.0: Artifact Commit References
+### v0.3.0 — Artifact Commit References
 
 Goal: close the traceability gap between artifacts and git commits. Agents can associate any
 written artifact with a commit SHA after the fact — without re-embedding — and discover
@@ -230,26 +230,25 @@ which session artifacts still need linking. The write-time ULID timestamp enable
 time-range discovery scoped to the current session.
 
 **Execution order:** T33 is an independent prerequisite (filter.py only); T34 depends on
-T33 (`$gte`/`$lte` operators required) and must complete before T35 and T36; T35 and T36
-depend on T34 and can be worked in parallel once T34 merges. This phase is independent of
-T31 and T32 — the two tracks share no files and can proceed concurrently.
+T33 and must complete before T35 and T36; T35 and T36 can be worked in parallel once T34
+merges. This track is independent of T31 and T32 — no shared files.
 
 33. ☐ **Filter range operators ($gte / $lte)** *(prerequisite — filter.py only; no tool changes)* — add `$gte` and `$lte` inclusive string-comparison operators to `filter.py`; update module docstring (FR-30)
     - Done when: `matches_filter(meta, {"field": {"$gte": v}})` returns `True` iff `meta["field"] >= v`; `$lte` symmetric; absent field → `False`; combined `$and` interval works; `$gt` / `$lt` (strict) raise `ValueError`; all existing operator tests pass; ruff + mypy clean
-    - Spec: `docs/specs/p6-t23-filter-range-operators.md`
+    - Spec: `docs/specs/p9-t33-filter-range-operators.md`
 
 34. ☐ **`commit_refs` and `last_edited_ulid` metadata fields** *(core data model)* — add `commit_refs: list[str]` to `Artifact`; generate `last_edited_ulid` via `python-ulid` on every `write_artifact` call; store both fields in S3 object metadata and vector metadata following the `feature_tags` encoding pattern (comma-joined string in S3, `list[str]` in vectors, key omitted when empty in vectors); include `last_edited_ulid` in `write_artifact` response; expose both fields in `list_artifacts` (with `commit_refs` filter parameter) and `read_artifact` responses; legacy artifacts (missing fields) return `None` — no error (FR-28, FR-29)
     - Done when: `write_artifact` response includes `last_edited_ulid`; `read_artifact` and `list_artifacts` return both fields; `commit_refs` filter in `list_artifacts` returns correct subset; empty `commit_refs` stores `""` in S3 and omits key from vector metadata; legacy artifacts return `None` for `last_edited_ulid` and `[]` for `commit_refs`; ruff + mypy clean
-    - Spec: `docs/specs/p6-t24-commit-refs-metadata-fields.md`
+    - Spec: `docs/specs/p9-t34-commit-refs-metadata-fields.md`
     - **New dependency**: `python-ulid` added to `pyproject.toml`
 
 35. ☐ **`propose_commit_links` tool** *(read-only discovery)* — scan own-scope artifacts in the vector index optionally bounded by `last_edited_ulid >= since_ulid`; deduplicate by `artifact_id`; filter client-side for artifacts with absent or empty `commit_refs`; return candidate list with human-readable timestamps; no writes (FR-31)
     - Done when: tool called with `since_ulid` returns only own-scope artifacts written at or after that timestamp with no `commit_refs`; called without `since_ulid` returns all unlinked own-scope artifacts; foreign-scope artifacts never included; empty result returns `{"proposed": [], "commit_sha": "..."}` not an error; credential errors return structured responses; ruff + mypy clean
-    - Spec: `docs/specs/p6-t25-propose-commit-links.md`
+    - Spec: `docs/specs/p9-t35-propose-commit-links.md`
 
 36. ☐ **`link_commit` tool + AGENTS.md post-commit protocol** *(write, no re-embed)* — for each confirmed `artifact_id`: `list_vectors_by_metadata` → `get_vectors` → merge `commit_sha` into `commit_refs` (append + deduplicate) → `put_vectors_batch` with same float32 embeddings and updated metadata; scope-gate rejects foreign-scope IDs (counted in `skipped`); generate `next_since_ulid` after all artifacts processed; return `{linked, skipped, commit_sha, next_since_ulid}`; add AGENTS.md post-commit protocol snippet to installing-cairn skill (FR-32)
     - Done when: `link_commit` appends SHA to all section vectors without Bedrock call; existing SHA not duplicated; foreign-scope IDs skipped and counted; `next_since_ulid` returned; two successive calls produce monotonically non-decreasing cursors; Bedrock `embed` never called (verified by spy); credential errors return structured responses; AGENTS.md snippet includes session-start ULID capture, post-commit proposal, confirmation, linking, and cursor-advance steps; known reconcile limitation documented in module docstring; ruff + mypy clean
-    - Spec: `docs/specs/p6-t26-link-commit.md`
+    - Spec: `docs/specs/p9-t36-link-commit.md`
     - **Known limitation (V1)**: commit references are stored in vector metadata only; `reconcile_index` will drop them on any reconcile run — documented in spec and module docstring; S3 `copy_object` update deferred to a future milestone
 
 ---
@@ -294,7 +293,7 @@ T31 and T32 — the two tracks share no files and can proceed concurrently.
 
 - **Moto migration complete (2026-06-01)**: `FakeS3Client` and `FakeVectorsClient` deleted; all 12 unit test files migrated to moto-backed `S3ClientImpl` / `VectorsClientImpl`; `query_vectors` moto extension patched onto `S3VectorsBackend` in `conftest.py`; 451 unit tests passing; ruff + mypy clean. Unit test count dropped from 486 to 451 — the 35-test difference accounts for the deleted fake client test files (`test_fake_s3.py`, `test_fake_vectors.py`), partially offset by 6 new extension tests.
 
-- **Artifact type vocabulary extended to 14 types (2026-06-01)**: added `changelog`, `plan`, `postmortem`, `prd`, `runbook` to `ARTIFACT_TYPES` in `artifact.py` (9 → 14); `resources.py` descriptions and tier guidance updated for all 14 types; README type table and tier lists updated; 5 new parametrized test cases added (`test_artifact.py`); migration skill (`skills/migrating-to-cairn/SKILL.md`) updated with docs-root discovery sub-step, subdirectory-pattern table replacing hardcoded `docs/` paths, and Step 7 removal guidance for the 5 new types; `schema.yaml` type comment updated to list all 14 types. Quality gate: 457 unit tests passing, ruff clean, mypy clean. Spec: `docs/specs/extend-artifact-types-and-flexible-docs-root.md`.
+- **Artifact type vocabulary extended to 14 types (2026-06-01)**: added `changelog`, `plan`, `postmortem`, `prd`, `runbook` to `ARTIFACT_TYPES` in `artifact.py` (9 → 14); `resources.py` descriptions and tier guidance updated for all 14 types; README type table and tier lists updated; 5 new parametrized test cases added (`test_artifact.py`); migration skill (`skills/migrating-to-cairn/SKILL.md`) updated with docs-root discovery sub-step, subdirectory-pattern table replacing hardcoded `docs/` paths, and Step 7 removal guidance for the 5 new types; `schema.yaml` type comment updated to list all 14 types. Quality gate: 457 unit tests passing, ruff clean, mypy clean. Spec: `docs/specs/p7-t25b-extend-artifact-types.md`.
 
 - **Phase 8 (write performance) complete (2026-06-02)**: 489 unit tests passing; ruff + mypy clean (31 source files); all 4 tasks delivered: P1 concurrent embedding + batched `put_vectors` (single `put_vectors_batch` call per artifact, `asyncio.Semaphore(SECTION_CONCURRENCY)`), P2 retry/throttle correctness fix (duplicate `write.py` retry removed; `random.uniform` jitter added to `bedrock.py`), P3 configurable section caps (`EMBED_MAX_SECTIONS=20`, `EMBED_MIN_SECTION_LENGTH=50`; length filter before cap; fallback to document-level embed), L1+L2 migration skill restructured into three mutually exclusive bands (1–4 → Path A sequential; 5–9 → Path B script; ≥10 → Path C sub-agents) with concurrent `asyncio.gather` writes in `migrate.py`.
 
@@ -308,15 +307,15 @@ T31 and T32 — the two tracks share no files and can proceed concurrently.
 - [`docs/brainstorming/brainstorming-delete-artifact-2026-05-30.md`](../brainstorming/brainstorming-delete-artifact-2026-05-30.md)
 - [`docs/brainstorming/brainstorming-existing-project-migration-2026-05-30.md`](../brainstorming/brainstorming-existing-project-migration-2026-05-30.md)
 - [`docs/brainstorming/brainstorming-write-performance-2026-06-01.md`](../brainstorming/brainstorming-write-performance-2026-06-01.md)
-- [`docs/specs/write-perf-p1-concurrent-embedding.md`](../specs/write-perf-p1-concurrent-embedding.md)
-- [`docs/specs/write-perf-p2-retry-throttle-fix.md`](../specs/write-perf-p2-retry-throttle-fix.md)
-- [`docs/specs/write-perf-p3-section-caps.md`](../specs/write-perf-p3-section-caps.md)
-- [`docs/specs/write-perf-l1-l2-migrate-skill.md`](../specs/write-perf-l1-l2-migrate-skill.md)
+- [`docs/specs/p8-t26-concurrent-embedding.md`](../specs/p8-t26-concurrent-embedding.md)
+- [`docs/specs/p8-t27-retry-throttle-fix.md`](../specs/p8-t27-retry-throttle-fix.md)
+- [`docs/specs/p8-t28-section-caps.md`](../specs/p8-t28-section-caps.md)
+- [`docs/specs/p8-t29-migrate-skill.md`](../specs/p8-t29-migrate-skill.md)
 - [`docs/brainstorming/brainstorming-installing-cairn-skill-2026-06-02.md`](../brainstorming/brainstorming-installing-cairn-skill-2026-06-02.md)
 - [`docs/brainstorming/brainstorming-reconcile-dangling-vectors-2026-06-03.md`](../brainstorming/brainstorming-reconcile-dangling-vectors-2026-06-03.md)
-- [`docs/specs/reconcile-phase3-dangling-vectors.md`](../specs/reconcile-phase3-dangling-vectors.md)
+- [`docs/specs/p9-t32-reconcile-phase3-dangling-vectors.md`](../specs/p9-t32-reconcile-phase3-dangling-vectors.md)
 - [`docs/brainstorming/brainstorming-2026-06-06-artifact-commit-refs.md`](../brainstorming/brainstorming-2026-06-06-artifact-commit-refs.md)
-- [`docs/specs/p6-t23-filter-range-operators.md`](../specs/p6-t23-filter-range-operators.md)
-- [`docs/specs/p6-t24-commit-refs-metadata-fields.md`](../specs/p6-t24-commit-refs-metadata-fields.md)
-- [`docs/specs/p6-t25-propose-commit-links.md`](../specs/p6-t25-propose-commit-links.md)
-- [`docs/specs/p6-t26-link-commit.md`](../specs/p6-t26-link-commit.md)
+- [`docs/specs/p9-t33-filter-range-operators.md`](../specs/p9-t33-filter-range-operators.md)
+- [`docs/specs/p9-t34-commit-refs-metadata-fields.md`](../specs/p9-t34-commit-refs-metadata-fields.md)
+- [`docs/specs/p9-t35-propose-commit-links.md`](../specs/p9-t35-propose-commit-links.md)
+- [`docs/specs/p9-t36-link-commit.md`](../specs/p9-t36-link-commit.md)
