@@ -28,6 +28,14 @@ decisions_locked:
   - D10: V1 path syntax — trailing / means entire directory tree; no trailing / means exact file; no glob syntax
   - D11: re-running installing-cairn updates the config block in place (no append, no history)
   - D12: AGENTS.md narrative snippet gains a standing never-write instruction referencing local_only_types and local_only_paths
+  - D13: AWS provisioning (S3 bucket, S3 Vectors bucket/index, Bedrock model access) is OUT OF SCOPE for the installation skill — operator provisions these externally before running the skill
+  - D14: the skill collects values for pre-existing resources only (bucket name, index name, AWS profile, etc.) — it never creates AWS resources
+  - D15: pre-flight (Step 2) validates that the declared resources are reachable (s3api head-bucket, s3vectors describe-index) and that credentials are active — this replaces the provisioning responsibility
+  - D16: README AWS Provisioning section (Steps 1–4 with all CLI commands) removed; replaced by an expanded Prerequisites section listing what must exist before running the skill
+  - D17: provisioning IAM policy removed from README (no provisioning steps means no need for CreateIndex/DeleteIndex permissions); runtime IAM policy stays as a static reference with YOUR-* placeholders — the installation skill never generates or substitutes values into any IAM policy; operators use the README reference as a template for what to request from their AWS admin
+  - D18: env vars passed via IDE MCP config file env/environment block — no .env file written at any step
+  - D19: skill asks explicit permission before writing to any IDE config file; merges into existing file; displays entry for manual addition if operator declines
+  - D20: step count is 6 (parameter collection, pre-flight + resource reachability validation, clone + setup, MCP client config with env vars + permission ask, health check, exclusion config → AGENTS.md); IAM policy generation is absent from all steps — the README provides a static reference policy with YOUR-* placeholders; the skill never generates, substitutes, or applies any IAM policy document
 decisions_pending: []
 decisions_closed_not_applicable:
   - Binary ADR gate as the sole exclusion mechanism — superseded by unified exclusion model (D2 + D3)
@@ -188,7 +196,7 @@ done one-by-one in an agent context. Does installation need a bundled script?
 |------|--------------------------|----------------|
 | Run aws CLI commands one by one | Yes | No |
 | Generate .env with real values | Yes (file write) | No |
-| Generate IAM policy JSON with real values | Yes (string formatting) | No |
+| Generate IAM policy JSON with real values | ~~Yes (string formatting)~~ | ~~No~~ | **Superseded by D17/D20** — IAM policy generation is out of scope; the README provides a static reference with YOUR-* placeholders |
 | Generate MCP config snippet | Yes (file write) | No |
 
 **Verdict:** No bundled script needed. Each provisioning step is a single CLI command. The agent
@@ -504,6 +512,82 @@ the correct ADR variant and a standing never-write instruction:
 > whose source file is under a path in `local_only_paths`."
 
 ---
+
+### Open Questions
+
+*(none — all decisions resolved)*
+
+---
+
+## Session 2026-06-07 (addendum) — AWS Provisioning Scope
+
+### Problem Statement
+
+The Session 2026-06-07 workflow design included a Step 4 that created the S3 artifact
+bucket, S3 Vectors bucket, and S3 Vectors index via AWS CLI commands, and a Step 4d that
+guided the operator through enabling Bedrock model access in the Console. This was
+identified as scope creep: cairn-mcp is an application server, not an infrastructure
+provisioning tool. Operators who adopt cairn-mcp already have AWS workflows and tooling
+for resource creation. The installation skill should assume the required AWS resources
+exist and focus on connecting the server to them.
+
+A secondary finding: the README currently includes a full `## AWS Provisioning` section
+with four sub-steps and CLI commands for creating each resource. This duplicates the
+wrong scope into the README. A potential operator reading the README should see what
+is required (prerequisites), not a tutorial on creating S3 resources they likely already
+know how to create.
+
+### Decision Summary
+
+**D13 — AWS provisioning is out of scope for the installation skill.**
+The skill never creates S3 buckets, S3 Vectors indexes, or enables Bedrock model access.
+These are operator responsibilities, handled before running the skill by whatever means
+the team uses (Console, CDK, Terraform, CLI scripts). The skill is not opinionated about
+how they are created.
+
+**D14 — The skill collects values for pre-existing resources.**
+Step 1 (parameter collection) asks for the bucket name, vectors bucket name, index name,
+AWS region, and AWS profile. All of these must already exist. The skill does not offer to
+create them.
+
+**D15 — Pre-flight validates reachability, not existence-by-creation.**
+Step 2 expands its validation to include: `s3api head-bucket` on the declared artifact
+bucket, `s3vectors describe-index` on the declared vectors index, and a `bedrock:InvokeModel`
+call on the embedding model. If any check fails, the skill stops with a clear error
+identifying which resource is unreachable. This gives the operator early, specific failure
+feedback without the skill needing to understand how to provision the missing resource.
+
+**D16 — README `## AWS Provisioning` section removed.**
+The four provisioning sub-steps (create S3 bucket, create Vectors bucket, create Vectors
+index, verify Bedrock access) and their CLI commands are removed from the README. The
+`## Prerequisites` section is expanded to list what must exist: S3 bucket, S3 Vectors
+bucket and index (with the correct dimension and non-filterable key configuration noted),
+Bedrock embedding model access, AWS credentials.
+
+**D17 — Provisioning IAM policy removed; runtime IAM policy is a static README reference only.**
+The `#### Provisioning IAM policy` block (`CreateIndex`, `DeleteIndex`) is removed from
+the README. The `## Minimum IAM Policy` block stays as a **static reference with
+`YOUR-*` placeholders** — operators use it as a template when requesting permissions
+from their AWS admin. The installation skill never generates, substitutes values into,
+or applies any IAM policy document. IAM policy management is entirely the operator's
+responsibility; it is not a skill step.
+
+**D18 — No `.env` file is written at any step.**
+Already captured from the earlier same-day session. Env vars go exclusively in the IDE's
+MCP config file. Recorded here for completeness.
+
+**D19 — IDE config file permission gate.**
+Already captured from the earlier same-day session. Recorded here for completeness.
+
+**D20 — Step count is 6; IAM policy generation is absent.**
+The IAM policy step is removed entirely — the skill never emits a policy document.
+The 6-step workflow is:
+1. Parameter collection
+2. Pre-flight + resource reachability validation
+3. Clone and Python setup
+4. MCP client config (env vars in IDE config file, permission ask, merge)
+5. Smoke test via `health_check`
+6. Exclusion configuration (ADR strategy + additional paths → AGENTS.md config block + snippet)
 
 ### Open Questions
 
