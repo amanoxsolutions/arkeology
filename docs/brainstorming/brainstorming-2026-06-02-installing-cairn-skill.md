@@ -5,10 +5,34 @@ authored:
   by: "analyst"
   date: "2026-06-02"
 revised:
-  by: ""
-  date: ""
-techniques_used: []
-assumptions_challenged: []
+  by: "analyst"
+  date: "2026-06-07"
+techniques_used:
+  - inversion
+  - perspective-shift
+assumptions_challenged:
+  - "ADR strategy is the only exclusion dimension needed (false — some teams are not ready to move any tier-3 docs)"
+  - "Exclusions only matter at migration time (false — they are permanent runtime rules for every future agent session)"
+  - "The migration skill can stand alone without checking for prior installation (false — it depends on decisions recorded by the installation skill)"
+  - "Path exclusions should be applied after classification (false — scan-time exclusion is more efficient and clearer to the operator)"
+decisions_locked:
+  - D1: installing-cairn skill is the right approach — atomic skill, no bundled script, AGENTS.md snippet in references/
+  - D2: adr_strategy key retained as a named field in the config block (git-only vs cairn-mcp-only)
+  - D3: new local_only_paths key in the config block — a list of folders/files permanently excluded from cairn-mcp
+  - D4: local_only_types derived from local_only_paths — installation skill infers type-level rules from path selections and confirms with operator
+  - D5: structured <!-- cairn-mcp:config ... --> block (YAML inside HTML comment) written to AGENTS.md by installation skill — single source of truth for both migration and runtime exclusions
+  - D6: config block presence is the installation sentinel — migration skill checks for it at pre-flight; absent = hard stop
+  - D7: migration skill removes its ADR gate entirely — exclusions come from the config block
+  - D8: when git-only ADR strategy chosen, installation skill auto-detects ADR folder; if not found, asks operator; then asks for additional folders/files
+  - D9: local_only_paths exclusions applied at scan-time in migration skill (not post-classification)
+  - D10: V1 path syntax — trailing / means entire directory tree; no trailing / means exact file; no glob syntax
+  - D11: re-running installing-cairn updates the config block in place (no append, no history)
+  - D12: AGENTS.md narrative snippet gains a standing never-write instruction referencing local_only_types and local_only_paths
+decisions_pending: []
+decisions_closed_not_applicable:
+  - Binary ADR gate as the sole exclusion mechanism — superseded by unified exclusion model (D2 + D3)
+  - Post-classification path filtering in migration skill — superseded by scan-time exclusion (D9)
+  - Append-on-rerun for config block — superseded by in-place update (D11)
 ---
 
 # Installing-Cairn Skill
@@ -260,3 +284,227 @@ becomes: provide Console deep link → wait for operator confirmation → call
 **`READ_PREFIXES` collection** — Ask in Step 1 (optional field, can be left blank). Make clear
 that it can be updated in `.env` at any time. Most new installs will leave it blank; the question
 surfaces the capability without blocking setup.
+
+---
+
+## Session 2026-06-07
+
+### Problem Statement
+
+The ADR strategy decision (git-only vs cairn-mcp-only) currently lives in the migration skill's
+Step 2c. Two related problems make this the wrong home for it:
+
+1. **Wrong moment** — if an installation skill exists, the operator has already set up the
+   server and configured AGENTS.md. Asking the ADR question again during migration re-opens a
+   decision that should already be settled, with the risk of giving a different answer.
+
+2. **Too narrow** — operator feedback surfaced a broader concern: teams not yet advanced with
+   AI development may not be ready to move *any* tier-3 artifacts out of the repository, not
+   just ADRs. The binary ADR gate does not cover specs, plans, or ad-hoc folders an operator
+   wants to keep local permanently.
+
+The goal is to move all exclusion decisions into the installation skill, record them in
+AGENTS.md in a machine-readable form, and have the migration skill consume what has already
+been decided — with a hard gate if installation hasn't run yet.
+
+---
+
+### Ideas Explored
+
+#### On the exclusion model
+
+1. **Type-only exclusions** — extend the ADR gate to a list of artifact types to keep git-only.
+   Simple, but misses path-level cases (a folder of sensitive docs regardless of type).
+
+2. **Path-only exclusions** — a list of folder/file paths to exclude permanently. Covers
+   directory-level exclusions but does not align with how agents reason at write time
+   (agents think in types, not source file paths).
+
+3. **Unified model: types + paths** — one step collects both. `adr_strategy` is retained as
+   a named field (its semantics are richer than just "exclude adr type"); a new `local_only_paths`
+   key captures folder and file exclusions. `local_only_types` is derived from paths where
+   the mapping is unambiguous.
+
+4. **Named profiles** (Minimal / ADR-local / Conservative / Custom) — fast for common cases,
+   but too rigid for idiosyncratic team layouts.
+
+5. **Positive-permission model** — list what IS permitted in cairn-mcp; everything else stays
+   local. Safest default, but impossible to configure correctly before teams know what they
+   will write.
+
+#### On AGENTS.md encoding
+
+6. **Inline narrative only** — extend the existing Variant A/B prose with additional bullet
+   points. Readable but not machine-parseable by agents or the migration skill.
+
+7. **Dedicated section** — a `### Local-only artifacts` section with two bullet lists.
+   Better than prose but still unstructured; fragile to reformatting.
+
+8. **Structured HTML-comment config block** — a `<!-- cairn-mcp:config ... -->` block
+   containing YAML. Machine-parseable by agents (LLMs can read HTML comments), survives
+   surrounding AGENTS.md edits, and is a clear machine-managed zone that humans know
+   not to hand-edit freely.
+
+#### On how paths are detected and entered
+
+9. **Operator declares everything manually** — ask "which folders should stay local?"
+   Puts the burden on the operator; they may forget the ADR folder or not know the exact path.
+
+10. **Auto-detect from known patterns** — when git-only ADR strategy is chosen, scan for
+    common ADR directory names (`docs/adr/`, `docs/adrs/`, `adr/`, `adrs/`, `decisions/`,
+    `architecture/`). If exactly one match found, confirm with operator and add it to
+    `local_only_paths`. If none found or multiple found, ask the operator to specify.
+    After the ADR folder is resolved, ask for any additional folders or files to exclude.
+
+11. **Derive types from paths** — after the path list is final, map known directory patterns
+    to artifact types (e.g. `docs/adr/` → `adr`, `docs/specs/` → `spec`) and add them to
+    `local_only_types` with operator confirmation. Agents need type-level rules at write time
+    (they don't know source file paths); path-level rules alone are not enough.
+
+#### On migration skill installation detection
+
+12. **Check AGENTS.md for config block** — migration skill looks for `<!-- cairn-mcp:config`
+    at pre-flight. Present → read exclusions. Absent → hard stop.
+
+13. **Soft warning + inline fallback** — if no config block found, re-ask the exclusion
+    questions inline and write the block on the fly. Makes migration self-contained but
+    duplicates installation skill logic.
+
+14. **Check health_check instead** — if the server is healthy, installation probably ran.
+    Does not capture exclusion decisions; health alone is insufficient.
+
+#### On where exclusions are applied in the migration scan
+
+15. **Post-classification filter** — classify all files first, then drop those matching
+    excluded types or paths. Gives the operator a full view before exclusions; slightly
+    more transparent.
+
+16. **Scan-time exclusion** — paths in `local_only_paths` are skipped before any
+    classification or reading. More efficient; cleaner mental model ("these paths are
+    invisible to cairn-mcp").
+
+#### On re-running the installation skill
+
+17. **Append a new config block** — preserves history but risks agents using the wrong
+    (older) block.
+
+18. **Update in place** — the config block is machine-managed; when re-running the skill,
+    it rewrites the block with the new values. No history, but no ambiguity.
+
+---
+
+### Clusters
+
+**Cluster A — Exclusion model**
+Ideas 1–5. Resolves to: unified model (idea 3) — `adr_strategy` retained, `local_only_paths`
+added, `local_only_types` derived.
+
+**Cluster B — AGENTS.md format**
+Ideas 6–8. Resolves to: structured HTML-comment config block (idea 8) — machine-parseable,
+unambiguous, human-visible.
+
+**Cluster C — Path detection and entry**
+Ideas 9–11. Resolves to: auto-detect ADR folder when git-only chosen (idea 10), then ask for
+additional exclusions, then derive type-level rules (idea 11).
+
+**Cluster D — Migration skill installation gate**
+Ideas 12–14. Resolves to: hard stop on absent config block (idea 12). No fallback that
+duplicates installation logic.
+
+**Cluster E — Scan-time vs post-classification**
+Ideas 15–16. Resolves to: scan-time exclusion (idea 16) — excluded paths are invisible to
+the entire migration workflow.
+
+**Cluster F — Config block lifecycle**
+Ideas 17–18. Resolves to: update in place (idea 18).
+
+---
+
+### Selected Directions
+
+#### D2 — `adr_strategy` retained; `local_only_paths` added
+
+The config block carries both keys. `adr_strategy: git-only` conveys richer semantics than
+simply listing `adr` in `local_only_types` — it signals a single-source-of-truth decision,
+not just an exclusion preference. `local_only_paths` is a new list covering any folder or
+file the operator wants permanently excluded from cairn-mcp.
+
+#### D3 — `local_only_types` derived from `local_only_paths`
+
+When the operator finalises the path exclusion list, the installation skill maps each path
+to a known artifact type (using the same directory-pattern table as the migration skill's
+Pass 2 classification) and asks the operator to confirm the inferred types. Agents use
+`local_only_types` at write time; the migration skill uses `local_only_paths` at scan time.
+Both are needed; both are generated in the same step.
+
+#### D5 — Structured `<!-- cairn-mcp:config ... -->` block in AGENTS.md
+
+YAML inside an HTML comment. Written by the installation skill; read by the migration skill
+and by every future agent session. Example:
+
+```
+<!-- cairn-mcp:config
+installed: 2026-06-07
+adr_strategy: git-only
+local_only_types:
+  - adr
+  - spec
+local_only_paths:
+  - docs/adr/
+  - docs/specs/
+  - docs/internal/private-design.md
+-->
+```
+
+Trailing `/` means the entire directory tree. No trailing `/` means an exact file path.
+No glob syntax in V1 — keeps parsing unambiguous. The block is machine-managed; humans
+should not edit it by hand.
+
+#### D6 — Config block is the installation sentinel
+
+Migration skill pre-flight (before any scan):
+1. Check AGENTS.md for `<!-- cairn-mcp:config`.
+2. If absent → stop: "cairn-mcp does not appear to be installed for this project.
+   Run the `installing-cairn` skill first, then return here."
+3. If present → parse `local_only_types` and `local_only_paths` and continue.
+
+No inline fallback — the migration skill does not re-ask exclusion questions.
+
+#### D8 — Installation skill Step 9 revised flow
+
+Step 9 becomes a two-part exclusion configuration step:
+
+**Part A — ADR strategy:**
+Ask the operator: git-only or cairn-mcp-only. If git-only:
+- Scan for common ADR directory names (`docs/adr/`, `docs/adrs/`, `adr/`, `adrs/`,
+  `decisions/`, `architecture/`).
+- If exactly one candidate found: "I found `docs/adr/`. I'll add it to the local-only
+  path list. Is that correct?"
+- If none or multiple found: "Where are your ADRs stored? (provide the folder path)"
+- Add the confirmed path to `local_only_paths`; add `adr` to `local_only_types`.
+
+**Part B — Additional exclusions:**
+Ask: "Are there any other folders or files that should never go into cairn-mcp?
+List them one per line, or press Enter to skip."
+For each path provided:
+- Attempt to infer an artifact type using the migration skill's path-pattern table.
+- If a type is inferred: "This looks like a `{type}` folder — I'll also add `{type}`
+  to the never-write types. Confirm?"
+- If no type can be inferred: add to `local_only_paths` only (no type-level rule added).
+
+**Part C — Write config block:**
+Write the `<!-- cairn-mcp:config ... -->` block to AGENTS.md. If a block already exists
+(re-run), replace it in place.
+
+Then write the AGENTS.md narrative snippet (from `references/agents-snippet.md`), including
+the correct ADR variant and a standing never-write instruction:
+
+> "Before writing any artifact, check the `cairn-mcp:config` block in AGENTS.md.
+> Do not write artifacts whose type appears in `local_only_types`. Do not write artifacts
+> whose source file is under a path in `local_only_paths`."
+
+---
+
+### Open Questions
+
+*(none — all decisions resolved)*
