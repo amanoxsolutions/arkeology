@@ -1,7 +1,7 @@
 # Plan: cairn-mcp
 
 _Project: cairn-mcp_
-_Generated: 2026-05-29_ · _Last updated: 2026-06-06_
+_Generated: 2026-05-29_ · _Last updated: 2026-06-07_
 _Status: **V1 — Phases 1–8 complete + artifact type vocabulary extended to 14 types (489 unit tests + integration suite passing against live AWS; ruff + mypy clean; Apache 2.0 licensed; production-hardened; moto migration complete; write performance hardened) · Phase 9 (pre-v1 release improvements) in progress — T30 (Z1 write_artifacts + migrate_artifacts) complete (547 unit tests passing); T31 (installing-cairn skill) and T32 (reconcile Phase 3 dangling vectors) pending; T33–T36 (v0.3.0 — artifact commit references) planned, specs ready**_
 
 ---
@@ -202,19 +202,38 @@ Goal: quality-of-life improvements and documentation polish before declaring v1,
     `YOUR-*` placeholders replaced by operator-provided values; (6) `.env` written from collected
     parameters; (7) MCP client config written for chosen IDE (OpenCode, Claude Desktop, Cursor,
     or generic `mcpServers` format); (8) smoke test via `health_check` — all components must
-    return `"status": "ok"` before proceeding; (9) AGENTS.md snippet with ADR strategy gate
-    (same two-option decision as migration skill). Existing resources detected via `head-bucket` /
-    `describe-index` before creation — skipped and reported rather than re-created.
-    `skills/installing-cairn/references/agents-snippet.md` extracted to stay within the 500-line
-    skill limit. README slimmed: Prerequisites and Installation sections collapsed to pointer
-    sentences; AWS Provisioning (4 steps), both IAM policy blocks, MCP client config sections,
-    and AGENTS.md snippet + ADR variants all removed — configuration reference table, server
-    launch command, and all concept/marketing content retained (~255 lines). (FR-24, NFR-12,
-    AC-28, AC-29)
-    - Done when: `SKILL.md` covers all 9 steps end-to-end; `references/agents-snippet.md`
-      contains the complete AGENTS.md snippet with both ADR variants; `SKILL.md` ≤ 500 lines;
-      README shrinks to ~255 lines with no `YOUR-*` placeholder blocks remaining; a new operator
-      following the skill reaches a server confirmed healthy by `health_check` returning all-ok
+    return `"status": "ok"` before proceeding; (9) permanent exclusion configuration — two-part
+    step: (A) ADR strategy (git-only vs cairn-mcp-only): if git-only, auto-detect ADR folder
+    from common directory names (`docs/adr/`, `docs/adrs/`, `adr/`, `adrs/`, `decisions/`,
+    `architecture/`); confirm with operator or ask for path if not found; add confirmed path to
+    `local_only_paths` and `adr` to `local_only_types`; (B) ask for any additional folders or
+    files that should never go into cairn-mcp; for each path, infer artifact type from the
+    migration skill's path-pattern table and confirm with operator; add to `local_only_paths`
+    (and `local_only_types` where type is inferred). Write a `<!-- cairn-mcp:config -->` block
+    to AGENTS.md containing `installed`, `adr_strategy`, `local_only_types`, and
+    `local_only_paths`; then write the narrative AGENTS.md snippet (from
+    `skills/installing-cairn/references/agents-snippet.md`) including a standing never-write
+    instruction referencing the config block. Re-running the skill updates the config block in
+    place. Existing resources detected via `head-bucket` / `describe-index` — skipped and
+    reported rather than re-created. README slimmed: Prerequisites and Installation sections
+    collapsed to pointer sentences; AWS Provisioning, IAM policy blocks, MCP client config
+    sections, and AGENTS.md snippet + ADR variants all removed — configuration reference table,
+    server launch command, and all concept/marketing content retained (~255 lines). (FR-24,
+    NFR-12, AC-28, AC-29, AC-40, AC-42)
+    - **Also delivers**: update `skills/migrating-to-cairn/SKILL.md` — remove Step 2c ADR
+      strategy gate entirely; add pre-flight check at top of Step 2: if no `cairn-mcp:config`
+      block found in AGENTS.md → hard stop ("run `installing-cairn` first"); if block found →
+      read `local_only_paths` (excluded at scan time) and `local_only_types` (excluded after
+      classification). (FR-23, AC-41)
+    - Done when: `SKILL.md` covers all 9 steps including the two-part exclusion step;
+      `references/agents-snippet.md` contains the complete AGENTS.md snippet with the
+      never-write instruction and both ADR variants; `SKILL.md` ≤ 500 lines; README shrinks
+      to ~255 lines with no `YOUR-*` placeholder blocks remaining; a new operator following
+      the skill reaches a server confirmed healthy by `health_check` returning all-ok; the
+      `cairn-mcp:config` block written to AGENTS.md is valid YAML inside the HTML comment
+      with all four keys; re-running the skill replaces the block in place; migration skill
+      Step 2c is absent; migration skill halts on missing config block; migration skill scan
+      respects `local_only_paths` and classification respects `local_only_types`
 
 32. ☐ **Reconcile Phase 3 — dangling vector pruning** *(priority 2)* — extend `reconcile_index` with a third phase that detects and deletes vector index entries whose backing S3 object no longer exists. Dangling vectors arise when an S3 object is deleted externally (outside cairn-mcp) while its vector index entries remain; they surface in search and list results with valid-seeming metadata but cause `read_artifact` to return a not-found error. Phase 3 reuses data already collected in Phase 2 at zero additional API cost: `indexed_artifact_ids − set(own_keys)` identifies all dangling artifact IDs; their vector keys are already grouped from the existing `indexed_keys_raw` listing and are deleted. Phase 3 always runs automatically — no new parameters, consistent with Phases 1+2 which also auto-repair without confirmation. Response schema gains three additive fields: `dangling_artifacts_found` (int), `dangling_vectors_pruned` (int), `dangling_artifacts` (list[str]). Existing callers that ignore unknown keys are unaffected.
     - Done when: an artifact whose S3 object was deleted externally while its vector entries remain is detected by Phase 3 and its vector entries are removed; `dangling_artifacts_found` and `dangling_vectors_pruned` report correct counts; `dangling_artifacts` lists affected IDs; clean state (no dangling vectors) reports all zeros in the new fields; own-scope gate enforced — foreign-scope vector entries never pruned; credential error during vector deletion returns structured error; Phase 2 orphan scan and Phase 3 dangling prune both execute within a single `reconcile_index` call
@@ -311,7 +330,7 @@ merges. This track is independent of T31 and T32 — no shared files.
 - [`docs/specs/p8-t27-retry-throttle-fix.md`](../specs/p8-t27-retry-throttle-fix.md)
 - [`docs/specs/p8-t28-section-caps.md`](../specs/p8-t28-section-caps.md)
 - [`docs/specs/p8-t29-migrate-skill.md`](../specs/p8-t29-migrate-skill.md)
-- [`docs/brainstorming/brainstorming-installing-cairn-skill-2026-06-02.md`](../brainstorming/brainstorming-installing-cairn-skill-2026-06-02.md)
+- [`docs/brainstorming/brainstorming-2026-06-02-installing-cairn-skill.md`](../brainstorming/brainstorming-2026-06-02-installing-cairn-skill.md)
 - [`docs/brainstorming/brainstorming-reconcile-dangling-vectors-2026-06-03.md`](../brainstorming/brainstorming-reconcile-dangling-vectors-2026-06-03.md)
 - [`docs/specs/p9-t32-reconcile-phase3-dangling-vectors.md`](../specs/p9-t32-reconcile-phase3-dangling-vectors.md)
 - [`docs/brainstorming/brainstorming-2026-06-06-artifact-commit-refs.md`](../brainstorming/brainstorming-2026-06-06-artifact-commit-refs.md)
