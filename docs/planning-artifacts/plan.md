@@ -2,7 +2,7 @@
 
 _Project: cairn-mcp_
 _Generated: 2026-05-29_ · _Last updated: 2026-06-07_
-_Status: **V1 — Phases 1–8 complete + artifact type vocabulary extended to 14 types (489 unit tests + integration suite passing against live AWS; ruff + mypy clean; Apache 2.0 licensed; production-hardened; moto migration complete; write performance hardened) · Phase 9 (pre-v1 release improvements) in progress — T30 (Z1 write_artifacts + migrate_artifacts) complete (547 unit tests passing); T31 (installing-cairn skill) and T32 (reconcile Phase 3 dangling vectors) pending; T33–T36 (v0.3.0 — artifact commit references) planned, specs ready**_
+_Status: **V1 — Phases 1–8 complete + artifact type vocabulary extended to 14 types (489 unit tests + integration suite passing against live AWS; ruff + mypy clean; Apache 2.0 licensed; production-hardened; moto migration complete; write performance hardened) · Phase 9 (pre-v1 release improvements) in progress — T30 (Z1 write_artifacts + migrate_artifacts) complete (547 unit tests passing); T31 (installing-cairn skill) complete (549 unit tests passing; skill validated); T32 (reconcile Phase 3 dangling vectors) pending; T33–T36 (v0.3.0 — artifact commit references) planned, specs ready**_
 
 ---
 
@@ -189,7 +189,7 @@ Goal: quality-of-life improvements and documentation polish before declaring v1,
     - **New config vars**: `ARTIFACT_CONCURRENCY` (int, default 3, ≥ 1); `BEDROCK_TEXT_MODEL` (string, default `None` — operator opt-in); `EMBED_MAX_SECTION_LENGTH` (int, default 24,000, ≥ 0; 0 = disabled); combined `ARTIFACT_CONCURRENCY × SECTION_CONCURRENCY ≤ 15` rule of thumb (safe Bedrock quota ceiling)
     - **Supersedes**: L1+L2 spec (`p8-t29-migrate-skill.md`) — both made redundant by server-side parallelism; spec marked `status: superseded`
 
-31. ☐ **Installing-cairn skill** — `skills/installing-cairn/SKILL.md` with 6-step structured
+31. ✅ **Installing-cairn skill** — `skills/installing-cairn/SKILL.md` with 6-step structured
     workflow that assumes all required AWS resources are already provisioned externally:
     (1) parameter collection upfront — region, existing S3 bucket name, existing S3 Vectors
     bucket and index names, embedding model, AWS profile, IDE choice, team/project names,

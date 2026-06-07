@@ -182,6 +182,16 @@ Once installed, load the skill and follow the seven-step workflow in
 `SKILL.md` — from pre-migration health check through to post-migration
 `AGENTS.md` update.
 
+## Skills
+
+cairn-mcp ships two skills that cover the two main setup tasks. Copy the ones you need into
+your IDE's skills directory.
+
+| Skill | Path | Purpose |
+|-------|------|---------|
+| `installing-cairn` | `skills/installing-cairn/SKILL.md` | First-time setup: validate AWS connectivity, configure your MCP client, write the `AGENTS.md` cairn config block |
+| `migrating-to-cairn` | `skills/migrating-to-cairn/SKILL.md` | One-time migration of existing documentation into cairn-mcp — run `installing-cairn` first |
+
 ## Prerequisites
 
 The following must be provisioned and accessible before running the `installing-cairn`
@@ -200,9 +210,7 @@ skill or starting the server manually:
 
 ## Minimum IAM Policy
 
-Attach the following policy to the IAM user or role that runs cairn-mcp. The
-`installing-cairn` skill generates this policy with your actual resource identifiers
-substituted. The placeholders below are for reference only.
+Attach the following policy to the IAM user or role that runs cairn-mcp. Replace each `YOUR-*` placeholder with your actual values before applying.
 
 ```json
 {
@@ -304,6 +312,9 @@ uv run python -m cairn_mcp
 
 The server runs on stdio and is ready to accept MCP client connections.
 
+> To configure your MCP client for cairn-mcp, run the `installing-cairn` skill.
+> For the recommended AGENTS.md usage snippet and ADR strategy setup, run the `installing-cairn` skill.
+
 ## Development
 
 ```bash
@@ -322,196 +333,6 @@ uv run ruff format --check src/ tests/
 # Type check
 uv run mypy src/
 ```
-
-## Connecting to an MCP client
-
-### OpenCode (`opencode.json` or `opencode.jsonc`)
-
-OpenCode uses a different config schema from the generic MCP JSON format. The `command` field
-must be an **array** (command + arguments combined), environment variables go under
-`"environment"` (not `"env"`), and `"type"` and `"enabled"` are required.
-
-Place this in your project's `opencode.json` or in the global `~/.config/opencode/opencode.json`:
-
-```jsonc
-{
-  "$schema": "https://opencode.ai/config.json",
-  "mcp": {
-    "cairn": {
-      "type": "local",
-      "enabled": true,
-      "command": ["uv", "run", "--directory", "/path/to/cairn-mcp", "cairn-mcp"],
-      "environment": {
-        "AWS_REGION": "eu-central-1",
-        "ARTIFACT_BUCKET": "my-artifacts-bucket",
-        "VECTORS_BUCKET": "my-vectors-bucket",
-        "VECTORS_INDEX": "artifacts-index"
-      }
-    }
-  }
-}
-```
-
-### Claude Desktop, Cursor, and other clients (`mcp-servers.json` / `claude_desktop_config.json`)
-
-For MCP clients that use the standard `mcpServers` format:
-
-```json
-{
-  "mcpServers": {
-    "cairn": {
-      "command": "uv",
-      "args": ["run", "--directory", "/path/to/cairn-mcp", "cairn-mcp"],
-      "env": {
-        "AWS_REGION": "eu-central-1",
-        "ARTIFACT_BUCKET": "my-artifacts-bucket",
-        "VECTORS_BUCKET": "my-vectors-bucket",
-        "VECTORS_INDEX": "artifacts-index"
-      }
-    }
-  }
-}
-```
-
-## Recommended AGENTS.md Snippet
-
-Copy and paste this block into your project's root `AGENTS.md`. It gives every agent the
-guidance it needs to write, search, and synthesise effectively using cairn-mcp.
-
-### Declare your ADR strategy first
-
-Before agents start writing, decide where ADRs will live. This is a one-time decision that is
-hard to reverse cleanly — changing strategy mid-project means either migrating existing content
-or accepting a mixed state where some ADRs are in git and others are in cairn-mcp.
-
-**The deciding question:** Does your team use pull request review as the approval mechanism
-for ADRs?
-
-- **Yes (git only):** Keep ADRs in git. The PR merge is the approval record; removing ADRs
-  from git would destroy it. Add **Variant A** below to your `AGENTS.md`.
-- **No (cairn-mcp only):** Store ADRs in cairn-mcp as the single source of truth. Add
-  **Variant B** below to your `AGENTS.md`.
-
-Include exactly one of the following blocks in your `AGENTS.md`, immediately after the
-artifact type selection table:
-
-**Variant A — git only (team uses PR-based ADR approval)**
-
-```markdown
-**ADRs:** This project keeps ADRs in git. Do NOT write `type=adr` artifacts to
-cairn-mcp. When you create or update an ADR, commit it to the project's ADR
-directory in git. Git is the single source of truth for ADRs.
-```
-
-**Variant B — cairn-mcp only (no formal PR-based ADR approval)**
-
-```markdown
-**ADRs:** This project stores ADRs in cairn-mcp only. Write ADRs using
-`write_artifact` (type=adr, tier=3, visibility=shared). Do NOT commit ADR files
-to git — cairn-mcp is the single source of truth. Draft ADRs use `visibility=hidden`
-until approved.
-```
-
----
-
-````markdown
-## cairn-mcp — Persistent Artifact Memory
-
-cairn-mcp is connected to this project. Use it to persist knowledge across sessions.
-
-### When to write artifacts
-
-- **Start of session** — search for prior context before doing any substantial work.
-- **End of session** — write findings, decisions, and implementation notes before closing.
-- **After a key decision** — write a `decision_note` or `adr` while the reasoning is fresh.
-- **After a code review** — write a `code_review` artifact with findings and recommendations.
-
-### Artifact type selection
-
-| Type | When to use |
-|------|-------------|
-| `code_review` | After completing a code review — findings, issues, recommendations |
-| `session_summary` | At the end of any productive session — what was decided, implemented, or discovered |
-| `brainstorming` | When exploring options or ideating — directions considered, trade-offs weighed, before a decision is made |
-| `implementation_note` | When implementing a non-obvious solution — why this approach, constraints, edge cases |
-| `spec` | Feature specifications and requirements documents — living documents updated as features evolve |
-| `adr` | Architectural Decision Records — a decision that affects system design; tier 3, shared by default |
-| `bug_report` | When a bug is diagnosed — root cause, affected behaviour, fix applied |
-| `decision_note` | A lightweight decision with rationale — smaller than an ADR, larger than a code comment |
-| `synthesis` | When consolidating multiple prior artifacts into a summary — must include `source_artifacts` |
-| `prd` | Product Requirements Documents — defines what to build, user needs, goals, and non-goals; tier 3, shared |
-| `plan` | Project or sprint plans — ordered task breakdown, milestones, and dependencies; tier 3 |
-| `runbook` | Operational runbooks — step-by-step procedures for deployment, rollback, and incident response; tier 3 |
-| `changelog` | Changelog entries — records features shipped, bugs fixed, and breaking changes for a release; tier 2 |
-| `postmortem` | Post-incident analyses — timeline, root cause, customer impact, remediation, and follow-up actions; tier 2 |
-
-### Description quality
-
-The `description` field is the primary search signal. Invest in it.
-
-- Write it as a tweet: ≤ 280 characters, present tense, concrete.
-- **Bad:** `"Notes from the session on 2024-11-15"`
-- **Good:** `"Evaluates three auth strategies for the payments API; recommends JWT with rotating keys; identifies Redis session cache as a dependency"`
-- Include the key outcome, technology involved, and any named constraints.
-
-### Tier selection
-
-- **Tier 2** — point-in-time records that document a moment: `brainstorming`, `code_review`, `session_summary`,
-  `implementation_note`, `bug_report`, `changelog`, `postmortem`. Immutable after write; keyed by type + date + title.
-- **Tier 3** — living documents that evolve: `spec`, `adr`, `decision_note`, `synthesis`, `plan`, `prd`, `runbook`.
-  Overwrite in place on re-write; keyed by type + title only (no date).
-
-### Query strategy — start narrow, broaden only if needed
-
-```python
-# Step 1 — Filter by type + feature tags (fastest, most precise)
-search_artifacts(query="auth token refresh", type="implementation_note", feature_tags=["auth"])
-
-# Step 2 — If step 1 returns too few results, drop the type filter
-search_artifacts(query="auth token refresh", feature_tags=["auth"])
-
-# Step 3 — If still insufficient, pure semantic search
-search_artifacts(query="auth token refresh")
-
-# For browsing without a query
-list_artifacts(type="adr", project="payments-api")
-```
-
-### Synthesis workflow
-
-Use `synthesise_artifacts` when you need to compile multiple prior artifacts into a
-single reference document (e.g. summarise an epic, compile related code-review findings,
-consolidate session notes).
-
-```python
-# 1. Prepare source material — returns full content for top-k matches
-result = synthesise_artifacts(query="auth module code reviews", type="code_review", top_k=5)
-
-# 2. Synthesise in-context using the returned content
-
-# 3. Write result back as a tier 3 synthesis artifact
-write_artifact(
-    type="synthesis",
-    tier=3,
-    visibility="shared",
-    title="Auth Module Code Review Synthesis — Q4 2024",
-    description="Consolidated findings from 5 code reviews of the auth module; identifies 3 recurring issues and 2 best-practice patterns.",
-    source_artifacts=[r["artifact_id"] for r in result["results"]],
-    content="..."  # your synthesis
-)
-```
-
-### Runtime schema precision
-
-For always-current field definitions, valid values, and query strategy guidance, call the
-MCP Resources the server exposes at runtime:
-
-- `cairn://schema/artifact` — all fields, valid values, constraints
-- `cairn://schema/types` — type catalogue with usage notes
-- `cairn://schema/tiers` — tier 2 vs tier 3 semantics
-- `cairn://schema/query-strategy` — query strategy guidance
-- `cairn://schema/visibility` — cross-scope access rules
-````
 
 ## License
 

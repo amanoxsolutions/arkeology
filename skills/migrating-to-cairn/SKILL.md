@@ -1,6 +1,6 @@
 ---
 name: migrating-to-cairn
-description: Migrate existing repository documentation into cairn-mcp — one-time bulk import for projects adopting cairn-mcp on an existing codebase with accumulated docs.
+description: Migrate existing repository documentation into cairn-mcp — run the installing-cairn skill first. One-time bulk import for projects adopting cairn-mcp on an existing codebase.
 ---
 
 # Migrating to cairn-mcp
@@ -22,7 +22,7 @@ classification steps, the file count determines which path to follow:
 ## Workflow
 
 1. **Health check** — verify cairn-mcp is reachable.
-2. **Discovery** — scope the migration, declare ADR strategy, classify files.
+2. **Discovery** — check cairn-mcp installation record, check for existing manifest, scope the migration, classify files (honouring `local_only_paths` and `local_only_types` from the config block).
 3. **Classification table** — operator confirms type/tier/visibility per file and provides team/project; file count determines the path.
    - → **Step 3.A (≤ 10 files):** build descriptors with in-context descriptions → present to operator → execute.
    - → **Step 3.B (> 10 files):** produce manifest → operator review → read files + dry-run preview → execute.
@@ -45,6 +45,15 @@ Call the `health_check` MCP tool (no arguments). Examine the response:
 ---
 
 ## Step 2 — Discovery
+
+### Pre-flight — Check for cairn-mcp installation record
+
+Before scanning the repository, check whether the project `AGENTS.md` contains a `<!-- cairn-mcp:config` block.
+
+- **Block found** → parse `local_only_types` and `local_only_paths` from its YAML content. Carry both lists through the rest of Step 2.
+- **Block not found** → **stop here**. cairn-mcp does not appear to be configured for this project. Run the `installing-cairn` skill first, then return here.
+
+---
 
 ### 2a — Check for existing manifest
 
@@ -74,35 +83,18 @@ Present the candidate folder list to the operator and ask them to:
 3. Name any files or subdirectories within those folders to exclude
    (e.g. auto-generated files, WIP drafts, files already migrated).
 
+Files and directories listed in `local_only_paths` (from the `cairn-mcp:config` block) are automatically excluded from this scan — never read, classified, or presented to the operator. Path matching uses prefix semantics: an entry ending in `/` (e.g. `docs/adr/`) excludes the entire directory tree; an entry without a trailing `/` (e.g. `docs/internal/private-note.md`) excludes only that exact file.
+
 **Do not proceed to 2c until the operator has confirmed the scope.**
 
 ---
 
-### 2c — ADR strategy
-
-Before scanning for migration candidates, the operator must declare their ADR storage strategy.
-This is a binary, one-time decision. Keeping ADRs in two systems creates a sync problem; choose
-one authoritative home and commit to it.
-
-| Strategy | What this means for migration |
-|----------|-------------------------------|
-| **Git only** | ADRs stay in git. Skip all `adr`-type files in the scan — do not migrate them into cairn-mcp. The git file is the single source of truth. |
-| **cairn-mcp only** | Migrate ADRs into cairn-mcp. cairn-mcp becomes the single source of truth. After migration you may remove the git files. |
-
-Ask the operator which strategy they want, without suggesting one over the other.
-This choice must be recorded in the project's `AGENTS.md` — Step 5 provides the correct snippet
-for each option.
-
-**Wait for the operator to confirm their ADR strategy before continuing.**
-
----
-
-### 2d — Scan and classify
+### 2c — Scan and classify
 
 Scan only the directories and files confirmed in 2b. Classify each `.md` file using
 the two passes below, in order. Apply the exclusion list the operator provided, plus
-the always-skip rules at the bottom of this section. If the operator chose **git only**
-for ADRs, exclude any file that resolves to type `adr`.
+the always-skip rules at the bottom of this section. After classification, discard any
+file whose resolved type is listed in `local_only_types` from the `cairn-mcp:config` block.
 
 ### Pass 1 — Filename rules (highest priority)
 
@@ -381,7 +373,7 @@ Once verified in cairn-mcp, the operator may remove these files from the repo:
 | `code_review` | Yes — point-in-time review records; no need in git history |
 | `implementation_note` | Yes — non-code context; cairn-mcp is the right home |
 | `bug_report` | Yes — if the bug is resolved and the ticket is closed |
-| `adr` | **Depends on your ADR strategy (chosen in Step 2).** If you chose **cairn-mcp only**: yes, remove the git files — cairn-mcp is now the single source of truth. If you chose **git only**: you should not have migrated ADRs at all (Step 2 told you to skip them). |
+| `adr` | **Depends on the `adr_strategy` in your `cairn-mcp:config` block in AGENTS.md.** If `git-only`: ADRs were not migrated. If `cairn-mcp-only`: yes, remove — cairn-mcp is now the source of truth. |
 | `spec` | Judgment call — keep specs that are actively referenced in code PRs; remove old, completed specs |
 | `decision_note` | Judgment call — keep if referenced by other docs; otherwise remove |
 | `changelog` | Judgment call — keep if the changelog is actively referenced in release PRs; remove old entries already captured in cairn-mcp |
@@ -395,27 +387,8 @@ comfortable removing.
 
 ### AGENTS.md update
 
-Append the cairn-mcp usage snippet to the project's `AGENTS.md`. Start from the
-README's "Recommended AGENTS.md Snippet" section. Then, based on the ADR strategy
-confirmed in Step 2, insert the appropriate ADR guidance block — **Variant A** for
-**git only**, **Variant B** for **cairn-mcp only** — under the artifact type selection
-table in the snippet. Confirm with the operator before writing.
+Verify that the project `AGENTS.md` already contains both:
+1. A `<!-- cairn-mcp:config` block (written by the `installing-cairn` skill)
+2. The cairn-mcp narrative usage snippet (also written by `installing-cairn`)
 
-**Variant A — git only (team uses PR-based ADR approval)**
-
-```markdown
-**ADRs:** This project keeps ADRs in git. Do NOT write `type=adr` artifacts to
-cairn-mcp. When you create or update an ADR, commit it to the project's ADR
-directory in git. Git is the single source of truth for ADRs.
-```
-
-**Variant B — cairn-mcp only (no formal PR-based ADR approval)**
-
-```markdown
-**ADRs:** This project stores ADRs in cairn-mcp only. Write ADRs using
-`write_artifact` (type=adr, tier=3, visibility=shared). Do NOT commit ADR files
-to git — cairn-mcp is the single source of truth. Draft ADRs use `visibility=hidden`
-until approved.
-```
-
-Confirm with the operator before writing to `AGENTS.md`.
+If either is absent, ask the operator to run the `installing-cairn` skill to write them before proceeding.

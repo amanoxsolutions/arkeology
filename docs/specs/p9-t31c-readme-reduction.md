@@ -29,7 +29,9 @@ reflect the generalised exclusion model. The `## AWS Provisioning` section, the
 provisioning IAM policy, and the `.env` installation step have already been removed
 from the README as part of the scope-correction for T31. Replace each removed section
 with a one-sentence pointer to the skill. The target line count after all T31 changes
-is approximately 255 lines.
+is approximately 330 lines (higher than originally estimated because the promoted
+`## Minimum IAM Policy` section and the retained `## Using the Migration Skill`
+section together account for ~97 lines not included in the original projection).
 
 ## Problem Statement
 
@@ -91,7 +93,7 @@ describes the full permanent-exclusion capability.
   section, the `## Prerequisites` section, the `## Minimum IAM Policy` section,
   the `## Installation` section, the `## Configuration` table, the
   `## Running the server` section, and the `## Development` section.
-- WHEN complete THE SYSTEM SHALL produce a README of approximately 255 lines (±20).
+- WHEN complete THE SYSTEM SHALL produce a README of approximately 330 lines (±25). The higher-than-originally-estimated line count accounts for the `## Minimum IAM Policy` section (promoted to top-level, ~56 lines) and `## Using the Migration Skill` (~41 lines) both being retained in full.
 
 ## Boundaries
 
@@ -173,7 +175,7 @@ inspection against the checklist below.
 - [ ] `## License` — unchanged
 
 **Quality checks:**
-- [ ] `wc -l` reports approximately 255 lines (235–275 acceptable)
+- [ ] `wc -l` reports approximately 330 lines (310–360 acceptable)
 - [ ] `## Minimum IAM Policy` is present and contains `YOUR-*` placeholder values —
   these are intentional template values for operators to substitute; do not remove them
 - [ ] README reads coherently top-to-bottom with no orphaned headings or broken prose
