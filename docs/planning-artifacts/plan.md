@@ -236,7 +236,7 @@ Goal: quality-of-life improvements and documentation polish before declaring v1,
 
 ---
 
-### v0.3.0 — Artifact Commit References
+### Phase 10 — Artifact Commit References
 
 Goal: close the traceability gap between artifacts and git commits. Agents can associate any
 written artifact with a commit SHA after the fact — without re-embedding — and discover
