@@ -12,22 +12,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - `write_artifacts` bulk write tool for importing multiple artifacts in a single MCP call (T30, FR-25)
 - `migrate_artifacts` migration tool for server-side parallel migration with automatic chunking (FR-26)
-- `brainstorming` artifact type; vocabulary extended from 9 to 14 types with flexible docs-root discovery
 - Concurrent section embedding and batched `put_vectors` calls in `write_artifact` — reduces write latency by up to 80% on multi-section documents (Phase 8)
 - Bedrock throttle retry with exponential backoff and jitter
 - `SECTION_CONCURRENCY`, `EMBED_MAX_SECTIONS`, and `EMBED_MIN_SECTION_LENGTH` configuration variables for write-path tuning
-- OpenCode-specific MCP client configuration example in README
 
 ### Changed
 - `migrating-to-cairn` skill rewritten with server-side parallel migration paths (Path B concurrent script, Path C sub-agent fan-out)
-- Docs-root discovery replaced with two-pass classification in migration skill
 
 ### Fixed
-- S3 object metadata values sanitised to ASCII to prevent boto3 encoding errors on non-ASCII content
 - `READ_PREFIXES` validated at startup to reject template placeholder text
 - AWS credential values suppressed from `LOG_LEVEL=DEBUG` output
 - Migration parallelism gate added — skill now surfaces concurrency settings before migration starts
 - Required field validation added to `write_artifacts`; returns structured `validation_error` on missing fields
+
+## [0.1.1] - 2026-06-01
+
+### Added
+- `brainstorming` artifact type
+- Artifact type vocabulary extended from 9 to 14 types: `prd`, `plan`, `runbook`, `changelog`, and `postmortem`
+- OpenCode-specific MCP client configuration example in README
+
+### Changed
+- Migration skill document classification replaced fragile docs-root detection with a two-pass system — filename rules fire first, followed by path-segment rules matching at any depth
+
+### Fixed
+- S3 object metadata values sanitised to ASCII to prevent boto3 encoding errors on non-ASCII content
 
 ## [0.1.0] - 2026-06-01
 
@@ -64,5 +73,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Security
 - Credential-related boto3 exceptions caught at the AWS client layer and re-raised as structured typed errors; never exposed as raw stack traces to MCP callers
 
-[0.2.0]: https://github.com/amanoxsolutions/cairn-mcp/compare/v0.1.0...v0.2.0
+[0.2.0]: https://github.com/amanoxsolutions/cairn-mcp/compare/v0.1.1...v0.2.0
+[0.1.1]: https://github.com/amanoxsolutions/cairn-mcp/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/amanoxsolutions/cairn-mcp/releases/tag/v0.1.0
