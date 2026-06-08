@@ -1,12 +1,12 @@
 ---
 type: feature-spec
-feature: p9-t34-commit-refs-metadata-fields
+feature: p10-t35-commit-refs-metadata-fields
 status: ready
-phase: 9
-task: 34
+phase: 10
+task: 35
 references:
   - docs/brainstorming/brainstorming-2026-06-06-artifact-commit-refs.md
-  - docs/specs/p9-t33-filter-range-operators.md
+  - docs/specs/p10-t34-filter-range-operators.md
 authored:
   by: "analyst"
   date: "2026-06-06"

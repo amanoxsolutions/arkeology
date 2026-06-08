@@ -2,7 +2,7 @@
 
 _Project: cairn-mcp_
 _Generated: 2026-05-29_ · _Last updated: 2026-06-07_
-_Status: **V1 — Phases 1–8 complete + artifact type vocabulary extended to 14 types (489 unit tests + integration suite passing against live AWS; ruff + mypy clean; Apache 2.0 licensed; production-hardened; moto migration complete; write performance hardened) · Phase 9 (pre-v1 release improvements) in progress — T30 (Z1 write_artifacts + migrate_artifacts) complete (547 unit tests passing); T31 (installing-cairn skill) complete (549 unit tests passing; skill validated); T32 (reconcile Phase 3 dangling vectors) pending; T33–T36 (v0.3.0 — artifact commit references) planned, specs ready**_
+_Status: **V1 — Phases 1–8 complete + artifact type vocabulary extended to 14 types (489 unit tests + integration suite passing against live AWS; ruff + mypy clean; Apache 2.0 licensed; production-hardened; moto migration complete; write performance hardened) · Phase 9 (pre-v1 release improvements) in progress — T30 (Z1 write_artifacts + migrate_artifacts) complete (547 unit tests passing); T31 (installing-cairn skill) complete (549 unit tests passing; skill validated); T32 (reconcile Phase 3 dangling vectors) pending; T33 (skill distribution via native plugin mechanisms) planned, brainstorming complete · Phase 10 (artifact commit references) T34–T37 planned, specs ready**_
 
 ---
 
@@ -234,6 +234,16 @@ Goal: quality-of-life improvements and documentation polish before declaring v1,
     - Done when: an artifact whose S3 object was deleted externally while its vector entries remain is detected by Phase 3 and its vector entries are removed; `dangling_artifacts_found` and `dangling_vectors_pruned` report correct counts; `dangling_artifacts` lists affected IDs; clean state (no dangling vectors) reports all zeros in the new fields; own-scope gate enforced — foreign-scope vector entries never pruned; credential error during vector deletion returns structured error; Phase 2 orphan scan and Phase 3 dangling prune both execute within a single `reconcile_index` call
     - Spec: `docs/specs/p9-t32-reconcile-phase3-dangling-vectors.md` (status: draft — awaiting approval)
 
+33. ☐ **Skill distribution via native plugin mechanisms** — wire `installing-cairn` and `migrating-to-cairn` into engineers' AI tools using the same plugin pattern as the shared engineering plugin project. No new server code — purely repo-level files and a bash script. Independent of all other Phase 9 tasks; can be worked at any point.
+    - **OpenCode JS plugin (FR-33)**: `package.json` at repo root (`name: cairn-mcp`, `type: module`, `main: .opencode/plugins/cairn.js`); `.opencode/plugins/cairn.js` ESM module (~50 lines) using the `config` hook to push `skills/` into `config.skills.paths`; path resolved relative to plugin file via `import.meta.url` so it works from Bun's cache regardless of clone location; errors in the hook logged to stderr, never thrown.
+    - **Claude Code plugin (FR-34, FR-35, FR-36)**: `.claude-plugin/marketplace.json` registering the repo as a private marketplace source; `plugins/cairn-mcp/.claude-plugin/plugin.json` (name: `cairn`, giving the `cairn:` slash command namespace); `plugins/cairn-mcp/skills/installing-cairn` and `plugins/cairn-mcp/skills/migrating-to-cairn` as symlinks to `../../../skills/<name>`; `plugins/cairn-mcp/skills/plugin-sync/SKILL.md` (~22 lines, Claude Code-specific: runs `git -C ~/.claude/plugins/cairn-mcp pull` + `/reload-plugins`; notes server requires a separate update); no agents directory.
+    - **Install script (FR-37, FR-38, FR-39, FR-40, FR-42)**: `install.sh` at repo root; detects `claude`, `opencode`, `copilot` on PATH; OpenCode section prints the `git+ssh://` plugin snippet (does not patch `opencode.jsonc` directly); Claude Code section runs `claude plugin marketplace add` + `claude plugin install cairn@cairn-mcp` and merges `Bash(git -C * pull)` pre-approval into `~/.claude/settings.json`; no `@`-import to `~/.claude/CLAUDE.md` (cairn-mcp AGENTS.md is server-specific context, not global engineering conventions); no agent symlinks loop (cairn-mcp has no agents); idempotent; bash only / WSL Ubuntu on Windows; always prints session-refresh instructions.
+    - **Copilot adapter (FR-41)**: inside `install.sh`; detects `copilot` on PATH as the Copilot-specific signal (not `gh`); checks `gh` and `gh skill` as prerequisites; loops over `skills/*/` calling `gh skill install "$REPO_DIR" <skill-name> --from-local --agent github-copilot --scope user --force`; stops immediately on any failure, prints error and docs link; no fallback path.
+    - **README quick-install section (FR-43)**: adds a "Quick install" section before the full server setup instructions; documents the one-line OpenCode plugin snippet (SSH primary, HTTPS alternative) and the two-command Claude Code install; brief note that `cairn:` coexists with other plugin namespaces without collision.
+    - Done when: adding the plugin line to `opencode.jsonc` and restarting OpenCode makes `installing-cairn` and `migrating-to-cairn` discoverable via the `skill` tool (AC-43); `claude plugin install cairn@cairn-mcp` makes `/cairn:installing-cairn`, `/cairn:migrating-to-cairn`, `/cairn:plugin-sync` available as slash commands (AC-44); `./install.sh` on a machine with all three tools wires each and prints session-refresh instructions (AC-45); running the script twice produces no duplicate entries or errors (AC-46); `/cairn:plugin-sync` pulls and reloads without permission prompts (AC-47); partial-tool install skips absent tools cleanly (AC-48); `plugin-sync` skill absent from shared `skills/` directory; no Python source changes; ruff + mypy clean
+    - Brainstorming: `docs/brainstorming/brainstorming-2026-06-08-skill-distribution.md`
+    - Spec: `docs/specs/p9-t33-skill-distribution.md` (status: not started — awaiting spec)
+
 ---
 
 ### Phase 10 — Artifact Commit References
@@ -243,26 +253,26 @@ written artifact with a commit SHA after the fact — without re-embedding — a
 which session artifacts still need linking. The write-time ULID timestamp enables efficient
 time-range discovery scoped to the current session.
 
-**Execution order:** T33 is an independent prerequisite (filter.py only); T34 depends on
-T33 and must complete before T35 and T36; T35 and T36 can be worked in parallel once T34
-merges. This track is independent of T31 and T32 — no shared files.
+**Execution order:** T34 is an independent prerequisite (filter.py only); T35 depends on
+T34 and must complete before T36 and T37; T36 and T37 can be worked in parallel once T35
+merges. This track is independent of T31, T32, and T33 — no shared files.
 
-33. ☐ **Filter range operators ($gte / $lte)** *(prerequisite — filter.py only; no tool changes)* — add `$gte` and `$lte` inclusive string-comparison operators to `filter.py`; update module docstring (FR-30)
+34. ☐ **Filter range operators ($gte / $lte)** *(prerequisite — filter.py only; no tool changes)* — add `$gte` and `$lte` inclusive string-comparison operators to `filter.py`; update module docstring (FR-30)
     - Done when: `matches_filter(meta, {"field": {"$gte": v}})` returns `True` iff `meta["field"] >= v`; `$lte` symmetric; absent field → `False`; combined `$and` interval works; `$gt` / `$lt` (strict) raise `ValueError`; all existing operator tests pass; ruff + mypy clean
-    - Spec: `docs/specs/p9-t33-filter-range-operators.md`
+    - Spec: `docs/specs/p10-t34-filter-range-operators.md`
 
-34. ☐ **`commit_refs` and `last_edited_ulid` metadata fields** *(core data model)* — add `commit_refs: list[str]` to `Artifact`; generate `last_edited_ulid` via `python-ulid` on every `write_artifact` call; store both fields in S3 object metadata and vector metadata following the `feature_tags` encoding pattern (comma-joined string in S3, `list[str]` in vectors, key omitted when empty in vectors); include `last_edited_ulid` in `write_artifact` response; expose both fields in `list_artifacts` (with `commit_refs` filter parameter) and `read_artifact` responses; legacy artifacts (missing fields) return `None` — no error (FR-28, FR-29)
+35. ☐ **`commit_refs` and `last_edited_ulid` metadata fields** *(core data model)* — add `commit_refs: list[str]` to `Artifact`; generate `last_edited_ulid` via `python-ulid` on every `write_artifact` call; store both fields in S3 object metadata and vector metadata following the `feature_tags` encoding pattern (comma-joined string in S3, `list[str]` in vectors, key omitted when empty in vectors); include `last_edited_ulid` in `write_artifact` response; expose both fields in `list_artifacts` (with `commit_refs` filter parameter) and `read_artifact` responses; legacy artifacts (missing fields) return `None` — no error (FR-28, FR-29)
     - Done when: `write_artifact` response includes `last_edited_ulid`; `read_artifact` and `list_artifacts` return both fields; `commit_refs` filter in `list_artifacts` returns correct subset; empty `commit_refs` stores `""` in S3 and omits key from vector metadata; legacy artifacts return `None` for `last_edited_ulid` and `[]` for `commit_refs`; ruff + mypy clean
-    - Spec: `docs/specs/p9-t34-commit-refs-metadata-fields.md`
+    - Spec: `docs/specs/p10-t35-commit-refs-metadata-fields.md`
     - **New dependency**: `python-ulid` added to `pyproject.toml`
 
-35. ☐ **`propose_commit_links` tool** *(read-only discovery)* — scan own-scope artifacts in the vector index optionally bounded by `last_edited_ulid >= since_ulid`; deduplicate by `artifact_id`; filter client-side for artifacts with absent or empty `commit_refs`; return candidate list with human-readable timestamps; no writes (FR-31)
+36. ☐ **`propose_commit_links` tool** *(read-only discovery)* — scan own-scope artifacts in the vector index optionally bounded by `last_edited_ulid >= since_ulid`; deduplicate by `artifact_id`; filter client-side for artifacts with absent or empty `commit_refs`; return candidate list with human-readable timestamps; no writes (FR-31)
     - Done when: tool called with `since_ulid` returns only own-scope artifacts written at or after that timestamp with no `commit_refs`; called without `since_ulid` returns all unlinked own-scope artifacts; foreign-scope artifacts never included; empty result returns `{"proposed": [], "commit_sha": "..."}` not an error; credential errors return structured responses; ruff + mypy clean
-    - Spec: `docs/specs/p9-t35-propose-commit-links.md`
+    - Spec: `docs/specs/p10-t36-propose-commit-links.md`
 
-36. ☐ **`link_commit` tool + AGENTS.md post-commit protocol** *(write, no re-embed)* — for each confirmed `artifact_id`: `list_vectors_by_metadata` → `get_vectors` → merge `commit_sha` into `commit_refs` (append + deduplicate) → `put_vectors_batch` with same float32 embeddings and updated metadata; scope-gate rejects foreign-scope IDs (counted in `skipped`); generate `next_since_ulid` after all artifacts processed; return `{linked, skipped, commit_sha, next_since_ulid}`; add AGENTS.md post-commit protocol snippet to installing-cairn skill (FR-32)
+37. ☐ **`link_commit` tool + AGENTS.md post-commit protocol** *(write, no re-embed)* — for each confirmed `artifact_id`: `list_vectors_by_metadata` → `get_vectors` → merge `commit_sha` into `commit_refs` (append + deduplicate) → `put_vectors_batch` with same float32 embeddings and updated metadata; scope-gate rejects foreign-scope IDs (counted in `skipped`); generate `next_since_ulid` after all artifacts processed; return `{linked, skipped, commit_sha, next_since_ulid}`; add AGENTS.md post-commit protocol snippet to installing-cairn skill (FR-32)
     - Done when: `link_commit` appends SHA to all section vectors without Bedrock call; existing SHA not duplicated; foreign-scope IDs skipped and counted; `next_since_ulid` returned; two successive calls produce monotonically non-decreasing cursors; Bedrock `embed` never called (verified by spy); credential errors return structured responses; AGENTS.md snippet includes session-start ULID capture, post-commit proposal, confirmation, linking, and cursor-advance steps; known reconcile limitation documented in module docstring; ruff + mypy clean
-    - Spec: `docs/specs/p9-t36-link-commit.md`
+    - Spec: `docs/specs/p10-t37-link-commit.md`
     - **Known limitation (V1)**: commit references are stored in vector metadata only; `reconcile_index` will drop them on any reconcile run — documented in spec and module docstring; S3 `copy_object` update deferred to a future milestone
 
 ---
@@ -332,7 +342,8 @@ merges. This track is independent of T31 and T32 — no shared files.
 - [`docs/brainstorming/brainstorming-reconcile-dangling-vectors-2026-06-03.md`](../brainstorming/brainstorming-reconcile-dangling-vectors-2026-06-03.md)
 - [`docs/specs/p9-t32-reconcile-phase3-dangling-vectors.md`](../specs/p9-t32-reconcile-phase3-dangling-vectors.md)
 - [`docs/brainstorming/brainstorming-2026-06-06-artifact-commit-refs.md`](../brainstorming/brainstorming-2026-06-06-artifact-commit-refs.md)
-- [`docs/specs/p9-t33-filter-range-operators.md`](../specs/p9-t33-filter-range-operators.md)
-- [`docs/specs/p9-t34-commit-refs-metadata-fields.md`](../specs/p9-t34-commit-refs-metadata-fields.md)
-- [`docs/specs/p9-t35-propose-commit-links.md`](../specs/p9-t35-propose-commit-links.md)
-- [`docs/specs/p9-t36-link-commit.md`](../specs/p9-t36-link-commit.md)
+- [`docs/specs/p10-t34-filter-range-operators.md`](../specs/p10-t34-filter-range-operators.md)
+- [`docs/specs/p10-t35-commit-refs-metadata-fields.md`](../specs/p10-t35-commit-refs-metadata-fields.md)
+- [`docs/specs/p10-t36-propose-commit-links.md`](../specs/p10-t36-propose-commit-links.md)
+- [`docs/specs/p10-t37-link-commit.md`](../specs/p10-t37-link-commit.md)
+- [`docs/brainstorming/brainstorming-2026-06-08-skill-distribution.md`](../brainstorming/brainstorming-2026-06-08-skill-distribution.md)
