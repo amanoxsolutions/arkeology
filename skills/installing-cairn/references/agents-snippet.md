@@ -11,7 +11,11 @@ chosen in Step 6 Part A). Remove the other variant before writing.
 
 cairn-mcp is connected to this project. Use it to persist knowledge across sessions.
 
-> **Before writing any artifact:** check the `<!-- cairn-mcp:config` block in AGENTS.md.
+> **Before writing any artifact:** read the raw text of `AGENTS.md` and find the
+> `<!-- cairn-mcp:config ... -->` HTML comment block near the top of the cairn-mcp section.
+> This block is an HTML comment — it is **invisible in rendered markdown** but is always
+> present in the raw file after cairn-mcp is installed. It lists `local_only_types` and
+> `local_only_paths` that must never be written to cairn-mcp.
 > Never write an artifact whose `type` is listed in `local_only_types`.
 > Never write an artifact whose source file is under a path listed in `local_only_paths`.
 

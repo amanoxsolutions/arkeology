@@ -42,10 +42,23 @@ Do not proceed to Step 2 until all required parameters are confirmed.
 
 ## Step 2 — Pre-flight checks
 
-Run these five checks in order. Stop at the first failure and report which resource
-failed and why. Do not continue until the operator resolves the issue.
+Run these six checks in order. Stop at the first failure and report which check failed
+and why. Do not continue until the operator resolves the issue.
 
-**Check 1 — AWS credentials active**
+If `AWS_PROFILE` was provided in Step 1, add `--profile <profile>` to every `aws` command
+below (e.g. `aws --profile mydev-eu sts get-caller-identity`).
+
+**Check 1 — AWS CLI installed**
+
+```bash
+aws --version
+```
+
+Failure: `aws` is not installed. The AWS CLI is required for all pre-flight checks.
+Refer the operator to <https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html>.
+**Stop here** — do not proceed until the CLI is available.
+
+**Check 2 — AWS credentials active**
 
 ```bash
 aws sts get-caller-identity
@@ -54,7 +67,7 @@ aws sts get-caller-identity
 Failure: credentials are missing, expired, or the profile is misconfigured.
 Ask the operator to run `aws configure` or set the correct `AWS_PROFILE`.
 
-**Check 2 — uv installed**
+**Check 3 — uv installed**
 
 ```bash
 uv --version
@@ -62,7 +75,7 @@ uv --version
 
 Failure: `uv` is not installed. Refer the operator to <https://astral.sh/uv>.
 
-**Check 3 — S3 artifact bucket reachable**
+**Check 4 — S3 artifact bucket reachable**
 
 ```bash
 aws s3api head-bucket --bucket <ARTIFACT_BUCKET> --region <REGION>
@@ -71,10 +84,10 @@ aws s3api head-bucket --bucket <ARTIFACT_BUCKET> --region <REGION>
 Failure: the bucket does not exist or current credentials lack access.
 Ask the operator to verify the bucket name and IAM permissions.
 
-**Check 4 — S3 Vectors index reachable**
+**Check 5 — S3 Vectors index reachable**
 
 ```bash
-aws s3vectors describe-index \
+aws s3vectors get-index \
   --vector-bucket-name <VECTORS_BUCKET> \
   --index-name <VECTORS_INDEX> \
   --region <REGION>
@@ -83,32 +96,47 @@ aws s3vectors describe-index \
 Failure: the index does not exist or is not accessible. Ask the operator to verify
 the Vectors bucket and index names.
 
-**Check 5 — Bedrock embedding model accessible**
+**Check 6 — Bedrock embedding model accessible**
+
+The `invoke-model` CLI command requires a binary body file (`fileb://`) and a positional
+output file argument. Write the request body to a temp file first, then invoke:
 
 ```bash
+printf '{"inputText":"ping","dimensions":%s,"normalize":true}' <BEDROCK_EMBEDDING_DIMENSIONS> \
+  > /tmp/cairn-embed-body.json
+
 aws bedrock-runtime invoke-model \
   --model-id <BEDROCK_EMBEDDING_MODEL> \
-  --body '{"inputText":"ping","dimensions":<BEDROCK_EMBEDDING_DIMENSIONS>,"normalize":true}' \
+  --body fileb:///tmp/cairn-embed-body.json \
   --region <REGION> \
   /tmp/cairn-embed-test.json
 ```
 
+A successful call exits with code 0 and writes a JSON response to `/tmp/cairn-embed-test.json`.
+
 Failure: the model is not enabled in the account or region. Instruct the operator
 to enable the model in the Bedrock console before proceeding.
 
-Once all five checks pass, proceed to Step 3.
+Once all six checks pass, proceed to Step 3.
 
 ---
 
-## Step 3 — Clone and set up
+## Step 3 — Locate and set up cairn-mcp
+
+The cairn-mcp repository must already be cloned locally — this skill itself is distributed
+from that repo, so it is always already present when this skill runs.
+
+Ask the operator: **"What is the absolute path to the cairn-mcp directory on your machine?"**
+
+Once confirmed, verify the directory exists and sync dependencies:
 
 ```bash
-git clone https://github.com/amanoxsolutions/cairn-mcp.git
-cd cairn-mcp
-uv sync
+ls <CAIRN_MCP_PATH>/pyproject.toml   # confirms the path is correct
+uv sync --directory <CAIRN_MCP_PATH>
 ```
 
-Note the **absolute path** to the cloned directory — it is required in Step 4.
+Note the **absolute path** (`CAIRN_MCP_PATH`) — it is required in Step 4 for the `--directory`
+argument in the MCP server command.
 
 ---
 
@@ -231,13 +259,20 @@ Add `BEDROCK_EMBEDDING_DIMENSIONS` to the env block if a non-default value (not 
 
 ### Permission gate
 
-1. Show the operator the complete entry you plan to write, with all values substituted
+1. **Read the current config file** before writing anything. Check whether a `cairn` entry
+   already exists under the relevant top-level key for the chosen IDE.
+   - If a `cairn` entry exists **and its env values match all parameters from Step 1**:
+     inform the operator that cairn-mcp is already configured, confirm they want to proceed
+     to the smoke test (Step 5), and **skip writing the config file**.
+   - If a `cairn` entry exists **but with different parameter values**: show a diff of the
+     old vs new values and ask for explicit permission before replacing it.
+   - If **no `cairn` entry exists**: continue to step 2 below.
+2. Show the operator the complete entry you plan to write, with all values substituted
    from Step 1 — no placeholders.
-2. **Ask explicit permission before writing or modifying the config file.**
-3. If the operator **grants** permission: merge the cairn entry into the existing config.
-   Preserve every other existing MCP server entry unchanged. If a `cairn` entry already
-   exists, replace it in place.
-4. If the operator **declines**: display the complete entry for the operator to add
+3. **Ask explicit permission before writing or modifying the config file.**
+4. If the operator **grants** permission: merge the cairn entry into the existing config.
+   Preserve every other existing MCP server entry unchanged.
+5. If the operator **declines**: display the complete entry for the operator to add
    manually, then continue to Step 5.
 
 ---
