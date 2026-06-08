@@ -2,7 +2,7 @@
 
 _Project: cairn-mcp_
 _Generated: 2026-05-29_ · _Last updated: 2026-06-07_
-_Status: **V1 — Phases 1–8 complete + artifact type vocabulary extended to 14 types (489 unit tests + integration suite passing against live AWS; ruff + mypy clean; Apache 2.0 licensed; production-hardened; moto migration complete; write performance hardened) · Phase 9 (pre-v1 release improvements) in progress — T30 (Z1 write_artifacts + migrate_artifacts) complete (547 unit tests passing); T31 (installing-cairn skill) complete (549 unit tests passing; skill validated); T32 (reconcile Phase 3 dangling vectors) pending; T33 (skill distribution via native plugin mechanisms) planned, brainstorming complete · Phase 10 (artifact commit references) T34–T37 planned, specs ready**_
+_Status: **V1 — Phases 1–8 complete + artifact type vocabulary extended to 14 types (489 unit tests + integration suite passing against live AWS; ruff + mypy clean; Apache 2.0 licensed; production-hardened; moto migration complete; write performance hardened) · Phase 9 (pre-v1 release improvements) in progress — T30 (Z1 write_artifacts + migrate_artifacts) complete (547 unit tests passing); T31 (installing-cairn skill) complete — multi-client per-project config implemented (FR-44, AC-49): all four clients support project-scoped config; Copilot CLI shares .mcp.json with Claude Code (v0.0.401+); auto-detect in Step 1; safe-edit for JSON/JSONC/TOML; 396 lines; T31a spec checklist 100% satisfied; T31b/T31c pending; T32 (reconcile Phase 3 dangling vectors) pending; T33 (skill distribution via native plugin mechanisms) planned, brainstorming complete · Phase 10 (artifact commit references) T34–T37 planned, specs ready**_
 
 ---
 
@@ -173,7 +173,7 @@ point.
 
 ---
 
-## Phase 9 — Pre-v1 Release: Improvements and Fixes
+## Phase 9 — Improvements and Fixes
 
 Goal: quality-of-life improvements and documentation polish before declaring v1, plus the v0.3.0 artifact commit-references feature.
 
@@ -197,11 +197,12 @@ Goal: quality-of-life improvements and documentation polish before declaring v1,
     credentials (`aws sts get-caller-identity`), `uv` installed, S3 bucket reachable
     (`head-bucket`), Vectors index reachable (`describe-index`), Bedrock model accessible
     (`invoke-model`); (3) clone and Python setup; (4) MCP client config — write the
-    cairn-mcp server entry including all required env vars directly into the IDE's MCP config
-    file; show entry and ask explicit permission before writing; merge into existing file
-    without touching other entries; display entry for manual addition if operator declines;
-    no `.env` file is written at any step; (5) smoke test via `health_check` — all components
-    must return `"status": "ok"` before proceeding; (6) permanent exclusion configuration —
+    cairn-mcp server entry including all required env vars directly into the correct
+    configuration file for the chosen MCP client (see multi-client table below); show entry
+    and ask explicit permission before writing; merge into existing file without touching
+    other entries; display entry for manual addition if operator declines; no `.env` file is
+    written at any step; (5) smoke test via `health_check` — all components must return
+    `"status": "ok"` before proceeding; (6) permanent exclusion configuration —
     two-part step: (A) ADR strategy (git-only vs cairn-mcp-only): if git-only, auto-detect
     ADR folder from common directory names; confirm with operator or ask for path if not
     found; add confirmed path to `local_only_paths` and `adr` to `local_only_types`; (B) ask
@@ -210,23 +211,44 @@ Goal: quality-of-life improvements and documentation polish before declaring v1,
     operator. Write `<!-- cairn-mcp:config -->` block to AGENTS.md; write narrative snippet
     from `references/agents-snippet.md`. Re-running updates config block in place. No IAM
     policy generation at any step — the README provides a static reference policy with
-    YOUR-* placeholders that operators use as a template. (FR-24, NFR-12, AC-28, AC-29,
-    AC-40, AC-42)
+    YOUR-* placeholders that operators use as a template. (FR-24, FR-44, NFR-12, AC-28,
+    AC-29, AC-40, AC-42, AC-49)
+    - **Multi-client per-project config (FR-44, AC-49)**: the skill supports all four
+      MCP clients — Claude Code, opencode, GitHub Copilot CLI, and OpenAI Codex. For
+      clients that support a project-scoped config file (Claude Code `.mcp.json`/`.mcp.jsonc`,
+      opencode `opencode.json`, Codex `.codex/config.toml`), the skill writes
+      the cairn-mcp entry into that project-level file. GitHub Copilot CLI uses `.mcp.json`
+      at the workspace root (shared with Claude Code, supported since v0.0.401), so all four
+      clients receive a project-scoped entry. Config files are
+      always edited (JSON/JSONC: parse → insert → write; TOML: append section), never
+      replaced or overwritten. opencode uses `environment` as the env-vars key (not `env`);
+      all other clients use `env`. For Codex, note the "trusted projects only" requirement
+      for project-scoped config. opencode's merge is additive at the server-name level —
+      project config adds new server names without disturbing global entries (empirically
+      confirmed). The skill checks for `opencode.json`; creates `opencode.json` (no dot
+      prefix — officially documented name) if neither exists.
     - **Also delivers**: update `skills/migrating-to-cairn/SKILL.md` — remove Step 2c ADR
       strategy gate entirely; add pre-flight check at top of Step 2: if no `cairn-mcp:config`
       block found in AGENTS.md → hard stop ("run `installing-cairn` first"); if block found →
       read `local_only_paths` (excluded at scan time) and `local_only_types` (excluded after
       classification). (FR-23, AC-41)
-    - Done when: `SKILL.md` covers all 9 steps including the two-part exclusion step;
-      `references/agents-snippet.md` contains the complete AGENTS.md snippet with the
-      never-write instruction and both ADR variants; `SKILL.md` ≤ 500 lines; README shrinks
+    - Done when: `SKILL.md` covers all 6 steps including Step 4 multi-client table with all
+      four clients; the four client configs are shown with their correct format (JSON, JSONC,
+      TOML), correct env key (`environment` for opencode, `env` for all others), and correct
+      file path (project-level for all four clients, including Copilot CLI via `.mcp.json`
+      shared with Claude Code); the safe-edit requirement is explicit
+      in Step 4 (parse-insert-write for JSON/JSONC; append-section for TOML); `opencode.json`
+      (no dot prefix) is used when creating new opencode project configs; `references/agents-snippet.md`
+      contains the complete AGENTS.md snippet; `SKILL.md` ≤ 500 lines; README shrinks
       to ~255 lines with no `YOUR-*` placeholder blocks remaining; a new operator following
       the skill reaches a server confirmed healthy by `health_check` returning all-ok; the
       `cairn-mcp:config` block written to AGENTS.md is valid YAML inside the HTML comment
       with all four keys; re-running the skill replaces the block in place; migration skill
       Step 2c is absent; migration skill halts on missing config block; migration skill scan
       respects `local_only_paths` and classification respects `local_only_types`
-    - Specs: `docs/specs/p9-t31a-installing-cairn-skill.md`,
+    - Specs: `docs/specs/p9-t31a-installing-cairn-skill.md` (requires revision — add
+      multi-client per-project config per FR-44, AC-49, and
+      `docs/brainstorming/brainstorming-2026-06-08-multi-team-multi-project-config.md`),
       `docs/specs/p9-t31b-migration-skill-exclusion-gate.md`,
       `docs/specs/p9-t31c-readme-reduction.md`
 

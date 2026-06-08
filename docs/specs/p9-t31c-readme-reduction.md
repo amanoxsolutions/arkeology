@@ -6,6 +6,7 @@ phase: 9
 task: 31c
 references:
   - docs/brainstorming/brainstorming-2026-06-02-installing-cairn-skill.md
+  - docs/brainstorming/brainstorming-2026-06-08-multi-team-multi-project-config.md
   - docs/specs/p9-t31a-installing-cairn-skill.md
   - docs/planning-artifacts/prd.md
 authored:

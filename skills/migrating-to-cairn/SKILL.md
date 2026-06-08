@@ -225,7 +225,12 @@ If any entry in the response carries `error`:
 
 ## Step 3.B — > 10 files
 
-> When no description is provided, the server generates one automatically.
+> When no description is provided, the server generates one automatically using
+> the `BEDROCK_TEXT_MODEL` configured in the MCP server entry. **If
+> `BEDROCK_TEXT_MODEL` is not configured, call `health_check` — if the
+> `bedrock_text_model` component is absent or errored, stop here and ask the
+> operator to add `BEDROCK_TEXT_MODEL: amazon.nova-lite-v1:0` to the MCP server
+> environment in their project config, then restart the MCP client.**
 > A `CAIRN_IMPORT.yaml` manifest tracks progress across runs. The operator
 > reviews server-generated descriptions via a dry-run before any writes occur.
 

@@ -5,8 +5,8 @@ authored:
   by: architect
   date: "2026-05-29"
 revised:
-  by: ""
-  date: ""
+  by: pm
+  date: "2026-06-08"
 ---
 
 # stdio as the Primary MCP Transport
@@ -23,10 +23,11 @@ Accepted
 
 ## Context
 
-MCP clients (AI agents running in IDEs such as Claude Code, GitHub Copilot, and OpenCode)
-expect to launch MCP servers as child processes and communicate over their standard input and
-output streams. This is the most universally supported transport and requires zero network
-configuration: no port, no TLS certificate, no firewall rule.
+MCP clients (AI coding agents running in IDEs or terminals — Claude Code, opencode,
+GitHub Copilot CLI, and OpenAI Codex) expect to launch MCP servers as child processes and
+communicate over their standard input and output streams. This is the most universally
+supported transport and requires zero network configuration: no port, no TLS certificate,
+no firewall rule.
 
 The alternative transports available in `fastmcp` at project inception were:
 
@@ -75,3 +76,11 @@ selector in `__main__.py`.
   modifying any tool, domain, or client code — only `server.py` and `__main__.py`.
 - CI/CD agents running in pipelines connect via the same stdio mechanism, provided the MCP
   client in the pipeline supports stdio child-process spawning.
+- Because each MCP client spawns its own server process, project-scoped configuration is
+  natural: Claude Code and GitHub Copilot CLI share `.mcp.json` at the workspace root
+  (Copilot CLI added per-project config in v0.0.401, ≈ February 2026); opencode uses
+  `opencode.json` and OpenAI Codex uses `.codex/config.toml`. All
+  four clients support per-project config files that supply project-specific environment
+  variables (e.g. `WRITE_PREFIX`) to the child process. This means a developer working
+  across multiple projects runs multiple cairn-mcp processes, one per active project
+  session, each correctly scoped to its own write prefix by the client.
