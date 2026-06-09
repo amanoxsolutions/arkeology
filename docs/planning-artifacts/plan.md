@@ -264,7 +264,7 @@ Goal: quality-of-life improvements and documentation polish before declaring v1,
     - **README quick-install section (FR-43)**: adds a "Quick install" section before the full server setup instructions; documents the one-line OpenCode plugin snippet (SSH primary, HTTPS alternative) and the two-command Claude Code install; brief note that `cairn:` coexists with other plugin namespaces without collision.
     - Done when: adding the plugin line to `opencode.jsonc` and restarting OpenCode makes `installing-cairn` and `migrating-to-cairn` discoverable via the `skill` tool (AC-43); `claude plugin install cairn@cairn-mcp` makes `/cairn:installing-cairn`, `/cairn:migrating-to-cairn`, `/cairn:plugin-sync` available as slash commands (AC-44); `./install.sh` on a machine with all three tools wires each and prints session-refresh instructions (AC-45); running the script twice produces no duplicate entries or errors (AC-46); `/cairn:plugin-sync` pulls and reloads without permission prompts (AC-47); partial-tool install skips absent tools cleanly (AC-48); `plugin-sync` skill absent from shared `skills/` directory; no Python source changes; ruff + mypy clean
     - Brainstorming: `docs/brainstorming/brainstorming-2026-06-08-skill-distribution.md`
-    - Spec: `docs/specs/p9-t33-skill-distribution.md` (status: not started — awaiting spec)
+    - Spec: `docs/specs/p9-t33a-opencode-js-plugin.md`, `docs/specs/p9-t33b-claude-code-plugin.md`, `docs/specs/p9-t33c-install-script.md`, `docs/specs/p9-t33d-copilot-adapter.md`, `docs/specs/p9-t33e-readme-quick-install.md` (status: draft — awaiting approval)
 
 ---
 
@@ -361,6 +361,26 @@ merges. This track is independent of T31, T32, and T33 — no shared files.
 
 - **T32 — Reconcile Scenario 3 (dangling vector pruning) complete (2026-06-09)**: 557 unit tests passing; ruff + mypy clean (33 source files); 8 new unit tests + 1 new integration test; `vectors_by_artifact` grouping unified into a single pass over `indexed_keys_raw` (was a separate `set()` pass in Scenario 2 — now a dict build that also gives Scenario 3 its key lists at zero extra cost); `dangling_artifact_ids = set(vectors_by_artifact.keys()) − set(own_keys)` drives `delete_vectors` calls; three new response fields (`dangling_artifacts_found`, `dangling_vectors_pruned`, `dangling_artifacts`) are additive — existing callers unaffected.
 
+- **T33 — Plugin distribution: known implementation gotchas (derived from post-delivery fixes to the reference implementation; record here before speccing T33)**:
+
+  - **`git+ssh://` URL format**: the correct npm git+ssh format uses a forward slash after the hostname: `git+ssh://git@github.com/org/repo.git`. The SCP-like colon form (`git+ssh://git@github.com:org/repo.git`) is valid for bare git but is an **invalid URL in Node.js** — it throws `ERR_INVALID_URL`. The OpenCode plugin silently never installs with the colon form: no entry in `~/.config/opencode/node_modules/`, config hook never fires, no skills appear.
+
+  - **YAML description quoting for `gh skill install`**: any SKILL.md whose `description` frontmatter value contains the two-character sequence `: ` (colon-space) **must** be wrapped in double quotes. Python's `yaml.safe_load` is lenient and parses plain scalars with `: ` without complaint. The Go YAML parser used by `gh skill install` is strict and rejects them. This caused silent failures for affected skills. Solution: pre-validate all SKILL.md files at commit time with a `scripts/validate.py` check (or equivalent) that flags unquoted descriptions containing `: `.
+
+  - **`gh skill install` required flags — all four are mandatory**:
+    - `--from-local`: installs from the local clone, not via 32+ remote GitHub API calls; works offline; uses exactly the cloned version.
+    - `--agent github-copilot`: without this, the command prompts interactively for agent selection and hangs in a terminal script.
+    - `--scope user`: installs to `~` (user-level); without it, scope defaults vary and skills may not be globally available.
+    - `--force`: overwrites on re-run without prompting; required for idempotency.
+
+  - **Copilot detection signal**: use `command -v copilot` (not `command -v gh`) in `install.sh` to detect GitHub Copilot. `gh` is GitHub's general-purpose CLI used by all developers for PRs, issues, and releases — its presence on PATH says nothing about which AI coding tool is installed. `gh` and `gh skill` are then checked as internal prerequisites inside the Copilot section, not in the top-level detection block.
+
+  - **`marketplace.json` required fields**: the minimal valid `marketplace.json` for Claude Code requires `$schema`, `name`, `owner: {name: ...}`, and `plugins[].source` using a relative path (`"./plugins/cairn-mcp"`). A bare `path` field (without the `source` key) is not valid. Missing `owner` or `$schema` causes the marketplace registration to fail silently.
+
+  - **`plugin.json` must omit `version`**: including a static `version` field in `plugins/cairn-mcp/.claude-plugin/plugin.json` pins the plugin to that version string and prevents users from receiving updates via `claude plugin update`. Omitting `version` causes Claude Code to use the commit SHA, treating every push as a new version automatically.
+
+  - **OpenCode session-refresh message**: print both SSH and HTTPS plugin lines verbatim in the final summary section of `install.sh` — not only earlier in the OpenCode section where they scroll off before the engineer reaches the bottom. Engineers need the plugin line where they are ready to act on it.
+
 ## References
 
 - [`docs/planning-artifacts/prd.md`](./prd.md)
@@ -386,3 +406,8 @@ merges. This track is independent of T31, T32, and T33 — no shared files.
 - [`docs/specs/p10-t36-propose-commit-links.md`](../specs/p10-t36-propose-commit-links.md)
 - [`docs/specs/p10-t37-link-commit.md`](../specs/p10-t37-link-commit.md)
 - [`docs/brainstorming/brainstorming-2026-06-08-skill-distribution.md`](../brainstorming/brainstorming-2026-06-08-skill-distribution.md)
+- [`docs/specs/p9-t33a-opencode-js-plugin.md`](../specs/p9-t33a-opencode-js-plugin.md)
+- [`docs/specs/p9-t33b-claude-code-plugin.md`](../specs/p9-t33b-claude-code-plugin.md)
+- [`docs/specs/p9-t33c-install-script.md`](../specs/p9-t33c-install-script.md)
+- [`docs/specs/p9-t33d-copilot-adapter.md`](../specs/p9-t33d-copilot-adapter.md)
+- [`docs/specs/p9-t33e-readme-quick-install.md`](../specs/p9-t33e-readme-quick-install.md)

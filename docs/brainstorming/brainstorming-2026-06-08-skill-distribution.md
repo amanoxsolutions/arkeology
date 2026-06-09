@@ -94,6 +94,7 @@ Everything else is a direct 1:1 copy of the reference pattern with name substitu
 | `install.sh` agent symlinks loop | *(absent)* | N/A |
 | `install.sh` CLAUDE.md `@`-import step | **Design decision D1** | See below |
 | `install.sh` settings.json pre-approval (for plugin-sync) | Same, if plugin-sync ships (D2) | Same pre-approval rule: `Bash(git -C * pull)` |
+| `install.sh` Claude Code SSH URL only | **Both SSH and HTTPS forms documented** | `claude plugin marketplace add` also accepts `https://github.com/…`; SSH-blocked environments need the HTTPS alternative (see G8) |
 | `gh skill install` loop per skill in `install.sh` | Same; 2 skills | Same |
 | README quick install section | README quick install section | Different framing (tool-specific, not personal baseline) |
 
@@ -249,6 +250,7 @@ taxonomy.
 | Claude Code plugin (`.claude-plugin/` + `plugins/cairn-mcp/` + symlinks) | ✅ Include — same pattern; 2 skill symlinks, no agent symlinks |
 | `cairn:plugin-sync` skill | ✅ Include — ~22 lines; update skill clone only, not server clone |
 | `install.sh` | ✅ Include — no agent symlinks loop; no @-import step; otherwise identical |
+| `install.sh` Claude Code URL | ✅ Both SSH and HTTPS — `claude plugin marketplace add` accepts `git@github.com:…` (SSH primary) and `https://github.com/…` (HTTPS fallback for firewalled environments); both forms in session-refresh summary |
 | Copilot adapter (`gh skill install` loop) | ✅ Include — same as reference; 2 skills |
 | CLAUDE.md `@`-import | ❌ Skip — cairn-mcp AGENTS.md is server-specific; per-project AGENTS.md already covers this |
 | Agent symlinks loop in `install.sh` | ❌ Absent — cairn-mcp has no agents |
@@ -277,3 +279,149 @@ before the PM can spec this:
   determines the slash command namespace (`cairn:<skill>`). Confirm `cairn` is the preferred
   namespace over `cairn-mcp` (shorter to type; unambiguous given there is no other
   `cairn`-namespaced tool in use).
+
+---
+
+## Known Implementation Gotchas
+
+The following issues were discovered post-delivery in the reference implementation. Every
+one caused a silent failure or broken install. They are recorded here so the T33 spec can
+prescribe the correct form from the start and avoid a repeat fix cycle.
+
+### G1 — `git+ssh://` URL must use forward slash, not colon
+
+The npm git+ssh specifier requires a forward slash after the hostname:
+
+```
+git+ssh://git@github.com/org/repo.git   ← correct
+git+ssh://git@github.com:org/repo.git   ← wrong (SCP syntax, invalid Node.js URL)
+```
+
+With the colon form, Node.js throws `ERR_INVALID_URL`. The OpenCode plugin manager
+silently does nothing: no entry in `node_modules/`, the config hook never fires,
+and no skills appear. There is no error message — it just looks like the plugin
+was never configured.
+
+**Spec must**: specify the slash form in every place the URL appears
+(plugin file comment, README, `install.sh` output, HTTPS alternative).
+
+---
+
+### G2 — SKILL.md `description` values containing `: ` must be double-quoted
+
+Python's `yaml.safe_load` accepts unquoted plain scalars containing `: `. The Go
+YAML parser used by `gh skill install` is strict and rejects them with a parse
+error. Any skill whose description reads like `"Foo: bar baz"` without quotes
+will fail silently during Copilot installation.
+
+**Spec must**: require that all SKILL.md `description` values are double-quoted.
+**Also**: add a `scripts/validate.py` (or equivalent pre-commit check) that catches
+unquoted descriptions containing `: ` — one that flags them before commit, not after
+a broken install.
+
+---
+
+### G3 — `gh skill install` requires four specific flags
+
+All four are mandatory; the command misbehaves or breaks idempotency without them:
+
+| Flag | Why it is required |
+|------|--------------------|
+| `--from-local` | Installs from local clone; no remote API calls; works offline |
+| `--agent github-copilot` | Without it, the command prompts interactively and hangs in a script |
+| `--scope user` | User-level install, available everywhere; scope defaults are unreliable |
+| `--force` | Overwrites on re-run without prompting; required for idempotency |
+
+**Spec must**: show all four flags in the `gh skill install` command template.
+
+---
+
+### G4 — Copilot detection: `copilot` on PATH, not `gh`
+
+`gh` is GitHub's general-purpose CLI (PRs, issues, releases) — its presence says
+nothing about which AI coding tool is installed. Using `command -v gh` as the
+Copilot detection signal fires the Copilot section for every developer who has
+`gh` installed, regardless of whether they use Copilot at all.
+
+**Spec must**: detection signal = `command -v copilot`. Inside the Copilot section,
+check `command -v gh` and `gh skill --help` as prerequisites and print the install
+URL if either is missing.
+
+---
+
+### G5 — `marketplace.json` required fields
+
+The minimal valid `marketplace.json` for Claude Code plugin registration requires:
+
+```json
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "<name>",
+  "owner": { "name": "<org>" },
+  "plugins": [
+    {
+      "name": "<name>",
+      "description": "...",
+      "author": { "name": "<org>" },
+      "source": "./plugins/<name>",
+      "homepage": "..."
+    }
+  ]
+}
+```
+
+Missing `owner`, missing `$schema`, or using a bare `path` key instead of `source`
+causes the marketplace registration to fail or the plugin to not be found.
+
+**Spec must**: show the complete `marketplace.json` structure with all required fields.
+The `source` value must be a relative path to the plugin directory (`"./plugins/cairn-mcp"`).
+
+---
+
+### G6 — `plugin.json` must omit `version`
+
+Including a static `version` string in `plugins/cairn-mcp/.claude-plugin/plugin.json`
+pins users to that version permanently. `claude plugin update` sees no change and does
+nothing. Omitting `version` causes Claude Code to use the commit SHA, so every push
+to the repo is picked up as an update.
+
+**Spec must**: `plugin.json` contains only `name` and `description` — no `version` field.
+
+---
+
+### G7 — Print plugin lines in the final summary, not only mid-script
+
+`install.sh` typically runs for several seconds while wiring multiple tools. By the
+time the OpenCode section runs and prints the plugin line, that output has already
+scrolled off the terminal when the final summary appears. Engineers copy-paste from
+the bottom of the output — not from the middle.
+
+**Spec must**: the session-refresh summary at the bottom of `install.sh` must repeat
+both the SSH and HTTPS plugin lines verbatim, even if they were already printed
+earlier in the OpenCode section.
+
+---
+
+### G8 — `claude plugin marketplace add` needs an HTTPS alternative
+
+`claude plugin marketplace add` accepts a plain git URL — both SSH (`git@github.com:…`)
+and HTTPS (`https://github.com/…`) forms work. The reference project's install script
+only uses the SSH form. Engineers in corporate environments where outbound port 22 is
+blocked by a firewall cannot use the SSH form, and the `|| true` guard means the failure
+is silent: the script exits 0, the marketplace is never registered, and `claude plugin install`
+subsequently does nothing — with no error message.
+
+This was not caught in the reference project because all testing was done on machines
+with SSH access. It was identified during cairn-mcp spec review.
+
+**Spec must**: document both SSH and HTTPS forms of `claude plugin marketplace add`
+everywhere the command appears — install script session-refresh summary, README, and
+CONTRIBUTING.md. The SSH form is primary; the HTTPS form is labelled as the fallback
+for SSH-blocked environments.
+
+Note: unlike the OpenCode plugin URL (which uses the npm `git+ssh://` or `git+https://`
+specifier format), the `claude plugin marketplace add` argument is a plain git remote URL:
+- SSH form: `git@github.com:amanoxsolutions/cairn-mcp.git`
+- HTTPS form: `https://github.com/amanoxsolutions/cairn-mcp.git`
+
+These are different formats from the OpenCode plugin URL — do not mix them up.
