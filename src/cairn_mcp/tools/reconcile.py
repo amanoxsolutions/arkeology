@@ -147,8 +147,9 @@ async def reconcile_index(
     Returns:
         On success: dict with keys ``reconciled``, ``failed``,
             ``failure_log_entries_before``, ``failure_log_entries_after``,
-            ``orphans_found``, ``total_reconciled``.
-        On error: ``{"error": "internal_error", "message": str(exc)}``.
+            ``orphans_found``, ``total_reconciled``, ``dangling_artifacts_found``,
+            ``dangling_vectors_pruned``, ``dangling_artifacts``.
+        On error: ``{"error": "credential_error" | "internal_error", "message": str(exc)}``.
     """
     try:
         return await _reconcile_index_inner(
@@ -169,7 +170,15 @@ async def _reconcile_index_inner(
     vectors: VectorsClientInterface,
     bedrock: BedrockClientInterface,
 ) -> dict[str, Any]:
-    """Inner implementation of reconcile_index."""
+    """Inner implementation of reconcile_index.
+
+    Returns:
+        On success: dict with keys ``reconciled``, ``failed``,
+            ``failure_log_entries_before``, ``failure_log_entries_after``,
+            ``orphans_found``, ``total_reconciled``, ``dangling_artifacts_found``,
+            ``dangling_vectors_pruned``, ``dangling_artifacts``.
+        On error: ``{"error": "credential_error" | "internal_error", "message": str(exc)}``.
+    """
     reconciled: list[dict[str, Any]] = []
     failed: list[dict[str, Any]] = []
 
@@ -283,11 +292,15 @@ async def _reconcile_index_inner(
         )
     except CredentialError as exc:
         return {"error": "credential_error", "message": str(exc)}
-    # Extract unique artifact_ids from vector keys (strip section suffix after '#')
-    indexed_artifact_ids: set[str] = set()
+    # Build vectors_by_artifact: maps artifact_id → list of its vector keys.
+    # Splitting on '#' extracts the artifact_id from keys like "{artifact_id}#{section_slug}".
+    # This single pass serves both Scenario 2 (indexed_artifact_ids) and
+    # Scenario 3 (dangling vector pruning) without iterating indexed_keys_raw twice.
+    vectors_by_artifact: dict[str, list[str]] = {}
     for vk in indexed_keys_raw:
         artifact_id = vk.split("#")[0]
-        indexed_artifact_ids.add(artifact_id)
+        vectors_by_artifact.setdefault(artifact_id, []).append(vk)
+    indexed_artifact_ids: set[str] = set(vectors_by_artifact.keys())
 
     orphans = [k for k in own_keys if k not in indexed_artifact_ids]
     orphans_found = len(orphans)
@@ -317,11 +330,35 @@ async def _reconcile_index_inner(
         except Exception as exc:
             failed.append({"artifact_id": orphan_key, "reason": str(exc)})
 
+    # ── Phase 3: Dangling vector pruning ─────────────────────────────────────
+    # Dangling vectors are index entries whose S3 object no longer exists.
+    # own_keys is already filtered to own-scope; indexed_artifact_ids is also
+    # own-scope (enforced by the list_vectors_by_metadata scope filter above).
+    own_keys_set: set[str] = set(own_keys)
+    dangling_artifact_ids = set(vectors_by_artifact.keys()) - own_keys_set
+
+    dangling_artifacts: list[str] = []
+    dangling_artifacts_found = 0
+    dangling_vectors_pruned = 0
+
+    for dangling_id in dangling_artifact_ids:
+        keys_to_delete = vectors_by_artifact[dangling_id]
+        try:
+            vectors.delete_vectors(keys_to_delete)
+            dangling_artifacts.append(dangling_id)
+            dangling_artifacts_found += 1
+            dangling_vectors_pruned += len(keys_to_delete)
+        except CredentialError as exc:
+            return {"error": "credential_error", "message": str(exc)}
+        except Exception as exc:
+            failed.append({"artifact_id": dangling_id, "reason": str(exc)})
+
     logger.info(
-        "reconcile_index complete: reconciled=%d failed=%d orphans=%d",
+        "reconcile_index complete: reconciled=%d failed=%d orphans=%d dangling=%d",
         len(reconciled),
         len(failed),
         orphans_found,
+        dangling_artifacts_found,
     )
     return {
         "reconciled": reconciled,
@@ -330,4 +367,7 @@ async def _reconcile_index_inner(
         "failure_log_entries_after": failure_log_entries_after,
         "orphans_found": orphans_found,
         "total_reconciled": len(reconciled),
+        "dangling_artifacts_found": dangling_artifacts_found,
+        "dangling_vectors_pruned": dangling_vectors_pruned,
+        "dangling_artifacts": dangling_artifacts,
     }

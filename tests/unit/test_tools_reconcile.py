@@ -833,3 +833,308 @@ async def test_startup_probe_key_excluded_from_orphan_scan(
     assert not any("_cairn_mcp_startup_probe" in aid for aid in all_ids)
     # orphans_found should be 0 — the real artifact is already indexed
     assert result["orphans_found"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Phase 3: Dangling vector pruning tests
+# ---------------------------------------------------------------------------
+
+
+async def test_phase3_dangling_vector_pruned(
+    reconcile_settings: Settings,
+    s3_reconcile: S3ClientImpl,
+    vectors_reconcile: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """Vector index has one entry for own-scope/artifact-a but no S3 object;
+    reconcile_index prunes the dangling vector and reports it."""
+    artifact_id = "artifacts/implementation-note-2026-01-01-artifact-a"
+    vec_key = f"{artifact_id}#section-one"
+
+    # Seed a vector entry with NO corresponding S3 object
+    vectors_reconcile.put_vector(
+        vec_key,
+        [1.0] + [0.0] * (DIMENSION - 1),
+        {
+            "artifact_id": artifact_id,
+            "scope": "artifacts",
+            "type": "implementation_note",
+            "tier": 2,
+            "title": "Artifact A",
+        },
+    )
+
+    bedrock = FakeBedrockClient(dimension=DIMENSION)
+    spy = mocker.spy(vectors_reconcile, "delete_vectors")
+
+    result = await reconcile_index(
+        settings=reconcile_settings,
+        s3=s3_reconcile,
+        vectors=vectors_reconcile,
+        bedrock=bedrock,
+    )
+
+    assert "error" not in result
+    assert result["dangling_artifacts_found"] == 1
+    assert result["dangling_vectors_pruned"] == 1
+    assert result["dangling_artifacts"] == [artifact_id]
+    spy.assert_called_once_with([vec_key])
+
+
+async def test_phase3_multi_section_artifact_all_keys_pruned(
+    reconcile_settings: Settings,
+    s3_reconcile: S3ClientImpl,
+    vectors_reconcile: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """Vector index has 3 entries for the same dangling artifact (one per section);
+    all three keys are pruned in a single delete_vectors call."""
+    artifact_id = "artifacts/implementation-note-2026-01-01-multi-section"
+    vec_keys = [
+        f"{artifact_id}#s1",
+        f"{artifact_id}#s2",
+        f"{artifact_id}#s3",
+    ]
+    base_meta = {
+        "artifact_id": artifact_id,
+        "scope": "artifacts",
+        "type": "implementation_note",
+        "tier": 2,
+        "title": "Multi Section",
+    }
+
+    for key in vec_keys:
+        vectors_reconcile.put_vector(
+            key,
+            [1.0] + [0.0] * (DIMENSION - 1),
+            base_meta,
+        )
+
+    bedrock = FakeBedrockClient(dimension=DIMENSION)
+    spy = mocker.spy(vectors_reconcile, "delete_vectors")
+
+    result = await reconcile_index(
+        settings=reconcile_settings,
+        s3=s3_reconcile,
+        vectors=vectors_reconcile,
+        bedrock=bedrock,
+    )
+
+    assert "error" not in result
+    assert result["dangling_vectors_pruned"] == 3
+    # All three keys passed in a single call
+    assert spy.call_count == 1
+    called_keys = spy.call_args[0][0]
+    assert sorted(called_keys) == sorted(vec_keys)
+
+
+async def test_phase3_no_dangling_vectors(
+    reconcile_settings: Settings,
+    s3_reconcile: S3ClientImpl,
+    vectors_reconcile: VectorsClientImpl,
+) -> None:
+    """All vector entries have matching S3 objects; no dangling vectors detected."""
+    artifact_id = "artifacts/implementation-note-2026-01-01-present"
+    vec_key = f"{artifact_id}#section"
+
+    # S3 object exists
+    s3_reconcile.put_object(artifact_id, _CONTENT_NO_SECTIONS, {**_BASE_S3_META})
+    # Vector entry exists for the same artifact
+    vectors_reconcile.put_vector(
+        vec_key,
+        [1.0] + [0.0] * (DIMENSION - 1),
+        {"artifact_id": artifact_id, "scope": "artifacts"},
+    )
+
+    bedrock = FakeBedrockClient(dimension=DIMENSION)
+
+    result = await reconcile_index(
+        settings=reconcile_settings,
+        s3=s3_reconcile,
+        vectors=vectors_reconcile,
+        bedrock=bedrock,
+    )
+
+    assert "error" not in result
+    assert result["dangling_artifacts_found"] == 0
+    assert result["dangling_vectors_pruned"] == 0
+    assert result["dangling_artifacts"] == []
+
+
+async def test_phase2_and_phase3_both_run(
+    reconcile_settings: Settings,
+    s3_reconcile: S3ClientImpl,
+    vectors_reconcile: VectorsClientImpl,
+) -> None:
+    """One Scenario 2 orphan (S3 object present, no vector entry) AND one Scenario 3 dangling
+    (vector entry present, no S3 object); both detected in the same reconcile call."""
+    orphan_id = "artifacts/implementation-note-2026-01-01-orphan"
+    dangling_id = "artifacts/implementation-note-2026-01-01-dangling"
+    dangling_vec_key = f"{dangling_id}#section"
+
+    # Orphan: S3 object with no vector entry
+    s3_reconcile.put_object(orphan_id, _CONTENT_NO_SECTIONS, {**_BASE_S3_META})
+
+    # Dangling: vector entry with no S3 object
+    vectors_reconcile.put_vector(
+        dangling_vec_key,
+        [1.0] + [0.0] * (DIMENSION - 1),
+        {"artifact_id": dangling_id, "scope": "artifacts"},
+    )
+
+    bedrock = FakeBedrockClient(dimension=DIMENSION)
+
+    result = await reconcile_index(
+        settings=reconcile_settings,
+        s3=s3_reconcile,
+        vectors=vectors_reconcile,
+        bedrock=bedrock,
+    )
+
+    assert "error" not in result
+    assert result["orphans_found"] == 1
+    assert result["dangling_artifacts_found"] == 1
+    assert dangling_id in result["dangling_artifacts"]
+
+
+async def test_phase3_foreign_scope_not_pruned(
+    reconcile_settings: Settings,
+    s3_reconcile: S3ClientImpl,
+    vectors_reconcile: VectorsClientImpl,
+) -> None:
+    """Vector index has an entry with a foreign scope; the corresponding S3 object is absent.
+    The foreign-scope entry must NOT appear in dangling_artifacts because the scope filter
+    on list_vectors_by_metadata already excludes it."""
+    foreign_artifact_id = "foreign-team/foreign-project/artifact-x"
+    foreign_vec_key = f"{foreign_artifact_id}#section"
+
+    # Put a foreign-scope vector with no S3 backing
+    vectors_reconcile.put_vector(
+        foreign_vec_key,
+        [1.0] + [0.0] * (DIMENSION - 1),
+        {
+            "artifact_id": foreign_artifact_id,
+            "scope": "foreign-team/foreign-project",  # different from settings.write_prefix
+        },
+    )
+
+    bedrock = FakeBedrockClient(dimension=DIMENSION)
+
+    result = await reconcile_index(
+        settings=reconcile_settings,
+        s3=s3_reconcile,
+        vectors=vectors_reconcile,
+        bedrock=bedrock,
+    )
+
+    assert "error" not in result
+    assert result["dangling_artifacts_found"] == 0
+    assert foreign_artifact_id not in result["dangling_artifacts"]
+
+
+async def test_phase3_credential_error_on_delete(
+    reconcile_settings: Settings,
+    s3_reconcile: S3ClientImpl,
+    vectors_reconcile: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """CredentialError from vectors.delete_vectors during dangling prune →
+    response is {'error': 'credential_error', ...}."""
+    artifact_id = "artifacts/implementation-note-2026-01-01-cred-fail"
+    vec_key = f"{artifact_id}#section"
+
+    # Seed dangling vector (no S3 object)
+    vectors_reconcile.put_vector(
+        vec_key,
+        [1.0] + [0.0] * (DIMENSION - 1),
+        {"artifact_id": artifact_id, "scope": "artifacts"},
+    )
+
+    bedrock = FakeBedrockClient(dimension=DIMENSION)
+    mocker.patch.object(
+        vectors_reconcile,
+        "delete_vectors",
+        side_effect=CredentialError(
+            message="cred fail",
+            service="s3vectors",
+            original=Exception("sim"),
+        ),
+    )
+
+    result = await reconcile_index(
+        settings=reconcile_settings,
+        s3=s3_reconcile,
+        vectors=vectors_reconcile,
+        bedrock=bedrock,
+    )
+
+    assert result.get("error") == "credential_error"
+    assert "cred fail" in result.get("message", "")
+
+
+async def test_phase3_unexpected_error_on_delete_continues(
+    reconcile_settings: Settings,
+    s3_reconcile: S3ClientImpl,
+    vectors_reconcile: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """When delete_vectors raises RuntimeError for the first dangling artifact but
+    succeeds for the second, the failing artifact appears in 'failed' and the
+    successful one appears in 'dangling_artifacts'."""
+    artifact_id_fail = "artifacts/implementation-note-2026-01-01-delete-fail"
+    artifact_id_ok = "artifacts/implementation-note-2026-01-01-delete-ok"
+    vec_key_fail = f"{artifact_id_fail}#section"
+    vec_key_ok = f"{artifact_id_ok}#section"
+
+    # Seed both as dangling (no S3 objects)
+    base_meta_fail = {"artifact_id": artifact_id_fail, "scope": "artifacts"}
+    base_meta_ok = {"artifact_id": artifact_id_ok, "scope": "artifacts"}
+    vectors_reconcile.put_vector(vec_key_fail, [1.0] + [0.0] * (DIMENSION - 1), base_meta_fail)
+    vectors_reconcile.put_vector(vec_key_ok, [1.0] + [0.0] * (DIMENSION - 1), base_meta_ok)
+
+    bedrock = FakeBedrockClient(dimension=DIMENSION)
+
+    # Patch delete_vectors to fail for the first artifact's keys, succeed for the second
+    original_delete = vectors_reconcile.delete_vectors
+
+    def _selective_delete(keys: list[str]) -> None:
+        if vec_key_fail in keys:
+            raise RuntimeError("simulated delete failure")
+        original_delete(keys)
+
+    mocker.patch.object(vectors_reconcile, "delete_vectors", side_effect=_selective_delete)
+
+    result = await reconcile_index(
+        settings=reconcile_settings,
+        s3=s3_reconcile,
+        vectors=vectors_reconcile,
+        bedrock=bedrock,
+    )
+
+    assert "error" not in result
+    failed_ids = [e["artifact_id"] for e in result["failed"]]
+    assert artifact_id_fail in failed_ids
+    assert artifact_id_ok in result["dangling_artifacts"]
+    assert result["dangling_artifacts_found"] == 1
+
+
+async def test_response_schema_includes_new_fields(
+    reconcile_settings: Settings,
+    s3_reconcile: S3ClientImpl,
+    vectors_reconcile: VectorsClientImpl,
+) -> None:
+    """A reconcile_index call with nothing to do returns all three new Phase 3 fields:
+    dangling_artifacts_found, dangling_vectors_pruned, dangling_artifacts."""
+    bedrock = FakeBedrockClient(dimension=DIMENSION)
+
+    result = await reconcile_index(
+        settings=reconcile_settings,
+        s3=s3_reconcile,
+        vectors=vectors_reconcile,
+        bedrock=bedrock,
+    )
+
+    assert "error" not in result
+    assert "dangling_artifacts_found" in result, "Missing 'dangling_artifacts_found' in response"
+    assert "dangling_vectors_pruned" in result, "Missing 'dangling_vectors_pruned' in response"
+    assert "dangling_artifacts" in result, "Missing 'dangling_artifacts' in response"

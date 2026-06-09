@@ -18,6 +18,7 @@ from cairn_mcp.tools.delete import delete_artifact
 
 # Implementation import — will fail until src/cairn_mcp/tools/reconcile.py is created
 from cairn_mcp.tools.reconcile import reconcile_index
+from cairn_mcp.tools.search import search_artifacts
 from cairn_mcp.tools.write import write_artifact
 
 # ---------------------------------------------------------------------------
@@ -310,3 +311,68 @@ async def test_reconcile_clean_state_written_artifact_not_reindexed(
                 artifact_id=artifact_id,
                 confirm=True,
             )
+
+
+# ---------------------------------------------------------------------------
+# Test 5: Phase 3 — Dangling vector pruning
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.integration
+async def test_phase3_dangling_vector_pruned_integration(
+    settings_with_tmp_log: Settings,
+    s3: S3ClientImpl,
+    vectors: VectorsClientImpl,
+    bedrock: BedrockClientImpl,
+) -> None:
+    """Write an artifact → delete its S3 object directly (bypassing the MCP tool) →
+    call reconcile_index → dangling_artifacts_found is 1 and the artifact is absent
+    from search results."""
+    artifact_id = ""
+    try:
+        r = await write_artifact(
+            s3=s3,
+            vectors=vectors,
+            bedrock=bedrock,
+            settings=settings_with_tmp_log,
+            **{**_BASE_KWARGS, "title": "Integration Reconcile Phase 3 Dangling Vector Test"},
+        )
+        artifact_id = r["artifact_id"]
+
+        # Directly delete the S3 object to simulate an external deletion,
+        # leaving vector entries intact — this creates a dangling vector
+        s3.delete_object(artifact_id)
+
+        result = await reconcile_index(
+            settings=settings_with_tmp_log,
+            s3=s3,
+            vectors=vectors,
+            bedrock=bedrock,
+        )
+
+        assert "error" not in result
+        assert result["dangling_artifacts_found"] == 1
+        assert artifact_id in result["dangling_artifacts"]
+
+        # After reconcile, the artifact must not appear in search results
+        search_result = await search_artifacts(
+            settings=settings_with_tmp_log,
+            s3=s3,
+            vectors=vectors,
+            bedrock=bedrock,
+            query="Integration Reconcile Phase 3 Dangling Vector Test",
+            top_k=10,
+        )
+        found_ids = [hit["artifact_id"] for hit in search_result.get("results", [])]
+        assert artifact_id not in found_ids, (
+            f"Artifact {artifact_id!r} should not appear in search results after dangling prune"
+        )
+    finally:
+        if artifact_id:
+            s3.delete_object(artifact_id)  # idempotent — silently ignores missing keys
+            # Clean up any remaining vectors (S3 object was already deleted above)
+            remaining_vec_keys = vectors.list_vectors_by_metadata(
+                {"artifact_id": {"$eq": artifact_id}}
+            )
+            if remaining_vec_keys:
+                vectors.delete_vectors(remaining_vec_keys)
