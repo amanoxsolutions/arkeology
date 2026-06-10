@@ -7,7 +7,7 @@ task: 31b
 references:
   - docs/brainstorming/brainstorming-2026-06-02-installing-cairn-skill.md
   - docs/brainstorming/brainstorming-2026-06-08-multi-team-multi-project-config.md
-  - docs/specs/p9-t31a-installing-cairn-skill.md
+  - docs/specs/p9-t31a-setting-up-cairn-skill.md
   - docs/planning-artifacts/prd.md
 authored:
   by: "architect"
@@ -35,7 +35,7 @@ in place from the installation skill.
 
 The migration skill currently asks the operator for their ADR strategy (Step 2c) and
 appends an ADR-variant snippet to AGENTS.md (Step 5). Both actions are now owned by
-the installation skill: the operator declares exclusions during `installing-cairn` and
+the installation skill: the operator declares exclusions during `setting-up-cairn` and
 the decisions are recorded in the `cairn-mcp:config` block. Asking again during
 migration re-opens a settled decision and risks inconsistency. The config block also
 serves as the installation sentinel — if it is absent, the operator has not completed
@@ -50,7 +50,7 @@ An operator who skips the installation skill and goes straight to migration is r
 **Acceptance criteria:**
 - Given AGENTS.md has no `cairn-mcp:config` block, when the migration skill reaches the
   pre-flight check, then it stops immediately and tells the operator to run the
-  `installing-cairn` skill first before returning to migration.
+  `setting-up-cairn` skill first before returning to migration.
 - Given AGENTS.md has a `cairn-mcp:config` block, when the migration skill reaches
   the pre-flight check, then it proceeds without any ADR or exclusion questions.
 
@@ -80,7 +80,7 @@ An operator who skips the installation skill and goes straight to migration is r
   ADR strategy.
 - Given the migration skill reaches Step 5, then the AGENTS.md update section instructs
   the agent to verify (not write) that the `cairn-mcp:config` block and narrative
-  snippet are present, referring the operator to `installing-cairn` if they are absent.
+  snippet are present, referring the operator to `setting-up-cairn` if they are absent.
 
 ## Requirements
 
@@ -88,7 +88,7 @@ An operator who skips the installation skill and goes straight to migration is r
   block before any other Step 2 action.
 - WHEN the block is absent THE SYSTEM SHALL stop immediately with the message:
   "cairn-mcp does not appear to be configured for this project. Run the
-  `installing-cairn` skill first, then return here."
+  `setting-up-cairn` skill first, then return here."
 - WHEN the block is present THE SYSTEM SHALL parse `local_only_paths` and
   `local_only_types` from its YAML content and carry both lists through the remainder
   of the workflow.
@@ -101,7 +101,7 @@ An operator who skips the installation skill and goes straight to migration is r
   NOT write ADR variant text to AGENTS.md.
 - WHEN Step 5 runs THE SYSTEM SHALL verify the `cairn-mcp:config` block and the
   narrative snippet are present in AGENTS.md; if either is absent, instruct the
-  operator to run `installing-cairn` to write them.
+  operator to run `setting-up-cairn` to write them.
 
 ## Boundaries
 
@@ -126,7 +126,7 @@ An operator who skips the installation skill and goes straight to migration is r
 
 **Never:**
 - Do not add an inline fallback that re-asks exclusion questions if the config block is
-  absent — always hard-stop and redirect to `installing-cairn`.
+  absent — always hard-stop and redirect to `setting-up-cairn`.
 - Do not change any other step (Steps 1, 3.A, 3.B, 4) — only Steps 2 and 5 are in scope.
 - Do not change the two-pass classification logic or the always-skip rules.
 
@@ -145,7 +145,7 @@ inspection against the checklist below.
 
 **Step 2 — pre-flight and discovery:**
 - [ ] Step 2 opens with a config block check section before Step 2a (manifest check)
-- [ ] Hard-stop message names `installing-cairn` explicitly
+- [ ] Hard-stop message names `setting-up-cairn` explicitly
 - [ ] Step 2a (manifest check) is unchanged and follows the pre-flight check
 - [ ] Step 2b (scope) applies `local_only_paths` exclusions during scan — described
   explicitly with prefix-matching semantics
@@ -160,7 +160,7 @@ inspection against the checklist below.
 - [ ] No ADR strategy question in Step 5
 - [ ] Variant A and Variant B markdown blocks are removed
 - [ ] The AGENTS.md update section instructs the agent to verify (not write) the
-  config block and snippet
+  config block and snippet and refers the operator to `setting-up-cairn` if absent
 - [ ] ADR row in the tier 2 file removal table references `adr_strategy` in the
   config block rather than "your strategy chosen in Step 2"
 

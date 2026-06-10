@@ -7,7 +7,7 @@ task: 31c
 references:
   - docs/brainstorming/brainstorming-2026-06-02-installing-cairn-skill.md
   - docs/brainstorming/brainstorming-2026-06-08-multi-team-multi-project-config.md
-  - docs/specs/p9-t31a-installing-cairn-skill.md
+  - docs/specs/p9-t31a-setting-up-cairn-skill.md
   - docs/planning-artifacts/prd.md
 authored:
   by: "architect"
@@ -24,7 +24,7 @@ revised:
 ## TL;DR
 
 Slim `README.md` further by removing the remaining operational sections that have moved
-into the `installing-cairn` skill (`## Connecting to an MCP client` and
+into the `setting-up-cairn` skill (`## Connecting to an MCP client` and
 `## Recommended AGENTS.md Snippet`), and update the `## Key Features` section to
 reflect the generalised exclusion model. The `## AWS Provisioning` section, the
 provisioning IAM policy, and the `.env` installation step have already been removed
@@ -37,7 +37,7 @@ section together account for ~97 lines not included in the original projection).
 ## Problem Statement
 
 The README still contains two large sections (`## Connecting to an MCP client` and
-`## Recommended AGENTS.md Snippet`) that belong in the `installing-cairn` skill rather
+`## Recommended AGENTS.md Snippet`) that belong in the `setting-up-cairn` skill rather
 than in the README. Keeping them risks drift as the skill evolves and adds content that
 is operationally redundant once the skill exists. Removing them and replacing with
 pointers completes the README's transformation into a focused discovery document.
@@ -49,7 +49,7 @@ pointers completes the README's transformation into a focused discovery document
 **Acceptance criteria:**
 - Given a developer reading the README for the first time, when they reach the end,
   then they understand what cairn-mcp does, whether it suits their project, and exactly
-  what to do next to get started (run the `installing-cairn` skill).
+  what to do next to get started (run the `setting-up-cairn` skill).
 - Given a developer scanning for the configuration reference, when they find it in the
   README, then every environment variable is documented with its default and a brief
   description.
@@ -57,7 +57,7 @@ pointers completes the README's transformation into a focused discovery document
 ### Story 2 — The README stays current with the skill (P2)
 
 **Acceptance criteria:**
-- Given the `installing-cairn` skill evolves, when the README is reviewed, then the
+- Given the `setting-up-cairn` skill evolves, when the README is reviewed, then the
   README contains no duplicated operational steps that could drift — only concept
   content and config reference that are stable.
 
@@ -80,7 +80,7 @@ describes the full permanent-exclusion capability.
   (including both IDE sub-sections) and `## Recommended AGENTS.md Snippet` (including
   `### Declare your ADR strategy first` and the full snippet body from
   `### cairn-mcp — Persistent Artifact Memory` to end of snippet), replacing each with
-  a one-sentence pointer: "See the `installing-cairn` skill for interactive
+  a one-sentence pointer: "See the `setting-up-cairn` skill for interactive
   step-by-step guidance."
 - WHEN the README is updated THE SYSTEM SHALL update the `## Key Features` bullet
   currently titled "Flexible ADR strategy" to read "Flexible ADR & document strategy"
@@ -103,7 +103,7 @@ describes the full permanent-exclusion capability.
   installation step, and the `.env` Configuration intro are already removed from the
   README (done as part of the T31 scope-correction). This spec covers only the
   remaining two sections to remove.
-- Every removed section gets a one-sentence pointer to `installing-cairn`.
+- Every removed section gets a one-sentence pointer to `setting-up-cairn`.
 - The `## Prerequisites`, `## Minimum IAM Policy`, and `## Installation` sections are
   retained — they were updated as part of the T31 scope-correction and should not be
   modified again here.
@@ -152,9 +152,9 @@ inspection against the checklist below.
 - [ ] `## Configuration` intro does not reference `.env`
 
 **Pointer sentences present:**
-- [ ] A pointer to `installing-cairn` appears where `## Connecting to an MCP client`
+- [ ] A pointer to `setting-up-cairn` appears where `## Connecting to an MCP client`
   was
-- [ ] A pointer to `installing-cairn` appears where `## Recommended AGENTS.md Snippet`
+- [ ] A pointer to `setting-up-cairn` appears where `## Recommended AGENTS.md Snippet`
   was
 
 **Retained sections intact:**
@@ -169,8 +169,7 @@ inspection against the checklist below.
 - [ ] `## Prerequisites` — retained (updated in T31 scope-correction; do not modify)
 - [ ] `## Minimum IAM Policy` — retained (promoted from AWS Provisioning in
   T31 scope-correction; do not modify)
-- [ ] `## Installation` — retained (updated in T31 scope-correction; do not modify)
-- [ ] `## Configuration` table — all env vars present with defaults and descriptions
+- [ ] `## Installation` — retained (updated in T31 scope-correction; do not modify)- [ ] `## Configuration` table — all env vars present with defaults and descriptions
 - [ ] `## Running the server` — unchanged
 - [ ] `## Development` — unchanged
 - [ ] `## License` — unchanged

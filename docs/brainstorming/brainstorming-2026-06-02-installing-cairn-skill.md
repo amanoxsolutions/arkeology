@@ -16,7 +16,7 @@ assumptions_challenged:
   - "The migration skill can stand alone without checking for prior installation (false — it depends on decisions recorded by the installation skill)"
   - "Path exclusions should be applied after classification (false — scan-time exclusion is more efficient and clearer to the operator)"
 decisions_locked:
-  - D1: installing-cairn skill is the right approach — atomic skill, no bundled script, AGENTS.md snippet in references/
+  - D1: setting-up-cairn skill is the right approach — atomic skill, no bundled script, AGENTS.md snippet in references/
   - D2: adr_strategy key retained as a named field in the config block (git-only vs cairn-mcp-only)
   - D3: new local_only_paths key in the config block — a list of folders/files permanently excluded from cairn-mcp
   - D4: local_only_types derived from local_only_paths — installation skill infers type-level rules from path selections and confirms with operator
@@ -26,7 +26,7 @@ decisions_locked:
   - D8: when git-only ADR strategy chosen, installation skill auto-detects ADR folder; if not found, asks operator; then asks for additional folders/files
   - D9: local_only_paths exclusions applied at scan-time in migration skill (not post-classification)
   - D10: V1 path syntax — trailing / means entire directory tree; no trailing / means exact file; no glob syntax
-  - D11: re-running installing-cairn updates the config block in place (no append, no history)
+  - D11: re-running setting-up-cairn updates the config block in place (no append, no history)
   - D12: AGENTS.md narrative snippet gains a standing never-write instruction referencing local_only_types and local_only_paths
   - D13: AWS provisioning (S3 bucket, S3 Vectors bucket/index, Bedrock model access) is OUT OF SCOPE for the installation skill — operator provisions these externally before running the skill
   - D14: the skill collects values for pre-existing resources only (bucket name, index name, AWS profile, etc.) — it never creates AWS resources
@@ -43,13 +43,13 @@ decisions_closed_not_applicable:
   - Append-on-rerun for config block — superseded by in-place update (D11)
 ---
 
-# Installing-Cairn Skill
+# Setting-Up-Cairn Skill
 
 ## Description
 
 Should the cairn-mcp installation and provisioning workflow — currently ~400 lines in the
 README (clone, Python setup, AWS provisioning, IAM policy, .env, MCP client config, AGENTS.md
-snippet) — be moved into an `installing-cairn` skill, mirroring what was done for the
+snippet) — be moved into a `setting-up-cairn` skill, mirroring what was done for the
 `migrating-to-cairn` skill? This session explores the design space: whether the skill makes
 sense, what it should cover, how it compares to the migration skill, and what trade-offs exist
 in scope, structure, and README reduction.
@@ -107,8 +107,7 @@ The convention is a gerund, optionally followed by a preposition phrase:
 | `provisioning-cairn` | `<gerund>-<noun>` | Accurate for the AWS steps only — undersells the full scope (clone, config, MCP client). |
 | `onboarding-to-cairn` | `<gerund>-<preposition>-<noun>` | Too broad; "onboarding" implies team workflow, not server setup. |
 
-**Verdict:** `installing-cairn` is the right name — gerund + noun, same pattern as `migrating-to-cairn`,
-unambiguous activation signal.
+**Verdict:** `setting-up-cairn` is the chosen name (renamed from the original `installing-cairn` after delivery).
 
 ---
 
@@ -259,7 +258,7 @@ in the skill rather than being shared.
 
 Three things this brainstorm converges on:
 
-1. **Build the `installing-cairn` skill** — the fit is good, the agent advantage is real, the
+1. **Build the `setting-up-cairn` skill** — the fit is good, the agent advantage is real, the
    naming is clean, atomic tier is right, and the workflow is well-defined.
 
 2. **No bundled script** — agent file and Bash tools are sufficient for each step; a script adds
@@ -267,7 +266,7 @@ Three things this brainstorm converges on:
 
 3. **Move AGENTS.md snippet to `references/`** — the snippet is 140 lines. Embedding it inline
    would push the skill close to the 500-line limit. Store it in
-   `skills/installing-cairn/references/agents-snippet.md` and instruct the agent to load it
+   `skills/setting-up-cairn/references/agents-snippet.md` and instruct the agent to load it
    conditionally in Step 9.
 
 ---
@@ -473,7 +472,7 @@ should not edit it by hand.
 Migration skill pre-flight (before any scan):
 1. Check AGENTS.md for `<!-- cairn-mcp:config`.
 2. If absent → stop: "cairn-mcp does not appear to be installed for this project.
-   Run the `installing-cairn` skill first, then return here."
+   Run the `setting-up-cairn` skill first, then return here."
 3. If present → parse `local_only_types` and `local_only_paths` and continue.
 
 No inline fallback — the migration skill does not re-ask exclusion questions.

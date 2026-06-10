@@ -120,7 +120,7 @@ anything already installed.
 1. **Copy-paste check — OpenCode:** Add the printed plugin line verbatim to a test
    `opencode.jsonc`; restart OpenCode; confirm both skills are loadable.
 2. **Copy-paste check — Claude Code SSH:** Run the two printed `claude plugin` commands
-   using the SSH URL verbatim; confirm `/cairn:installing-cairn` and
+   using the SSH URL verbatim; confirm `/cairn:setting-up-cairn` and
    `/cairn:migrating-to-cairn` appear.
 3. **Copy-paste check — Claude Code HTTPS:** Run the two printed `claude plugin` commands
    using the HTTPS URL verbatim; confirm the same two slash commands appear — confirms the

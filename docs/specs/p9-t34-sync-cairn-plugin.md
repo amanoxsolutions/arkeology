@@ -101,7 +101,7 @@ receive an explanation of all three update paths so I can apply the correct one 
   directory) — it is not Claude-Code-specific.
 - The Claude Code plugin uses a symlink
   `plugins/cairn-mcp/skills/sync-cairn-plugin → ../../../skills/sync-cairn-plugin`,
-  identical to the pattern used for `installing-cairn` and `migrating-to-cairn`.
+  identical to the pattern used for `setting-up-cairn` and `migrating-to-cairn`.
 - `plugin-sync` (`plugins/cairn-mcp/skills/plugin-sync/`) is deleted entirely as part of
   this task — it is not kept as an alias or redirect.
 - No Python source changes. No `pyproject.toml` changes. No server code changes.
@@ -121,7 +121,7 @@ receive an explanation of all three update paths so I can apply the correct one 
 | File | Action | Notes |
 |------|--------|-------|
 | `skills/sync-cairn-plugin/SKILL.md` | Create | ~35 lines; tool-detection preamble followed by three labelled step blocks (OpenCode / Claude Code / Copilot) and a fallback block |
-| `plugins/cairn-mcp/skills/sync-cairn-plugin` | Create (symlink) | Points to `../../../skills/sync-cairn-plugin`; same pattern as `installing-cairn` and `migrating-to-cairn` symlinks |
+| `plugins/cairn-mcp/skills/sync-cairn-plugin` | Create (symlink) | Points to `../../../skills/sync-cairn-plugin`; same pattern as `setting-up-cairn` and `migrating-to-cairn` symlinks |
 | `plugins/cairn-mcp/skills/plugin-sync/` | Delete | Entire directory including `SKILL.md`; replaced by `sync-cairn-plugin` |
 
 ## Testing Approach

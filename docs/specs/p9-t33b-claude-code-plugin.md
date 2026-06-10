@@ -24,7 +24,7 @@ revised:
 Add a `.claude-plugin/marketplace.json` marketplace manifest and a `plugins/cairn-mcp/`
 plugin directory to the repo so Claude Code engineers install both cairn-mcp skills via
 two `claude plugin` commands. Skills become available as `cairn:<name>` slash commands
-(`/cairn:installing-cairn`, `/cairn:migrating-to-cairn`), and the `cairn:plugin-sync`
+(`/cairn:setting-up-cairn`, `/cairn:migrating-to-cairn`), and the `cairn:plugin-sync`
 skill handles future updates to the skill plugin clone without a full reinstall.
 
 Both SSH and HTTPS forms of `claude plugin marketplace add` are documented — the SSH form
@@ -33,7 +33,7 @@ is blocked by a corporate firewall.
 
 No global CLAUDE.md `@`-import is written — cairn-mcp's `AGENTS.md` contains server-setup
 documentation specific to the codebase, not conventions applicable in every session. The
-per-project AGENTS.md snippet written by `installing-cairn` already provides the right
+per-project AGENTS.md snippet written by `setting-up-cairn` already provides the right
 context within each project.
 
 ## Problem Statement
@@ -55,7 +55,7 @@ available in every subsequent Claude Code session as namespaced slash commands.
 **Acceptance criteria:**
 - Given the engineer has `claude` on PATH and SSH access to GitHub, when they run
   `claude plugin marketplace add git@github.com:amanoxsolutions/cairn-mcp.git` then
-  `claude plugin install cairn@cairn-mcp`, then `/cairn:installing-cairn` and
+  `claude plugin install cairn@cairn-mcp`, then `/cairn:setting-up-cairn` and
   `/cairn:migrating-to-cairn` appear as slash commands.
 
 ### Story 4 — Two-command install via HTTPS (P1)
@@ -67,7 +67,7 @@ identically.
 **Acceptance criteria:**
 - Given the engineer has `claude` on PATH but cannot use SSH (port 22 blocked), when they
   run `claude plugin marketplace add https://github.com/amanoxsolutions/cairn-mcp.git` then
-  `claude plugin install cairn@cairn-mcp`, then `/cairn:installing-cairn` and
+  `claude plugin install cairn@cairn-mcp`, then `/cairn:setting-up-cairn` and
   `/cairn:migrating-to-cairn` appear as slash commands, identical to the SSH path.
 
 ### Story 2 — One-command skill update (P1)
@@ -160,7 +160,7 @@ permission prompts.
 |------|--------|-------|
 | `.claude-plugin/marketplace.json` | Create | Top-level `name: cairn-mcp` (marketplace ID); `owner: {name: Amanox}`; `$schema`; `plugins[0].name: cairn` (plugin lookup key — **must match the `cairn@` identifier in the install command, not the marketplace name**); `plugins[0].source: "./plugins/cairn-mcp"`; see Boundaries for required fields |
 | `plugins/cairn-mcp/.claude-plugin/plugin.json` | Create | `name: cairn`, `description` only — **no `version` field** |
-| `plugins/cairn-mcp/skills/installing-cairn` | Create | Symlink → `../../../skills/installing-cairn` |
+| `plugins/cairn-mcp/skills/setting-up-cairn` | Create | Symlink → `../../../skills/setting-up-cairn` |
 | `plugins/cairn-mcp/skills/migrating-to-cairn` | Create | Symlink → `../../../skills/migrating-to-cairn` |
 | `plugins/cairn-mcp/skills/plugin-sync/SKILL.md` | Create | `cairn:plugin-sync` skill; runs `git -C ~/.claude/plugins/cairn-mcp pull` + `/reload-plugins`; notes section warns that the server clone requires a separate update |
 | `README.md` | Modify | Add the two `claude plugin` commands to the Quick Install section added by T33e |
@@ -171,12 +171,12 @@ permission prompts.
 Testing is manual smoke tests (no TDD for non-server files).
 
 1. **Plugin install — SSH:** Run `claude plugin marketplace add <repo-ssh-url>` then
-   `claude plugin install cairn@cairn-mcp`; verify `/cairn:installing-cairn` and
+   `claude plugin install cairn@cairn-mcp`; verify `/cairn:setting-up-cairn` and
    `/cairn:migrating-to-cairn` appear as slash commands.
 2. **Plugin install — HTTPS:** Substitute the HTTPS URL in `claude plugin marketplace add`;
    run `claude plugin install cairn@cairn-mcp`; verify the same two slash commands appear —
    confirms the HTTPS path works for SSH-blocked environments.
-2. **Symlink integrity:** Edit `skills/installing-cairn/SKILL.md` (add a comment); run
+2. **Symlink integrity:** Edit `skills/setting-up-cairn/SKILL.md` (add a comment); run
    `/reload-plugins`; confirm the change is reflected — proving symlinks are live, not
    copies.
 3. **No agents directory:** Confirm `plugins/cairn-mcp/agents/` does not exist.

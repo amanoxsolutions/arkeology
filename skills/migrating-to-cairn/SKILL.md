@@ -1,6 +1,6 @@
 ---
 name: migrating-to-cairn
-description: Migrate existing repository documentation into cairn-mcp — run the installing-cairn skill first. One-time bulk import for projects adopting cairn-mcp on an existing codebase.
+description: Migrate existing repository documentation into cairn-mcp — run the setting-up-cairn skill first. One-time bulk import for projects adopting cairn-mcp on an existing codebase.
 ---
 
 # Migrating to cairn-mcp
@@ -51,7 +51,7 @@ Call the `health_check` MCP tool (no arguments). Examine the response:
 Before scanning the repository, check whether the project `AGENTS.md` contains a `<!-- cairn-mcp:config` block.
 
 - **Block found** → parse `local_only_types` and `local_only_paths` from its YAML content. Carry both lists through the rest of Step 2.
-- **Block not found** → **stop here**. cairn-mcp does not appear to be configured for this project. Run the `installing-cairn` skill first, then return here.
+- **Block not found** → **stop here**. cairn-mcp does not appear to be configured for this project. Run the `setting-up-cairn` skill first, then return here.
 
 ---
 
@@ -393,7 +393,7 @@ comfortable removing.
 ### AGENTS.md update
 
 Verify that the project `AGENTS.md` already contains both:
-1. A `<!-- cairn-mcp:config` block (written by the `installing-cairn` skill)
-2. The cairn-mcp narrative usage snippet (also written by `installing-cairn`)
+1. A `<!-- cairn-mcp:config` block (written by the `setting-up-cairn` skill)
+2. The cairn-mcp narrative usage snippet (also written by `setting-up-cairn`)
 
-If either is absent, ask the operator to run the `installing-cairn` skill to write them before proceeding.
+If either is absent, ask the operator to run the `setting-up-cairn` skill to write them before proceeding.

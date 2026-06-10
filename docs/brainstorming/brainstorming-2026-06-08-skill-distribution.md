@@ -1,7 +1,7 @@
 ---
 status: draft
 references:
-  - docs/brainstorming/brainstorming-2026-06-02-installing-cairn-skill.md
+  - docs/brainstorming/brainstorming-2026-06-02-setting-up-cairn-skill.md
 authored:
   by: analyst
   date: 2026-06-08
@@ -31,7 +31,7 @@ decisions_closed_not_applicable: []
 ## Description
 
 cairn-mcp already has `skills/` at the repo root with two operator skills
-(`installing-cairn`, `migrating-to-cairn`). Engineers who adopt cairn-mcp clone the repo to
+(`setting-up-cairn`, `migrating-to-cairn`). Engineers who adopt cairn-mcp clone the repo to
 run the server — the local clone is always present. This session explores how to wire those
 skills into engineers' AI tools (OpenCode, Claude Code, GitHub Copilot) using the same native
 plugin mechanisms that were proven in Phase 5 of the shared engineering plugin project.
@@ -106,8 +106,8 @@ Everything else is a direct 1:1 copy of the reference pattern with name substitu
 
 **A1 — Skip the @-import entirely**
 No line written to `~/.claude/CLAUDE.md`. Skills are available via the plugin namespace
-(`cairn:installing-cairn`, `cairn:migrating-to-cairn`) without any global context injection.
-The project-specific AGENTS.md snippet written by `installing-cairn` at install time already
+(`cairn:setting-up-cairn`, `cairn:migrating-to-cairn`) without any global context injection.
+The project-specific AGENTS.md snippet written by `setting-up-cairn` at install time already
 places the right context in each project's AGENTS.md — globally injecting a second, different
 context file would be redundant and confusing.
 
@@ -125,14 +125,14 @@ setup details. Import this file globally. Engineers in any session connected to 
 server get the right prompting context; the setup instructions stay in AGENTS.md.
 
 **A4 — No global import; rely on per-project AGENTS.md**
-The `installing-cairn` skill already writes a `cairn-mcp:config` block and a narrative
+The `setting-up-cairn` skill already writes a `cairn-mcp:config` block and a narrative
 snippet into each project's AGENTS.md. Claude Code reads that per-project AGENTS.md
 automatically. The global import adds nothing that isn't already covered per-project.
 This reinforces A1 as the right answer.
 
 **Assessment:** A1 + A4 converge on the same conclusion — skip the global import. The
 reference project's @-import carries general engineering conventions (methodology); that
-use case does not apply here. Each project's AGENTS.md (written by `installing-cairn`)
+use case does not apply here. Each project's AGENTS.md (written by `setting-up-cairn`)
 already contains the right context for sessions in that project.
 
 ---
@@ -204,7 +204,7 @@ four-layer section would over-engineer the framing.
 
 **D2 — Brief composability note: cairn-mcp as a complementary plugin alongside the shared engineering plugin**
 Many cairn-mcp users already have the shared engineering plugin installed. A short note
-explaining that both plugins coexist — `amanox:brainstorming` for methodology, `cairn:installing-cairn`
+explaining that both plugins coexist — `amanox:brainstorming` for methodology, `cairn:setting-up-cairn`
 for this server — is more useful than a full four-layer taxonomy.
 
 **D3 — Same four-layer documentation as the reference project**
@@ -221,7 +221,7 @@ of the full four-layer model.
 
 **D1 — Skip CLAUDE.md @-import**
 The `install.sh` does NOT prepend an `@`-import to `~/.claude/CLAUDE.md`. The project-level
-AGENTS.md snippet (written by `installing-cairn`) already provides the right per-project
+AGENTS.md snippet (written by `setting-up-cairn`) already provides the right per-project
 context. Global injection would add server-setup noise to unrelated sessions.
 
 **D2 — Include `cairn:plugin-sync`**

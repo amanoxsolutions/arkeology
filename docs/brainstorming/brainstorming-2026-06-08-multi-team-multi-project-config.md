@@ -31,7 +31,7 @@ decisions_locked:
   - D2: WRITE_PREFIX stays as-is; the enforcement fence is valuable and must not be removed
   - D3: Multi-backend isolation (different ARTIFACT_BUCKET per project) is out of scope for now;
         prefix-based isolation within one backend is sufficient; Direction 3 kept on roadmap
-  - D5: installing-cairn skill must be updated to document all four client setups;
+  - D5: setting-up-cairn skill must be updated to document all four client setups;
         content and exact syntax documented in Session 3 of this file
   - D6: opencode merge is additive at the mcp server-name level — a project config that only
         contains a new server name adds it to the global server list without disturbing existing
@@ -42,7 +42,7 @@ decisions_locked:
         from the project root, while the three global configs were. The officially documented
         project config filename is `opencode.json` (no dot prefix). The dot-prefix variant
         may work in some contexts/versions but cannot be relied upon. Use `opencode.json`.
-  - D8: The installing-cairn skill must check whether config files already exist and EDIT them
+  - D8: The setting-up-cairn skill must check whether config files already exist and EDIT them
         (insert the cairn entry) rather than create or overwrite; must handle .json and .jsonc
         variants for JSON-based clients and the existing TOML structure for Codex
 decisions_pending: []
@@ -253,7 +253,7 @@ config for the call. Default profile used when `profile` is not specified.
    true multi-account, multi-backend routing without changing the server.
    Should this be explicitly kept on the roadmap? (D4 pending)
 
-3. **Does the installing-cairn skill need updating?** It should document the
+3. **Does the setting-up-cairn skill need updating?** It should document the
    per-project MCP config pattern for both opencode and Claude Code. (D5 pending)
 
 ## Session 2026-06-08 — Follow-up: opencode config merging depth
@@ -350,7 +350,7 @@ with how Claude Code's `.mcp.json` already works.
 
 ### Updated Open Questions
 
-- **D5**: The installing-cairn skill should be updated to document the per-project
+- **D5**: The setting-up-cairn skill should be updated to document the per-project
   setup pattern for all four supported clients (see Session 3 below).
 - **D6**: An empirical opencode merge-depth test (place a partial `mcp.cairn`
   entry in project config and check if global env vars survive) would resolve
@@ -509,7 +509,7 @@ Copilot CLI. See Research Note 2 below for the full source trail.
 The "global only + project-namespaced server name" workaround documented earlier
 in this session is obsolete and should not be used.
 
-### Implication for the installing-cairn skill (D5)
+### Implication for the setting-up-cairn skill (D5)
 
 The skill should:
 1. Document all four client configurations with exact syntax.
@@ -526,7 +526,7 @@ The skill should:
 
 ### Locked Decisions Update
 
-- **D5**: ✓ Resolved — installing-cairn skill needs updating for all four clients
+- **D5**: ✓ Resolved — setting-up-cairn skill needs updating for all four clients
   (matrix documented above provides the content)
 - **D7** (new): Codex merge depth for `[mcp_servers]` across global + project
   layers needs empirical verification (analogous to D6 for opencode)
@@ -576,7 +576,7 @@ not a replacement of the global `mcp` block.
    ignored and only the global configs loaded. The officially documented project config
    name is `opencode.json` (no dot prefix).
 
-### Practical Guidance Update for the installing-cairn skill
+### Practical Guidance Update for the setting-up-cairn skill
 
 - Check for both `opencode.json`.
 - If neither exists, create `opencode.json` (no dot prefix — officially documented name).
@@ -590,7 +590,7 @@ not a replacement of the global `mcp` block.
 - Do not touch the global config at all during project setup; the global config
   is the user's personal preference layer and must not be overwritten.
 
-### New Requirement: D8 — Safe file editing in the installing-cairn skill
+### New Requirement: D8 — Safe file editing in the setting-up-cairn skill
 
 The install skill must not blindly create or overwrite config files. Required
 behaviour for each client:
@@ -665,7 +665,7 @@ Sources (all from GitHub API, issue comments):
 - **Shared with Claude Code**: `.mcp.json` with `mcpServers` key is read by BOTH
   clients — one file serves both simultaneously
 
-### Impact on the installing-cairn skill
+### Impact on the setting-up-cairn skill
 
 The "global only + namespaced server name" workaround documented earlier in Session 3
 is **obsolete**. All four clients now support per-project config. The T31a spec has
@@ -690,7 +690,7 @@ in Session 4 Conclusion 4?
 
 ### Evidence
 
-An installation test was run where `skills/installing-cairn/SKILL.md` created
+An installation test was run where `skills/setting-up-cairn/SKILL.md` created
 `.opencode.json` in the project root. After restarting opencode from that project
 directory, the opencode startup log showed:
 
@@ -720,9 +720,9 @@ never be created.
 - `docs/brainstorming/brainstorming-2026-06-08-multi-team-multi-project-config.md`
   — Session 4 Conclusion 4 retracted; Practical Guidance and D8 table updated;
     comparison matrix updated; D6 note amended
-- `docs/specs/p9-t31a-installing-cairn-skill.md`
+- `docs/specs/p9-t31a-setting-up-cairn-skill.md`
   — all `.opencode.json` create references updated to `opencode.json`; IDE table updated;
     Requirements updated; testing checklist updated
-- `skills/installing-cairn/SKILL.md`
+- `skills/setting-up-cairn/SKILL.md`
   — detection table, entry format heading, permission gate example, and file creation
     target all updated to `opencode.json`

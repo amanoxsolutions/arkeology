@@ -22,7 +22,7 @@ revised:
 ## TL;DR
 
 Add a `package.json` and `.opencode/plugins/cairn.js` to the repo so it becomes a
-self-installing OpenCode plugin. Engineers make both cairn-mcp skills (`installing-cairn`,
+self-installing OpenCode plugin. Engineers make both cairn-mcp skills (`setting-up-cairn`,
 `migrating-to-cairn`) discoverable in any OpenCode session by adding one line to their
 global `~/.config/opencode/opencode.jsonc` — no file copying, no env vars.
 
@@ -43,7 +43,7 @@ cairn-mcp skills are available to the agent in my next OpenCode session.
 
 **Acceptance criteria:**
 - Given the plugin line is present in `opencode.jsonc` and OpenCode has been restarted,
-  when the engineer invokes the `skill` tool, then both `installing-cairn` and
+  when the engineer invokes the `skill` tool, then both `setting-up-cairn` and
   `migrating-to-cairn` appear and are loadable.
 
 ### Story 2 — Automatic updates on restart (P1)
@@ -122,7 +122,7 @@ Testing is manual smoke tests (no TDD for non-server files).
 
 1. **Plugin loads:** Add a local `file://` or `git+ssh://` plugin line to a test
    `opencode.jsonc`; start OpenCode; invoke the `skill` tool and verify both
-   `installing-cairn` and `migrating-to-cairn` are loadable.
+   `setting-up-cairn` and `migrating-to-cairn` are loadable.
 2. **Path resolution:** Confirm the plugin works correctly when Bun resolves it to its cache
    directory (different from the repo clone path).
 3. **HTTPS path:** Substitute `git+https://` in the plugin line; restart OpenCode; confirm

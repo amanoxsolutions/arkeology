@@ -1,6 +1,6 @@
 # cairn-mcp AGENTS.md Snippet
 
-This file is loaded by the `installing-cairn` skill (Step 6) and appended to the project
+This file is loaded by the `setting-up-cairn` skill (Step 6) and appended to the project
 `AGENTS.md`. Include **exactly one** of Variant A or Variant B (matching the ADR strategy
 chosen in Step 6 Part A). Remove the other variant before writing.
 

@@ -189,7 +189,7 @@ Goal: quality-of-life improvements and documentation polish before declaring v1,
     - **New config vars**: `ARTIFACT_CONCURRENCY` (int, default 3, ≥ 1); `BEDROCK_TEXT_MODEL` (string, default `None` — operator opt-in); `EMBED_MAX_SECTION_LENGTH` (int, default 24,000, ≥ 0; 0 = disabled); combined `ARTIFACT_CONCURRENCY × SECTION_CONCURRENCY ≤ 15` rule of thumb (safe Bedrock quota ceiling)
     - **Supersedes**: L1+L2 spec (`p8-t29-migrate-skill.md`) — both made redundant by server-side parallelism; spec marked `status: superseded`
 
-31. ✅ **Installing-cairn skill** — `skills/installing-cairn/SKILL.md` with 6-step structured
+31. ✅ **Setting-up-cairn skill** — `skills/setting-up-cairn/SKILL.md` with 6-step structured
     workflow that assumes all required AWS resources are already provisioned externally:
     (1) parameter collection upfront — region, existing S3 bucket name, existing S3 Vectors
     bucket and index names, embedding model, AWS profile, IDE choice, team/project names,
@@ -229,7 +229,7 @@ Goal: quality-of-life improvements and documentation polish before declaring v1,
       prefix — officially documented name) if neither exists.
     - **Also delivers**: update `skills/migrating-to-cairn/SKILL.md` — remove Step 2c ADR
       strategy gate entirely; add pre-flight check at top of Step 2: if no `cairn-mcp:config`
-      block found in AGENTS.md → hard stop ("run `installing-cairn` first"); if block found →
+      block found in AGENTS.md → hard stop ("run `setting-up-cairn` first"); if block found →
       read `local_only_paths` (excluded at scan time) and `local_only_types` (excluded after
       classification). (FR-23, AC-41)
     - Done when: `SKILL.md` covers all 6 steps including Step 4 multi-client table with all
@@ -246,7 +246,7 @@ Goal: quality-of-life improvements and documentation polish before declaring v1,
       with all four keys; re-running the skill replaces the block in place; migration skill
       Step 2c is absent; migration skill halts on missing config block; migration skill scan
       respects `local_only_paths` and classification respects `local_only_types`
-    - Specs: `docs/specs/p9-t31a-installing-cairn-skill.md` (requires revision — add
+    - Specs: `docs/specs/p9-t31a-setting-up-cairn-skill.md` (requires revision — add
       multi-client per-project config per FR-44, AC-49, and
       `docs/brainstorming/brainstorming-2026-06-08-multi-team-multi-project-config.md`),
       `docs/specs/p9-t31b-migration-skill-exclusion-gate.md`,
@@ -256,13 +256,13 @@ Goal: quality-of-life improvements and documentation polish before declaring v1,
     - Done when: an artifact whose S3 object was deleted externally while its vector entries remain is detected by Phase 3 and its vector entries are removed; `dangling_artifacts_found` and `dangling_vectors_pruned` report correct counts; `dangling_artifacts` lists affected IDs; clean state (no dangling vectors) reports all zeros in the new fields; own-scope gate enforced — foreign-scope vector entries never pruned; credential error during vector deletion returns structured error; Phase 2 orphan scan and Phase 3 dangling prune both execute within a single `reconcile_index` call
     - Spec: `docs/specs/p9-t32-reconcile-phase3-dangling-vectors.md` (status: complete)
 
-33. ✅ **Skill distribution via native plugin mechanisms** — wire `installing-cairn` and `migrating-to-cairn` into engineers' AI tools using the same plugin pattern as the shared engineering plugin project. No new server code — purely repo-level files and a bash script. Independent of all other Phase 9 tasks; can be worked at any point.
+33. ✅ **Skill distribution via native plugin mechanisms** — wire `setting-up-cairn` and `migrating-to-cairn` into engineers' AI tools using the same plugin pattern as the shared engineering plugin project. No new server code — purely repo-level files and a bash script. Independent of all other Phase 9 tasks; can be worked at any point.
     - **OpenCode JS plugin (FR-33)**: `package.json` at repo root (`name: cairn-mcp`, `type: module`, `main: .opencode/plugins/cairn.js`); `.opencode/plugins/cairn.js` ESM module (~50 lines) using the `config` hook to push `skills/` into `config.skills.paths`; path resolved relative to plugin file via `import.meta.url` so it works from Bun's cache regardless of clone location; errors in the hook logged to stderr, never thrown.
-    - **Claude Code plugin (FR-34, FR-35, FR-36)**: `.claude-plugin/marketplace.json` registering the repo as a private marketplace source; `plugins/cairn-mcp/.claude-plugin/plugin.json` (name: `cairn`, giving the `cairn:` slash command namespace); `plugins/cairn-mcp/skills/installing-cairn` and `plugins/cairn-mcp/skills/migrating-to-cairn` as symlinks to `../../../skills/<name>`; `plugins/cairn-mcp/skills/plugin-sync/SKILL.md` (~22 lines, Claude Code-specific: runs `git -C ~/.claude/plugins/cairn-mcp pull` + `/reload-plugins`; notes server requires a separate update); no agents directory.
+    - **Claude Code plugin (FR-34, FR-35, FR-36)**: `.claude-plugin/marketplace.json` registering the repo as a private marketplace source; `plugins/cairn-mcp/.claude-plugin/plugin.json` (name: `cairn`, giving the `cairn:` slash command namespace); `plugins/cairn-mcp/skills/setting-up-cairn` and `plugins/cairn-mcp/skills/migrating-to-cairn` as symlinks to `../../../skills/<name>`; `plugins/cairn-mcp/skills/plugin-sync/SKILL.md` (~22 lines, Claude Code-specific: runs `git -C ~/.claude/plugins/cairn-mcp pull` + `/reload-plugins`; notes server requires a separate update); no agents directory.
     - **Install script (FR-37, FR-38, FR-39, FR-40, FR-42)**: `install.sh` at repo root; detects `claude`, `opencode`, `copilot` on PATH; OpenCode section prints the `git+ssh://` plugin snippet (does not patch `opencode.jsonc` directly); Claude Code section runs `claude plugin marketplace add` + `claude plugin install cairn@cairn-mcp` and merges `Bash(git -C * pull)` pre-approval into `~/.claude/settings.json`; no `@`-import to `~/.claude/CLAUDE.md` (cairn-mcp AGENTS.md is server-specific context, not global engineering conventions); no agent symlinks loop (cairn-mcp has no agents); idempotent; bash only / WSL Ubuntu on Windows; always prints session-refresh instructions.
     - **Copilot adapter (FR-41)**: inside `install.sh`; detects `copilot` on PATH as the Copilot-specific signal (not `gh`); checks `gh` and `gh skill` as prerequisites; loops over `skills/*/` calling `gh skill install "$REPO_DIR" <skill-name> --from-local --agent github-copilot --scope user --force`; stops immediately on any failure, prints error and docs link; no fallback path.
     - **README quick-install section (FR-43)**: adds a "Quick install" section before the full server setup instructions; documents the one-line OpenCode plugin snippet (SSH primary, HTTPS alternative) and the two-command Claude Code install; brief note that `cairn:` coexists with other plugin namespaces without collision.
-    - Done when: adding the plugin line to `opencode.jsonc` and restarting OpenCode makes `installing-cairn` and `migrating-to-cairn` discoverable via the `skill` tool (AC-43); `claude plugin install cairn@cairn-mcp` makes `/cairn:installing-cairn`, `/cairn:migrating-to-cairn`, `/cairn:plugin-sync` available as slash commands (AC-44); `./install.sh` on a machine with all three tools wires each and prints session-refresh instructions (AC-45); running the script twice produces no duplicate entries or errors (AC-46); `/cairn:plugin-sync` pulls and reloads without permission prompts (AC-47); partial-tool install skips absent tools cleanly (AC-48); `plugin-sync` skill absent from shared `skills/` directory; no Python source changes; ruff + mypy clean
+    - Done when: adding the plugin line to `opencode.jsonc` and restarting OpenCode makes `setting-up-cairn` and `migrating-to-cairn` discoverable via the `skill` tool (AC-43); `claude plugin install cairn@cairn-mcp` makes `/cairn:setting-up-cairn`, `/cairn:migrating-to-cairn`, `/cairn:plugin-sync` available as slash commands (AC-44); `./install.sh` on a machine with all three tools wires each and prints session-refresh instructions (AC-45); running the script twice produces no duplicate entries or errors (AC-46); `/cairn:plugin-sync` pulls and reloads without permission prompts (AC-47); partial-tool install skips absent tools cleanly (AC-48); `plugin-sync` skill absent from shared `skills/` directory; no Python source changes; ruff + mypy clean
     - Brainstorming: `docs/brainstorming/brainstorming-2026-06-08-skill-distribution.md`
     - Spec: `docs/specs/p9-t33a-opencode-js-plugin.md`, `docs/specs/p9-t33b-claude-code-plugin.md`, `docs/specs/p9-t33c-install-script.md`, `docs/specs/p9-t33d-copilot-adapter.md`, `docs/specs/p9-t33e-readme-quick-install.md` (status: complete)
 
@@ -301,7 +301,7 @@ merges. This track is independent of T31, T32, T33, and T34 — no shared files.
     - Done when: tool called with `since_ulid` returns only own-scope artifacts written at or after that timestamp with no `commit_refs`; called without `since_ulid` returns all unlinked own-scope artifacts; foreign-scope artifacts never included; empty result returns `{"proposed": [], "commit_sha": "..."}` not an error; credential errors return structured responses; ruff + mypy clean
     - Spec: `docs/specs/p10-t37-propose-commit-links.md`
 
-38. ☐ **`link_commit` tool + AGENTS.md post-commit protocol** *(write, no re-embed)* — for each confirmed `artifact_id`: `list_vectors_by_metadata` → `get_vectors` → merge `commit_sha` into `commit_refs` (append + deduplicate) → `put_vectors_batch` with same float32 embeddings and updated metadata; scope-gate rejects foreign-scope IDs (counted in `skipped`); generate `next_since_ulid` after all artifacts processed; return `{linked, skipped, commit_sha, next_since_ulid}`; add AGENTS.md post-commit protocol snippet to installing-cairn skill (FR-32)
+38. ☐ **`link_commit` tool + AGENTS.md post-commit protocol** *(write, no re-embed)* — for each confirmed `artifact_id`: `list_vectors_by_metadata` → `get_vectors` → merge `commit_sha` into `commit_refs` (append + deduplicate) → `put_vectors_batch` with same float32 embeddings and updated metadata; scope-gate rejects foreign-scope IDs (counted in `skipped`); generate `next_since_ulid` after all artifacts processed; return `{linked, skipped, commit_sha, next_since_ulid}`; add AGENTS.md post-commit protocol snippet to setting-up-cairn skill (FR-32)
     - Done when: `link_commit` appends SHA to all section vectors without Bedrock call; existing SHA not duplicated; foreign-scope IDs skipped and counted; `next_since_ulid` returned; two successive calls produce monotonically non-decreasing cursors; Bedrock `embed` never called (verified by spy); credential errors return structured responses; AGENTS.md snippet includes session-start ULID capture, post-commit proposal, confirmation, linking, and cursor-advance steps; known reconcile limitation documented in module docstring; ruff + mypy clean
     - Spec: `docs/specs/p10-t38-link-commit.md`
     - **Known limitation (V1)**: commit references are stored in vector metadata only; `reconcile_index` will drop them on any reconcile run — documented in spec and module docstring; S3 `copy_object` update deferred to a future milestone
@@ -328,7 +328,7 @@ merges. This track is independent of T31, T32, T33, and T34 — no shared files.
 - [`docs/specs/p8-t29-migrate-skill.md`](../specs/p8-t29-migrate-skill.md)
 - [`docs/brainstorming/brainstorming-2026-06-02-installing-cairn-skill.md`](../brainstorming/brainstorming-2026-06-02-installing-cairn-skill.md)
 - [`docs/brainstorming/brainstorming-2026-06-08-multi-team-multi-project-config.md`](../brainstorming/brainstorming-2026-06-08-multi-team-multi-project-config.md)
-- [`docs/specs/p9-t31a-installing-cairn-skill.md`](../specs/p9-t31a-installing-cairn-skill.md)
+- [`docs/specs/p9-t31a-setting-up-cairn-skill.md`](../specs/p9-t31a-setting-up-cairn-skill.md)
 - [`docs/specs/p9-t31b-migration-skill-exclusion-gate.md`](../specs/p9-t31b-migration-skill-exclusion-gate.md)
 - [`docs/specs/p9-t31c-readme-reduction.md`](../specs/p9-t31c-readme-reduction.md)
 - [`docs/brainstorming/brainstorming-reconcile-dangling-vectors-2026-06-03.md`](../brainstorming/brainstorming-reconcile-dangling-vectors-2026-06-03.md)

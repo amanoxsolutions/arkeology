@@ -1,6 +1,6 @@
 ---
 type: feature-spec
-feature: p9-t31a-installing-cairn-skill
+feature: p9-t31a-setting-up-cairn-skill
 status: ready
 phase: 9
 task: 31a
@@ -20,13 +20,13 @@ revised:
   date: "2026-06-08"
 ---
 
-# T31a — Installing-Cairn Skill
+# T31a — Setting-Up-Cairn Skill
 
 <!-- SCOPE BLOCK — frozen after approval -->
 
 ## TL;DR
 
-Create `skills/installing-cairn/SKILL.md` — a 6-step agent-driven workflow that
+Create `skills/setting-up-cairn/SKILL.md` — a 6-step agent-driven workflow that
 assumes all required AWS resources are already provisioned externally, validates their
 reachability, writes a complete and project-scoped cairn-mcp server entry into the
 correct MCP configuration file for the chosen client (Claude Code, opencode,
@@ -375,8 +375,8 @@ client uses — the skill detects it from what is already in the project.
 
 | File | Action | Notes |
 |------|--------|-------|
-| `skills/installing-cairn/SKILL.md` | Create | 6-step workflow; ≤ 500 lines |
-| `skills/installing-cairn/references/agents-snippet.md` | Create | Full narrative AGENTS.md snippet; both ADR variants; standing never-write instruction |
+| `skills/setting-up-cairn/SKILL.md` | Create | 6-step workflow; ≤ 500 lines |
+| `skills/setting-up-cairn/references/agents-snippet.md` | Create | Full narrative AGENTS.md snippet; both ADR variants; standing never-write instruction |
 
 ## Testing Approach
 

@@ -163,7 +163,7 @@ at commit time, not at install time.
 | `install.sh` | Modify | Detection: `command -v copilot`; section: check `gh` + `gh skill` prerequisites; loop with all four mandatory flags; error path stops and prints docs URL |
 | `scripts/validate.py` | Create | Checks every `skills/*/SKILL.md` `description` value for unquoted `: `; exits 0 on pass, 1 on fail; actionable error messages naming the file and the problem |
 | `.pre-commit-config.yaml` | Modify | Add a `local` repo hook that runs `python3 scripts/validate.py` on every commit; stage-type `manual` or `commit` as appropriate |
-| `skills/installing-cairn/SKILL.md` | Verify/fix | Confirm `description` value is double-quoted if it contains `: `; fix if not |
+| `skills/setting-up-cairn/SKILL.md` | Verify/fix | Confirm `description` value is double-quoted if it contains `: `; fix if not |
 | `skills/migrating-to-cairn/SKILL.md` | Verify/fix | Same |
 
 ## Testing Approach

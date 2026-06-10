@@ -1,9 +1,9 @@
 ---
-name: installing-cairn
+name: setting-up-cairn
 description: Connect cairn-mcp to your project — validate AWS resource connectivity, configure your MCP client, and write AGENTS.md usage guidance.
 ---
 
-# Installing cairn-mcp
+# Setting up cairn-mcp
 
 This skill connects cairn-mcp to a project, assuming all required AWS resources (S3 bucket,
 S3 Vectors bucket and index, and Bedrock model access) are already provisioned externally.

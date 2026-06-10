@@ -1,0 +1,120 @@
+# cairn-mcp — Server Reference
+
+Configuration reference, IAM policy, and headless server setup for cairn-mcp operators
+and CI/CD pipeline integrations.
+
+## Prerequisites
+
+The following must be provisioned and accessible before running the `setting-up-cairn`
+skill or starting the server manually:
+
+- **S3 bucket** — a standard S3 bucket for artifact content storage
+- **S3 Vectors bucket and index** — created with `float32` data type, `cosine` distance
+  metric, and two non-filterable metadata keys: `description` and `source_artifacts`;
+  the index dimension must match your embedding model (default: `1024` for Titan Text v2)
+- **Amazon Bedrock** — embedding model access (`amazon.titan-embed-text-v2:0` by default)
+  enabled in your AWS region; Nova Lite (`amazon.nova-lite-v1:0`) only required when using
+  `migrate_artifacts`
+- **IAM credentials** with the minimum runtime permissions listed below
+- **AWS CLI** configured with the above credentials
+- **Python ≥ 3.12** and [`uv`](https://docs.astral.sh/uv/)
+
+## Minimum IAM Policy
+
+Attach the following policy to the IAM user or role that runs cairn-mcp. Replace each `YOUR-*` placeholder with your actual values before applying.
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "S3ArtifactBucket",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:DeleteObject",
+        "s3:ListBucket",
+        "s3:HeadBucket",
+        "s3:HeadObject"
+      ],
+      "Resource": [
+        "arn:aws:s3:::YOUR-ARTIFACT-BUCKET",
+        "arn:aws:s3:::YOUR-ARTIFACT-BUCKET/*"
+      ]
+    },
+    {
+      "Sid": "S3VectorsIndex",
+      "Effect": "Allow",
+      "Action": [
+        "s3vectors:PutVectors",
+        "s3vectors:GetVectors",
+        "s3vectors:QueryVectors",
+        "s3vectors:DeleteVectors",
+        "s3vectors:DescribeIndex",
+        "s3vectors:ListVectors"
+      ],
+      "Resource": "arn:aws:s3vectors:YOUR-REGION:YOUR-ACCOUNT-ID:bucket/YOUR-VECTORS-BUCKET/index/YOUR-INDEX-NAME"
+    },
+    {
+      "Sid": "BedrockEmbeddingModel",
+      "Effect": "Allow",
+      "Action": "bedrock:InvokeModel",
+      "Resource": "arn:aws:bedrock:YOUR-REGION::foundation-model/amazon.titan-embed-text-v2:0"
+    },
+    {
+      "Sid": "BedrockTextModel",
+      "Comment": "Required only if using migrate_artifacts. Adjust the resource ARN if your region requires a cross-region inference profile for Nova Lite.",
+      "Effect": "Allow",
+      "Action": "bedrock:InvokeModel",
+      "Resource": "arn:aws:bedrock:YOUR-REGION::foundation-model/amazon.nova-lite-v1:0"
+    }
+  ]
+}
+```
+
+## Configuration
+
+All configuration is read from environment variables. Pass them via your IDE's MCP config
+file `env` (or `environment`) block — see the `setting-up-cairn` skill for the exact
+format for each supported IDE.
+
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `AWS_REGION` | Yes | — | AWS region for all API calls |
+| `ARTIFACT_BUCKET` | Yes | — | S3 bucket for artifact content |
+| `VECTORS_BUCKET` | Yes | — | S3 Vectors bucket |
+| `VECTORS_INDEX` | Yes | — | S3 Vectors index name |
+| `AWS_PROFILE` | No | SDK default chain | Named AWS profile to use |
+| `WRITE_PREFIX` | No | `artifacts` | Prefix for all artifact writes — must not be empty |
+| `READ_PREFIXES` | No | *(none)* | Comma-separated foreign read scopes (e.g. `shared/org,shared/platform`) |
+| `BEDROCK_EMBEDDING_MODEL` | No | `amazon.titan-embed-text-v2:0` | Bedrock embedding model ID |
+| `BEDROCK_EMBEDDING_DIMENSIONS` | No | `1024` | Embedding dimensions — must match the S3 Vectors index dimension |
+| `SEARCH_FETCH_TOP_K` | No | `25` | Section vectors requested from S3 Vectors per search iteration |
+| `SEARCH_MAX_ITERATIONS` | No | `3` | Maximum S3 Vectors calls per search before returning available results |
+| `SEARCH_DEFAULT_TOP_K` | No | `5` | Default number of artifacts returned when the caller does not specify |
+| `FAILURE_LOG_PATH` | No | `.cairn_failures.jsonl` | Path to the tier 1 failure log file (JSONL); appended on partial write failures |
+| `SECTION_CONCURRENCY` | No | `5` | Max concurrent Bedrock embed calls per artifact write. Increase for faster bulk writes; lower to avoid throttling. Must be ≥ 1. |
+| `EMBED_MAX_SECTIONS` | No | `20` | Maximum number of `##` sections indexed per artifact. Sections beyond the cap are dropped from the vector index; full content is still stored in S3. Must be ≥ 1. |
+| `EMBED_MIN_SECTION_LENGTH` | No | `50` | Minimum body length (chars, stripped) for a section to be indexed. Sections shorter than this are dropped from the vector index. Set to `0` to disable. |
+| `EMBED_MAX_SECTION_LENGTH` | No | `24000` | Maximum body length (chars) per section before truncation for embedding. Set to `0` to disable. |
+| `ARTIFACT_CONCURRENCY` | No | `3` | Max artifacts processed concurrently by `write_artifacts` and `migrate_artifacts`. Must be ≥ 1. |
+| `BEDROCK_TEXT_MODEL` | No | `amazon.nova-lite-v1:0` | Bedrock text model used by `migrate_artifacts` to generate artifact descriptions server-side. Set to empty to disable server-side generation. |
+| `LOG_LEVEL` | No | `INFO` | Python logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
+
+## Running the server
+
+> **AI coding tools manage this automatically.** If you are connecting cairn-mcp to OpenCode,
+> Claude Code, Copilot, or Codex, the tool launches the server process on session start using
+> the command in your MCP config — you never run it manually. This section is relevant for
+> **CI/CD pipeline agents** (e.g. an automated code reviewer running in a pipeline that needs
+> cairn-mcp as a subprocess) and for **smoke-testing** a new installation before wiring it to
+> an MCP client.
+
+```bash
+uv run cairn-mcp
+# or
+uv run python -m cairn_mcp
+```
+
+The server runs on stdio and is ready to accept MCP client connections.
