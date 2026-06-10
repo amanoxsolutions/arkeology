@@ -76,8 +76,6 @@ of `git+ssh://` and the plugin installs and works identically.
 - WHEN Bun installs the plugin via `git+https://` THE SYSTEM SHALL work identically to
   `git+ssh://`.
 
-## Boundaries
-
 **Always:**
 - Plugin file is ESM format (`"type": "module"` in `package.json`).
 - `package.json` is at the repo root with `"name": "cairn-mcp"` and
@@ -88,6 +86,17 @@ of `git+ssh://` and the plugin installs and works identically.
   silently never install.
 - Plugin registers `skills/` only — cairn-mcp has no agents directory.
 - Installation is user-level: the plugin line goes in `~/.config/opencode/opencode.jsonc`.
+- The plugin default export must follow the **named-hook pattern**: the outer function
+  receives the OpenCode context `{ project, client, $, directory, worktree }` and returns
+  an object with a `config` method — `export default function(context) { return { config: (cfg) => { … } } }`.
+  The `config` method receives the live config object and mutates `cfg.skills.paths` directly.
+  Do **not** treat the first argument as the config object and do **not** return the config
+  from the default export — OpenCode silently ignores that shape and no skills are registered.
+  Use `amanox-ai-agents/.opencode/plugins/amanox.js` as the canonical reference.
+- OpenCode **never auto-updates** the plugin cache (`~/.cache/opencode/packages/cairn-mcp@git+*/`).
+  Once installed, the cache entry is reused on every restart without checking for new commits
+  (upstream limitation: opencode#6159, unresolved). `install.sh` must delete
+  `~/.cache/opencode/packages/cairn-mcp@git+*` so the next restart re-fetches from GitHub.
 
 **Never:**
 - No hardcoded absolute paths inside the plugin file.
@@ -103,7 +112,7 @@ of `git+ssh://` and the plugin installs and works identically.
 | File | Action | Notes |
 |------|--------|-------|
 | `package.json` | Create | Repo root; `name: cairn-mcp`, `version` kept in sync with `pyproject.toml`, `type: module`, `main: .opencode/plugins/cairn.js`, `description` |
-| `.opencode/plugins/cairn.js` | Create | ESM module; default export function; `config` hook pushes `skills/` into `config.skills.paths`; path resolved via `import.meta.url` (`../../skills` relative to plugin file); errors caught and logged to stderr |
+| `.opencode/plugins/cairn.js` | Create | ESM module; named-hook pattern: `export default function(context) { return { config: (cfg) => { … } } }`; mutates `cfg.skills.paths`; path resolved via `fileURLToPath(new URL('.', import.meta.url))` + `path.resolve(__dirname, '../../skills')`; errors caught and logged via `console.error`, never thrown |
 | `README.md` | Modify | Add OpenCode plugin line (SSH primary, HTTPS alternative) to the Quick Install section added by T33e |
 | `CONTRIBUTING.md` | Modify | Reference the plugin line and `install.sh` for OpenCode setup |
 

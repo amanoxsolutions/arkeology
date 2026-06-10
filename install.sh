@@ -29,6 +29,11 @@ if command -v opencode &>/dev/null; then
   echo '    HTTPS alternative (no SSH key required):'
   echo '    "plugin": ["cairn-mcp@git+https://github.com/amanoxsolutions/cairn-mcp.git"]'
   echo
+
+  echo "  Clearing stale cairn-mcp OpenCode plugin cache (forces fresh fetch on next restart)..."
+  rm -rf ~/.cache/opencode/packages/cairn-mcp@git+* 2>/dev/null || true
+  echo "  Cache cleared."
+  echo
 else
   echo "  opencode not found on PATH — skipping OpenCode wiring"
 fi
