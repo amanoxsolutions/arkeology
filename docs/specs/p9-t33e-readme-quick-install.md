@@ -3,7 +3,7 @@ type: feature-spec
 feature: p9-t33e-readme-quick-install
 phase: 9
 task: 33e
-status: draft
+status: complete
 references:
   - docs/brainstorming/brainstorming-2026-06-08-skill-distribution.md
   - docs/planning-artifacts/prd.md
@@ -11,8 +11,8 @@ authored:
   by: "architect"
   date: "2026-06-09"
 revised:
-  by: ""
-  date: ""
+  by: "tech-writer"
+  date: "2026-06-10"
 ---
 
 # T33e — README Quick Install Section

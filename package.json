@@ -1,0 +1,7 @@
+{
+  "name": "cairn-mcp",
+  "version": "0.1.0",
+  "type": "module",
+  "main": ".opencode/plugins/cairn.js",
+  "description": "MCP server for persistent artifact memory powered by AWS S3, S3 Vectors, and Bedrock embeddings"
+}

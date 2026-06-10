@@ -192,6 +192,36 @@ your IDE's skills directory.
 | `installing-cairn` | `skills/installing-cairn/SKILL.md` | First-time setup: validate AWS connectivity, configure your MCP client, write the `AGENTS.md` cairn config block |
 | `migrating-to-cairn` | `skills/migrating-to-cairn/SKILL.md` | One-time migration of existing documentation into cairn-mcp — run `installing-cairn` first |
 
+## Quick install
+
+**OpenCode** — add one line to `~/.config/opencode/opencode.jsonc`:
+
+```json
+"plugin": ["cairn-mcp@git+ssh://git@github.com/amanoxsolutions/cairn-mcp.git"]
+```
+
+> HTTPS alternative (no SSH key required):
+> ```json
+> "plugin": ["cairn-mcp@git+https://github.com/amanoxsolutions/cairn-mcp.git"]
+> ```
+
+**Claude Code** — two commands:
+
+```bash
+claude plugin marketplace add git@github.com:amanoxsolutions/cairn-mcp.git
+claude plugin install cairn@cairn-mcp
+```
+
+> HTTPS alternative (for environments where outbound SSH / port 22 is blocked):
+> ```bash
+> claude plugin marketplace add https://github.com/amanoxsolutions/cairn-mcp.git
+> claude plugin install cairn@cairn-mcp
+> ```
+
+Run `./install.sh` to handle all wiring automatically — it detects which AI tools are installed and applies the correct setup for each (including GitHub Copilot via `gh skill install`).
+
+**Coexistence:** cairn-mcp registers its skills under the `cairn:` namespace. It does not collide with skills from other installed plugins — both can be active simultaneously.
+
 ## Prerequisites
 
 The following must be provisioned and accessible before running the `installing-cairn`

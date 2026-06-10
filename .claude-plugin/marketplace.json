@@ -1,0 +1,14 @@
+{
+  "$schema": "https://claude.ai/schemas/plugin-marketplace.json",
+  "name": "cairn-mcp",
+  "owner": { "name": "Amanox" },
+  "plugins": [
+    {
+      "name": "cairn-mcp",
+      "description": "Persistent artifact memory MCP server skills for cairn-mcp",
+      "author": "Amanox",
+      "source": "./plugins/cairn-mcp",
+      "homepage": "https://github.com/amanoxsolutions/cairn-mcp"
+    }
+  ]
+}

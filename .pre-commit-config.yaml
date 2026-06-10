@@ -18,3 +18,12 @@ repos:
           - pydantic
           - pydantic-settings
           - types-boto3
+
+  - repo: local
+    hooks:
+      - id: validate-skill-descriptions
+        name: Validate SKILL.md description quoting
+        language: system
+        entry: python3 scripts/validate.py
+        pass_filenames: false
+        always_run: true
