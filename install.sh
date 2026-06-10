@@ -41,6 +41,9 @@ if command -v claude &>/dev/null; then
   echo "  Registering cairn-mcp marketplace (SSH)..."
   claude plugin marketplace add git@github.com:amanoxsolutions/cairn-mcp.git || true
 
+  echo "  Updating cairn-mcp marketplace cache..."
+  claude plugin marketplace update cairn-mcp || true
+
   echo "  Installing cairn plugin..."
   claude plugin install cairn@cairn-mcp || true
 
