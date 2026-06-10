@@ -1,7 +1,7 @@
 ---
 type: feature-spec
 feature: p9-t31c-readme-reduction
-status: ready
+status: complete
 phase: 9
 task: 31c
 references:
@@ -13,8 +13,8 @@ authored:
   by: "architect"
   date: "2026-06-07"
 revised:
-  by: "architect"
-  date: "2026-06-07"
+  by: "tech-writer"
+  date: "2026-06-10"
 ---
 
 # T31c — README Reduction

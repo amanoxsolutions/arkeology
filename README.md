@@ -343,7 +343,7 @@ uv run python -m cairn_mcp
 The server runs on stdio and is ready to accept MCP client connections.
 
 > To configure your MCP client for cairn-mcp, run the `installing-cairn` skill.
-> For the recommended AGENTS.md usage snippet and ADR strategy setup, run the `installing-cairn` skill.
+> For the recommended AGENTS.md usage snippet and permanent exclusion configuration, run the `installing-cairn` skill.
 
 ## Development
 

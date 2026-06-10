@@ -1,7 +1,7 @@
 ---
 type: feature-spec
 feature: p9-t31b-migration-skill-exclusion-gate
-status: ready
+status: complete
 phase: 9
 task: 31b
 references:
@@ -13,8 +13,8 @@ authored:
   by: "architect"
   date: "2026-06-07"
 revised:
-  by: ""
-  date: ""
+  by: "tech-writer"
+  date: "2026-06-10"
 ---
 
 # T31b — Migration Skill: Exclusion Gate and ADR Gate Removal
