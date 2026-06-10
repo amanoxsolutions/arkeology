@@ -266,14 +266,14 @@ Goal: quality-of-life improvements and documentation polish before declaring v1,
     - Brainstorming: `docs/brainstorming/brainstorming-2026-06-08-skill-distribution.md`
     - Spec: `docs/specs/p9-t33a-opencode-js-plugin.md`, `docs/specs/p9-t33b-claude-code-plugin.md`, `docs/specs/p9-t33c-install-script.md`, `docs/specs/p9-t33d-copilot-adapter.md`, `docs/specs/p9-t33e-readme-quick-install.md` (status: complete)
 
-34. ☐ **`sync-cairn-skills` — generic tool-aware skill update** — add `skills/sync-cairn-skills/SKILL.md` (~35 lines). The skill detects which AI coding tool it is running in and takes the appropriate update action for each:
+34. ☐ **`sync-cairn-plugin` — generic tool-aware skill update** — add `skills/sync-cairn-plugin/SKILL.md` (~35 lines). The skill detects which AI coding tool it is running in and takes the appropriate update action for each:
     - **OpenCode**: clear `~/.cache/opencode/packages/cairn-mcp@git+*` then instruct restart — Bun fetches the latest HEAD on next launch.
-    - **Claude Code**: perform `git -C ~/.claude/plugins/cairn-mcp pull` then `/reload-plugins` (same steps as the existing `plugin-sync` skill; `sync-cairn-skills` becomes the canonical cross-tool path and `plugin-sync` is kept for backward compatibility but marked superseded in its own SKILL.md).
+    - **Claude Code**: perform `git -C ~/.claude/plugins/cairn-mcp pull` then `/reload-plugins` (replaces `plugin-sync` — same steps, one canonical cross-tool command; `plugin-sync` is removed as part of this task).
     - **Copilot**: instruct the engineer to re-run `./install.sh` from the cairn-mcp repo (which calls `gh skill install --force` for all skills).
     - **Unknown / undetected**: explain all three paths and ask the engineer to identify their tool.
-    The skill is distributed through all existing channels: OpenCode auto-discovers it (plugin pushes all of `skills/`); Claude Code requires a new symlink under `plugins/cairn-mcp/skills/sync-cairn-skills → ../../../skills/sync-cairn-skills`; Copilot receives it via `gh skill install --force` on the next `install.sh` run (FR-41 loop already covers all `skills/*/` entries). No Python source changes.
-    - Done when: `skills/sync-cairn-skills/SKILL.md` exists; the Claude Code plugin symlink is in place; an engineer on any supported tool invokes the skill and either receives the correct cache-clear + restart sequence (OpenCode), the pull + reload sequence (Claude Code), or the install.sh instruction (Copilot); unknown tool falls back to the explanation path; `plugin-sync` SKILL.md notes that `sync-cairn-skills` is the recommended replacement; ruff + mypy unaffected
-    - Spec: `docs/specs/p9-t34-sync-cairn-skills.md`
+    The skill is distributed through all existing channels: OpenCode auto-discovers it (plugin pushes all of `skills/`); Claude Code requires a new symlink under `plugins/cairn-mcp/skills/sync-cairn-plugin → ../../../skills/sync-cairn-plugin` and removal of the existing `plugin-sync` symlink and SKILL.md; Copilot receives it via `gh skill install --force` on the next `install.sh` run (FR-41 loop already covers all `skills/*/` entries). No Python source changes.
+    - Done when: `skills/sync-cairn-plugin/SKILL.md` exists; the Claude Code plugin symlink is in place and `plugin-sync` is removed; an engineer on any supported tool invokes the skill and receives the correct action for their tool; unknown tool falls back to the explanation path; ruff + mypy unaffected
+    - Spec: `docs/specs/p9-t34-sync-cairn-plugin.md`
 
 ---
 
