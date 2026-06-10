@@ -8,7 +8,7 @@ Do not mark T31 done until every item below is ticked.
 
 ---
 
-## T31a — `skills/installing-cairn/SKILL.md`
+## T31a — `skills/setting-up-cairn/SKILL.md`
 
 ### Step 1 — Parameter collection
 
@@ -107,7 +107,7 @@ Do not mark T31 done until every item below is ticked.
 
 ---
 
-## T31a — `skills/installing-cairn/references/agents-snippet.md`
+## T31a — `skills/setting-up-cairn/references/agents-snippet.md`
 
 - [ ] The file opens with or prominently contains a standing never-write instruction that
   tells agents to consult the `cairn-mcp:config` block in AGENTS.md and never write
@@ -135,7 +135,7 @@ Do not mark T31 done until every item below is ticked.
 - [ ] The very first action in Step 2 is the `cairn-mcp:config` block check — it appears
   before Step 2a (manifest check) in the document. The Step 2 opening prose or sub-step
   header makes the new order explicit: config check → manifest check → scope → classify.
-- [ ] The hard-stop message is unambiguous, names `installing-cairn` explicitly, and
+- [ ] The hard-stop message is unambiguous, names `setting-up-cairn` explicitly, and
   provides no inline fallback that re-asks exclusion questions — the operator is always
   redirected to the installation skill when the block is absent.
 - [ ] Step 2a (manifest check: look for `CAIRN_IMPORT.yaml`) is unchanged in content
@@ -158,7 +158,7 @@ Do not mark T31 done until every item below is ticked.
   in their place.
 - [ ] The AGENTS.md update section in Step 5 instructs the agent to verify (not write)
   that both the `cairn-mcp:config` block and the narrative snippet are already present
-  in AGENTS.md. If either is absent, the agent is directed to run `installing-cairn` to
+  in AGENTS.md. If either is absent, the agent is directed to run `setting-up-cairn` to
   write them.
 - [ ] The ADR row in the Step 5 tier 2 file removal table now reads something equivalent
   to "Depends on the `adr_strategy` in your `cairn-mcp:config` block" — it no longer
@@ -188,10 +188,10 @@ Do not mark T31 done until every item below is ticked.
 
 ### Removed sections and pointer sentences
 
-- [ ] A clear pointer to the `installing-cairn` skill appears in the README at or near the
+- [ ] A clear pointer to the `setting-up-cairn` skill appears in the README at or near the
   location where `## Connecting to an MCP client` was — the pointer sentence is coherent
   in context and does not leave an orphaned sub-heading.
-- [ ] A clear pointer to the `installing-cairn` skill appears in the README at or near the
+- [ ] A clear pointer to the `setting-up-cairn` skill appears in the README at or near the
   location where `## Recommended AGENTS.md Snippet` was — same coherence requirement.
 - [ ] The full AGENTS.md snippet body (from the ````markdown` fence containing
   `## cairn-mcp — Persistent Artifact Memory` through to the closing fence) is absent.

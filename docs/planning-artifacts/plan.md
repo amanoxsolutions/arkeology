@@ -326,7 +326,7 @@ merges. This track is independent of T31, T32, T33, and T34 — no shared files.
 - [`docs/specs/p8-t27-retry-throttle-fix.md`](../specs/p8-t27-retry-throttle-fix.md)
 - [`docs/specs/p8-t28-section-caps.md`](../specs/p8-t28-section-caps.md)
 - [`docs/specs/p8-t29-migrate-skill.md`](../specs/p8-t29-migrate-skill.md)
-- [`docs/brainstorming/brainstorming-2026-06-02-installing-cairn-skill.md`](../brainstorming/brainstorming-2026-06-02-installing-cairn-skill.md)
+- [`docs/brainstorming/brainstorming-2026-06-02-setting-up-cairn-skill.md`](../brainstorming/brainstorming-2026-06-02-setting-up-cairn-skill.md)
 - [`docs/brainstorming/brainstorming-2026-06-08-multi-team-multi-project-config.md`](../brainstorming/brainstorming-2026-06-08-multi-team-multi-project-config.md)
 - [`docs/specs/p9-t31a-setting-up-cairn-skill.md`](../specs/p9-t31a-setting-up-cairn-skill.md)
 - [`docs/specs/p9-t31b-migration-skill-exclusion-gate.md`](../specs/p9-t31b-migration-skill-exclusion-gate.md)

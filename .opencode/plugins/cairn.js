@@ -11,7 +11,7 @@ const skillsDir = path.resolve(__dirname, '../../skills');
 /**
  * cairn-mcp — OpenCode plugin.
  *
- * Registers the cairn-mcp skills (installing-cairn, migrating-to-cairn) with
+ * Registers the cairn-mcp skills (setting-up-cairn, migrating-to-cairn, sync-cairn-plugin) with
  * OpenCode by pushing the skills/ directory into config.skills.paths via the
  * config hook. Engineers install this plugin by adding one line to
  * ~/.config/opencode/opencode.jsonc:

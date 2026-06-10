@@ -5,7 +5,7 @@ status: ready
 phase: 9
 task: 31a
 references:
-  - docs/brainstorming/brainstorming-2026-06-02-installing-cairn-skill.md
+  - docs/brainstorming/brainstorming-2026-06-02-setting-up-cairn-skill.md
   - docs/brainstorming/brainstorming-2026-06-08-multi-team-multi-project-config.md
   - docs/planning-artifacts/prd.md
   - https://docs.anthropic.com/en/docs/claude-code/mcp

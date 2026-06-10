@@ -5,7 +5,7 @@ status: complete
 phase: 9
 task: 31b
 references:
-  - docs/brainstorming/brainstorming-2026-06-02-installing-cairn-skill.md
+  - docs/brainstorming/brainstorming-2026-06-02-setting-up-cairn-skill.md
   - docs/brainstorming/brainstorming-2026-06-08-multi-team-multi-project-config.md
   - docs/specs/p9-t31a-setting-up-cairn-skill.md
   - docs/planning-artifacts/prd.md

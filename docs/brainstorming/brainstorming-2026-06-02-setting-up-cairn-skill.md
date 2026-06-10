@@ -102,12 +102,12 @@ The convention is a gerund, optionally followed by a preposition phrase:
 
 | Candidate | Pattern | Assessment |
 |-----------|---------|------------|
-| `installing-cairn` | `<gerund>-<noun>` | Matches the migration skill pattern exactly (`migrating-to-cairn`). Clear, discoverable. |
+| `<gerund>-cairn` (e.g. install variant) | `<gerund>-<noun>` | Matches the migration skill pattern exactly (`migrating-to-cairn`). Clear, discoverable. |
 | `setting-up-cairn` | `<gerund>-<preposition>-<noun>` | Accurate but longer; "setting up" is vaguer than "installing". |
 | `provisioning-cairn` | `<gerund>-<noun>` | Accurate for the AWS steps only — undersells the full scope (clone, config, MCP client). |
 | `onboarding-to-cairn` | `<gerund>-<preposition>-<noun>` | Too broad; "onboarding" implies team workflow, not server setup. |
 
-**Verdict:** `setting-up-cairn` is the chosen name (renamed from the original `installing-cairn` after delivery).
+**Verdict:** `setting-up-cairn` is the chosen name.
 
 ---
 
