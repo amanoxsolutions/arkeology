@@ -57,7 +57,7 @@ confirmed before proceeding to Step 2.
 | `VECTORS_INDEX` | S3 Vectors index name (must exist) | — (required) |
 | `BEDROCK_EMBEDDING_MODEL` | Bedrock embedding model ID | `amazon.titan-embed-text-v2:0` |
 | `BEDROCK_EMBEDDING_DIMENSIONS` | Embedding dimension | `1024` |
-| `BEDROCK_TEXT_MODEL` | Bedrock text model for auto-generating artifact descriptions during migration. Required if you plan to use the migration skill on more than 10 files — without it the server cannot generate descriptions and the agent will improvise. | `amazon.nova-lite-v1:0` (optional, recommended) |
+| `BEDROCK_TEXT_MODEL` | Bedrock text generation model for auto-generating artifact descriptions during migration. Only needed if you plan to use the `migrating-to-cairn` skill — without it the server cannot generate descriptions server-side and the migration agent will improvise. **Cross-region inference profiles are required in most regions outside `us-east-1`** — use a region-prefixed model ID such as `eu.amazon.nova-lite-v1:0` (EU) or `us.amazon.nova-lite-v1:0` (US cross-region) rather than the bare `amazon.nova-lite-v1:0`. | — (optional, recommended for migration) |
 | `AWS_PROFILE` | AWS CLI named profile | — (optional) |
 | Team name | The name of your team or organisation (e.g. `platform`, `acme`) | — (required) |
 | Project name | The name of this project (e.g. `api-gateway`, `cairn-mcp`) | — (required) |
@@ -207,6 +207,7 @@ global config file (`~/.copilot/mcp-config.json`, `~/.config/opencode/opencode.j
 
 Substitute all values from Step 1. Add `AWS_PROFILE` to the env block if provided.
 Add `READ_PREFIXES` if provided. Add `BEDROCK_EMBEDDING_DIMENSIONS` if non-default (not 1024).
+Add `BEDROCK_TEXT_MODEL` if provided (it is optional and only used by the `migrating-to-cairn` skill to generate artifact descriptions server-side).
 
 **Claude Code / Copilot CLI** (`.mcp.json`, `mcpServers` key — one entry serves both clients):
 
@@ -223,7 +224,8 @@ Add `READ_PREFIXES` if provided. Add `BEDROCK_EMBEDDING_DIMENSIONS` if non-defau
         "VECTORS_BUCKET": "myteam-cairn-vectors",
         "VECTORS_INDEX": "cairn-index",
         "WRITE_PREFIX": "myteam/myproject",
-        "BEDROCK_EMBEDDING_MODEL": "amazon.titan-embed-text-v2:0"
+        "BEDROCK_EMBEDDING_MODEL": "amazon.titan-embed-text-v2:0",
+        "BEDROCK_TEXT_MODEL": "eu.amazon.nova-lite-v1:0"
       },
       "tools": ["*"]
     }
@@ -232,6 +234,9 @@ Add `READ_PREFIXES` if provided. Add `BEDROCK_EMBEDDING_DIMENSIONS` if non-defau
 ```
 
 > `"tools": ["*"]` is required for Copilot CLI and ignored by Claude Code — safe to include for both.
+> `BEDROCK_TEXT_MODEL` is optional — include it only if you plan to run the `migrating-to-cairn` skill.
+> Use a cross-region inference profile ID for your region (e.g. `eu.amazon.nova-lite-v1:0` for EU,
+> `us.amazon.nova-lite-v1:0` for US cross-region). The bare `amazon.nova-lite-v1:0` only works in `us-east-1`.
 
 **opencode** (`opencode.json` at workspace root — use `opencode.json` without dot prefix; `mcp` key, `environment` key, command as array):
 
@@ -247,12 +252,17 @@ Add `READ_PREFIXES` if provided. Add `BEDROCK_EMBEDDING_DIMENSIONS` if non-defau
         "VECTORS_BUCKET": "myteam-cairn-vectors",
         "VECTORS_INDEX": "cairn-index",
         "WRITE_PREFIX": "myteam/myproject",
-        "BEDROCK_EMBEDDING_MODEL": "amazon.titan-embed-text-v2:0"
+        "BEDROCK_EMBEDDING_MODEL": "amazon.titan-embed-text-v2:0",
+        "BEDROCK_TEXT_MODEL": "eu.amazon.nova-lite-v1:0"
       }
     }
   }
 }
 ```
+
+> `BEDROCK_TEXT_MODEL` is optional — include it only if you plan to run the `migrating-to-cairn` skill.
+> Use a cross-region inference profile ID for your region (e.g. `eu.amazon.nova-lite-v1:0` for EU,
+> `us.amazon.nova-lite-v1:0` for US cross-region). The bare `amazon.nova-lite-v1:0` only works in `us-east-1`.
 
 **VS Code + Copilot Chat** (`.vscode/mcp.json`, `servers` key):
 
@@ -270,12 +280,16 @@ Add `READ_PREFIXES` if provided. Add `BEDROCK_EMBEDDING_DIMENSIONS` if non-defau
         "VECTORS_BUCKET": "<vectors-bucket>",
         "VECTORS_INDEX": "<index>",
         "WRITE_PREFIX": "<team>/<project>",
-        "BEDROCK_EMBEDDING_MODEL": "<model>"
+        "BEDROCK_EMBEDDING_MODEL": "<model>",
+        "BEDROCK_TEXT_MODEL": "<cross-region-text-model>"
       }
     }
   }
 }
 ```
+
+> `BEDROCK_TEXT_MODEL` is optional — include it only if you plan to run the `migrating-to-cairn` skill.
+> Use a cross-region inference profile ID for your region (e.g. `eu.amazon.nova-lite-v1:0` for EU).
 
 **Codex CLI** (`.codex/config.toml`, TOML format — create `.codex/` directory if absent):
 
@@ -291,6 +305,9 @@ VECTORS_BUCKET = "myteam-cairn-vectors"
 VECTORS_INDEX = "cairn-index"
 WRITE_PREFIX = "myteam/myproject"
 BEDROCK_EMBEDDING_MODEL = "amazon.titan-embed-text-v2:0"
+# Optional — only needed for the migrating-to-cairn skill. Use a cross-region
+# inference profile ID for your region (e.g. eu.amazon.nova-lite-v1:0 for EU).
+BEDROCK_TEXT_MODEL = "eu.amazon.nova-lite-v1:0"
 ```
 
 ### Permission gate and safe-edit rules

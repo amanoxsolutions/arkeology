@@ -106,10 +106,14 @@ class BedrockClientImpl:
     def invoke_text_model(self, model_id: str, prompt: str) -> str:
         """Invoke a Bedrock text generation model and return the response text.
 
-        Uses the Amazon Nova Lite request/response shape:
-          Request body:  {"messages": [{"role": "user", "content": [{"type": "text",
-                          "text": prompt}]}], "inferenceConfig": {"maxTokens": 300}}
+        Uses the Amazon Nova Lite / Nova cross-region inference profile request/response shape:
+          Request body:  {"messages": [{"role": "user", "content": [{"text": prompt}]}],
+                          "inferenceConfig": {"maxTokens": 300}}
           Response:      response["output"]["message"]["content"][0]["text"]
+
+        Note: the ``"type"`` key is intentionally omitted from the content dict — cross-region
+        inference profiles (e.g. ``eu.amazon.nova-lite-v1:0``) reject it with a validation
+        error. Omitting it is also valid for on-demand Nova invocations in ``us-east-1``.
 
         Retries once on transient errors (ThrottlingException, ModelTimeoutException,
         ServiceUnavailableException), matching the retry behaviour of ``embed``.
@@ -126,7 +130,7 @@ class BedrockClientImpl:
         """
         logger.debug("Bedrock invoke_text_model model_id=%s prompt_len=%d", model_id, len(prompt))
         request_body = {
-            "messages": [{"role": "user", "content": [{"type": "text", "text": prompt}]}],
+            "messages": [{"role": "user", "content": [{"text": prompt}]}],
             "inferenceConfig": {"maxTokens": 300},
         }
         for attempt in range(2):

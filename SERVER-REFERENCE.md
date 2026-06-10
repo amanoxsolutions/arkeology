@@ -13,8 +13,10 @@ skill or starting the server manually:
   metric, and two non-filterable metadata keys: `description` and `source_artifacts`;
   the index dimension must match your embedding model (default: `1024` for Titan Text v2)
 - **Amazon Bedrock** — embedding model access (`amazon.titan-embed-text-v2:0` by default)
-  enabled in your AWS region; Nova Lite (`amazon.nova-lite-v1:0`) only required when using
-  `migrate_artifacts`
+  enabled in your AWS region; a Nova Lite model is only required when using `migrate_artifacts`.
+  **Cross-region inference profiles are required in most regions outside `us-east-1`** — use a
+  region-prefixed model ID such as `eu.amazon.nova-lite-v1:0` (EU) or `us.amazon.nova-lite-v1:0`
+  (US cross-region) rather than the bare `amazon.nova-lite-v1:0`
 - **IAM credentials** with the minimum runtime permissions listed below
 - **AWS CLI** configured with the above credentials
 - **Python ≥ 3.12** and [`uv`](https://docs.astral.sh/uv/)
@@ -64,7 +66,7 @@ Attach the following policy to the IAM user or role that runs cairn-mcp. Replace
     },
     {
       "Sid": "BedrockTextModel",
-      "Comment": "Required only if using migrate_artifacts. Adjust the resource ARN if your region requires a cross-region inference profile for Nova Lite.",
+      "Comment": "Required only if using migrate_artifacts. In us-east-1 use the foundation-model ARN below. In all other regions replace with the cross-region inference profile ARN, e.g. arn:aws:bedrock:eu-west-1::inference-profile/eu.amazon.nova-lite-v1:0",
       "Effect": "Allow",
       "Action": "bedrock:InvokeModel",
       "Resource": "arn:aws:bedrock:YOUR-REGION::foundation-model/amazon.nova-lite-v1:0"
@@ -99,7 +101,7 @@ format for each supported IDE.
 | `EMBED_MIN_SECTION_LENGTH` | No | `50` | Minimum body length (chars, stripped) for a section to be indexed. Sections shorter than this are dropped from the vector index. Set to `0` to disable. |
 | `EMBED_MAX_SECTION_LENGTH` | No | `24000` | Maximum body length (chars) per section before truncation for embedding. Set to `0` to disable. |
 | `ARTIFACT_CONCURRENCY` | No | `3` | Max artifacts processed concurrently by `write_artifacts` and `migrate_artifacts`. Must be ≥ 1. |
-| `BEDROCK_TEXT_MODEL` | No | `amazon.nova-lite-v1:0` | Bedrock text model used by `migrate_artifacts` to generate artifact descriptions server-side. Set to empty to disable server-side generation. |
+| `BEDROCK_TEXT_MODEL` | No | *(unset)* | Bedrock text model used by `migrate_artifacts` to generate artifact descriptions server-side. When unset, server-side generation is disabled. Use a cross-region inference profile ID for your region (e.g. `eu.amazon.nova-lite-v1:0` for EU, `us.amazon.nova-lite-v1:0` for US cross-region) — the bare `amazon.nova-lite-v1:0` only works in `us-east-1`. |
 | `LOG_LEVEL` | No | `INFO` | Python logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
 
 ## Running the server
