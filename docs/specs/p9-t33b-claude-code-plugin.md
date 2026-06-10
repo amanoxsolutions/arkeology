@@ -123,6 +123,13 @@ permission prompts.
   entry must include `name`, `description`, `author`, `source`, and `homepage` — all fields
   are required for Claude Code compatibility; missing `owner` or `$schema` causes silent
   failures.
+- `marketplace.json` has **two distinct `name` fields** that must not be confused:
+  the top-level `"name": "cairn-mcp"` is the marketplace identifier (the `@cairn-mcp`
+  part of `claude plugin install cairn@cairn-mcp`); the plugin entry's
+  `"plugins[0].name": "cairn"` is the plugin lookup key (the `cairn@` part of the same
+  command). Claude Code searches the `plugins` array for an entry whose `name` matches
+  the install-command identifier — using the marketplace name for the plugin entry causes
+  "Plugin 'cairn' not found in marketplace 'cairn-mcp'" at install time.
 - `plugin.json` must **omit the `version` field** — a pinned static version prevents
   `claude plugin update` from picking up new pushes; Claude Code uses the commit SHA
   automatically when `version` is absent.
@@ -146,7 +153,7 @@ permission prompts.
 
 | File | Action | Notes |
 |------|--------|-------|
-| `.claude-plugin/marketplace.json` | Create | Must include `$schema`, `name: cairn-mcp`, `owner: {name: Amanox}`, and `plugins[0].source: "./plugins/cairn-mcp"`; see Boundaries for required fields |
+| `.claude-plugin/marketplace.json` | Create | Top-level `name: cairn-mcp` (marketplace ID); `owner: {name: Amanox}`; `$schema`; `plugins[0].name: cairn` (plugin lookup key — **must match the `cairn@` identifier in the install command, not the marketplace name**); `plugins[0].source: "./plugins/cairn-mcp"`; see Boundaries for required fields |
 | `plugins/cairn-mcp/.claude-plugin/plugin.json` | Create | `name: cairn`, `description` only — **no `version` field** |
 | `plugins/cairn-mcp/skills/installing-cairn` | Create | Symlink → `../../../skills/installing-cairn` |
 | `plugins/cairn-mcp/skills/migrating-to-cairn` | Create | Symlink → `../../../skills/migrating-to-cairn` |
