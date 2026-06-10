@@ -349,7 +349,7 @@ BEDROCK_EMBEDDING_MODEL = "amazon.titan-embed-text-v2:0"
 > any other directory will silently ignore the project-level config file and cairn-mcp will
 > not appear. Instruct the operator:
 >
-> - **opencode**: exit, then restart with `opencode` from `<project root>` (the directory containing `.opencode.json`)
+> - **opencode**: exit, then restart with `opencode` from `<project root>` (the directory containing `opencode.json` or `.opencode.json`)
 > - **Claude Code / Copilot CLI**: close and reopen the editor/terminal from the project root so `.mcp.json` is in scope
 > - **Codex CLI**: exit and restart `codex` from the project root
 > - **Claude Desktop**: quit and relaunch the application (global config, no directory requirement)
@@ -404,8 +404,15 @@ Add every provided path to `local_only_paths`.
 
 ### Part C — Write to AGENTS.md
 
-Write the `cairn-mcp:config` block to the project's `AGENTS.md`. If the block already
-exists, replace it in place — do not append a second block.
+> **Target file:** `AGENTS.md` in the **current working directory** (the project root
+> — the same directory you have been operating in throughout this skill). This is never
+> the cairn-mcp repository's own `AGENTS.md`; it is always the `AGENTS.md` of the
+> project you are installing cairn-mcp into. Resolve the absolute path by joining the
+> current working directory with `AGENTS.md` before reading or writing. If the file
+> does not exist, create it.
+
+Write the `cairn-mcp:config` block to that file. If the block already exists, replace
+it in place — do not append a second block.
 
 ```
 <!-- cairn-mcp:config
