@@ -137,62 +137,14 @@ The server also exposes MCP Resources — always-current schema documentation co
 types, the tier model, visibility rules, and field constraints — so any connected agent can
 discover what to provide without consulting external documentation.
 
-## Status
+---
 
-> **v0.2.0** — all tools implemented and unit-tested: `write_artifact`, `write_artifacts`, `migrate_artifacts`, `search_artifacts`, `read_artifact`, `list_artifacts`, `archive_artifact`, `delete_artifact`, `purge_archived`, `health_check`, `synthesise_artifacts`, `reconcile_index`, and `check_synthesis_freshness`.
+## Getting started
 
-## Using the Migration Skill
+### Quick install
 
-The migration skill and the `migrate_artifacts` server tool together provide a structured
-one-time workflow for importing existing repository documentation into cairn-mcp. Use them
-when adopting cairn-mcp on a project that already has months or years of accumulated docs.
-
-The skill covers discovery, classification by directory convention, and two execution paths
-based on the number of files to import:
-
-- **≤ 10 files — agent-generated descriptions:** the agent reads each file, writes a
-  description in-context (≤ 280 chars), presents the list to the operator for review, then
-  calls `migrate_artifacts` directly. No external model call is made.
-- **> 10 files — server-generated descriptions:** the agent produces a `CAIRN_IMPORT.yaml`
-  manifest, calls `migrate_artifacts(dry_run=True)` to trigger server-side description
-  generation via Bedrock (Amazon Nova Lite by default), writes the generated descriptions
-  back into the manifest for operator review, then executes with `dry_run=False`. The agent
-  never consumes file content to produce descriptions — Bedrock handles it server-side,
-  keeping the agent context window free regardless of batch size.
-
-Both paths support resume: if a migration is interrupted or partially fails, the skill
-detects the existing manifest at startup and resumes from the correct step.
-
-### Installation
-
-Copy the skill into your IDE's skills directory:
-
-```bash
-cp -r skills/migrating-to-cairn /path/to/ide-skills-directory/
-```
-
-| IDE | Skills directory |
-|-----|-----------------|
-| Claude Code | `.claude/skills/` or `~/.claude/skills/` |
-| GitHub Copilot (VS Code) | `.github/copilot-instructions.d/` |
-| OpenCode | `~/.config/opencode/skills/` |
-| Codex | `.codex/skills/` |
-
-Once installed, load the skill and follow the seven-step workflow in
-`SKILL.md` — from pre-migration health check through to post-migration
-`AGENTS.md` update.
-
-## Skills
-
-cairn-mcp ships two skills that cover the two main setup tasks. Copy the ones you need into
-your IDE's skills directory.
-
-| Skill | Path | Purpose |
-|-------|------|---------|
-| `installing-cairn` | `skills/installing-cairn/SKILL.md` | First-time setup: validate AWS connectivity, configure your MCP client, write the `AGENTS.md` cairn config block |
-| `migrating-to-cairn` | `skills/migrating-to-cairn/SKILL.md` | One-time migration of existing documentation into cairn-mcp — run `installing-cairn` first |
-
-## Quick install
+The fastest way to wire cairn-mcp into your AI coding tool. Run `./install.sh` to detect and
+configure all installed tools automatically, or follow the per-tool steps below.
 
 **OpenCode** — add one line to `~/.config/opencode/opencode.jsonc`:
 
@@ -218,11 +170,11 @@ claude plugin install cairn@cairn-mcp
 > claude plugin install cairn@cairn-mcp
 > ```
 
-Run `./install.sh` to handle all wiring automatically — it detects which AI tools are installed and applies the correct setup for each (including GitHub Copilot via `gh skill install`).
+**GitHub Copilot** — covered by `./install.sh` via `gh skill install`.
 
 **Coexistence:** cairn-mcp registers its skills under the `cairn:` namespace. It does not collide with skills from other installed plugins — both can be active simultaneously.
 
-## Prerequisites
+### Prerequisites
 
 The following must be provisioned and accessible before running the `installing-cairn`
 skill or starting the server manually:
@@ -238,7 +190,7 @@ skill or starting the server manually:
 - **AWS CLI** configured with the above credentials
 - **Python ≥ 3.12** and [`uv`](https://docs.astral.sh/uv/)
 
-## Minimum IAM Policy
+### Minimum IAM policy
 
 Attach the following policy to the IAM user or role that runs cairn-mcp. Replace each `YOUR-*` placeholder with your actual values before applying.
 
@@ -292,7 +244,7 @@ Attach the following policy to the IAM user or role that runs cairn-mcp. Replace
 }
 ```
 
-## Installation
+### Installation
 
 ```bash
 git clone https://github.com/amanoxsolutions/cairn-mcp.git
@@ -303,7 +255,7 @@ uv sync
 Run the `installing-cairn` skill to configure your MCP client and AGENTS.md, or set the
 environment variables below directly in your IDE's MCP config file.
 
-## Configuration
+### Configuration
 
 All configuration is read from environment variables. Pass them via your IDE's MCP config
 file `env` (or `environment`) block — see the `installing-cairn` skill for the exact
@@ -332,7 +284,14 @@ format for each supported IDE.
 | `BEDROCK_TEXT_MODEL` | No | `amazon.nova-lite-v1:0` | Bedrock text model used by `migrate_artifacts` to generate artifact descriptions server-side. Set to empty to disable server-side generation. |
 | `LOG_LEVEL` | No | `INFO` | Python logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
 
-## Running the server
+### Running the server
+
+> **AI coding tools manage this automatically.** If you are connecting cairn-mcp to OpenCode,
+> Claude Code, Copilot, or Codex, the tool launches the server process on session start using
+> the command in your MCP config — you never run it manually. This section is relevant for
+> **CI/CD pipeline agents** (e.g. an automated code reviewer running in a pipeline that needs
+> cairn-mcp as a subprocess) and for **smoke-testing** a new installation before wiring it to
+> an MCP client.
 
 ```bash
 uv run cairn-mcp
@@ -342,8 +301,51 @@ uv run python -m cairn_mcp
 
 The server runs on stdio and is ready to accept MCP client connections.
 
-> To configure your MCP client for cairn-mcp, run the `installing-cairn` skill.
-> For the recommended AGENTS.md usage snippet and permanent exclusion configuration, run the `installing-cairn` skill.
+---
+
+## Skills
+
+cairn-mcp ships three skills delivered automatically via the plugin mechanisms above — no manual
+file copying needed. Once wired via Quick install, all three are immediately available to your
+AI coding tool.
+
+| Skill | Purpose |
+|-------|---------|
+| `installing-cairn` | First-time setup: validate AWS connectivity, configure your MCP client, write the `AGENTS.md` cairn config block |
+| `migrating-to-cairn` | One-time migration of existing documentation into cairn-mcp — run `installing-cairn` first |
+| `sync-cairn-plugin` | Keep skills current: detects your tool and applies the correct update action (OpenCode: clear Bun cache + restart; Claude Code: `git pull` + `/reload-plugins`; Copilot: re-run `install.sh`) |
+
+## Migrating existing documentation
+
+The `migrating-to-cairn` skill and the `migrate_artifacts` server tool together provide a
+structured one-time workflow for importing existing repository documentation into cairn-mcp.
+Use them when adopting cairn-mcp on a project that already has months or years of accumulated
+docs. Run the `installing-cairn` skill first — the migration skill requires the
+`cairn-mcp:config` block it writes to `AGENTS.md`.
+
+The skill covers discovery, classification by directory convention, and two execution paths
+based on the number of files to import:
+
+- **≤ 10 files — agent-generated descriptions:** the agent reads each file, writes a
+  description in-context (≤ 280 chars), presents the list to the operator for review, then
+  calls `migrate_artifacts` directly. No external model call is made.
+- **> 10 files — server-generated descriptions:** the agent produces a `CAIRN_IMPORT.yaml`
+  manifest, calls `migrate_artifacts(dry_run=True)` to trigger server-side description
+  generation via Bedrock (Amazon Nova Lite by default), writes the generated descriptions
+  back into the manifest for operator review, then executes with `dry_run=False`. The agent
+  never consumes file content to produce descriptions — Bedrock handles it server-side,
+  keeping the agent context window free regardless of batch size.
+
+Both paths support resume: if a migration is interrupted or partially fails, the skill
+detects the existing manifest at startup and resumes from the correct step.
+
+---
+
+## Status
+
+> **v0.2.0** — all tools implemented and unit-tested: `write_artifact`, `write_artifacts`, `migrate_artifacts`, `search_artifacts`, `read_artifact`, `list_artifacts`, `archive_artifact`, `delete_artifact`, `purge_archived`, `health_check`, `synthesise_artifacts`, `reconcile_index`, and `check_synthesis_freshness`.
+
+---
 
 ## Development
 

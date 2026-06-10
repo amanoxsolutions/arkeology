@@ -75,7 +75,7 @@ claude plugin install cairn@cairn-mcp
 ```
 
 This installs both skills as `cairn:installing-cairn` and `cairn:migrating-to-cairn`
-slash commands. To update the plugin clone later, run `/cairn:plugin-sync`.
+slash commands. To update the plugin clone later, run `/cairn:sync-cairn-plugin`.
 
 ## Adding a new tool
 
