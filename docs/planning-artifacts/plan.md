@@ -2,7 +2,7 @@
 
 _Project: cairn-mcp_
 _Generated: 2026-05-29_ · _Last updated: 2026-06-09_
-_Status: **V1 — Phases 1–8 complete + artifact type vocabulary extended to 14 types (489 unit tests + integration suite passing against live AWS; ruff + mypy clean; Apache 2.0 licensed; production-hardened; moto migration complete; write performance hardened) · Phase 9 (pre-v1 release improvements) in progress — T30–T33 complete; T34 (cairn-update OpenCode skill) pending · Phase 10 (artifact commit references) T35–T38 planned, specs ready (spec files use legacy T34–T37 naming; will be renamed when Phase 10 begins)**_
+_Status: **V1 — Phases 1–8 complete + artifact type vocabulary extended to 14 types (489 unit tests + integration suite passing against live AWS; ruff + mypy clean; Apache 2.0 licensed; production-hardened; moto migration complete; write performance hardened) · Phase 9 (pre-v1 release improvements) in progress — T30–T33 complete; T34 (sync-cairn-plugin skill) pending · Phase 10 (artifact commit references) T35–T38 planned, specs ready**_
 
 ---
 
@@ -284,30 +284,26 @@ written artifact with a commit SHA after the fact — without re-embedding — a
 which session artifacts still need linking. The write-time ULID timestamp enables efficient
 time-range discovery scoped to the current session.
 
-> **Note:** T34 in Phase 9 above was inserted after these tasks were specced. Phase 10 tasks
-> retain their original T34–T37 labels and spec file names (`p10-t34-*.md` through
-> `p10-t37-*.md`) and will be renumbered to T35–T38 when work on this phase begins.
+**Execution order:** T35 is an independent prerequisite (filter.py only); T36 depends on
+T35 and must complete before T37 and T38; T37 and T38 can be worked in parallel once T36
+merges. This track is independent of T31, T32, T33, and T34 — no shared files.
 
-**Execution order:** T34 is an independent prerequisite (filter.py only); T35 depends on
-T34 and must complete before T36 and T37; T36 and T37 can be worked in parallel once T35
-merges. This track is independent of T31, T32, and T33 — no shared files.
-
-34. ☐ **Filter range operators ($gte / $lte)** *(prerequisite — filter.py only; no tool changes)* — add `$gte` and `$lte` inclusive string-comparison operators to `filter.py`; update module docstring (FR-30)
+35. ☐ **Filter range operators ($gte / $lte)** *(prerequisite — filter.py only; no tool changes)* — add `$gte` and `$lte` inclusive string-comparison operators to `filter.py`; update module docstring (FR-30)
     - Done when: `matches_filter(meta, {"field": {"$gte": v}})` returns `True` iff `meta["field"] >= v`; `$lte` symmetric; absent field → `False`; combined `$and` interval works; `$gt` / `$lt` (strict) raise `ValueError`; all existing operator tests pass; ruff + mypy clean
-    - Spec: `docs/specs/p10-t34-filter-range-operators.md`
+    - Spec: `docs/specs/p10-t35-filter-range-operators.md`
 
-35. ☐ **`commit_refs` and `last_edited_ulid` metadata fields** *(core data model)* — add `commit_refs: list[str]` to `Artifact`; generate `last_edited_ulid` via `python-ulid` on every `write_artifact` call; store both fields in S3 object metadata and vector metadata following the `feature_tags` encoding pattern (comma-joined string in S3, `list[str]` in vectors, key omitted when empty in vectors); include `last_edited_ulid` in `write_artifact` response; expose both fields in `list_artifacts` (with `commit_refs` filter parameter) and `read_artifact` responses; legacy artifacts (missing fields) return `None` — no error (FR-28, FR-29)
+36. ☐ **`commit_refs` and `last_edited_ulid` metadata fields** *(core data model)* — add `commit_refs: list[str]` to `Artifact`; generate `last_edited_ulid` via `python-ulid` on every `write_artifact` call; store both fields in S3 object metadata and vector metadata following the `feature_tags` encoding pattern (comma-joined string in S3, `list[str]` in vectors, key omitted when empty in vectors); include `last_edited_ulid` in `write_artifact` response; expose both fields in `list_artifacts` (with `commit_refs` filter parameter) and `read_artifact` responses; legacy artifacts (missing fields) return `None` — no error (FR-28, FR-29)
     - Done when: `write_artifact` response includes `last_edited_ulid`; `read_artifact` and `list_artifacts` return both fields; `commit_refs` filter in `list_artifacts` returns correct subset; empty `commit_refs` stores `""` in S3 and omits key from vector metadata; legacy artifacts return `None` for `last_edited_ulid` and `[]` for `commit_refs`; ruff + mypy clean
     - Spec: `docs/specs/p10-t35-commit-refs-metadata-fields.md`
     - **New dependency**: `python-ulid` added to `pyproject.toml`
 
-36. ☐ **`propose_commit_links` tool** *(read-only discovery)* — scan own-scope artifacts in the vector index optionally bounded by `last_edited_ulid >= since_ulid`; deduplicate by `artifact_id`; filter client-side for artifacts with absent or empty `commit_refs`; return candidate list with human-readable timestamps; no writes (FR-31)
+37. ☐ **`propose_commit_links` tool** *(read-only discovery)* — scan own-scope artifacts in the vector index optionally bounded by `last_edited_ulid >= since_ulid`; deduplicate by `artifact_id`; filter client-side for artifacts with absent or empty `commit_refs`; return candidate list with human-readable timestamps; no writes (FR-31)
     - Done when: tool called with `since_ulid` returns only own-scope artifacts written at or after that timestamp with no `commit_refs`; called without `since_ulid` returns all unlinked own-scope artifacts; foreign-scope artifacts never included; empty result returns `{"proposed": [], "commit_sha": "..."}` not an error; credential errors return structured responses; ruff + mypy clean
-    - Spec: `docs/specs/p10-t36-propose-commit-links.md`
+    - Spec: `docs/specs/p10-t37-propose-commit-links.md`
 
-37. ☐ **`link_commit` tool + AGENTS.md post-commit protocol** *(write, no re-embed)* — for each confirmed `artifact_id`: `list_vectors_by_metadata` → `get_vectors` → merge `commit_sha` into `commit_refs` (append + deduplicate) → `put_vectors_batch` with same float32 embeddings and updated metadata; scope-gate rejects foreign-scope IDs (counted in `skipped`); generate `next_since_ulid` after all artifacts processed; return `{linked, skipped, commit_sha, next_since_ulid}`; add AGENTS.md post-commit protocol snippet to installing-cairn skill (FR-32)
+38. ☐ **`link_commit` tool + AGENTS.md post-commit protocol** *(write, no re-embed)* — for each confirmed `artifact_id`: `list_vectors_by_metadata` → `get_vectors` → merge `commit_sha` into `commit_refs` (append + deduplicate) → `put_vectors_batch` with same float32 embeddings and updated metadata; scope-gate rejects foreign-scope IDs (counted in `skipped`); generate `next_since_ulid` after all artifacts processed; return `{linked, skipped, commit_sha, next_since_ulid}`; add AGENTS.md post-commit protocol snippet to installing-cairn skill (FR-32)
     - Done when: `link_commit` appends SHA to all section vectors without Bedrock call; existing SHA not duplicated; foreign-scope IDs skipped and counted; `next_since_ulid` returned; two successive calls produce monotonically non-decreasing cursors; Bedrock `embed` never called (verified by spy); credential errors return structured responses; AGENTS.md snippet includes session-start ULID capture, post-commit proposal, confirmation, linking, and cursor-advance steps; known reconcile limitation documented in module docstring; ruff + mypy clean
-    - Spec: `docs/specs/p10-t37-link-commit.md`
+    - Spec: `docs/specs/p10-t38-link-commit.md`
     - **Known limitation (V1)**: commit references are stored in vector metadata only; `reconcile_index` will drop them on any reconcile run — documented in spec and module docstring; S3 `copy_object` update deferred to a future milestone
 
 ---
@@ -338,10 +334,10 @@ merges. This track is independent of T31, T32, and T33 — no shared files.
 - [`docs/brainstorming/brainstorming-reconcile-dangling-vectors-2026-06-03.md`](../brainstorming/brainstorming-reconcile-dangling-vectors-2026-06-03.md)
 - [`docs/specs/p9-t32-reconcile-phase3-dangling-vectors.md`](../specs/p9-t32-reconcile-phase3-dangling-vectors.md)
 - [`docs/brainstorming/brainstorming-2026-06-06-artifact-commit-refs.md`](../brainstorming/brainstorming-2026-06-06-artifact-commit-refs.md)
-- [`docs/specs/p10-t34-filter-range-operators.md`](../specs/p10-t34-filter-range-operators.md)
-- [`docs/specs/p10-t35-commit-refs-metadata-fields.md`](../specs/p10-t35-commit-refs-metadata-fields.md)
-- [`docs/specs/p10-t36-propose-commit-links.md`](../specs/p10-t36-propose-commit-links.md)
-- [`docs/specs/p10-t37-link-commit.md`](../specs/p10-t37-link-commit.md)
+- [`docs/specs/p10-t35-filter-range-operators.md`](../specs/p10-t35-filter-range-operators.md)
+- [`docs/specs/p10-t36-commit-refs-metadata-fields.md`](../specs/p10-t36-commit-refs-metadata-fields.md)
+- [`docs/specs/p10-t37-propose-commit-links.md`](../specs/p10-t37-propose-commit-links.md)
+- [`docs/specs/p10-t38-link-commit.md`](../specs/p10-t38-link-commit.md)
 - [`docs/brainstorming/brainstorming-2026-06-08-skill-distribution.md`](../brainstorming/brainstorming-2026-06-08-skill-distribution.md)
 - [`docs/specs/p9-t33a-opencode-js-plugin.md`](../specs/p9-t33a-opencode-js-plugin.md)
 - [`docs/specs/p9-t33b-claude-code-plugin.md`](../specs/p9-t33b-claude-code-plugin.md)
