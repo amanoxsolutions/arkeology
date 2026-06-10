@@ -122,7 +122,12 @@ permission prompts.
 - `marketplace.json` must include `$schema`, `name`, `owner: {name: ...}` and the plugin
   entry must include `name`, `description`, `author`, `source`, and `homepage` — all fields
   are required for Claude Code compatibility; missing `owner` or `$schema` causes silent
-  failures.
+  failures. The `$schema` value must be exactly
+  `"https://anthropic.com/claude-code/marketplace.schema.json"` — Claude Code uses this URL
+  to select its source-type parser; an invented or alternative URL (e.g. `claude.ai/schemas/…`)
+  causes "This plugin uses a source type your Claude Code version does not support" at install
+  time. The `author` field inside `plugins[0]` must be an object (`{"name": "…"}`), not a
+  plain string. The top-level `description` field should also be present.
 - `marketplace.json` has **two distinct `name` fields** that must not be confused:
   the top-level `"name": "cairn-mcp"` is the marketplace identifier (the `@cairn-mcp`
   part of `claude plugin install cairn@cairn-mcp`); the plugin entry's
