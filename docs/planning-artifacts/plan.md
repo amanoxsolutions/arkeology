@@ -2,7 +2,7 @@
 
 _Project: cairn-mcp_
 _Generated: 2026-05-29_ · _Last updated: 2026-06-09_
-_Status: **V1 — Phases 1–8 complete + artifact type vocabulary extended to 14 types (489 unit tests + integration suite passing against live AWS; ruff + mypy clean; Apache 2.0 licensed; production-hardened; moto migration complete; write performance hardened) · Phase 9 (pre-v1 release improvements) in progress — T30 (Z1 write_artifacts + migrate_artifacts) complete (547 unit tests passing); T31 (installing-cairn skill + migration exclusion gate + README reduction) complete — multi-client per-project config implemented (FR-44, AC-49): all four clients support project-scoped config; Copilot CLI shares .mcp.json with Claude Code (v0.0.401+); auto-detect in Step 1; safe-edit for JSON/JSONC/TOML; migration skill exclusion gate wired to cairn-mcp:config block; README reduced to ~370 lines (inc. Quick Install); T32 (reconcile Scenario 3 dangling vectors) complete (557 unit tests passing); T33 (skill distribution via native plugin mechanisms) complete — OpenCode JS plugin, Claude Code plugin, install.sh, Copilot adapter, README Quick Install, scripts/validate.py pre-commit validation (557 unit tests passing; ruff + mypy clean) · Phase 10 (artifact commit references) T34–T37 planned, specs ready**_
+_Status: **V1 — Phases 1–8 complete + artifact type vocabulary extended to 14 types (489 unit tests + integration suite passing against live AWS; ruff + mypy clean; Apache 2.0 licensed; production-hardened; moto migration complete; write performance hardened) · Phase 9 (pre-v1 release improvements) in progress — T30–T33 complete; T34 (cairn-update OpenCode skill) pending · Phase 10 (artifact commit references) T35–T38 planned, specs ready (spec files use legacy T34–T37 naming; will be renamed when Phase 10 begins)**_
 
 ---
 
@@ -266,6 +266,10 @@ Goal: quality-of-life improvements and documentation polish before declaring v1,
     - Brainstorming: `docs/brainstorming/brainstorming-2026-06-08-skill-distribution.md`
     - Spec: `docs/specs/p9-t33a-opencode-js-plugin.md`, `docs/specs/p9-t33b-claude-code-plugin.md`, `docs/specs/p9-t33c-install-script.md`, `docs/specs/p9-t33d-copilot-adapter.md`, `docs/specs/p9-t33e-readme-quick-install.md` (status: complete)
 
+34. ☐ **OpenCode cairn-update skill** — add `skills/cairn-update/SKILL.md` (~25 lines). The skill clears `~/.cache/opencode/packages/cairn-mcp@git+*` and instructs the engineer to restart OpenCode. On restart Bun fetches the latest HEAD from the configured plugin URL, making updated skills immediately available without re-running `install.sh`. Claude Code already has `/cairn:plugin-sync` (FR-36); Copilot engineers re-run `install.sh` (FR-41); this skill closes the equivalent gap for OpenCode (FR-45). The skill is auto-discovered by the OpenCode plugin (which already pushes the entire `skills/` directory into `config.skills.paths`) — no plugin code changes required.
+    - Done when: `skills/cairn-update/SKILL.md` exists; an OpenCode engineer invokes the skill, runs the printed command, restarts OpenCode, and has the latest cairn-mcp skills available; no Python source changes; ruff + mypy unaffected
+    - Spec: `docs/specs/p9-t34-cairn-update-skill.md`
+
 ---
 
 ### Phase 10 — Artifact Commit References
@@ -274,6 +278,10 @@ Goal: close the traceability gap between artifacts and git commits. Agents can a
 written artifact with a commit SHA after the fact — without re-embedding — and discover
 which session artifacts still need linking. The write-time ULID timestamp enables efficient
 time-range discovery scoped to the current session.
+
+> **Note:** T34 in Phase 9 above was inserted after these tasks were specced. Phase 10 tasks
+> retain their original T34–T37 labels and spec file names (`p10-t34-*.md` through
+> `p10-t37-*.md`) and will be renumbered to T35–T38 when work on this phase begins.
 
 **Execution order:** T34 is an independent prerequisite (filter.py only); T35 depends on
 T34 and must complete before T36 and T37; T36 and T37 can be worked in parallel once T35
