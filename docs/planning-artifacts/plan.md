@@ -266,9 +266,9 @@ Goal: quality-of-life improvements and documentation polish before declaring v1,
     - Brainstorming: `docs/brainstorming/brainstorming-2026-06-08-skill-distribution.md`
     - Spec: `docs/specs/p9-t33a-opencode-js-plugin.md`, `docs/specs/p9-t33b-claude-code-plugin.md`, `docs/specs/p9-t33c-install-script.md`, `docs/specs/p9-t33d-copilot-adapter.md`, `docs/specs/p9-t33e-readme-quick-install.md` (status: complete)
 
-34. ☐ **OpenCode cairn-update skill** — add `skills/cairn-update/SKILL.md` (~25 lines). The skill clears `~/.cache/opencode/packages/cairn-mcp@git+*` and instructs the engineer to restart OpenCode. On restart Bun fetches the latest HEAD from the configured plugin URL, making updated skills immediately available without re-running `install.sh`. Claude Code already has `/cairn:plugin-sync` (FR-36); Copilot engineers re-run `install.sh` (FR-41); this skill closes the equivalent gap for OpenCode (FR-45). The skill is auto-discovered by the OpenCode plugin (which already pushes the entire `skills/` directory into `config.skills.paths`) — no plugin code changes required.
-    - Done when: `skills/cairn-update/SKILL.md` exists; an OpenCode engineer invokes the skill, runs the printed command, restarts OpenCode, and has the latest cairn-mcp skills available; no Python source changes; ruff + mypy unaffected
-    - Spec: `docs/specs/p9-t34-cairn-update-skill.md`
+34. ☐ **OpenCode sync-cairn-plugin-in-opencode skill** — add `skills/sync-cairn-plugin-in-opencode/SKILL.md` (~25 lines). The skill clears `~/.cache/opencode/packages/cairn-mcp@git+*` and instructs the engineer to restart OpenCode. On restart Bun fetches the latest HEAD from the configured plugin URL, making updated skills immediately available without re-running `install.sh`. Claude Code already has `/cairn:plugin-sync` (FR-36); Copilot engineers re-run `install.sh` (FR-41); this skill closes the equivalent gap for OpenCode (FR-45). The skill is auto-discovered by the OpenCode plugin (which already pushes the entire `skills/` directory into `config.skills.paths`) — no plugin code changes required.
+    - Done when: `skills/sync-cairn-plugin-in-opencode/SKILL.md` exists; an OpenCode engineer invokes the skill, runs the printed command, restarts OpenCode, and has the latest cairn-mcp skills available; no Python source changes; ruff + mypy unaffected
+    - Spec: `docs/specs/p9-t34-sync-cairn-plugin-in-opencode.md`
 
 ---
 
