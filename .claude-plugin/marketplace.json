@@ -4,7 +4,7 @@
   "owner": { "name": "Amanox" },
   "plugins": [
     {
-      "name": "cairn-mcp",
+      "name": "cairn",
       "description": "Persistent artifact memory MCP server skills for cairn-mcp",
       "author": "Amanox",
       "source": "./plugins/cairn-mcp",
