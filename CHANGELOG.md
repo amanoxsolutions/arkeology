@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-06-10
+
+### Added
+- `setting-up-cairn` skill — guided per-project cairn-mcp configuration for OpenCode, Claude Code, GitHub Copilot, and Claude Desktop
+- `sync-cairn-plugin` skill — updates the cairn-mcp plugin in place for any supported AI coding tool without manual config edits
+- Native plugin support for OpenCode, Claude Code, and GitHub Copilot via `install.sh` and `marketplace.json`
+- `reconcile_index` Scenario 3 — dangling vector pruning: removes vector entries with no corresponding S3 object
+
 ## [0.2.0] - 2026-06-03
 
 ### Added
@@ -73,6 +81,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Security
 - Credential-related boto3 exceptions caught at the AWS client layer and re-raised as structured typed errors; never exposed as raw stack traces to MCP callers
 
+[0.3.0]: https://github.com/amanoxsolutions/cairn-mcp/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/amanoxsolutions/cairn-mcp/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/amanoxsolutions/cairn-mcp/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/amanoxsolutions/cairn-mcp/releases/tag/v0.1.0
