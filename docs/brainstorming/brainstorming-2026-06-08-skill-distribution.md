@@ -1,13 +1,13 @@
 ---
-status: draft
+status: complete
 references:
   - docs/brainstorming/brainstorming-2026-06-02-setting-up-cairn-skill.md
 authored:
   by: analyst
   date: 2026-06-08
 revised:
-  by: ""
-  date: ""
+  by: Matthieu
+  date: 2026-06-10
 techniques_used:
   - analogy
   - inversion
@@ -15,14 +15,14 @@ techniques_used:
 assumptions_challenged:
   - "A CLAUDE.md @-import is always desirable (false — cairn-mcp's AGENTS.md contains server-specific setup context, not general conventions applicable to all sessions)"
   - "The JS plugin + git+ssh:// mechanism adds value when the clone is already local (partially false — a skills.paths patch is simpler but loses the auto-path-resolution advantage)"
-  - "plugin-sync is only useful for large skill catalogues (false — it saves one manual step even for 2 skills)"
+  - "sync-cairn-plugin is only useful for large skill catalogues (false — it saves one manual step even for 2 skills)"
   - "cairn-mcp and the shared engineering plugin install scripts must be coordinated (false — both are idempotent bash scripts that coexist without conflict)"
-decisions_locked: []
-decisions_pending:
-  - D1: Whether to include a CLAUDE.md @-import, and if so what to import
-  - D2: Whether to ship a cairn:plugin-sync skill
-  - D3: Whether OpenCode distribution uses the full JS plugin (git+ssh:// URL) or a simpler install.sh skills.paths patch
-  - D4: README framing — quick-install section structure
+decisions_locked:
+  - D1: Skip CLAUDE.md @-import — cairn-mcp AGENTS.md is server-specific; per-project snippet written by setting-up-cairn already covers this
+  - D2: Ship sync skill — delivered as cairn:sync-cairn-plugin (T34), a cross-IDE generic skill replacing the Claude Code-only plugin-sync concept; distributed via all three channels (OpenCode plugin, Claude Code plugin, Copilot gh skill install)
+  - D3: Full JS plugin for OpenCode — package.json + .opencode/plugins/cairn.js config hook; install.sh prints the one-line git+ssh:// snippet
+  - D4: Brief coexistence note in README — short quick-install section plus a paragraph noting cairn-mcp coexists with the shared engineering plugin without namespace collision
+decisions_pending: []
 decisions_closed_not_applicable: []
 ---
 
@@ -53,7 +53,7 @@ implementation. It delivers five features:
 | Phase 5 feature | What it does |
 |-----------------|-------------|
 | F5.1 OpenCode JS plugin | `package.json` + `.opencode/plugins/amanox.js` config hook; one line in `opencode.jsonc` registers all skills |
-| F5.2 Claude Code plugin | `.claude-plugin/` + `plugins/amanox/` (symlinks to skills + agents); `amanox:plugin-sync` skill; `install.sh` wires CLAUDE.md `@`-import + settings.json pre-approval |
+| F5.2 Claude Code plugin | `.claude-plugin/` + `plugins/amanox/` (symlinks to skills + agents); `amanox:sync-amanox-plugin` skill; `install.sh` wires CLAUDE.md `@`-import + settings.json pre-approval |
 | F5.3 Install script | Detects `claude`, `opencode`, `copilot`; applies wiring; symlinks agents; session-refresh output |
 | F5.4 Copilot adapter | `gh skill install` loop per skill inside `install.sh` |
 | F5.5 README four-layer composability | Documents personal baseline + team + client + project layers |
@@ -71,10 +71,11 @@ design decisions:
    this globally would add cairn-mcp server context to sessions working on unrelated projects.
    **This is the primary design question.**
 
-3. **`cairn:plugin-sync` path** — the reference project's `plugin-sync` runs
-   `git -C ~/.claude/plugins/amanox pull`. For cairn-mcp, the Claude Code plugin installs
-   to `~/.claude/plugins/cairn-mcp/` as its own clone. The sync pull targets that path, not
-   the local server clone. The two clones are separate and updated independently.
+3. **`cairn:sync-cairn-plugin` path** — the reference project's `sync-amanox-plugin` runs
+   `git -C ~/.claude/plugins/amanox pull`. For cairn-mcp, the equivalent skill targets
+   `~/.claude/plugins/cairn-mcp/`. T34 generalised this into a cross-IDE skill
+   (`sync-cairn-plugin`) rather than a Claude Code-only one. The two clones (plugin clone
+   and server clone) are separate and updated independently.
 
 Everything else is a direct 1:1 copy of the reference pattern with name substitutions.
 
@@ -90,10 +91,10 @@ Everything else is a direct 1:1 copy of the reference pattern with name substitu
 | `plugins/amanox/.claude-plugin/plugin.json` | `plugins/cairn-mcp/.claude-plugin/plugin.json` | Name, description only |
 | `plugins/amanox/skills/<name>` symlinks (30+) | `plugins/cairn-mcp/skills/<name>` symlinks (2) | Fewer skills; same symlink pattern |
 | `plugins/amanox/agents/<name>.md` symlinks (5) | *(absent — no agents in cairn-mcp)* | N/A |
-| `plugins/amanox/skills/plugin-sync/SKILL.md` | `plugins/cairn-mcp/skills/plugin-sync/SKILL.md` | Different repo path in `git pull` command |
+| `plugins/amanox/skills/sync-amanox-plugin/SKILL.md` | `plugins/cairn-mcp/skills/sync-cairn-plugin/SKILL.md` | Generalised to cross-IDE skill in T34 |
 | `install.sh` agent symlinks loop | *(absent)* | N/A |
 | `install.sh` CLAUDE.md `@`-import step | **Design decision D1** | See below |
-| `install.sh` settings.json pre-approval (for plugin-sync) | Same, if plugin-sync ships (D2) | Same pre-approval rule: `Bash(git -C * pull)` |
+| `install.sh` settings.json pre-approval (for `sync-cairn-plugin`) | Same | Same pre-approval rule: `Bash(git -C * pull)` |
 | `install.sh` Claude Code SSH URL only | **Both SSH and HTTPS forms documented** | `claude plugin marketplace add` also accepts `https://github.com/…`; SSH-blocked environments need the HTTPS alternative (see G8) |
 | `gh skill install` loop per skill in `install.sh` | Same; 2 skills | Same |
 | README quick install section | README quick install section | Different framing (tool-specific, not personal baseline) |
@@ -137,25 +138,27 @@ already contains the right context for sessions in that project.
 
 ---
 
-#### Cluster B — plugin-sync skill (D2)
+#### Cluster B — sync skill (D2)
 
-**B1 — Include `cairn:plugin-sync`**
-Same pattern as the reference project. `git -C ~/.claude/plugins/cairn-mcp pull` +
-`/reload-plugins`. Pre-approval rule `Bash(git -C * pull)` written to `settings.json` by
-`install.sh`. Engineers run `/cairn:plugin-sync` to get updated skills without a full
-reinstall. The skill is ~22 lines (same as the reference project) and lives exclusively in
-`plugins/cairn-mcp/skills/plugin-sync/SKILL.md` — not in the shared `skills/` directory.
+**B1 — Include a sync skill**
+Same pattern as the reference project. A skill that updates the plugin clone and reloads
+skills. Pre-approval rule `Bash(git -C * pull)` written to `settings.json` by `install.sh`.
+Engineers invoke the skill to get updated skills without a full reinstall. Initially
+scoped to Claude Code only (matching the reference project); later generalised in T34 into
+`cairn:sync-cairn-plugin` — a cross-IDE skill detecting the running tool and taking the
+correct action for each (OpenCode: clear Bun cache + restart; Claude Code: `git pull` +
+`/reload-plugins`; Copilot: re-run `install.sh`).
 
-**B2 — Skip plugin-sync; document manual update instead**
+**B2 — Skip the sync skill; document manual update instead**
 cairn-mcp has only 2 skills. `git pull` on the server clone is the primary update action
-anyway. Engineers already know to update the server. A 22-line skill + pre-approval wiring
-adds overhead for a one-command operation engineers already do. README instructions cover it.
+anyway. Engineers already know to update the server. A skill + pre-approval wiring adds
+overhead for a one-command operation engineers already do. README instructions cover it.
 
-**B3 — plugin-sync also triggers server update guidance**
-Plugin-sync updates the Claude Code plugin clone (`~/.claude/plugins/cairn-mcp/`) and
-reloads skills. The server clone (used to run cairn-mcp) is a separate concern. The skill
-should note that the server requires a separate `git pull` + `uv sync` + restart. It does
-NOT run those commands — it only manages the skills plugin clone.
+**B3 — Sync skill also surfaces server update guidance**
+The sync skill updates the plugin clone and reloads skills. The server clone (used to run
+cairn-mcp) is a separate concern. The skill should note that the server requires a separate
+`git pull` + `uv sync` + restart. It does NOT run those commands — it only manages the
+skills plugin clone.
 
 **Assessment:** B1 is the right call. The skill is trivial to add, consistent with the
 reference pattern, and saves one friction point (engineers won't need to look up the manual
@@ -224,11 +227,15 @@ The `install.sh` does NOT prepend an `@`-import to `~/.claude/CLAUDE.md`. The pr
 AGENTS.md snippet (written by `setting-up-cairn`) already provides the right per-project
 context. Global injection would add server-setup noise to unrelated sessions.
 
-**D2 — Include `cairn:plugin-sync`**
-The skill exists in `plugins/cairn-mcp/skills/plugin-sync/SKILL.md`. It runs
-`git -C ~/.claude/plugins/cairn-mcp pull` + `/reload-plugins`. A gotcha note states
-that the server requires a separate update (`git pull` on the server clone + `uv sync` +
-restart). Pre-approval rule `Bash(git -C * pull)` written to `settings.json` by `install.sh`.
+**D2 — Ship `cairn:sync-cairn-plugin`** *(delivered as T34 — outcome differs from session decision)*
+The session selected `cairn:plugin-sync` (Claude Code-only, ~22 lines, updating the plugin
+clone only). T34 later generalised this into `cairn:sync-cairn-plugin`: a cross-IDE skill
+that detects the running tool and takes the correct update action for each (OpenCode: clear
+Bun cache + restart; Claude Code: `git pull` + `/reload-plugins`; Copilot: re-run
+`install.sh`; unknown tool: explain all three paths). The skill is distributed through all
+three channels (OpenCode plugin auto-discovers it; Claude Code plugin symlink; Copilot via
+`gh skill install`). `plugin-sync` was removed when `sync-cairn-plugin` shipped.
+The gotcha note about the server requiring a separate update remains applicable.
 
 **D3 — Full JS plugin for OpenCode**
 `package.json` at repo root + `.opencode/plugins/cairn.js` config hook. Install script prints
@@ -248,13 +255,13 @@ taxonomy.
 |---------|----------|
 | OpenCode JS plugin (`package.json` + config hook) | ✅ Include — same template, name substitution only |
 | Claude Code plugin (`.claude-plugin/` + `plugins/cairn-mcp/` + symlinks) | ✅ Include — same pattern; 2 skill symlinks, no agent symlinks |
-| `cairn:plugin-sync` skill | ✅ Include — ~22 lines; update skill clone only, not server clone |
+| `cairn:sync-cairn-plugin` skill | ✅ Delivered as T34 — cross-IDE generic skill replacing `plugin-sync`; distributed via all three channels |
 | `install.sh` | ✅ Include — no agent symlinks loop; no @-import step; otherwise identical |
 | `install.sh` Claude Code URL | ✅ Both SSH and HTTPS — `claude plugin marketplace add` accepts `git@github.com:…` (SSH primary) and `https://github.com/…` (HTTPS fallback for firewalled environments); both forms in session-refresh summary |
 | Copilot adapter (`gh skill install` loop) | ✅ Include — same as reference; 2 skills |
 | CLAUDE.md `@`-import | ❌ Skip — cairn-mcp AGENTS.md is server-specific; per-project AGENTS.md already covers this |
 | Agent symlinks loop in `install.sh` | ❌ Absent — cairn-mcp has no agents |
-| `settings.json` pre-approval for plugin-sync | ✅ Include — scoped to `Bash(git -C * pull)` |
+| `settings.json` pre-approval for `sync-cairn-plugin` | ✅ Include — scoped to `Bash(git -C * pull)` |
 | README four-layer composability | ⚡ Abbreviated — short coexistence note only |
 
 ---

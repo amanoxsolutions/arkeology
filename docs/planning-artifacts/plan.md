@@ -2,7 +2,7 @@
 
 _Project: cairn-mcp_
 _Generated: 2026-05-29_ · _Last updated: 2026-06-09_
-_Status: **V1 — Phases 1–8 complete + artifact type vocabulary extended to 14 types (489 unit tests + integration suite passing against live AWS; ruff + mypy clean; Apache 2.0 licensed; production-hardened; moto migration complete; write performance hardened) · Phase 9 (pre-v1 release improvements) in progress — T30–T33 complete; T34 (sync-cairn-plugin skill) pending · Phase 10 (artifact commit references) T35–T38 planned, specs ready**_
+_Status: **V1 — Phases 1–9 complete (unit + integration suite passing against live AWS; ruff + mypy clean; Apache 2.0 licensed; production-hardened; moto migration complete; write performance hardened; bulk write + migration tools; setting-up-cairn + sync-cairn-plugin skills; skill distribution via native plugin mechanisms) · Phase 10 (artifact commit references) T35–T38 planned, specs ready**_
 
 ---
 
@@ -266,7 +266,7 @@ Goal: quality-of-life improvements and documentation polish before declaring v1,
     - Brainstorming: `docs/brainstorming/brainstorming-2026-06-08-skill-distribution.md`
     - Spec: `docs/specs/p9-t33a-opencode-js-plugin.md`, `docs/specs/p9-t33b-claude-code-plugin.md`, `docs/specs/p9-t33c-install-script.md`, `docs/specs/p9-t33d-copilot-adapter.md`, `docs/specs/p9-t33e-readme-quick-install.md` (status: complete)
 
-34. ☐ **`sync-cairn-plugin` — generic tool-aware skill update** — add `skills/sync-cairn-plugin/SKILL.md` (~35 lines). The skill detects which AI coding tool it is running in and takes the appropriate update action for each:
+34. ✅ **`sync-cairn-plugin` — generic tool-aware skill update** — add `skills/sync-cairn-plugin/SKILL.md` (~35 lines). The skill detects which AI coding tool it is running in and takes the appropriate update action for each:
     - **OpenCode**: clear `~/.cache/opencode/packages/cairn-mcp@git+*` then instruct restart — Bun fetches the latest HEAD on next launch.
     - **Claude Code**: perform `git -C ~/.claude/plugins/cairn-mcp pull` then `/reload-plugins` (replaces `plugin-sync` — same steps, one canonical cross-tool command; `plugin-sync` is removed as part of this task).
     - **Copilot**: instruct the engineer to re-run `./install.sh` from the cairn-mcp repo (which calls `gh skill install --force` for all skills).
