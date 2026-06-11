@@ -139,6 +139,27 @@ discover what to provide without consulting external documentation.
 
 ---
 
+## Prerequisites
+
+The following must be provisioned and accessible before running the `setting-up-cairn`
+skill or starting the server manually:
+
+- **S3 bucket** — a standard S3 bucket for artifact content storage
+- **S3 Vectors bucket and index** — created with `float32` data type, `cosine` distance
+  metric, and two non-filterable metadata keys: `description` and `source_artifacts`;
+  the index dimension must match your embedding model (default: `1024` for Titan Text v2)
+- **Amazon Bedrock** — embedding model access (`amazon.titan-embed-text-v2:0` by default)
+  enabled in your AWS region; a Nova Lite model is only required when using `migrate_artifacts`.
+  **Cross-region inference profiles are required in most regions outside `us-east-1`** — use a
+  region-prefixed model ID such as `eu.amazon.nova-lite-v1:0` (EU) or `us.amazon.nova-lite-v1:0`
+  (US cross-region) rather than the bare `amazon.nova-lite-v1:0`
+- **IAM credentials** with the minimum runtime permissions listed in the
+  [Server Reference](SERVER-REFERENCE.md#minimum-iam-policy)
+- **AWS CLI** configured with the above credentials
+- **Python ≥ 3.12** and [`uv`](https://docs.astral.sh/uv/)
+
+---
+
 ## How to use cairn-mcp in your project
 
 ### 1. Clone and install
