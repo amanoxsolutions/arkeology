@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-06-11
+
+### Added
+- `artifact_concurrency` optional per-call parameter on `write_artifacts` and
+  `migrate_artifacts` (default 3, ceiling 15); values outside [1, 15] are clamped
+  with a top-level `"warning"` field rather than rejected; removes the
+  `ARTIFACT_CONCURRENCY` env var
+
+### Fixed
+- `setting-up-cairn` skill: installation now requires a single MCP client restart
+  instead of two — AGENTS.md is written before the restart so both files are picked
+  up in one reload
+- `setting-up-cairn` skill: removed the "When to write artifacts" section from the
+  generated AGENTS.md snippet, which was triggering spurious `session_summary` writes
+  at the end of skill-driven operations
+- `migrating-to-cairn` skill: dot-prefix directories (e.g. `.docs/`) are now surfaced
+  in the 2b discovery scan; the blanket `.docs/` exclusion is removed
+- `migrating-to-cairn` skill: CAIRN_IMPORT.yaml is no longer printed to the terminal;
+  operators are directed to open the file in their editor
+
 ## [0.3.0] - 2026-06-10
 
 ### Added

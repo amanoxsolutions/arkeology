@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "cairn-mcp"
-version = "0.3.0"
+version = "0.3.1"
 description = "MCP server for persistent artifact memory powered by AWS S3, S3 Vectors, and Bedrock embeddings"
 requires-python = ">=3.12"
 dependencies = [
