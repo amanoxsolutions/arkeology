@@ -19,13 +19,6 @@ cairn-mcp is connected to this project. Use it to persist knowledge across sessi
 > Never write an artifact whose `type` is listed in `local_only_types`.
 > Never write an artifact whose source file is under a path listed in `local_only_paths`.
 
-### When to write artifacts
-
-- **Start of session** — search for prior context before doing any substantial work.
-- **End of session** — write findings, decisions, and implementation notes before closing.
-- **After a key decision** — write a `decision_note` or `adr` while the reasoning is fresh.
-- **After a code review** — write a `code_review` artifact with findings and recommendations.
-
 ### Artifact type selection
 
 | Type | When to use |

@@ -10,9 +10,9 @@ S3 Vectors bucket and index, and Bedrock model access) are already provisioned e
 It validates every resource is reachable before writing any configuration, writes a
 project-scoped cairn-mcp server entry into the correct MCP client config file (all four
 supported clients write to the project root — Claude Code and GitHub Copilot CLI share
-`.mcp.json`, opencode uses `.opencode.json`, Codex CLI uses `.codex/config.toml`), runs a
-health check, and closes by writing a machine-readable `cairn-mcp:config` block and usage
-guidance to `AGENTS.md`.
+`.mcp.json`, opencode uses `.opencode.json`, Codex CLI uses `.codex/config.toml`), writes
+a machine-readable `cairn-mcp:config` block and usage guidance to `AGENTS.md`, then asks
+for a single restart to pick up both files before confirming everything is healthy.
 
 ---
 
@@ -358,31 +358,7 @@ BEDROCK_TEXT_MODEL = "eu.amazon.nova-lite-v1:0"
 
 ---
 
-## Step 5 — Smoke test
-
-> **Before calling `health_check`**, the MCP client must be restarted so it picks up the
-> config written in Step 4. For project-scoped clients (opencode, Claude Code, Copilot CLI,
-> Codex CLI), the client **must be restarted from the project directory** — starting from
-> any other directory will silently ignore the project-level config file and cairn-mcp will
-> not appear. Instruct the operator:
->
-> - **opencode**: exit, then restart with `opencode` from `<project root>` (the directory containing `opencode.json` or `.opencode.json`)
-> - **Claude Code / Copilot CLI**: close and reopen the editor/terminal from the project root so `.mcp.json` is in scope
-> - **Codex CLI**: exit and restart `codex` from the project root
-> - **Claude Desktop**: quit and relaunch the application (global config, no directory requirement)
-
-Call the `health_check` MCP tool (no arguments):
-
-- All components show `"status": "ok"` → proceed to Step 6.
-- Any component shows `"status": "error"` → **stop**. Report the failing component
-  name and its error message. Do not proceed to Step 6 until the operator resolves the
-  issue and `health_check` returns all-ok for every component.
-- cairn-mcp does not appear in the tool list at all → the client was not restarted from
-  the project root. Ask the operator to confirm their working directory and restart.
-
----
-
-## Step 6 — AGENTS.md configuration
+## Step 5 — AGENTS.md configuration
 
 ### Part A — ADR strategy
 
@@ -456,3 +432,28 @@ Select the ADR variant that matches the operator's choice from Part A:
 
 - **git-only** → include Variant A; omit Variant B.
 - **cairn-mcp-only** → include Variant B; omit Variant A.
+
+---
+
+## Step 6 — Smoke test
+
+> **One restart picks up both changes.** The MCP client must now be restarted to load
+> the config written in Step 4 **and** the AGENTS.md written in Step 5 together. For
+> project-scoped clients (opencode, Claude Code, Copilot CLI, Codex CLI), the client
+> **must be restarted from the project directory** — starting from any other directory
+> will silently ignore the project-level config file and cairn-mcp will not appear.
+> Instruct the operator:
+>
+> - **opencode**: exit, then restart with `opencode` from `<project root>` (the directory containing `opencode.json` or `.opencode.json`)
+> - **Claude Code / Copilot CLI**: close and reopen the editor/terminal from the project root so `.mcp.json` is in scope
+> - **Codex CLI**: exit and restart `codex` from the project root
+> - **Claude Desktop**: quit and relaunch the application (global config, no directory requirement)
+
+Call the `health_check` MCP tool (no arguments):
+
+- All components show `"status": "ok"` → installation complete.
+- Any component shows `"status": "error"` → **stop**. Report the failing component
+  name and its error message. Do not declare installation complete until the operator
+  resolves the issue and `health_check` returns all-ok for every component.
+- cairn-mcp does not appear in the tool list at all → the client was not restarted from
+  the project root. Ask the operator to confirm their working directory and restart.
