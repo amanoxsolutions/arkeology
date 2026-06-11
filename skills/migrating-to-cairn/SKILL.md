@@ -73,7 +73,12 @@ Before scanning the repository, check whether `CAIRN_IMPORT.yaml` exists in the 
 Scan the repository's directory tree (one level at a time, top-down) and identify
 folders that are likely to contain documentation artifacts. Look for names such as
 `docs`, `documentation`, `adr`, `adrs`, `specs`, `spec`, `decisions`, `architecture`,
-`sessions`, `notes`, `reviews`, `runbooks`, `planning`, `brainstorming`, etc.
+`sessions`, `notes`, `reviews`, `runbooks`, `planning`, `brainstorming`, etc. — and
+their **dot-prefix equivalents** (e.g. `.docs/`, `.documentation/`). Dot-prefix
+directories are hidden but may contain real documentation; include them in the candidate
+list if their name matches a documentation pattern. If a dot-prefix directory is
+gitignored, note that next to it — git date recovery will not be available for files
+inside it and today's date will be used as the fallback.
 Do **not** descend into source code directories (`src/`, `lib/`, `app/`, `tests/`,
 `node_modules/`, `.git/`, build outputs, etc.).
 
@@ -141,7 +146,6 @@ sensitive.
 - `README.md`, `AGENTS.md`, `CONTRIBUTING.md`, `CHANGELOG.md` (root-level docs)
 - Non-markdown files (`.txt`, `.rst`, `.html`, etc.)
 - Auto-generated documentation (anything under `docs/_build/`, `site/`, `dist/`)
-- The `.docs/` scratchpad directory (agent scratch space, not canonical docs)
 - Files the operator explicitly asks to exclude
 
 ---
@@ -282,31 +286,22 @@ artifacts:
 
 ### 3.B2 — Operator review of manifest
 
-Present the generated `CAIRN_IMPORT.yaml` to the operator. Ask them to:
-- Verify types, tiers, and dates.
-- Add `description_override` for any entry where they want to supply the
-  description and skip server-side generation.
-- Correct any `date_override` values where git history was unavailable.
+Tell the operator: "CAIRN_IMPORT.yaml has been written to the repo root with X entries.
+Please open it in your editor and review:
+- Types and tiers are correct for each file
+- Dates look right
+- Add `description_override` for any entry where you want to supply the description yourself
+- Remove any entries you do not want migrated"
+
+Do **not** print the file content to the terminal.
 
 Wait for operator confirmation before continuing.
 
 ### 3.B3 — Read files and preview descriptions
 
-For every `status: pending` entry, read the file at `path`. Build a descriptor:
-
-| Field | Source |
-|-------|--------|
-| `type`, `tier`, `visibility` | manifest entry |
-| `team`, `project` | manifest `global` section |
-| `title` | extracted H1 or cleaned filename |
-| `date` | `date_override` from manifest, else git log |
-| `content` | **full file text — must not be empty** |
-| `feature_tags` | manifest entry, if set |
-| `description` | `description_override` if set, else **leave empty** |
-
-> **Checkpoint before calling `migrate_artifacts`:**
-> Every descriptor must have a non-empty `content`. If any is missing,
-> go back and read that file now.
+> **For the dry-run phase, read only the first 150 lines of each file.** This is enough
+> to extract the H1 title and give Nova Lite sufficient context to generate an accurate
+> description. Full file content will be read in 3.B5 for S3 storage.
 
 Compute `artifact_concurrency = min(file_count, 15)`. Explain to the operator: this
 controls how many Nova Lite description calls run concurrently per batch AND how many
@@ -315,21 +310,41 @@ generated concurrently in each batch, and you will receive a progress update aft
 15 files. Note the Bedrock ~100 req/s Titan ceiling. Ask the operator to confirm or
 supply their own value.
 
-Split the pending descriptor list into batches of `artifact_concurrency`. For each batch:
-call `migrate_artifacts(dry_run=True, artifact_concurrency=<confirmed_value>, descriptors=batch)`,
-write the returned descriptions back to `CAIRN_IMPORT.yaml` as `description_override`,
-and report progress (e.g. "Described 15 of 95 files"). Continue until all batches are
-processed.
+**Wait for the operator's answer before continuing. Do not proceed to the batch loop until a value is confirmed.**
 
-*(stdio workaround — when Streamable HTTP + SSE is available, replace this loop with a
-single call that receives per-description SSE events; the artifact_concurrency parameter
-and the concurrency explanation above remain unchanged.)*
+Process `status: pending` entries in batches of `artifact_concurrency`. **Read files
+within each batch — do not read all files upfront.** For each batch:
+
+1. For each file in the batch, read the first 150 lines. Build a descriptor:
+
+| Field | Source |
+|-------|--------|
+| `type`, `tier`, `visibility` | manifest entry |
+| `team`, `project` | manifest `global` section |
+| `title` | first `# H1` heading in the file; if none, clean the filename |
+| `date` | `date_override` from manifest, else git log |
+| `content` | **first 150 lines of the file — must not be empty** |
+| `feature_tags` | manifest entry, if set |
+| `description` | `description_override` if set, else **leave empty** |
+
+2. Verify every descriptor in the batch has non-empty `content`. If any is missing,
+   re-read that file before continuing.
+
+3. Call `migrate_artifacts(dry_run=True, artifact_concurrency=<confirmed_value>, descriptors=<batch>)`.
+
+4. Report progress only as a count — e.g. "Described 15 of 98 files". Do **not** print
+   file contents, descriptor details, or any CAIRN_IMPORT.yaml content to the terminal.
+
+After all batches complete, write all returned `description_override` values back to
+`CAIRN_IMPORT.yaml` in one update pass. Do **not** print the file content.
 
 ### 3.B4 — Operator review
 
 This is the final opportunity for the operator to review descriptions before any
-writes occur. Instruct the operator to open `CAIRN_IMPORT.yaml` and review every
-`description_override` value. The operator may edit any entry freely.
+writes occur. Tell the operator to open `CAIRN_IMPORT.yaml` in their editor and review
+every `description_override` value. The operator may edit any entry freely.
+
+Do **not** print the CAIRN_IMPORT.yaml content to the terminal.
 
 Wait for the operator to confirm before proceeding.
 
@@ -357,14 +372,13 @@ concurrent Bedrock embedding calls — 25% headroom under the 100 req/s ceiling.
 by this value means a progress update after every `artifact_concurrency` files written.
 Ask the operator to confirm or supply a lower value if concerned about quota.
 
+**Wait for the operator's answer before continuing. Do not proceed to the batch loop until a value is confirmed.**
+
 Split the pending descriptor list into batches of `artifact_concurrency`. For each batch:
 call `migrate_artifacts(dry_run=False, artifact_concurrency=<confirmed_value>, descriptors=batch)`,
-update `CAIRN_IMPORT.yaml` statuses (written/failed), and report progress (e.g.
-"Written 15 of 95 files"). Continue until all batches are processed.
-
-*(stdio workaround — when Streamable HTTP + SSE is available, replace this loop with a
-single call; the artifact_concurrency parameter and the concurrency explanation above
-remain unchanged.)*
+update `CAIRN_IMPORT.yaml` statuses (written/failed), and report progress as a count only
+(e.g. "Written 15 of 98 files"). Do **not** print file contents or CAIRN_IMPORT.yaml
+content to the terminal. Continue until all batches are processed.
 
 After all batches, update `CAIRN_IMPORT.yaml` for every entry:
 - `written: true` in the response → set `status: written`
