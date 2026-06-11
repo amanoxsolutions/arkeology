@@ -504,42 +504,24 @@ def test_read_prefixes_comment_then_whitespace_token_raises(
 
 
 # ---------------------------------------------------------------------------
-# Z1 — ARTIFACT_CONCURRENCY
+# Z1 — ARTIFACT_CONCURRENCY is removed; the env var is silently ignored
 # ---------------------------------------------------------------------------
 
 
-def test_artifact_concurrency_default(monkeypatch: pytest.MonkeyPatch) -> None:
-    """ARTIFACT_CONCURRENCY absent → artifact_concurrency defaults to 3."""
+def test_artifact_concurrency_env_var_is_silently_ignored(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ARTIFACT_CONCURRENCY=10 in the environment → Settings() constructs without error
+    and the Settings object does NOT have an 'artifact_concurrency' attribute.
+    """
     _required_env(monkeypatch)
+    monkeypatch.setenv("ARTIFACT_CONCURRENCY", "10")
+    # Must not raise ValidationError
     settings = Settings()
-    # Red: Settings doesn't have artifact_concurrency yet; getattr returns sentinel
-    assert getattr(settings, "artifact_concurrency", "NOT_SET") == 3
-
-
-def test_artifact_concurrency_custom(monkeypatch: pytest.MonkeyPatch) -> None:
-    """ARTIFACT_CONCURRENCY=5 → artifact_concurrency == 5."""
-    _required_env(monkeypatch)
-    monkeypatch.setenv("ARTIFACT_CONCURRENCY", "5")
-    settings = Settings()
-    assert getattr(settings, "artifact_concurrency", "NOT_SET") == 5
-
-
-def test_artifact_concurrency_zero_invalid(monkeypatch: pytest.MonkeyPatch) -> None:
-    """ARTIFACT_CONCURRENCY=0 → ValidationError (must be ≥1)."""
-    _required_env(monkeypatch)
-    monkeypatch.setenv("ARTIFACT_CONCURRENCY", "0")
-    # Red: pydantic-settings ignores unknown fields, so Settings() succeeds — no exception raised.
-    # Once the field is added, the validator will reject 0.
-    with pytest.raises(Exception):
-        Settings()
-
-
-def test_artifact_concurrency_negative_invalid(monkeypatch: pytest.MonkeyPatch) -> None:
-    """ARTIFACT_CONCURRENCY=-1 → ValidationError (must be ≥1)."""
-    _required_env(monkeypatch)
-    monkeypatch.setenv("ARTIFACT_CONCURRENCY", "-1")
-    with pytest.raises(Exception):
-        Settings()
+    # The field must not exist on Settings (removed in T39)
+    assert not hasattr(settings, "artifact_concurrency"), (
+        "Settings must not have an 'artifact_concurrency' attribute after T39 removal"
+    )
 
 
 # ---------------------------------------------------------------------------

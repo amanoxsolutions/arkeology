@@ -5,6 +5,7 @@ the module does not exist yet, so that collection errors are avoided while the t
 are still properly Red (FAILED, not ERRORED) until the implementation is written.
 """
 
+import asyncio as asyncio_module
 import json
 import pathlib
 from typing import Any
@@ -144,7 +145,7 @@ async def test_write_artifacts_concurrency_1_sequential_order(
     except ImportError:
         pytest.fail("cairn_mcp.tools.write_artifacts is not yet implemented")
 
-    settings = _make_settings(monkeypatch, ARTIFACT_CONCURRENCY="1")
+    settings = _make_settings(monkeypatch)
     bedrock = FakeBedrockClient(dimension=1024)
 
     titles_in_embed_order: list[str] = []
@@ -168,6 +169,7 @@ async def test_write_artifacts_concurrency_1_sequential_order(
         bedrock=bedrock,
         settings=settings,
         artifacts=descriptors,
+        artifact_concurrency=1,
     )
 
     results = result.get("results", [])
@@ -264,7 +266,7 @@ async def test_write_artifacts_concurrency_2_all_succeed(
     except ImportError:
         pytest.fail("cairn_mcp.tools.write_artifacts is not yet implemented")
 
-    settings = _make_settings(monkeypatch, ARTIFACT_CONCURRENCY="2")
+    settings = _make_settings(monkeypatch)
     bedrock = FakeBedrockClient(dimension=1024)
     descriptors = [_make_descriptor(i) for i in range(5)]
 
@@ -274,6 +276,7 @@ async def test_write_artifacts_concurrency_2_all_succeed(
         bedrock=bedrock,
         settings=settings,
         artifacts=descriptors,
+        artifact_concurrency=2,
     )
 
     results = result.get("results", [])
@@ -331,3 +334,191 @@ async def test_write_artifacts_missing_required_field_validation_error(
 
     assert results[0].get("written") is True, f"Entry 0 should succeed: {results[0]}"
     assert results[2].get("written") is True, f"Entry 2 should succeed: {results[2]}"
+
+
+# ---------------------------------------------------------------------------
+# C7 — artifact_concurrency=15 (in-range) → all written, no warning
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_write_artifacts_concurrency_15_in_range_no_warning(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+) -> None:
+    """artifact_concurrency=15 (in-range) → all artifacts written; no 'warning' key in response."""
+    try:
+        from cairn_mcp.tools.write_artifacts import write_artifacts
+    except ImportError:
+        pytest.fail("cairn_mcp.tools.write_artifacts is not yet implemented")
+
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+    descriptors = [_make_descriptor(i) for i in range(3)]
+
+    result = await write_artifacts(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        artifacts=descriptors,
+        artifact_concurrency=15,
+    )
+
+    results = result.get("results", [])
+    assert len(results) == 3
+    for entry in results:
+        assert entry.get("written") is True, f"Expected written=True, got: {entry}"
+    assert "warning" not in result, (
+        f"No warning expected for in-range value; got: {result.get('warning')}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# C8 — artifact_concurrency=20 (> 15) → capped to 15, warning key present
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_write_artifacts_concurrency_above_15_capped_warns(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """artifact_concurrency=20 → capped to 15; all artifacts written; warning mentions 20 and 15;
+    asyncio.Semaphore is constructed with the effective value 15.
+    """
+    try:
+        from cairn_mcp.tools.write_artifacts import write_artifacts
+    except ImportError:
+        pytest.fail("cairn_mcp.tools.write_artifacts is not yet implemented")
+
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+    semaphore_spy = mocker.patch("asyncio.Semaphore", wraps=asyncio_module.Semaphore)
+    descriptors = [_make_descriptor(i) for i in range(3)]
+
+    result = await write_artifacts(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        artifacts=descriptors,
+        artifact_concurrency=20,
+    )
+
+    # All artifacts written
+    results = result.get("results", [])
+    assert len(results) == 3
+    for entry in results:
+        assert entry.get("written") is True, f"Expected written=True, got: {entry}"
+
+    # Warning key present mentioning requested (20) and effective (15) values
+    warning = result.get("warning", "")
+    assert warning, "Expected a non-empty 'warning' key in response"
+    assert "20" in warning, f"Warning should mention requested value 20; got: {warning}"
+    assert "15" in warning, f"Warning should mention effective cap 15; got: {warning}"
+
+    # Semaphore constructed with the effective (clamped) value 15
+    semaphore_values = [c.args[0] for c in semaphore_spy.call_args_list if c.args]
+    assert 15 in semaphore_values, (
+        f"Expected asyncio.Semaphore(15), got calls with values: {semaphore_values}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# C9 — artifact_concurrency=0 (< 1) → substituted to default 3, warning key present
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_write_artifacts_concurrency_below_1_substituted_warns(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """artifact_concurrency=0 → substituted to default 3; all artifacts written;
+    warning mentions 0 and 3; asyncio.Semaphore constructed with 3.
+    """
+    try:
+        from cairn_mcp.tools.write_artifacts import write_artifacts
+    except ImportError:
+        pytest.fail("cairn_mcp.tools.write_artifacts is not yet implemented")
+
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+    semaphore_spy = mocker.patch("asyncio.Semaphore", wraps=asyncio_module.Semaphore)
+    descriptors = [_make_descriptor(i) for i in range(3)]
+
+    result = await write_artifacts(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        artifacts=descriptors,
+        artifact_concurrency=0,
+    )
+
+    # All artifacts written
+    results = result.get("results", [])
+    assert len(results) == 3
+    for entry in results:
+        assert entry.get("written") is True, f"Expected written=True, got: {entry}"
+
+    # Warning key present mentioning supplied value (0) and default substitution (3)
+    warning = result.get("warning", "")
+    assert warning, "Expected a non-empty 'warning' key in response"
+    assert "0" in warning, f"Warning should mention the supplied value 0; got: {warning}"
+    assert "3" in warning, f"Warning should mention the default substitution 3; got: {warning}"
+
+    # Semaphore constructed with the effective (default) value 3
+    semaphore_values = [c.args[0] for c in semaphore_spy.call_args_list if c.args]
+    assert 3 in semaphore_values, (
+        f"Expected asyncio.Semaphore(3), got calls with values: {semaphore_values}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# C10 — artifact_concurrency omitted → default 3, no warning
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_write_artifacts_concurrency_omitted_defaults_to_3_no_warning(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """artifact_concurrency omitted → asyncio.Semaphore constructed with 3; no 'warning' key."""
+    try:
+        from cairn_mcp.tools.write_artifacts import write_artifacts
+    except ImportError:
+        pytest.fail("cairn_mcp.tools.write_artifacts is not yet implemented")
+
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+    semaphore_spy = mocker.patch("asyncio.Semaphore", wraps=asyncio_module.Semaphore)
+    descriptors = [_make_descriptor(i) for i in range(2)]
+
+    result = await write_artifacts(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        artifacts=descriptors,
+    )
+
+    # No warning key when using the default
+    assert "warning" not in result, (
+        f"No warning expected when artifact_concurrency is omitted; got: {result.get('warning')}"
+    )
+
+    # Semaphore constructed with default value 3
+    semaphore_values = [c.args[0] for c in semaphore_spy.call_args_list if c.args]
+    assert 3 in semaphore_values, (
+        f"Expected asyncio.Semaphore(3) for default concurrency, got: {semaphore_values}"
+    )

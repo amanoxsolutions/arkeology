@@ -100,9 +100,17 @@ format for each supported IDE.
 | `EMBED_MAX_SECTIONS` | No | `20` | Maximum number of `##` sections indexed per artifact. Sections beyond the cap are dropped from the vector index; full content is still stored in S3. Must be ≥ 1. |
 | `EMBED_MIN_SECTION_LENGTH` | No | `50` | Minimum body length (chars, stripped) for a section to be indexed. Sections shorter than this are dropped from the vector index. Set to `0` to disable. |
 | `EMBED_MAX_SECTION_LENGTH` | No | `24000` | Maximum body length (chars) per section before truncation for embedding. Set to `0` to disable. |
-| `ARTIFACT_CONCURRENCY` | No | `3` | Max artifacts processed concurrently by `write_artifacts` and `migrate_artifacts`. Must be ≥ 1. |
 | `BEDROCK_TEXT_MODEL` | No | *(unset)* | Bedrock text model used by `migrate_artifacts` to generate artifact descriptions server-side. When unset, server-side generation is disabled. Use a cross-region inference profile ID for your region (e.g. `eu.amazon.nova-lite-v1:0` for EU, `us.amazon.nova-lite-v1:0` for US cross-region) — the bare `amazon.nova-lite-v1:0` only works in `us-east-1`. |
 | `LOG_LEVEL` | No | `INFO` | Python logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
+
+## Per-call tool parameters
+
+Some parameters are passed per call rather than configured server-wide. They let individual
+callers tune behaviour without restarting the server.
+
+| Parameter | Tool(s) | Default | Behaviour |
+|---|---|---|---|
+| `artifact_concurrency` | `write_artifacts`, `migrate_artifacts` | `3` | Max artifacts processed concurrently. Values above 15 are capped to 15; values below 1 are substituted with the default 3. Both out-of-range cases return a `"warning"` field in the response. In-range values produce no warning. Keep `artifact_concurrency × SECTION_CONCURRENCY ≤ 15` as a safe Bedrock quota guideline (e.g. `artifact_concurrency=3` × `SECTION_CONCURRENCY=5` = 15 concurrent embed calls). |
 
 ## Running the server
 

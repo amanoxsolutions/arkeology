@@ -5,6 +5,14 @@ descriptor missing a description, Nova Lite (BEDROCK_TEXT_MODEL) is called to
 generate one. All descriptions are clipped to 280 characters. In dry_run mode the
 enriched descriptor list is returned without any writes. In live mode, the enriched
 descriptors are handed to write_artifacts for concurrent bulk write.
+
+The caller-supplied ``artifact_concurrency`` parameter (default 3, range [1, 15])
+controls both the Nova Lite description semaphore (dry_run phase) and is forwarded
+to write_artifacts for the write semaphore (live phase). Out-of-range values are
+clamped silently with a top-level ``"warning"`` field in the response.
+
+Note: A compound artifact_concurrency × section_concurrency ≤ ceiling validation
+is intentionally absent from this task; it is noted here as a future concern.
 """
 
 import asyncio
@@ -36,6 +44,8 @@ _DESCRIPTION_PROMPT = (
 )
 
 _MAX_DESCRIPTION_LENGTH = 280
+_ARTIFACT_CONCURRENCY_DEFAULT: int = 3
+_ARTIFACT_CONCURRENCY_MAX: int = 15
 
 
 def _clip_description(description: str, title: str) -> str:
@@ -60,6 +70,7 @@ async def migrate_artifacts(
     bedrock: BedrockClientInterface,
     descriptors: list[dict[str, Any]],
     dry_run: bool = True,
+    artifact_concurrency: int = _ARTIFACT_CONCURRENCY_DEFAULT,
 ) -> dict[str, Any]:
     """Migrate a list of artifact descriptors, generating missing descriptions via Nova Lite.
 
@@ -72,11 +83,17 @@ async def migrate_artifacts(
             missing descriptions are generated via BEDROCK_TEXT_MODEL.
         dry_run: When True, enrich descriptors and return them without writing to S3
             or S3 Vectors. When False, enrich and then delegate to write_artifacts.
+        artifact_concurrency: Maximum number of artifacts / Nova Lite calls processed
+            concurrently. Must be in [1, 15]. Values > 15 are capped to 15 (with a
+            warning). Values < 1 are substituted with the default 3 (with a warning).
+            Out-of-range values are never an error. Defaults to 3.
 
     Returns:
         ``dry_run=True``:  ``{"descriptors": [...]}`` — enriched descriptor list.
         ``dry_run=False``: ``{"results": [...]}`` — per-artifact write results from
             write_artifacts.
+        When ``artifact_concurrency`` is out of range, a top-level ``"warning"`` key
+        is included in the response.
     """
     try:
         return await _migrate_artifacts_inner(
@@ -86,6 +103,7 @@ async def migrate_artifacts(
             bedrock=bedrock,
             descriptors=descriptors,
             dry_run=dry_run,
+            artifact_concurrency=artifact_concurrency,
         )
     except Exception as exc:
         logger.exception("Unexpected error in migrate_artifacts")
@@ -100,8 +118,28 @@ async def _migrate_artifacts_inner(
     bedrock: BedrockClientInterface,
     descriptors: list[dict[str, Any]],
     dry_run: bool,
+    artifact_concurrency: int = _ARTIFACT_CONCURRENCY_DEFAULT,
 ) -> dict[str, Any]:
     """Inner implementation: enrich descriptions, then write or return."""
+    # ── Clamp artifact_concurrency to [1, 15] ────────────────────────────────
+    warning: str | None = None
+    if artifact_concurrency > _ARTIFACT_CONCURRENCY_MAX:
+        warning = (
+            f"artifact_concurrency={artifact_concurrency} exceeds the maximum of "
+            f"{_ARTIFACT_CONCURRENCY_MAX}; effective concurrency capped to "
+            f"{_ARTIFACT_CONCURRENCY_MAX}."
+        )
+        effective = _ARTIFACT_CONCURRENCY_MAX
+    elif artifact_concurrency < 1:
+        warning = (
+            f"artifact_concurrency={artifact_concurrency} is below the minimum of 1; "
+            f"effective concurrency substituted with the default "
+            f"{_ARTIFACT_CONCURRENCY_DEFAULT}."
+        )
+        effective = _ARTIFACT_CONCURRENCY_DEFAULT
+    else:
+        effective = artifact_concurrency
+
     # Defensive copy — never mutate the caller's list
     descriptors = [dict(d) for d in descriptors]
 
@@ -118,7 +156,7 @@ async def _migrate_artifacts_inner(
 
     # ── Step 2: generate missing descriptions concurrently ────────────────────
     if missing_indices:
-        semaphore = asyncio.Semaphore(settings.artifact_concurrency)
+        semaphore = asyncio.Semaphore(effective)
 
         async def generate_description(idx: int) -> tuple[int, str]:
             descriptor = descriptors[idx]
@@ -153,13 +191,20 @@ async def _migrate_artifacts_inner(
 
     # ── Step 4: dry_run → return enriched list without writing ────────────────
     if dry_run:
-        return {"descriptors": enriched}
+        response: dict[str, Any] = {"descriptors": enriched}
+        if warning is not None:
+            response["warning"] = warning
+        return response
 
     # ── Step 5: delegate to write_artifacts for the write phase ───────────────
-    return await _write_artifacts(
+    write_result = await _write_artifacts(
         settings=settings,
         s3=s3,
         vectors=vectors,
         bedrock=bedrock,
         artifacts=enriched,
+        artifact_concurrency=effective,
     )
+    if warning is not None:
+        return {**write_result, "warning": warning}
+    return write_result

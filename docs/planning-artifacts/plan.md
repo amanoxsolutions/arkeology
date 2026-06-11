@@ -2,7 +2,7 @@
 
 _Project: cairn-mcp_
 _Generated: 2026-05-29_ · _Last updated: 2026-06-09_
-_Status: **V1 — Phases 1–9 complete (unit + integration suite passing against live AWS; ruff + mypy clean; Apache 2.0 licensed; production-hardened; moto migration complete; write performance hardened; bulk write + migration tools; setting-up-cairn + sync-cairn-plugin skills; skill distribution via native plugin mechanisms) · Phase 10 (artifact commit references) T35–T38 planned, specs ready**_
+_Status: **V1 — Phases 1–9 complete (unit + integration suite passing against live AWS; ruff + mypy clean; Apache 2.0 licensed; production-hardened; moto migration complete; write performance hardened; bulk write + migration tools; setting-up-cairn + sync-cairn-plugin skills; skill distribution via native plugin mechanisms) · Phase 10 (artifact commit references + caller-controlled concurrency) T35–T38 planned, specs ready · T39 complete**_
 
 ---
 
@@ -286,7 +286,8 @@ time-range discovery scoped to the current session.
 
 **Execution order:** T35 is an independent prerequisite (filter.py only); T36 depends on
 T35 and must complete before T37 and T38; T37 and T38 can be worked in parallel once T36
-merges. This track is independent of T31, T32, T33, and T34 — no shared files.
+merges. T39 is independent of T35–T38 and can be worked at any point. This track is
+independent of T31, T32, T33, and T34 — no shared files.
 
 35. ☐ **Filter range operators ($gte / $lte)** *(prerequisite — filter.py only; no tool changes)* — add `$gte` and `$lte` inclusive string-comparison operators to `filter.py`; update module docstring (FR-30)
     - Done when: `matches_filter(meta, {"field": {"$gte": v}})` returns `True` iff `meta["field"] >= v`; `$lte` symmetric; absent field → `False`; combined `$and` interval works; `$gt` / `$lt` (strict) raise `ValueError`; all existing operator tests pass; ruff + mypy clean
@@ -305,6 +306,11 @@ merges. This track is independent of T31, T32, T33, and T34 — no shared files.
     - Done when: `link_commit` appends SHA to all section vectors without Bedrock call; existing SHA not duplicated; foreign-scope IDs skipped and counted; `next_since_ulid` returned; two successive calls produce monotonically non-decreasing cursors; Bedrock `embed` never called (verified by spy); credential errors return structured responses; AGENTS.md snippet includes session-start ULID capture, post-commit proposal, confirmation, linking, and cursor-advance steps; known reconcile limitation documented in module docstring; ruff + mypy clean
     - Spec: `docs/specs/p10-t38-link-commit.md`
     - **Known limitation (V1)**: commit references are stored in vector metadata only; `reconcile_index` will drop them on any reconcile run — documented in spec and module docstring; S3 `copy_object` update deferred to a future milestone
+
+39. ✅ **Caller-controlled `artifact_concurrency` on `write_artifacts` and `migrate_artifacts`** — remove `ARTIFACT_CONCURRENCY` from `Settings` (field, validator, and property); add `artifact_concurrency: int = 3` optional parameter to `write_artifacts` and `migrate_artifacts`; out-of-range values are never rejected — above 15 capped to 15, below 1 substituted with default 3, both with a top-level `warning` field in the response; thread `artifact_concurrency` from `migrate_artifacts` through to `_write_artifacts_inner` for the `dry_run=False` path; update migration skill: (1) recommend `min(file_count, 15)` with quota context and confirm with operator, (2) batch 3.B3 and 3.B5 calls by `artifact_concurrency` (batch_size = artifact_concurrency) so the operator receives progress updates after each batch; update all unit tests that previously set `ARTIFACT_CONCURRENCY` via `monkeypatch.setenv` to pass the parameter directly; remove config-level tests for the deleted env var (FR-23, FR-25, FR-26, NFR-14, NFR-15)
+    - Done when: `write_artifacts(artifact_concurrency=10, ...)` processes at most 10 artifacts concurrently (verified by semaphore spy); `write_artifacts(artifact_concurrency=20, ...)` caps to 15, writes all artifacts successfully, and returns `{"results": [...], "warning": "..."}` with a non-empty warning; `write_artifacts(artifact_concurrency=0, ...)` substitutes 3, writes all artifacts, and returns a warning; `migrate_artifacts(dry_run=True, artifact_concurrency=20, ...)` caps and warns; `migrate_artifacts(dry_run=False, artifact_concurrency=3, ...)` passes 3 to `write_artifacts`; `ARTIFACT_CONCURRENCY` env var has no effect; migration skill asks operator for `artifact_concurrency`, batches 3.B3 calls by that value and reports progress after each batch, does the same for 3.B5; all existing unit tests pass; ruff + mypy clean
+    - Brainstorming: `docs/brainstorming/brainstorming-2026-06-10-migrate-artifacts-concurrency.md`
+    - Spec: `docs/specs/p10-t39-caller-controlled-artifact-concurrency.md` *(spec ready)*
 
 ---
 
@@ -338,6 +344,8 @@ merges. This track is independent of T31, T32, T33, and T34 — no shared files.
 - [`docs/specs/p10-t36-commit-refs-metadata-fields.md`](../specs/p10-t36-commit-refs-metadata-fields.md)
 - [`docs/specs/p10-t37-propose-commit-links.md`](../specs/p10-t37-propose-commit-links.md)
 - [`docs/specs/p10-t38-link-commit.md`](../specs/p10-t38-link-commit.md)
+- [`docs/specs/p10-t39-caller-controlled-artifact-concurrency.md`](../specs/p10-t39-caller-controlled-artifact-concurrency.md)
+- [`docs/brainstorming/brainstorming-2026-06-10-migrate-artifacts-concurrency.md`](../brainstorming/brainstorming-2026-06-10-migrate-artifacts-concurrency.md)
 - [`docs/brainstorming/brainstorming-2026-06-08-skill-distribution.md`](../brainstorming/brainstorming-2026-06-08-skill-distribution.md)
 - [`docs/specs/p9-t33a-opencode-js-plugin.md`](../specs/p9-t33a-opencode-js-plugin.md)
 - [`docs/specs/p9-t33b-claude-code-plugin.md`](../specs/p9-t33b-claude-code-plugin.md)

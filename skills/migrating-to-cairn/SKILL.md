@@ -210,7 +210,14 @@ date, and description. Wait for explicit confirmation.
 
 ### 3.A3 — Execute
 
-Call `migrate_artifacts` with `dry_run=False` and the full descriptor list.
+Compute `artifact_concurrency = min(file_count, 15)`. Explain to the operator: this
+controls both how many artifacts write concurrently server-side and how many descriptors
+are sent per call (for ≤ 10 files this is typically the full list in one call). Note the
+Bedrock ~100 req/s Titan ceiling. Ask the operator to confirm or supply their own value.
+Use the confirmed value in the call.
+
+Call `migrate_artifacts` with `dry_run=False`, `artifact_concurrency=<confirmed_value>`,
+and the full descriptor list.
 Since all descriptions are agent-provided, the server writes them as-is.
 
 If any entry in the response carries `error`:
@@ -301,12 +308,22 @@ For every `status: pending` entry, read the file at `path`. Build a descriptor:
 > Every descriptor must have a non-empty `content`. If any is missing,
 > go back and read that file now.
 
-Call `migrate_artifacts` with `dry_run=True` and this descriptor list.
+Compute `artifact_concurrency = min(file_count, 15)`. Explain to the operator: this
+controls how many Nova Lite description calls run concurrently per batch AND how many
+descriptors are sent per call — so `artifact_concurrency=15` means 15 descriptions
+generated concurrently in each batch, and you will receive a progress update after every
+15 files. Note the Bedrock ~100 req/s Titan ceiling. Ask the operator to confirm or
+supply their own value.
 
-The response contains enriched descriptors with server-generated descriptions clipped
-to ≤ 280 chars. For every entry that did not already have a `description_override`,
-write the server-generated description back into `CAIRN_IMPORT.yaml` as
-`description_override`.
+Split the pending descriptor list into batches of `artifact_concurrency`. For each batch:
+call `migrate_artifacts(dry_run=True, artifact_concurrency=<confirmed_value>, descriptors=batch)`,
+write the returned descriptions back to `CAIRN_IMPORT.yaml` as `description_override`,
+and report progress (e.g. "Described 15 of 95 files"). Continue until all batches are
+processed.
+
+*(stdio workaround — when Streamable HTTP + SSE is available, replace this loop with a
+single call that receives per-description SSE events; the artifact_concurrency parameter
+and the concurrency explanation above remain unchanged.)*
 
 ### 3.B4 — Operator review
 
@@ -333,9 +350,23 @@ Re-read `CAIRN_IMPORT.yaml`. For every `status: pending` entry, read the file at
 `description_override` field is now populated for every entry, so server-side
 generation is not triggered.
 
-Call `migrate_artifacts` with `dry_run=False` and this descriptor list.
+Compute `artifact_concurrency = min(file_count, 15)`. Explain to the operator: in the
+write phase each concurrent artifact also runs up to `SECTION_CONCURRENCY` (default 5)
+Titan embedding calls, so `artifact_concurrency=15` at default settings means up to 75
+concurrent Bedrock embedding calls — 25% headroom under the 100 req/s ceiling. Batching
+by this value means a progress update after every `artifact_concurrency` files written.
+Ask the operator to confirm or supply a lower value if concerned about quota.
 
-After the call, update `CAIRN_IMPORT.yaml` for every entry:
+Split the pending descriptor list into batches of `artifact_concurrency`. For each batch:
+call `migrate_artifacts(dry_run=False, artifact_concurrency=<confirmed_value>, descriptors=batch)`,
+update `CAIRN_IMPORT.yaml` statuses (written/failed), and report progress (e.g.
+"Written 15 of 95 files"). Continue until all batches are processed.
+
+*(stdio workaround — when Streamable HTTP + SSE is available, replace this loop with a
+single call; the artifact_concurrency parameter and the concurrency explanation above
+remain unchanged.)*
+
+After all batches, update `CAIRN_IMPORT.yaml` for every entry:
 - `written: true` in the response → set `status: written`
 - `error` in the response → set `status: failed` and record the error in an
   `error:` field on that manifest entry

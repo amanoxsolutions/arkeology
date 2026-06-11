@@ -1,10 +1,14 @@
 """cairn_mcp.tools.write_artifacts — bulk concurrent artifact write MCP tool.
 
 Accepts a list of artifact descriptors and writes all of them concurrently,
-bounded by ARTIFACT_CONCURRENCY. Each entry delegates to _write_artifact_inner
-so all write path logic (section embedding, orphan cleanup, failure logging) is
-inherited from the single implementation. Partial failures are isolated: a failed
-entry is recorded with an error field while all other entries continue.
+bounded by the caller-supplied artifact_concurrency parameter (default 3).
+Each entry delegates to _write_artifact_inner so all write path logic (section
+embedding, orphan cleanup, failure logging) is inherited from the single
+implementation. Partial failures are isolated: a failed entry is recorded with
+an error field while all other entries continue.
+
+Note: A compound artifact_concurrency × section_concurrency ≤ ceiling validation
+is intentionally absent from this task; it is noted here as a future concern.
 """
 
 import asyncio
@@ -42,6 +46,10 @@ def _validate_descriptor(descriptor: dict[str, Any]) -> str | None:
     return None
 
 
+_ARTIFACT_CONCURRENCY_DEFAULT: int = 3
+_ARTIFACT_CONCURRENCY_MAX: int = 15
+
+
 async def write_artifacts(
     *,
     settings: Settings,
@@ -49,6 +57,7 @@ async def write_artifacts(
     vectors: VectorsClientInterface,
     bedrock: BedrockClientInterface,
     artifacts: list[dict[str, Any]],
+    artifact_concurrency: int = _ARTIFACT_CONCURRENCY_DEFAULT,
 ) -> dict[str, Any]:
     """Write a list of artifact descriptors concurrently.
 
@@ -59,11 +68,17 @@ async def write_artifacts(
         bedrock: Bedrock client for embedding generation.
         artifacts: List of artifact descriptor dicts. Each must contain the same
             fields as write_artifact; ``description`` is required.
+        artifact_concurrency: Maximum number of artifacts processed concurrently.
+            Must be in [1, 15]. Values > 15 are capped to 15 (with a warning in
+            the response). Values < 1 are substituted with the default 3 (with a
+            warning). Out-of-range values are never an error. Defaults to 3.
 
     Returns:
         ``{"results": [...]}`` where each entry corresponds positionally to the
         input descriptor. Successful entries carry ``written=True``, ``artifact_id``,
         and ``sections_indexed``; failed entries carry ``error`` and ``message``.
+        When ``artifact_concurrency`` is out of range, a top-level ``"warning"`` key
+        is included in the response.
     """
     try:
         return await _write_artifacts_inner(
@@ -72,6 +87,7 @@ async def write_artifacts(
             vectors=vectors,
             bedrock=bedrock,
             artifacts=artifacts,
+            artifact_concurrency=artifact_concurrency,
         )
     except Exception as exc:
         logger.exception("Unexpected error in write_artifacts")
@@ -85,9 +101,29 @@ async def _write_artifacts_inner(
     vectors: VectorsClientInterface,
     bedrock: BedrockClientInterface,
     artifacts: list[dict[str, Any]],
+    artifact_concurrency: int = _ARTIFACT_CONCURRENCY_DEFAULT,
 ) -> dict[str, Any]:
-    """Inner implementation: concurrent writes bounded by ARTIFACT_CONCURRENCY."""
-    semaphore = asyncio.Semaphore(settings.artifact_concurrency)
+    """Inner implementation: concurrent writes bounded by artifact_concurrency."""
+    # ── Clamp artifact_concurrency to [1, 15] ────────────────────────────────
+    warning: str | None = None
+    if artifact_concurrency > _ARTIFACT_CONCURRENCY_MAX:
+        warning = (
+            f"artifact_concurrency={artifact_concurrency} exceeds the maximum of "
+            f"{_ARTIFACT_CONCURRENCY_MAX}; effective concurrency capped to "
+            f"{_ARTIFACT_CONCURRENCY_MAX}."
+        )
+        effective = _ARTIFACT_CONCURRENCY_MAX
+    elif artifact_concurrency < 1:
+        warning = (
+            f"artifact_concurrency={artifact_concurrency} is below the minimum of 1; "
+            f"effective concurrency substituted with the default "
+            f"{_ARTIFACT_CONCURRENCY_DEFAULT}."
+        )
+        effective = _ARTIFACT_CONCURRENCY_DEFAULT
+    else:
+        effective = artifact_concurrency
+
+    semaphore = asyncio.Semaphore(effective)
 
     async def write_one(descriptor: dict[str, Any]) -> dict[str, Any]:
         async with semaphore:
@@ -127,4 +163,7 @@ async def _write_artifacts_inner(
                 return {"error": "internal_error", "message": str(exc)}
 
     raw_results = await asyncio.gather(*[write_one(d) for d in artifacts])
-    return {"results": list(raw_results)}
+    response: dict[str, Any] = {"results": list(raw_results)}
+    if warning is not None:
+        response["warning"] = warning
+    return response

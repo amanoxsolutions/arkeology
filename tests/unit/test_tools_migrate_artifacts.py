@@ -6,6 +6,7 @@ with create=True so the spy exists even before FakeBedrockClient.invoke_text_mod
 is implemented.
 """
 
+import asyncio as asyncio_module
 import logging
 from typing import Any
 
@@ -399,9 +400,7 @@ async def test_migrate_artifacts_concurrency_2_limits_nova_calls(
     except ImportError:
         pytest.fail("cairn_mcp.tools.migrate_artifacts is not yet implemented")
 
-    settings = _make_settings(
-        monkeypatch, ARTIFACT_CONCURRENCY="2", BEDROCK_TEXT_MODEL="amazon.nova-lite-v1:0"
-    )
+    settings = _make_settings(monkeypatch, BEDROCK_TEXT_MODEL="amazon.nova-lite-v1:0")
     bedrock = FakeBedrockClient(dimension=1024)
     mock_invoke = mocker.patch.object(
         bedrock, "invoke_text_model", create=True, return_value=_FAKE_DESCRIPTION
@@ -416,6 +415,7 @@ async def test_migrate_artifacts_concurrency_2_limits_nova_calls(
         settings=settings,
         descriptors=descriptors,
         dry_run=True,
+        artifact_concurrency=2,
     )
 
     assert mock_invoke.call_count == 4, (
@@ -481,3 +481,219 @@ async def test_migrate_artifacts_missing_description_no_text_model_returns_error
     assert mock_invoke.call_count == 0, (
         "invoke_text_model must not be called when BEDROCK_TEXT_MODEL is not configured"
     )
+
+
+# ---------------------------------------------------------------------------
+# E10 — artifact_concurrency=20 (> 15) → capped to 15, warning key, semaphore=15
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_migrate_artifacts_concurrency_above_15_capped_warns(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """artifact_concurrency=20 with missing descriptions → capped to 15;
+    warning key present; bedrock.invoke_text_model called with description semaphore of 15.
+    """
+    try:
+        from cairn_mcp.tools.migrate_artifacts import migrate_artifacts
+    except ImportError:
+        pytest.fail("cairn_mcp.tools.migrate_artifacts is not yet implemented")
+
+    settings = _make_settings(monkeypatch, BEDROCK_TEXT_MODEL="amazon.nova-lite-v1:0")
+    bedrock = FakeBedrockClient(dimension=1024)
+    mock_invoke = mocker.patch.object(
+        bedrock, "invoke_text_model", create=True, return_value=_FAKE_DESCRIPTION
+    )
+    semaphore_spy = mocker.patch("asyncio.Semaphore", wraps=asyncio_module.Semaphore)
+
+    descriptors = [_make_descriptor(i, with_description=False) for i in range(3)]
+
+    result = await migrate_artifacts(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        descriptors=descriptors,
+        dry_run=True,
+        artifact_concurrency=20,
+    )
+
+    # Descriptions generated and returned
+    enriched = result.get("descriptors", [])
+    assert len(enriched) == 3, f"Expected 3 enriched descriptors, got {len(enriched)}"
+    assert mock_invoke.call_count == 3, f"Expected 3 Nova Lite calls, got {mock_invoke.call_count}"
+
+    # Warning key present
+    warning = result.get("warning", "")
+    assert warning, "Expected a non-empty 'warning' key in response"
+    assert "20" in warning, f"Warning should mention requested value 20; got: {warning}"
+    assert "15" in warning, f"Warning should mention effective cap 15; got: {warning}"
+
+    # Description semaphore constructed with effective value 15
+    semaphore_values = [c.args[0] for c in semaphore_spy.call_args_list if c.args]
+    assert 15 in semaphore_values, (
+        f"Expected asyncio.Semaphore(15) for description phase, got: {semaphore_values}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# E11 — artifact_concurrency=0 (< 1) → substituted to default 3, warning key, semaphore=3
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_migrate_artifacts_concurrency_below_1_substituted_warns(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """artifact_concurrency=0 with missing descriptions → substituted to default 3;
+    warning key present; description semaphore constructed with 3.
+    """
+    try:
+        from cairn_mcp.tools.migrate_artifacts import migrate_artifacts
+    except ImportError:
+        pytest.fail("cairn_mcp.tools.migrate_artifacts is not yet implemented")
+
+    settings = _make_settings(monkeypatch, BEDROCK_TEXT_MODEL="amazon.nova-lite-v1:0")
+    bedrock = FakeBedrockClient(dimension=1024)
+    mock_invoke = mocker.patch.object(
+        bedrock, "invoke_text_model", create=True, return_value=_FAKE_DESCRIPTION
+    )
+    semaphore_spy = mocker.patch("asyncio.Semaphore", wraps=asyncio_module.Semaphore)
+
+    descriptors = [_make_descriptor(i, with_description=False) for i in range(3)]
+
+    result = await migrate_artifacts(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        descriptors=descriptors,
+        dry_run=True,
+        artifact_concurrency=0,
+    )
+
+    # Descriptions generated and returned
+    enriched = result.get("descriptors", [])
+    assert len(enriched) == 3, f"Expected 3 enriched descriptors, got {len(enriched)}"
+    assert mock_invoke.call_count == 3, f"Expected 3 Nova Lite calls, got {mock_invoke.call_count}"
+
+    # Warning key present
+    warning = result.get("warning", "")
+    assert warning, "Expected a non-empty 'warning' key in response"
+    assert "0" in warning, f"Warning should mention supplied value 0; got: {warning}"
+    assert "3" in warning, f"Warning should mention default substitution 3; got: {warning}"
+
+    # Description semaphore constructed with effective (default) value 3
+    semaphore_values = [c.args[0] for c in semaphore_spy.call_args_list if c.args]
+    assert 3 in semaphore_values, (
+        f"Expected asyncio.Semaphore(3) for description phase, got: {semaphore_values}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# E12 — dry_run=True, artifact_concurrency=5 → semaphore=5, no warning
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_migrate_artifacts_in_range_concurrency_5_dry_run_true_uses_semaphore_5(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """dry_run=True, artifact_concurrency=5 (in-range) → description semaphore constructed
+    with 5; no 'warning' key in response.
+    """
+    try:
+        from cairn_mcp.tools.migrate_artifacts import migrate_artifacts
+    except ImportError:
+        pytest.fail("cairn_mcp.tools.migrate_artifacts is not yet implemented")
+
+    settings = _make_settings(monkeypatch, BEDROCK_TEXT_MODEL="amazon.nova-lite-v1:0")
+    bedrock = FakeBedrockClient(dimension=1024)
+    mocker.patch.object(bedrock, "invoke_text_model", create=True, return_value=_FAKE_DESCRIPTION)
+    semaphore_spy = mocker.patch("asyncio.Semaphore", wraps=asyncio_module.Semaphore)
+
+    # Descriptors with missing descriptions to trigger semaphore creation
+    descriptors = [_make_descriptor(i, with_description=False) for i in range(3)]
+
+    result = await migrate_artifacts(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        descriptors=descriptors,
+        dry_run=True,
+        artifact_concurrency=5,
+    )
+
+    # No warning for in-range value
+    assert "warning" not in result, (
+        f"No warning expected for in-range artifact_concurrency=5; got: {result.get('warning')}"
+    )
+
+    # Description semaphore constructed with 5
+    semaphore_values = [c.args[0] for c in semaphore_spy.call_args_list if c.args]
+    assert 5 in semaphore_values, (
+        f"Expected asyncio.Semaphore(5) for description phase, got: {semaphore_values}"
+    )
+
+    enriched = result.get("descriptors", [])
+    assert len(enriched) == 3
+
+
+# ---------------------------------------------------------------------------
+# E13 — dry_run=False, artifact_concurrency=7 → write_artifacts semaphore=7
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_migrate_artifacts_in_range_concurrency_5_dry_run_false_forwards_5(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """dry_run=False, artifact_concurrency=7 → write_artifacts semaphore constructed with 7."""
+    try:
+        from cairn_mcp.tools.migrate_artifacts import migrate_artifacts
+    except ImportError:
+        pytest.fail("cairn_mcp.tools.migrate_artifacts is not yet implemented")
+
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+    mocker.patch.object(bedrock, "invoke_text_model", create=True, return_value=_FAKE_DESCRIPTION)
+    semaphore_spy = mocker.patch("asyncio.Semaphore", wraps=asyncio_module.Semaphore)
+
+    # All descriptors have descriptions — no description semaphore, only write semaphore
+    descriptors = [_make_descriptor(i, with_description=True) for i in range(3)]
+
+    result = await migrate_artifacts(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        descriptors=descriptors,
+        dry_run=False,
+        artifact_concurrency=7,
+    )
+
+    # Write semaphore forwarded from migrate_artifacts and constructed with 7
+    semaphore_values = [c.args[0] for c in semaphore_spy.call_args_list if c.args]
+    assert 7 in semaphore_values, (
+        f"Expected asyncio.Semaphore(7) forwarded to write_artifacts, got: {semaphore_values}"
+    )
+
+    # All artifacts written successfully
+    results = result.get("results", [])
+    assert len(results) == 3
+    for entry in results:
+        assert entry.get("written") is True, f"Expected written=True, got: {entry}"
