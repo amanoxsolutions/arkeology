@@ -106,7 +106,7 @@ class FakeBedrockClient:
         for attempt in range(2):
             try:
                 return self._do_embed(text, dimensions)
-            except (ThrottlingError, ModelTimeoutError):
+            except ThrottlingError, ModelTimeoutError:
                 if attempt == 1:
                     raise
         raise RuntimeError("Unreachable: retry loop always returns or raises")

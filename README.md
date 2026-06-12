@@ -138,7 +138,7 @@ skill or starting the server manually:
 - **IAM credentials** with the minimum runtime permissions listed in the
   [Server Reference](SERVER-REFERENCE.md#minimum-iam-policy)
 - **AWS CLI** configured with the above credentials
-- **Python ≥ 3.12** and [`uv`](https://docs.astral.sh/uv/)
+- **Python ≥ 3.14** and [`uv`](https://docs.astral.sh/uv/)
 
 ---
 

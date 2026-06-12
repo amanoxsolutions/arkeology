@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Minimum Python version raised from 3.12 to 3.14; `.python-version`, `pyproject.toml` `requires-python`, and `[tool.mypy] python_version` updated accordingly
+
 ## [0.3.1] - 2026-06-11
 
 ### Added
