@@ -141,10 +141,11 @@ async def write_artifact(
         feature_tags: Optional list of tag strings.
         author_role: Optional author role.
         source_artifacts: Optional list of source artifact IDs.
+        commit_refs: Optional list of git commit SHAs to pre-link this artifact.
         status: ``"active"`` (default) or ``"inactive"``.
 
     Returns:
-        On success: ``{"artifact_id": str, "sections_indexed": int}``
+        On success: ``{"artifact_id": str, "sections_indexed": int, "last_edited_ulid": str}``
         On error: ``{"error": str, "message": str}``
     """
     tags: list[str] = feature_tags if feature_tags is not None else []

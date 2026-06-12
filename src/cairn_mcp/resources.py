@@ -64,7 +64,7 @@ by the caller.
 
 | Field | Type | Notes |
 |-------|------|-------|
-| `last_edited_ulid` | string | ULID assigned at every `write_artifact` call; monotonically increasing — use as `since_ulid` in `propose_commit_links` to bound discovery to the current session |
+| `last_edited_ulid` | string | Write-time ULID; use as `since_ulid` in `propose_commit_links` |
 
 ## Valid artifact types
 

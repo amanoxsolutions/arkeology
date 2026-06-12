@@ -74,6 +74,7 @@ def _seed_standard(vectors: VectorsClientImpl) -> None:
     D: foreign-scope, no commit_refs → foreign, excluded
     """
     # artifact-A: own scope, old ULID, no commit_refs
+    # 'commit_refs' key absent — production write_artifact omits it when empty
     vectors.put_vector(
         "artifacts/artifact-a#summary",
         _unit_vec(1.0),
@@ -81,11 +82,11 @@ def _seed_standard(vectors: VectorsClientImpl) -> None:
             **_BASE_META,
             "artifact_id": "artifacts/artifact-a",
             "last_edited_ulid": ULID_LOW,
-            "commit_refs": [],
             "title": "Artifact A",
         },
     )
     # artifact-B: own scope, new ULID, no commit_refs
+    # 'commit_refs' key absent — production write_artifact omits it when empty
     vectors.put_vector(
         "artifacts/artifact-b#summary",
         _unit_vec(0.9),
@@ -93,7 +94,6 @@ def _seed_standard(vectors: VectorsClientImpl) -> None:
             **_BASE_META,
             "artifact_id": "artifacts/artifact-b",
             "last_edited_ulid": ULID_HIGH,
-            "commit_refs": [],
             "title": "Artifact B",
         },
     )
@@ -110,6 +110,7 @@ def _seed_standard(vectors: VectorsClientImpl) -> None:
         },
     )
     # artifact-D: foreign scope, no commit_refs
+    # 'commit_refs' key absent — production write_artifact omits it when empty
     vectors.put_vector(
         "other-team/artifact-d#summary",
         _unit_vec(0.7),
@@ -117,7 +118,6 @@ def _seed_standard(vectors: VectorsClientImpl) -> None:
             **_BASE_META,
             "artifact_id": "other-team/artifact-d",
             "scope": "other-team",
-            "commit_refs": [],
             "title": "Artifact D",
         },
     )
@@ -347,6 +347,53 @@ async def test_missing_last_edited_ulid_yields_null_fields_and_is_candidate(
     assert legacy["last_edited_at"] is None
 
 
+async def test_legacy_artifact_excluded_when_since_ulid_provided(
+    monkeypatch: pytest.MonkeyPatch,
+    vectors_client_2: VectorsClientImpl,
+) -> None:
+    """Legacy artifact (no last_edited_ulid) is excluded when since_ulid is given.
+
+    The $gte filter returns False for a None field value, so legacy artifacts
+    can never satisfy last_edited_ulid >= since_ulid and must be absent from results.
+    """
+    settings = _make_settings(monkeypatch)
+    # Legacy artifact: own-scope, no last_edited_ulid, no commit_refs
+    vectors_client_2.put_vector(
+        "artifacts/legacy#summary",
+        _unit_vec(0.5),
+        {
+            **_BASE_META,
+            "artifact_id": "artifacts/legacy",
+            "title": "Legacy artifact",
+            # no last_edited_ulid — pre-T36 artifact
+        },
+    )
+    # Modern artifact: own-scope, ULID_HIGH, no commit_refs
+    vectors_client_2.put_vector(
+        "artifacts/modern#summary",
+        _unit_vec(0.6),
+        {
+            **_BASE_META,
+            "artifact_id": "artifacts/modern",
+            "last_edited_ulid": ULID_HIGH,
+            "title": "Modern artifact",
+        },
+    )
+
+    result = await propose_commit_links(
+        settings=settings,
+        s3=None,
+        vectors=vectors_client_2,
+        bedrock=None,
+        commit_sha=COMMIT_SHA,
+        since_ulid=ULID_MID,
+    )
+
+    ids = [e["artifact_id"] for e in result["proposed"]]
+    assert "artifacts/legacy" not in ids, "Legacy artifact must be excluded by $gte filter"
+    assert "artifacts/modern" in ids, "Modern artifact (ULID_HIGH >= ULID_MID) must be included"
+
+
 # ---------------------------------------------------------------------------
 # Story 4 — Foreign-scope excluded
 # ---------------------------------------------------------------------------
@@ -383,11 +430,11 @@ async def test_multiple_section_vectors_deduplicated(
 ) -> None:
     """Two section vectors for same artifact → exactly one entry in proposed."""
     settings = _make_settings(monkeypatch)
+    # 'commit_refs' key absent — production write_artifact omits it when empty
     meta = {
         **_BASE_META,
         "artifact_id": "artifacts/multi-section",
         "last_edited_ulid": ULID_HIGH,
-        "commit_refs": [],
         "title": "Multi-section artifact",
     }
     vectors_client_2.put_vector("artifacts/multi-section#summary", _unit_vec(1.1), meta)
