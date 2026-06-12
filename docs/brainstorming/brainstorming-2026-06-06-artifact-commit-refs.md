@@ -33,10 +33,22 @@ decisions_locked:
   - D10: link_commit returns next_since_ulid in its response; write_artifact returns last_edited_ulid in its response
   - D11: since_ulid is optional in propose_commit_links; when absent, returns all unlinked artifacts in own scope regardless of age
 decisions_pending:
-  - Path 1 (Claude Code PostToolUse mcp_tool hook) and Path 3 (git hook + cairn CLI) — deferred to installation skill milestone
+  - Path 1 (Claude Code PostToolUse mcp_tool hook) and Path 3 (git hook + cairn CLI) — deferred to installation skill milestone (see Known Limitations and Deferred Features)
   - A dedicated .cairn/config.sh written by the installation skill as the tool-agnostic config source for Path 3
-  - S3 object metadata update for commit_refs — deferred; would make commit_refs visible in read_artifact and survive reconcile_index without re-linking
-  - Migration skill backfill of commit_refs from git history — three-option operator choice (see Open Questions)
+decisions_locked:
+  - D1: commit_refs as the metadata field name (list[str], opaque format — full SHA, short SHA, PR URL, tag all valid)
+  - D2: last_edited_ulid as the write-time field (ULID generated on every write_artifact call, stored in S3 and vector metadata)
+  - D3: python-ulid as the ULID library dependency
+  - D4: $gte/$lte range operators must be added to filter.py as a prerequisite
+  - D5: two tools — propose_commit_links (read-only discovery) and link_commit (write, vector metadata only in V1)
+  - D6: link_commit updates vector metadata only in V1; known limitation — reconcile_index will not restore commit_refs (documented, not silent)
+  - D7: link_commit appends to existing commit_refs (merge + deduplicate, not replace)
+  - D8: V1 trigger mechanism is Path 2 — agent-driven via AGENTS.md protocol (tool-agnostic)
+  - D9: propose_commit_links fetches all artifacts in time range then filters client-side for missing commit_refs (avoids needing $exists operator)
+  - D10: link_commit returns next_since_ulid in its response; write_artifact returns last_edited_ulid in its response
+  - D11: since_ulid is optional in propose_commit_links; when absent, returns all unlinked artifacts in own scope regardless of age
+  - D12: migration skill default is do not backfill commit_refs; all three options (do not backfill, set migration timestamp, backfill from git history) remain available to the operator
+  - D13: S3 object metadata update for commit_refs (copy_object) is out of scope; commit_refs is read from vector metadata by read_artifact — no copy_object needed for read visibility
 decisions_closed_not_applicable:
   - Direction 1 (caller-supplied commit_refs at write time) — caller may not know the SHA at write time; post-write annotation is the right model
   - Direction 2 (CAIRN_GIT_COMMIT env var) — does not solve interactive sessions; deferred
@@ -44,6 +56,8 @@ decisions_closed_not_applicable:
   - OQ1 + OQ4 (session-start ULID ergonomics) — resolved: Bash call at session start, link_commit returns next_since_ulid, since_ulid optional
   - OQ2 (S3 object metadata for commit_refs) — resolved as D6: vector-only in V1, reconcile limitation documented
   - OQ3 (commit_refs filtering in list/search) — resolved: add commit_refs filter parameter to list_artifacts mirroring feature_tags pattern
+  - Migration skill backfill open question — resolved as D12: do not backfill is the default; all three options remain available
+  - S3 copy_object for commit_refs open question — resolved as D13: out of scope; read_artifact reads vector metadata directly
 ---
 
 # Artifact Commit References
@@ -382,34 +396,61 @@ These changes are required before `propose_commit_links` can be implemented:
 
 ---
 
-### Open Questions
+### Resolved Questions
 
-1. **Migration skill backfill of `commit_refs`.**
-   When running the `migrating-to-cairn` skill on an existing project, each migrated artifact
-   could optionally be linked to its historical git commit. The skill should offer the operator
-   three choices:
+**Migration skill backfill of `commit_refs` (→ D12).**
+When running the `migrating-to-cairn` skill on an existing project, each migrated artifact
+may optionally be linked to its historical git commit. The default is **do not backfill**;
+the skill offers the operator three choices:
 
-   | Option | Behaviour | Trade-offs |
-   |---|---|---|
-   | **Do not backfill** (default) | `commit_refs` left empty on all migrated artifacts | Safe, fast, zero git calls |
-   | **Fill with current timestamp** | `commit_refs` left empty; `last_edited_ulid` set to migration time | Not historically accurate; primarily useful for establishing a timestamp baseline |
-   | **Backfill from git history** | For each file, run `git log -1 --format=%H -- <filepath>` then call `link_commit` | Most accurate; warn upfront that it is O(n) git calls and can be slow and costly for projects with many files |
+| Option | Behaviour | Trade-offs |
+|---|---|---|
+| **Do not backfill** (default) | `commit_refs` left empty on all migrated artifacts | Safe, fast, zero git calls |
+| **Fill with migration timestamp** | `commit_refs` left empty; `last_edited_ulid` set to migration time | Not historically accurate; useful for establishing a timestamp baseline |
+| **Backfill from git history** | For each file, run `git log -1 --format=%H -- <filepath>` then call `link_commit` | Most accurate; O(n) git calls — warn the operator upfront for large projects |
 
-   The `git log -1` approach yields the SHA of the last commit that touched each file — the most
-   semantically correct association. Commits may be arbitrarily old (pre-dating cairn-mcp
-   adoption), which is fine and expected.
+The `git log -1` approach yields the SHA of the last commit that touched each file — the most
+semantically correct association. Commits may be arbitrarily old (pre-dating cairn-mcp
+adoption), which is expected.
 
-2. **Deferred paths (installation skill milestone).**
-   - Path 1: Claude Code `PostToolUse` hook with `type: "mcp_tool"` calling `propose_commit_links`
-     then `link_commit` automatically after `git commit`
-   - Path 1b: OpenCode JS plugin with `tool.execute.after` → shell command (limited to
-     non-interactive auto-link or pending-file approach)
-   - Path 3: `cairn link-commit` CLI entry point + `.cairn/config.sh` written by the
-     installation skill + `post-commit` git hook installation
+---
 
-3. **S3 object metadata update for `commit_refs` (future milestone).**
-   Adding `copy_object` to self in `link_commit` would: (a) make `commit_refs` visible in
-   `read_artifact` responses, and (b) allow `reconcile_index` to restore commit links
-   automatically without re-linking. Cost: one extra `copy_object` call per artifact in
-   `link_commit`, partial-state failure mode requires careful error handling. Deferred to a
-   later milestone when `read_artifact` visibility becomes a stated need.
+### Known Limitations and Deferred Features
+
+#### KL1 — `reconcile_index` drops `commit_refs` (V1 known limitation)
+
+`reconcile_index` rebuilds vector metadata entirely from S3 object metadata. Because
+`link_commit` writes `commit_refs` to **vector metadata only** (D6), a reconcile run
+overwrites those vectors with fresh ones constructed from S3 — which carries no `commit_refs`.
+All commit links are erased from any artifact that is re-indexed.
+
+This is an accepted V1 limitation, not a silent bug. The reconcile case is rare (partial write
+failures, orphaned objects) and the operator can restore links by re-running the post-commit
+protocol. Adding `copy_object` to `link_commit` (so S3 object metadata also carries
+`commit_refs`) would resolve this, but that is out of scope (D13): the `copy_object` call adds
+per-artifact cost and a partial-failure mode that is not justified until reconcile stability
+becomes a stated need. `read_artifact` already presents `commit_refs` by reading vector metadata
+directly — no S3 copy is required for read visibility.
+
+#### DF1 — Automated trigger paths (deferred to installation skill milestone)
+
+The V1 trigger is Path 2: the agent follows the AGENTS.md post-commit protocol and calls
+`propose_commit_links` then `link_commit` manually after each commit. Two automation paths are
+deferred:
+
+**Path 1 — Claude Code `PostToolUse` hook**
+A hook entry in `.claude/settings.json` with `"type": "mcp_tool"` and
+`if: "Bash(git commit *)"` can call `propose_commit_links` then `link_commit` directly
+within the existing MCP session — no separate credentials, no new process. This is
+Claude Code-specific and requires the installation skill to write the hook configuration.
+
+**Path 3 — `cairn link-commit` CLI + git hook**
+A `post-commit` hook calls a `cairn link-commit` CLI entry point that reconstructs AWS clients
+independently of any agent session. Requires a `.cairn/config.sh` file (written once by the
+installation skill) that the hook sources for AWS credentials and bucket names — solving the
+lack of a universal MCP config location across tools. Because git hooks are non-interactive,
+confirmation before linking is not possible; options are auto-link (3a) or write a
+`.cairn_pending_links` file for the next session to review (3b).
+
+Both paths depend on the installation skill milestone and are not blocked by any V1 design
+decision.
