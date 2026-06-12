@@ -23,7 +23,7 @@ classification steps, the file count determines which path to follow:
 
 1. **Health check** — verify cairn-mcp is reachable.
 2. **Discovery** — check cairn-mcp installation record, check for existing manifest, scope the migration, classify files (honouring `local_only_paths` and `local_only_types` from the config block).
-3. **Classification table** — operator confirms type/tier/visibility per file and provides team/project; file count determines the path.
+3. **Classification table** — operator confirms type/tier/visibility per file; file count determines the path.
    - → **Step 3.A (≤ 10 files):** build descriptors with in-context descriptions → present to operator → execute.
    - → **Step 3.B (> 10 files):** produce manifest → operator review → read files + dry-run preview → execute.
 4. **Verification** — confirm artifacts appear in `list_artifacts` and `search_artifacts`.
@@ -50,7 +50,7 @@ Call the `health_check` MCP tool (no arguments). Examine the response:
 
 Before scanning the repository, check whether the project `AGENTS.md` contains a `<!-- cairn-mcp:config` block.
 
-- **Block found** → parse `local_only_types` and `local_only_paths` from its YAML content. Carry both lists through the rest of Step 2.
+- **Block found** → parse `team`, `project`, `local_only_types`, and `local_only_paths` from its YAML content. Carry all four values through the rest of the skill — never ask the operator for team or project again.
 - **Block not found** → **stop here**. cairn-mcp does not appear to be configured for this project. Run the `setting-up-cairn` skill first, then return here.
 
 ---
@@ -161,11 +161,7 @@ every candidate file. The operator may correct any row before you proceed.
 | docs/specs/search.md | spec | 3 | shared | |
 | docs/sessions/2026-01-sprint.md | session_summary | 2 | hidden | internal notes |
 
-Also ask the operator for:
-- **team** — team identifier (e.g. `platform`, `backend`)
-- **project** — project identifier (e.g. `cairn-mcp`, `billing`)
-
-Wait for operator confirmation of both the table and team/project before continuing.
+Wait for operator confirmation of the table before continuing.
 
 **Count the confirmed files.**
 - ≤ 10 files → follow **Step 3.A** below.
@@ -186,8 +182,8 @@ For each file, read its full content and build a descriptor:
 |-------|----------------|
 | `type` | from classification table |
 | `tier` | from classification table |
-| `team` | from operator (Step 3) |
-| `project` | from operator (Step 3) |
+| `team` | from `cairn-mcp:config` block in AGENTS.md (Step 2 pre-flight) |
+| `project` | from `cairn-mcp:config` block in AGENTS.md (Step 2 pre-flight) |
 | `visibility` | from classification table |
 | `title` | first `# H1` heading; if none, clean the filename (strip path/extension/date prefix, replace hyphens with spaces, title-case) |
 | `date` | frontmatter `date:` field → `YYYY-MM-DD` in filename → `git log` (tier 2: first commit; tier 3: last commit) → today as fallback |
@@ -261,6 +257,7 @@ git log --format="%ad" --date=short -1 -- <file>
 
 Generate `CAIRN_IMPORT.yaml` in the repo root (see `schema.yaml` for the full
 format). Set every entry to `status: pending`. Leave `description` empty.
+Populate `global.team` and `global.project` from the `cairn-mcp:config` block parsed in Step 2.
 
 ```yaml
 global:

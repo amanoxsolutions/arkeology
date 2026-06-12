@@ -410,6 +410,8 @@ it in place — do not append a second block.
 ```
 <!-- cairn-mcp:config
 installed: <YYYY-MM-DD>
+team: <team>
+project: <project>
 adr_strategy: <git-only|cairn-mcp-only>
 local_only_types:
   - <type>
