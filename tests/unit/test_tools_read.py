@@ -479,3 +479,100 @@ async def test_source_artifacts_deserialized_to_list(
     )
 
     assert result["source_artifacts"] == ["adr-one", "adr-two"]
+
+
+# ---------------------------------------------------------------------------
+# T36 — commit_refs and last_edited_ulid in read response
+# ---------------------------------------------------------------------------
+
+
+async def test_read_commit_refs_deserialized_to_list(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+) -> None:
+    """commit_refs stored as 'abc1234' in S3 metadata → response has ['abc1234']."""
+    settings = _make_settings(monkeypatch)
+    s3_client.put_object(
+        "artifacts/with-commit-ref",
+        "Content.",
+        {**_BASE_METADATA, "commit_refs": "abc1234"},
+    )
+
+    result = await read_artifact(
+        s3=s3_client, settings=settings, artifact_id="artifacts/with-commit-ref"
+    )
+
+    assert result["commit_refs"] == ["abc1234"]
+
+
+async def test_read_empty_commit_refs_returns_empty_list(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+) -> None:
+    """commit_refs stored as '' in S3 metadata → response has []."""
+    settings = _make_settings(monkeypatch)
+    s3_client.put_object(
+        "artifacts/no-commit-ref",
+        "Content.",
+        {**_BASE_METADATA, "commit_refs": ""},
+    )
+
+    result = await read_artifact(
+        s3=s3_client, settings=settings, artifact_id="artifacts/no-commit-ref"
+    )
+
+    assert result["commit_refs"] == []
+
+
+async def test_read_multi_commit_refs_split_to_list(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+) -> None:
+    """commit_refs stored as 'abc1234,def5678' → response has ['abc1234', 'def5678']."""
+    settings = _make_settings(monkeypatch)
+    s3_client.put_object(
+        "artifacts/multi-ref",
+        "## Summary\n\nContent.",
+        {**_BASE_METADATA, "commit_refs": "abc1234,def5678"},
+    )
+
+    result = await read_artifact(s3=s3_client, settings=settings, artifact_id="artifacts/multi-ref")
+
+    assert result["commit_refs"] == ["abc1234", "def5678"]
+
+
+async def test_read_last_edited_ulid_present(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+) -> None:
+    """last_edited_ulid in S3 metadata → returned in response."""
+    settings = _make_settings(monkeypatch)
+    s3_client.put_object(
+        "artifacts/with-ulid",
+        "Content.",
+        {**_BASE_METADATA, "last_edited_ulid": "01JXXXXXXXXXXXXXXXXXXXXXXXXX"},
+    )
+
+    result = await read_artifact(s3=s3_client, settings=settings, artifact_id="artifacts/with-ulid")
+
+    assert result["last_edited_ulid"] == "01JXXXXXXXXXXXXXXXXXXXXXXXXX"
+
+
+async def test_read_last_edited_ulid_missing_returns_none(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+) -> None:
+    """last_edited_ulid absent from S3 metadata → response has None, not an error."""
+    settings = _make_settings(monkeypatch)
+    s3_client.put_object(
+        "artifacts/legacy-no-ulid",
+        "Content.",
+        {**_BASE_METADATA},
+    )
+
+    result = await read_artifact(
+        s3=s3_client, settings=settings, artifact_id="artifacts/legacy-no-ulid"
+    )
+
+    assert "last_edited_ulid" in result
+    assert result["last_edited_ulid"] is None

@@ -178,6 +178,7 @@ class Artifact(BaseModel):
     feature_tags: list[str] = Field(default_factory=list)
     author_role: str | None = None
     source_artifacts: list[str] = Field(default_factory=list)
+    commit_refs: list[str] = Field(default_factory=list)
 
     @field_validator("type")
     @classmethod

@@ -6,11 +6,13 @@ Having a single implementation guarantees that tests exercise exactly the
 same filter logic that runs in production.
 
 Supported operators:
-    {"field": {"$eq": value}}  — exact match; for list fields, value-in-list.
-    {"field": {"$in": [...]}}  — field value is in the provided list.
-    {"field": {"$nin": [...]}} — not-in list; for list fields, no element in list.
-    {"$and": [expr, ...]}      — logical AND of sub-expressions.
-    {"$or": [expr, ...]}       — logical OR of sub-expressions.
+    {"field": {"$eq": value}}   — exact match; for list fields, value-in-list.
+    {"field": {"$in": [...]}}   — field value is in the provided list.
+    {"field": {"$nin": [...]}}  — not-in list; for list fields, no element in list.
+    {"field": {"$gte": value}}  — field value >= value (string comparison).
+    {"field": {"$lte": value}}  — field value <= value (string comparison).
+    {"$and": [expr, ...]}       — logical AND of sub-expressions.
+    {"$or": [expr, ...]}        — logical OR of sub-expressions.
 """
 
 from typing import Any
@@ -56,6 +58,12 @@ def matches_filter(metadata: dict[str, Any], filter: dict[str, Any]) -> bool:
                         if any(v in operand for v in field_value):
                             return False
                     elif field_value in operand:
+                        return False
+                elif op == "$gte":
+                    if field_value is None or field_value < operand:
+                        return False
+                elif op == "$lte":
+                    if field_value is None or field_value > operand:
                         return False
                 else:
                     raise ValueError(f"Unsupported filter operator: {op}")

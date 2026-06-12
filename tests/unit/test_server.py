@@ -2,10 +2,13 @@
 
 import logging
 import sys
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from cairn_mcp.__main__ import configure_logging
+from cairn_mcp.server import _app, register_tools
+from tests.unit.conftest import _make_settings
 
 
 def test_configure_logging_debug_sets_level() -> None:
@@ -63,3 +66,68 @@ def reset_root_logger() -> None:
     root = logging.getLogger()
     root.handlers.clear()
     root.setLevel(logging.WARNING)
+
+
+# ---------------------------------------------------------------------------
+# MCP tool layer — CRITICAL-1: write_artifact forwards commit_refs
+# ---------------------------------------------------------------------------
+
+
+async def test_write_artifact_mcp_layer_forwards_commit_refs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """write_artifact MCP tool forwards commit_refs to the underlying _write_artifact."""
+    settings = _make_settings(monkeypatch)
+    mock_write = AsyncMock(return_value={"artifact_id": "artifacts/test"})
+    monkeypatch.setattr("cairn_mcp.server._write_artifact", mock_write)
+
+    register_tools(
+        settings=settings,
+        s3=MagicMock(),
+        vectors=MagicMock(),
+        bedrock=MagicMock(),
+    )
+    tool = await _app.get_tool("write_artifact")
+    await tool.fn(
+        type="code_review",
+        team="platform",
+        project="cairn",
+        tier=2,
+        date="2026-06-12",
+        title="Test",
+        description="A test.",
+        content="## Summary\n\nOK.",
+        visibility="shared",
+        commit_refs=["abc1234"],
+    )
+
+    mock_write.assert_awaited_once()
+    _, call_kwargs = mock_write.call_args
+    assert call_kwargs["commit_refs"] == ["abc1234"]
+
+
+# ---------------------------------------------------------------------------
+# MCP tool layer — CRITICAL-2: list_artifacts forwards commit_refs
+# ---------------------------------------------------------------------------
+
+
+async def test_list_artifacts_mcp_layer_forwards_commit_refs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """list_artifacts MCP tool forwards commit_refs to the underlying _list_artifacts."""
+    settings = _make_settings(monkeypatch)
+    mock_list: AsyncMock = AsyncMock(return_value={"artifacts": []})
+    monkeypatch.setattr("cairn_mcp.server._list_artifacts", mock_list)
+
+    register_tools(
+        settings=settings,
+        s3=MagicMock(),
+        vectors=MagicMock(),
+        bedrock=MagicMock(),
+    )
+    tool = await _app.get_tool("list_artifacts")
+    await tool.fn(commit_refs=["abc1234"])
+
+    mock_list.assert_awaited_once()
+    _, call_kwargs = mock_list.call_args
+    assert call_kwargs["commit_refs"] == ["abc1234"]

@@ -12,6 +12,7 @@ dependencies = [
     "boto3>=1.38",
     "pydantic>=2.0",
     "pydantic-settings>=2.0",
+    "python-ulid>=3.0",
 ]
 
 [project.scripts]

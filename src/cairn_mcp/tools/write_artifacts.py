@@ -148,6 +148,7 @@ async def _write_artifacts_inner(
                     tags=descriptor.get("feature_tags") or [],
                     author_role=descriptor.get("author_role"),
                     sources=descriptor.get("source_artifacts") or [],
+                    refs=descriptor.get("commit_refs") or [],
                     status=descriptor.get("status", "active"),
                 )
                 # _write_artifact_inner returns error dict or success dict

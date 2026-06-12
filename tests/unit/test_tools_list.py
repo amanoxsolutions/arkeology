@@ -411,6 +411,8 @@ async def test_result_has_required_fields(
         "feature_tags",
         "author_role",
         "description",
+        "commit_refs",
+        "last_edited_ulid",
     ]
     for artifact in result["artifacts"]:
         for field in required:
@@ -598,3 +600,199 @@ async def test_list_result_includes_source_artifacts(
     synth = [a for a in artifacts if a.get("artifact_id") == "artifacts/synth-t3"]
     assert len(synth) == 1
     assert "source_artifacts" in synth[0]
+
+
+# ---------------------------------------------------------------------------
+# T36 — commit_refs filter and new metadata fields in list response
+# ---------------------------------------------------------------------------
+
+
+async def test_list_commit_refs_filter_returns_matching_artifacts(
+    monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
+) -> None:
+    """list_artifacts with commit_refs=['abc1234'] returns only matching artifacts."""
+    settings = _make_settings(monkeypatch)
+    # artifact with matching commit ref
+    vectors_client_8.put_vector(
+        "artifacts/with-ref#summary",
+        _unit_vec(3.0),
+        {
+            **_BASE_VECTOR_META,
+            "artifact_id": "artifacts/with-ref",
+            "commit_refs": ["abc1234"],
+        },
+    )
+    # artifact without commit ref
+    vectors_client_8.put_vector(
+        "artifacts/no-ref#summary",
+        _unit_vec(3.1),
+        {
+            **_BASE_VECTOR_META,
+            "artifact_id": "artifacts/no-ref",
+        },
+    )
+
+    result = await list_artifacts(
+        settings=settings,
+        vectors=vectors_client_8,
+        s3=None,
+        bedrock=None,
+        commit_refs=["abc1234"],
+    )
+
+    artifacts = result.get("artifacts", [])
+    ids = [a["artifact_id"] for a in artifacts]
+    assert "artifacts/with-ref" in ids
+    assert "artifacts/no-ref" not in ids
+
+
+async def test_list_no_commit_refs_filter_returns_all(
+    monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
+) -> None:
+    """list_artifacts without commit_refs filter returns artifacts with and without commit_refs."""
+    settings = _make_settings(monkeypatch)
+    vectors_client_8.put_vector(
+        "artifacts/with-ref2#summary",
+        _unit_vec(3.2),
+        {
+            **_BASE_VECTOR_META,
+            "artifact_id": "artifacts/with-ref2",
+            "commit_refs": ["def5678"],
+        },
+    )
+    vectors_client_8.put_vector(
+        "artifacts/no-ref2#summary",
+        _unit_vec(3.3),
+        {
+            **_BASE_VECTOR_META,
+            "artifact_id": "artifacts/no-ref2",
+        },
+    )
+
+    result = await list_artifacts(
+        settings=settings,
+        vectors=vectors_client_8,
+        s3=None,
+        bedrock=None,
+    )
+
+    artifacts = result.get("artifacts", [])
+    ids = [a["artifact_id"] for a in artifacts]
+    assert "artifacts/with-ref2" in ids
+    assert "artifacts/no-ref2" in ids
+
+
+async def test_list_result_includes_commit_refs_field(
+    monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
+) -> None:
+    """Each artifact entry includes 'commit_refs' list."""
+    settings = _make_settings(monkeypatch)
+    vectors_client_8.put_vector(
+        "artifacts/with-ref3#summary",
+        _unit_vec(3.4),
+        {
+            **_BASE_VECTOR_META,
+            "artifact_id": "artifacts/with-ref3",
+            "commit_refs": ["abc1234"],
+        },
+    )
+
+    result = await list_artifacts(
+        settings=settings,
+        vectors=vectors_client_8,
+        s3=None,
+        bedrock=None,
+    )
+
+    artifacts = result.get("artifacts", [])
+    with_ref = [a for a in artifacts if a.get("artifact_id") == "artifacts/with-ref3"]
+    assert len(with_ref) == 1
+    assert with_ref[0]["commit_refs"] == ["abc1234"]
+
+
+async def test_list_result_commit_refs_empty_when_absent(
+    monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
+) -> None:
+    """Artifact without commit_refs in vector metadata → commit_refs=[] in response."""
+    settings = _make_settings(monkeypatch)
+    vectors_client_8.put_vector(
+        "artifacts/no-ref3#summary",
+        _unit_vec(3.5),
+        {
+            **_BASE_VECTOR_META,
+            "artifact_id": "artifacts/no-ref3",
+        },
+    )
+
+    result = await list_artifacts(
+        settings=settings,
+        vectors=vectors_client_8,
+        s3=None,
+        bedrock=None,
+    )
+
+    artifacts = result.get("artifacts", [])
+    no_ref = [a for a in artifacts if a.get("artifact_id") == "artifacts/no-ref3"]
+    assert len(no_ref) == 1
+    assert no_ref[0]["commit_refs"] == []
+
+
+async def test_list_result_includes_last_edited_ulid(
+    monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
+) -> None:
+    """Artifact with last_edited_ulid in vector metadata → field present in response."""
+    settings = _make_settings(monkeypatch)
+    vectors_client_8.put_vector(
+        "artifacts/with-ulid#summary",
+        _unit_vec(3.6),
+        {
+            **_BASE_VECTOR_META,
+            "artifact_id": "artifacts/with-ulid",
+            "last_edited_ulid": "01JXXXXXXXXXXXXXXXXXXXXXXXXX",
+        },
+    )
+
+    result = await list_artifacts(
+        settings=settings,
+        vectors=vectors_client_8,
+        s3=None,
+        bedrock=None,
+    )
+
+    artifacts = result.get("artifacts", [])
+    with_ulid = [a for a in artifacts if a.get("artifact_id") == "artifacts/with-ulid"]
+    assert len(with_ulid) == 1
+    assert with_ulid[0]["last_edited_ulid"] == "01JXXXXXXXXXXXXXXXXXXXXXXXXX"
+
+
+async def test_list_legacy_artifact_last_edited_ulid_is_none(
+    monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
+) -> None:
+    """Artifact without last_edited_ulid in vector metadata → last_edited_ulid=None."""
+    settings = _make_settings(monkeypatch)
+    vectors_client_8.put_vector(
+        "artifacts/legacy#summary",
+        _unit_vec(3.7),
+        {
+            **_BASE_VECTOR_META,
+            "artifact_id": "artifacts/legacy",
+        },
+    )
+
+    result = await list_artifacts(
+        settings=settings,
+        vectors=vectors_client_8,
+        s3=None,
+        bedrock=None,
+    )
+
+    artifacts = result.get("artifacts", [])
+    legacy = [a for a in artifacts if a.get("artifact_id") == "artifacts/legacy"]
+    assert len(legacy) == 1
+    assert legacy[0]["last_edited_ulid"] is None

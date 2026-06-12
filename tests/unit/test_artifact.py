@@ -503,3 +503,20 @@ def test_artifact_invalid_month_rejected() -> None:
     kwargs = {**VALID_ARTIFACT_KWARGS, "date": "2026-13-01"}
     with pytest.raises(ValidationError):
         Artifact(**kwargs)
+
+
+# ---------------------------------------------------------------------------
+# T36 — commit_refs field
+# ---------------------------------------------------------------------------
+
+
+def test_artifact_commit_refs_with_values_stored_correctly() -> None:
+    """commit_refs=["abc1234"] → stored as ["abc1234"] on the model."""
+    artifact = Artifact(**{**VALID_ARTIFACT_KWARGS, "commit_refs": ["abc1234"]})
+    assert artifact.commit_refs == ["abc1234"]
+
+
+def test_artifact_commit_refs_defaults_to_empty_list() -> None:
+    """commit_refs absent → defaults to []."""
+    artifact = Artifact(**VALID_ARTIFACT_KWARGS)
+    assert artifact.commit_refs == []

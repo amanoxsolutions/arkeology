@@ -1788,3 +1788,169 @@ async def test_section_truncation_logged_at_debug(
     assert len(truncation_logs) >= 1, (
         "Expected at least one DEBUG log message mentioning 'truncat' — not yet implemented"
     )
+
+
+# ---------------------------------------------------------------------------
+# T36 — last_edited_ulid and commit_refs
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_write_response_includes_last_edited_ulid(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+) -> None:
+    """write_artifact response includes 'last_edited_ulid' as a non-empty string."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+
+    result = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        **_BASE_WRITE_KWARGS,
+    )
+
+    assert "last_edited_ulid" in result
+    assert isinstance(result["last_edited_ulid"], str)
+    assert len(result["last_edited_ulid"]) > 0
+
+
+@pytest.mark.asyncio
+async def test_write_successive_ulids_are_monotonic(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+) -> None:
+    """Two successive write_artifact calls produce monotonically ordered ULIDs."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+
+    result1 = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        **{**_BASE_WRITE_KWARGS, "title": "First artifact"},
+    )
+    result2 = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        **{**_BASE_WRITE_KWARGS, "title": "Second artifact"},
+    )
+
+    assert result1["last_edited_ulid"] <= result2["last_edited_ulid"]
+
+
+@pytest.mark.asyncio
+async def test_write_last_edited_ulid_in_s3_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """S3 put_object is called with 'last_edited_ulid' in the metadata dict."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+    spy = mocker.spy(s3_client, "put_object")
+
+    await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        **_BASE_WRITE_KWARGS,
+    )
+
+    _, _, metadata = spy.call_args.args
+    assert "last_edited_ulid" in metadata
+    assert isinstance(metadata["last_edited_ulid"], str)
+    assert len(metadata["last_edited_ulid"]) > 0
+
+
+@pytest.mark.asyncio
+async def test_write_last_edited_ulid_in_vector_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """put_vectors_batch is called with 'last_edited_ulid' in each vector's metadata."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+    spy = mocker.spy(vectors_client, "put_vectors_batch")
+
+    await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        **_BASE_WRITE_KWARGS,
+    )
+
+    items = spy.call_args.args[0]
+    for item in items:
+        assert "last_edited_ulid" in item["metadata"]
+        assert isinstance(item["metadata"]["last_edited_ulid"], str)
+
+
+@pytest.mark.asyncio
+async def test_write_commit_refs_stored_in_s3_and_vector_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """commit_refs=['abc1234'] stored as comma-joined string in S3 and list[str] in vectors."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+    s3_spy = mocker.spy(s3_client, "put_object")
+    vec_spy = mocker.spy(vectors_client, "put_vectors_batch")
+
+    await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        **{**_BASE_WRITE_KWARGS, "commit_refs": ["abc1234"]},
+    )
+
+    _, _, s3_meta = s3_spy.call_args.args
+    assert s3_meta["commit_refs"] == "abc1234"
+
+    vec_items = vec_spy.call_args.args[0]
+    for item in vec_items:
+        assert item["metadata"]["commit_refs"] == ["abc1234"]
+
+
+@pytest.mark.asyncio
+async def test_write_empty_commit_refs_stored_as_empty_string_in_s3(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """commit_refs=[] stored as '' in S3 metadata and omitted from vector metadata."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+    s3_spy = mocker.spy(s3_client, "put_object")
+    vec_spy = mocker.spy(vectors_client, "put_vectors_batch")
+
+    await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        **_BASE_WRITE_KWARGS,
+    )
+
+    _, _, s3_meta = s3_spy.call_args.args
+    assert s3_meta["commit_refs"] == ""
+
+    vec_items = vec_spy.call_args.args[0]
+    for item in vec_items:
+        assert "commit_refs" not in item["metadata"]

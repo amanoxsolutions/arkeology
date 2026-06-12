@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `propose_commit_links` tool — read-only tool that discovers own-scope artifacts with no
+  `commit_refs`, optionally bounded to artifacts written at or after a session-start ULID
+  (`since_ulid`); returns a proposed list for agent review before linking
+- `link_commit` tool — appends a commit SHA to the vector metadata of confirmed own-scope
+  artifacts without re-embedding; returns `{linked, skipped, commit_sha, next_since_ulid}`
+- `commit_refs` optional field on artifacts — list of git commit SHAs linked via `link_commit`;
+  accepted by `list_artifacts` as a filter and returned by `read_artifact` and `list_artifacts`
+- `last_edited_ulid` system-generated field — ULID assigned at every `write_artifact` call and
+  returned in the write response; monotonically increasing, suitable for use as `since_ulid` in
+  `propose_commit_links` to bound discovery to the current session
+- `$gte` and `$lte` string comparison operators in the in-process metadata filter evaluator
+  (`filter.py`); enable range queries on string-valued metadata fields (e.g. ULID-based filtering)
+- `python-ulid` runtime dependency for ULID generation in `write_artifact`
+
 ### Changed
 - Minimum Python version raised from 3.12 to 3.14; `.python-version`, `pyproject.toml` `requires-python`, and `[tool.mypy] python_version` updated accordingly
 

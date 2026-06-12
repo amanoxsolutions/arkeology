@@ -26,6 +26,7 @@ async def list_artifacts(
     bedrock: BedrockClientInterface | None = None,
     type: str | None = None,  # noqa: A002
     feature_tags: list[str] | None = None,
+    commit_refs: list[str] | None = None,
     team: str | None = None,
     project: str | None = None,
     tier: int | None = None,
@@ -36,14 +37,15 @@ async def list_artifacts(
     Applies cross-scope gate: own-scope artifacts always visible; foreign-scope
     artifacts only when tier=3 AND visibility="shared".
 
-    Args:
-        settings: Server configuration.
-        s3: S3 client (unused; injected for interface consistency).
-        vectors: S3 Vectors client.
-        bedrock: Bedrock client (unused; injected for interface consistency).
-        type: Optional artifact type filter.
-        feature_tags: Optional list of tags; all must match (AND semantics).
-        team: Optional team filter.
+        Args:
+            settings: Server configuration.
+            s3: S3 client (unused; injected for interface consistency).
+            vectors: S3 Vectors client.
+            bedrock: Bedrock client (unused; injected for interface consistency).
+            type: Optional artifact type filter.
+            feature_tags: Optional list of tags; all must match (AND semantics).
+            commit_refs: Optional list of commit refs; all must match (AND semantics).
+            team: Optional team filter.
         project: Optional project filter.
         tier: Optional tier filter.
         status: Status filter (default "active").
@@ -60,6 +62,7 @@ async def list_artifacts(
             bedrock=bedrock,
             type=type,
             feature_tags=feature_tags,
+            commit_refs=commit_refs,
             team=team,
             project=project,
             tier=tier,
@@ -78,6 +81,7 @@ async def _list_artifacts_inner(
     bedrock: BedrockClientInterface | None = None,
     type: str | None = None,  # noqa: A002
     feature_tags: list[str] | None = None,
+    commit_refs: list[str] | None = None,
     team: str | None = None,
     project: str | None = None,
     tier: int | None = None,
@@ -102,6 +106,9 @@ async def _list_artifacts_inner(
     if feature_tags:
         for tag in feature_tags:
             clauses.append({"feature_tags": {"$eq": tag}})
+    if commit_refs:
+        for ref in commit_refs:
+            clauses.append({"commit_refs": {"$eq": ref}})
 
     # ── Step 1b: Scope filter (same logic as search.py) ──────────────────────
     own_scope = settings.write_prefix
@@ -177,6 +184,12 @@ async def _list_artifacts_inner(
             if isinstance(meta.get("source_artifacts"), list)
             else [s for s in str(meta.get("source_artifacts", "")).split(",") if s]
         )
+        commit_refs_val: list[str] = (
+            meta["commit_refs"]
+            if isinstance(meta.get("commit_refs"), list)
+            else [r for r in str(meta.get("commit_refs", "")).split(",") if r]
+        )
+        last_edited_ulid_val: str | None = meta.get("last_edited_ulid") or None
 
         artifacts.append(
             {
@@ -193,6 +206,8 @@ async def _list_artifacts_inner(
                 "author_role": meta.get("author_role") or None,
                 "description": meta.get("description"),
                 "source_artifacts": source_artifacts_val,
+                "commit_refs": commit_refs_val,
+                "last_edited_ulid": last_edited_ulid_val,
             }
         )
 

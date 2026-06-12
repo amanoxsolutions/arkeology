@@ -17,8 +17,10 @@ from cairn_mcp.tools.archive import archive_artifact as _archive_artifact
 from cairn_mcp.tools.delete import delete_artifact as _delete_artifact
 from cairn_mcp.tools.freshness import check_synthesis_freshness as _check_synthesis_freshness
 from cairn_mcp.tools.health import health_check as _health_check
+from cairn_mcp.tools.link_commit import link_commit as _link_commit
 from cairn_mcp.tools.list import list_artifacts as _list_artifacts
 from cairn_mcp.tools.migrate_artifacts import migrate_artifacts as _migrate_artifacts
+from cairn_mcp.tools.propose_commit_links import propose_commit_links as _propose_commit_links
 from cairn_mcp.tools.purge import purge_archived as _purge_archived
 from cairn_mcp.tools.read import read_artifact as _read_artifact
 from cairn_mcp.tools.reconcile import reconcile_index as _reconcile_index
@@ -70,6 +72,7 @@ def register_tools(
         feature_tags: list[str] | None = None,
         author_role: str | None = None,
         source_artifacts: list[str] | None = None,
+        commit_refs: list[str] | None = None,
         status: str = "active",
     ) -> dict[str, Any]:
         """Write an artifact to S3 and index its sections in S3 Vectors."""
@@ -90,6 +93,7 @@ def register_tools(
             feature_tags=feature_tags,
             author_role=author_role,
             source_artifacts=source_artifacts,
+            commit_refs=commit_refs,
             status=status,
         )
 
@@ -139,6 +143,7 @@ def register_tools(
         status: str = "active",
         feature_tags: list[str] | None = None,
         tier: int | None = None,
+        commit_refs: list[str] | None = None,
     ) -> dict[str, Any]:
         """List artifacts by metadata filters without a semantic query."""
         return await _list_artifacts(
@@ -152,6 +157,7 @@ def register_tools(
             status=status,
             feature_tags=feature_tags,
             tier=tier,
+            commit_refs=commit_refs,
         )
 
     @_app.tool()
@@ -269,6 +275,36 @@ def register_tools(
             bedrock=bedrock,
             descriptors=descriptors,
             dry_run=dry_run,
+        )
+
+    @_app.tool()
+    async def propose_commit_links(
+        commit_sha: str,
+        since_ulid: str | None = None,
+    ) -> dict[str, Any]:
+        """Discover own-scope artifacts with no commit_refs, optionally since a session ULID."""
+        return await _propose_commit_links(
+            settings=settings,
+            s3=s3,
+            vectors=vectors,
+            bedrock=bedrock,
+            commit_sha=commit_sha,
+            since_ulid=since_ulid,
+        )
+
+    @_app.tool()
+    async def link_commit(
+        artifact_ids: list[str],
+        commit_sha: str,
+    ) -> dict[str, Any]:
+        """Append a commit SHA to the commit_refs vector metadata of own-scope artifacts."""
+        return await _link_commit(
+            settings=settings,
+            s3=s3,
+            vectors=vectors,
+            bedrock=bedrock,
+            artifact_ids=artifact_ids,
+            commit_sha=commit_sha,
         )
 
 

@@ -127,6 +127,8 @@ async def _read_artifact_inner(
     # ── Step 4: Deserialise metadata ──────────────────────────────────────────
     feature_tags: list[str] = [t for t in str(meta.get("feature_tags", "")).split(",") if t]
     source_artifacts: list[str] = [s for s in str(meta.get("source_artifacts", "")).split(",") if s]
+    commit_refs: list[str] = [r for r in str(meta.get("commit_refs", "")).split(",") if r]
+    last_edited_ulid: str | None = meta.get("last_edited_ulid") or None
 
     logger.info("Artifact read: key=%s", artifact_id)
     return {
@@ -144,4 +146,6 @@ async def _read_artifact_inner(
         "author_role": meta.get("author_role") or None,
         "description": meta.get("description"),
         "source_artifacts": source_artifacts,
+        "commit_refs": commit_refs,
+        "last_edited_ulid": last_edited_ulid,
     }

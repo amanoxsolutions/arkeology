@@ -1,6 +1,6 @@
 """Unit tests for cairn_mcp.clients.filter.matches_filter.
 
-Covers all supported operators: $eq, $in, $nin, $and, $or,
+Covers all supported operators: $eq, $in, $nin, $gte, $lte, $and, $or,
 plus the plain equality shorthand and the unsupported-operator error.
 """
 
@@ -227,3 +227,116 @@ def test_multiple_top_level_fields_one_fails() -> None:
     """Two top-level conditions — one failure means the whole filter fails."""
     meta = {"type": "review", "status": "inactive"}
     assert matches_filter(meta, {"type": {"$eq": "review"}, "status": {"$eq": "active"}}) is False
+
+
+# ---------------------------------------------------------------------------
+# $gte operator
+# ---------------------------------------------------------------------------
+
+
+def test_gte_value_above_operand_matches() -> None:
+    """$gte matches when the field value is greater than the operand."""
+    assert matches_filter({"ulid": "01JXYZ_Z"}, {"ulid": {"$gte": "01JXYZ_A"}}) is True
+
+
+def test_gte_value_equal_operand_matches() -> None:
+    """$gte matches when the field value equals the operand (inclusive lower bound)."""
+    assert matches_filter({"ulid": "01JXYZ_M"}, {"ulid": {"$gte": "01JXYZ_M"}}) is True
+
+
+def test_gte_value_below_operand_no_match() -> None:
+    """$gte does not match when the field value is less than the operand."""
+    assert matches_filter({"ulid": "01JXYZ_A"}, {"ulid": {"$gte": "01JXYZ_Z"}}) is False
+
+
+def test_gte_missing_field_no_match() -> None:
+    """$gte on a missing field does not match (None >= value is False)."""
+    assert matches_filter({}, {"ulid": {"$gte": "01JXYZ_A"}}) is False
+
+
+# ---------------------------------------------------------------------------
+# $lte operator
+# ---------------------------------------------------------------------------
+
+
+def test_lte_value_below_operand_matches() -> None:
+    """$lte matches when the field value is less than the operand."""
+    assert matches_filter({"ulid": "01JXYZ_A"}, {"ulid": {"$lte": "01JXYZ_Z"}}) is True
+
+
+def test_lte_value_equal_operand_matches() -> None:
+    """$lte matches when the field value equals the operand (inclusive upper bound)."""
+    assert matches_filter({"ulid": "01JXYZ_M"}, {"ulid": {"$lte": "01JXYZ_M"}}) is True
+
+
+def test_lte_value_above_operand_no_match() -> None:
+    """$lte does not match when the field value is greater than the operand."""
+    assert matches_filter({"ulid": "01JXYZ_Z"}, {"ulid": {"$lte": "01JXYZ_A"}}) is False
+
+
+def test_lte_missing_field_no_match() -> None:
+    """$lte on a missing field does not match (None <= value is False)."""
+    assert matches_filter({}, {"ulid": {"$lte": "01JXYZ_Z"}}) is False
+
+
+# ---------------------------------------------------------------------------
+# Combined $gte + $lte in an $and expression (closed interval)
+# ---------------------------------------------------------------------------
+
+_INTERVAL_FILTER = {
+    "$and": [
+        {"ulid": {"$gte": "01JXYZ_C"}},
+        {"ulid": {"$lte": "01JXYZ_G"}},
+    ]
+}
+
+
+def test_and_interval_value_within_bounds_matches() -> None:
+    """Value within [lo, hi] matches the combined $gte + $lte interval."""
+    assert matches_filter({"ulid": "01JXYZ_E"}, _INTERVAL_FILTER) is True
+
+
+def test_and_interval_value_below_lower_no_match() -> None:
+    """Value below lo does not match the combined interval."""
+    assert matches_filter({"ulid": "01JXYZ_A"}, _INTERVAL_FILTER) is False
+
+
+def test_and_interval_value_above_upper_no_match() -> None:
+    """Value above hi does not match the combined interval."""
+    assert matches_filter({"ulid": "01JXYZ_Z"}, _INTERVAL_FILTER) is False
+
+
+def test_and_interval_value_equal_lower_bound_matches() -> None:
+    """Value equal to lo matches (inclusive lower bound)."""
+    assert matches_filter({"ulid": "01JXYZ_C"}, _INTERVAL_FILTER) is True
+
+
+def test_and_interval_value_equal_upper_bound_matches() -> None:
+    """Value equal to hi matches (inclusive upper bound)."""
+    assert matches_filter({"ulid": "01JXYZ_G"}, _INTERVAL_FILTER) is True
+
+
+# ---------------------------------------------------------------------------
+# Regression guards — existing operators still work
+# ---------------------------------------------------------------------------
+
+
+def test_regression_eq_still_works() -> None:
+    """$eq regression: scalar equality still works after adding range operators."""
+    assert matches_filter({"type": "adr"}, {"type": {"$eq": "adr"}}) is True
+
+
+def test_regression_in_still_works() -> None:
+    """$in regression: scalar in-list still works after adding range operators."""
+    assert matches_filter({"tier": 2}, {"tier": {"$in": [2, 3]}}) is True
+
+
+def test_regression_nin_still_works() -> None:
+    """$nin regression: scalar not-in-list still works after adding range operators."""
+    assert matches_filter({"status": "active"}, {"status": {"$nin": ["inactive"]}}) is True
+
+
+def test_regression_unknown_operator_raises_value_error() -> None:
+    """Unknown operator still raises ValueError (regression guard)."""
+    with pytest.raises(ValueError, match="\\$gt"):
+        matches_filter({"score": "5"}, {"score": {"$gt": "3"}})

@@ -120,4 +120,24 @@ Resources the server exposes at runtime:
 - `cairn://schema/tiers` — tier 2 vs tier 3 semantics
 - `cairn://schema/query-strategy` — query strategy guidance
 - `cairn://schema/visibility` — cross-scope access rules
+
+## Post-Commit Protocol (cairn-mcp)
+
+**At session start:**
+Capture the session ULID once and carry it in context for the entire session:
+`python -c "from ulid import ULID; print(ULID())"`
+Store this value as `since_ulid`.
+
+**After every `git commit` during a session:**
+1. Capture the commit SHA: `git rev-parse HEAD`
+2. Call `propose_commit_links(commit_sha=<sha>, since_ulid=<since_ulid>)`
+   — omit `since_ulid` if this is the very first commit of a brand-new project.
+3. Present the proposed list to the operator. They may confirm, remove, or add artifact IDs.
+4. If the operator confirms: call `link_commit(artifact_ids=[...], commit_sha=<sha>)`
+5. Replace `since_ulid` with the `next_since_ulid` value returned by `link_commit`.
+6. Skip silently if `propose_commit_links` returns an empty `proposed` list.
+
+**Known limitation:** `reconcile_index` rebuilds vector metadata from S3 only. Because
+`commit_refs` is stored in vector metadata only (V1), a reconcile run will drop all commit
+links. Re-run the post-commit protocol after any reconcile to restore them.
 ````

@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from pydantic import ValidationError
+from ulid import ULID
 
 from cairn_mcp.artifact import (
     Artifact,
@@ -118,6 +119,7 @@ async def write_artifact(
     feature_tags: list[str] | None = None,
     author_role: str | None = None,
     source_artifacts: list[str] | None = None,
+    commit_refs: list[str] | None = None,
     status: str = "active",
 ) -> dict[str, Any]:
     """Store an artifact to S3 and index its sections in S3 Vectors.
@@ -147,6 +149,7 @@ async def write_artifact(
     """
     tags: list[str] = feature_tags if feature_tags is not None else []
     sources: list[str] = source_artifacts if source_artifacts is not None else []
+    refs: list[str] = commit_refs if commit_refs is not None else []
 
     try:
         return await _write_artifact_inner(
@@ -166,6 +169,7 @@ async def write_artifact(
             tags=tags,
             author_role=author_role,
             sources=sources,
+            refs=refs,
             status=status,
         )
     except Exception as exc:
@@ -191,6 +195,7 @@ async def _write_artifact_inner(  # noqa: PLR0913
     tags: list[str],
     author_role: str | None,
     sources: list[str],
+    refs: list[str],
     status: str,
 ) -> dict[str, Any]:
     """Inner implementation of write_artifact (separated to enable top-level catch-all).
@@ -214,6 +219,7 @@ async def _write_artifact_inner(  # noqa: PLR0913
             feature_tags=tags,
             author_role=author_role,
             source_artifacts=sources,
+            commit_refs=refs,
         )
     except ValidationError as exc:
         return {"error": "validation_error", "message": str(exc)}
@@ -221,6 +227,7 @@ async def _write_artifact_inner(  # noqa: PLR0913
     # ── Step 2: Derive identifiers ────────────────────────────────────────────
     artifact_id = generate_artifact_id(tier=tier, type=type, date=date, title=title)
     s3_key = f"{settings.write_prefix}/{artifact_id}"
+    last_edited_ulid = str(ULID())
 
     # ── Step 3: Build S3 metadata (string-only) ───────────────────────────────
     s3_metadata: dict[str, str] = {
@@ -236,6 +243,8 @@ async def _write_artifact_inner(  # noqa: PLR0913
         "author_role": author_role or "",
         "description": description,
         "source_artifacts": ",".join(sources),
+        "commit_refs": ",".join(refs),
+        "last_edited_ulid": last_edited_ulid,
     }
 
     # ── Step 4: Write to S3 (check existence first for orphan cleanup) ───────
@@ -286,6 +295,7 @@ async def _write_artifact_inner(  # noqa: PLR0913
         "visibility": artifact.visibility,
         "author_role": author_role or "",
         "description": description,
+        "last_edited_ulid": last_edited_ulid,
     }
     # S3 Vectors rejects empty arrays in metadata — omit list fields when empty.
     # Non-empty lists are stored as list[str] so $eq filters can match individual elements.
@@ -293,6 +303,8 @@ async def _write_artifact_inner(  # noqa: PLR0913
         vector_metadata["feature_tags"] = tags
     if sources:
         vector_metadata["source_artifacts"] = sources
+    if refs:
+        vector_metadata["commit_refs"] = refs
 
     # ── Step 7: Embed and index ───────────────────────────────────────────────
     new_keys: set[str] = set()
@@ -502,4 +514,8 @@ async def _write_artifact_inner(  # noqa: PLR0913
                 }
 
     logger.info("Artifact written: key=%s sections=%d tier=%d", s3_key, len(new_keys), tier)
-    return {"artifact_id": s3_key, "sections_indexed": len(new_keys)}
+    return {
+        "artifact_id": s3_key,
+        "sections_indexed": len(new_keys),
+        "last_edited_ulid": last_edited_ulid,
+    }

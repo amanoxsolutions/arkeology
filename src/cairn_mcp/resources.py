@@ -55,6 +55,16 @@ def artifact_schema_content() -> str:
 | `feature_tags` | list[string] | Searchable tags; enables `feature_tags` filter |
 | `author_role` | string | Role of the author (e.g. `"developer"`) |
 | `source_artifacts` | list[string] | Source IDs for a `synthesis` artifact |
+| `commit_refs` | list[string] | Git commit SHAs linked to this artifact via `link_commit` |
+
+## System-generated fields
+
+These fields are set by the server and returned in tool responses. They cannot be supplied
+by the caller.
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `last_edited_ulid` | string | ULID assigned at every `write_artifact` call; monotonically increasing — use as `since_ulid` in `propose_commit_links` to bound discovery to the current session |
 
 ## Valid artifact types
 
@@ -279,6 +289,24 @@ results in a single call. After synthesising in-context, write the result back u
 
 This records which artifacts contributed to the synthesis and makes the compiled knowledge
 searchable as a standalone tier 3 artifact.
+
+## When to use `propose_commit_links` and `link_commit`
+
+Use these two tools together at the end of a coding session to attach the session's commit
+SHA(s) to every artifact written during that session.
+
+**Workflow:**
+
+1. Note the `last_edited_ulid` returned by the first `write_artifact` call of the session —
+   this is the `since_ulid` value.
+2. Call `propose_commit_links(commit_sha=<sha>, since_ulid=<ulid>)` — returns own-scope
+   artifacts with no `commit_refs` that were written at or after `since_ulid`.
+3. Review the proposed list. Confirm which artifact IDs should be linked.
+4. Call `link_commit(artifact_ids=[...], commit_sha=<sha>)` — appends the SHA to each
+   confirmed artifact without re-embedding.
+
+If `since_ulid` is omitted, `propose_commit_links` returns **all** own-scope artifacts
+with no `commit_refs` — useful for a bulk back-fill of an existing index.
 
 ## Runtime schema reference
 
