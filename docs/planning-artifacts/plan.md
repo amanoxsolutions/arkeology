@@ -4,6 +4,17 @@ _Project: cairn-mcp_
 _Generated: 2026-05-29_ · _Last updated: 2026-06-12_
 _Status: **V1 — Phases 1–9 complete (unit + integration suite passing against live AWS; ruff + mypy clean; Apache 2.0 licensed; production-hardened; moto migration complete; write performance hardened; bulk write + migration tools; setting-up-cairn + sync-cairn-plugin skills; skill distribution via native plugin mechanisms) · Phase 10 (artifact commit references + caller-controlled concurrency) T35–T39 complete · T40 planned**_
 
+## How we work
+
+This project runs as a **single open phase**, not a pre-planned roadmap. Completed phases stay below as a full history (every feature marked ✅); the current phase shows its tasks in detail; and anything not yet started — issues, deferred work, and scoped-but-unbuilt features — lives in [`backlog.md`](backlog.md), pulled into the current phase when we decide to tackle it. There are no pre-planned future phases beyond the current one, and a phase ends when we judge it done.
+
+- **Requirements** (FR/NFR) live in [`prd.md`](prd.md) — this plan references them by ID, it does not redefine them.
+- **Per-task implementation detail** lives in [`../specs/`](../specs/) as `p<phase>-t<task>-<slug>.md` (e.g. task 3 of Phase 10 → `p10-t3`).
+- **Status legend:** ⬜ pending · 🔄 in progress · 🔍 in review · ✅ done · 🔴 blocked
+- **Delivery model:** each **Phase** is a coherent slice of value delivered as a set of tasks. A phase ends when we judge it done.
+
+**Current state:** Phase 10 — Artifact Commit References is open (🔄). Latest shipped: Phase 9 — Improvements and Fixes (V1).
+
 ---
 
 ## Notes
