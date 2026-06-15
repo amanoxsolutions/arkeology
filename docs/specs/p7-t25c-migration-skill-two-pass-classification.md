@@ -25,6 +25,10 @@ rules that fire regardless of directory location, then (2) path segment pattern 
 (`**/pattern` style) that match at any depth in the repo tree. This fixes misclassification
 of files in non-standard directory layouts (e.g. `_bmad-output/brainstorming/`).
 
+> **Follow-up (2026-06-15):** the `learning` type (tier 3) was added later. Its Pass 1
+> filename rule (`learnings`, `learning`, `lessons-learned`) and Pass 2 path-segment rule
+> (`**/learnings`, `**/lessons-learned`) are reflected in the tables below.
+
 ## Problem Statement
 
 The migration skill's Step 2 discovery tries to find a docs root (`docs/`,
@@ -146,6 +150,7 @@ do not consult Pass 2**.
 | `changelog`, `change-log`, `changes`, `release-notes` | `changelog` | 2 |
 | `runbook`, `run-book`, `playbook` | `runbook` | 3 |
 | `postmortem`, `post-mortem`, `incident-report` | `postmortem` | 2 |
+| `learnings`, `learning`, `lessons-learned` | `learning` | 3 |
 
 ### Pass 2 — Path segment rules
 
@@ -166,6 +171,7 @@ all match `**/brainstorming`. Use the **first matching row**.
 | `**/runbooks`, `**/runbook`, `**/ops`, `**/operations`, `**/procedures`, `**/playbooks` | `runbook` | 3 |
 | `**/changelogs`, `**/changelog`, `**/releases`, `**/release-notes` | `changelog` | 2 |
 | `**/postmortems`, `**/postmortem`, `**/incidents`, `**/incident-reports` | `postmortem` | 2 |
+| `**/learnings`, `**/lessons-learned` | `learning` | 3 |
 
 ### Pass 3 — Judgment fallback
 

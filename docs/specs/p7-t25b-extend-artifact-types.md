@@ -25,6 +25,14 @@ planning documents from feature specs, and adding operational and incident knowl
 Simultaneously fix the migration skill to discover the project's docs root dynamically
 rather than assuming `docs/`.
 
+> **Follow-up (2026-06-15):** a fifteenth type, `learning` (tier 3, date-independent),
+> was added later to back the `capturing-learnings` skill's living `learnings.md`. The
+> change is additive and follows the same pattern as the five types below: 14 → 15 types,
+> the `Artifact` class docstring note moves from "fourteen" → "fifteen", `resources.py`
+> gains a `learning` description and tier 3 "Use for" entry, the migration skill gains
+> Pass 1 / Pass 2 classification rows and a Step 5 removal-guidance row, and one
+> parametrized test case is added in `test_artifact.py`.
+
 ## Problem Statement
 
 Two independent gaps are resolved together because they share the same affected files
@@ -252,9 +260,10 @@ This project uses TDD. Test file is listed before the implementation file it gat
    | `runbook` | Judgment call — keep if the team needs runbooks reachable outside cairn-mcp (e.g. via git during an incident); remove if cairn-mcp is the agreed operational home |
 
 6. `skills/migrating-to-cairn/schema.yaml` — update the inline `ARTIFACT_TYPES` comment
-   to list all 14 types alphabetically:
+   to list all types alphabetically (15 after the `learning` follow-up):
    `adr, brainstorming, bug_report, changelog, code_review, decision_note,`
-   `implementation_note, plan, postmortem, prd, runbook, session_summary, spec, synthesis`
+   `implementation_note, learning, plan, postmortem, prd, runbook, session_summary,`
+   `spec, synthesis`
 
 **Verify after all changes:**
 

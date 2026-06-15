@@ -35,6 +35,7 @@ ARTIFACT_TYPES: frozenset[str] = frozenset(
         "bug_report",
         "decision_note",
         "synthesis",
+        "learning",
     }
 )
 
@@ -150,7 +151,7 @@ class Artifact(BaseModel):
     ``pydantic.ValidationError``.
 
     Attributes:
-        type: One of the fourteen valid artifact types in :data:`ARTIFACT_TYPES`.
+        type: One of the fifteen valid artifact types in :data:`ARTIFACT_TYPES`.
         team: Team that owns the artifact.
         project: Project the artifact belongs to.
         tier: 2 (session-scoped) or 3 (persistent/cross-session).

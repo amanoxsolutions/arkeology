@@ -109,6 +109,15 @@ def test_tier3_date_not_in_id() -> None:
     assert "2026" not in artifact_id
 
 
+def test_tier3_learning_id_is_date_independent() -> None:
+    """Tier 3 'learning': id is the date-independent {type_slug}-{title_slug} form."""
+    artifact_id = generate_artifact_id(
+        type="learning", title="Project Learnings", tier=3, date="2026-06-15"
+    )
+    assert artifact_id == "learning-project-learnings"
+    assert "2026" not in artifact_id
+
+
 # ---------------------------------------------------------------------------
 # generate_artifact_id — format invariants
 # ---------------------------------------------------------------------------
@@ -352,10 +361,11 @@ def test_artifact_unknown_type_invalid() -> None:
         "postmortem",
         "prd",
         "runbook",
+        "learning",
     ],
 )
 def test_artifact_all_valid_types_accepted(artifact_type: str) -> None:
-    """All 14 valid artifact types are accepted."""
+    """All 15 valid artifact types are accepted."""
     kwargs = {**VALID_ARTIFACT_KWARGS, "type": artifact_type}
     artifact = Artifact(**kwargs)
     assert artifact.type == artifact_type

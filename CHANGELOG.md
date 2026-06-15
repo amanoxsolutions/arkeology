@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `learning` artifact type — a fifteenth first-class type (tier 3, date-independent ID)
+  backing the `capturing-learnings` skill's living `learnings.md`; accepted by
+  `write_artifact`, listed in the `cairn://schema/artifact` and `cairn://schema/types`
+  resources, and classified by the `migrating-to-cairn` skill (Pass 1 filename rules
+  `learnings` / `learning` / `lessons-learned`; Pass 2 path segments `**/learnings` /
+  `**/lessons-learned`)
 - `propose_commit_links` tool — read-only tool that discovers own-scope artifacts with no
   `commit_refs`, optionally bounded to artifacts written at or after a session-start ULID
   (`since_ulid`); returns a proposed list for agent review before linking

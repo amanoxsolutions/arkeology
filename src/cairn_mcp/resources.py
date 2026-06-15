@@ -119,7 +119,7 @@ automatically.
 Example: an ADR with title "Use S3 Vectors for embeddings" becomes
 `adr-use-s3-vectors-for-embeddings`.
 
-**Use for:** adr, spec, decision_note, synthesis, plan, prd, runbook
+**Use for:** adr, spec, decision_note, synthesis, plan, prd, runbook, learning
 
 **Cross-scope access:** tier 3 artifacts with `visibility=shared` are discoverable by
 agents pointing at the same vector index with different `WRITE_PREFIX` scopes.
@@ -235,6 +235,10 @@ def types_schema_content() -> str:
         "postmortem": (
             "Post-incident analysis — timeline, root cause, customer impact,"
             " remediation, and follow-up actions. Tier 2."
+        ),
+        "learning": (
+            "Durable technical learnings — a living, continuously appended record of"
+            " non-obvious lessons, gotchas, and corrected assumptions. Tier 3."
         ),
     }
 

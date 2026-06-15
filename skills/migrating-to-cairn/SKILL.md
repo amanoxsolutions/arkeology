@@ -114,6 +114,7 @@ do not consult Pass 2**.
 | `changelog`, `change-log`, `changes`, `release-notes` | `changelog` | 2 |
 | `runbook`, `run-book`, `playbook` | `runbook` | 3 |
 | `postmortem`, `post-mortem`, `incident-report` | `postmortem` | 2 |
+| `learnings`, `learning`, `lessons-learned` | `learning` | 3 |
 
 ### Pass 2 — Path segment rules
 
@@ -134,6 +135,7 @@ all match `**/brainstorming`. Use the **first matching row**.
 | `**/runbooks`, `**/runbook`, `**/ops`, `**/operations`, `**/procedures`, `**/playbooks` | `runbook` | 3 |
 | `**/changelogs`, `**/changelog`, `**/releases`, `**/release-notes` | `changelog` | 2 |
 | `**/postmortems`, `**/postmortem`, `**/incidents`, `**/incident-reports` | `postmortem` | 2 |
+| `**/learnings`, `**/lessons-learned` | `learning` | 3 |
 
 ### Pass 3 — Judgment fallback
 
@@ -408,13 +410,18 @@ After all writes (either path), verify the migration succeeded:
 
 ## Step 5 — Post-migration cleanup
 
-### Tier 2 file removal guidance
+### File removal guidance
 
-The following types are now the **canonical store** for this project's history.
-Once verified in cairn-mcp, the operator may remove these files from the repo:
+Once an artifact is verified in cairn-mcp and cairn-mcp has become the
+**canonical store** for it, the migrated file in the repo is redundant. For each
+migrated file, use the guidance below to decide whether cairn-mcp is now
+authoritative; where it is, **propose deleting the file to the operator** rather
+than removing it silently. This applies across tiers — durable tier-3 types
+(e.g. `adr`, `plan`, `prd`) can also become cairn-authoritative, not just
+ephemeral tier-2 records.
 
-| Type | Safe to remove from repo |
-|------|--------------------------|
+| Type | Propose removal from repo? |
+|------|----------------------------|
 | `brainstorming` | Yes — ideation records; cairn-mcp is the right home |
 | `session_summary` | Yes — ephemeral session records; cairn-mcp is the right home |
 | `code_review` | Yes — point-in-time review records; no need in git history |
@@ -428,9 +435,11 @@ Once verified in cairn-mcp, the operator may remove these files from the repo:
 | `postmortem` | Yes — point-in-time incident records; cairn-mcp is the right home |
 | `prd` | Judgment call — keep if the PRD is referenced in active development; remove once the feature is shipped and the cairn-mcp copy is the archive |
 | `runbook` | Judgment call — keep if the team needs runbooks reachable outside cairn-mcp (e.g. via git during an incident); remove if cairn-mcp is the agreed operational home |
+| `learning` | Judgment call — `learnings.md` is a living file continuously appended to by the `capturing-learnings` skill; propose removal only if cairn-mcp becomes the agreed live home (same posture as `plan` / `prd`). |
 
-Before removing any file, confirm with the operator which files they are
-comfortable removing.
+Never delete a migrated file on your own. Present the removal proposal to the
+operator and wait for explicit confirmation of which files they are comfortable
+removing.
 
 ### AGENTS.md update
 

@@ -37,6 +37,7 @@ cairn-mcp is connected to this project. Use it to persist knowledge across sessi
 | `runbook` | Operational runbooks — deployment, rollback, and incident response procedures; tier 3 |
 | `changelog` | Changelog entries — features shipped, bugs fixed, breaking changes; tier 2 |
 | `postmortem` | Post-incident analyses — timeline, root cause, impact, remediation; tier 2 |
+| `learning` | Durable technical learnings — a living, continuously appended record of lessons, gotchas, corrected assumptions; tier 3 |
 
 <!-- ADR GUIDANCE — insert exactly one of Variant A or Variant B below -->
 
@@ -69,7 +70,7 @@ The `description` field is the primary search signal. Invest in it.
   `implementation_note`, `bug_report`, `changelog`, `postmortem`. Immutable after write;
   keyed by type + date + title.
 - **Tier 3** — living documents: `spec`, `adr`, `decision_note`, `synthesis`, `plan`,
-  `prd`, `runbook`. Overwrite in place on re-write; keyed by type + title (no date).
+  `prd`, `runbook`, `learning`. Overwrite in place on re-write; keyed by type + title (no date).
 
 ### Query strategy — start narrow, broaden only if needed
 

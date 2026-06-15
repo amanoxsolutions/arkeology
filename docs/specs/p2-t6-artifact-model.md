@@ -96,8 +96,10 @@ rejected before any AWS call is made.
 - This module is pure Python — zero AWS calls, zero imports from `clients/`.
 - `generate_artifact_id` must be a plain function, not a method.
 - The valid artifact types are: `code_review`, `session_summary`, `implementation_note`,
-  `spec`, `adr`, `bug_report`, `decision_note`, `synthesis`. This set is the single source
-  of truth; tools and MCP Resources in later phases import it from here.
+  `spec`, `adr`, `bug_report`, `decision_note`, `synthesis`, `learning`. This set is the
+  single source of truth; tools and MCP Resources in later phases import it from here.
+  (The vocabulary was later extended in p7-t25b with `prd`, `plan`, `runbook`, `changelog`,
+  `postmortem`, and again with `learning` — see those specs for the current full set.)
 - Tier values are `2` (project-local, append-only) and `3` (shared, living document).
 - Visibility values are `"shared"` and `"hidden"`.
 - Status values are `"active"` and `"inactive"`.
