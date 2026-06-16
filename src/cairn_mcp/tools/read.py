@@ -38,7 +38,7 @@ async def read_artifact(
     Args:
         settings: Server configuration.
         s3: S3 client for content and metadata retrieval.
-        vectors: S3 Vectors client (unused; injected for interface consistency).
+        vectors: S3 Vectors client for reading commit_refs from vector metadata.
         bedrock: Bedrock client (unused; injected for interface consistency).
         artifact_id: Full S3 key of the artifact to retrieve.
 
@@ -69,7 +69,6 @@ async def _read_artifact_inner(
 ) -> dict[str, Any]:
     """Inner implementation of read_artifact (separated to enable top-level catch-all)."""
     # Suppress "unused parameter" linting — injected for interface consistency.
-    _ = vectors
     _ = bedrock
 
     # ── Step 1: Determine scope ───────────────────────────────────────────────
@@ -124,10 +123,26 @@ async def _read_artifact_inner(
     except CredentialError as exc:
         return {"error": "credential_error", "message": str(exc)}
 
-    # ── Step 4: Deserialise metadata ──────────────────────────────────────────
+    # ── Step 4: Read commit_refs from vector metadata ─────────────────────────
+    # commit_refs are stored in vector metadata only — link_commit appends SHAs
+    # there without touching S3 object metadata.  Reading from vectors ensures
+    # post-link_commit SHAs are surfaced.
+    commit_refs: list[str] = []
+    if vectors is not None:
+        try:
+            keys = vectors.list_vectors_by_metadata({"artifact_id": {"$eq": artifact_id}})
+            if keys:
+                entries = vectors.get_vectors([keys[0]])
+                if entries:
+                    raw = entries[0].get("metadata", {}).get("commit_refs", [])
+                    if isinstance(raw, list):
+                        commit_refs = raw
+        except CredentialError as exc:
+            return {"error": "credential_error", "message": str(exc)}
+
+    # ── Step 5: Deserialise remaining S3 metadata ─────────────────────────────
     feature_tags: list[str] = [t for t in str(meta.get("feature_tags", "")).split(",") if t]
     source_artifacts: list[str] = [s for s in str(meta.get("source_artifacts", "")).split(",") if s]
-    commit_refs: list[str] = [r for r in str(meta.get("commit_refs", "")).split(",") if r]
     last_edited_ulid: str | None = meta.get("last_edited_ulid") or None
 
     logger.info("Artifact read: key=%s", artifact_id)

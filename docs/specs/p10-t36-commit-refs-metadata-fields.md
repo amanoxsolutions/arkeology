@@ -55,6 +55,9 @@ those refs appear in the response.
   called, then `commit_refs: ["abc1234"]` appears in each artifact entry.
 - Given an artifact written with no `commit_refs`, when read or listed, then `commit_refs`
   is `[]` in the response — not absent.
+- Given `link_commit` has been called for an artifact (appending a SHA to vector metadata
+  only, without updating S3 object metadata), when `read_artifact` is called, then
+  `commit_refs` in the response contains the linked SHA(s).
 
 ### Story 2 — `commit_refs` stored correctly in both S3 and vector metadata (P1)
 
@@ -116,6 +119,14 @@ An agent needs all artifacts linked to a specific commit.
   `{"commit_refs": {"$eq": ref}}` clause per entry (AND semantics, mirroring `feature_tags`).
 - WHEN `list_artifacts` returns THE SYSTEM SHALL include `commit_refs: list[str]` and
   `last_edited_ulid: str | None` in each artifact entry.
+- WHEN `read_artifact` is called THE SYSTEM SHALL read `commit_refs` from vector metadata
+  (via `vectors.list_vectors_by_metadata({"artifact_id": {"$eq": artifact_id}})` then
+  `vectors.get_vectors([keys[0]])`) — not from S3 object metadata; this ensures SHAs
+  appended by `link_commit` are surfaced without an S3 write.
+- WHEN no vector entries exist for the artifact THE SYSTEM SHALL return `commit_refs: []`.
+- WHEN `vectors` is `None` THE SYSTEM SHALL return `commit_refs: []`.
+- WHEN a CredentialError is raised from `list_vectors_by_metadata` during `read_artifact`
+  THE SYSTEM SHALL return a structured error — not a raw exception.
 - WHEN `read_artifact` returns THE SYSTEM SHALL include `commit_refs: list[str]` and
   `last_edited_ulid: str | None` in the response.
 - WHEN `last_edited_ulid` is absent from metadata (pre-existing artifact) THE SYSTEM SHALL
@@ -162,8 +173,8 @@ An agent needs all artifacts linked to a specific commit.
 | `src/cairn_mcp/tools/write.py` | Modify | Generate ULID; add both fields to `s3_metadata` and `vector_metadata`; include `last_edited_ulid` in return dict |
 | `tests/unit/test_tools_list.py` | Modify | Add tests for `commit_refs` filter and `last_edited_ulid` / `commit_refs` in response; absence-tolerant for legacy artifacts |
 | `src/cairn_mcp/tools/list.py` | Modify | Add `commit_refs` filter parameter; decode both fields in result dict |
-| `tests/unit/test_tools_read.py` | Modify | Add tests for `commit_refs` and `last_edited_ulid` in response; absence-tolerant for legacy artifacts |
-| `src/cairn_mcp/tools/read.py` | Modify | Decode `commit_refs` from S3 metadata; include `last_edited_ulid` and `commit_refs` in return dict |
+| `tests/unit/test_tools_read.py` | Modify | Replace S3-backed `commit_refs` tests with vector-backed equivalents; add tests for no-vectors and CredentialError paths; keep `last_edited_ulid` tests unchanged |
+| `src/cairn_mcp/tools/read.py` | Modify | Read `commit_refs` from first section vector's metadata via `list_vectors_by_metadata` + `get_vectors`; remove dead `meta.get("commit_refs", "")` S3 parse; `vectors` parameter is no longer discarded; include `commit_refs` and `last_edited_ulid` in return dict |
 
 ## Testing Approach
 
@@ -200,15 +211,26 @@ Process each pair in order; do not skip ahead:
      in result assembly.
 
 4. **`test_tools_read.py` → `read.py`**
-   - Test: `read_artifact` response includes `commit_refs: ["abc1234"]` when S3 metadata
-     has `commit_refs = "abc1234"`.
-   - Test: `read_artifact` response includes `commit_refs: []` when S3 metadata has
-     `commit_refs = ""`.
-   - Test: `read_artifact` response includes `last_edited_ulid` when S3 metadata has it.
-   - Test: `read_artifact` response includes `last_edited_ulid: None` when S3 metadata
+   - Delete: the two existing tests that seed `commit_refs` in S3 object metadata and read
+     it back — they test the wrong data source (S3 is never updated by `link_commit`).
+   - Test: `read_artifact` returns `commit_refs: ["abc1234"]` when vector metadata for
+     the artifact carries `commit_refs: ["abc1234"]` (single SHA, write-time path).
+   - Test: `read_artifact` returns `commit_refs: ["prev123", "new456"]` when vector
+     metadata carries `commit_refs: ["prev123", "new456"]` (multiple SHAs — simulates
+     post-`link_commit` state where S3 object metadata has no `commit_refs` at all).
+   - Test: `read_artifact` returns `commit_refs: []` when `vectors=None`.
+   - Test: `read_artifact` returns `commit_refs: []` when `list_vectors_by_metadata`
+     returns no entries for the artifact.
+   - Test: `read_artifact` returns a structured error when `list_vectors_by_metadata`
+     raises `CredentialError`.
+   - Keep: `read_artifact` response includes `last_edited_ulid` when S3 metadata has it.
+   - Keep: `read_artifact` response includes `last_edited_ulid: None` when S3 metadata
      does not have the field.
-   - Implement: decode `commit_refs` from S3 metadata (same split pattern as
-     `feature_tags`); include `last_edited_ulid` as `meta.get("last_edited_ulid") or None`.
+   - Implement: call `vectors.list_vectors_by_metadata({"artifact_id": {"$eq": artifact_id}})`;
+     if entries found, call `vectors.get_vectors([keys[0]])` and extract `commit_refs`
+     from that section's metadata; return `[]` when no vectors found or when `vectors` is
+     `None`; remove dead `meta.get("commit_refs", "")` S3 parse; include
+     `last_edited_ulid` as `meta.get("last_edited_ulid") or None`.
 
 ## Open Questions
 

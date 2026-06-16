@@ -7,6 +7,7 @@ import pytest
 from pytest_mock import MockerFixture
 
 from cairn_mcp.clients.s3 import S3ClientImpl
+from cairn_mcp.clients.vectors import VectorsClientImpl
 from cairn_mcp.config import Settings
 from cairn_mcp.errors import CredentialError
 from cairn_mcp.tools.read import read_artifact
@@ -482,63 +483,137 @@ async def test_source_artifacts_deserialized_to_list(
 
 
 # ---------------------------------------------------------------------------
-# T36 — commit_refs and last_edited_ulid in read response
+# T36 — commit_refs read from vector metadata, last_edited_ulid from S3
 # ---------------------------------------------------------------------------
 
 
-async def test_read_commit_refs_deserialized_to_list(
+async def test_read_commit_refs_single_sha_from_vector_metadata(
     monkeypatch: pytest.MonkeyPatch,
     s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
 ) -> None:
-    """commit_refs stored as 'abc1234' in S3 metadata → response has ['abc1234']."""
+    """commit_refs: ['abc1234'] in vector metadata → response returns ['abc1234'].
+
+    Write-time path: SHA was stored at write time alongside the artifact.
+    """
     settings = _make_settings(monkeypatch)
-    s3_client.put_object(
-        "artifacts/with-commit-ref",
-        "Content.",
-        {**_BASE_METADATA, "commit_refs": "abc1234"},
+    s3_client.put_object("artifacts/with-vector-ref", "Content.", {**_BASE_METADATA})
+    vectors_client_2.put_vector(
+        key="artifacts/with-vector-ref#section-0",
+        vector=[1.0, 0.0],
+        metadata={"artifact_id": "artifacts/with-vector-ref", "commit_refs": ["abc1234"]},
     )
 
     result = await read_artifact(
-        s3=s3_client, settings=settings, artifact_id="artifacts/with-commit-ref"
+        s3=s3_client,
+        vectors=vectors_client_2,
+        settings=settings,
+        artifact_id="artifacts/with-vector-ref",
     )
 
     assert result["commit_refs"] == ["abc1234"]
 
 
-async def test_read_empty_commit_refs_returns_empty_list(
+async def test_read_commit_refs_multiple_shas_from_vector_metadata(
     monkeypatch: pytest.MonkeyPatch,
     s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
 ) -> None:
-    """commit_refs stored as '' in S3 metadata → response has []."""
+    """commit_refs: ['prev123', 'new456'] in vector metadata → response returns both SHAs.
+
+    Simulates post-link_commit state where S3 object metadata has no commit_refs at all.
+    """
     settings = _make_settings(monkeypatch)
-    s3_client.put_object(
-        "artifacts/no-commit-ref",
-        "Content.",
-        {**_BASE_METADATA, "commit_refs": ""},
+    # S3 object metadata intentionally has no commit_refs key — link_commit only updates vectors
+    s3_client.put_object("artifacts/post-link-commit", "Content.", {**_BASE_METADATA})
+    vectors_client_2.put_vector(
+        key="artifacts/post-link-commit#section-0",
+        vector=[0.0, 1.0],
+        metadata={
+            "artifact_id": "artifacts/post-link-commit",
+            "commit_refs": ["prev123", "new456"],
+        },
     )
 
     result = await read_artifact(
-        s3=s3_client, settings=settings, artifact_id="artifacts/no-commit-ref"
+        s3=s3_client,
+        vectors=vectors_client_2,
+        settings=settings,
+        artifact_id="artifacts/post-link-commit",
+    )
+
+    assert result["commit_refs"] == ["prev123", "new456"]
+
+
+async def test_read_commit_refs_returns_empty_list_when_vectors_is_none(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+) -> None:
+    """vectors=None → commit_refs is [] (graceful degradation when client not injected)."""
+    settings = _make_settings(monkeypatch)
+    s3_client.put_object("artifacts/no-vectors-client", "Content.", {**_BASE_METADATA})
+
+    result = await read_artifact(
+        s3=s3_client,
+        vectors=None,
+        settings=settings,
+        artifact_id="artifacts/no-vectors-client",
     )
 
     assert result["commit_refs"] == []
 
 
-async def test_read_multi_commit_refs_split_to_list(
+async def test_read_commit_refs_returns_empty_list_when_no_vector_entries(
     monkeypatch: pytest.MonkeyPatch,
     s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
 ) -> None:
-    """commit_refs stored as 'abc1234,def5678' → response has ['abc1234', 'def5678']."""
+    """list_vectors_by_metadata returns [] (artifact not indexed) → commit_refs is []."""
     settings = _make_settings(monkeypatch)
-    s3_client.put_object(
-        "artifacts/multi-ref",
-        "## Summary\n\nContent.",
-        {**_BASE_METADATA, "commit_refs": "abc1234,def5678"},
+    s3_client.put_object("artifacts/not-indexed", "Content.", {**_BASE_METADATA})
+    # No vectors seeded for this artifact_id
+
+    result = await read_artifact(
+        s3=s3_client,
+        vectors=vectors_client_2,
+        settings=settings,
+        artifact_id="artifacts/not-indexed",
     )
 
-    result = await read_artifact(s3=s3_client, settings=settings, artifact_id="artifacts/multi-ref")
+    assert result["commit_refs"] == []
 
-    assert result["commit_refs"] == ["abc1234", "def5678"]
+
+async def test_read_commit_refs_credential_error_from_list_vectors_by_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """list_vectors_by_metadata raises CredentialError → structured error returned.
+
+    No raw exception must escape to the MCP caller.
+    """
+    settings = _make_settings(monkeypatch)
+    s3_client.put_object("artifacts/cred-fail", "Content.", {**_BASE_METADATA})
+    mocker.patch.object(
+        vectors_client_2,
+        "list_vectors_by_metadata",
+        side_effect=CredentialError(
+            message="Simulated credential failure on list_vectors_by_metadata.",
+            service="s3vectors",
+            original=Exception("simulated"),
+        ),
+    )
+
+    result = await read_artifact(
+        s3=s3_client,
+        vectors=vectors_client_2,
+        settings=settings,
+        artifact_id="artifacts/cred-fail",
+    )
+
+    assert "error" in result
+    assert result["error"] == "credential_error"
 
 
 async def test_read_last_edited_ulid_present(
