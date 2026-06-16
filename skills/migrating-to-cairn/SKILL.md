@@ -239,8 +239,11 @@ If any entry in the response carries `error`:
 > the `BEDROCK_TEXT_MODEL` configured in the MCP server entry. **If
 > `BEDROCK_TEXT_MODEL` is not configured, call `health_check` — if the
 > `bedrock_text_model` component is absent or errored, stop here and ask the
-> operator to add `BEDROCK_TEXT_MODEL: amazon.nova-lite-v1:0` to the MCP server
-> environment in their project config, then restart the MCP client.**
+> operator to add `BEDROCK_TEXT_MODEL` to the MCP server environment in their
+> project config and restart the MCP client. The value must be a cross-region
+> inference profile for their AWS region: `eu.amazon.nova-lite-v1:0` for EU,
+> `us.amazon.nova-lite-v1:0` for US cross-region, or `amazon.nova-lite-v1:0`
+> only when the region is `us-east-1`.**
 > A `CAIRN_IMPORT.yaml` manifest tracks progress across runs. The operator
 > reviews server-generated descriptions via a dry-run before any writes occur.
 

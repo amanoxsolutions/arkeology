@@ -57,7 +57,7 @@ confirmed before proceeding to Step 2.
 | `VECTORS_INDEX` | S3 Vectors index name (must exist) | — (required) |
 | `BEDROCK_EMBEDDING_MODEL` | Bedrock embedding model ID | `amazon.titan-embed-text-v2:0` |
 | `BEDROCK_EMBEDDING_DIMENSIONS` | Embedding dimension | `1024` |
-| `BEDROCK_TEXT_MODEL` | Bedrock text generation model for auto-generating artifact descriptions during migration. Only needed if you plan to use the `migrating-to-cairn` skill — without it the server cannot generate descriptions server-side and the migration agent will improvise. **Cross-region inference profiles are required in most regions outside `us-east-1`** — use a region-prefixed model ID such as `eu.amazon.nova-lite-v1:0` (EU) or `us.amazon.nova-lite-v1:0` (US cross-region) rather than the bare `amazon.nova-lite-v1:0`. | — (optional, recommended for migration) |
+| `BEDROCK_TEXT_MODEL` | Bedrock text generation model for auto-generating artifact descriptions during migration. Only invoked by the `migrating-to-cairn` skill — it has no effect on normal cairn-mcp operation. Without it the migration skill blocks for any project with more than 10 documentation files. **Cross-region inference profiles are required in most regions outside `us-east-1`** — use a region-prefixed model ID such as `eu.amazon.nova-lite-v1:0` (EU) or `us.amazon.nova-lite-v1:0` (US cross-region) rather than the bare `amazon.nova-lite-v1:0`. | — (required) |
 | `AWS_PROFILE` | AWS CLI named profile | — (optional) |
 | Team name | The name of your team or organisation (e.g. `platform`, `acme`) | — (required) |
 | Project name | The name of this project (e.g. `api-gateway`, `cairn-mcp`) | — (required) |
@@ -71,7 +71,7 @@ scope so artifacts from different projects do not mix. Agents can only write to 
 
 ## Step 2 — Pre-flight checks
 
-Run these six checks in order. Stop at the first failure and report which check failed
+Run these seven checks in order. Stop at the first failure and report which check failed
 and why. Do not continue until the operator resolves the issue.
 
 If `AWS_PROFILE` was provided in Step 1, add `--profile <profile>` to every `aws` command
@@ -146,7 +146,31 @@ A successful call exits with code 0 and writes a JSON response to `/tmp/cairn-em
 Failure: the model is not enabled in the account or region. Instruct the operator
 to enable the model in the Bedrock console before proceeding.
 
-Once all six checks pass, proceed to Step 3.
+**Check 7 — Bedrock text model accessible**
+
+Uses the Nova message format (same request shape as cairn-mcp's `invoke_text_model`).
+Note: the `"type"` key is intentionally omitted from the content object — cross-region
+inference profiles reject it. Write the request body first, then invoke:
+
+```bash
+printf '{"messages":[{"role":"user","content":[{"text":"ping"}]}],"inferenceConfig":{"maxTokens":1}}' \
+  > /tmp/cairn-text-body.json
+
+aws bedrock-runtime invoke-model \
+  --model-id <BEDROCK_TEXT_MODEL> \
+  --body fileb:///tmp/cairn-text-body.json \
+  --region <REGION> \
+  /tmp/cairn-text-test.json
+```
+
+A successful call exits with code 0 and writes a JSON response to `/tmp/cairn-text-test.json`.
+
+Failure: the model is not enabled in the account or region, or the model ID uses the wrong
+format (e.g. bare `amazon.nova-lite-v1:0` instead of the cross-region inference profile
+`eu.amazon.nova-lite-v1:0` for EU). Instruct the operator to enable the model in the
+Bedrock console and verify the model ID format before proceeding.
+
+Once all seven checks pass, proceed to Step 3.
 
 ---
 
@@ -207,7 +231,7 @@ global config file (`~/.copilot/mcp-config.json`, `~/.config/opencode/opencode.j
 
 Substitute all values from Step 1. Add `AWS_PROFILE` to the env block if provided.
 Add `READ_PREFIXES` if provided. Add `BEDROCK_EMBEDDING_DIMENSIONS` if non-default (not 1024).
-Add `BEDROCK_TEXT_MODEL` if provided (it is optional and only used by the `migrating-to-cairn` skill to generate artifact descriptions server-side).
+Always include `BEDROCK_TEXT_MODEL` (it is only invoked by the `migrating-to-cairn` skill but is required by the setup).
 
 **Claude Code / Copilot CLI** (`.mcp.json`, `mcpServers` key — one entry serves both clients):
 
@@ -234,7 +258,7 @@ Add `BEDROCK_TEXT_MODEL` if provided (it is optional and only used by the `migra
 ```
 
 > `"tools": ["*"]` is required for Copilot CLI and ignored by Claude Code — safe to include for both.
-> `BEDROCK_TEXT_MODEL` is optional — include it only if you plan to run the `migrating-to-cairn` skill.
+> `BEDROCK_TEXT_MODEL` is only invoked by the `migrating-to-cairn` skill and has no effect on normal operation.
 > Use a cross-region inference profile ID for your region (e.g. `eu.amazon.nova-lite-v1:0` for EU,
 > `us.amazon.nova-lite-v1:0` for US cross-region). The bare `amazon.nova-lite-v1:0` only works in `us-east-1`.
 
@@ -260,7 +284,7 @@ Add `BEDROCK_TEXT_MODEL` if provided (it is optional and only used by the `migra
 }
 ```
 
-> `BEDROCK_TEXT_MODEL` is optional — include it only if you plan to run the `migrating-to-cairn` skill.
+> `BEDROCK_TEXT_MODEL` is only invoked by the `migrating-to-cairn` skill and has no effect on normal operation.
 > Use a cross-region inference profile ID for your region (e.g. `eu.amazon.nova-lite-v1:0` for EU,
 > `us.amazon.nova-lite-v1:0` for US cross-region). The bare `amazon.nova-lite-v1:0` only works in `us-east-1`.
 
@@ -288,7 +312,7 @@ Add `BEDROCK_TEXT_MODEL` if provided (it is optional and only used by the `migra
 }
 ```
 
-> `BEDROCK_TEXT_MODEL` is optional — include it only if you plan to run the `migrating-to-cairn` skill.
+> `BEDROCK_TEXT_MODEL` is only invoked by the `migrating-to-cairn` skill and has no effect on normal operation.
 > Use a cross-region inference profile ID for your region (e.g. `eu.amazon.nova-lite-v1:0` for EU).
 
 **Codex CLI** (`.codex/config.toml`, TOML format — create `.codex/` directory if absent):
@@ -305,8 +329,8 @@ VECTORS_BUCKET = "myteam-cairn-vectors"
 VECTORS_INDEX = "cairn-index"
 WRITE_PREFIX = "myteam/myproject"
 BEDROCK_EMBEDDING_MODEL = "amazon.titan-embed-text-v2:0"
-# Optional — only needed for the migrating-to-cairn skill. Use a cross-region
-# inference profile ID for your region (e.g. eu.amazon.nova-lite-v1:0 for EU).
+# Only invoked by the migrating-to-cairn skill — no effect on normal operation.
+# Use a cross-region inference profile ID for your region (e.g. eu.amazon.nova-lite-v1:0 for EU).
 BEDROCK_TEXT_MODEL = "eu.amazon.nova-lite-v1:0"
 ```
 
