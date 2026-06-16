@@ -1,8 +1,8 @@
 # Plan: cairn-mcp
 
 _Project: cairn-mcp_
-_Generated: 2026-05-29_ · _Last updated: 2026-06-12_
-_Status: **V1 — Phases 1–9 complete (unit + integration suite passing against live AWS; ruff + mypy clean; Apache 2.0 licensed; production-hardened; moto migration complete; write performance hardened; bulk write + migration tools; setting-up-cairn + sync-cairn-plugin skills; skill distribution via native plugin mechanisms) · Phase 10 (artifact commit references + caller-controlled concurrency) T35–T39 complete · T40 planned**_
+_Generated: 2026-05-29_ · _Last updated: 2026-06-16_
+_Status: **V1 — Phases 1–9 complete (unit + integration suite passing against live AWS; ruff + mypy clean; Apache 2.0 licensed; production-hardened; moto migration complete; write performance hardened; bulk write + migration tools; setting-up-cairn + sync-cairn-plugin skills; skill distribution via native plugin mechanisms) · Phase 10 (artifact commit references + caller-controlled concurrency) T35–T40 complete**_
 
 ## How we work
 
@@ -323,7 +323,7 @@ independent of T31, T32, T33, and T34 — no shared files.
     - Brainstorming: `docs/brainstorming/brainstorming-2026-06-10-migrate-artifacts-concurrency.md`
     - Spec: `docs/specs/p10-t39-caller-controlled-artifact-concurrency.md` *(spec ready)*
 
-40. ☐ **Migration skill `commit_refs` backfill options** *(skill-only change; no server code)* — update the `migrating-to-cairn` skill to offer the operator three backfill choices after artifacts are written: (1) **do not backfill** (default — `commit_refs` left empty, migration finishes immediately), (2) **set migration timestamp** (`commit_refs` left empty; `last_edited_ulid` already set to migration time by `write_artifact` — no extra step needed; document this for operator clarity), (3) **backfill from git history** (for each migrated file run `git log -1 --format=%H -- <filepath>` to obtain the last-touching commit SHA, then call `link_commit` in batches); warn upfront that option 3 is O(n) git calls and can be slow for large projects (D12)
+40. ✅ **Migration skill `commit_refs` backfill options** *(skill-only change; no server code)* — update the `migrating-to-cairn` skill to offer the operator three backfill choices after artifacts are written: (1) **do not backfill** (default — `commit_refs` left empty, migration finishes immediately), (2) **set migration timestamp** (`commit_refs` left empty; `last_edited_ulid` already set to migration time by `write_artifact` — no extra step needed; document this for operator clarity), (3) **backfill from git history** (for each migrated file run `git log -1 --format=%H -- <filepath>` to obtain the last-touching commit SHA, then call `link_commit` in batches); warn upfront that option 3 is O(n) git calls and can be slow for large projects (D12)
     - Done when: skill presents all three options with the default clearly marked; option 1 requires no additional tool calls after migration; option 2 explains that `last_edited_ulid` is already set to migration time with no extra action; option 3 drives `git log -1` per file and `link_commit` in batches, with an upfront slow-operation warning; the no-`since_ulid` edge case (all unlinked artifacts surfacing in future `propose_commit_links` calls) is noted; skill text is clear, concise, and consistent with the existing migration skill style
     - Spec: `docs/specs/p10-t40-migration-skill-commit-refs-backfill.md`
     - Brainstorming: `docs/brainstorming/brainstorming-2026-06-06-artifact-commit-refs.md` (D12, Resolved Questions)

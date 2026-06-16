@@ -27,7 +27,8 @@ classification steps, the file count determines which path to follow:
    - → **Step 3.A (≤ 10 files):** build descriptors with in-context descriptions → present to operator → execute.
    - → **Step 3.B (> 10 files):** produce manifest → operator review → read files + dry-run preview → execute.
 4. **Verification** — confirm artifacts appear in `list_artifacts` and `search_artifacts`.
-5. **Post-migration cleanup** — remove migrated files from git (per type guidance) and update `AGENTS.md`.
+5. **Commit refs backfill** — optionally link written artifacts to git commit SHAs via `link_commit`.
+6. **Post-migration cleanup** — remove migrated files from git (per type guidance) and update `AGENTS.md`.
 
 ---
 
@@ -408,7 +409,55 @@ After all writes (either path), verify the migration succeeded:
 
 ---
 
-## Step 5 — Post-migration cleanup
+## Step 5 — Commit refs backfill
+
+After verification, all written artifacts have empty `commit_refs`. This step is **optional**
+(option 1 is the default). Present the three choices to the operator:
+
+**Option 1 — Do not backfill (default)**
+
+No tool calls. Proceed to Step 6.
+
+Note: unlinked migrated artifacts will appear in future `propose_commit_links` calls when
+`since_ulid` is absent or pre-dates the migration.
+
+**Option 2 — Link all artifacts to HEAD (fast, imprecise)**
+
+Run `git rev-parse HEAD` exactly once.
+
+- If it succeeds: call `link_commit(artifact_ids=[all_written_ids], commit_sha=<HEAD>)` once
+  with ALL artifact_ids from entries with `written: true` in the `migrate_artifacts` response.
+  Note: this records the migration-time snapshot of the repo, not historically accurate
+  per-file provenance.
+- If it fails (repository has no commits yet): explain why and offer option 1 or option 3.
+  Do not call `link_commit`.
+
+**Option 3 — Backfill from git history (accurate, O(n))**
+
+> **Slow operation warning:** this runs one `git log` call per migrated file (O(n)).
+> Confirm with the operator before any git calls begin.
+
+Wait for explicit operator acknowledgment, then for each migrated file run:
+
+```bash
+git log -1 --format=%H -- <filepath>
+```
+
+Correlate each file path with its artifact_id by position in the input descriptor list
+(position 0 in descriptors → position 0 in the response). Group artifact_ids by their
+resolved SHA. Call `link_commit(artifact_ids=[...], commit_sha=<sha>)` **once per unique
+SHA** — never one call per file. Report progress after each call (e.g. "Linked 12 of 45
+files"). Files with no git history (empty output): skip that artifact_id and include in
+the skipped count. Never halt on a missing history entry.
+
+Final summary: count of linked artifacts and count skipped (no git history found).
+
+Only artifact_ids with `written: true` are passed to `link_commit`. Do not call
+`write_artifact`, `migrate_artifacts`, or `propose_commit_links` in this step.
+
+---
+
+## Step 6 — Post-migration cleanup
 
 ### File removal guidance
 
