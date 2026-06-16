@@ -1,5 +1,10 @@
 ---
-type: feature-spec
+type: spec
+title: T11 — Archive Artifact Tool
+description: Feature spec for the archive_artifact MCP tool that sets artifact status to inactive to hide it from search and list results while preserving content in S3.
+tags: []
+timestamp: 2026-05-30T00:00:00Z
+okf_version: "0.1"
 feature: p3-t11-archive-artifact
 status: ready
 phase: 3

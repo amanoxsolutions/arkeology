@@ -1,5 +1,10 @@
 ---
-type: feature-spec
+type: spec
+title: T39 — Caller-Controlled artifact_concurrency on write_artifacts and migrate_artifacts
+description: Spec to replace the ARTIFACT_CONCURRENCY env var with a per-call artifact_concurrency parameter on write_artifacts and migrate_artifacts, with capping and warning behaviour.
+tags: []
+timestamp: 2026-06-11T00:00:00Z
+okf_version: "0.1"
 feature: p10-t39-caller-controlled-artifact-concurrency
 status: ready
 phase: 10

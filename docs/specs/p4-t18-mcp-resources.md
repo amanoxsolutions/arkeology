@@ -1,5 +1,10 @@
 ---
-type: feature-spec
+type: spec
+title: T18 — MCP Resources
+description: Exposes five cairn-mcp schema documents as MCP Resources so connected agents can discover valid artifact types, tier semantics, visibility rules, type catalogue, and query strategy at runtime without external documentation.
+tags: []
+timestamp: 2026-05-31T00:00:00Z
+okf_version: "0.1"
 feature: p4-t18-mcp-resources
 status: ready
 phase: 4

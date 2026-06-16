@@ -1,4 +1,10 @@
 ---
+type: brainstorming
+title: Delete Artifact Capability
+description: Explores whether a true deletion capability — permanently removing an artifact from S3 and the vector index — is needed alongside the existing archive mechanism, and what shape it should take.
+tags: []
+timestamp: 2026-05-30T00:00:00Z
+okf_version: "0.1"
 status: complete
 references: []
 authored:

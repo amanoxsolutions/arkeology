@@ -1,3 +1,12 @@
+---
+type: adr
+title: cairn-mcp — Architecture Overview
+description: System context, internal layer diagram, and component dependency summary for the cairn-mcp MCP server backed by Amazon S3, S3 Vectors, and Bedrock.
+tags: []
+timestamp: 2026-06-16T00:00:00Z
+okf_version: "0.1"
+---
+
 # cairn-mcp — Architecture Overview
 
 cairn-mcp is a Python MCP server that gives AI agents persistent and searchable artifact memory,
@@ -173,3 +182,4 @@ Key architectural choices are recorded as ADRs in this directory:
 | [ADR-006](adr-2026-05-29-section-level-embedding.md) | Section-level embedding at H2 boundaries |
 | [ADR-007](adr-2026-05-29-tier-based-access-control.md) | Tier-based cross-scope access control model |
 | [ADR-008](adr-2026-06-02-async-concurrent-embedding.md) | Async semaphore-bounded concurrent embedding |
+| [ADR-009](adr-2026-06-16-artifact-commit-traceability.md) | Artifact commit traceability — ULID timestamps, vector-only commit links, agent-driven protocol |

@@ -1,4 +1,10 @@
 ---
+type: adr
+title: Section-Level Embedding at H2 Boundaries
+description: Records the choice to embed each H2 section of an artifact as an independent vector rather than embedding the full artifact as a single document vector.
+tags: []
+timestamp: 2026-05-29T00:00:00Z
+okf_version: "0.1"
 status: accepted
 references: []
 authored:

@@ -1,3 +1,12 @@
+---
+type: plan
+title: Plan cairn-mcp
+description: Full phase history and current open phase for cairn-mcp development, tracking all completed and in-progress tasks from foundation through artifact commit references.
+tags: []
+timestamp: 2026-06-16T00:00:00Z
+okf_version: "0.1"
+---
+
 # Plan: cairn-mcp
 
 _Project: cairn-mcp_

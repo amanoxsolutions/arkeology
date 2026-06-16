@@ -1,5 +1,10 @@
 ---
-type: feature-spec
+type: spec
+title: T20 — Migration Skill
+description: Provides a structured one-time workflow skill for bulk-migrating existing project documentation into cairn-mcp, supporting both agent-only (< 30 files) and manifest-plus-script (≥ 30 files) execution paths.
+tags: []
+timestamp: 2026-05-31T00:00:00Z
+okf_version: "0.1"
 feature: p4-t20-migration-skill
 status: ready
 phase: 4

@@ -1,4 +1,10 @@
 ---
+type: brainstorming
+title: Multi-team / Multi-project Configuration
+description: Explores solutions for operators who work across multiple teams and projects and need cairn-mcp to correctly scope artifact writes without restarting the server, ranging from better docs to named profiles and a proxy layer.
+tags: []
+timestamp: 2026-06-08T00:00:00Z
+okf_version: "0.1"
 status: ready
 references:
   - src/cairn_mcp/config.py

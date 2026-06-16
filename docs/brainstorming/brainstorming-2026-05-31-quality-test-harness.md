@@ -1,4 +1,10 @@
 ---
+type: brainstorming
+title: Quality Test Harness for cairn-mcp
+description: Designs a quality evaluation harness that asks whether cairn-mcp tools work well, simulating real multi-project usage to evaluate retrieval precision, cross-scope gating, synthesis coherence, and freshness detection across different embedding configurations.
+tags: []
+timestamp: 2026-05-31T00:00:00Z
+okf_version: "0.1"
 status: complete
 references: []
 authored:

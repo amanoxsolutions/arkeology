@@ -1,5 +1,10 @@
 ---
-type: feature-spec
+type: spec
+title: T21 — Reconciliation Tool
+description: Introduces a reconcile_index MCP tool that repairs S3/vector-index inconsistencies by replaying the failure log and scanning for orphaned S3 objects, returning a structured summary of recovered and failed artifacts.
+tags: []
+timestamp: 2026-05-31T00:00:00Z
+okf_version: "0.1"
 feature: p5-t21-reconciliation-tool
 status: ready
 phase: 5

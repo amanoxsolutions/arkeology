@@ -1,4 +1,10 @@
 ---
+type: adr
+title: Async Semaphore-Bounded Concurrent Embedding
+description: Records the move from a serial embedding loop to bounded concurrent embedding using asyncio.gather with asyncio.Semaphore, and the companion change to batch section vectors into a single put_vectors_batch call per artifact.
+tags: []
+timestamp: 2026-06-02T00:00:00Z
+okf_version: "0.1"
 status: accepted
 references: []
 authored:

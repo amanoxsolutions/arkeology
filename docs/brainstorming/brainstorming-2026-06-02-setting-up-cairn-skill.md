@@ -1,4 +1,10 @@
 ---
+type: brainstorming
+title: Setting-Up-Cairn Skill
+description: Explores whether the cairn-mcp installation and provisioning workflow should be moved into a `setting-up-cairn` skill, and designs the scope, exclusion model, and config block structure for that skill.
+tags: []
+timestamp: 2026-06-02T00:00:00Z
+okf_version: "0.1"
 status: complete
 references: []
 authored:

@@ -1,5 +1,10 @@
 ---
-type: feature-spec
+type: spec
+title: Migration Skill — Two-Pass File Classification
+description: Replaces the fragile docs-root discovery and single-level subdirectory matching in the migration skill with a two-pass system — filename stem rules first, then path-segment pattern rules — to correctly classify files in non-standard directory layouts.
+tags: []
+timestamp: 2026-06-01T00:00:00Z
+okf_version: "0.1"
 feature: p7-t25c-migration-skill-two-pass-classification
 phase: 7
 task: 25c

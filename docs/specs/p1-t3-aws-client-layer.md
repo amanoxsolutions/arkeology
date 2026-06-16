@@ -1,5 +1,10 @@
 ---
-type: feature-spec
+type: spec
+title: T3 — AWS Client Layer
+description: Feature spec for typed, testable AWS client interfaces (S3, S3 Vectors, Bedrock) with credential error wrapping and in-memory fakes for unit tests.
+tags: []
+timestamp: 2026-05-29T00:00:00Z
+okf_version: "0.1"
 feature: p1-t3-aws-client-layer
 status: ready
 phase: 1

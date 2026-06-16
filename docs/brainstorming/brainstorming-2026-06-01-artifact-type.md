@@ -1,4 +1,10 @@
 ---
+type: brainstorming
+title: Add `brainstorming` Artifact Type
+description: Makes the case for adding `brainstorming` as a first-class tier 2 artifact type to distinguish ideation outputs from session outcomes, restoring search precision for projects that produce both document kinds.
+tags: []
+timestamp: 2026-06-01T00:00:00Z
+okf_version: "0.1"
 status: complete
 references: []
 authored:

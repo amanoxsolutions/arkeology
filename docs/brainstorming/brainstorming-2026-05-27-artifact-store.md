@@ -1,4 +1,10 @@
 ---
+type: brainstorming
+title: Brainstorming — amanox-artifact-store-mcp
+description: New standalone project brainstorming for an AWS S3-based agent knowledge store delivered as a Python MCP server, enabling AI agents to write, search, and retrieve structured artifacts across projects, teams, and sessions.
+tags: []
+timestamp: 2026-05-27T00:00:00Z
+okf_version: "0.1"
 status: complete
 references: []
 authored:

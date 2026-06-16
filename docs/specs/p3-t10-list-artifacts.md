@@ -1,5 +1,10 @@
 ---
-type: feature-spec
+type: spec
+title: T10 — List Artifacts Tool
+description: Feature spec for the list_artifacts MCP tool that provides metadata-only browsing of the artifact store with filter-driven retrieval and cross-scope gate enforcement.
+tags: []
+timestamp: 2026-05-30T00:00:00Z
+okf_version: "0.1"
 feature: p3-t10-list-artifacts
 status: ready
 phase: 3

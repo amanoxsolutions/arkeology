@@ -1,5 +1,10 @@
 ---
-type: feature-spec
+type: spec
+title: T24 — commit_refs and last_edited_ulid Metadata Fields
+description: Spec to add commit_refs and last_edited_ulid as first-class metadata fields flowing through write, read, and list, enabling post-write commit annotation and time-range discovery.
+tags: []
+timestamp: 2026-06-06T00:00:00Z
+okf_version: "0.1"
 feature: p10-t35-commit-refs-metadata-fields
 status: ready
 phase: 10

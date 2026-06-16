@@ -1,5 +1,10 @@
 ---
-type: feature-spec
+type: spec
+title: T33c — Install Script
+description: Spec for an idempotent bash install.sh that detects installed AI tools and applies the correct user-level wiring for OpenCode, Claude Code, and Copilot.
+tags: []
+timestamp: 2026-06-09T00:00:00Z
+okf_version: "0.1"
 feature: p9-t33c-install-script
 phase: 9
 task: 33c

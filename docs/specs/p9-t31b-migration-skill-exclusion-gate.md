@@ -1,5 +1,10 @@
 ---
-type: feature-spec
+type: spec
+title: T31b — Migration Skill Exclusion Gate and ADR Gate Removal
+description: Spec to add a cairn-mcp:config pre-flight check to the migration skill, remove the ADR strategy gate, and source exclusions from the config block.
+tags: []
+timestamp: 2026-06-07T00:00:00Z
+okf_version: "0.1"
 feature: p9-t31b-migration-skill-exclusion-gate
 status: complete
 phase: 9

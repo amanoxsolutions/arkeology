@@ -1,5 +1,10 @@
 ---
-type: feature-spec
+type: spec
+title: T14 — Health Check Tool
+description: Feature spec for the health_check MCP tool that independently probes each configured component (S3, S3 Vectors, Bedrock, prefixes) and returns a structured per-component status report without ever raising.
+tags: []
+timestamp: 2026-05-30T00:00:00Z
+okf_version: "0.1"
 feature: p3-t14-health-check
 status: ready
 phase: 3

@@ -1,4 +1,10 @@
 ---
+type: brainstorming
+title: Reconcile Index — Dangling Vector Pruning
+description: Explores the gap in `reconcile_index` where vector index entries whose backing S3 object no longer exists are not detected or pruned, analyzes how dangling vectors arise and their severity, and designs options for adding reverse-direction reconciliation.
+tags: []
+timestamp: 2026-06-03T00:00:00Z
+okf_version: "0.1"
 status: complete
 references: []
 authored:

@@ -1,4 +1,10 @@
 ---
+type: adr
+title: FastMCP as the MCP Server Framework
+description: Records the choice of fastmcp as the Python MCP server framework for its decorator-based tool registration, built-in stdio transport, and automatic JSON schema generation.
+tags: []
+timestamp: 2026-05-29T00:00:00Z
+okf_version: "0.1"
 status: accepted
 references: []
 authored:

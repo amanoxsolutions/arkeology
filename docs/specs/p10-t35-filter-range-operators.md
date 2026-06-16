@@ -1,5 +1,10 @@
 ---
-type: feature-spec
+type: spec
+title: T23 — Filter Range Operators ($gte / $lte)
+description: Spec to add $gte and $lte comparison operators to filter.py, enabling ULID range queries required by the propose_commit_links tool.
+tags: []
+timestamp: 2026-06-06T00:00:00Z
+okf_version: "0.1"
 feature: p10-t34-filter-range-operators
 status: ready
 phase: 10

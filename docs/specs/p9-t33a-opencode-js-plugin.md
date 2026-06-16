@@ -1,5 +1,10 @@
 ---
-type: feature-spec
+type: spec
+title: T33a — OpenCode JS Plugin
+description: Spec to add a package.json and OpenCode JS plugin file so cairn-mcp becomes a self-installing OpenCode plugin with one-line install.
+tags: []
+timestamp: 2026-06-09T00:00:00Z
+okf_version: "0.1"
 feature: p9-t33a-opencode-js-plugin
 phase: 9
 task: 33a

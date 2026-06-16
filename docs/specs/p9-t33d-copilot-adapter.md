@@ -1,5 +1,10 @@
 ---
-type: feature-spec
+type: spec
+title: T33d — Copilot Adapter
+description: Spec for the GitHub Copilot install path in install.sh — using gh skill install with mandatory flags and a pre-commit validation guard for YAML compatibility.
+tags: []
+timestamp: 2026-06-09T00:00:00Z
+okf_version: "0.1"
 feature: p9-t33d-copilot-adapter
 phase: 9
 task: 33d

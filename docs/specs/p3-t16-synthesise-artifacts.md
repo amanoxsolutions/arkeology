@@ -1,5 +1,10 @@
 ---
-type: feature-spec
+type: spec
+title: T16 — Synthesise Artifacts Tool
+description: Feature spec for the synthesise_artifacts MCP tool that combines semantic search with batch content retrieval so an agent can assemble source artifacts for in-context synthesis in a single call.
+tags: []
+timestamp: 2026-05-30T00:00:00Z
+okf_version: "0.1"
 feature: p3-t16-synthesise-artifacts
 status: ready
 phase: 3

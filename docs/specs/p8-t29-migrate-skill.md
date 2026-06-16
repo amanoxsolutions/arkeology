@@ -1,5 +1,10 @@
 ---
-type: feature-spec
+type: spec
+title: Write Performance L1+L2 — Migration Skill Parallel Writes
+description: Restructures the migrating-to-cairn skill's Path A into two phases (enrich-all then parallel-write via sub-agents) and adds concurrent writes to migrate.py, together reducing a 10-document migration from ~10 minutes to ~1 minute.
+tags: []
+timestamp: 2026-06-02T00:00:00Z
+okf_version: "0.1"
 feature: p8-t29-migrate-skill
 phase: 8
 task: 29

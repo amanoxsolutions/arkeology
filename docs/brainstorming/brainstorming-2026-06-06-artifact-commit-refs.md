@@ -1,4 +1,10 @@
 ---
+type: brainstorming
+title: Artifact Commit References
+description: How to add git commit references to artifact metadata in cairn-mcp, solving the association problem where the commit SHA is unknown at write time, covering the metadata model, timestamp precision, trigger mechanism, and migration skill implications.
+tags: []
+timestamp: 2026-06-06T00:00:00Z
+okf_version: "0.1"
 status: ready
 references:
   - docs/brainstorming/brainstorming-2026-06-01-adr-git-cairn-relationship.md
@@ -47,7 +53,7 @@ decisions_locked:
   - D9: propose_commit_links fetches all artifacts in time range then filters client-side for missing commit_refs (avoids needing $exists operator)
   - D10: link_commit returns next_since_ulid in its response; write_artifact returns last_edited_ulid in its response
   - D11: since_ulid is optional in propose_commit_links; when absent, returns all unlinked artifacts in own scope regardless of age
-  - D12: migration skill default is do not backfill commit_refs; all three options (do not backfill, set migration timestamp, backfill from git history) remain available to the operator
+  - D12: migration skill default is do not backfill commit_refs; three options available: (1) do not backfill, (2) link all to current HEAD via one `git rev-parse HEAD` call + one `link_commit` call — fast but imprecise (HEAD is migration-time snapshot, not per-file provenance), (3) backfill per-file from git history via `git log -1` per file — accurate but O(n) git calls
   - D13: S3 object metadata update for commit_refs (copy_object) is out of scope; commit_refs is read from vector metadata by read_artifact — no copy_object needed for read visibility
 decisions_closed_not_applicable:
   - Direction 1 (caller-supplied commit_refs at write time) — caller may not know the SHA at write time; post-write annotation is the right model
@@ -56,7 +62,8 @@ decisions_closed_not_applicable:
   - OQ1 + OQ4 (session-start ULID ergonomics) — resolved: Bash call at session start, link_commit returns next_since_ulid, since_ulid optional
   - OQ2 (S3 object metadata for commit_refs) — resolved as D6: vector-only in V1, reconcile limitation documented
   - OQ3 (commit_refs filtering in list/search) — resolved: add commit_refs filter parameter to list_artifacts mirroring feature_tags pattern
-  - Migration skill backfill open question — resolved as D12: do not backfill is the default; all three options remain available
+  - Migration skill backfill open question — resolved as D12: do not backfill is the default; three options (none / fast HEAD link / accurate per-file) remain available
+  - Migration timestamp option (commit_refs left empty, last_edited_ulid as proxy) — rejected; produces no actionable difference from option 1 and leaves artifacts unlinked, surfacing them in all future propose_commit_links calls without a since_ulid bound
   - S3 copy_object for commit_refs open question — resolved as D13: out of scope; read_artifact reads vector metadata directly
 ---
 
@@ -405,12 +412,19 @@ the skill offers the operator three choices:
 
 | Option | Behaviour | Trade-offs |
 |---|---|---|
-| **Do not backfill** (default) | `commit_refs` left empty on all migrated artifacts | Safe, fast, zero git calls |
-| **Fill with migration timestamp** | `commit_refs` left empty; `last_edited_ulid` set to migration time | Not historically accurate; useful for establishing a timestamp baseline |
-| **Backfill from git history** | For each file, run `git log -1 --format=%H -- <filepath>` then call `link_commit` | Most accurate; O(n) git calls — warn the operator upfront for large projects |
+| **Do not backfill** (default) | `commit_refs` left empty on all migrated artifacts | Safe, fast, zero git calls; unlinked artifacts surface in future `propose_commit_links` calls without a `since_ulid` bound |
+| **Link to current HEAD** | Run `git rev-parse HEAD` once; call `link_commit(artifact_ids=[all_written], commit_sha=<HEAD>)` — one git call, one `link_commit` call | Fast; all artifacts become linked; HEAD is migration-time snapshot, not per-file provenance; fails gracefully when the repository has no commits yet |
+| **Backfill from git history** | For each file, run `git log -1 --format=%H -- <filepath>`; group artifact_ids by SHA; call `link_commit` once per unique SHA | Most accurate; O(n) git calls — warn the operator upfront for large projects; files never committed to git are skipped |
 
-The `git log -1` approach yields the SHA of the last commit that touched each file — the most
-semantically correct association. Commits may be arbitrarily old (pre-dating cairn-mcp
+The "link to current HEAD" option was chosen over "set migration timestamp" (leave `commit_refs`
+empty, `last_edited_ulid` serves as proxy) because the latter is indistinguishable from "do not
+backfill" in terms of artifact state — both leave `commit_refs` empty and produce the same
+downstream noise in `propose_commit_links`. "Link to current HEAD" makes all artifacts genuinely
+linked (one git call, one server call) and removes them from future `propose_commit_links`
+results, which is the operator's actual goal.
+
+The `git log -1` approach (option 3) yields the SHA of the last commit that touched each file —
+the most semantically accurate association. Commits may be arbitrarily old (pre-dating cairn-mcp
 adoption), which is expected.
 
 ---

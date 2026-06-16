@@ -1,5 +1,10 @@
 ---
-type: feature-spec
+type: spec
+title: T15 — Partial Write Failure Log
+description: Feature spec for a structured local failure log that records partial write failures (S3 succeeds but Bedrock or S3 Vectors indexing fails) and a Bedrock throttle retry mechanism.
+tags: []
+timestamp: 2026-05-30T00:00:00Z
+okf_version: "0.1"
 feature: p3-t15-partial-write-failure-log
 status: ready
 phase: 3

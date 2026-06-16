@@ -1,5 +1,10 @@
 ---
-type: feature-spec
+type: spec
+title: Migrate Unit Tests from Hand-Rolled Fakes to Moto
+description: Replaces hand-rolled FakeS3Client and FakeVectorsClient with moto-backed real implementations and adds a query_vectors cosine-similarity extension to align unit-test score ranges with production behaviour.
+tags: []
+timestamp: 2026-06-01T00:00:00Z
+okf_version: "0.1"
 feature: p7-t25-moto-migration
 phase: 7
 task: 25

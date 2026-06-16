@@ -1,5 +1,10 @@
 ---
-type: feature-spec
+type: spec
+title: T31c — README Reduction
+description: Spec to slim the README by removing operational sections moved into the setting-up-cairn skill and replacing them with pointers.
+tags: []
+timestamp: 2026-06-07T00:00:00Z
+okf_version: "0.1"
 feature: p9-t31c-readme-reduction
 status: complete
 phase: 9

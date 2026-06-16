@@ -1,4 +1,10 @@
 ---
+type: brainstorming
+title: Research — Artifact Store (cairn-mcp)
+description: Research notes compiled 2026-05-26 covering how the industry handles cross-session, cross-engineer agent memory and scratchpad sharing, synthesizing 13 primary and 2 secondary sources evaluated against the tier 2 artifact gap and tier 3 project documentation.
+tags: []
+timestamp: 2026-05-26T00:00:00Z
+okf_version: "0.1"
 status: complete
 references: []
 authored:

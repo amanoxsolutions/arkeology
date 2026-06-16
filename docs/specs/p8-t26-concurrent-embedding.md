@@ -1,5 +1,10 @@
 ---
-type: feature-spec
+type: spec
+title: Write Performance P1 — Concurrent Embedding + Batched put_vectors
+description: Introduces concurrent section embedding via asyncio and a single batched put_vectors call per artifact, reducing per-artifact write time from N×(embed+put) to ceil(N/SECTION_CONCURRENCY)×embed + 1×put.
+tags: []
+timestamp: 2026-06-02T00:00:00Z
+okf_version: "0.1"
 feature: p8-t26-concurrent-embedding
 phase: 8
 task: 26

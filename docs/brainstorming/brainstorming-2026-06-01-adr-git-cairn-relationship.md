@@ -1,4 +1,10 @@
 ---
+type: brainstorming
+title: ADR Relationship Between Git and cairn-mcp
+description: Explores the design question of whether cairn-mcp serves as authoritative store, search index, draft staging area, or nothing for ADRs, and resolves the contradiction between the migration skill's cleanup guidance and its AGENTS.md snippet.
+tags: []
+timestamp: 2026-06-01T00:00:00Z
+okf_version: "0.1"
 status: complete
 references: []
 authored:

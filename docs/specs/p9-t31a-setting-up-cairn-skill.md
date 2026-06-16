@@ -1,5 +1,10 @@
 ---
-type: feature-spec
+type: spec
+title: T31a — Setting-Up-Cairn Skill
+description: Spec for a 6-step agent-driven skill that validates AWS resources, writes the cairn-mcp MCP config entry for the chosen client, and records the setup in AGENTS.md.
+tags: []
+timestamp: 2026-06-07T00:00:00Z
+okf_version: "0.1"
 feature: p9-t31a-setting-up-cairn-skill
 status: ready
 phase: 9

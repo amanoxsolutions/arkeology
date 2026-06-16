@@ -1,5 +1,10 @@
 ---
-type: feature-spec
+type: spec
+title: Write Performance Z1 — write_artifacts + migrate_artifacts + P4 Section Truncation
+description: Spec for concurrent bulk write and migration tools plus section truncation guard, resolving migration performance problems by moving all logic server-side.
+tags: []
+timestamp: 2026-06-03T00:00:00Z
+okf_version: "0.1"
 feature: p9-t30-write-artifacts
 phase: 9
 task: 30

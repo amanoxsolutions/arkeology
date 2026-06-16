@@ -1,5 +1,10 @@
 ---
-type: feature-spec
+type: spec
+title: T1 — Bootstrap Python Project
+description: Feature spec for bootstrapping the cairn-mcp Python project with uv, ruff, mypy, and pre-commit tooling.
+tags: []
+timestamp: 2026-05-29T00:00:00Z
+okf_version: "0.1"
 feature: p1-t1-bootstrap-python-project
 status: ready
 phase: 1

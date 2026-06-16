@@ -1,4 +1,10 @@
 ---
+type: brainstorming
+title: Write Performance — Reducing `write_artifact` Latency
+description: Diagnoses the root causes of unacceptably slow `write_artifact` bulk imports (sequential section embedding, single-item S3 Vectors calls, blocking sleep in async context, duplicate retry paths) and explores options for reducing write latency.
+tags: []
+timestamp: 2026-06-01T00:00:00Z
+okf_version: "0.1"
 status: complete
 references: []
 authored:

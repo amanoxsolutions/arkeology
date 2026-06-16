@@ -1,5 +1,10 @@
 ---
-type: feature-spec
+type: spec
+title: T26 — link_commit Tool and AGENTS.md Post-Commit Protocol
+description: Spec for the link_commit MCP tool that appends a commit SHA to confirmed artifacts' vector metadata without re-embedding, plus the post-commit protocol for AGENTS.md.
+tags: []
+timestamp: 2026-06-06T00:00:00Z
+okf_version: "0.1"
 feature: p10-t37-link-commit
 status: ready
 phase: 10

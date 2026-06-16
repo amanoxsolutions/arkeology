@@ -1,5 +1,10 @@
 ---
-type: feature-spec
+type: spec
+title: T4 — Configuration Model
+description: Feature spec for a validated Pydantic Settings model that reads all environment variables at startup and fails fast with actionable errors on missing or invalid configuration.
+tags: []
+timestamp: 2026-05-29T00:00:00Z
+okf_version: "0.1"
 feature: p1-t4-configuration-model
 status: ready
 phase: 1

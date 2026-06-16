@@ -1,5 +1,10 @@
 ---
-type: feature-spec
+type: spec
+title: T17 — Run Full Integration Test Suite
+description: Closes the Phase 3 empirical gap by running the full integration test suite against live AWS credentials to confirm upsert semantics, valid S3 Vectors key characters, and $nin filter support.
+tags: []
+timestamp: 2026-05-31T00:00:00Z
+okf_version: "0.1"
 feature: p4-t17-integration-test-suite
 status: ready
 phase: 4

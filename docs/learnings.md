@@ -1,3 +1,12 @@
+---
+type: learning
+title: Learnings
+description: Accumulated implementation learnings for cairn-mcp covering AWS service behaviours, client conventions, testing patterns, and tool design decisions.
+tags: []
+timestamp: 2026-06-16T00:00:00Z
+okf_version: "0.1"
+---
+
 ## Learnings
 
 - **S3 Vectors boto3 service client name**: `"s3vectors"` (confirmed from botocore service catalogue during Phase 1 T3 implementation)

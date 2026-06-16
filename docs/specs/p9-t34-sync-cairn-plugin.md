@@ -1,5 +1,10 @@
 ---
-type: feature-spec
+type: spec
+title: T34 — sync-cairn-plugin
+description: Spec for a single tool-aware sync-cairn-plugin skill that updates cairn-mcp skill content across OpenCode, Claude Code, and Copilot with the correct action for each.
+tags: []
+timestamp: 2026-06-10T00:00:00Z
+okf_version: "0.1"
 feature: p9-t34-sync-cairn-plugin
 phase: 9
 task: 34

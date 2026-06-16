@@ -1,4 +1,10 @@
 ---
+type: brainstorming
+title: Existing Project Migration
+description: Explores how a team adopting cairn-mcp would migrate accumulated project documentation (ADRs, specs, brainstorming files) into cairn-mcp, covering discovery, classification, metadata enrichment, import mechanism, and post-migration strategy.
+tags: []
+timestamp: 2026-05-30T00:00:00Z
+okf_version: "0.1"
 status: complete
 references: []
 authored:

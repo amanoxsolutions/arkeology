@@ -1,5 +1,10 @@
 ---
-type: feature-spec
+type: spec
+title: T19 — Setup Documentation and AGENTS.md Snippet
+description: Adds actionable AWS provisioning steps, minimum IAM policy, index immutability warnings, and a copy-paste AGENTS.md snippet to the README so operators can deploy and configure cairn-mcp from scratch.
+tags: []
+timestamp: 2026-05-31T00:00:00Z
+okf_version: "0.1"
 feature: p4-t19-setup-documentation
 status: ready
 phase: 4

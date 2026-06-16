@@ -1,5 +1,10 @@
 ---
-type: feature-spec
+type: spec
+title: T12 — Delete Artifact Tool
+description: Feature spec for the delete_artifact MCP tool that hard-deletes an artifact (S3 object and all section vectors) from own scope with explicit confirmation and synthesis-reference warnings.
+tags: []
+timestamp: 2026-05-30T00:00:00Z
+okf_version: "0.1"
 feature: p3-t12-delete-artifact
 status: ready
 phase: 3

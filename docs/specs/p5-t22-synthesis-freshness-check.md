@@ -1,5 +1,10 @@
 ---
-type: feature-spec
+type: spec
+title: T22 — Synthesis Freshness Check Tool
+description: Adds a check_synthesis_freshness MCP tool that audits synthesis artifacts for staleness, archived sources, missing sources, and malformed empty-source syntheses, enabling operators to identify and clean outdated knowledge summaries.
+tags: []
+timestamp: 2026-05-31T00:00:00Z
+okf_version: "0.1"
 feature: p5-t22-synthesis-freshness-check
 status: ready
 phase: 5

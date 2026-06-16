@@ -1,4 +1,10 @@
 ---
+type: brainstorming
+title: "Visibility Reframing: `confidential` → `hidden`"
+description: Catalogues all occurrences of the misleading `confidential` visibility value across code, tests, specs, PRD, and brainstorming files, and makes the case for replacing it with `hidden` to accurately describe the cross-scope visibility gate rather than implying a security boundary.
+tags: []
+timestamp: 2026-05-31T00:00:00Z
+okf_version: "0.1"
 status: complete
 references: []
 authored:

@@ -1,4 +1,10 @@
 ---
+type: adr
+title: Deterministic Slug-Based Artifact Identifiers
+description: Records the choice to generate artifact identifiers deterministically from artifact attributes using a slug-based scheme, with tier-aware date inclusion for idempotency and deduplication.
+tags: []
+timestamp: 2026-05-29T00:00:00Z
+okf_version: "0.1"
 status: accepted
 references: []
 authored:

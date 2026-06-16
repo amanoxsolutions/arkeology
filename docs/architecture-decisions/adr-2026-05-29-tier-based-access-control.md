@@ -1,4 +1,10 @@
 ---
+type: adr
+title: Tier-Based Cross-Scope Access Control Model
+description: Records the model that controls which artifacts from foreign scopes are readable by a given cairn-mcp deployment, governed by tier and visibility attributes and enforced server-side.
+tags: []
+timestamp: 2026-05-29T00:00:00Z
+okf_version: "0.1"
 status: accepted
 references: []
 authored:

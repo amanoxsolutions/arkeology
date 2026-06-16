@@ -1,5 +1,10 @@
 ---
-type: feature-spec
+type: spec
+title: T5 — Startup Validation Sequence
+description: Feature spec for a five-check startup validation sequence that verifies credentials, S3 prefix access, vector index existence, and embedding dimension before accepting any MCP tool call.
+tags: []
+timestamp: 2026-05-29T00:00:00Z
+okf_version: "0.1"
 feature: p1-t5-startup-validation-sequence
 status: ready
 phase: 1

@@ -1,4 +1,10 @@
 ---
+type: adr
+title: Layered Architecture with Protocol-Based Client Interfaces
+description: Records the choice of a layered architecture isolating domain and tool logic from AWS service calls behind typing.Protocol interfaces, with concrete clients injected as dependencies.
+tags: []
+timestamp: 2026-05-29T00:00:00Z
+okf_version: "0.1"
 status: accepted
 references: []
 authored:

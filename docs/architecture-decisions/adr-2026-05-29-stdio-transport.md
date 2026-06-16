@@ -1,4 +1,10 @@
 ---
+type: adr
+title: stdio as the Primary MCP Transport
+description: Records the choice of stdio (stdin/stdout) as the primary MCP transport for cairn-mcp and its implications for deployment topology and future extensibility.
+tags: []
+timestamp: 2026-05-29T00:00:00Z
+okf_version: "0.1"
 status: accepted
 references: []
 authored:

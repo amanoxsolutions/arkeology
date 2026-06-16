@@ -1,5 +1,11 @@
 ---
-status: draft # draft | ready | in-progress | done
+type: brainstorming
+title: Visual Reading / Browsing Interface for cairn-mcp Artifacts
+description: Explores how to give humans a visual reading/browsing surface for cairn-mcp artifacts now that content lives in S3 rather than on disk, using a multi-agent adversarial approach to challenge assumptions around hosting, audience, rendering, and auth.
+tags: []
+timestamp: 2026-06-14T00:00:00Z
+okf_version: "0.1"
+status: draft
 references:
   - docs/architecture-decisions/adr-2026-05-29-stdio-transport.md
   - docs/architecture-decisions/adr-2026-05-29-tier-based-access-control.md

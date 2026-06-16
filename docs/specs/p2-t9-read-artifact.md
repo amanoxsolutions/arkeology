@@ -1,5 +1,10 @@
 ---
-type: feature-spec
+type: spec
+title: T9 — Read Artifact Tool
+description: Feature spec for the read_artifact MCP tool that fetches full artifact content by identifier with cross-scope gate enforcement blocking foreign-scope tier 2 and hidden artifacts.
+tags: []
+timestamp: 2026-05-30T00:00:00Z
+okf_version: "0.1"
 feature: p2-t9-read-artifact
 status: ready
 phase: 2

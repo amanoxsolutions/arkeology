@@ -1,5 +1,10 @@
 ---
-type: feature-spec
+type: spec
+title: T33b — Claude Code Plugin
+description: Spec to add a Claude Code marketplace manifest and plugin directory so both cairn-mcp skills are installable via two claude plugin commands.
+tags: []
+timestamp: 2026-06-09T00:00:00Z
+okf_version: "0.1"
 feature: p9-t33b-claude-code-plugin
 phase: 9
 task: 33b

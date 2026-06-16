@@ -1,5 +1,10 @@
 ---
-type: feature-spec
+type: spec
+title: T6 — Artifact Model and Key Generation
+description: Feature spec for the pure artifact model module providing deterministic key generation, markdown section parsing, and metadata validation shared by all Phase 2+ tools.
+tags: []
+timestamp: 2026-05-30T00:00:00Z
+okf_version: "0.1"
 feature: p2-t6-artifact-model
 status: ready
 phase: 2

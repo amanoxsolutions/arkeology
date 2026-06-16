@@ -1,5 +1,10 @@
 ---
-type: feature-spec
+type: spec
+title: Phase 1 Overview
+description: Foundation phase spec covering runnable server skeleton with startup validation — the base all subsequent phases depend on.
+tags: []
+timestamp: 2026-05-29T00:00:00Z
+okf_version: "0.1"
 feature: phase-1-overview
 status: ready
 phase: 1

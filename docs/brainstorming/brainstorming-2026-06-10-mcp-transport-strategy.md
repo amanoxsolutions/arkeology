@@ -1,4 +1,10 @@
 ---
+type: brainstorming
+title: MCP Transport Strategy — stdio vs Streamable HTTP
+description: Explores whether cairn-mcp should adopt Streamable HTTP transport alongside or instead of stdio, what it unlocks (concurrent calls, SSE progress events, multi-client), and what it costs in deployment complexity and authentication surface.
+tags: []
+timestamp: 2026-06-10T00:00:00Z
+okf_version: "0.1"
 status: in-progress
 references:
   - docs/brainstorming/brainstorming-2026-06-01-write-performance.md

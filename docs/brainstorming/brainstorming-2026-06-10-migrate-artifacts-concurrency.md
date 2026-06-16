@@ -1,4 +1,10 @@
 ---
+type: brainstorming
+title: migrate_artifacts — Caller-Controlled Concurrency Parameter
+description: Explores whether `migrate_artifacts` concurrency should be a per-call parameter rather than a fixed server-side env var, to enable the skill to set appropriate concurrency based on file count and avoid slow bulk description generation.
+tags: []
+timestamp: 2026-06-10T00:00:00Z
+okf_version: "0.1"
 status: complete
 references:
   - docs/brainstorming/brainstorming-2026-06-01-write-performance.md

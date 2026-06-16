@@ -1,5 +1,10 @@
 ---
-type: feature-spec
+type: spec
+title: T33e — README Quick Install Section
+description: Spec to add a Quick Install section to the README with copy-paste-ready OpenCode and Claude Code install commands and a namespace coexistence note.
+tags: []
+timestamp: 2026-06-09T00:00:00Z
+okf_version: "0.1"
 feature: p9-t33e-readme-quick-install
 phase: 9
 task: 33e

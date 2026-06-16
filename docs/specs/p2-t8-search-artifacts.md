@@ -1,5 +1,10 @@
 ---
-type: feature-spec
+type: spec
+title: T8 — Search Artifacts Tool
+description: Feature spec for the search_artifacts MCP tool that performs semantic vector search with a re-fetch loop, cross-scope gate enforcement, and metadata filter support.
+tags: []
+timestamp: 2026-05-30T00:00:00Z
+okf_version: "0.1"
 feature: p2-t8-search-artifacts
 status: ready
 phase: 2

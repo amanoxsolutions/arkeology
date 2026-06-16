@@ -1,5 +1,10 @@
 ---
-type: feature-spec
+type: spec
+title: T7 — Write Artifact Tool
+description: Feature spec for the write_artifact MCP tool that stores artifact content in S3, generates per-section Bedrock embeddings, and writes vectors to S3 Vectors with idempotent upsert semantics.
+tags: []
+timestamp: 2026-05-30T00:00:00Z
+okf_version: "0.1"
 feature: p2-t7-write-artifact
 status: ready
 phase: 2

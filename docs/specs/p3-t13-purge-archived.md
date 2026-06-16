@@ -1,5 +1,10 @@
 ---
-type: feature-spec
+type: spec
+title: T13 — Purge Archived Tool
+description: Feature spec for the purge_archived MCP tool that bulk hard-deletes all inactive artifacts in own scope with synthesis cascade handling and a confirm gate.
+tags: []
+timestamp: 2026-05-30T00:00:00Z
+okf_version: "0.1"
 feature: p3-t13-purge-archived
 status: ready
 phase: 3

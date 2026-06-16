@@ -1,4 +1,10 @@
 ---
+type: brainstorming
+title: Phase 9 — Skill Distribution via Native Plugin Mechanisms
+description: Explores how to wire cairn-mcp's operator skills into engineers' AI tools (OpenCode, Claude Code, GitHub Copilot) using the Phase 5 native plugin pattern, adapting it for cairn-mcp's specific characteristics as a Python MCP server with only two skills.
+tags: []
+timestamp: 2026-06-08T00:00:00Z
+okf_version: "0.1"
 status: complete
 references:
   - docs/brainstorming/brainstorming-2026-06-02-setting-up-cairn-skill.md

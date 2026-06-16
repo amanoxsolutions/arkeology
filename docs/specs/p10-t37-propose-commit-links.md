@@ -1,5 +1,10 @@
 ---
-type: feature-spec
+type: spec
+title: T25 — propose_commit_links Tool
+description: Spec for a read-only MCP tool that discovers own-scope artifacts with no commit_refs, optionally bounded by a session-start ULID, for operator confirmation before linking.
+tags: []
+timestamp: 2026-06-06T00:00:00Z
+okf_version: "0.1"
 feature: p10-t36-propose-commit-links
 status: ready
 phase: 10
