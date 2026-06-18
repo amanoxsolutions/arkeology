@@ -121,6 +121,7 @@ async def write_artifact(
     source_artifacts: list[str] | None = None,
     commit_refs: list[str] | None = None,
     status: str = "active",
+    file_extension: str = ".md",
 ) -> dict[str, Any]:
     """Store an artifact to S3 and index its sections in S3 Vectors.
 
@@ -143,11 +144,17 @@ async def write_artifact(
         source_artifacts: Optional list of source artifact IDs.
         commit_refs: Optional list of git commit SHAs to pre-link this artifact.
         status: ``"active"`` (default) or ``"inactive"``.
+        file_extension: File extension for the S3 key, including the leading dot
+            (e.g. ``".md"``, ``".txt"``). Defaults to ``".md"``. Must start with
+            ``"."``.
 
     Returns:
         On success: ``{"artifact_id": str, "sections_indexed": int, "last_edited_ulid": str}``
         On error: ``{"error": str, "message": str}``
     """
+    if not file_extension.startswith("."):
+        return {"error": "validation_error", "message": "file_extension must start with '.'"}
+
     tags: list[str] = feature_tags if feature_tags is not None else []
     sources: list[str] = source_artifacts if source_artifacts is not None else []
     refs: list[str] = commit_refs if commit_refs is not None else []
@@ -172,6 +179,7 @@ async def write_artifact(
             sources=sources,
             refs=refs,
             status=status,
+            file_extension=file_extension,
         )
     except Exception as exc:
         logger.exception("Unexpected error in write_artifact")
@@ -198,6 +206,7 @@ async def _write_artifact_inner(  # noqa: PLR0913
     sources: list[str],
     refs: list[str],
     status: str,
+    file_extension: str = ".md",
 ) -> dict[str, Any]:
     """Inner implementation of write_artifact (separated to enable top-level catch-all).
 
@@ -227,7 +236,7 @@ async def _write_artifact_inner(  # noqa: PLR0913
 
     # ── Step 2: Derive identifiers ────────────────────────────────────────────
     artifact_id = generate_artifact_id(tier=tier, type=type, date=date, title=title)
-    s3_key = f"{settings.write_prefix}/{artifact_id}"
+    s3_key = f"{settings.write_prefix}/{artifact_id}{file_extension}"
     last_edited_ulid = str(ULID())
 
     # ── Step 3: Build S3 metadata (string-only) ───────────────────────────────

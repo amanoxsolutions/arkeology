@@ -58,6 +58,7 @@ async def write_artifacts(
     bedrock: BedrockClientInterface,
     artifacts: list[dict[str, Any]],
     artifact_concurrency: int = _ARTIFACT_CONCURRENCY_DEFAULT,
+    file_extension: str = ".md",
 ) -> dict[str, Any]:
     """Write a list of artifact descriptors concurrently.
 
@@ -68,6 +69,9 @@ async def write_artifacts(
         bedrock: Bedrock client for embedding generation.
         artifacts: List of artifact descriptor dicts. Each must contain the same
             fields as write_artifact; ``description`` is required.
+        file_extension: File extension for the S3 key, including the leading dot
+            (e.g. ``".md"``, ``".txt"``). Defaults to ``".md"``. Each descriptor
+            may also supply a ``file_extension`` key to override this per-artifact.
         artifact_concurrency: Maximum number of artifacts processed concurrently.
             Must be in [1, 15]. Values > 15 are capped to 15 (with a warning in
             the response). Values < 1 are substituted with the default 3 (with a
@@ -88,6 +92,7 @@ async def write_artifacts(
             bedrock=bedrock,
             artifacts=artifacts,
             artifact_concurrency=artifact_concurrency,
+            file_extension=file_extension,
         )
     except Exception as exc:
         logger.exception("Unexpected error in write_artifacts")
@@ -102,6 +107,7 @@ async def _write_artifacts_inner(
     bedrock: BedrockClientInterface,
     artifacts: list[dict[str, Any]],
     artifact_concurrency: int = _ARTIFACT_CONCURRENCY_DEFAULT,
+    file_extension: str = ".md",
 ) -> dict[str, Any]:
     """Inner implementation: concurrent writes bounded by artifact_concurrency."""
     # ── Clamp artifact_concurrency to [1, 15] ────────────────────────────────
@@ -150,6 +156,7 @@ async def _write_artifacts_inner(
                     sources=descriptor.get("source_artifacts") or [],
                     refs=descriptor.get("commit_refs") or [],
                     status=descriptor.get("status", "active"),
+                    file_extension=descriptor.get("file_extension") or file_extension,
                 )
                 # _write_artifact_inner returns error dict or success dict
                 if "error" in result:

@@ -115,7 +115,7 @@ An operator on a project with 50 documentation files uses the agent to produce a
   one object per manifest entry — `artifact_id`, `title`, `type`, `tier`, `date`,
   `description`, `sections_count` — without any writes.
 - THE `migrate.py` script SHALL generate Bedrock descriptions for entries without a
-  `description_override` using the same embedding model configured in the env vars;
+  `description` using the same embedding model configured in the env vars;
   in `--dry-run` mode, descriptions SHALL still be generated (or shown as preview) so the
   operator can review quality before committing.
 - THE `migrate.py` script SHALL output only structured JSON to stdout; all progress,
@@ -124,8 +124,8 @@ An operator on a project with 50 documentation files uses the agent to produce a
   same `artifact_id` values, which overwrite silently via the server's upsert semantics.
 - THE `schema.yaml` SHALL document the `CAIRN_IMPORT.yaml` manifest format: global fields
   (`team`, `project`, `aws_region`, `bedrock_model`, `bedrock_dimensions`) and per-entry
-  fields (`path`, `type`, `tier`, `visibility`, `title`, `description_override` [optional],
-  `date_override` [optional], `feature_tags` [optional]).
+  fields (`path`, `type`, `tier`, `visibility`, `title`, `description` [optional],
+  `date` [optional], `feature_tags` [optional]).
 - THE README SHALL gain a "Using the Migration Skill" section with a table showing the
   skills directory path for Claude Code, Codex, GitHub Copilot, and OpenCode, plus a
   `cp -r` one-liner to install the skill from the repo.

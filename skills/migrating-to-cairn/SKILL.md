@@ -188,11 +188,12 @@ For each file, read its full content and build a descriptor:
 | `team` | from `cairn-mcp:config` block in AGENTS.md (Step 2 pre-flight) |
 | `project` | from `cairn-mcp:config` block in AGENTS.md (Step 2 pre-flight) |
 | `visibility` | from classification table |
-| `title` | first `# H1` heading; if none, clean the filename (strip path/extension/date prefix, replace hyphens with spaces, title-case) |
-| `date` | frontmatter `date:` field → `YYYY-MM-DD` in filename → `git log` (tier 2: first commit; tier 3: last commit) → today as fallback |
+| `title` | OKF frontmatter `title:` → first `# H1` heading → clean the filename (strip path/extension/date prefix, replace hyphens with spaces, title-case) |
+| `date` | OKF frontmatter `timestamp:` (extract YYYY-MM-DD prefix) or `authored.date:` → `YYYY-MM-DD` in filename → `git log` (tier 2: first commit; tier 3: last commit) → today as fallback |
 | `content` | **full file text — must not be empty** |
 | `feature_tags` | from frontmatter only; omit if not present |
-| `description` | **write in-context, ≤ 280 chars** — be specific, mention decision/outcome/scope; avoid "This document describes…" preamble |
+| `description` | OKF frontmatter `description:` (if ≤ 280 chars use as-is; if > 280 chars truncate or rewrite to fit) → **write in-context, ≤ 280 chars** — be specific, mention decision/outcome/scope; avoid "This document describes…" preamble |
+| `file_extension` | source file extension including the dot (e.g. `.md`); default `.md` if the file has no extension |
 
 Git date commands:
 ```bash
@@ -235,23 +236,16 @@ If any entry in the response carries `error`:
 
 ## Step 3.B — > 10 files
 
-> When no description is provided, the server generates one automatically using
-> the `BEDROCK_TEXT_MODEL` configured in the MCP server entry. **If
-> `BEDROCK_TEXT_MODEL` is not configured, call `health_check` — if the
-> `bedrock_text_model` component is absent or errored, stop here and ask the
-> operator to add `BEDROCK_TEXT_MODEL` to the MCP server environment in their
-> project config and restart the MCP client. The value must be a cross-region
-> inference profile for their AWS region: `eu.amazon.nova-lite-v1:0` for EU,
-> `us.amazon.nova-lite-v1:0` for US cross-region, or `amazon.nova-lite-v1:0`
-> only when the region is `us-east-1`.**
-> A `CAIRN_IMPORT.yaml` manifest tracks progress across runs. The operator
-> reviews server-generated descriptions via a dry-run before any writes occur.
+> When no `description` is provided in a descriptor, the server generates one automatically using
+> `BEDROCK_TEXT_MODEL` via Nova Lite. A `CAIRN_IMPORT.yaml` manifest tracks progress across runs.
+> The operator reviews server-generated descriptions via a dry-run before any writes occur.
 
 ### 3.B1 — Produce the manifest
 
 For each file in the classification table, extract:
-- **title** — first `# H1` heading; if none, clean the filename.
-- **date** — frontmatter `date:` → `YYYY-MM-DD` in filename → `git log` (tier 2: first commit; tier 3: last commit) → today as fallback.
+- **title** — OKF frontmatter `title:` → first `# H1` heading → clean the filename.
+- **date** — OKF frontmatter `timestamp:` (extract YYYY-MM-DD prefix) or `authored.date:` → `YYYY-MM-DD` in filename → `git log` (tier 2: first commit; tier 3: last commit) → today as fallback.
+- **file_extension** — source file extension including the dot (e.g. `.md`); default `.md` if the file has no extension.
 
 Git date commands:
 ```bash
@@ -262,8 +256,10 @@ git log --format="%ad" --date=short -1 -- <file>
 ```
 
 Generate `CAIRN_IMPORT.yaml` in the repo root (see `schema.yaml` for the full
-format). Set every entry to `status: pending`. Leave `description` empty.
-Populate `global.team` and `global.project` from the `cairn-mcp:config` block parsed in Step 2.
+format). Set every entry to `status: pending`. If a file has an OKF frontmatter `description:`
+field, include it as `description` in the manifest entry (≤ 280 chars use as-is; > 280 truncate
+or rewrite to fit). Leave `description` empty for all other entries — Nova Lite will generate it
+in 3.B3. Populate `global.team` and `global.project` from the `cairn-mcp:config` block parsed in Step 2.
 
 ```yaml
 global:
@@ -276,14 +272,14 @@ artifacts:
     type: "adr"
     tier: 3
     status: pending
-    date_override: "2024-03-15"
+    date: "2024-03-15"
 
   - path: "docs/specs/search.md"
     type: "spec"
     tier: 3
     status: pending
-    date_override: "2024-11-20"
-    # description_override: "Optional — supply your own description; skips server-side generation"
+    date: "2024-11-20"
+    # description: "Optional — supply your own description; skips server-side generation"
     # feature_tags: ["search", "vectors"]
 ```
 
@@ -293,7 +289,7 @@ Tell the operator: "CAIRN_IMPORT.yaml has been written to the repo root with X e
 Please open it in your editor and review:
 - Types and tiers are correct for each file
 - Dates look right
-- Add `description_override` for any entry where you want to supply the description yourself
+- Add `description` for any entry where you want to supply the description yourself
 - Remove any entries you do not want migrated"
 
 Do **not** print the file content to the terminal.
@@ -315,8 +311,10 @@ supply their own value.
 
 **Wait for the operator's answer before continuing. Do not proceed to the batch loop until a value is confirmed.**
 
-Process `status: pending` entries in batches of `artifact_concurrency`. **Read files
-within each batch — do not read all files upfront.** For each batch:
+Process `status: pending` entries **that have an empty `description`** in batches of
+`artifact_concurrency`. Entries that already have a `description` in the manifest are skipped
+entirely — Nova Lite is not called for them. **Read files within each batch — do not read all
+files upfront.** For each batch:
 
 1. For each file in the batch, read the first 150 lines. Build a descriptor:
 
@@ -324,11 +322,12 @@ within each batch — do not read all files upfront.** For each batch:
 |-------|--------|
 | `type`, `tier`, `visibility` | manifest entry |
 | `team`, `project` | manifest `global` section |
-| `title` | first `# H1` heading in the file; if none, clean the filename |
-| `date` | `date_override` from manifest, else git log |
+| `title` | OKF frontmatter `title:` → first `# H1` heading in the file → clean the filename |
+| `date` | `date` from manifest, else git log |
 | `content` | **first 150 lines of the file — must not be empty** |
 | `feature_tags` | manifest entry, if set |
-| `description` | `description_override` if set, else **leave empty** |
+| `description` | **leave empty** — Nova Lite will generate it |
+| `file_extension` | source file extension including the dot (e.g. `.md`); default `.md` if the file has no extension |
 
 2. Verify every descriptor in the batch has non-empty `content`. If any is missing,
    re-read that file before continuing.
@@ -338,14 +337,14 @@ within each batch — do not read all files upfront.** For each batch:
 4. Report progress only as a count — e.g. "Described 15 of 98 files". Do **not** print
    file contents, descriptor details, or any CAIRN_IMPORT.yaml content to the terminal.
 
-After all batches complete, write all returned `description_override` values back to
+After all batches complete, write all returned `description` values back to
 `CAIRN_IMPORT.yaml` in one update pass. Do **not** print the file content.
 
 ### 3.B4 — Operator review
 
 This is the final opportunity for the operator to review descriptions before any
 writes occur. Tell the operator to open `CAIRN_IMPORT.yaml` in their editor and review
-every `description_override` value. The operator may edit any entry freely.
+every `description` value. The operator may edit any entry freely.
 
 Do **not** print the CAIRN_IMPORT.yaml content to the terminal.
 
@@ -365,7 +364,7 @@ be corrected before re-running. Do not proceed to 3.B5 until the script exits cl
 
 Re-read `CAIRN_IMPORT.yaml`. For every `status: pending` entry, read the file at
 `path` and build a descriptor using the same field mapping as 3.B3 — the
-`description_override` field is now populated for every entry, so server-side
+`description` field is now populated for every entry, so server-side
 generation is not triggered.
 
 Compute `artifact_concurrency = min(file_count, 15)`. Explain to the operator: in the

@@ -64,9 +64,9 @@ transliterate Unicode → ASCII (NFKD), lowercase, replace runs of non-alphanume
 with a single `-`, strip leading/trailing `-`, truncate to 60 characters, re-strip trailing
 `-` after truncation. An empty result after all steps falls back to `"artifact"`.
 
-The full S3 key is `{WRITE_PREFIX}/{artifact_id}` (e.g.
-`team/project/code-review-2026-05-30-auth-module`). Section vector keys extend this with a
-section slug: `{artifact_id}#{section_slug}`.
+The full S3 key is `{WRITE_PREFIX}/{artifact_id}{file_extension}` where `file_extension` defaults to `.md` (e.g.
+`team/project/code-review-2026-05-30-auth-module.md`). Section vector keys extend this with a
+section slug: `{s3_key}#{section_slug}` (e.g. `team/project/code-review-2026-05-30-auth-module.md#overview`).
 
 ## Alternatives Considered
 

@@ -252,7 +252,7 @@ Tests to add or update:
 >
 > Split the pending descriptor list into batches of `artifact_concurrency`. For each batch:
 > call `migrate_artifacts(dry_run=True, artifact_concurrency=…, descriptors=batch)`,
-> write the returned descriptions back to `CAIRN_IMPORT.yaml` as `description_override`,
+> write the returned descriptions back to `CAIRN_IMPORT.yaml` as `description`,
 > and report progress (e.g. "Described 15 of 95 files"). Continue until all batches are
 > processed.
 >

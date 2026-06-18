@@ -14,7 +14,7 @@ from pathlib import Path
 import yaml
 
 REQUIRED_GLOBAL: list[str] = ["team", "project", "visibility"]
-REQUIRED_ENTRY: list[str] = ["path", "type", "tier", "date_override", "description_override"]
+REQUIRED_ENTRY: list[str] = ["path", "type", "tier", "date", "description"]
 
 
 def main() -> int:

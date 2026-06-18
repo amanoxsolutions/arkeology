@@ -116,9 +116,10 @@ exception.
 ## Boundaries
 
 **Always:**
-- S3 key for the artifact content: `{write_prefix}/{artifact_id}`. `WRITE_PREFIX` is
+- S3 key for the artifact content: `{write_prefix}/{artifact_id}{file_extension}` (default `file_extension=".md"`). `WRITE_PREFIX` is
   guaranteed non-empty (validated at startup), so the key always has the form
-  `prefix/artifact-id` — no conditional branch, no risk of a leading `/`.
+  `prefix/artifact-id.ext` — no conditional branch, no risk of a leading `/`.
+  `file_extension` must start with `"."` (validated before any AWS calls).
 - Vector key for a section: `{s3_key}#{section_slug}`. The `#` character is confirmed valid
   in S3 Vectors keys (verified in Phase 1 integration tests).
 - Vector key for the document-level fallback: same as the S3 key (no `#` suffix).

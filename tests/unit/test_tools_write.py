@@ -1954,3 +1954,77 @@ async def test_write_empty_commit_refs_stored_as_empty_string_in_s3(
     vec_items = vec_spy.call_args.args[0]
     for item in vec_items:
         assert "commit_refs" not in item["metadata"]
+
+
+# ---------------------------------------------------------------------------
+# file_extension parameter
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_file_extension_txt_produces_key_ending_in_txt(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+) -> None:
+    """file_extension='.txt' → returned artifact_id ends with '.txt'."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+
+    result = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        file_extension=".txt",
+        **_BASE_WRITE_KWARGS,
+    )
+
+    assert "error" not in result
+    assert result["artifact_id"].endswith(".txt")
+
+
+@pytest.mark.asyncio
+async def test_file_extension_without_dot_returns_validation_error(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+) -> None:
+    """file_extension without leading dot → validation_error; no AWS calls made."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+
+    result = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        file_extension="nodot",
+        **_BASE_WRITE_KWARGS,
+    )
+
+    assert result.get("error") == "validation_error"
+    assert "message" in result
+    assert len(s3_client.list_objects("")) == 0
+
+
+@pytest.mark.asyncio
+async def test_default_file_extension_is_md(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+) -> None:
+    """Default file_extension → returned artifact_id ends with '.md'."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+
+    result = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        **_BASE_WRITE_KWARGS,
+    )
+
+    assert "error" not in result
+    assert result["artifact_id"].endswith(".md")

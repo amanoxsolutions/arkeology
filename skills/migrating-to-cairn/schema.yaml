@@ -49,10 +49,10 @@ artifacts:
     title: "Feature Spec: Semantic Search"    # optional: overrides H1 heading / filename
                                               #   if omitted, extracted from first H1 heading
                                               #   or derived from filename
-    description_override: >-                  # optional: verbatim description string
+    description: >-                  # optional: verbatim description string
       Specification for the semantic search   #   if provided, Nova Lite generation is skipped
       feature with metadata filtering.        #   max 280 characters (server clips silently)
-    date_override: "2024-11-15"               # optional: YYYY-MM-DD, overrides all auto-detection
+    date: "2024-11-15"               # optional: YYYY-MM-DD, overrides all auto-detection
                                               #   if omitted, date is recovered from:
                                               #   1. frontmatter date: field
                                               #   2. YYYY-MM-DD pattern in filename

@@ -110,7 +110,7 @@ An expired token during the S3 GetObject call must not surface as a raw exceptio
   write); S3 is the authoritative source of truth for content and metadata.
 - Scope determination uses prefix matching: `artifact_id.startswith(scope_prefix + "/")`.
   `WRITE_PREFIX` is guaranteed non-empty (validated at startup), so every artifact key has
-  the form `{write_prefix}/{artifact_id}` and the scope check is always unambiguous.
+  the form `{write_prefix}/{artifact_id_slug}{file_extension}` and the scope check is always unambiguous.
 - The gate check reads tier and visibility from S3 object metadata using `head_object`,
   which does not fetch the object body. Only call `get_object` after the gate passes.
 - `artifact_id` is the full S3 key (including prefix), exactly as returned by
