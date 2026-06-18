@@ -35,7 +35,7 @@ def _build_section_embedding_text(
     *,
     title: str,
     artifact_type: str,
-    feature_tags: list[str],
+    tags: list[str],
     section_heading: str,
     section_body: str,
 ) -> str:
@@ -45,7 +45,7 @@ def _build_section_embedding_text(
 
         Title: {title}
         Type: {type}
-        Tags: {tag1}, {tag2}    ← omitted when feature_tags is empty
+        Tags: {tag1}, {tag2}    ← omitted when tags is empty
 
         ## {section_heading}
         {section_body}
@@ -53,7 +53,7 @@ def _build_section_embedding_text(
     Args:
         title: Artifact title.
         artifact_type: Artifact type string.
-        feature_tags: List of tag strings (may be empty).
+        tags: List of tag strings (may be empty).
         section_heading: Heading text of this section.
         section_body: Body text of this section.
 
@@ -61,8 +61,8 @@ def _build_section_embedding_text(
         Formatted embedding input string.
     """
     lines = [f"Title: {title}", f"Type: {artifact_type}"]
-    if feature_tags:
-        lines.append(f"Tags: {', '.join(feature_tags)}")
+    if tags:
+        lines.append(f"Tags: {', '.join(tags)}")
     lines.append("")
     lines.append(f"## {section_heading}")
     lines.append(section_body)
@@ -73,7 +73,7 @@ def _build_document_embedding_text(
     *,
     title: str,
     artifact_type: str,
-    feature_tags: list[str],
+    tags: list[str],
     description: str,
 ) -> str:
     """Build the embedding input text for a document-level fallback vector.
@@ -82,21 +82,21 @@ def _build_document_embedding_text(
 
         Title: {title}
         Type: {type}
-        Tags: {tag1}, {tag2}    ← omitted when feature_tags is empty
+        Tags: {tag1}, {tag2}    ← omitted when tags is empty
         Description: {description}
 
     Args:
         title: Artifact title.
         artifact_type: Artifact type string.
-        feature_tags: List of tag strings (may be empty).
+        tags: List of tag strings (may be empty).
         description: Short artifact description.
 
     Returns:
         Formatted embedding input string.
     """
     lines = [f"Title: {title}", f"Type: {artifact_type}"]
-    if feature_tags:
-        lines.append(f"Tags: {', '.join(feature_tags)}")
+    if tags:
+        lines.append(f"Tags: {', '.join(tags)}")
     lines.append(f"Description: {description}")
     return "\n".join(lines)
 
@@ -116,7 +116,7 @@ async def write_artifact(
     description: str,
     content: str,
     visibility: str,
-    feature_tags: list[str] | None = None,
+    tags: list[str] | None = None,
     author_role: str | None = None,
     source_artifacts: list[str] | None = None,
     commit_refs: list[str] | None = None,
@@ -139,7 +139,7 @@ async def write_artifact(
         description: Short summary (max 280 chars).
         content: Full Markdown content.
         visibility: ``"shared"`` or ``"hidden"``.
-        feature_tags: Optional list of tag strings.
+        tags: Optional list of tag strings.
         author_role: Optional author role.
         source_artifacts: Optional list of source artifact IDs.
         commit_refs: Optional list of git commit SHAs to pre-link this artifact.
@@ -155,7 +155,7 @@ async def write_artifact(
     if not file_extension.startswith("."):
         return {"error": "validation_error", "message": "file_extension must start with '.'"}
 
-    tags: list[str] = feature_tags if feature_tags is not None else []
+    normalized_tags: list[str] = tags if tags is not None else []
     sources: list[str] = source_artifacts if source_artifacts is not None else []
     refs: list[str] = commit_refs if commit_refs is not None else []
 
@@ -174,7 +174,7 @@ async def write_artifact(
             description=description,
             content=content,
             visibility=visibility,
-            tags=tags,
+            tags=normalized_tags,
             author_role=author_role,
             sources=sources,
             refs=refs,
@@ -226,7 +226,7 @@ async def _write_artifact_inner(  # noqa: PLR0913
             description=description,
             content=content,
             visibility=visibility,
-            feature_tags=tags,
+            tags=tags,
             author_role=author_role,
             source_artifacts=sources,
             commit_refs=refs,
@@ -249,7 +249,7 @@ async def _write_artifact_inner(  # noqa: PLR0913
         "status": artifact.status,
         "title": artifact.title,
         "visibility": artifact.visibility,
-        "feature_tags": ",".join(tags),
+        "tags": ",".join(tags),
         "author_role": author_role or "",
         "description": description,
         "source_artifacts": ",".join(sources),
@@ -310,7 +310,7 @@ async def _write_artifact_inner(  # noqa: PLR0913
     # S3 Vectors rejects empty arrays in metadata — omit list fields when empty.
     # Non-empty lists are stored as list[str] so $eq filters can match individual elements.
     if tags:
-        vector_metadata["feature_tags"] = tags
+        vector_metadata["tags"] = tags
     if sources:
         vector_metadata["source_artifacts"] = sources
     if refs:
@@ -343,7 +343,7 @@ async def _write_artifact_inner(  # noqa: PLR0913
                     _build_section_embedding_text(
                         title=title,
                         artifact_type=type,
-                        feature_tags=tags,
+                        tags=tags,
                         section_heading=sec.heading,
                         section_body=embed_body,
                     ),
@@ -439,7 +439,7 @@ async def _write_artifact_inner(  # noqa: PLR0913
         embed_text = _build_document_embedding_text(
             title=title,
             artifact_type=type,
-            feature_tags=tags,
+            tags=tags,
             description=description,
         )
         doc_embed_error: Exception | None = None

@@ -42,7 +42,7 @@ _BASE_S3_META: dict[str, str] = {
     "status": "active",
     "title": "Fix auth bug",
     "visibility": "shared",
-    "feature_tags": "auth",
+    "tags": "auth",
     "author_role": "developer",
     "description": "Review of the auth module.",
 }
@@ -57,7 +57,7 @@ _BASE_VECTOR_META: dict[str, Any] = {
     "status": "active",
     "title": "Fix auth bug",
     "visibility": "shared",
-    "feature_tags": ["auth"],
+    "tags": ["auth"],
     "author_role": "developer",
     "description": "Review of the auth module.",
 }
@@ -77,7 +77,7 @@ def _seed_all(s3: S3ClientImpl, vectors: VectorsClientImpl) -> None:
     s3.put_object(
         "artifacts/t3-shared-adr",
         _CONTENT + " (T3S)",
-        {**_BASE_S3_META, "tier": "3", "type": "adr", "feature_tags": "adr"},
+        {**_BASE_S3_META, "tier": "3", "type": "adr", "tags": "adr"},
     )
     vectors.put_vector(
         "artifacts/t3-shared-adr#summary",
@@ -208,7 +208,7 @@ async def test_synthesise_result_has_all_required_fields(
         "status",
         "title",
         "visibility",
-        "feature_tags",
+        "tags",
         "author_role",
         "description",
     ]
@@ -218,12 +218,12 @@ async def test_synthesise_result_has_all_required_fields(
             assert field in artifact, f"Missing field '{field}' in result: {artifact}"
 
 
-async def test_synthesise_feature_tags_is_list(
+async def test_synthesise_tags_is_list(
     monkeypatch: pytest.MonkeyPatch,
     s3_client: S3ClientImpl,
     vectors_client_8: VectorsClientImpl,
 ) -> None:
-    """feature_tags in results is a list, not a comma-separated string."""
+    """tags in results is a list, not a comma-separated string."""
     settings = _make_settings(monkeypatch)
     bedrock = FakeBedrockClient(dimension=8)
     _seed_all(s3_client, vectors_client_8)
@@ -238,7 +238,7 @@ async def test_synthesise_feature_tags_is_list(
     )
 
     for artifact in result["artifacts"]:
-        assert isinstance(artifact["feature_tags"], list)
+        assert isinstance(artifact["tags"], list)
 
 
 async def test_synthesise_content_matches_s3_content(

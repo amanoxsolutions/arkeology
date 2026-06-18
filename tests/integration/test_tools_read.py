@@ -69,7 +69,7 @@ async def test_write_then_read_content_matches(
         "description": "Written by integration read test.",
         "content": content,
         "visibility": "shared",
-        "feature_tags": ["auth", "read-test"],
+        "tags": ["auth", "read-test"],
     }
 
     artifact_id: str = ""
@@ -101,7 +101,7 @@ async def test_read_metadata_fields_complete_and_typed(
     vectors: VectorsClientImpl,
     bedrock: BedrockClientImpl,
 ) -> None:
-    """All metadata fields present in response; feature_tags is list; tier is int."""
+    """All metadata fields present in response; tags is list; tier is int."""
     content = "## Summary\n\nMetadata test."
     kwargs = {
         "type": "adr",
@@ -114,7 +114,7 @@ async def test_read_metadata_fields_complete_and_typed(
         "description": "Metadata field type check.",
         "content": content,
         "visibility": "shared",
-        "feature_tags": ["meta", "test"],
+        "tags": ["meta", "test"],
     }
 
     artifact_id: str = ""
@@ -135,14 +135,14 @@ async def test_read_metadata_fields_complete_and_typed(
             "status",
             "title",
             "visibility",
-            "feature_tags",
+            "tags",
             "description",
             "content",
         ]:
             assert field in read_result, f"Missing field: {field}"
 
-        assert isinstance(read_result["feature_tags"], list)
-        assert "meta" in read_result["feature_tags"]
+        assert isinstance(read_result["tags"], list)
+        assert "meta" in read_result["tags"]
         assert isinstance(read_result["tier"], int)
         assert read_result["tier"] == 3
     finally:

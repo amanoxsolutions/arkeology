@@ -96,7 +96,7 @@ _BASE_S3_META: dict[str, str] = {
     "status": "active",
     "title": "Test Artifact",
     "visibility": "shared",
-    "feature_tags": "",
+    "tags": "",
     "author_role": "",
     "description": "A test artifact for reconcile.",
     "source_artifacts": "",

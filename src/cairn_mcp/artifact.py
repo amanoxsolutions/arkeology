@@ -161,7 +161,7 @@ class Artifact(BaseModel):
         description: Short summary (max 280 characters).
         content: Full Markdown content.
         visibility: ``"shared"`` or ``"hidden"``.
-        feature_tags: Optional list of tag strings.
+        tags: Optional list of tag strings.
         author_role: Optional role identifier of the author.
         source_artifacts: Optional list of artifact IDs that this synthesises.
         commit_refs: Optional list of git commit SHAs linked to this artifact.
@@ -177,7 +177,7 @@ class Artifact(BaseModel):
     description: str
     content: str
     visibility: str
-    feature_tags: list[str] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
     author_role: str | None = None
     source_artifacts: list[str] = Field(default_factory=list)
     commit_refs: list[str] = Field(default_factory=list)

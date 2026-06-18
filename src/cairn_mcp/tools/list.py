@@ -25,7 +25,7 @@ async def list_artifacts(
     vectors: VectorsClientInterface,
     bedrock: BedrockClientInterface | None = None,
     type: str | None = None,  # noqa: A002
-    feature_tags: list[str] | None = None,
+    tags: list[str] | None = None,
     commit_refs: list[str] | None = None,
     team: str | None = None,
     project: str | None = None,
@@ -43,7 +43,7 @@ async def list_artifacts(
             vectors: S3 Vectors client.
             bedrock: Bedrock client (unused; injected for interface consistency).
             type: Optional artifact type filter.
-            feature_tags: Optional list of tags; all must match (AND semantics).
+            tags: Optional list of tags; all must match (AND semantics).
             commit_refs: Optional list of commit refs; all must match (AND semantics).
             team: Optional team filter.
         project: Optional project filter.
@@ -61,7 +61,7 @@ async def list_artifacts(
             vectors=vectors,
             bedrock=bedrock,
             type=type,
-            feature_tags=feature_tags,
+            tags=tags,
             commit_refs=commit_refs,
             team=team,
             project=project,
@@ -80,7 +80,7 @@ async def _list_artifacts_inner(
     vectors: VectorsClientInterface,
     bedrock: BedrockClientInterface | None = None,
     type: str | None = None,  # noqa: A002
-    feature_tags: list[str] | None = None,
+    tags: list[str] | None = None,
     commit_refs: list[str] | None = None,
     team: str | None = None,
     project: str | None = None,
@@ -103,9 +103,9 @@ async def _list_artifacts_inner(
         clauses.append({"project": {"$eq": project}})
     if tier is not None:
         clauses.append({"tier": {"$eq": tier}})
-    if feature_tags:
-        for tag in feature_tags:
-            clauses.append({"feature_tags": {"$eq": tag}})
+    if tags:
+        for tag in tags:
+            clauses.append({"tags": {"$eq": tag}})
     if commit_refs:
         for ref in commit_refs:
             clauses.append({"commit_refs": {"$eq": ref}})
@@ -174,10 +174,10 @@ async def _list_artifacts_inner(
                 continue
 
         # ── Step 6: Build result dict ─────────────────────────────────────────
-        feature_tags_val: list[str] = (
-            meta["feature_tags"]
-            if isinstance(meta.get("feature_tags"), list)
-            else [t for t in str(meta.get("feature_tags", "")).split(",") if t]
+        tags_val: list[str] = (
+            meta["tags"]
+            if isinstance(meta.get("tags"), list)
+            else [t for t in str(meta.get("tags", "")).split(",") if t]
         )
         source_artifacts_val: list[str] = (
             meta["source_artifacts"]
@@ -202,7 +202,7 @@ async def _list_artifacts_inner(
                 "status": meta.get("status"),
                 "title": meta.get("title"),
                 "visibility": meta.get("visibility"),
-                "feature_tags": feature_tags_val,
+                "tags": tags_val,
                 "author_role": meta.get("author_role") or None,
                 "description": meta.get("description"),
                 "source_artifacts": source_artifacts_val,

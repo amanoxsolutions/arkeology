@@ -28,7 +28,7 @@ async def search_artifacts(
     query: str,
     top_k: int | None = None,
     type: str | None = None,  # noqa: A002
-    feature_tags: list[str] | None = None,
+    tags: list[str] | None = None,
     team: str | None = None,
     project: str | None = None,
     tier: int | None = None,
@@ -49,7 +49,7 @@ async def search_artifacts(
         top_k: Maximum number of distinct artifacts to return. Capped at 100.
             Defaults to ``settings.search_default_top_k``.
         type: Optional artifact type filter.
-        feature_tags: Optional list of tags; all must be present (AND semantics).
+        tags: Optional list of tags; all must be present (AND semantics).
         team: Optional team filter.
         project: Optional project filter.
         tier: Optional tier filter (2 or 3).
@@ -69,7 +69,7 @@ async def search_artifacts(
             query=query,
             top_k=top_k,
             type=type,
-            feature_tags=feature_tags,
+            tags=tags,
             team=team,
             project=project,
             tier=tier,
@@ -89,7 +89,7 @@ async def _search_artifacts_inner(  # noqa: PLR0913
     query: str,
     top_k: int | None = None,
     type: str | None = None,  # noqa: A002
-    feature_tags: list[str] | None = None,
+    tags: list[str] | None = None,
     team: str | None = None,
     project: str | None = None,
     tier: int | None = None,
@@ -123,9 +123,9 @@ async def _search_artifacts_inner(  # noqa: PLR0913
         user_filters.append({"project": {"$eq": project}})
     if tier is not None:
         user_filters.append({"tier": {"$eq": tier}})
-    if feature_tags:
-        for tag in feature_tags:
-            user_filters.append({"feature_tags": {"$eq": tag}})
+    if tags:
+        for tag in tags:
+            user_filters.append({"tags": {"$eq": tag}})
 
     # ── Step 4: Status gate ───────────────────────────────────────────────────
     status_filter: dict[str, Any] = {"status": {"$eq": status if status is not None else "active"}}
@@ -153,10 +153,10 @@ async def _search_artifacts_inner(  # noqa: PLR0913
         score: float = entry["score"]
         meta: dict[str, Any] = entry["meta"]
 
-        feature_tags_val: list[str] = (
-            meta["feature_tags"]
-            if isinstance(meta.get("feature_tags"), list)
-            else [t for t in str(meta.get("feature_tags", "")).split(",") if t]
+        tags_val: list[str] = (
+            meta["tags"]
+            if isinstance(meta.get("tags"), list)
+            else [t for t in str(meta.get("tags", "")).split(",") if t]
         )
         source_artifacts_val: list[str] = (
             meta["source_artifacts"]
@@ -175,7 +175,7 @@ async def _search_artifacts_inner(  # noqa: PLR0913
                 "status": meta.get("status"),
                 "title": meta.get("title"),
                 "visibility": meta.get("visibility"),
-                "feature_tags": feature_tags_val,
+                "tags": tags_val,
                 "author_role": meta.get("author_role") or None,
                 "description": meta.get("description"),
                 "source_artifacts": source_artifacts_val,

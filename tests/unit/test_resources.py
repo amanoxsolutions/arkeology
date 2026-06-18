@@ -66,7 +66,7 @@ _REQUIRED_FIELDS = [
     "visibility",
     "description",
 ]
-_OPTIONAL_FIELDS = ["feature_tags", "author_role", "source_artifacts"]
+_OPTIONAL_FIELDS = ["tags", "author_role", "source_artifacts"]
 
 
 def test_artifact_schema_content_is_nonempty() -> None:
@@ -288,13 +288,13 @@ def test_query_strategy_content_mentions_type_filter() -> None:
     assert "type" in content, "'type' filter guidance missing from query-strategy content"
 
 
-def test_query_strategy_content_mentions_feature_tags() -> None:
-    """query_strategy_content() mentions 'feature_tags' filtering."""
+def test_query_strategy_content_mentions_tags() -> None:
+    """query_strategy_content() mentions 'tags' filtering."""
     # Arrange
     content = query_strategy_content()
 
     # Assert
-    assert "feature_tags" in content, "'feature_tags' guidance missing from query-strategy content"
+    assert "tags" in content, "'tags' guidance missing from query-strategy content"
 
 
 def test_query_strategy_content_mentions_synthesise_artifacts() -> None:

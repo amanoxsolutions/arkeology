@@ -55,7 +55,7 @@ def test_section_embed_starts_with_title() -> None:
     text = _build_section_embedding_text(
         title="Fix auth bug",
         artifact_type="code_review",
-        feature_tags=[],
+        tags=[],
         section_heading="Summary",
         section_body="All looks good.",
     )
@@ -67,7 +67,7 @@ def test_section_embed_contains_type() -> None:
     text = _build_section_embedding_text(
         title="Fix auth bug",
         artifact_type="code_review",
-        feature_tags=[],
+        tags=[],
         section_heading="Summary",
         section_body="All looks good.",
     )
@@ -75,11 +75,11 @@ def test_section_embed_contains_type() -> None:
 
 
 def test_section_embed_contains_tags_when_present() -> None:
-    """_build_section_embedding_text output contains tags when feature_tags non-empty."""
+    """_build_section_embedding_text output contains tags when tags non-empty."""
     text = _build_section_embedding_text(
         title="Fix auth bug",
         artifact_type="code_review",
-        feature_tags=["auth", "security"],
+        tags=["auth", "security"],
         section_heading="Summary",
         section_body="All looks good.",
     )
@@ -89,11 +89,11 @@ def test_section_embed_contains_tags_when_present() -> None:
 
 
 def test_section_embed_omits_tags_when_empty() -> None:
-    """_build_section_embedding_text omits the Tags line when feature_tags is empty."""
+    """_build_section_embedding_text omits the Tags line when tags is empty."""
     text = _build_section_embedding_text(
         title="Fix auth bug",
         artifact_type="code_review",
-        feature_tags=[],
+        tags=[],
         section_heading="Summary",
         section_body="All looks good.",
     )
@@ -105,7 +105,7 @@ def test_section_embed_contains_heading_and_body() -> None:
     text = _build_section_embedding_text(
         title="Fix auth bug",
         artifact_type="code_review",
-        feature_tags=[],
+        tags=[],
         section_heading="Summary",
         section_body="All looks good.",
     )
@@ -123,7 +123,7 @@ def test_document_embed_starts_with_title() -> None:
     text = _build_document_embedding_text(
         title="Fix auth bug",
         artifact_type="code_review",
-        feature_tags=[],
+        tags=[],
         description="Review of the auth module.",
     )
     assert text.startswith("Title: Fix auth bug")
@@ -134,7 +134,7 @@ def test_document_embed_contains_type() -> None:
     text = _build_document_embedding_text(
         title="Fix auth bug",
         artifact_type="code_review",
-        feature_tags=[],
+        tags=[],
         description="Review of the auth module.",
     )
     assert "Type: code_review" in text
@@ -145,29 +145,29 @@ def test_document_embed_contains_description() -> None:
     text = _build_document_embedding_text(
         title="Fix auth bug",
         artifact_type="code_review",
-        feature_tags=[],
+        tags=[],
         description="Review of the auth module.",
     )
     assert "Description: Review of the auth module." in text
 
 
 def test_document_embed_omits_tags_when_empty() -> None:
-    """_build_document_embedding_text omits the Tags line when feature_tags is empty."""
+    """_build_document_embedding_text omits the Tags line when tags is empty."""
     text = _build_document_embedding_text(
         title="Fix auth bug",
         artifact_type="code_review",
-        feature_tags=[],
+        tags=[],
         description="A description.",
     )
     assert "Tags:" not in text
 
 
 def test_document_embed_contains_tags_when_present() -> None:
-    """_build_document_embedding_text contains tags when feature_tags non-empty."""
+    """_build_document_embedding_text contains tags when tags non-empty."""
     text = _build_document_embedding_text(
         title="Fix auth bug",
         artifact_type="code_review",
-        feature_tags=["payments"],
+        tags=["payments"],
         description="A description.",
     )
     assert "Tags:" in text
@@ -701,20 +701,20 @@ async def test_bedrock_credential_failure_returns_error(
 
 
 # ---------------------------------------------------------------------------
-# T1: vector metadata stores feature_tags as list
+# T1: vector metadata stores tags as list
 # ---------------------------------------------------------------------------
 
 
-async def test_vector_metadata_feature_tags_is_list(
+async def test_vector_metadata_tags_is_list(
     monkeypatch: pytest.MonkeyPatch,
     s3_client: S3ClientImpl,
     vectors_client: VectorsClientImpl,
 ) -> None:
-    """After successful write, feature_tags in vector metadata is a list (not a string)."""
+    """After successful write, tags in vector metadata is a list (not a string)."""
     settings = _make_settings(monkeypatch)
     bedrock = FakeBedrockClient(dimension=1024)
 
-    kwargs = {**_BASE_WRITE_KWARGS, "feature_tags": ["auth", "security"]}
+    kwargs = {**_BASE_WRITE_KWARGS, "tags": ["auth", "security"]}
     result = await write_artifact(
         s3=s3_client, vectors=vectors_client, bedrock=bedrock, settings=settings, **kwargs
     )
@@ -725,29 +725,29 @@ async def test_vector_metadata_feature_tags_is_list(
     vec_results = vectors_client.get_vectors(relevant_keys)
     assert len(vec_results) > 0
     for entry in vec_results:
-        assert isinstance(entry["metadata"]["feature_tags"], list), (
-            f"Expected list, got {type(entry['metadata']['feature_tags'])}"
+        assert isinstance(entry["metadata"]["tags"], list), (
+            f"Expected list, got {type(entry['metadata']['tags'])}"
         )
 
 
 # ---------------------------------------------------------------------------
-# T2: S3 metadata stores feature_tags and source_artifacts as comma-joined strings
+# T2: S3 metadata stores tags and source_artifacts as comma-joined strings
 # ---------------------------------------------------------------------------
 
 
-async def test_s3_metadata_feature_tags_and_source_artifacts_are_strings(
+async def test_s3_metadata_tags_and_source_artifacts_are_strings(
     monkeypatch: pytest.MonkeyPatch,
     s3_client: S3ClientImpl,
     vectors_client: VectorsClientImpl,
 ) -> None:
-    """After successful write, S3 metadata stores feature_tags and source_artifacts
+    """After successful write, S3 metadata stores tags and source_artifacts
     as comma-joined strings (not lists), per S3 metadata constraints."""
     settings = _make_settings(monkeypatch)
     bedrock = FakeBedrockClient(dimension=1024)
 
     kwargs = {
         **_BASE_WRITE_KWARGS,
-        "feature_tags": ["auth", "security"],
+        "tags": ["auth", "security"],
         "source_artifacts": ["adr-one", "adr-two"],
     }
     result = await write_artifact(
@@ -756,10 +756,8 @@ async def test_s3_metadata_feature_tags_and_source_artifacts_are_strings(
 
     s3_key = result["artifact_id"]
     meta = s3_client.head_object(s3_key)
-    assert isinstance(meta["feature_tags"], str), (
-        f"Expected str in S3 metadata, got {type(meta['feature_tags'])}"
-    )
-    assert meta["feature_tags"] == "auth,security"
+    assert isinstance(meta["tags"], str), f"Expected str in S3 metadata, got {type(meta['tags'])}"
+    assert meta["tags"] == "auth,security"
     assert isinstance(meta["source_artifacts"], str), (
         f"Expected str in S3 metadata, got {type(meta['source_artifacts'])}"
     )

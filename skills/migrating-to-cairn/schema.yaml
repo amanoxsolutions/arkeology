@@ -59,7 +59,7 @@ artifacts:
                                               #   3. git log (first commit for tier 2,
                                               #      last commit for tier 3)
                                               #   4. today's date (fallback, logged to stderr)
-    feature_tags:                             # optional: list of searchable tag strings
+    tags:                                     # optional: list of searchable tag strings
       - "search"
       - "vectors"
 
@@ -69,7 +69,7 @@ artifacts:
     tier: 2                                   # tier 2: key includes date in the artifact_id
                                               # artifact_id = code-review-{date}-{title-slug}
     status: pending
-    feature_tags:
+    tags:
       - "auth"
       - "security"
 

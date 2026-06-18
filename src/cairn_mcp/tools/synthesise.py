@@ -29,7 +29,7 @@ async def synthesise_artifacts(
     query: str,
     top_k: int = 10,
     type: str | None = None,  # noqa: A002
-    feature_tags: list[str] | None = None,
+    tags: list[str] | None = None,
     team: str | None = None,
     project: str | None = None,
 ) -> dict[str, Any]:
@@ -43,7 +43,7 @@ async def synthesise_artifacts(
         query: Natural-language search query.
         top_k: Maximum results to return. Capped at 100. Defaults to 10.
         type: Optional artifact type filter.
-        feature_tags: Optional list of tags.
+        tags: Optional list of tags.
         team: Optional team filter.
         project: Optional project filter.
 
@@ -61,7 +61,7 @@ async def synthesise_artifacts(
             query=query,
             top_k=top_k,
             type=type,
-            feature_tags=feature_tags,
+            tags=tags,
             team=team,
             project=project,
         )
@@ -79,7 +79,7 @@ async def _synthesise_artifacts_inner(
     query: str,
     top_k: int = 10,
     type: str | None = None,  # noqa: A002
-    feature_tags: list[str] | None = None,
+    tags: list[str] | None = None,
     team: str | None = None,
     project: str | None = None,
 ) -> dict[str, Any]:
@@ -106,9 +106,9 @@ async def _synthesise_artifacts_inner(
         user_filters.append({"team": {"$eq": team}})
     if project is not None:
         user_filters.append({"project": {"$eq": project}})
-    if feature_tags:
-        for tag in feature_tags:
-            user_filters.append({"feature_tags": {"$eq": tag}})
+    if tags:
+        for tag in tags:
+            user_filters.append({"tags": {"$eq": tag}})
 
     # ── Step 4: Status gate — always "active" for synthesis ───────────────────
     status_filter: dict[str, Any] = {"status": {"$eq": "active"}}
@@ -146,10 +146,10 @@ async def _synthesise_artifacts_inner(
             logger.warning("Skipping artifact '%s': S3 read failed", artifact_id)
             continue
 
-        feature_tags_val: list[str] = (
-            meta["feature_tags"]
-            if isinstance(meta.get("feature_tags"), list)
-            else [t for t in str(meta.get("feature_tags", "")).split(",") if t]
+        tags_val: list[str] = (
+            meta["tags"]
+            if isinstance(meta.get("tags"), list)
+            else [t for t in str(meta.get("tags", "")).split(",") if t]
         )
 
         artifacts.append(
@@ -164,7 +164,7 @@ async def _synthesise_artifacts_inner(
                 "status": meta.get("status"),
                 "title": meta.get("title"),
                 "visibility": meta.get("visibility"),
-                "feature_tags": feature_tags_val,
+                "tags": tags_val,
                 "author_role": meta.get("author_role") or None,
                 "description": meta.get("description"),
             }

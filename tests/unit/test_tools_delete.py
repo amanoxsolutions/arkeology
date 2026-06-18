@@ -33,7 +33,7 @@ _BASE_S3_META: dict[str, str] = {
     "status": "active",
     "title": "Fix auth bug",
     "visibility": "shared",
-    "feature_tags": "auth",
+    "tags": "auth",
     "author_role": "developer",
     "description": "Review of the auth module.",
 }
@@ -48,7 +48,7 @@ _BASE_VECTOR_META: dict[str, Any] = {
     "status": "active",
     "title": "Fix auth bug",
     "visibility": "shared",
-    "feature_tags": ["auth"],
+    "tags": ["auth"],
     "author_role": "developer",
     "description": "Review of the auth module.",
 }

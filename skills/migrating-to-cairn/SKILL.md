@@ -191,7 +191,7 @@ For each file, read its full content and build a descriptor:
 | `title` | OKF frontmatter `title:` → first `# H1` heading → clean the filename (strip path/extension/date prefix, replace hyphens with spaces, title-case) |
 | `date` | OKF frontmatter `timestamp:` (extract YYYY-MM-DD prefix) or `authored.date:` → `YYYY-MM-DD` in filename → `git log` (tier 2: first commit; tier 3: last commit) → today as fallback |
 | `content` | **full file text — must not be empty** |
-| `feature_tags` | from frontmatter only; omit if not present |
+| `tags` | from frontmatter only; omit if not present |
 | `description` | OKF frontmatter `description:` (if ≤ 280 chars use as-is; if > 280 chars truncate or rewrite to fit) → **write in-context, ≤ 280 chars** — be specific, mention decision/outcome/scope; avoid "This document describes…" preamble |
 | `file_extension` | source file extension including the dot (e.g. `.md`); default `.md` if the file has no extension |
 
@@ -280,7 +280,7 @@ artifacts:
     status: pending
     date: "2024-11-20"
     # description: "Optional — supply your own description; skips server-side generation"
-    # feature_tags: ["search", "vectors"]
+    # tags: ["search", "vectors"]
 ```
 
 ### 3.B2 — Operator review of manifest
@@ -325,7 +325,7 @@ files upfront.** For each batch:
 | `title` | OKF frontmatter `title:` → first `# H1` heading in the file → clean the filename |
 | `date` | `date` from manifest, else git log |
 | `content` | **first 150 lines of the file — must not be empty** |
-| `feature_tags` | manifest entry, if set |
+| `tags` | manifest entry, if set |
 | `description` | **leave empty** — Nova Lite will generate it |
 | `file_extension` | source file extension including the dot (e.g. `.md`); default `.md` if the file has no extension |
 

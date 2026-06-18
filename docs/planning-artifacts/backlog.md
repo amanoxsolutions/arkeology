@@ -26,15 +26,6 @@ Items that were promoted to a phase are **not** listed here — see the phase hi
   the "semantic memory beats progressive-disclosure wiki at scale" positioning claim.
   Source: [`brainstorming-2026-06-15-okf-alignment.md`](../brainstorming/brainstorming-2026-06-15-okf-alignment.md) (OQ1).
 
-## Schema
-
-- **B-3 — Rename `feature_tags` → `tags`.** Cross-cutting field rename aligning the one cairn metadata
-  field where OKF alignment is clean (same concept, no semantic loss). Touches the Artifact model,
-  `write.py` (S3 object metadata **and** vector metadata keys), `filter.py`, `list.py` faceting, tests,
-  AGENTS.md, and the install/migrate skills; must preserve the deliberate S3 comma-joined-string vs
-  vector `list[str]` dual-encoding. No data migration (no live data). Independent of the exporter —
-  can proceed anytime. Source: [`brainstorming-2026-06-15-okf-alignment.md`](../brainstorming/brainstorming-2026-06-15-okf-alignment.md) (D2).
-
 ## OKF interoperability
 
 - **B-2 — OKF export adapter (+ governance).** `cairn export --okf <scope>` emitting an OKF bundle

@@ -56,7 +56,7 @@ def _reindex_artifact(
     artifact_type = raw_s3_meta.get("type", "")
     tier_raw = raw_s3_meta.get("tier", "2")
     tier = int(tier_raw)
-    feature_tags = [t for t in raw_s3_meta.get("feature_tags", "").split(",") if t]
+    tags = [t for t in raw_s3_meta.get("tags", "").split(",") if t]
     source_artifacts_list = [s for s in raw_s3_meta.get("source_artifacts", "").split(",") if s]
 
     vector_metadata: dict[str, Any] = {
@@ -74,8 +74,8 @@ def _reindex_artifact(
         "description": raw_s3_meta.get("description", ""),
     }
     # S3 Vectors rejects empty arrays — omit list fields when empty.
-    if feature_tags:
-        vector_metadata["feature_tags"] = feature_tags
+    if tags:
+        vector_metadata["tags"] = tags
     if source_artifacts_list:
         vector_metadata["source_artifacts"] = source_artifacts_list
 
@@ -87,7 +87,7 @@ def _reindex_artifact(
             embed_text = _build_section_embedding_text(
                 title=title,
                 artifact_type=artifact_type,
-                feature_tags=feature_tags,
+                tags=tags,
                 section_heading=sec.heading,
                 section_body=sec.body,
             )
@@ -109,7 +109,7 @@ def _reindex_artifact(
         embed_text = _build_document_embedding_text(
             title=title,
             artifact_type=artifact_type,
-            feature_tags=feature_tags,
+            tags=tags,
             description=raw_s3_meta.get("description", ""),
         )
         try:

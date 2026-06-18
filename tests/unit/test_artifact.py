@@ -455,10 +455,10 @@ def test_artifact_status_inactive_valid() -> None:
     assert artifact.status == "inactive"
 
 
-def test_artifact_feature_tags_defaults_to_empty_list() -> None:
-    """feature_tags absent → defaults to []."""
+def test_artifact_tags_defaults_to_empty_list() -> None:
+    """tags absent → defaults to []."""
     artifact = Artifact(**VALID_ARTIFACT_KWARGS)
-    assert artifact.feature_tags == []
+    assert artifact.tags == []
 
 
 def test_artifact_author_role_defaults_to_none() -> None:

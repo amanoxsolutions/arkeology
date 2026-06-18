@@ -53,7 +53,7 @@ def _seed_vectors(vectors: VectorsClientImpl, write_prefix: str = "artifacts") -
             "tier": 2,
             "visibility": "shared",
             "status": "active",
-            "feature_tags": ["auth"],
+            "tags": ["auth"],
             "title": "Shared tier 2 review",
         },
     )
@@ -71,7 +71,7 @@ def _seed_vectors(vectors: VectorsClientImpl, write_prefix: str = "artifacts") -
             "tier": 2,
             "visibility": "hidden",
             "status": "active",
-            "feature_tags": [],
+            "tags": [],
             "title": "Hidden tier 2 review",
         },
     )
@@ -89,7 +89,7 @@ def _seed_vectors(vectors: VectorsClientImpl, write_prefix: str = "artifacts") -
             "tier": 3,
             "visibility": "shared",
             "status": "active",
-            "feature_tags": ["payments"],
+            "tags": ["payments"],
             "title": "Own-scope ADR",
         },
     )
@@ -107,7 +107,7 @@ def _seed_vectors(vectors: VectorsClientImpl, write_prefix: str = "artifacts") -
             "tier": 2,
             "visibility": "shared",
             "status": "active",
-            "feature_tags": [],
+            "tags": [],
             "title": "Foreign tier 2 review",
         },
     )
@@ -125,7 +125,7 @@ def _seed_vectors(vectors: VectorsClientImpl, write_prefix: str = "artifacts") -
             "tier": 3,
             "visibility": "shared",
             "status": "active",
-            "feature_tags": ["payments"],
+            "tags": ["payments"],
             "title": "Foreign tier 3 ADR",
         },
     )
@@ -143,7 +143,7 @@ def _seed_vectors(vectors: VectorsClientImpl, write_prefix: str = "artifacts") -
             "tier": 3,
             "visibility": "hidden",
             "status": "active",
-            "feature_tags": [],
+            "tags": [],
             "title": "Foreign tier 3 hidden ADR",
         },
     )
@@ -161,7 +161,7 @@ def _seed_vectors(vectors: VectorsClientImpl, write_prefix: str = "artifacts") -
             "tier": 2,
             "visibility": "shared",
             "status": "active",
-            "feature_tags": [],
+            "tags": [],
             "title": "Multi-section spec",
         },
     )
@@ -177,7 +177,7 @@ def _seed_vectors(vectors: VectorsClientImpl, write_prefix: str = "artifacts") -
             "tier": 2,
             "visibility": "shared",
             "status": "active",
-            "feature_tags": [],
+            "tags": [],
             "title": "Multi-section spec",
         },
     )
@@ -195,7 +195,7 @@ def _seed_vectors(vectors: VectorsClientImpl, write_prefix: str = "artifacts") -
             "tier": 2,
             "visibility": "shared",
             "status": "inactive",
-            "feature_tags": [],
+            "tags": [],
             "title": "Inactive review",
         },
     )
@@ -213,7 +213,7 @@ def _seed_vectors(vectors: VectorsClientImpl, write_prefix: str = "artifacts") -
             "tier": 2,
             "visibility": "shared",
             "status": "active",
-            "feature_tags": [],
+            "tags": [],
             "title": "Network review",
         },
     )
@@ -321,11 +321,11 @@ async def test_filter_type_restricts_results(
         assert artifact["type"] == "code_review"
 
 
-async def test_filter_feature_tags_restricts_results(
+async def test_filter_tags_restricts_results(
     monkeypatch: pytest.MonkeyPatch,
     vectors_client_8: VectorsClientImpl,
 ) -> None:
-    """feature_tags=['payments'] → all results contain 'payments' in feature_tags."""
+    """tags=['payments'] → all results contain 'payments' in tags."""
     settings = _make_settings(monkeypatch)
     bedrock = FakeBedrockClient(dimension=8)
     _seed_vectors(vectors_client_8)
@@ -336,11 +336,11 @@ async def test_filter_feature_tags_restricts_results(
         settings=settings,
         query="payments",
         top_k=10,
-        feature_tags=["payments"],
+        tags=["payments"],
     )
 
     for artifact in result["artifacts"]:
-        assert "payments" in artifact["feature_tags"]
+        assert "payments" in artifact["tags"]
 
 
 async def test_filter_team_restricts_results(
@@ -563,7 +563,7 @@ async def test_early_exit_when_no_new_artifact_ids(
             "status": "active",
             "team": "platform",
             "project": "cairn",
-            "feature_tags": [],
+            "tags": [],
             "title": "Only one",
         },
     )
@@ -579,7 +579,7 @@ async def test_early_exit_when_no_new_artifact_ids(
             "status": "active",
             "team": "platform",
             "project": "cairn",
-            "feature_tags": [],
+            "tags": [],
             "title": "Only one",
         },
     )
@@ -766,7 +766,7 @@ async def test_search_results_include_source_artifacts(
             "tier": 3,
             "visibility": "shared",
             "status": "active",
-            "feature_tags": [],
+            "tags": [],
             "title": "ADR with sources",
             "source_artifacts": ["adr-one"],
         },

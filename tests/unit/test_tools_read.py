@@ -31,7 +31,7 @@ _BASE_METADATA: dict[str, str] = {
     "status": "active",
     "title": "Fix auth bug",
     "visibility": "shared",
-    "feature_tags": "auth,security",
+    "tags": "auth,security",
     "author_role": "developer",
     "description": "Review of the auth module.",
 }
@@ -157,7 +157,7 @@ async def test_all_metadata_fields_present_in_response(
     s3_client: S3ClientImpl,
 ) -> None:
     """All metadata fields present: type, team, project, tier, date, status, title,
-    visibility, feature_tags, author_role, description, content."""
+    visibility, tags, author_role, description, content."""
     settings = _make_settings(monkeypatch)
     _seed_objects(s3_client)
 
@@ -172,7 +172,7 @@ async def test_all_metadata_fields_present_in_response(
         "status",
         "title",
         "visibility",
-        "feature_tags",
+        "tags",
         "author_role",
         "description",
         "content",
@@ -180,19 +180,19 @@ async def test_all_metadata_fields_present_in_response(
         assert field in result, f"Missing field: {field}"
 
 
-async def test_feature_tags_deserialized_to_list(
+async def test_tags_deserialized_to_list(
     monkeypatch: pytest.MonkeyPatch,
     s3_client: S3ClientImpl,
 ) -> None:
-    """feature_tags in response is a list (deserialized from comma-separated string)."""
+    """tags in response is a list (deserialized from comma-separated string)."""
     settings = _make_settings(monkeypatch)
     _seed_objects(s3_client)
 
     result = await read_artifact(s3=s3_client, settings=settings, artifact_id="artifacts/t2-shared")
 
-    assert isinstance(result["feature_tags"], list)
-    assert "auth" in result["feature_tags"]
-    assert "security" in result["feature_tags"]
+    assert isinstance(result["tags"], list)
+    assert "auth" in result["tags"]
+    assert "security" in result["tags"]
 
 
 async def test_tier_in_response_is_int(

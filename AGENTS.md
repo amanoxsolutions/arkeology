@@ -127,8 +127,8 @@ one makes all persisted memory inaccessible:
 - All new tool functions go in `src/cairn_mcp/tools/<name>.py`; register on `_app` in `server.py` via `register_tools()`
 - Tool functions receive `settings`, `s3`, `vectors`, `bedrock` as injected dependencies — never import clients directly
 - `ARTIFACT_TYPES` in `artifact.py` is the single source of truth for valid artifact types — never duplicate it elsewhere
-- All metadata stored in S3 object metadata is string-valued; lists (`feature_tags`, `source_artifacts`) are comma-joined
-- Vector metadata stores `feature_tags` as `list[str]` (enables `$eq` element-in-list filtering); S3 object metadata stores them as a comma-joined string — these are intentionally different representations
+- All metadata stored in S3 object metadata is string-valued; lists (`tags`, `source_artifacts`) are comma-joined
+- Vector metadata stores `tags` as `list[str]` (enables `$eq` element-in-list filtering); S3 object metadata stores them as a comma-joined string — these are intentionally different representations
 - Scope check always uses `artifact_id.startswith(scope + "/")` — never bare `startswith(scope)` (prevents false prefix matches where a scope `"team-a"` would incorrectly match `"team-abc/..."`)
 - Tier 2 artifact IDs are date-anchored: `{type_slug}-{date}-{title_slug}`; tier 3 are date-independent: `{type_slug}-{title_slug}` — do not alter this scheme
 - Client interfaces in `src/cairn_mcp/clients/interfaces.py` use `typing.Protocol` — concrete implementations (`s3.py`, `vectors.py`, `bedrock.py`) and fakes satisfy the structural contract without inheriting from the interface class; never add `ABC` or `abstractmethod` to client code
@@ -155,7 +155,7 @@ one makes all persisted memory inaccessible:
   `startswith` allows a scope of `"team-a"` to incorrectly match keys under `"team-abc/"`.
   Every scope guard in every tool uses the `scope + "/"` form; do not abbreviate it.
 
-- **S3 object metadata vs vector metadata encoding differ intentionally**: `feature_tags`
+- **S3 object metadata vs vector metadata encoding differ intentionally**: `tags`
   and `source_artifacts` are stored as comma-joined strings in S3 object metadata
   (required by the S3 API, which only accepts string values) but as `list[str]` in vector
   metadata (enables `$eq` element-in-list filtering). Both representations are correct;

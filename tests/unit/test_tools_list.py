@@ -41,7 +41,7 @@ _BASE_VECTOR_META: dict[str, Any] = {
     "status": "active",
     "title": "Fix auth bug",
     "visibility": "shared",
-    "feature_tags": ["auth"],
+    "tags": ["auth"],
     "author_role": "developer",
     "description": "Review of the auth module.",
 }
@@ -60,7 +60,7 @@ def _seed_vectors(vectors: VectorsClientImpl) -> None:
                 "tier": 2,
                 "status": "active",
                 "type": "code_review",
-                "feature_tags": ["auth"],
+                "tags": ["auth"],
             },
         )
 
@@ -75,7 +75,7 @@ def _seed_vectors(vectors: VectorsClientImpl) -> None:
                 "tier": 3,
                 "visibility": "shared",
                 "type": "adr",
-                "feature_tags": ["payments"],
+                "tags": ["payments"],
                 "status": "active",
             },
         )
@@ -91,7 +91,7 @@ def _seed_vectors(vectors: VectorsClientImpl) -> None:
                 "tier": 2,
                 "status": "inactive",
                 "type": "code_review",
-                "feature_tags": [],
+                "tags": [],
             },
         )
 
@@ -105,7 +105,7 @@ def _seed_vectors(vectors: VectorsClientImpl) -> None:
             "tier": 2,
             "status": "active",
             "type": "code_review",
-            "feature_tags": ["auth"],
+            "tags": ["auth"],
             "team": "platform",
             "project": "infra",
         },
@@ -124,7 +124,7 @@ def _seed_vectors(vectors: VectorsClientImpl) -> None:
             "visibility": "shared",
             "status": "active",
             "type": "adr",
-            "feature_tags": [],
+            "tags": [],
         },
     )
     # second section vector for the foreign t3 shared — dedup test
@@ -140,7 +140,7 @@ def _seed_vectors(vectors: VectorsClientImpl) -> None:
             "visibility": "shared",
             "status": "active",
             "type": "adr",
-            "feature_tags": [],
+            "tags": [],
         },
     )
 
@@ -157,7 +157,7 @@ def _seed_vectors(vectors: VectorsClientImpl) -> None:
             "visibility": "shared",
             "status": "active",
             "type": "code_review",
-            "feature_tags": [],
+            "tags": [],
         },
     )
 
@@ -174,7 +174,7 @@ def _seed_vectors(vectors: VectorsClientImpl) -> None:
             "visibility": "hidden",
             "status": "active",
             "type": "adr",
-            "feature_tags": [],
+            "tags": [],
         },
     )
 
@@ -258,28 +258,28 @@ async def test_filter_type_code_review(
         assert artifact["type"] == "code_review"
 
 
-async def test_filter_feature_tags(
+async def test_filter_tags(
     monkeypatch: pytest.MonkeyPatch,
     vectors_client_8: VectorsClientImpl,
 ) -> None:
-    """feature_tags=['auth'] → only artifacts with 'auth' tag."""
+    """tags=['auth'] → only artifacts with 'auth' tag."""
     settings = _make_settings(monkeypatch)
     _seed_vectors(vectors_client_8)
 
     result = await list_artifacts(
-        settings=settings, vectors=vectors_client_8, s3=None, bedrock=None, feature_tags=["auth"]
+        settings=settings, vectors=vectors_client_8, s3=None, bedrock=None, tags=["auth"]
     )
 
     assert len(result["artifacts"]) > 0
     for artifact in result["artifacts"]:
-        assert "auth" in artifact["feature_tags"]
+        assert "auth" in artifact["tags"]
 
 
-async def test_filter_type_and_feature_tags_intersection(
+async def test_filter_type_and_tags_intersection(
     monkeypatch: pytest.MonkeyPatch,
     vectors_client_8: VectorsClientImpl,
 ) -> None:
-    """type='code_review' + feature_tags=['auth'] → intersection of both constraints."""
+    """type='code_review' + tags=['auth'] → intersection of both constraints."""
     settings = _make_settings(monkeypatch)
     _seed_vectors(vectors_client_8)
 
@@ -289,13 +289,13 @@ async def test_filter_type_and_feature_tags_intersection(
         s3=None,
         bedrock=None,
         type="code_review",
-        feature_tags=["auth"],
+        tags=["auth"],
     )
 
     assert len(result["artifacts"]) > 0
     for artifact in result["artifacts"]:
         assert artifact["type"] == "code_review"
-        assert "auth" in artifact["feature_tags"]
+        assert "auth" in artifact["tags"]
 
 
 async def test_filter_team(
@@ -408,7 +408,7 @@ async def test_result_has_required_fields(
         "status",
         "title",
         "visibility",
-        "feature_tags",
+        "tags",
         "author_role",
         "description",
         "commit_refs",
@@ -420,11 +420,11 @@ async def test_result_has_required_fields(
         assert "content" not in artifact, "Unexpected 'content' field in list result"
 
 
-async def test_feature_tags_in_response_is_list(
+async def test_tags_in_response_is_list(
     monkeypatch: pytest.MonkeyPatch,
     vectors_client_8: VectorsClientImpl,
 ) -> None:
-    """feature_tags in response is a list, not a comma-separated string."""
+    """tags in response is a list, not a comma-separated string."""
     settings = _make_settings(monkeypatch)
     _seed_vectors(vectors_client_8)
 
@@ -433,9 +433,7 @@ async def test_feature_tags_in_response_is_list(
     )
 
     for artifact in result["artifacts"]:
-        assert isinstance(artifact["feature_tags"], list), (
-            f"Expected list, got {type(artifact['feature_tags'])}"
-        )
+        assert isinstance(artifact["tags"], list), f"Expected list, got {type(artifact['tags'])}"
 
 
 # ---------------------------------------------------------------------------

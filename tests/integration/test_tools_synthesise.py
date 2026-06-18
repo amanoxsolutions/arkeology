@@ -149,7 +149,7 @@ async def test_synthesise_all_required_fields_present(
             "status",
             "title",
             "visibility",
-            "feature_tags",
+            "tags",
             "description",
         ]
         for artifact in result["artifacts"]:

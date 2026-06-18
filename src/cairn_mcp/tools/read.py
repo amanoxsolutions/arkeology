@@ -141,7 +141,7 @@ async def _read_artifact_inner(
             return {"error": "credential_error", "message": str(exc)}
 
     # ── Step 5: Deserialise remaining S3 metadata ─────────────────────────────
-    feature_tags: list[str] = [t for t in str(meta.get("feature_tags", "")).split(",") if t]
+    tags: list[str] = [t for t in str(meta.get("tags", "")).split(",") if t]
     source_artifacts: list[str] = [s for s in str(meta.get("source_artifacts", "")).split(",") if s]
     last_edited_ulid: str | None = meta.get("last_edited_ulid") or None
 
@@ -157,7 +157,7 @@ async def _read_artifact_inner(
         "status": meta.get("status"),
         "title": meta.get("title"),
         "visibility": meta.get("visibility"),
-        "feature_tags": feature_tags,
+        "tags": tags,
         "author_role": meta.get("author_role") or None,
         "description": meta.get("description"),
         "source_artifacts": source_artifacts,

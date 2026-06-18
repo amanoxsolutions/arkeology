@@ -76,10 +76,10 @@ The `description` field is the primary search signal. Invest in it.
 
 ```python
 # Step 1 — Filter by type + feature tags (fastest, most precise)
-search_artifacts(query="auth token refresh", type="implementation_note", feature_tags=["auth"])
+search_artifacts(query="auth token refresh", type="implementation_note", tags=["auth"])
 
 # Step 2 — If step 1 returns too few results, drop the type filter
-search_artifacts(query="auth token refresh", feature_tags=["auth"])
+search_artifacts(query="auth token refresh", tags=["auth"])
 
 # Step 3 — If still insufficient, pure semantic search
 search_artifacts(query="auth token refresh")

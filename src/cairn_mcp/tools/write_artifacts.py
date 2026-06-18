@@ -151,7 +151,7 @@ async def _write_artifacts_inner(
                     description=descriptor["description"],
                     content=descriptor["content"],
                     visibility=descriptor["visibility"],
-                    tags=descriptor.get("feature_tags") or [],
+                    tags=descriptor.get("tags") or [],
                     author_role=descriptor.get("author_role"),
                     sources=descriptor.get("source_artifacts") or [],
                     refs=descriptor.get("commit_refs") or [],

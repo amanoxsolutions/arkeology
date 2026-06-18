@@ -51,7 +51,7 @@ _BASE_META: dict[str, Any] = {
     "status": "active",
     "title": "Some artifact",
     "visibility": "shared",
-    "feature_tags": [],
+    "tags": [],
     "author_role": "developer",
     "description": "A test artifact.",
     "last_edited_ulid": "01KT07NV00FN74309G4MXHQ1KN",

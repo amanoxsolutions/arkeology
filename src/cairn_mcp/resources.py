@@ -52,7 +52,7 @@ def artifact_schema_content() -> str:
 
 | Field | Type | Notes |
 |-------|------|-------|
-| `feature_tags` | list[string] | Searchable tags; enables `feature_tags` filter |
+| `tags` | list[string] | Searchable tags; enables `tags` filter |
 | `author_role` | string | Role of the author (e.g. `"developer"`) |
 | `source_artifacts` | list[string] | Source IDs for a `synthesis` artifact |
 | `commit_refs` | list[string] | Git commit SHAs linked to this artifact via `link_commit` |
@@ -261,11 +261,11 @@ def query_strategy_content() -> str:
 
 ## Principle: start narrow, broaden only when needed
 
-1. **Add filters first.** Specify `type` and `feature_tags` before relying on pure semantic
-   similarity. A narrow query with `type="adr"` and `feature_tags=["auth"]` returns the
+1. **Add filters first.** Specify `type` and `tags` before relying on pure semantic
+   similarity. A narrow query with `type="adr"` and `tags=["auth"]` returns the
    most relevant ADRs for the authentication domain without noise from other types.
 
-2. **Broaden when narrow returns insufficient results.** Drop `feature_tags` first, then
+2. **Broaden when narrow returns insufficient results.** Drop `tags` first, then
    `type`, then let the semantic query do the heavy lifting. Each iteration should be a
    deliberate widening step.
 
@@ -275,7 +275,7 @@ def query_strategy_content() -> str:
 
 4. **Use `search_artifacts` for concept queries.** When the question is conceptual — "what
    did we decide about the auth redesign?" — use `search_artifacts` with a natural-language
-   `query`. Combine with `type` or `feature_tags` to stay narrow.
+   `query`. Combine with `type` or `tags` to stay narrow.
 
 ## When to use `synthesise_artifacts`
 

@@ -84,7 +84,7 @@ _MALFORMED_S3_META: dict[str, str] = {
     "status": "active",
     "title": "Malformed Synthesis",
     "visibility": "shared",
-    "feature_tags": "",
+    "tags": "",
     "author_role": "",
     "description": "A synthesis with no source artifacts.",
     "source_artifacts": "",

@@ -1,17 +1,17 @@
 ---
 type: plan
 title: Plan cairn-mcp
-description: Full phase history and current open phase for cairn-mcp development, tracking all completed and in-progress tasks from foundation through artifact commit references.
+description: Full phase history and current open phase for cairn-mcp development, tracking all completed and in-progress tasks from foundation through OKF schema alignment.
 tags: []
-timestamp: 2026-06-16T00:00:00Z
+timestamp: 2026-06-18T00:00:00Z
 okf_version: "0.1"
 ---
 
 # Plan: cairn-mcp
 
 _Project: cairn-mcp_
-_Generated: 2026-05-29_ · _Last updated: 2026-06-16_
-_Status: **V1 — Phases 1–9 complete (unit + integration suite passing against live AWS; ruff + mypy clean; Apache 2.0 licensed; production-hardened; moto migration complete; write performance hardened; bulk write + migration tools; setting-up-cairn + sync-cairn-plugin skills; skill distribution via native plugin mechanisms) · Phase 10 (artifact commit references + caller-controlled concurrency) T35–T40 complete**_
+_Generated: 2026-05-29_ · _Last updated: 2026-06-18_
+_Status: **V1 — Phases 1–9 complete (unit + integration suite passing against live AWS; ruff + mypy clean; Apache 2.0 licensed; production-hardened; moto migration complete; write performance hardened; bulk write + migration tools; setting-up-cairn + sync-cairn-plugin skills; skill distribution via native plugin mechanisms) · Phase 10 (artifact commit references + caller-controlled concurrency + OKF schema alignment) T35–T40 complete · T41 in progress**_
 
 ## How we work
 
@@ -297,12 +297,11 @@ Goal: quality-of-life improvements and documentation polish before declaring v1,
 
 ---
 
-### Phase 10 — Artifact Commit References
+### Phase 10 — Artifact Commit References + OKF Schema Alignment
 
-Goal: close the traceability gap between artifacts and git commits. Agents can associate any
-written artifact with a commit SHA after the fact — without re-embedding — and discover
-which session artifacts still need linking. The write-time ULID timestamp enables efficient
-time-range discovery scoped to the current session.
+Goal: close the traceability gap between artifacts and git commits (T35–T40); align the
+`feature_tags` field name with OKF vocabulary as a pure rename (T41). T35–T40 are complete;
+T41 is open.
 
 **Execution order:** T35 is an independent prerequisite (filter.py only); T36 depends on
 T35 and must complete before T37 and T38; T37 and T38 can be worked in parallel once T36
@@ -336,6 +335,11 @@ independent of T31, T32, T33, and T34 — no shared files.
     - Done when: skill presents all three options with the default clearly marked; option 1 requires no additional tool calls after migration; option 2 explains that `last_edited_ulid` is already set to migration time with no extra action; option 3 drives `git log -1` per file and `link_commit` in batches, with an upfront slow-operation warning; the no-`since_ulid` edge case (all unlinked artifacts surfacing in future `propose_commit_links` calls) is noted; skill text is clear, concise, and consistent with the existing migration skill style
     - Spec: `docs/specs/p10-t40-migration-skill-commit-refs-backfill.md`
     - Brainstorming: `docs/brainstorming/brainstorming-2026-06-06-artifact-commit-refs.md` (D12, Resolved Questions)
+
+41. 🔄 **Rename `feature_tags` → `tags`** *(pure identifier rename; OKF schema alignment)* — rename the `feature_tags` metadata field to `tags` across the entire codebase: `Artifact` model, all MCP tool public parameters (`write_artifact`, `search_artifacts`, `list_artifacts`, `synthesise_artifacts`), S3 object metadata key, vector metadata key, filter clause keys, all tool implementations, tests, `resources.py`, `AGENTS.md`, `SERVER-REFERENCE.md`, and setting-up-cairn + migrating-to-cairn skills; preserve the deliberate S3-comma-joined-string vs vector-`list[str]` dual-encoding under the new key name; no data migration (no live data) (D2 — brainstorming-2026-06-15-okf-alignment.md)
+    - Done when: no occurrence of `feature_tags` remains in `src/`, `tests/`, `AGENTS.md`, `SERVER-REFERENCE.md`, or `skills/`; all unit tests pass; `ruff check`, `ruff format --check`, and `mypy src/` are clean; dual-encoding tests (`test_vector_metadata_tags_is_list`, `test_s3_metadata_tags_…`) verify the S3 string vs vector list split is preserved under the new key name
+    - Spec: `docs/specs/p10-t41-rename-feature-tags-to-tags.md`
+    - Brainstorming: `docs/brainstorming/brainstorming-2026-06-15-okf-alignment.md` (D2)
 
 ---
 
@@ -378,3 +382,5 @@ independent of T31, T32, T33, and T34 — no shared files.
 - [`docs/specs/p9-t33d-copilot-adapter.md`](../specs/p9-t33d-copilot-adapter.md)
 - [`docs/specs/p9-t33e-readme-quick-install.md`](../specs/p9-t33e-readme-quick-install.md)
 - [`docs/specs/p10-t40-migration-skill-commit-refs-backfill.md`](../specs/p10-t40-migration-skill-commit-refs-backfill.md)
+- [`docs/specs/p10-t41-rename-feature-tags-to-tags.md`](../specs/p10-t41-rename-feature-tags-to-tags.md)
+- [`docs/brainstorming/brainstorming-2026-06-15-okf-alignment.md`](../brainstorming/brainstorming-2026-06-15-okf-alignment.md)

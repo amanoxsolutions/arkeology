@@ -33,7 +33,7 @@ _BASE_S3_META: dict[str, str] = {
     "status": "inactive",
     "title": "Stale review",
     "visibility": "shared",
-    "feature_tags": "",
+    "tags": "",
     "author_role": "developer",
     "description": "A stale artifact.",
 }
@@ -48,7 +48,7 @@ _BASE_VECTOR_META: dict[str, Any] = {
     "status": "inactive",
     "title": "Stale review",
     "visibility": "shared",
-    "feature_tags": [],
+    "tags": [],
     "author_role": "developer",
     "description": "A stale artifact.",
 }
