@@ -336,18 +336,10 @@ BEDROCK_TEXT_MODEL = "eu.amazon.nova-lite-v1:0"
 
 ### Permission gate and safe-edit rules
 
-> **Target file path**: derive the exact path from the File column in the reference table
-> above for the chosen client. For every project-scoped client the file lives in the
-> **current working directory** (the project root), not in the home directory. Resolve the
-> path by joining the current working directory with the filename before any read or write.
->
-> Examples (project root = `/home/alice/myproject`):
-> - opencode → `/home/alice/myproject/opencode.json` — **not** `~/.config/opencode/opencode.json`
-> - Claude Code / Copilot CLI → `/home/alice/myproject/.mcp.json`
-> - Codex CLI → `/home/alice/myproject/.codex/config.toml`
->
-> Do not read or write any file under `~/.config/`, `~/.codex/`, or `~/.copilot/` for
-> project-scoped clients.
+> **Target file path**: derive from the File column in the client reference table above.
+> For every project-scoped client the file lives in the **current working directory**
+> (the project root). Resolve the absolute path before any read or write. Do not read
+> or write any file under `~/.config/`, `~/.codex/`, or `~/.copilot/`.
 
 1. **Check whether the target config file exists** at the resolved path above.
    - **Does not exist**: create it containing only the cairn entry using the full document
@@ -421,12 +413,9 @@ Add every provided path to `local_only_paths`.
 
 ### Part C — Write to AGENTS.md
 
-> **Target file:** `AGENTS.md` in the **current working directory** (the project root
-> — the same directory you have been operating in throughout this skill). This is never
-> the cairn-mcp repository's own `AGENTS.md`; it is always the `AGENTS.md` of the
-> project you are installing cairn-mcp into. Resolve the absolute path by joining the
-> current working directory with `AGENTS.md` before reading or writing. If the file
-> does not exist, create it.
+> **Target file:** `AGENTS.md` in the **current working directory** (the project being
+> set up — never the cairn-mcp repo's own AGENTS.md). Resolve the absolute path before
+> reading or writing. Create the file if it does not exist.
 
 Write the `cairn-mcp:config` block to that file. If the block already exists, replace
 it in place — do not append a second block.
@@ -449,15 +438,41 @@ If either list is empty (e.g. cairn-mcp-only strategy with no additional exclusi
 
 Load `references/agents-snippet.md`. Extract the markdown content inside the outer code fence
 (not the preamble or fence markers), select the ADR variant matching the operator's choice
-(Variant A or Variant B), remove the other variant's block, and write the resulting content to
-the project AGENTS.md. If a cairn-mcp narrative section already exists in AGENTS.md
-(identifiable by its heading or the never-write instruction block), replace it in place rather
-than appending a second copy.
+(**git-only** → Variant A; **cairn-mcp-only** → Variant B), remove the other variant's block,
+and write the resulting content to the project AGENTS.md. If a cairn-mcp narrative section
+already exists in AGENTS.md (identifiable by its heading or the never-write instruction block),
+replace it in place rather than appending a second copy.
 
-Select the ADR variant that matches the operator's choice from Part A:
+### Part D — Update Documentation and Scratchpad keys
 
-- **git-only** → include Variant A; omit Variant B.
-- **cairn-mcp-only** → include Variant B; omit Variant A.
+Scan the entire `AGENTS.md` for lines matching `**Documentation:**` and `**Scratchpad:**`
+(regardless of which section they appear in). Update or add them automatically — no
+operator confirmation required.
+
+**Scratchpad** — always set to `cairn-mcp`.
+
+**Documentation** — derive from `local_only_types` and `local_only_paths` (Parts A and B).
+Tier 3 types: `spec`, `adr`, `decision_note`, `synthesis`, `plan`, `prd`, `runbook`, `learning`.
+
+| Condition | New value |
+|-----------|-----------|
+| `local_only_types` and `local_only_paths` both empty | `cairn-mcp` |
+| Every tier 3 type in `local_only_types` | leave unchanged (or use existing local value if key was absent) |
+| Mixed — some tier 3 types stay local | `cairn-mcp, <existing-local-value>` |
+
+For the mixed case, read the existing `**Documentation:**` value from the file and
+prefix it — e.g. `cairn-mcp, docs/`.
+
+**Key already present**: update in place. **Key absent**: add it under the `## Agent Settings`
+section if one exists (insert missing line(s) as bullet items). If no `## Agent Settings`
+section exists, create it near the top of the file (after the first heading or project overview)
+with both keys:
+
+```markdown
+## Agent Settings
+- **Documentation:** <value>
+- **Scratchpad:** cairn-mcp
+```
 
 ---
 
