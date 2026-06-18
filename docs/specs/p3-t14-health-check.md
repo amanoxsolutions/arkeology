@@ -14,8 +14,8 @@ authored:
   by: "architect"
   date: "2026-05-30"
 revised:
-  by: ""
-  date: ""
+  by: "developer"
+  date: "2026-06-18"
 ---
 
 # T14 — Health Check Tool
@@ -70,19 +70,26 @@ A single failing component must not suppress the results of other checks.
 
 - WHEN `health_check` is called THE SYSTEM SHALL perform an independent probe for each of
   the following components: S3 bucket access, S3 Vectors index, Bedrock embedding model,
-  WRITE_PREFIX read/write, and each READ_PREFIX in `settings.read_prefixes_list`.
+  WRITE_PREFIX read/write, each READ_PREFIX in `settings.read_prefixes_list`, and — when
+  `settings.bedrock_text_model` is not `None` — the Bedrock text generation model.
 - WHEN a component probe succeeds THE SYSTEM SHALL report `{"status": "ok"}` for that
   component.
-- WHEN a component probe fails (any exception, including CredentialError) THE SYSTEM SHALL
-  catch the exception and report `{"status": "error", "message": str}` for that component.
+- WHEN a component probe fails with a generic exception THE SYSTEM SHALL catch it and report
+  `{"status": "error", "message": str}` for that component.
+- WHEN a component probe fails with a `CredentialError` THE SYSTEM SHALL report
+  `{"status": "error", "message": str, "cause": "credential_error"}` for that component.
 - THE SYSTEM SHALL always proceed to all remaining probes regardless of any individual
   failure — errors in one component never skip other components.
 - WHEN `health_check` returns THE SYSTEM SHALL return a dict with keys: `"s3"`, `"vectors"`,
-  `"bedrock"`, `"write_prefix"`, and one key per read prefix entry (e.g. `"read_prefix:team/artifacts"`).
+  `"bedrock"`, `"write_prefix"`, and one key per read prefix entry (e.g.
+  `"read_prefix:team/artifacts"`). When `BEDROCK_TEXT_MODEL` is configured the dict SHALL
+  also include a `"bedrock_text_model"` key; when it is not configured that key SHALL be
+  absent entirely.
 - THE SYSTEM SHALL use the same probe operations as the startup validation sequence:
-  S3 → `head_bucket`; vectors → `describe_index`; bedrock → `embed` with short probe text;
-  write prefix → put+get+delete probe object under `settings.write_prefix`; each read
-  prefix → `list_objects`.
+  S3 → `head_bucket`; vectors → `describe_index`; bedrock embedding → `embed` with short
+  probe text; bedrock text model → `invoke_text_model` with `"ping"`; write prefix →
+  put+get+delete probe object under `settings.write_prefix`; each read prefix →
+  `list_objects`.
 - THE SYSTEM SHALL never raise — the top-level function must catch any unhandled exception
   and include it in the structured response.
 
@@ -94,8 +101,11 @@ A single failing component must not suppress the results of other checks.
 - Each component probe is independent of the others.
 - The tool reuses the same probe operations defined in `startup.py` (not the startup
   validation functions themselves — those raise; health check catches and returns status).
-- The bedrock probe uses a short fixed text (e.g. `"health"`) with the configured model and
-  dimensions; the resulting embedding vector is discarded.
+- The Bedrock embedding probe uses a short fixed text (e.g. `"health"`) with the configured
+  model and dimensions; the resulting vector is discarded.
+- The Bedrock text model probe calls `invoke_text_model` with `"ping"`; the response text is
+  discarded. This probe is skipped entirely (key absent from response) when
+  `settings.bedrock_text_model is None`.
 - The tool receives `settings`, `s3`, `vectors`, and `bedrock` as injected dependencies.
 
 **Ask First:**
@@ -153,6 +163,14 @@ Response shape:
 - `"status"` field is always `"ok"` or `"error"` — no other values.
 - `"error"` entries always include a non-empty `"message"` string.
 - `"ok"` entries have no `"message"` field (or it is absent/null).
+- `CredentialError` failures include `"cause": "credential_error"`; generic exceptions do not.
+
+`bedrock_text_model` probe (conditional):
+- `BEDROCK_TEXT_MODEL` not set → `"bedrock_text_model"` key absent from response.
+- `BEDROCK_TEXT_MODEL` set and reachable → `"bedrock_text_model": {"status": "ok"}`.
+- `invoke_text_model` raises `RuntimeError` → `"bedrock_text_model"` `"error"` with message; no `"cause"` field.
+- `invoke_text_model` raises `CredentialError` → `"bedrock_text_model"` `"error"` with `"cause": "credential_error"`.
+- `invoke_text_model` raises → other probes still complete and return `"ok"`.
 
 **`tests/integration/test_tools_health.py` — integration tests (`@pytest.mark.integration`):**
 

@@ -288,6 +288,121 @@ async def test_status_field_only_ok_or_error(
 
 
 # ---------------------------------------------------------------------------
+# bedrock_text_model probe
+# ---------------------------------------------------------------------------
+
+
+async def test_bedrock_text_model_absent_when_not_configured(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
+) -> None:
+    """When BEDROCK_TEXT_MODEL is not set, bedrock_text_model key is absent from result."""
+    settings = _make_settings(monkeypatch, READ_PREFIXES="")
+    bedrock = FakeBedrockClient(dimension=8)
+
+    result = await health_check(
+        settings=settings, s3=s3_client, vectors=vectors_client_8, bedrock=bedrock
+    )
+
+    assert "bedrock_text_model" not in result
+
+
+async def test_bedrock_text_model_ok_when_configured(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
+) -> None:
+    """When BEDROCK_TEXT_MODEL is set and reachable, bedrock_text_model status is 'ok'."""
+    settings = _make_settings(
+        monkeypatch, READ_PREFIXES="", BEDROCK_TEXT_MODEL="amazon.nova-lite-v1:0"
+    )
+    bedrock = FakeBedrockClient(dimension=8)
+
+    result = await health_check(
+        settings=settings, s3=s3_client, vectors=vectors_client_8, bedrock=bedrock
+    )
+
+    assert result["bedrock_text_model"]["status"] == "ok"
+
+
+async def test_bedrock_text_model_error_on_invoke_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """invoke_text_model raises RuntimeError → bedrock_text_model 'error' with message, no cause."""
+    settings = _make_settings(
+        monkeypatch, READ_PREFIXES="", BEDROCK_TEXT_MODEL="amazon.nova-lite-v1:0"
+    )
+    bedrock = FakeBedrockClient(dimension=8)
+    mocker.patch.object(bedrock, "invoke_text_model", side_effect=RuntimeError("model unreachable"))
+
+    result = await health_check(
+        settings=settings, s3=s3_client, vectors=vectors_client_8, bedrock=bedrock
+    )
+
+    assert result["bedrock_text_model"]["status"] == "error"
+    assert "message" in result["bedrock_text_model"]
+    assert len(result["bedrock_text_model"]["message"]) > 0
+    assert "cause" not in result["bedrock_text_model"]
+
+
+async def test_bedrock_text_model_credential_error_returns_cause(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """invoke_text_model CredentialError → status 'error' and cause 'credential_error'."""
+    settings = _make_settings(
+        monkeypatch, READ_PREFIXES="", BEDROCK_TEXT_MODEL="amazon.nova-lite-v1:0"
+    )
+    bedrock = FakeBedrockClient(dimension=8)
+    mocker.patch.object(
+        bedrock,
+        "invoke_text_model",
+        side_effect=CredentialError(
+            message="simulated",
+            service="bedrock",
+            original=Exception("simulated"),
+        ),
+    )
+
+    result = await health_check(
+        settings=settings, s3=s3_client, vectors=vectors_client_8, bedrock=bedrock
+    )
+
+    assert result["bedrock_text_model"]["status"] == "error"
+    assert result["bedrock_text_model"].get("cause") == "credential_error"
+
+
+async def test_bedrock_text_model_failure_does_not_skip_other_probes(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """bedrock_text_model probe failure does not prevent other probes from running."""
+    settings = _make_settings(
+        monkeypatch, READ_PREFIXES="", BEDROCK_TEXT_MODEL="amazon.nova-lite-v1:0"
+    )
+    bedrock = FakeBedrockClient(dimension=8)
+    mocker.patch.object(bedrock, "invoke_text_model", side_effect=RuntimeError("model unreachable"))
+
+    result = await health_check(
+        settings=settings, s3=s3_client, vectors=vectors_client_8, bedrock=bedrock
+    )
+
+    assert result["s3"]["status"] == "ok"
+    assert result["vectors"]["status"] == "ok"
+    assert result["bedrock"]["status"] == "ok"
+    assert result["write_prefix"]["status"] == "ok"
+    assert result["bedrock_text_model"]["status"] == "error"
+
+
+# ---------------------------------------------------------------------------
 # Spec 08 — CredentialError cause distinction in health probes
 # ---------------------------------------------------------------------------
 

@@ -96,6 +96,20 @@ async def _health_check_inner(
     except Exception as exc:
         result["bedrock"] = {"status": "error", "message": str(exc)}
 
+    # ── Bedrock text model probe (only when BEDROCK_TEXT_MODEL is configured) ─
+    if settings.bedrock_text_model is not None:
+        try:
+            bedrock.invoke_text_model(settings.bedrock_text_model, "ping")
+            result["bedrock_text_model"] = {"status": "ok"}
+        except CredentialError as exc:
+            result["bedrock_text_model"] = {
+                "status": "error",
+                "message": str(exc),
+                "cause": "credential_error",
+            }
+        except Exception as exc:
+            result["bedrock_text_model"] = {"status": "error", "message": str(exc)}
+
     # ── Write prefix probe (put + get + delete) ───────────────────────────────
     probe_key = f"{settings.write_prefix}/_cairn_health_probe"
     try:
