@@ -18,8 +18,8 @@ authored:
   by: "analyst"
   date: 2026-06-14
 revised:
-  by: ""
-  date:
+  by: "analyst"
+  date: 2026-06-18
 techniques_used:
   - multi-agent adversarial challenge (5 analyst subagents, one idea each, each challenging the anchor)
   - inversion (publish-once vs query-live; "what would make a localhost reader fail?")
@@ -40,17 +40,27 @@ assumptions_challenged:
   - "A containerized reader should connect to cairn AS AN MCP CLIENT (the MCP tool contract is a stable decoupling boundary)"
   - "A single local container can serve as a team-wide reader by changing its bind address"
   - "Auth can stay minimal for a self-hosted reader because it is local/internal"
-decisions_locked: []
+decisions_locked:
+  - "Direction 1 (publish-on-write static site) is eliminated — sync management (CloudFront invalidation, manifest rebuilds, delete/archive/visibility triggers, backfill) deemed too complex relative to value delivered (2026-06-17)"
+  - "Any local copy mechanism (Remotely Save + read-only IAM, cairn export --watch, or equivalent) must be pull-only (S3 → local); local edits must never propagate back to S3. Enforced at the IAM layer (read-only credentials), not at the application/plugin level. This is a new feature, distinct from the one-shot cairn export in Direction 3 / Surface B. (2026-06-17)"
+  - "'API Gateway MCP proxy support' is a console shortcut that registers an API Gateway stage as a target inside AgentCore Gateway; API Gateway itself does not serve MCP protocol. The MCP endpoint is always AgentCore Gateway's managed URL. The feature name is misleading. (2026-06-18)"
+  - "Direction 4 architecture: a single API Gateway + Lambda deployment (cairn read logic) serves two consumption paths — (1) AgentCore Gateway → API Gateway → Lambda for MCP agents over Streamable HTTP; (2) CloudFront mTLS → API Gateway → Lambda for the human reading UI. No code duplication across paths. (2026-06-18)"
+  - "CloudFront mTLS in Direction 4 applies to the human reading UI only (certificate = team access, no user identity required). It does not apply to the MCP endpoint; AgentCore Gateway manages its own endpoint and authentication independently. (2026-06-18)"
+  - "Direction 4 inbound auth for AgentCore Gateway: Cognito Authorization Code (OAuth 2.0). Developers complete a one-time browser login per machine; Claude Code stores refresh tokens and handles all subsequent auth natively via Streamable HTTP, with no local proxy. (2026-06-18)"
+  - "stdio transport is fundamentally single-client: Workflow subagents are independent API calls that do not inherit the parent session's stdio MCP connections and cannot share them. This makes stdio structurally incompatible with multi-agent parallelisation. Streamable HTTP (AgentCore Gateway) resolves this because any number of independent subagents connect to the same URL concurrently. (2026-06-18)"
 decisions_pending:
-  - D1: Which reader audience(s) are in scope for v1 — in-session engineer, team/org reader, or both?
-  - D2: Is the chosen surface local (per-operator) or hosted in AWS (team-wide)? This depends on the MCP-in-AWS reframe.
+  - D2: Is the chosen surface local (per-operator) or hosted in AWS (team-wide)? Direction 4 (AgentCore Gateway + CloudFront mTLS UI) is the current candidate for the hosted path.
   - D3: Is live semantic search a v1 requirement for the human UI, or is faceted + lexical search (with precomputed semantic neighbours) sufficient?
-  - D4: Should cairn ship the near-free "data resources + export" baseline (Direction 3) regardless of which larger direction wins?
-  - D5: For a hosted surface, how does the per-process WRITE_PREFIX/READ_PREFIXES scope model map to per-request authenticated identity (Cognito/SSO groups)?
-  - D6: Does adding any HTTP surface force resolution of the open stdio-vs-HTTP transport question (transport-strategy brainstorm)?
-  - D7: Should a self-hosted reader ship inside the cairn-mcp package (pulling a frontend build + image-publish + infra into a project that "owns no infra") or as a separate companion repo/product (e.g. cairn-lens)?
-  - D8: Version-sync — how does the cairn version baked into a reader image stay in lockstep with the cairn version agents write with (new metadata fields / ID scheme)?
-decisions_closed_not_applicable: []
+  - D4: Should cairn ship the near-free "data resources + export" baseline (Direction 3) as the first increment, independently of any hosted direction?
+  - D6: Partially answered — Direction 4 (hosted) independently adopts Streamable HTTP via AgentCore Gateway without forcing migration of the local stdio server. The local server can stay stdio. Whether to migrate it separately remains open in the transport strategy brainstorm.
+  - D7: Should a self-hosted reader ship inside the cairn-mcp package or as a separate companion repo/product (e.g. cairn-lens)?
+  - D8: Version-sync — how does the cairn version deployed as Lambda targets stay in lockstep with the cairn version agents write with (new metadata fields / ID scheme)?
+  - D9: Local continuous sync mechanism — Remotely Save (with read-only IAM) or cairn export --watch? Does Remotely Save degrade gracefully (skip upload silently) or corrupt local state when write permissions are denied? Does it preserve plain markdown files without proprietary serialization?
+  - D11: Scope gate under the hosted model — how does the Lambda derive the caller's scope? Options: (a) extract from the Cognito JWT claim (requires a claim→scope mapping in Cognito); (b) extract the mTLS certificate CN forwarded by API Gateway (for the UI path — CN encodes scope, PKI-controlled, not user-editable); (c) explicit scope parameter passed by the agent (already the case in AGENTS.md, conceptually equivalent to the current per-process WRITE_PREFIX). The right answer may differ per path.
+  - D12: Cognito user pool topology — one pool per cairn deployment or shared across projects? How are new developers onboarded (self-registration vs admin-provisioned)? How is de-provisioning handled when a developer leaves a project?
+decisions_closed_not_applicable:
+  - "D5 — closed: mTLS certificate subject as scope gate replacement is moot. CloudFront mTLS is for the UI path only; AgentCore Gateway uses Cognito OAuth (no certificate subject). Scope under the hosted model is addressed by D11. (2026-06-18)"
+  - "D10 — closed: resolved by the 2026-06-18 investigation. AgentCore Gateway exposes MCP tools (from the API Gateway REST API targets) over Streamable HTTP. It collapses the agent tool access path and the hosted reader backend into one Lambda deployment, but the human UI is a separate frontend consuming the same API Gateway — not an MCP client. (2026-06-18)"
 ---
 
 # Visual Reading / Browsing Interface for cairn-mcp Artifacts
@@ -218,34 +228,41 @@ increment* (cheapest, demand-validating). The IDE-native reader (Idea 2) is reta
 explicit honourable mention below — kept in this document at the operator's request as a
 candidate for the in-session-engineer surface and a likely future companion to Direction 1.
 
-#### Direction 1 (recommended primary) — Publish-on-write static knowledge site (Idea 5)
+#### ~~Direction 1~~ — ~~Publish-on-write static knowledge site (Idea 5)~~ — **Ruled out (2026-06-17)**
 
-**Why most promising:** best ratio of delivered value to ongoing cost for the audience the
-request actually centers on (people who need to *read* shared artifacts). It directly
-satisfies every stated capability — list/search, multi-facet browse (type & date), select,
-render markdown **and** mermaid — while solving the anchor's fatal gaps: shareable stable
-URLs, non-engineer access, no "is the server running?" dependency, and one canonical render.
-Mermaid pre-rendered to SVG eliminates the "JS bundle in a Python wheel" maintenance/CVE
-burden entirely. Cost is pennies (compute only at write time).
-**What it requires:** a `SITE_BUCKET` + CloudFront (OAC), a publisher (S3-event Lambda with
-server-side mermaid rendering) + a batch backfill pass, client-side search index generation,
-publish-time access partitioning mapped from tier/visibility, and CDK to own it. This is the
-"MCP-read-path-in-AWS" reframe in its lightest form.
-**Key trade-off accepted:** semantic search is replaced by faceted + lexical search, with
-precomputed semantic-neighbour links baked in at publish (recovers most of the value at zero
-read-time cost). Staleness/rebuild triggers (write, delete/archive, visibility change,
-template change) must be handled explicitly.
+> **Operator decision:** synchronization management is too painful. CloudFront invalidation,
+> per-event manifest rebuilds, delete/archive/visibility change triggers, and backfill all
+> require owned infra and ongoing maintenance that outweighs the value. This direction is
+> eliminated.
 
-#### Direction 2 — Serverless AWS knowledge portal (Idea 1)
+**Why it ranked first (retained for context):** best ratio of delivered value to ongoing cost
+for the audience the request centers on. Directly satisfies every stated capability —
+list/search, multi-facet browse (type & date), select, render markdown **and** mermaid —
+while solving the anchor's fatal gaps: shareable stable URLs, non-engineer access, no
+"is the server running?" dependency, and one canonical render. Mermaid pre-rendered to SVG
+eliminates the "JS bundle in a Python wheel" maintenance/CVE burden entirely.
+**What it would have required:** a `SITE_BUCKET` + CloudFront (OAC), a publisher (S3-event
+Lambda with server-side mermaid rendering) + a batch backfill pass, client-side search index
+generation, publish-time access partitioning mapped from tier/visibility, and CDK to own it.
+**Key trade-off accepted (moot):** semantic search replaced by faceted + lexical + precomputed
+neighbours. Staleness/rebuild triggers (write, delete/archive, visibility change, template
+change) must be handled explicitly — this last point is what ruled it out.
+
+#### Direction 2 — Serverless AWS knowledge portal (Idea 1) — *Superseded by Direction 4 (2026-06-17)*
+
+> **Note:** Direction 4 (API Gateway MCP proxy + CloudFront mTLS) replaces the Cognito/SSO
+> auth model described here. The read API + Lambda architecture remains valid; only the
+> identity layer changes. Retained for context.
 
 **Why promising:** the richest *visual app* and the natural premium evolution of Direction 1
 — it can read the same S3/S3-Vectors backend. Adds what the static site sacrifices: **live
 semantic search** in the UI and a centrally **enforced** access gate (users hold no AWS
 creds; one read-only Lambda role; per-identity gate). Best fit if cross-team governance,
 live concept-search, or always-fresh reads prove to be hard requirements.
-**What it requires:** the static-site infra *plus* a read API (API Gateway + Lambda over a
-read-only twin of cairn's logic), Cognito↔SSO federation, a per-request identity→scope
-mapping (D5), domain/cert, and lockstep maintenance of the read-only twin.
+**What it requires:** a read API (API Gateway + Lambda over a read-only twin of cairn's
+logic), ~~Cognito↔SSO federation~~ → replaced by CloudFront mTLS in Direction 4, a
+per-request identity→scope mapping (D5), domain/cert, and lockstep maintenance of the
+read-only twin.
 **Key trade-off:** materially higher build + ops cost and a new authenticated internet
 surface, for benefits (live semantic search) that may be a power-user nicety rather than a
 core human-reading need (D3).
@@ -265,11 +282,11 @@ Python, reusing the in-process gate — no JS toolchain, no new infra.
 **Key trade-off:** snapshot freshness (export) and lexical-only search; re-materializes files
 on disk on demand; not a single hosted shareable surface on its own.
 
-**Staging:** Direction 3 first (cheap, immediate, demand-validating) → Direction 1 (the
-durable shareable team surface) → Direction 2 only if live semantic search / central
-governance prove necessary. Directions 1 and 2 share storage and can coexist; Direction 5's
-static site can be the default reading surface with the portal's live search as a power-user
-overlay.
+**Staging (revised 2026-06-17):** Direction 3 first (cheap, immediate, demand-validating) →
+Direction 4 (hosted reader with API Gateway MCP proxy + CloudFront mTLS, replacing Direction
+1 and the Cognito/SSO model from Direction 2) if a durable, shareable, team-wide surface is
+needed. Direction 2 (serverless portal + Cognito/SSO) is superseded by Direction 4 if mTLS
+proves viable. Direction 1 is ruled out.
 
 **Considered but not selected as primary:**
 - *Anchor (local web reader):* dominated — heavier than the TUI for the engineer, unable to
@@ -434,10 +451,320 @@ Direction 2 (portal), not extended into it.
 
 - **D7** — package home: inside cairn-mcp vs a separate `cairn-lens` companion repo.
 - **D8** — version-sync between the cairn baked into the image and the cairn agents write with.
-- Does Idea 6 (Option C) make Direction 1 (static publish-on-write site) redundant for the
-  single-operator case, or are they complementary (live reader for the operator; static site
-  for sharing/non-engineers)?
+- ~~Does Idea 6 (Option C) make Direction 1 (static publish-on-write site) redundant for the
+  single-operator case, or are they complementary?~~ *Moot — Direction 1 ruled out 2026-06-17.*
 
 > Internet research into comparable self-hosted/containerized knowledge-base readers (Onyx,
 > Khoj, AnythingLLM, AWS Bedrock KB sample UIs, ADR/doc viewers, mermaid rendering norms) is
 > compiled separately in `research-visual-reading-interface.md`.
+
+---
+
+## Session 2026-06-17 — Operator feedback: direction refinement and new ideas
+
+### Operator decisions and signals
+
+Following review of the 2026-06-14 output, the operator provided three pieces of feedback:
+one decision (Direction 1 ruled out), one directional preference (Direction 3 is the right
+immediate path), and two new ideas to investigate (Obsidian bidirectional sync; AWS API
+Gateway MCP proxy + CloudFront mTLS auth).
+
+### Decision: Direction 1 ruled out
+
+**Reason:** managing the synchronization between artifact writes and the static site is too
+painful. The triggers — write, delete, archive, visibility change, and template change —
+each require a distinct handler: CloudFront cache invalidation, per-facet manifest rebuild,
+index regeneration, and for visibility changes an explicit un-publish + move. The batch
+backfill pass and disaster-recovery path add further maintenance surface. This operational
+burden outweighs the benefits over a live-query hosted approach (Direction 2 / Direction 4).
+
+The decision does not affect Direction 3 or Direction 2. The API Gateway + mTLS direction
+(Direction 4 below) is the candidate to fill the "hosted team surface" role Direction 1 was
+filling.
+
+### New idea: Obsidian pull-only continuous sync (new feature, distinct from Direction 3 / Surface B)
+
+> **Design constraint (decided 2026-06-17):** the local copy is **pull-only** — S3 → local.
+> Local edits must never propagate back to S3. This is enforced at the **IAM layer**
+> (read-only credentials: `s3:GetObject` + `s3:ListBucket` only, no `s3:PutObject` or
+> `s3:DeleteObject`), not at the application or plugin configuration level. Write-back is
+> explicitly out of scope for now. This is a **new feature**, not an extension of the
+> one-shot `cairn export` command in Direction 3 / Surface B.
+
+The operator noted that Obsidian has a sync plugin ecosystem and asked whether an
+automatic, continuous pull from S3 into a local Obsidian vault is viable. The goal is
+convenience — artifacts appear in Obsidian automatically as S3 is updated, with no manual
+re-export step — while keeping the write boundary entirely inside cairn.
+
+**What it would look like:** a dedicated read-only S3 prefix (or a separate vault bucket)
+holds the exported markdown. An Obsidian sync plugin polls that prefix and materialises new
+or updated files into the local vault. The plugin's credentials have read-only IAM
+permissions: it cannot write back to S3 even if it tries. The two most plausible plugin
+candidates:
+
+- **[Remotely Save](https://github.com/remotely-save/remotely-save):** supports S3, Azure
+  Blob, Dropbox, OneDrive; delta sync on a schedule or on-open; open-source; widely used.
+  Designed as bidirectional but constrained to pull-only by IAM beneath it.
+- **`cairn export --watch`:** an alternative that avoids the third-party plugin entirely —
+  cairn's own command polls S3 (or listens to S3 event notifications) and materialises files
+  to a local folder continuously. The local folder is read-only by design; no sync plugin
+  needed; write direction stays explicit and owned by cairn.
+
+**Why Remotely Save's application-level "pull-only" mode cannot be trusted alone:**
+Remotely Save has no stable, permanently enforced "never upload" setting. Any local edit
+made while offline would be queued and pushed on the next sync cycle. IAM enforcement is
+the only guarantee — which makes the plugin's own sync direction setting irrelevant.
+Self-hosted LiveSync is worse on this axis (near-real-time bidirectional is its core model)
+and is not a viable candidate under a pull-only constraint.
+
+**Key questions to investigate (D9):**
+
+- Does Remotely Save degrade gracefully when `s3:PutObject` is denied (silently skips the
+  upload, logs an error) or does it corrupt local vault state on upload failure? This
+  determines whether it is safe to use under read-only IAM or whether `cairn export --watch`
+  is the only viable path.
+- Does Remotely Save sync files as **plain markdown** (files are readable and editable in
+  the vault as ordinary `.md` files) or does it serialise the vault into a binary/proprietary
+  format on S3? If the latter, cairn cannot write to the same prefix without corruption.
+- Can Remotely Save target a **dedicated prefix** inside the existing `ARTIFACT_BUCKET` (e.g.
+  `obsidian-vault/`), or does it require ownership of an entire bucket? (A dedicated bucket
+  keeps IAM clean but adds per-team cost and config.)
+- Is `cairn export --watch` the simpler and safer path — removing the third-party plugin
+  dependency and keeping the write boundary fully inside cairn's own code?
+
+### New future direction: AWS-hosted reader with API Gateway MCP proxy + CloudFront mTLS (Direction 4)
+
+The operator surfaced two AWS capabilities that together materially change the cost and
+complexity of the hosted direction relative to Direction 2 (serverless portal + Cognito/SSO).
+
+#### Capability 1 — AWS API Gateway MCP server proxy
+
+API Gateway can expose a REST/HTTP backend as an MCP server endpoint, making the read API
+(list/read/search) accessible as a hosted, always-on MCP tool surface — not just a web UI
+backend. This means:
+
+- Agents (Claude Desktop, IDE MCP panels) could connect to a stable team URL instead of the
+  local stdio process, enabling cross-machine and cross-session artifact access without any
+  agent-side config change (just a different transport URL).
+- The read Lambda packaging cairn's read logic already exists in Direction 2's design; the
+  API Gateway MCP proxy layer would sit on top, translating MCP tool calls into Lambda
+  invocations.
+- Agents and human readers share the same hosted endpoint — one deployment serves both
+  audiences without separate read APIs.
+
+#### Capability 2 — CloudFront mutual TLS (mTLS) instead of Cognito/SSO
+
+CloudFront supports mTLS: the client presents a TLS client certificate; CloudFront validates
+it against a configured trust store (ACM Private CA). Access control becomes certificate
+possession rather than identity management. The operator's framing: "the concept of users
+is useless for the app" — what is needed is that only legitimate clients (team machines, CI/CD
+pipelines, approved developers) can reach the endpoint, not that each caller is individually
+identified.
+
+**Why this matters for Direction 2:**
+- Eliminates D5 (SSO group → scope mapping) entirely. No Cognito user pool, no federation
+  with Okta/Entra, no group claims, no per-user scope derivation. Access = valid certificate.
+- Reduces Direction 2's build/ops cost: the SSO federation layer, Cognito configuration, and
+  per-request identity model are all gone.
+- mTLS is enforced at the CloudFront edge, before the request reaches API Gateway or Lambda.
+  The read Lambda sees an already-authenticated call; it never processes auth tokens.
+- Certificate-based access is opaque to the application: no auth middleware, no JWT
+  validation, no claim parsing.
+
+**Trade-offs to surface (D10):**
+
+- *Certificate lifecycle vs user management:* issuance, rotation, and revocation replace
+  password resets and SSO reconfiguration. Simpler in some ways (no IdP dependency) but
+  requires a private CA (ACM Private CA adds ~$400/mo for the CA endpoint) and a cert
+  distribution policy for team members and CI systems.
+- *Access ≠ identity:* mTLS provides yes/no access but not "who is calling". Per-user audit
+  trails are lost; only the certificate subject (e.g. team name, machine name) is logged.
+  If the team ever needs per-user action attribution, mTLS is insufficient.
+- *Scope gate under mTLS:* the existing tier/visibility cross-scope gate applies read
+  restrictions based on artifact scope. Without per-user identity, the gate can only be
+  enforced at the certificate subject level (certificate subject → allowed scope set). Whether
+  that granularity is acceptable is unresolved (D5, updated).
+- *API Gateway MCP proxy maturity:* the capability is relatively new. Tool count limits,
+  schema size constraints, pricing at scale, and operational observability need investigation
+  before committing to it as the agent access mechanism.
+
+**Open questions (D10):**
+- What does the API Gateway MCP proxy expose — tools, resources, or both? Does it support
+  FastMCP's existing tool registrations without adaptation?
+- How does the mTLS trust store integrate with ACM PCA? What is the operational model for
+  cert issuance to developers vs CI/CD machines?
+- Does this direction collapse Direction 2 (hosted portal) and Direction 3 (data resources)
+  into one endpoint — the same Lambda serving MCP tool calls from agents and HTTP requests
+  from a human reader frontend?
+- Can a certificate subject (`CN=team-alpha/project-cairn`) replace SSO group claims for
+  scope gate enforcement, or is the gate meaningless without finer-grained identity?
+
+**Relationship to existing directions:**
+
+Direction 4 replaces Direction 2's auth model (Cognito/SSO → mTLS) and extends it with the
+API Gateway MCP proxy capability. Direction 3 (lean baseline) is unaffected. The API Gateway
+MCP proxy angle also creates a potential bridge between the local stdio server (Direction 3,
+in-process) and the hosted equivalent: agents connecting to the hosted MCP endpoint would use
+the same tool call interface as the local stdio server, with no code change — only a different
+transport URL.
+
+### Updated direction ranking (as of 2026-06-17)
+
+| Rank | Direction | Timing | Status |
+|---|---|---|---|
+| 1 | **Direction 3** — MCP data resources + on-demand export (incl. Obsidian investigation) + TUI | Now | Preferred immediate path |
+| 2 | **Direction 4** — AWS-hosted reader, AgentCore Gateway (Streamable HTTP MCP) + CloudFront mTLS (UI) + Cognito OAuth | Future | Architecture crystallised 2026-06-18 |
+| — | Direction 2 — serverless portal + Cognito/SSO | Superseded | Direction 4 is the candidate if mTLS is viable |
+| — | ~~Direction 1~~ — publish-on-write static site | Ruled out | Sync management too painful |
+
+### Open questions added this session
+
+- **D9** — Local continuous sync mechanism (pull-only, IAM-enforced): does Remotely Save
+  degrade gracefully under read-only IAM credentials, or does it corrupt local state on
+  upload failure? Does it preserve plain markdown without proprietary serialisation? Or is
+  `cairn export --watch` the safer path, avoiding the third-party plugin entirely?
+- **D10** — API Gateway MCP proxy + CloudFront mTLS: what does the proxy expose
+  (tools/resources/both)? Can a certificate subject substitute for SSO group claims in the
+  scope gate? What is the ACM PCA operational cost and cert lifecycle model?
+  *→ Closed 2026-06-18. See Session 2026-06-18 and decisions_closed_not_applicable.*
+
+---
+
+## Session 2026-06-18 — Deep investigation: Direction 4 architecture and developer client access
+
+### Investigation trigger
+
+The operator surfaced a concern: AWS API Gateway MCP proxy support may only be accessible
+from agents running inside AgentCore Runtime, making it unsuitable for developers using
+Claude Code, OpenCode, or Codex. The session investigated this claim in depth using AWS
+official documentation, and in the process crystallised the Direction 4 architecture and
+resolved D5, D6 (partially), and D10.
+
+### Finding 1 — "API Gateway MCP proxy" is a misnaming
+
+The December 2025 AWS announcement *"Amazon API Gateway adds MCP proxy support"* is **not**
+a feature where API Gateway independently serves MCP protocol. It is a console shortcut —
+a "Create MCP target" button in the API Gateway UI — that registers an API Gateway stage as
+a *target* inside an existing **AgentCore Gateway** instance. API Gateway remains a plain
+HTTP backend. The MCP endpoint is always AgentCore Gateway's managed URL
+(`https://<gateway-id>.gateway.bedrock-agentcore.<region>.amazonaws.com/mcp`). The feature
+name is misleading; the mental model "API Gateway ≈ MCP server" is incorrect.
+
+### Finding 2 — AgentCore Gateway exposes a standard Streamable HTTP MCP endpoint
+
+AgentCore Gateway is a managed Amazon Bedrock service that:
+
+- Exposes a **standard Streamable HTTP MCP endpoint** compatible with MCP protocol versions
+  2025-03-26, 2025-06-18, and 2025-11-25
+- Aggregates multiple *targets* (Lambda functions, API Gateway stages, OpenAPI specs,
+  existing MCP servers) behind a unified tool catalog
+- Handles **inbound authentication** independently of targets: JWT/OAuth (any OIDC-compliant
+  IdP — Cognito, Okta, Entra, custom), IAM/SigV4, or None
+- When JWT inbound auth is configured, returns `401 + WWW-Authenticate` with RFC 6750 /
+  RFC 9728 scope advertisement — exactly what MCP-compliant clients use for OAuth discovery
+
+The endpoint is **not locked to AgentCore Runtime**. Any Streamable HTTP-capable MCP
+client can connect, subject to inbound auth. The operator's concern was unfounded on this
+point.
+
+### Finding 3 — Three auth options for developer tools, with a critical transport trade-off
+
+Three inbound auth options exist for AgentCore Gateway, with different implications for
+developer tooling:
+
+| Inbound auth | Claude Code connects | Local proxy needed? | Cognito / IdP? | Parallelisation for Workflow subagents |
+|---|---|---|---|---|
+| **JWT / OAuth (Cognito)** | ✅ natively via Streamable HTTP | No | Yes (Cognito or any OIDC) | ✅ full — each subagent opens its own HTTP connection |
+| **IAM / SigV4** | Via `mcp-proxy-for-aws` stdio proxy | Yes | No | ⚠️ proxy is stdio — same structural problem as local cairn-mcp |
+| **None** | ✅ directly | No | No | ✅ full — dev/testing only |
+
+The IAM path was initially attractive (no Cognito, reuses existing AWS credentials). Two
+rounds of analysis revised this:
+
+1. **First revision**: *"Each subagent spawns its own proxy process"* — initially
+   appeared to preserve parallelisation under IAM. Assumed to be true.
+2. **Second revision (correct)**: Workflow subagents are **independent API calls**, not
+   child processes. They do not inherit the parent session's stdio MCP connections
+   and cannot share them. stdio is a point-to-point pipe (one client, one server).
+   A stdio proxy has exactly the same structural limitation as the local cairn-mcp stdio
+   server. Parallelisation across independent Workflow subagents is broken for any
+   stdio-based connection — including the IAM proxy.
+
+The migration use case (x100s of documents, parallel subagents) directly requires
+Streamable HTTP. With OAuth inbound auth, Claude Code connects directly — no proxy, no
+shared pipe, no bottleneck.
+
+**Cognito Authorization Code (OAuth 2.0) was selected** as the inbound auth approach.
+Developer machine authorisation: one browser login per machine per deployment; Claude Code
+stores refresh tokens and handles all subsequent auth natively. No ongoing user management
+beyond initial add/remove from the Cognito user pool. The user pool can be federated to an
+existing corporate IdP if available.
+
+Why not Cognito M2M (client credentials grant): Claude Code's MCP OAuth implementation
+follows the Authorization Code + PKCE flow (RFC 9728 / MCP spec). It does not natively
+handle client credentials grant. Using client credentials would require a custom
+token-fetch wrapper, effectively re-introducing the proxy problem from a different angle.
+
+### Direction 4 architecture (crystallised)
+
+```
+Developer agents (Claude Code, OpenCode, Codex, Workflow subagents)
+    ↓ Streamable HTTP MCP — OAuth Bearer token (Cognito)
+AgentCore Gateway  ←── single managed MCP endpoint
+    ↓ HTTP (signed by gateway service role)
+API Gateway REST API  ←── one deployment, shared backend
+    ↓
+Lambda functions (cairn read logic: list / read / search / synthesise)
+    ↓
+S3 + S3 Vectors + Bedrock (unchanged)
+
+Human readers (browser)
+    ↓ HTTPS + mTLS client certificate
+CloudFront (mTLS — certificate = team access, no user identity)
+    ↓
+API Gateway REST API  ←── same deployment as above
+    ↓
+Lambda functions (same cairn read logic)
+```
+
+**Key properties of this architecture:**
+
+- **No code duplication**: one Lambda deployment serves both consumption paths. cairn's
+  read logic (`list`, `read`, `search`, `synthesise`) is packaged once, invoked from two
+  entry points.
+- **Two independent auth layers, each appropriate to its audience**: Cognito OAuth for
+  agents (machine identity, browser-once per developer); CloudFront mTLS for humans
+  (certificate = access, no concept of users, no password management).
+- **Transport migration benefit**: the hosted Streamable HTTP endpoint directly solves
+  the parallelisation gap identified in `brainstorming-2026-06-10-mcp-transport-strategy.md`.
+  The local stdio server can stay stdio; only the hosted path adopts Streamable HTTP
+  (D6 partially answered — no forced migration of the local server).
+- **AgentCore Gateway pricing** (as of 2026-06-18): $0.005/1,000 API invocations
+  (list/invoke/ping), $0.025/1,000 search queries, $0.02/100 tools indexed per month.
+  Negligible at cairn's realistic usage scale.
+
+### Relationship to open questions
+
+- **D5** — closed: mTLS certificate subject as scope gate replacement is moot. CloudFront
+  mTLS is UI-only; the MCP path uses Cognito JWT. Scope under the hosted model is a new
+  open question (D11).
+- **D6** — partially answered: Direction 4 independently adopts Streamable HTTP via
+  AgentCore Gateway without requiring the local stdio server to migrate. The local server
+  can remain stdio.
+- **D10** — closed: AgentCore Gateway exposes tools (from the API Gateway REST targets)
+  over Streamable HTTP. The human UI is a separate frontend consuming the same API Gateway —
+  not an MCP client. Both paths share one Lambda deployment but are otherwise independent.
+
+### Open questions added this session
+
+- **D11** — Scope gate under the hosted model: how does the Lambda derive the caller's
+  scope? Three options: (a) extract from the Cognito JWT claim — requires a claim→scope
+  mapping in the Cognito user pool / app client; (b) extract the mTLS certificate CN
+  forwarded by API Gateway for the UI path — CN encodes scope, PKI-controlled; (c) explicit
+  scope parameter passed by the agent (already carried in AGENTS.md, conceptually equivalent
+  to the current per-process `WRITE_PREFIX`). The right answer may differ per path. The
+  existing tier/visibility soft gate is unchanged; only the *source* of the scope value
+  changes.
+- **D12** — Cognito user pool topology: one pool per cairn deployment or shared across
+  projects in the same AWS account? How are new developers onboarded (self-registration vs
+  admin-provisioned)? How is de-provisioning handled when a developer leaves a project?
