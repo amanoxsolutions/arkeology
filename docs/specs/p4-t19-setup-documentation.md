@@ -104,7 +104,7 @@ deployment from scratch.
   key decisions, after code reviews), artifact type selection guidance for all eight
   types, description quality guidance (tweet-length, search-optimised, not a file
   heading), tier 2 vs tier 3 selection (point-in-time record vs living document),
-  query strategy (start with type + feature_tags filters; issue a pure semantic query
+  query strategy (start with type + tags filters; issue a pure semantic query
   only if filters return insufficient results; use `list_artifacts` to browse without a
   query), synthesise guidance (when to synthesise, how to call `synthesise_artifacts`,
   how to write the result back as `type="synthesis"`, `tier=3` with `source_artifacts`),

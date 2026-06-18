@@ -46,7 +46,7 @@ field — without reading a README or loading a skill.
 **Acceptance criteria:**
 - Given a connected agent reads `cairn://schema/artifact`, then the response lists all
   required fields (type, team, project, tier, date, status, title, visibility,
-  description), all optional fields (feature_tags, author_role, source_artifacts),
+  description), all optional fields (tags, author_role, source_artifacts),
   all valid enum values per field, and the description 280-character constraint.
 - Given `ARTIFACT_TYPES` in `artifact.py` gains a new entry, when the server restarts,
   then `cairn://schema/artifact` includes the new type with no other file changed.
@@ -76,7 +76,7 @@ field — without reading a README or loading a skill.
 
 **Acceptance criteria:**
 - Given a connected agent reads `cairn://schema/query-strategy`, then the response covers:
-  start narrow (type filter + feature_tags before relying on pure semantic similarity),
+  start narrow (type filter + tags before relying on pure semantic similarity),
   broaden only when narrow queries return insufficient results, when to use `list_artifacts`
   vs `search_artifacts`, and when to use `synthesise_artifacts` (and how to write the
   result back as a tier 3 synthesis with `source_artifacts`).
@@ -155,7 +155,7 @@ Content correctness — `cairn://schema/artifact`:
 - Response string is non-empty.
 - Contains each required field name: `type`, `team`, `project`, `tier`, `date`, `status`,
   `title`, `visibility`, `description`.
-- Contains each optional field name: `feature_tags`, `author_role`, `source_artifacts`.
+- Contains each optional field name: `tags`, `author_role`, `source_artifacts`.
 - Contains the string `"280"` (description length constraint).
 - Contains every value currently in `ARTIFACT_TYPES` (verify by iterating the set and
   checking membership).
@@ -176,7 +176,7 @@ Content correctness — `cairn://schema/types`:
   string appears as a distinct entry, not just a substring).
 
 Content correctness — `cairn://schema/query-strategy`:
-- Contains `"type"`, `"feature_tags"`, `"synthesise_artifacts"`.
+- Contains `"type"`, `"tags"`, `"synthesise_artifacts"`.
 - Contains guidance about starting narrow and broadening (verify key terms are present).
 
 Sync invariant:

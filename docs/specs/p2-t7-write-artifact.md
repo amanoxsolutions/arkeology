@@ -94,10 +94,10 @@ exception.
 - WHEN `write_artifact` is called with tier=3 THE SYSTEM SHALL derive the artifact key from
   type and title only — date is not a factor.
 - WHEN the artifact content contains one or more `##` headings THE SYSTEM SHALL generate one
-  Bedrock embedding per section; each embedding input is `title + type + feature_tags +
+  Bedrock embedding per section; each embedding input is `title + type + tags +
   section content` concatenated.
 - WHEN the artifact content contains no `##` headings THE SYSTEM SHALL generate exactly one
-  Bedrock embedding whose input is `title + description + type + feature_tags` concatenated.
+  Bedrock embedding whose input is `title + description + type + tags` concatenated.
 - WHEN embedding succeeds THE SYSTEM SHALL write one vector per section to S3 Vectors with
   key `{artifact_id}#{section_slug}` and metadata carrying all filterable fields.
 - WHEN the single document-level fallback is used THE SYSTEM SHALL write one vector with key
@@ -133,7 +133,7 @@ exception.
   also be written into vector metadata on every write.
 - The write to S3 happens before any Bedrock or S3 Vectors calls. If embedding or indexing
   fails, the S3 object is already written (partial write scenario; failure log is Phase 3).
-- `feature_tags` stored in S3 object metadata as a comma-separated string;
+- `tags` stored in S3 object metadata as a comma-separated string;
   `source_artifacts` similarly encoded — the developer must choose and document the encoding.
 - All list-valued metadata fields must survive a round-trip (write then read back from S3
   object metadata returns the original list).
@@ -236,7 +236,7 @@ Tags: {tag1}, {tag2}, ...
 
 - The section heading line is included as part of the embedding (it is the strongest semantic
   signal for that section).
-- If `feature_tags` is empty, omit the `Tags:` line entirely — do not embed `"Tags: "`.
+- If `tags` is empty, omit the `Tags:` line entirely — do not embed `"Tags: "`.
 - A blank line separates the metadata block from the section content.
 
 **Document-level fallback embedding input (no `##` sections):**

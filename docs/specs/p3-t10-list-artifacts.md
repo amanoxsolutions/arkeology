@@ -53,7 +53,7 @@ An agent reviewing the authentication module wants only code reviews tagged with
 
 **Acceptance criteria:**
 - Given artifacts of various types and tags, when `list_artifacts` is called with
-  `type="code_review"` and `feature_tags=["auth"]`, then only artifacts matching both
+  `type="code_review"` and `tags=["auth"]`, then only artifacts matching both
   constraints are returned.
 - Given no artifacts matching the combined filter, when `list_artifacts` returns, then an
   empty list is returned — not an error.
@@ -80,7 +80,7 @@ their listing.
 ## Requirements
 
 - WHEN `list_artifacts` is called THE SYSTEM SHALL query the vector index for all artifacts
-  matching the supplied filters (type, feature_tags, team, project, tier, status); if no
+  matching the supplied filters (type, tags, team, project, tier, status); if no
   filters are supplied THE SYSTEM SHALL return all active artifacts visible to this
   deployment.
 - WHEN no `status` filter is provided THE SYSTEM SHALL default to `status="active"` (exclude
@@ -93,7 +93,7 @@ their listing.
   deduplicate by `artifact_id` and return exactly one record per artifact.
 - WHEN `list_artifacts` returns successfully THE SYSTEM SHALL return for each artifact:
   `artifact_id`, `type`, `team`, `project`, `tier`, `date`, `status`, `title`,
-  `visibility`, `feature_tags`, `author_role`, `description`. No `content` field.
+  `visibility`, `tags`, `author_role`, `description`. No `content` field.
 - WHEN a CredentialError is raised THE SYSTEM SHALL return a structured error — never a
   raw exception.
 
@@ -153,8 +153,8 @@ Default behaviour:
 
 Filter combinations:
 - `type="code_review"` → only code reviews.
-- `feature_tags=["auth"]` → only artifacts with `"auth"` tag.
-- `type="code_review"` + `feature_tags=["auth"]` → intersection.
+- `tags=["auth"]` → only artifacts with `"auth"` tag.
+- `type="code_review"` + `tags=["auth"]` → intersection.
 - `team="platform"` → only platform artifacts.
 - `project="infra"` → only infra project artifacts.
 - `tier=3` → only tier 3 artifacts.
@@ -163,8 +163,8 @@ Filter combinations:
 Deduplication:
 - Two section vectors for the same `artifact_id` → one record in results.
 - Correct fields present: artifact_id, type, team, project, tier, date, status, title,
-  visibility, feature_tags, author_role, description. No `content` field.
-- `feature_tags` in response is a list, not a comma-separated string.
+  visibility, tags, author_role, description. No `content` field.
+- `tags` in response is a list, not a comma-separated string.
 
 Cross-scope gate:
 - Foreign-scope tier 3 shared → included.

@@ -125,7 +125,7 @@ An operator on a project with 50 documentation files uses the agent to produce a
 - THE `schema.yaml` SHALL document the `CAIRN_IMPORT.yaml` manifest format: global fields
   (`team`, `project`, `aws_region`, `bedrock_model`, `bedrock_dimensions`) and per-entry
   fields (`path`, `type`, `tier`, `visibility`, `title`, `description` [optional],
-  `date` [optional], `feature_tags` [optional]).
+  `date` [optional], `tags` [optional]).
 - THE README SHALL gain a "Using the Migration Skill" section with a table showing the
   skills directory path for Claude Code, Codex, GitHub Copilot, and OpenCode, plus a
   `cp -r` one-liner to install the skill from the repo.

@@ -72,7 +72,7 @@ rejected before any AWS call is made.
   is raised listing the valid types.
 - Given `tier=4`, when an `Artifact` is constructed, then a validation error is raised.
 - Given all required fields valid and optional fields absent, when an `Artifact` is
-  constructed, then `feature_tags` defaults to `[]` and `author_role` defaults to `None`.
+  constructed, then `tags` defaults to `[]` and `author_role` defaults to `None`.
 
 ## Requirements
 
@@ -167,7 +167,7 @@ Artifact model validation:
 - Unknown type → validation error.
 - Invalid tier (1, 4, 0) → validation error.
 - Invalid visibility → validation error.
-- Optional fields (`feature_tags`, `author_role`) default correctly.
+- Optional fields (`tags`, `author_role`) default correctly.
 - `synthesis` type with `source_artifacts=[]` → valid (list may be empty at construction).
 
 **Edge cases:**

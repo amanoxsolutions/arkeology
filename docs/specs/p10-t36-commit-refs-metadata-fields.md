@@ -31,7 +31,7 @@ artifact storage and retrieval pipeline. `commit_refs` is a caller-supplied list
 commit references stored alongside existing artifact metadata. `last_edited_ulid` is a
 system-generated write-time timestamp (ULID) that enables time-range discovery of artifacts
 written during a session. Both fields flow through `artifact.py`, `write.py`, `list.py`,
-and `read.py` following the identical encoding pattern already used by `feature_tags`.
+and `read.py` following the identical encoding pattern already used by `tags`.
 
 ## Problem Statement
 
@@ -68,7 +68,7 @@ those refs appear in the response.
   `["abc1234", "def5678"]` (a `list[str]`) — not a comma-joined string.
 - Given `commit_refs=[]`, when stored in S3 object metadata, then the value is `""`.
 - Given `commit_refs=[]`, when stored in vector metadata, then the `commit_refs` key is
-  omitted entirely (S3 Vectors rejects empty arrays — same rule as `feature_tags`).
+  omitted entirely (S3 Vectors rejects empty arrays — same rule as `tags`).
 
 ### Story 3 — `commit_refs` filter in `list_artifacts` (P1)
 
@@ -80,7 +80,7 @@ An agent needs all artifacts linked to a specific commit.
 - Given `commit_refs` filter is omitted, when `list_artifacts` is called, then artifacts
   with and without `commit_refs` are both returned (no default filter applied).
 - Given `commit_refs=["abc1234", "def5678"]`, all refs must match (AND semantics, same as
-  `feature_tags`).
+  `tags`).
 
 ### Story 4 — `last_edited_ulid` generated on every write (P1)
 
@@ -116,7 +116,7 @@ An agent needs all artifacts linked to a specific commit.
 - WHEN `commit_refs` is empty THE SYSTEM SHALL store `""` in S3 object metadata and omit
   the key from vector metadata entirely.
 - WHEN `list_artifacts` is called with a `commit_refs` filter THE SYSTEM SHALL add one
-  `{"commit_refs": {"$eq": ref}}` clause per entry (AND semantics, mirroring `feature_tags`).
+  `{"commit_refs": {"$eq": ref}}` clause per entry (AND semantics, mirroring `tags`).
 - WHEN `list_artifacts` returns THE SYSTEM SHALL include `commit_refs: list[str]` and
   `last_edited_ulid: str | None` in each artifact entry.
 - WHEN `read_artifact` is called THE SYSTEM SHALL read `commit_refs` from vector metadata
@@ -137,7 +137,7 @@ An agent needs all artifacts linked to a specific commit.
 ## Boundaries
 
 **Always:**
-- `commit_refs` encoding follows the exact pattern of `feature_tags` and `source_artifacts`:
+- `commit_refs` encoding follows the exact pattern of `tags` and `source_artifacts`:
   comma-joined in S3 metadata, `list[str]` in vector metadata, key omitted when empty in
   vector metadata.
 - `last_edited_ulid` is a write-time system field — it is NOT part of the `Artifact` model

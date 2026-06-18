@@ -58,12 +58,12 @@ until the requested number of *artifacts* is reached.
 ## Decision
 
 We embed each `##` (H2) section of the artifact as an independent vector. Section bodies are
-embedded with context: `title + type + feature_tags + section_content`. The section vector key
+embedded with context: `title + type + tags + section_content`. The section vector key
 is `{artifact_id}#{section_slug}`. The `artifact_id` is stored as filterable metadata on every
 section vector so the re-fetch loop can group and deduplicate.
 
 If the artifact contains no `##` sections, a single document-level vector is generated from
-`title + description + type + feature_tags` (the "fallback" path).
+`title + description + type + tags` (the "fallback" path).
 
 Three configurable guards bound the embedding cost per artifact:
 

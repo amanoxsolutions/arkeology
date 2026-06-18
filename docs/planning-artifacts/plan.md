@@ -11,7 +11,7 @@ okf_version: "0.1"
 
 _Project: cairn-mcp_
 _Generated: 2026-05-29_ · _Last updated: 2026-06-18_
-_Status: **V1 — Phases 1–9 complete (unit + integration suite passing against live AWS; ruff + mypy clean; Apache 2.0 licensed; production-hardened; moto migration complete; write performance hardened; bulk write + migration tools; setting-up-cairn + sync-cairn-plugin skills; skill distribution via native plugin mechanisms) · Phase 10 (artifact commit references + caller-controlled concurrency + OKF schema alignment) T35–T40 complete · T41 in progress**_
+_Status: **V1 — Phases 1–9 complete (unit + integration suite passing against live AWS; ruff + mypy clean; Apache 2.0 licensed; production-hardened; moto migration complete; write performance hardened; bulk write + migration tools; setting-up-cairn + sync-cairn-plugin skills; skill distribution via native plugin mechanisms) · Phase 10 (artifact commit references + caller-controlled concurrency + OKF schema alignment) T35–T41 complete**_
 
 ## How we work
 
@@ -336,7 +336,7 @@ independent of T31, T32, T33, and T34 — no shared files.
     - Spec: `docs/specs/p10-t40-migration-skill-commit-refs-backfill.md`
     - Brainstorming: `docs/brainstorming/brainstorming-2026-06-06-artifact-commit-refs.md` (D12, Resolved Questions)
 
-41. 🔄 **Rename `feature_tags` → `tags`** *(pure identifier rename; OKF schema alignment)* — rename the `feature_tags` metadata field to `tags` across the entire codebase: `Artifact` model, all MCP tool public parameters (`write_artifact`, `search_artifacts`, `list_artifacts`, `synthesise_artifacts`), S3 object metadata key, vector metadata key, filter clause keys, all tool implementations, tests, `resources.py`, `AGENTS.md`, `SERVER-REFERENCE.md`, and setting-up-cairn + migrating-to-cairn skills; preserve the deliberate S3-comma-joined-string vs vector-`list[str]` dual-encoding under the new key name; no data migration (no live data) (D2 — brainstorming-2026-06-15-okf-alignment.md)
+41. ✅ **Rename `feature_tags` → `tags`** *(pure identifier rename; OKF schema alignment)* — rename the `feature_tags` metadata field to `tags` across the entire codebase: `Artifact` model, all MCP tool public parameters (`write_artifact`, `search_artifacts`, `list_artifacts`, `synthesise_artifacts`), S3 object metadata key, vector metadata key, filter clause keys, all tool implementations, tests, `resources.py`, `AGENTS.md`, `SERVER-REFERENCE.md`, and setting-up-cairn + migrating-to-cairn skills; preserve the deliberate S3-comma-joined-string vs vector-`list[str]` dual-encoding under the new key name; no data migration (no live data) (D2 — brainstorming-2026-06-15-okf-alignment.md)
     - Done when: no occurrence of `feature_tags` remains in `src/`, `tests/`, `AGENTS.md`, `SERVER-REFERENCE.md`, or `skills/`; all unit tests pass; `ruff check`, `ruff format --check`, and `mypy src/` are clean; dual-encoding tests (`test_vector_metadata_tags_is_list`, `test_s3_metadata_tags_…`) verify the S3 string vs vector list split is preserved under the new key name
     - Spec: `docs/specs/p10-t41-rename-feature-tags-to-tags.md`
     - Brainstorming: `docs/brainstorming/brainstorming-2026-06-15-okf-alignment.md` (D2)

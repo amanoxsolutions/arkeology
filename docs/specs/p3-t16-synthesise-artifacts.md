@@ -46,7 +46,7 @@ consolidated findings report.
   matching query, then the response contains full content for each of the top results, not
   just metadata.
 - Each entry in the response includes: `artifact_id`, `type`, `team`, `project`, `tier`,
-  `date`, `status`, `title`, `visibility`, `feature_tags`, `author_role`, `description`,
+  `date`, `status`, `title`, `visibility`, `tags`, `author_role`, `description`,
   and `content`.
 - The number of results is bounded by the `top_k` parameter (default 10, ceiling 100).
 
@@ -90,7 +90,7 @@ The same gate that applies to `search_artifacts` and `read_artifact` applies her
   SHALL skip that artifact and continue fetching the remaining results.
 - WHEN all content has been assembled THE SYSTEM SHALL return a list of result objects,
   each containing: `artifact_id`, `content`, `type`, `team`, `project`, `tier`, `date`,
-  `status`, `title`, `visibility`, `feature_tags`, `author_role`, `description`.
+  `status`, `title`, `visibility`, `tags`, `author_role`, `description`.
 - WHEN the search returns no results THE SYSTEM SHALL return an empty list — not an error.
 - WHEN a CredentialError is raised THE SYSTEM SHALL return a structured error — never a raw
   exception.
@@ -148,8 +148,8 @@ fake S3 with their content. Seed fake Bedrock with fixed embedding vectors.
 Happy path:
 - Query with no filters → top results returned with full content.
 - Each result dict contains: `artifact_id`, `content`, `type`, `team`, `project`, `tier`,
-  `date`, `status`, `title`, `visibility`, `feature_tags`, `author_role`, `description`.
-- `feature_tags` is a list, not a comma-separated string.
+  `date`, `status`, `title`, `visibility`, `tags`, `author_role`, `description`.
+- `tags` is a list, not a comma-separated string.
 - `content` matches the content written in fake S3.
 
 top_k:

@@ -84,9 +84,9 @@ other types and feature tags.
 **Acceptance criteria:**
 - Given `type="code_review"` filter and a mix of types in the index, when `search_artifacts`
   is called, then all returned artifacts have `type == "code_review"`.
-- Given `feature_tags=["payments"]` filter and artifacts with various tags, when
+- Given `tags=["payments"]` filter and artifacts with various tags, when
   `search_artifacts` is called, then all returned artifacts have `"payments"` in their
-  `feature_tags`.
+  `tags`.
 - Given `tier=3` filter, when `search_artifacts` returns, then all results are tier 3.
 
 ## Requirements
@@ -100,7 +100,7 @@ other types and feature tags.
 - WHEN querying a subscribed foreign scope (READ_PREFIXES) THE SYSTEM SHALL restrict results
   to tier=3 AND visibility="shared" artifacts only.
 - WHEN building the filter for each S3 Vectors call THE SYSTEM SHALL include: user-provided
-  metadata filters (type, feature_tags, team, project, tier), a `status="active"` gate
+  metadata filters (type, tags, team, project, tier), a `status="active"` gate
   (archived artifacts excluded by default), and `artifact_id $nin already_seen_ids`.
 - WHEN the index returns multiple section vectors for the same artifact THE SYSTEM SHALL
   group them by `artifact_id` and keep only the highest-scoring section's score as the
@@ -113,7 +113,7 @@ other types and feature tags.
   results by score descending before returning.
 - WHEN `search_artifacts` returns THE SYSTEM SHALL include per result: `artifact_id`, `score`
   (float), `type`, `team`, `project`, `tier`, `date`, `status`, `title`, `visibility`,
-  `feature_tags`, `author_role` (null if absent), `description`. Never `content`.
+  `tags`, `author_role` (null if absent), `description`. Never `content`.
 - WHEN a CredentialError is raised at any point THE SYSTEM SHALL return a structured error
   response — never a raw exception.
 - WHEN the index returns zero results across all iterations THE SYSTEM SHALL return an empty
@@ -182,7 +182,7 @@ Happy path:
 
 Metadata filters (test each independently):
 - `type` filter excludes wrong-type artifacts.
-- `feature_tags` filter: artifact must have the requested tag in its list.
+- `tags` filter: artifact must have the requested tag in its list.
 - `team` filter excludes wrong-team artifacts.
 - `project` filter excludes wrong-project artifacts.
 - `tier` filter excludes wrong-tier artifacts.
@@ -237,7 +237,7 @@ Cross-scope filter structure per iteration:
 ```
 {
   "$and": [
-    <user_filters: type, feature_tags, team, project, tier — omitted if not provided>,
+    <user_filters: type, tags, team, project, tier — omitted if not provided>,
     {"status": {"$eq": "active"}},
     {"artifact_id": {"$nin": [<already_seen_artifact_ids>]}},
     {
@@ -261,7 +261,7 @@ Notes:
   `{"scope": {"$eq": settings.write_prefix}}` filter.
 - On the first iteration, `seen_artifact_ids` is empty; drop the `$nin` clause entirely
   (the API requires a non-empty array).
-- `feature_tags` filter uses `{"feature_tags": {"$eq": tag}}` — S3 Vectors `$eq` on an
+- `tags` filter uses `{"tags": {"$eq": tag}}` — S3 Vectors `$eq` on an
   array field returns true if the value matches **any element** in the array.
 - The `$nin` array grows each iteration. At 100 artifacts × ~60 chars each the payload is
   ~6 KB — well within service limits.

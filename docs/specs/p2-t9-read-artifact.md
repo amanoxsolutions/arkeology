@@ -42,7 +42,7 @@ After finding an artifact via `search_artifacts`, the agent passes its `artifact
 - Given an artifact written with known content and metadata, when `read_artifact` is called
   with its `artifact_id`, then the response contains the original content unchanged.
 - Given a valid `artifact_id`, when `read_artifact` returns, then the response includes all
-  metadata fields: type, team, project, tier, date, status, title, visibility, feature_tags,
+  metadata fields: type, team, project, tier, date, status, title, visibility, tags,
   author_role, description, and content.
 - Given an `artifact_id` that does not exist in S3, when `read_artifact` is called, then
   a structured not-found error is returned — not a `KeyError` exception.
@@ -100,7 +100,7 @@ An expired token during the S3 GetObject call must not surface as a raw exceptio
   never a raw exception.
 - WHEN `read_artifact` succeeds THE SYSTEM SHALL return: `artifact_id`, `content` (full
   markdown string), `type`, `team`, `project`, `tier`, `date`, `status`, `title`,
-  `visibility`, `feature_tags`, `author_role`, `description`.
+  `visibility`, `tags`, `author_role`, `description`.
 
 ## Boundaries
 
@@ -163,8 +163,8 @@ Happy path:
 - Own-scope tier 3 hidden artifact returned (no gate on own scope).
 - Foreign-scope tier 3 shared artifact returned.
 - All metadata fields present in response: type, team, project, tier, date, status, title,
-  visibility, feature_tags, author_role, description, content.
-- `feature_tags` in response is a list, not a comma-separated string (deserialise from S3
+  visibility, tags, author_role, description, content.
+- `tags` in response is a list, not a comma-separated string (deserialise from S3
   metadata encoding).
 
 Access control:
@@ -193,7 +193,7 @@ Credential failure:
 Prerequisites: run after T7 integration tests have written known artifacts.
 - Write an artifact via the write tool or directly via clients; read it back by identifier;
   content matches exactly.
-- All metadata fields are present and correctly typed in the response (feature_tags is a
+- All metadata fields are present and correctly typed in the response (tags is a
   list, tier is int, date is a string in YYYY-MM-DD format).
 - Non-existent identifier returns a not-found error (no exception propagation).
 
