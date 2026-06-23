@@ -12,7 +12,7 @@ from cairn_mcp.clients.interfaces import (
     VectorsClientInterface,
 )
 from cairn_mcp.config import Settings
-from cairn_mcp.resources import register_resources
+from cairn_mcp.resources import register_data_resources, register_resources
 from cairn_mcp.tools.archive import archive_artifact as _archive_artifact
 from cairn_mcp.tools.delete import delete_artifact as _delete_artifact
 from cairn_mcp.tools.freshness import check_synthesis_freshness as _check_synthesis_freshness
@@ -306,6 +306,8 @@ def register_tools(
             artifact_ids=artifact_ids,
             commit_sha=commit_sha,
         )
+
+    register_data_resources(_app, settings, s3, vectors, bedrock)
 
 
 def run() -> None:

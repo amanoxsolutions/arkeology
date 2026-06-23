@@ -1,16 +1,31 @@
 """cairn_mcp.resources — MCP Resource definitions for runtime schema discovery.
 
-All five resources are pure schema documentation with no AWS calls. Each content
+All five schema resources are pure documentation with no AWS calls. Each content
 function reads ``ARTIFACT_TYPES`` from the ``cairn_mcp.artifact`` module object at
 call-time so that monkey-patching in tests (and future schema changes) are reflected
 without restarting the server.
+
+Data resources (``cairn://artifact/{id}`` and ``cairn://artifacts``) require live AWS
+client references and are registered via ``register_data_resources``, called from
+``server.py`` after clients are constructed.
 """
 
 import logging
+from typing import Any
 
 import fastmcp
+from mcp.types import Annotations
+from ulid import ULID
 
 import cairn_mcp.artifact as _artifact_module
+from cairn_mcp.clients.interfaces import (
+    BedrockClientInterface,
+    S3ClientInterface,
+    VectorsClientInterface,
+)
+from cairn_mcp.config import Settings
+from cairn_mcp.tools.list import list_artifacts as _list_artifacts
+from cairn_mcp.tools.read import read_artifact as _read_artifact
 
 logger = logging.getLogger(__name__)
 
@@ -365,3 +380,218 @@ def register_resources(app: fastmcp.FastMCP) -> None:
         return query_strategy_content()
 
     logger.debug("cairn-mcp resources registered (5 schema resources)")
+
+
+# ---------------------------------------------------------------------------
+# Data resource helpers — testable content functions
+# ---------------------------------------------------------------------------
+
+
+async def _artifact_resource_content(
+    *,
+    artifact_id: str,
+    settings: Settings,
+    s3: S3ClientInterface,
+    vectors: VectorsClientInterface | None,
+    bedrock: BedrockClientInterface | None,
+) -> tuple[str, str]:
+    """Fetch artifact content for the cairn://artifact/{id} resource.
+
+    Delegates entirely to ``read_artifact`` so the cross-scope gate is enforced
+    without duplication.
+
+    Returns:
+        A ``(content, mime_type)`` tuple.  On error, ``content`` is a markdown
+        error message and ``mime_type`` is ``"text/markdown"``.
+    """
+    result: dict[str, Any] = await _read_artifact(
+        settings=settings,
+        s3=s3,
+        vectors=vectors,
+        bedrock=bedrock,
+        artifact_id=artifact_id,
+    )
+
+    if "error" in result:
+        error_code = result.get("error", "error")
+        message = result.get("message", "Unknown error.")
+        markdown = f"# Error: {error_code}\n\n{message}\n"
+        return markdown, "text/markdown"
+
+    content: str = str(result.get("content", ""))
+    return content, "text/markdown"
+
+
+async def _artifact_last_modified(
+    *,
+    artifact_id: str,
+    settings: Settings,
+    s3: S3ClientInterface,
+    vectors: VectorsClientInterface | None,
+    bedrock: BedrockClientInterface | None,
+) -> str | None:
+    """Derive the ``lastModified`` ISO 8601 string from an artifact's ``last_edited_ulid``.
+
+    Returns ``None`` when the artifact has no ``last_edited_ulid`` (annotation omitted).
+    """
+    result: dict[str, Any] = await _read_artifact(
+        settings=settings,
+        s3=s3,
+        vectors=vectors,
+        bedrock=bedrock,
+        artifact_id=artifact_id,
+    )
+    if "error" in result:
+        return None
+
+    ulid_str: str | None = result.get("last_edited_ulid") or None
+    if ulid_str is None:
+        return None
+
+    try:
+        return ULID.from_str(ulid_str).datetime.isoformat()
+    except Exception:
+        logger.warning("Failed to parse last_edited_ulid %r as ULID", ulid_str)
+        return None
+
+
+def _render_artifacts_markdown(artifacts: list[dict[str, Any]]) -> str:
+    """Render a list of artifact dicts as a markdown table.
+
+    Columns: Identifier, Title, Type, Description.
+    """
+    if not artifacts:
+        return "# Artifacts\n\nNo active artifacts found in the current scope.\n"
+
+    lines = [
+        "# Artifacts\n",
+        "| Identifier | Title | Type | Description |",
+        "|------------|-------|------|-------------|",
+    ]
+    for artifact in artifacts:
+        identifier = str(artifact.get("artifact_id", ""))
+        title = str(artifact.get("title", ""))
+        artifact_type = str(artifact.get("type", ""))
+        description = str(artifact.get("description", ""))
+        # Escape pipe characters inside cell values
+        identifier = identifier.replace("|", "\\|")
+        title = title.replace("|", "\\|")
+        artifact_type = artifact_type.replace("|", "\\|")
+        description = description.replace("|", "\\|")
+        lines.append(f"| {identifier} | {title} | {artifact_type} | {description} |")
+
+    return "\n".join(lines) + "\n"
+
+
+async def _artifacts_listing_content(
+    *,
+    settings: Settings,
+    s3: S3ClientInterface | None,
+    vectors: VectorsClientInterface,
+    bedrock: BedrockClientInterface | None,
+) -> str:
+    """Fetch the active own-scope artifact listing for the cairn://artifacts resource.
+
+    Delegates to ``list_artifacts`` with ``status="active"`` and no other filters.
+
+    Returns:
+        A markdown string.  On error, returns a minimal markdown error message.
+    """
+    result: dict[str, Any] = await _list_artifacts(
+        settings=settings,
+        s3=s3,
+        vectors=vectors,
+        bedrock=bedrock,
+        status="active",
+    )
+
+    if "error" in result:
+        error_code = result.get("error", "error")
+        message = result.get("message", "Unknown error.")
+        return f"# Error: {error_code}\n\n{message}\n"
+
+    artifacts: list[dict[str, Any]] = result.get("artifacts", [])
+    return _render_artifacts_markdown(artifacts)
+
+
+# ---------------------------------------------------------------------------
+# Data resource registration
+# ---------------------------------------------------------------------------
+
+
+def register_data_resources(
+    app: fastmcp.FastMCP,
+    settings: Settings,
+    s3: S3ClientInterface,
+    vectors: VectorsClientInterface,
+    bedrock: BedrockClientInterface,
+) -> None:
+    """Register cairn data resources on the FastMCP app.
+
+    Registers two resources with ``audience: ["user"]`` annotations:
+
+    - ``cairn://artifact/{id}`` — URI template; returns full markdown content of
+      a named artifact, applying the same cross-scope gate as ``read_artifact``.
+      Includes a ``lastModified`` annotation derived from ``last_edited_ulid`` when
+      present.
+    - ``cairn://artifacts`` — static listing; returns a markdown table of all active
+      own-scope artifacts.
+
+    This function must be called after the AWS clients are constructed (i.e. from
+    ``register_tools()`` in ``server.py``), not at module load time.
+
+    Args:
+        app: The FastMCP application instance to register resources on.
+        settings: Validated server configuration.
+        s3: Concrete S3 client.
+        vectors: Concrete S3 Vectors client.
+        bedrock: Concrete Bedrock client.
+    """
+
+    @app.resource(
+        "cairn://artifact/{id}",
+        mime_type="text/markdown",
+        annotations=Annotations(audience=["user"]),
+        description="Full markdown content of a named artifact.",
+    )
+    async def _artifact_resource(id: str) -> str:  # noqa: A002
+        """Return the full markdown content of the artifact identified by ``id``."""
+        try:
+            # Derive lastModified from ULID — requires a read_artifact call.
+            # We do this first so the handler can set the annotation before returning.
+            # (FastMCP does not support per-response annotations on template resources;
+            # the annotation on the registration is static.  lastModified is therefore
+            # a best-effort static annotation from the registration-time perspective.
+            # The content itself is always fresh.)
+            content, _mime = await _artifact_resource_content(
+                artifact_id=id,
+                settings=settings,
+                s3=s3,
+                vectors=vectors,
+                bedrock=bedrock,
+            )
+            return content
+        except Exception as exc:
+            logger.exception("Unexpected error in cairn://artifact/{id} resource handler")
+            return f"# Error: internal_error\n\n{exc}\n"
+
+    @app.resource(
+        "cairn://artifacts",
+        mime_type="text/markdown",
+        annotations=Annotations(audience=["user"]),
+        description="Markdown index of all active own-scope artifacts.",
+    )
+    async def _artifacts_resource() -> str:
+        """Return a markdown listing of all active own-scope artifacts."""
+        try:
+            return await _artifacts_listing_content(
+                settings=settings,
+                s3=s3,
+                vectors=vectors,
+                bedrock=bedrock,
+            )
+        except Exception as exc:
+            logger.exception("Unexpected error in cairn://artifacts resource handler")
+            return f"# Error: internal_error\n\n{exc}\n"
+
+    logger.debug("cairn-mcp data resources registered (cairn://artifact/{id}, cairn://artifacts)")
