@@ -7,29 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-06-23
+
 ### Added
-- `learning` artifact type — a fifteenth first-class type (tier 3, date-independent ID)
-  backing the `capturing-learnings` skill's living `learnings.md`; accepted by
-  `write_artifact`, listed in the `cairn://schema/artifact` and `cairn://schema/types`
-  resources, and classified by the `migrating-to-cairn` skill (Pass 1 filename rules
-  `learnings` / `learning` / `lessons-learned`; Pass 2 path segments `**/learnings` /
-  `**/lessons-learned`)
-- `propose_commit_links` tool — read-only tool that discovers own-scope artifacts with no
-  `commit_refs`, optionally bounded to artifacts written at or after a session-start ULID
-  (`since_ulid`); returns a proposed list for agent review before linking
-- `link_commit` tool — appends a commit SHA to the vector metadata of confirmed own-scope
-  artifacts without re-embedding; returns `{linked, skipped, commit_sha, next_since_ulid}`
-- `commit_refs` optional field on artifacts — list of git commit SHAs linked via `link_commit`;
-  accepted by `list_artifacts` as a filter and returned by `read_artifact` and `list_artifacts`
-- `last_edited_ulid` system-generated field — ULID assigned at every `write_artifact` call and
-  returned in the write response; monotonically increasing, suitable for use as `since_ulid` in
-  `propose_commit_links` to bound discovery to the current session
-- `$gte` and `$lte` string comparison operators in the in-process metadata filter evaluator
-  (`filter.py`); enable range queries on string-valued metadata fields (e.g. ULID-based filtering)
-- `python-ulid` runtime dependency for ULID generation in `write_artifact`
+- `cairn://artifact/{id}` and `cairn://artifacts` MCP data resources — human-browsable
+  resources backed by existing `read_artifact` and `list_artifacts` logic; carry
+  `audience: ["user"]` annotations and apply the same cross-scope gate as the tools;
+  browsable in MCP Inspector and Claude Desktop
+- `learning` artifact type — fifteenth first-class type (tier 3, date-independent ID)
+  backing the `capturing-learnings` skill's living `learnings.md`
+- `propose_commit_links` tool — discovers own-scope artifacts with no `commit_refs`,
+  optionally bounded to artifacts written at or after a session-start ULID (`since_ulid`)
+- `link_commit` tool — appends a commit SHA to vector metadata of confirmed own-scope
+  artifacts without re-embedding
+- `commit_refs` optional field — list of git commit SHAs; accepted by `list_artifacts`
+  as a filter and returned by `read_artifact` and `list_artifacts`
+- `last_edited_ulid` system-generated field — ULID assigned at every `write_artifact`
+  call; suitable for use as `since_ulid` in `propose_commit_links`
+- `$gte` and `$lte` string comparison operators in the metadata filter evaluator;
+  enable range queries on string-valued metadata fields
 
 ### Changed
-- Minimum Python version raised from 3.12 to 3.14; `.python-version`, `pyproject.toml` `requires-python`, and `[tool.mypy] python_version` updated accordingly
+- `feature_tags` field renamed to `tags` across all tools, metadata, and resources (T41)
+- All dependencies upgraded to latest versions
+- Minimum Python version raised from 3.12 to 3.14
+
+### Fixed
+- `list_artifacts` now batches `GetVectors` calls in chunks of ≤100 — deployments
+  with more than 100 artifacts were getting a `ValidationException` from the S3
+  Vectors API
 
 ## [0.3.1] - 2026-06-11
 
