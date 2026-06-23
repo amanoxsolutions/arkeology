@@ -115,9 +115,9 @@ provides.
 ## How it works
 
 Artifacts are stored in S3, indexed in S3 Vectors, and embedded with Amazon Bedrock
-(Titan Text v2). The server exposes 13 MCP tools and a set of MCP Resources for runtime
-schema discovery — see the [Server Reference](SERVER-REFERENCE.md#tools) for the complete
-tool table.
+(Titan Text v2). The server exposes 13 MCP tools, five schema resources for runtime
+schema discovery, and two data resources for human browsing — see the
+[Server Reference](SERVER-REFERENCE.md#tools) for the complete tool and resource tables.
 
 ---
 
@@ -236,7 +236,7 @@ the correct update action automatically — no manual steps required.
 
 ## Status
 
-> **v0.2.0** — all tools implemented and unit-tested: `write_artifact`, `write_artifacts`, `migrate_artifacts`, `search_artifacts`, `read_artifact`, `list_artifacts`, `archive_artifact`, `delete_artifact`, `purge_archived`, `health_check`, `synthesise_artifacts`, `reconcile_index`, and `check_synthesis_freshness`.
+> **v0.2.0** — all tools implemented and unit-tested: `write_artifact`, `write_artifacts`, `migrate_artifacts`, `search_artifacts`, `read_artifact`, `list_artifacts`, `archive_artifact`, `delete_artifact`, `purge_archived`, `health_check`, `synthesise_artifacts`, `reconcile_index`, and `check_synthesis_freshness`. Five schema resources (`cairn://schema/*`) and two data resources (`cairn://artifacts`, `cairn://artifact/{id}`) are registered and available.
 
 ---
 

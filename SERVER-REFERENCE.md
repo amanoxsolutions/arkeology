@@ -6,9 +6,9 @@ operators and CI/CD pipeline integrations.
 ## Tools
 
 Agents connect via the Model Context Protocol and call the following tools. The server
-also exposes MCP Resources — always-current schema documentation covering artifact types,
-the tier model, visibility rules, and field constraints — so any connected agent can
-discover what to provide without consulting external documentation.
+also exposes MCP Resources in two categories: five schema resources that serve
+always-current documentation to agents (no AWS calls), and two data resources that
+serve browsable artifact content to humans — see [Resources](#resources) below.
 
 | Tool | What it does | Key inputs | Key outputs |
 |---|---|---|---|
@@ -25,6 +25,67 @@ discover what to provide without consulting external documentation.
 | `synthesise_artifacts` | Semantic search followed by full S3 content fetch for a set of top-k artifacts | `query`, optional: filters, `top_k` (clamped to 100) | List of full artifact dicts including `content` |
 | `reconcile_index` | Replay the failure log and scan for orphaned S3 objects, re-indexing any artifacts present in S3 but absent from the vector index | — | `reconciled` (list of re-indexed IDs with section counts), `failed` (list of IDs that failed again), `orphans_found`, `total_reconciled`, `failure_log_entries_before` / `after` |
 | `check_synthesis_freshness` | Audit every synthesis in own scope against its declared source artifacts; report stale (source newer), archived sources, missing sources (deleted), and malformed syntheses (no sources declared); optionally hard-delete malformed ones | `confirm` (bool, default `false` — set `true` to hard-delete malformed syntheses) | `stale`, `archived_sources`, `missing_sources`, `malformed`, `deleted_malformed`, `total_checked`, `all_fresh` (bool) |
+
+## Resources
+
+The server exposes seven MCP resources split into two categories by audience.
+
+### Schema resources — agent-readable documentation (`audience: ["assistant"]`)
+
+These five resources are pure documentation: they make no AWS calls, never fail at
+runtime, and are always available regardless of credential or connectivity state. They
+exist so a connected agent can discover the full schema without consulting external docs.
+
+| URI | What it contains |
+|-----|-----------------|
+| `cairn://schema/artifact` | Required and optional fields, enum values, and constraints |
+| `cairn://schema/tiers` | Tier 2 vs tier 3 semantics, key formats, and access rules |
+| `cairn://schema/visibility` | Visibility values and the cross-scope access gate |
+| `cairn://schema/types` | Type catalogue with one-line usage guidance per type |
+| `cairn://schema/query-strategy` | Recommended query strategy: when to list vs search vs synthesise |
+
+### Data resources — human browsing surface (`audience: ["user"]`)
+
+These two resources require live AWS clients. They apply the same cross-scope and
+visibility gates as the equivalent tools, so they respect the deployment's scope
+configuration exactly.
+
+| URI | What it returns | Notes |
+|-----|----------------|-------|
+| `cairn://artifacts` | Markdown table of all active own-scope artifacts (columns: Identifier, Title, Type, Description) | Equivalent to calling `list_artifacts` with `status="active"` and no filters |
+| `cairn://artifact/{id}` | Full markdown content of the named artifact | Applies the same cross-scope/tier/visibility gate as `read_artifact`; returns a markdown error block on access failure |
+
+#### Tools vs resources — when to use which
+
+| | Resources (`cairn://`) | Tools |
+|--|---|---|
+| **Primary audience** | Human browsing in MCP Inspector, Claude Desktop, or Claude Code | Agent workflows in a session |
+| **Typical use** | Quick index review, reading a specific artifact without tool overhead | Search, filter, write, archive, delete |
+| **Requires AWS** | Data resources yes; schema resources no | Yes (except `health_check`) |
+| **Output format** | Always markdown | Structured JSON dict |
+
+Use the data resources for a quick human audit of what is stored. Use the tools for
+everything agents do — search, filter, write, synthesise, archive.
+
+#### Browsing with MCP Inspector
+
+```bash
+eval $(jq -r '.mcpServers.cairn.env | to_entries[] | "export \(.key)=\(.value)"' .mcp.json)
+npx @modelcontextprotocol/inspector uv run --directory /path/to/cairn-mcp cairn-mcp
+```
+
+Navigate to the **Resources** tab to read `cairn://artifacts`, and the **Resource
+Templates** tab to read `cairn://artifact/{id}` by supplying an artifact ID.
+
+#### Using data resources in Claude Code
+
+Ask the agent directly:
+
+> "Read the `cairn://artifacts` resource and tell me what's there."
+
+Claude Code fetches the resource via the MCP resources protocol and returns the
+pre-rendered markdown table — useful for a quick human-readable index without
+incurring tool-call overhead.
 
 ## Minimum IAM Policy
 
