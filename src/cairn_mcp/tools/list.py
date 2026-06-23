@@ -17,6 +17,8 @@ from cairn_mcp.errors import CredentialError
 
 logger = logging.getLogger(__name__)
 
+_GET_VECTORS_BATCH_SIZE = 100  # S3 Vectors GetVectors API hard limit
+
 
 async def list_artifacts(
     *,
@@ -143,9 +145,12 @@ async def _list_artifacts_inner(
     if not keys:
         return {"artifacts": []}
 
-    # ── Step 3: Fetch vector metadata ─────────────────────────────────────────
+    # ── Step 3: Fetch vector metadata (batched — API limit 100 keys per call) ───
+    items: list[dict[str, Any]] = []
     try:
-        items = vectors.get_vectors(keys)
+        for i in range(0, len(keys), _GET_VECTORS_BATCH_SIZE):
+            batch = keys[i : i + _GET_VECTORS_BATCH_SIZE]
+            items.extend(vectors.get_vectors(batch))
     except CredentialError as exc:
         return {"error": "credential_error", "message": str(exc)}
 

@@ -794,3 +794,45 @@ async def test_list_legacy_artifact_last_edited_ulid_is_none(
     legacy = [a for a in artifacts if a.get("artifact_id") == "artifacts/legacy"]
     assert len(legacy) == 1
     assert legacy[0]["last_edited_ulid"] is None
+
+
+# ---------------------------------------------------------------------------
+# Batched get_vectors — S3 Vectors API limit of 100 keys per call
+# ---------------------------------------------------------------------------
+
+
+async def test_more_than_100_artifacts_all_returned(
+    monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
+) -> None:
+    """Seeding 105 artifacts (one section vector each) → all 105 returned without error.
+
+    Exercises the batched get_vectors loop in _list_artifacts_inner; previously a single
+    get_vectors call with 105 keys raised a ValidationException from the S3 Vectors API.
+    """
+    settings = _make_settings(monkeypatch)
+
+    artifact_count = 105
+    artifact_ids = [f"artifacts/bulk-artifact-{i:03d}" for i in range(artifact_count)]
+    for i, artifact_id in enumerate(artifact_ids):
+        vectors_client_8.put_vector(
+            f"{artifact_id}#summary",
+            _unit_vec(float(i) * 0.01 + 5.0),
+            {
+                **_BASE_VECTOR_META,
+                "artifact_id": artifact_id,
+            },
+        )
+
+    result = await list_artifacts(
+        settings=settings,
+        vectors=vectors_client_8,
+        s3=None,
+        bedrock=None,
+    )
+
+    assert "artifacts" in result, f"Expected 'artifacts' key, got: {result}"
+    returned_ids = {a["artifact_id"] for a in result["artifacts"]}
+    for artifact_id in artifact_ids:
+        assert artifact_id in returned_ids, f"Missing artifact: {artifact_id}"
+    assert len(result["artifacts"]) == artifact_count
