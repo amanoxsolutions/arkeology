@@ -8,11 +8,11 @@ version = "0.4.0"
 description = "MCP server for persistent artifact memory powered by AWS S3, S3 Vectors, and Bedrock embeddings"
 requires-python = ">=3.14"
 dependencies = [
-    "fastmcp>=2.0",
-    "boto3>=1.38",
-    "pydantic>=2.0",
-    "pydantic-settings>=2.0",
-    "python-ulid>=3.0",
+    "fastmcp[apps]~=3.4",
+    "boto3~=1.43",
+    "pydantic~=2.13",
+    "pydantic-settings~=2.14",
+    "python-ulid~=3.1",
 ]
 
 [project.scripts]
@@ -20,18 +20,19 @@ cairn-mcp = "cairn_mcp.__main__:main"
 
 [dependency-groups]
 dev = [
-    "pytest>=8.0",
-    "pytest-asyncio>=0.24",
-    "pytest-mock>=3.0",
-    "mypy>=1.0",
-    "ruff>=0.11",
-    "moto[s3]>=5.2.1",
-    "boto3-stubs[s3,bedrock-runtime,sts,s3vectors]>=1.38",
-    "pre-commit>=3.0",
+    "pytest~=9.1",
+    "pytest-asyncio~=1.4",
+    "pytest-mock~=3.15",
+    "mypy~=2.1",
+    "ruff~=0.15",
+    "moto[s3]~=5.2",
+    "boto3-stubs[s3,bedrock-runtime,sts,s3vectors]~=1.43",
+    "pre-commit~=4.6",
 ]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/cairn_mcp"]
+include = ["src/cairn_mcp/static/*"]
 
 [tool.ruff]
 line-length = 100

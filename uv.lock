@@ -201,11 +201,11 @@ wheels = [
 
 [[package]]
 name = "cairn-mcp"
-version = "0.3.1"
+version = "0.4.0"
 source = { editable = "." }
 dependencies = [
     { name = "boto3" },
-    { name = "fastmcp" },
+    { name = "fastmcp", extra = ["apps"] },
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "python-ulid" },
@@ -225,23 +225,23 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "boto3", specifier = ">=1.38" },
-    { name = "fastmcp", specifier = ">=2.0" },
-    { name = "pydantic", specifier = ">=2.0" },
-    { name = "pydantic-settings", specifier = ">=2.0" },
-    { name = "python-ulid", specifier = ">=3.0" },
+    { name = "boto3", specifier = "~=1.43" },
+    { name = "fastmcp", extras = ["apps"], specifier = "~=3.4" },
+    { name = "pydantic", specifier = "~=2.13" },
+    { name = "pydantic-settings", specifier = "~=2.14" },
+    { name = "python-ulid", specifier = "~=3.1" },
 ]
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "boto3-stubs", extras = ["s3", "bedrock-runtime", "sts", "s3vectors"], specifier = ">=1.38" },
-    { name = "moto", extras = ["s3"], specifier = ">=5.2.1" },
-    { name = "mypy", specifier = ">=1.0" },
-    { name = "pre-commit", specifier = ">=3.0" },
-    { name = "pytest", specifier = ">=8.0" },
-    { name = "pytest-asyncio", specifier = ">=0.24" },
-    { name = "pytest-mock", specifier = ">=3.0" },
-    { name = "ruff", specifier = ">=0.11" },
+    { name = "boto3-stubs", extras = ["s3", "bedrock-runtime", "sts", "s3vectors"], specifier = "~=1.43" },
+    { name = "moto", extras = ["s3"], specifier = "~=5.2" },
+    { name = "mypy", specifier = "~=2.1" },
+    { name = "pre-commit", specifier = "~=4.6" },
+    { name = "pytest", specifier = "~=9.1" },
+    { name = "pytest-asyncio", specifier = "~=1.4" },
+    { name = "pytest-mock", specifier = "~=3.15" },
+    { name = "ruff", specifier = "~=0.15" },
 ]
 
 [[package]]
@@ -483,6 +483,11 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/58/4d/8b1ba42251160e11ca34686344572121432c23a082d56ef6bbdec5888fc1/fastmcp-3.4.2-py3-none-any.whl", hash = "sha256:c87a62b029f0c5400ada85f683629345d2466c39169f0cb853e487b2f7308c08", size = 8018, upload-time = "2026-06-06T01:30:38.118Z" },
 ]
 
+[package.optional-dependencies]
+apps = [
+    { name = "fastmcp-slim", extra = ["apps"] },
+]
+
 [[package]]
 name = "fastmcp-slim"
 version = "3.4.2"
@@ -501,6 +506,9 @@ wheels = [
 ]
 
 [package.optional-dependencies]
+apps = [
+    { name = "prefab-ui" },
+]
 client = [
     { name = "authlib" },
     { name = "exceptiongroup" },
@@ -1066,6 +1074,20 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/8e/22/2de9408ac81acbb8a7d05d4cc064a152ccf33b3d480ebe0cd292153db239/pre_commit-4.6.0.tar.gz", hash = "sha256:718d2208cef53fdc38206e40524a6d4d9576d103eb16f0fec11c875e7716e9d9", size = 198525, upload-time = "2026-04-21T20:31:41.613Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/80/6e/4b28b62ecb6aae56769c34a8ff1d661473ec1e9519e2d5f8b2c150086b26/pre_commit-4.6.0-py2.py3-none-any.whl", hash = "sha256:e2cf246f7299edcabcf15f9b0571fdce06058527f0a06535068a86d38089f29b", size = 226472, upload-time = "2026-04-21T20:31:40.092Z" },
+]
+
+[[package]]
+name = "prefab-ui"
+version = "0.20.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "cyclopts" },
+    { name = "pydantic" },
+    { name = "rich" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/41/99/4e61eb3d3f8b09bdaa28bda3c99971264555f486a485333cb8e6f56c7d8c/prefab_ui-0.20.2.tar.gz", hash = "sha256:4ac17ebf8ec1c5a918a188625837fc608157907430a59c4feb8adac80e01262b", size = 4118979, upload-time = "2026-06-03T02:13:49.312Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/4a/d0/59b697dd5a44e632fcc4aba42ff5f88224df672ffea1f5e9a5a9e9e50698/prefab_ui-0.20.2-py3-none-any.whl", hash = "sha256:861d4914e4d9120996b4d5c6753788beeca433754d7bb3cfbd13f9dba7ea8e85", size = 1852274, upload-time = "2026-06-03T02:13:47.539Z" },
 ]
 
 [[package]]
