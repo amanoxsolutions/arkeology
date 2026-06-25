@@ -1149,6 +1149,131 @@ async def test_existing_artifact_runs_orphan_cleanup(
 
 
 # ---------------------------------------------------------------------------
+# Orphan cleanup is best-effort — a cleanup failure must not invert a durable write
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_orphan_cleanup_list_failure_does_not_fail_write(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """A non-credential failure listing existing vectors during orphan cleanup must NOT
+    invert an already-successful write — by Step 8 the artifact is durably in S3 and its
+    new section vectors are indexed, so the result must still report success.
+    """
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+
+    await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        **_BASE_WRITE_KWARGS,
+    )
+
+    # Orphan cleanup (only reached on the re-write) hits a non-credential error.
+    mocker.patch.object(
+        vectors_client, "list_vectors_by_metadata", side_effect=RuntimeError("boom")
+    )
+
+    result = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        **_BASE_WRITE_KWARGS,
+    )
+
+    assert "error" not in result, f"cleanup failure must not fail the write, got: {result}"
+    assert result.get("artifact_id"), f"artifact_id missing: {result}"
+    assert "sections_indexed" in result
+
+
+@pytest.mark.asyncio
+async def test_orphan_cleanup_delete_failure_does_not_fail_write(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """A non-credential failure deleting orphan vectors must NOT fail the write; the new
+    content is written and the new section vectors are indexed regardless.
+    """
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+
+    three = "## Alpha\n\nBody A.\n\n## Beta\n\nBody B.\n\n## Gamma\n\nBody C."
+    two = "## Alpha\n\nBody A.\n\n## Beta\n\nBody B."
+    kwargs_3 = {**_BASE_WRITE_KWARGS, "tier": 3, "content": three}
+    kwargs_2 = {**_BASE_WRITE_KWARGS, "tier": 3, "content": two}
+
+    first = await write_artifact(
+        s3=s3_client, vectors=vectors_client, bedrock=bedrock, settings=settings, **kwargs_3
+    )
+    artifact_id = first["artifact_id"]
+
+    # Re-write with fewer sections → orphan exists → delete_vectors is called and fails.
+    mocker.patch.object(vectors_client, "delete_vectors", side_effect=RuntimeError("boom"))
+
+    result = await write_artifact(
+        s3=s3_client, vectors=vectors_client, bedrock=bedrock, settings=settings, **kwargs_2
+    )
+
+    assert "error" not in result, f"cleanup failure must not fail the write, got: {result}"
+    assert result.get("artifact_id") == artifact_id
+    assert result.get("sections_indexed") == 2
+
+
+@pytest.mark.asyncio
+async def test_orphan_cleanup_credential_failure_does_not_fail_write(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """A CredentialError during orphan cleanup must also not invert a durable write —
+    cleanup is best-effort (the write already succeeded before Step 8).
+    """
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+
+    await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        **_BASE_WRITE_KWARGS,
+    )
+
+    mocker.patch.object(
+        vectors_client,
+        "list_vectors_by_metadata",
+        side_effect=CredentialError(
+            message="AWS credentials are invalid or expired (simulated).",
+            service="s3vectors",
+            original=Exception("simulated"),
+        ),
+    )
+
+    result = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        **_BASE_WRITE_KWARGS,
+    )
+
+    assert "error" not in result, (
+        f"cleanup credential failure must not fail the write, got: {result}"
+    )
+    assert result.get("artifact_id")
+
+
+# ---------------------------------------------------------------------------
 # Spec 19 — CredentialError from head_object returns credential_error
 # ---------------------------------------------------------------------------
 

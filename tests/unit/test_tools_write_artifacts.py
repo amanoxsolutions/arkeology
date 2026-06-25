@@ -336,6 +336,48 @@ async def test_write_artifacts_missing_required_field_validation_error(
     assert results[2].get("written") is True, f"Entry 2 should succeed: {results[2]}"
 
 
+@pytest.mark.asyncio
+async def test_write_artifacts_invalid_file_extension_validation_error(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+) -> None:
+    """A descriptor whose file_extension lacks a leading dot must return
+    error='validation_error' (the bulk path must enforce the same guard as the
+    single write_artifact, not silently produce a malformed S3 key); other entries
+    still succeed.
+    """
+    try:
+        from cairn_mcp.tools.write_artifacts import write_artifacts
+    except ImportError:
+        pytest.fail("cairn_mcp.tools.write_artifacts is not yet implemented")
+
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+
+    descriptors = [_make_descriptor(0), _make_descriptor(1, file_extension="txt")]
+
+    result = await write_artifacts(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        artifacts=descriptors,
+    )
+
+    results = result.get("results", [])
+    assert len(results) == 2, f"Expected 2 results, got {len(results)}"
+    assert results[0].get("written") is True, f"Entry 0 should succeed: {results[0]}"
+
+    failed = results[1]
+    assert failed.get("error") == "validation_error", (
+        f"Expected error='validation_error', got: {failed}"
+    )
+    assert "file_extension" in failed.get("message", ""), (
+        f"Error message should name file_extension, got: {failed}"
+    )
+
+
 # ---------------------------------------------------------------------------
 # C7 — artifact_concurrency=15 (in-range) → all written, no warning
 # ---------------------------------------------------------------------------

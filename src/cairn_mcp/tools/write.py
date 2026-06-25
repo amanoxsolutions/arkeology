@@ -152,9 +152,6 @@ async def write_artifact(
         On success: ``{"artifact_id": str, "sections_indexed": int, "last_edited_ulid": str}``
         On error: ``{"error": str, "message": str}``
     """
-    if not file_extension.startswith("."):
-        return {"error": "validation_error", "message": "file_extension must start with '.'"}
-
     normalized_tags: list[str] = tags if tags is not None else []
     sources: list[str] = source_artifacts if source_artifacts is not None else []
     refs: list[str] = commit_refs if commit_refs is not None else []
@@ -214,6 +211,12 @@ async def _write_artifact_inner(  # noqa: PLR0913
     include ``artifact_id`` alongside ``error`` and ``message`` so callers can identify
     which artifact was partially written and take remedial action.
     """
+    # Validate here (not only in the public wrapper) so the bulk write_artifacts path,
+    # which calls this inner directly, enforces the same guard and cannot produce a
+    # malformed S3 key (e.g. ``...-titletxt``).
+    if not file_extension.startswith("."):
+        return {"error": "validation_error", "message": "file_extension must start with '.'"}
+
     try:
         artifact = Artifact(
             type=type,
@@ -506,22 +509,27 @@ async def _write_artifact_inner(  # noqa: PLR0913
         new_keys.add(s3_key)
 
     # ── Step 8: Orphan cleanup for existing artifacts (any tier) ────────────
+    # Best-effort: by this point the artifact is durably written to S3 and its new
+    # section vectors are indexed and searchable. Deleting stale vectors from a previous
+    # version is a tidy-up, not part of the write's success contract — a failure here
+    # (credential or otherwise) must NOT invert the result to an error, which would make
+    # callers (including the bulk write_artifacts path) treat a fully written artifact as
+    # failed and leave the orphans uncollected. Log and proceed; reconcile_index can
+    # collect any leftover orphan vectors later.
     if is_existing:
         try:
             existing_keys = vectors.list_vectors_by_metadata({"artifact_id": {"$eq": s3_key}})
-        except CredentialError as exc:
-            return {"error": "credential_error", "message": str(exc), "artifact_id": s3_key}
-
-        orphan_keys = [k for k in existing_keys if k not in new_keys]
-        if orphan_keys:
-            try:
+            orphan_keys = [k for k in existing_keys if k not in new_keys]
+            if orphan_keys:
                 vectors.delete_vectors(orphan_keys)
-            except CredentialError as exc:
-                return {
-                    "error": "credential_error",
-                    "message": str(exc),
-                    "artifact_id": s3_key,
-                }
+        except Exception:
+            logger.warning(
+                "Orphan vector cleanup failed for key=%s; the artifact is written and "
+                "searchable but stale section vectors from a prior version may remain "
+                "(run reconcile_index to collect them).",
+                s3_key,
+                exc_info=True,
+            )
 
     logger.info("Artifact written: key=%s sections=%d tier=%d", s3_key, len(new_keys), tier)
     return {
