@@ -22,8 +22,14 @@ from cairn_mcp.errors import CredentialError, VectorIndexNotFoundError
 
 logger = logging.getLogger(__name__)
 
-# Error codes that indicate the index does not exist
+# S3 Vectors per-request key/vector limits — every batched call MUST chunk to these
+# so large key lists do not exceed the API caps (a ValidationException otherwise).
+# https://docs.aws.amazon.com/AmazonS3/latest/userguide/s3-vectors-limitations.html
 _PUT_VECTORS_CHUNK_SIZE: int = 500  # S3 Vectors PutVectors API limit
+_DELETE_VECTORS_CHUNK_SIZE: int = 500  # S3 Vectors DeleteVectors API limit
+_GET_VECTORS_CHUNK_SIZE: int = 100  # S3 Vectors GetVectors API limit
+
+# Error codes that indicate the index does not exist
 
 _INDEX_NOT_FOUND_CODES = frozenset(
     {
@@ -119,23 +125,27 @@ class VectorsClientImpl:
 
     def get_vectors(self, keys: list[str]) -> list[dict[str, Any]]:
         logger.debug("S3Vectors get_vectors count=%d", len(keys))
+        if not keys:
+            return []
+        results: list[dict[str, Any]] = []
         try:
-            response = self._client.get_vectors(
-                vectorBucketName=self._bucket,
-                indexName=self._index,
-                keys=keys,
-                returnMetadata=True,
-                returnData=True,
-            )
-            results = []
-            for item in response.get("vectors", []):
-                results.append(
-                    {
-                        "key": item["key"],
-                        "metadata": item.get("metadata", {}),
-                        "data": item.get("data", {}),
-                    }
+            for i in range(0, len(keys), _GET_VECTORS_CHUNK_SIZE):
+                chunk = keys[i : i + _GET_VECTORS_CHUNK_SIZE]
+                response = self._client.get_vectors(
+                    vectorBucketName=self._bucket,
+                    indexName=self._index,
+                    keys=chunk,
+                    returnMetadata=True,
+                    returnData=True,
                 )
+                for item in response.get("vectors", []):
+                    results.append(
+                        {
+                            "key": item["key"],
+                            "metadata": item.get("metadata", {}),
+                            "data": item.get("data", {}),
+                        }
+                    )
             return results
         except botocore.exceptions.ClientError as exc:
             if is_credential_error(exc):
@@ -184,11 +194,13 @@ class VectorsClientImpl:
         if not keys:
             return
         try:
-            self._client.delete_vectors(
-                vectorBucketName=self._bucket,
-                indexName=self._index,
-                keys=keys,
-            )
+            for i in range(0, len(keys), _DELETE_VECTORS_CHUNK_SIZE):
+                chunk = keys[i : i + _DELETE_VECTORS_CHUNK_SIZE]
+                self._client.delete_vectors(
+                    vectorBucketName=self._bucket,
+                    indexName=self._index,
+                    keys=chunk,
+                )
         except botocore.exceptions.ClientError as exc:
             if is_credential_error(exc):
                 raise self._wrap_credential_error(exc) from exc
