@@ -138,14 +138,10 @@ async def _check_synthesis_freshness_inner(
             else:
                 source_meta[source_id] = None
         else:
-            # Fallback: try S3 head_object for source metadata
-            try:
-                s3_meta = s3.head_object(source_id)
-                source_meta[source_id] = s3_meta
-            except CredentialError as exc:
-                return {"error": "credential_error", "message": str(exc)}
-            except KeyError:
-                source_meta[source_id] = None
+            # No vector index entries → the source is missing (T22). All freshness data
+            # comes from the vector index; S3 is never read during the audit (S3 reads are
+            # reserved for malformed-synthesis deletion only).
+            source_meta[source_id] = None
 
     # ── Step 7: Build stale, archived_sources, missing_sources per synthesis ──
     stale: list[dict[str, Any]] = []

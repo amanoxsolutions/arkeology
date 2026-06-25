@@ -344,6 +344,46 @@ async def test_missing_source_no_vector_entries(
     assert missing_src_id in missing_entry["missing_sources"]
 
 
+async def test_missing_source_present_in_s3_but_no_vectors(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """A source that exists in S3 but has NO vector index entries must still be reported
+    missing (T22: 'a source ID returning no results from list_vectors_by_metadata SHALL be
+    reported missing'), and freshness must perform NO S3 reads during the audit
+    (T22: 'SHALL NOT fetch S3 content for freshness checks'). head_object must never be called.
+    """
+    settings = _make_settings(monkeypatch)
+    synth_id = "artifacts/synthesis-with-s3-only-source"
+    s3_only_src_id = "artifacts/source-in-s3-not-indexed"
+
+    vectors_client_8.put_vector(
+        f"{synth_id}#section",
+        DUMMY_VEC,
+        _synthesis_meta(synth_id, "2026-06-01", [s3_only_src_id]),
+    )
+
+    # Simulate the source still existing in S3 (head_object would succeed) but absent from
+    # the vector index. The old fallback would have read this and mis-classified it as present.
+    head_spy = mocker.patch.object(
+        s3_client, "head_object", return_value={"date": "2099-01-01", "status": "active"}
+    )
+
+    result = await check_synthesis_freshness(
+        settings=settings, s3=s3_client, vectors=vectors_client_8
+    )
+
+    assert "error" not in result
+    missing_entry = next(
+        (e for e in result["missing_sources"] if e["artifact_id"] == synth_id), None
+    )
+    assert missing_entry is not None, "source absent from the index must be reported missing"
+    assert s3_only_src_id in missing_entry["missing_sources"]
+    assert head_spy.call_count == 0, "freshness must not read S3 (T22)"
+
+
 # ---------------------------------------------------------------------------
 # Deduplication
 # ---------------------------------------------------------------------------
@@ -739,19 +779,23 @@ async def test_credential_error_on_list_vectors_returns_credential_error(
     assert result.get("error") == "credential_error"
 
 
-async def test_credential_error_on_s3_head_object_returns_credential_error(
+async def test_credential_error_on_s3_head_object_during_malformed_delete(
     monkeypatch: pytest.MonkeyPatch,
     s3_client: S3ClientImpl,
     vectors_client_8: VectorsClientImpl,
     mocker: MockerFixture,
 ) -> None:
-    """CredentialError from s3.head_object → credential_error response."""
+    """During malformed-synthesis deletion (confirm=True) a CredentialError from
+    s3.head_object → credential_error response. This is the ONLY freshness path that reads
+    S3 (existence-confirm before delete); the source-metadata audit never reads S3 (T22).
+    """
     settings = _make_settings(monkeypatch)
-    synth_id = "artifacts/synthesis-test-cred"
+    synth_id = "artifacts/synthesis-malformed-cred"
+    # Malformed synthesis (no source_artifacts) → eligible for deletion when confirm=True.
     vectors_client_8.put_vector(
         f"{synth_id}#section",
         DUMMY_VEC,
-        _synthesis_meta(synth_id, "2026-01-01", ["artifacts/src-a"]),
+        _synthesis_meta(synth_id, "2026-01-01", []),
     )
     mocker.patch.object(
         s3_client,
@@ -764,7 +808,7 @@ async def test_credential_error_on_s3_head_object_returns_credential_error(
     )
 
     result = await check_synthesis_freshness(
-        settings=settings, s3=s3_client, vectors=vectors_client_8
+        settings=settings, s3=s3_client, vectors=vectors_client_8, confirm=True
     )
 
     assert result.get("error") == "credential_error"
