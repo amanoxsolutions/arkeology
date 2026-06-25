@@ -471,6 +471,41 @@ async def test_reindex_artifact_no_sections_puts_one_vector(
     assert reconciled_entry["sections_indexed"] == 1
 
 
+async def test_reindex_preserves_commit_refs_and_last_edited_ulid(
+    reconcile_settings: Settings,
+    s3_reconcile: S3ClientImpl,
+    vectors_reconcile: VectorsClientImpl,
+) -> None:
+    """Reconcile must reconstruct vector metadata mirroring write_artifact (T21), including
+    commit_refs (as list[str]) and last_edited_ulid — otherwise commit-ref filtering silently
+    stops matching and last_edited_ulid is lost for the rebuilt artifact.
+    """
+    artifact_id = "artifacts/implementation-note-2026-01-01-with-refs"
+    ulid = "01HZZZ0000000000000000000A"
+    meta = {
+        **_BASE_S3_META,
+        "commit_refs": "abc123,def456",
+        "last_edited_ulid": ulid,
+    }
+    s3_reconcile.put_object(artifact_id, _CONTENT_TWO_SECTIONS, meta)
+    bedrock = FakeBedrockClient(dimension=DIMENSION)
+
+    result = await reconcile_index(
+        settings=reconcile_settings,
+        s3=s3_reconcile,
+        vectors=vectors_reconcile,
+        bedrock=bedrock,
+    )
+    assert "error" not in result
+
+    keys = vectors_reconcile.list_vectors_by_metadata({"artifact_id": {"$eq": artifact_id}})
+    items = vectors_reconcile.get_vectors(keys)
+    assert items, "reconcile should have indexed vectors for the artifact"
+    vmeta = items[0]["metadata"]
+    assert vmeta.get("commit_refs") == ["abc123", "def456"]
+    assert vmeta.get("last_edited_ulid") == ulid
+
+
 # ---------------------------------------------------------------------------
 # Response structure
 # ---------------------------------------------------------------------------

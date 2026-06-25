@@ -58,6 +58,7 @@ def _reindex_artifact(
     tier = int(tier_raw)
     tags = [t for t in raw_s3_meta.get("tags", "").split(",") if t]
     source_artifacts_list = [s for s in raw_s3_meta.get("source_artifacts", "").split(",") if s]
+    commit_refs_list = [r for r in raw_s3_meta.get("commit_refs", "").split(",") if r]
 
     vector_metadata: dict[str, Any] = {
         "artifact_id": artifact_id,
@@ -72,12 +73,16 @@ def _reindex_artifact(
         "visibility": raw_s3_meta.get("visibility", "shared"),
         "author_role": raw_s3_meta.get("author_role", ""),
         "description": raw_s3_meta.get("description", ""),
+        # Mirror write_artifact: last_edited_ulid is always present in vector metadata.
+        "last_edited_ulid": raw_s3_meta.get("last_edited_ulid", ""),
     }
     # S3 Vectors rejects empty arrays — omit list fields when empty.
     if tags:
         vector_metadata["tags"] = tags
     if source_artifacts_list:
         vector_metadata["source_artifacts"] = source_artifacts_list
+    if commit_refs_list:
+        vector_metadata["commit_refs"] = commit_refs_list
 
     sections = parse_sections(content)
     new_keys: set[str] = set()
