@@ -60,8 +60,9 @@ list of their active artifacts.
 
 **Acceptance criteria:**
 - Given the host supports the `io.modelcontextprotocol/ui` extension, when `cairn_studio` is
-  called, then the browser UI iframe is rendered with an artifact list populated from the
-  initial `cairn_studio` tool result data.
+  called, then the browser UI iframe is rendered and populates its artifact list by issuing its
+  own `list_artifacts` call on mount (the `cairn_studio` result deliberately carries no listing
+  on a supporting host).
 - Given the list view loads, when the page is first rendered, then no artifact is selected
   and the detail view shows the empty-state prompt until the user makes a selection.
 
@@ -102,10 +103,10 @@ A developer enters a query in the search box to find semantically relevant artif
 
 ## Requirements
 
-- WHEN the browser application loads THE SYSTEM SHALL populate the list view with artifact
-  listing data received from the `cairn_studio` initial tool result without issuing an
-  additional tool call on startup; no artifact SHALL be selected and the detail view SHALL
-  display the empty state until the user makes a selection.
+- WHEN the browser application loads THE SYSTEM SHALL populate the list view by issuing a
+  `list_artifacts` call on mount — the `cairn_studio` result carries no listing on a supporting
+  host (it is withheld so the model does not re-describe the data) — and no artifact SHALL be
+  selected and the detail view SHALL display the empty state until the user makes a selection.
 - WHEN a type, tier, or status filter changes THE SYSTEM SHALL call `list_artifacts` with
   the selected filter values and replace the list view listing.
 - WHEN an artifact is selected in the list view THE SYSTEM SHALL call `read_artifact` with
@@ -414,16 +415,21 @@ parameter from `list_artifacts` arguments when the value is `""`.
   ]
 }
 ```
-FastMCP may deliver this via `result.structuredContent` or as a JSON string in
-`result.content[0].text`. Parse safely:
+On a supporting host the iframe does **not** depend on the `cairn_studio` result for its data —
+it issues its own `list_artifacts` call on mount and renders the response. The
+`{"write_prefix", "artifacts"}` payload above is the shape returned to **non-supporting** hosts
+in `structured_content`; when a host happens to surface that payload to the iframe it may arrive
+via `result.structuredContent` or as a JSON string in `result.content[0].text`, so any code that
+reads it must guard against an absent/non-JSON value:
 `structuredContent ?? JSON.parse(content?.find(c => c.type === "text")?.text ?? "{}")`.
 
-**ToolResult shape:** `cairn_studio` returns a `fastmcp.tools.base.ToolResult` with `content`
-(a short human-readable confirmation sentence) and `structured_content` (the
-`{"write_prefix", "artifacts"}` payload above). The `content` text is intentionally minimal so
-the model does not generate a verbose description of the data. The iframe reads
-`structuredContent` first and falls back to parsing the text only if `structuredContent` is
-absent.
+**ToolResult shape:** `cairn_studio` returns a `fastmcp.tools.base.ToolResult` with a short
+human-readable confirmation sentence in `content`. On a **supporting** host `structured_content`
+is deliberately omitted: the model has no signal that the widget rendered the artifacts, so
+returning the listing would make it re-describe what the user already sees — the iframe instead
+loads its own list on mount. On a **non-supporting** host `structured_content` carries the
+`{"write_prefix", "artifacts"}` payload so the client has the data without the widget. The
+`content` text is intentionally minimal so the model does not generate a verbose description.
 
 ### Mermaid code fence detection
 

@@ -40,7 +40,7 @@ A developer using an MCP client wants to read the full content of a known artifa
 - Given a valid own-scope artifact ID, when the user reads `cairn://artifact/{id}`, then the resource returns the full markdown content with `mimeType: "text/markdown"`.
 - Given a foreign-scope tier 2 artifact ID, when the user reads `cairn://artifact/{id}`, then the resource returns an error consistent with the cross-scope gate (not the content).
 - Given an artifact ID that does not exist, when the user reads `cairn://artifact/{id}`, then the resource returns a not-found error.
-- Given an artifact with a `last_edited_ulid`, when the resource is returned, then the response includes a `lastModified` annotation derived from that ULID.
+- Given an artifact with a `last_edited_ulid`, when the resource is returned, then a `lastModified` ISO 8601 value derived from that ULID is *available* (computed by `_artifact_last_modified`). **Emission of this value as a protocol-level annotation is WAIVED** — see the "Known limitation: `lastModified` emission" note under Requirements.
 
 ### Story 2 — Human browses all active own-scope artifacts (P1)
 
@@ -54,7 +54,20 @@ A developer wants to see what artifacts are stored in their scope without runnin
 
 - WHEN a client reads `cairn://artifact/{id}` THE SYSTEM SHALL return the full artifact content as `mimeType: "text/markdown"` with `audience: ["user"]` annotation.
 - WHEN `cairn://artifact/{id}` is read for a foreign-scope tier 2 artifact THE SYSTEM SHALL return an error consistent with the cross-scope gate enforced by `read_artifact`.
-- WHEN `cairn://artifact/{id}` is read for an artifact with `last_edited_ulid` THE SYSTEM SHALL include a `lastModified` annotation in ISO 8601 format derived from that ULID.
+- WHEN `cairn://artifact/{id}` is read for an artifact with `last_edited_ulid` THE SYSTEM SHALL derive a `lastModified` ISO 8601 value from that ULID (via `_artifact_last_modified`). Emitting it as a protocol annotation is **WAIVED** — see the note below.
+
+> **Known limitation: `lastModified` emission (WAIVER, 2026-06-25).** This requirement is not
+> satisfiable on `cairn://artifact/{id}` with the pinned stack (FastMCP 3.4.2 + the MCP SDK).
+> `cairn://artifact/{id}` is a **resource template**: its `annotations` (including `lastModified`)
+> are declared once at registration and are necessarily static — they cannot vary per `{id}`.
+> The only per-read channel is `ReadResourceResult.contents`, whose `TextResourceContents` type
+> exposes `uri`, `mimeType`, `meta`, and `text` — **no `annotations` field** — so a per-artifact
+> `lastModified` annotation cannot be attached to a template read. Verified against the installed
+> `mcp.types.TextResourceContents` model fields and `fastmcp/resources/base.py` (annotations live
+> on the resource/template definition, not on read contents). The `_artifact_last_modified` helper
+> that derives the value is retained and unit-tested in isolation (`test_artifact_resource_last_modified_annotation_{present,absent}`) so the conversion is correct and ready to wire in once the
+> protocol/SDK supports per-read resource-content annotations. The `audience: ["user"]` annotation
+> *is* emitted (it is static and identical for every read). Content is always fresh.
 - WHEN a client reads `cairn://artifacts` THE SYSTEM SHALL return a markdown-formatted index of all active own-scope artifacts with identifier, title, type, and description; the scope and filter parameters SHALL match `list_artifacts` default parameters.
 - WHEN `cairn://artifacts` or `cairn://artifact/{id}` is read THE SYSTEM SHALL carry `audience: ["user"]` annotation.
 - WHEN the server starts, `cairn://artifact/{id}` SHALL appear in `resources/templates/list` and `cairn://artifacts` SHALL appear in `resources/list`.
@@ -98,8 +111,8 @@ Write and pass all tests in this file before touching `resources.py` or `server.
 - `test_artifact_resource_returns_markdown_content` — reading `cairn://artifact/{id}` for a known own-scope artifact returns `mimeType: "text/markdown"` and the artifact's content string.
 - `test_artifact_resource_foreign_scope_tier2_returns_error` — reading `cairn://artifact/{id}` for a foreign-scope tier 2 artifact returns an error (not content), consistent with the cross-scope gate.
 - `test_artifact_resource_not_found_returns_error` — reading `cairn://artifact/{id}` for a non-existent ID returns a not-found error.
-- `test_artifact_resource_last_modified_annotation_present` — when the artifact has a `last_edited_ulid`, the returned resource includes a `lastModified` annotation.
-- `test_artifact_resource_last_modified_annotation_absent` — when the artifact has no `last_edited_ulid`, the `lastModified` annotation is omitted.
+- `test_artifact_resource_last_modified_annotation_present` — when the artifact has a `last_edited_ulid`, `_artifact_last_modified` returns a derived ISO 8601 value. (Verifies the helper in isolation; protocol-level emission is waived — see the limitation note.)
+- `test_artifact_resource_last_modified_annotation_absent` — when the artifact has no `last_edited_ulid`, `_artifact_last_modified` returns `None`.
 - `test_artifacts_resource_returns_markdown_listing` — reading `cairn://artifacts` with active own-scope artifacts returns a markdown string containing each artifact's identifier, title, type, and description.
 - `test_artifacts_resource_empty_scope_returns_markdown` — reading `cairn://artifacts` with no active artifacts returns a non-error markdown string.
 
@@ -114,5 +127,5 @@ Import `register_data_resources` from `cairn_mcp.resources`. Call `register_data
 ## Open Questions
 
 - [ ] ULID-to-ISO-8601: confirm the correct conversion approach for deriving `lastModified` from `last_edited_ulid`. ULIDs encode a millisecond timestamp in their first 10 characters — confirm the extraction formula before implementing.
-- [ ] FastMCP annotation API: confirm the exact FastMCP 3.x API for setting `audience` and `lastModified` on a resource response (decorator parameter vs. returned object field). Check FastMCP docs or source before implementing to avoid guessing.
+- [x] FastMCP annotation API — **RESOLVED (2026-06-25).** `audience` is set as a static `Annotations` on the resource registration (decorator parameter) and is emitted on every read. `lastModified` cannot be emitted per-read on a template resource: `TextResourceContents` has no `annotations` field and template registration annotations are static (cannot vary per `{id}`). Requirement waived — see the "Known limitation" note under Requirements.
 - [ ] Error surface for resource handlers: confirm whether FastMCP resource handlers should raise a Python exception (FastMCP maps it to `-32002`/`-32603`) or return a structured error string. Check FastMCP 3.x resource error handling conventions.

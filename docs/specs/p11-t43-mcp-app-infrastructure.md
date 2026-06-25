@@ -27,11 +27,19 @@ revised:
 ## TL;DR
 
 Establish the server-side plumbing for the MCP Apps visual reading interface: add the
-`fastmcp[apps]` dependency, register a `cairn_studio` tool that returns a `ToolResult` with a
-short confirmation for the model and the artifact listing for the iframe — supporting hosts render
-the widget, non-supporting hosts display the confirmation text — register a
+`fastmcp[apps]` dependency, register a `cairn_studio` tool that returns a `ToolResult` whose shape
+depends on host support — supporting hosts receive a short confirmation in `content` only (the
+iframe loads its own artifact list on mount), while non-supporting hosts additionally receive the
+artifact listing in `structured_content` so they have the data without the widget — register a
 `ui://cairn-studio/index.html` resource, and create an empty HTML placeholder that T44 will
 populate. No HTML/JS is authored in this task.
+
+> **Design note (corrected after implementation):** on a UI-supporting host `cairn_studio`
+> deliberately **omits** `structured_content`. If the listing were returned to a supporting host,
+> the model — which has no signal that the widget already rendered the data inline — would
+> re-describe the artifacts in chat, duplicating what the user already sees in the UI. Supporting
+> hosts therefore get only the confirmation text; the iframe fetches the list itself via its own
+> `list_artifacts` call on mount.
 
 ## Problem Statement
 
@@ -54,24 +62,28 @@ extension.
 **Acceptance criteria:**
 - Given a host where `ctx.client_supports_extension(UI_EXTENSION_ID)` returns `True`, when
   `cairn_studio` is called, then the tool returns a `ToolResult` with a short text confirmation
-  in `content` and the initial artifact listing in `structured_content` that the UI reads on
-  load.
+  in `content` and **no** `structured_content` — the iframe loads its own artifact list on mount
+  via a `list_artifacts` call.
 - Given the tool returns successfully, the host renders the `ui://cairn-studio/index.html`
   resource inline without error.
+- The listing is deliberately withheld from a supporting host so the model does not re-describe
+  artifacts the user is already viewing in the rendered widget.
 
 ### Story 2 — cairn_studio always returns a ToolResult regardless of host support (P1)
 
-`cairn_studio` no longer branches on `ctx.client_supports_extension`. Both supporting and
-non-supporting hosts receive a `ToolResult` with a short human confirmation in `content` and the
-artifact listing in `structured_content`. Hosts that support `io.modelcontextprotocol/ui` render
-the iframe widget; others display the `content` text. The `is_ui` flag (the result of
-`ctx.client_supports_extension(UI_EXTENSION_ID)`) is retained only for logging.
+`cairn_studio` branches on `ctx.client_supports_extension(UI_EXTENSION_ID)` to decide the
+`structured_content` payload, but always returns a valid `ToolResult` with a short human
+confirmation in `content`. A supporting host receives `content` only (the iframe loads its own
+list); a non-supporting host additionally receives the artifact listing in `structured_content`
+so the client has the data without the widget. Hosts that support `io.modelcontextprotocol/ui`
+render the iframe; others display the `content` text and read the listing from
+`structured_content`.
 
 **Acceptance criteria:**
 - Given any host (supporting or non-supporting), when `cairn_studio` is called, then the tool
-  returns a `ToolResult` with a short confirmation sentence in `content` and the artifact
-  listing payload in `structured_content`.
-- No error is raised; the response is always a valid `ToolResult` regardless of host type.
+  returns a valid `ToolResult` with a short confirmation sentence in `content` and never raises.
+- Given a non-supporting host, `structured_content` carries the `{"write_prefix", "artifacts"}`
+  payload; given a supporting host, `structured_content` is absent.
 
 ### Story 3 — ui://cairn-studio/index.html resource serves HTML (P1)
 
@@ -88,11 +100,14 @@ An MCP host fetches the `ui://cairn-studio/index.html` resource to render the br
 ## Requirements
 
 - WHEN `cairn_studio` is called and `ctx.client_supports_extension(UI_EXTENSION_ID)` is `True`
-  THE SYSTEM SHALL return a `ToolResult` with a short text confirmation in `content` and the
-  initial artifact listing in `structured_content`.
-- WHEN `cairn_studio` is called THE SYSTEM SHALL return a `ToolResult` with a short human
-  confirmation in `content` and the artifact listing in `structured_content`, regardless of
-  whether the host supports the `io.modelcontextprotocol/ui` extension.
+  THE SYSTEM SHALL return a `ToolResult` with a short text confirmation in `content` and SHALL
+  omit `structured_content`, so the model does not re-describe artifacts the user is already
+  viewing in the rendered widget; the iframe loads its own artifact list on mount.
+- WHEN `cairn_studio` is called and `ctx.client_supports_extension(UI_EXTENSION_ID)` is `False`
+  THE SYSTEM SHALL return a `ToolResult` with a short human confirmation in `content` and the
+  artifact listing in `structured_content` so the non-supporting client has the data.
+- WHEN `cairn_studio` is called THE SYSTEM SHALL always return a valid `ToolResult` and SHALL NOT
+  raise, regardless of whether the host supports the `io.modelcontextprotocol/ui` extension.
 - WHEN `cairn_studio` raises an unexpected exception THE SYSTEM SHALL catch it and return an
   error `ToolResult` with `is_error=True`, consistent with all other cairn tool outer wrappers.
 - WHEN the server starts THE SYSTEM SHALL expose `ui://cairn-studio/index.html` as a resource
@@ -171,20 +186,19 @@ file it gates is touched.
 
 Write and confirm all three tests fail (Red) before creating `studio.py`.
 
-Note: the original "non_supporting_host returns plain_text" test no longer applies — both
-hosting modes return the same `ToolResult`. There are now three tests:
+Note: both hosting modes return a valid `ToolResult`, but the `structured_content` payload
+differs by host support. There are now three tests:
 
 - `test_cairn_studio_non_supporting_host_returns_tool_result` — constructs a mock `ctx` where
   `ctx.client_supports_extension(UI_EXTENSION_ID)` returns `False`; calls `cairn_studio` with
   the standard injected dependencies; asserts `isinstance(result, ToolResult)`,
   `not result.is_error`, `result.structured_content` contains an `"artifacts"` key, and
-  `result.content[0].text` contains `"Cairn studio opened"`.
-- `test_cairn_studio_supporting_host_returns_tool_result` — constructs a mock `ctx` where
+  `result.content[0].text` mentions Cairn Studio.
+- `test_cairn_studio_supporting_host_omits_structured_content` — constructs a mock `ctx` where
   `ctx.client_supports_extension(UI_EXTENSION_ID)` returns `True`; calls `cairn_studio`;
   asserts `isinstance(result, ToolResult)`, `not result.is_error`,
-  `result.structured_content` contains an `"artifacts"` key, and
-  `result.content[0].text` contains `"Cairn studio opened"` — same assertions as the
-  non-supporting test because both return the same `ToolResult`.
+  `result.structured_content` is `None` (deliberately omitted so the model does not re-render
+  the listing), and `result.content[0].text` mentions Cairn Studio.
 - `test_cairn_studio_exception_returns_error_tool_result` — patches `_cairn_studio_inner` to
   raise an unexpected `RuntimeError`; calls `cairn_studio`; asserts
   `isinstance(result, ToolResult)` and `result.is_error` is `True`, consistent with all other
@@ -194,10 +208,12 @@ hosting modes return the same `ToolResult`. There are now three tests:
 
 Implement `cairn_studio(settings, s3, vectors, bedrock, ctx)` and `_cairn_studio_inner(...)`.
 The outer function catches all exceptions and returns an error `ToolResult` with `is_error=True`
-on failure. The inner function calls `_list_artifacts_inner` and returns a `ToolResult` with a
-short confirmation sentence in `content` and the artifact listing in `structured_content`,
-regardless of host support. The `is_ui` flag (result of
-`ctx.client_supports_extension(UI_EXTENSION_ID)`) is recorded only for logging.
+on failure. The inner function branches on `is_ui` (result of
+`ctx.client_supports_extension(UI_EXTENSION_ID)`): on a supporting host it returns a `ToolResult`
+with a short confirmation sentence in `content` and **no** `structured_content`; on a
+non-supporting host it calls `_list_artifacts_inner` and returns the listing in
+`structured_content` as well. The listing is withheld from supporting hosts so the model does not
+re-describe artifacts already shown in the widget.
 
 ---
 
@@ -244,11 +260,12 @@ during T43 implementation. Recorded here for T44 and future reference.
 
 - **FastMCP `AppConfig` return shape** — unconstrained. FastMCP imposes no specific return shape
   on the tool when `AppConfig` is active. `cairn_studio` returns a `ToolResult` (from
-  `fastmcp.tools.base`) with `content=[TextContent(text='Cairn studio opened — N artifacts
-  available…')]` (a short human confirmation so the model does not describe the raw JSON) and
-  `structured_content={"write_prefix": str, "artifacts": [...]}` (the data payload for the
-  iframe's `ontoolresult` handler). The iframe reads `structuredContent` first and falls back
-  to parsing `content[0].text`.
+  `fastmcp.tools.base`) with `content=[TextContent(text='Cairn Studio opened…')]` (a short human
+  confirmation so the model does not describe the raw JSON). On a **supporting** host
+  `structured_content` is omitted — the model has no signal that the widget rendered the data, so
+  returning the listing would make it re-describe the artifacts the user already sees; the iframe
+  instead loads its own list on mount. On a **non-supporting** host `structured_content` carries
+  `{"write_prefix": str, "artifacts": [...]}` so the client has the data without the widget.
 
 - **`UI_EXTENSION_ID` and `AppConfig` import path** — both are exported from `fastmcp.apps`:
   `from fastmcp.apps import AppConfig, UI_EXTENSION_ID`. `UI_EXTENSION_ID` is the string

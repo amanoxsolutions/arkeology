@@ -487,6 +487,13 @@ async def _artifact_last_modified(
     """Derive the ``lastModified`` ISO 8601 string from an artifact's ``last_edited_ulid``.
 
     Returns ``None`` when the artifact has no ``last_edited_ulid`` (annotation omitted).
+
+    Intentionally retained though not wired into the resource handler: emitting a per-read
+    ``lastModified`` annotation on the ``cairn://artifact/{id}`` *template* resource is not
+    expressible in the pinned stack (FastMCP 3.4 + MCP SDK) — template annotations are static
+    and ``TextResourceContents`` carries no ``annotations`` field. This helper keeps the
+    (unit-tested) ULID→ISO conversion ready to wire in once the protocol supports it. See the
+    waiver in ``docs/specs/p10-t42-mcp-data-resources.md``.
     """
     result: dict[str, Any] = await _read_artifact(
         settings=settings,
@@ -611,12 +618,15 @@ def register_data_resources(
     async def _artifact_resource(id: str) -> str:  # noqa: A002
         """Return the full markdown content of the artifact identified by ``id``."""
         try:
-            # Derive lastModified from ULID — requires a read_artifact call.
-            # We do this first so the handler can set the annotation before returning.
-            # (FastMCP does not support per-response annotations on template resources;
-            # the annotation on the registration is static.  lastModified is therefore
-            # a best-effort static annotation from the registration-time perspective.
-            # The content itself is always fresh.)
+            # NOTE: the per-artifact `lastModified` annotation (T42) is intentionally NOT
+            # emitted here — it is waived. This is a resource *template* (`{id}`): its
+            # `annotations` are declared once at registration and cannot vary per id, and the
+            # only per-read channel, `TextResourceContents`, has no `annotations` field in the
+            # pinned MCP SDK. So a per-artifact `lastModified` cannot be attached to a template
+            # read. The derivation helper (`_artifact_last_modified`) is retained and unit-tested
+            # for when the protocol supports it. See the waiver in docs/specs/p10-t42. The static
+            # `audience: ["user"]` annotation IS emitted (it is identical for every read), and the
+            # content itself is always fresh.
             content, _mime = await _artifact_resource_content(
                 artifact_id=id,
                 settings=settings,
