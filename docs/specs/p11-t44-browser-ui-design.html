@@ -1,0 +1,592 @@
+<title>cairn browser — Visual Identity</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --base:          #09091a;
+    --surface:       #12142a;
+    --surface-up:    #1a1d3a;
+    --surface-hi:    #222548;
+    --bd-faint:      rgba(148,158,220,0.07);
+    --bd:            rgba(148,158,220,0.13);
+    --bd-strong:     rgba(148,158,220,0.22);
+    --t1:            #e2eaff;
+    --t2:            #8390bc;
+    --t3:            #404870;
+    --mono:          "SF Mono","Cascadia Code","Fira Code",ui-monospace,monospace;
+
+    --g:   linear-gradient(135deg, #00d4b8, #0088ff 33%, #8844ee 66%, #e800b0);
+    --g90: linear-gradient(90deg,  #00d4b8, #0088ff 33%, #8844ee 66%, #e800b0);
+
+    /* Artifact type colours — teal→magenta = structural→ephemeral */
+    --c-adr:         #00d4b8;
+    --c-prd:         #00bccc;
+    --c-spec:        #00a0e0;
+    --c-plan:        #0088f8;
+    --c-runbook:     #1a66ee;
+    --c-changelog:   #3344ee;
+    --c-impl:        #5533ee;
+    --c-cr:          #7733ee;
+    --c-dn:          #9933dd;
+    --c-pm:          #bb33cc;
+    --c-brain:       #cc22bb;
+    --c-ss:          #dd11aa;
+    --c-learn:       #e80088;
+    --c-synth:       #f00077;
+    --c-bug:         #f50060;
+  }
+
+  html {
+    background: var(--base);
+    color: var(--t1);
+    font-family: system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI","Helvetica Neue",sans-serif;
+    font-size: 14px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  body { max-width: 1160px; margin: 0 auto; padding: 72px 40px 120px; }
+
+  /* ── Shared ── */
+  .g-text {
+    background: var(--g);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+  }
+
+  .sec-head {
+    font-size: 10px; font-weight: 600; letter-spacing: .14em;
+    text-transform: uppercase; color: var(--t3);
+    padding-bottom: 12px; border-bottom: 1px solid var(--bd-faint); margin-bottom: 24px;
+  }
+
+  .divider { height: 1px; background: var(--bd-faint); margin: 60px 0; }
+
+  /* ── Header ── */
+  .hd-eyebrow {
+    font-size: 11px; font-weight: 500; letter-spacing: .18em;
+    text-transform: uppercase; color: var(--t3); margin-bottom: 20px;
+  }
+
+  .hd-mark {
+    font-size: 88px; font-weight: 800; letter-spacing: -.04em; line-height: .88;
+    display: block;
+  }
+
+  .hd-sub {
+    font-size: 88px; font-weight: 800; letter-spacing: -.04em; line-height: .88;
+    color: var(--t3); margin-bottom: 28px; display: block;
+  }
+
+  .hd-desc {
+    font-size: 15px; color: var(--t2); max-width: 520px; line-height: 1.65; margin-bottom: 32px;
+  }
+
+  .g-rule { height: 2px; background: var(--g90); border-radius: 2px; max-width: 400px; }
+
+  /* ── Foundation ── */
+  .found-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 48px; }
+
+  .swatches { display: flex; gap: 10px; flex-wrap: wrap; }
+
+  .sw { width: 84px; }
+  .sw-block { height: 52px; border-radius: 8px; border: 1px solid var(--bd-faint); margin-bottom: 8px; }
+  .sw-name  { display: block; font-size: 11px; font-weight: 600; color: var(--t2); margin-bottom: 2px; }
+  .sw-hex   { font-family: var(--mono); font-size: 10px; color: var(--t3); }
+
+  .g-strip-wrap { display: flex; flex-direction: column; gap: 10px; }
+
+  .g-strip {
+    height: 52px; border-radius: 10px;
+    background: var(--g90); background-size: 200% 200%;
+    border: 1px solid rgba(255,255,255,.06);
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    @keyframes gb { 0%,100%{background-position:0 50%} 50%{background-position:100% 50%} }
+    .g-strip { animation: gb 10s ease infinite; }
+  }
+
+  .g-stops { display: flex; justify-content: space-between; }
+  .g-stops span { font-family: var(--mono); font-size: 10px; color: var(--t3); }
+
+  .g-note { font-size: 12px; color: var(--t2); line-height: 1.65; margin-top: 4px; }
+
+  /* ── Type spectrum grid ── */
+  .type-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 8px;
+  }
+
+  .tc {
+    display: flex; align-items: center; gap: 9px;
+    padding: 10px 12px; background: var(--surface);
+    border-radius: 8px; border: 1px solid var(--bd-faint);
+    transition: border-color .15s;
+  }
+  .tc:hover { border-color: var(--bd); }
+  .tc-pip { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .tc-slug { font-family: var(--mono); font-size: 11px; color: var(--t2);
+             white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* ── Glass demo ── */
+  .glass-scene {
+    border-radius: 16px; padding: 32px;
+    background:
+      radial-gradient(ellipse at 20% 50%, rgba(0,136,255,.09)  0%, transparent 55%),
+      radial-gradient(ellipse at 80% 50%, rgba(136,68,238,.09) 0%, transparent 55%),
+      var(--surface);
+  }
+
+  .glass-row { display: grid; grid-template-columns: repeat(3,1fr); gap: 14px; }
+
+  .glass-card {
+    background: rgba(9,9,26,.55);
+    backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+    border: 1px solid var(--bd); border-radius: 12px; padding: 22px;
+    position: relative; overflow: hidden;
+  }
+
+  .glass-card::before {
+    content:''; position: absolute; top:0; left:0; right:0; height:1px;
+    background: var(--g90); opacity:.35;
+  }
+
+  .gc-label { font-size: 10px; font-weight: 600; letter-spacing:.1em;
+              text-transform: uppercase; color: var(--t3); margin-bottom: 10px; }
+  .gc-val   { font-size: 32px; font-weight: 700; letter-spacing: -.03em;
+              font-variant-numeric: tabular-nums; line-height: 1; }
+  .gc-sub   { font-size: 11px; color: var(--t3); margin-top: 6px; }
+
+  /* ── Browser mockup ── */
+  .mockup {
+    border-radius: 14px; overflow: hidden;
+    border: 1px solid var(--bd-strong);
+    box-shadow: 0 40px 100px -20px rgba(0,0,0,.75), 0 0 0 1px rgba(255,255,255,.03);
+  }
+
+  /* Titlebar */
+  .tb {
+    background: var(--surface); height: 52px;
+    display: flex; align-items: center; padding: 0 20px; gap: 16px;
+    position: relative; border-bottom: 1px solid var(--bd-faint);
+  }
+
+  .tb::after {
+    content:''; position:absolute; bottom:0; left:0; right:0; height:1px;
+    background: var(--g90); background-size: 200% 200%;
+    opacity:.7;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .tb::after { animation: gb 10s ease infinite; }
+  }
+
+  .tb-logo { font-size: 16px; font-weight: 800; letter-spacing: -.03em; flex-shrink:0; }
+
+  .tb-search {
+    flex:1; max-width:340px; height:32px;
+    background: var(--base); border: 1px solid var(--bd); border-radius: 8px;
+    display: flex; align-items: center; padding: 0 12px; gap: 8px;
+    color: var(--t2); font-size: 12px;
+  }
+
+  .tb-scope {
+    margin-left: auto; font-size: 11px; color: var(--t2);
+    background: var(--base); border: 1px solid var(--bd-faint);
+    border-radius: 6px; padding: 4px 10px; flex-shrink: 0;
+  }
+
+  /* Body */
+  .mb { display: flex; height: 540px; overflow: hidden; }
+
+  /* Left panel */
+  .lp {
+    width: 272px; flex-shrink: 0;
+    background: var(--surface); border-right: 1px solid var(--bd-faint);
+    display: flex; flex-direction: column;
+  }
+
+  .lp-filters {
+    padding: 10px; border-bottom: 1px solid var(--bd-faint);
+    display: flex; gap: 6px; flex-wrap: wrap;
+  }
+
+  .lp-fp {
+    font-size: 10px; color: var(--t2); background: var(--base);
+    border: 1px solid var(--bd-faint); border-radius: 6px; padding: 3px 8px;
+  }
+
+  .lp-list {
+    flex:1; overflow-y: auto; padding: 8px;
+    display: flex; flex-direction: column; gap: 3px;
+  }
+
+  .li {
+    padding: 10px 12px 10px 15px;
+    border-radius: 8px; border: 1px solid transparent;
+    position: relative; overflow: hidden;
+    flex-shrink: 0; /* never compress — list scrolls instead */
+  }
+
+  .li-stripe {
+    position: absolute; left:0; top:0; bottom:0; width:3px; border-radius:0;
+  }
+
+  .li.active { background: var(--surface-hi); border-color: var(--bd); }
+  .li:not(.active) { opacity: .55; }
+
+  .li-badge {
+    display: inline-block;
+    font-size: 12px; font-weight: 700; letter-spacing: .08em;
+    text-transform: uppercase; padding: 2px 6px; border-radius: 4px;
+    margin-bottom: 5px; font-family: var(--mono);
+  }
+
+  .li-title {
+    font-size: 12px; font-weight: 500; color: var(--t1);
+    margin-bottom: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+
+  .li-meta { font-size: 10px; color: var(--t2); }
+
+  /* Right panel */
+  .rp { flex:1; overflow-y: auto; padding: 32px 36px; background: var(--base); }
+
+  .rp-eyebrow {
+    font-size: 10px; font-weight: 700; letter-spacing:.12em;
+    text-transform: uppercase; margin-bottom: 10px;
+  }
+
+  .rp-title {
+    font-size: 22px; font-weight: 700; letter-spacing: -.02em;
+    line-height: 1.2; margin-bottom: 10px; text-wrap: balance;
+  }
+
+  .rp-pills { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 28px; }
+
+  .rp-pill {
+    font-size: 10px; color: var(--t2); background: var(--surface);
+    border: 1px solid var(--bd-faint); border-radius: 20px; padding: 3px 10px;
+  }
+
+  .rp-h2 {
+    font-size: 13px; font-weight: 600; color: var(--t1);
+    margin: 22px 0 8px; padding-bottom: 8px;
+    border-bottom: 1px solid var(--bd-faint);
+  }
+
+  .rp-p {
+    font-size: 12px; color: var(--t2); line-height: 1.75;
+    margin-bottom: 12px; max-width: 580px;
+  }
+
+  .rp-code {
+    font-family: var(--mono); font-size: 11px;
+    padding: 2px 6px; border-radius: 4px;
+  }
+
+  .rp-table { width: 100%; border-collapse: collapse; font-size: 11px; margin-bottom: 18px; }
+  .rp-table th {
+    text-align: left; padding: 6px 10px;
+    font-size: 9px; font-weight: 700; letter-spacing:.1em; text-transform: uppercase;
+    color: var(--t3); border-bottom: 1px solid var(--bd-faint);
+  }
+  .rp-table td {
+    padding: 7px 10px; color: var(--t2);
+    border-bottom: 1px solid rgba(148,158,220,.04); vertical-align: top;
+  }
+  .rp-table td:first-child { font-weight: 500; color: var(--t1); }
+
+  /* Fake diagram node strip */
+  .rp-diagram {
+    background: var(--surface); border: 1px solid var(--bd-faint);
+    border-radius: 10px; height: 76px;
+    display: flex; align-items: center; justify-content: center; gap: 10px;
+    margin-bottom: 14px;
+  }
+
+  .rp-node {
+    background: var(--surface-up); border: 1px solid var(--bd);
+    border-radius: 6px; padding: 5px 11px;
+    font-size: 11px; font-weight: 500; color: var(--t2);
+  }
+
+  .rp-arr { color: var(--t3); font-size: 14px; }
+</style>
+
+<!-- ── Identity header ── -->
+<header style="margin-bottom:80px;">
+  <p class="hd-eyebrow">Visual Identity · cairn-mcp browser</p>
+  <div style="margin-bottom:28px;">
+    <span class="hd-mark g-text">cairn</span>
+    <span class="hd-sub">browser</span>
+  </div>
+  <p class="hd-desc">
+    A dark spectrum-accented developer tool surfacing persistent AI artifact memory through
+    a two-pane reading interface embedded inline in Claude Desktop and compatible MCP hosts.
+  </p>
+  <div class="g-rule"></div>
+</header>
+
+<!-- ── Foundation ── -->
+<section style="margin-bottom:56px;">
+  <p class="sec-head">Foundation — base palette &amp; spectrum accent</p>
+  <div class="found-grid">
+
+    <div>
+      <p style="font-size:10px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--t3);margin-bottom:16px;">Base palette</p>
+      <div class="swatches">
+        <div class="sw">
+          <div class="sw-block" style="background:#09091a;"></div>
+          <span class="sw-name">base</span><span class="sw-hex">#09091a</span>
+        </div>
+        <div class="sw">
+          <div class="sw-block" style="background:#12142a;"></div>
+          <span class="sw-name">surface</span><span class="sw-hex">#12142a</span>
+        </div>
+        <div class="sw">
+          <div class="sw-block" style="background:#222548;"></div>
+          <span class="sw-name">active</span><span class="sw-hex">#222548</span>
+        </div>
+        <div class="sw">
+          <div class="sw-block" style="background:#e2eaff;border:none;"></div>
+          <span class="sw-name">text-1</span><span class="sw-hex">#e2eaff</span>
+        </div>
+        <div class="sw">
+          <div class="sw-block" style="background:#8390bc;"></div>
+          <span class="sw-name">text-2</span><span class="sw-hex">#8390bc</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="g-strip-wrap">
+      <p style="font-size:10px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--t3);margin-bottom:16px;">Spectrum accent</p>
+      <div class="g-strip"></div>
+      <div class="g-stops">
+        <span>#00d4b8 teal</span>
+        <span>#0088ff blue</span>
+        <span>#8844ee purple</span>
+        <span>#e800b0 magenta</span>
+      </div>
+      <p class="g-note">
+        Used as: toolbar accent rule, list-item left stripes, type badge chips,
+        gradient text on the logo, inline code tints, input focus rings, and button fills.
+        Applied as the full live spectrum — never clipped to a single stop.
+      </p>
+    </div>
+
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ── Type spectrum ── -->
+<section style="margin-bottom:56px;">
+  <p class="sec-head">Artifact type colour system — structural (teal) → ephemeral (magenta)</p>
+  <div class="type-grid">
+    <div class="tc"><div class="tc-pip" style="background:var(--c-adr)"></div><span class="tc-slug">adr</span></div>
+    <div class="tc"><div class="tc-pip" style="background:var(--c-prd)"></div><span class="tc-slug">prd</span></div>
+    <div class="tc"><div class="tc-pip" style="background:var(--c-spec)"></div><span class="tc-slug">spec</span></div>
+    <div class="tc"><div class="tc-pip" style="background:var(--c-plan)"></div><span class="tc-slug">plan</span></div>
+    <div class="tc"><div class="tc-pip" style="background:var(--c-runbook)"></div><span class="tc-slug">runbook</span></div>
+    <div class="tc"><div class="tc-pip" style="background:var(--c-changelog)"></div><span class="tc-slug">changelog</span></div>
+    <div class="tc"><div class="tc-pip" style="background:var(--c-impl)"></div><span class="tc-slug">implementation_note</span></div>
+    <div class="tc"><div class="tc-pip" style="background:var(--c-cr)"></div><span class="tc-slug">code_review</span></div>
+    <div class="tc"><div class="tc-pip" style="background:var(--c-dn)"></div><span class="tc-slug">decision_note</span></div>
+    <div class="tc"><div class="tc-pip" style="background:var(--c-pm)"></div><span class="tc-slug">postmortem</span></div>
+    <div class="tc"><div class="tc-pip" style="background:var(--c-brain)"></div><span class="tc-slug">brainstorming</span></div>
+    <div class="tc"><div class="tc-pip" style="background:var(--c-ss)"></div><span class="tc-slug">session_summary</span></div>
+    <div class="tc"><div class="tc-pip" style="background:var(--c-learn)"></div><span class="tc-slug">learning</span></div>
+    <div class="tc"><div class="tc-pip" style="background:var(--c-synth)"></div><span class="tc-slug">synthesis</span></div>
+    <div class="tc"><div class="tc-pip" style="background:var(--c-bug)"></div><span class="tc-slug">bug_report</span></div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ── Glass components ── -->
+<section style="margin-bottom:56px;">
+  <p class="sec-head">Glassmorphism surface — stat panels (shown over ambient gradient glow)</p>
+  <div class="glass-scene">
+    <div class="glass-row">
+      <div class="glass-card">
+        <p class="gc-label">Total artifacts</p>
+        <div class="gc-val g-text">142</div>
+        <p class="gc-sub">team / cairn-mcp</p>
+      </div>
+      <div class="glass-card">
+        <p class="gc-label">Active</p>
+        <div class="gc-val g-text">128</div>
+        <p class="gc-sub">14 archived</p>
+      </div>
+      <div class="glass-card">
+        <p class="gc-label">Last written</p>
+        <div class="gc-val" style="font-size:17px;padding-top:6px;color:var(--t1);letter-spacing:-.01em;">2026-06-24</div>
+        <p class="gc-sub">session_summary</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ── Browser mockup ── -->
+<section>
+  <p class="sec-head">Browser UI — two-pane layout</p>
+  <p style="font-size:12px;color:var(--t2);margin-bottom:16px;line-height:1.7;">
+    <strong style="color:var(--t1);">List sort order:</strong> type ascending (A→Z), then date descending (newest first) within each type.<br>
+    <strong style="color:var(--t1);">List items:</strong> <code style="font-family:monospace;font-size:11px;background:var(--surface);padding:1px 5px;border-radius:3px;">flex-shrink: 0</code> — items always render at natural height; the list container scrolls.<br>
+    <strong style="color:var(--t1);">Search placeholder &amp; secondary metadata text:</strong> <code style="font-family:monospace;font-size:11px;background:var(--surface);padding:1px 5px;border-radius:3px;">color: var(--t2)</code> (#8390bc) — applies to <code style="font-family:monospace;font-size:11px;background:var(--surface);padding:1px 5px;border-radius:3px;">.li-meta</code>, <code style="font-family:monospace;font-size:11px;background:var(--surface);padding:1px 5px;border-radius:3px;">.rp-pill</code>, scope label, filter pills, and placeholder text. Never --t3 (#404870) which is unreadable on the dark base.
+  </p>
+  <div class="mockup">
+
+    <!-- Titlebar -->
+    <div class="tb">
+      <div class="tb-logo g-text">cairn</div>
+      <div class="tb-search">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+          <circle cx="5" cy="5" r="3.5" stroke="#8390bc" stroke-width="1.2"/>
+          <line x1="7.8" y1="7.8" x2="10.5" y2="10.5" stroke="#8390bc" stroke-width="1.2" stroke-linecap="round"/>
+        </svg>
+        <span>Search artifacts…</span>
+      </div>
+      <div class="tb-scope">team / cairn-mcp</div>
+    </div>
+
+    <div class="mb">
+
+      <!-- Left panel -->
+      <div class="lp">
+        <div class="lp-filters">
+          <div class="lp-fp">type: all ▾</div>
+          <div class="lp-fp">tier: all ▾</div>
+          <div class="lp-fp">status: active ▾</div>
+        </div>
+
+        <div class="lp-list">
+          <!-- Sorted: type A→Z, then date newest-first within type -->
+
+          <div class="li active">
+            <div class="li-stripe" style="background:var(--c-adr);"></div>
+            <div class="li-badge" style="background:rgba(0,212,184,.12);color:var(--c-adr);">adr</div>
+            <div class="li-title">FastMCP as Server Framework</div>
+            <div class="li-meta">2026-05-29 · tier 3</div>
+          </div>
+
+          <div class="li">
+            <div class="li-stripe" style="background:var(--c-cr);"></div>
+            <div class="li-badge" style="background:rgba(119,51,238,.12);color:var(--c-cr);">code_review</div>
+            <div class="li-title">Phase 10 — Commit Refs</div>
+            <div class="li-meta">2026-06-18 · tier 2</div>
+          </div>
+
+          <div class="li">
+            <div class="li-stripe" style="background:var(--c-learn);"></div>
+            <div class="li-badge" style="background:rgba(232,0,136,.12);color:var(--c-learn);">learning</div>
+            <div class="li-title">moto query_vectors Extension</div>
+            <div class="li-meta">2026-05-31 · tier 2</div>
+          </div>
+
+          <div class="li">
+            <div class="li-stripe" style="background:var(--c-ss);"></div>
+            <div class="li-badge" style="background:rgba(221,17,170,.12);color:var(--c-ss);">session_summary</div>
+            <div class="li-title">Search Helper Refactor</div>
+            <div class="li-meta">2026-06-10 · tier 2</div>
+          </div>
+
+          <div class="li">
+            <div class="li-stripe" style="background:var(--c-spec);"></div>
+            <div class="li-badge" style="background:rgba(0,160,224,.12);color:var(--c-spec);">spec</div>
+            <div class="li-title">MCP App Infrastructure</div>
+            <div class="li-meta">2026-06-24 · tier 3</div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Right panel — document viewer -->
+      <div class="rp">
+
+        <div class="rp-eyebrow" style="color:var(--c-adr);">Architecture Decision Record</div>
+        <h1 class="rp-title">FastMCP as the MCP Server Framework</h1>
+        <div class="rp-pills">
+          <span class="rp-pill">tier 3 · shared</span>
+          <span class="rp-pill">2026-05-29</span>
+          <span class="rp-pill">team / cairn-mcp</span>
+          <span class="rp-pill">status: accepted</span>
+        </div>
+
+        <h2 class="rp-h2">Context</h2>
+        <p class="rp-p">
+          The project needed a Python library to host the Model Context Protocol server.
+          Implementing the protocol from scratch requires handling connection lifecycle,
+          JSON-RPC dispatch, schema exposure, and transport management before any tool logic
+          can be written.
+        </p>
+
+        <h2 class="rp-h2">Decision</h2>
+        <p class="rp-p">
+          We chose
+          <code class="rp-code" style="color:var(--c-adr);background:rgba(0,212,184,.08);">fastmcp</code>
+          as the MCP server framework. Tool functions are registered via
+          <code class="rp-code" style="color:var(--c-spec);background:rgba(0,160,224,.08);">@_app.tool()</code>
+          inside
+          <code class="rp-code" style="color:var(--c-spec);background:rgba(0,160,224,.08);">register_tools()</code>
+          in
+          <code class="rp-code" style="color:var(--c-spec);background:rgba(0,160,224,.08);">server.py</code>.
+        </p>
+
+        <h2 class="rp-h2">Alternatives Considered</h2>
+        <div style="overflow-x:auto;">
+          <table class="rp-table">
+            <thead>
+              <tr><th>Option</th><th>Pros</th><th>Cons</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>fastmcp ✓</td>
+                <td>Minimal boilerplate; automatic JSON schema; built-in stdio</td>
+                <td>Young library; full args logged at DEBUG</td>
+              </tr>
+              <tr>
+                <td>Official mcp SDK</td>
+                <td>Closer to the protocol specification</td>
+                <td>More boilerplate; manual schema wiring</td>
+              </tr>
+              <tr>
+                <td>Custom JSON-RPC</td>
+                <td>Complete control; no third-party dependency</td>
+                <td>Large upfront cost; duplicates solved problems</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h2 class="rp-h2">Consequences</h2>
+        <p class="rp-p">
+          Tool registration is concise. The
+          <code class="rp-code" style="color:var(--t3);background:var(--surface);">fastmcp.*</code>
+          logger hierarchy is unconditionally clamped to WARNING in
+          <code class="rp-code" style="color:var(--t3);background:var(--surface);">__main__.py</code>
+          to prevent artifact content from appearing in logs.
+        </p>
+
+        <h2 class="rp-h2">Architecture</h2>
+        <div class="rp-diagram">
+          <div class="rp-node">Agent</div>
+          <div class="rp-arr">→</div>
+          <div class="rp-node">FastMCP</div>
+          <div class="rp-arr">→</div>
+          <div class="rp-node">Tools</div>
+          <div class="rp-arr">→</div>
+          <div class="rp-node">S3 · Vectors · Bedrock</div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</section>

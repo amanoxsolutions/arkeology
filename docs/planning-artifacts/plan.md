@@ -10,8 +10,8 @@ okf_version: "0.1"
 # Plan: cairn-mcp
 
 _Project: cairn-mcp_
-_Generated: 2026-05-29_ · _Last updated: 2026-06-18_
-_Status: **V1 — Phases 1–9 complete (unit + integration suite passing against live AWS; ruff + mypy clean; Apache 2.0 licensed; production-hardened; moto migration complete; write performance hardened; bulk write + migration tools; setting-up-cairn + sync-cairn-plugin skills; skill distribution via native plugin mechanisms) · Phase 10 (artifact commit references + caller-controlled concurrency + OKF schema alignment) T35–T41 complete**_
+_Generated: 2026-05-29_ · _Last updated: 2026-06-24_
+_Status: **V1 — Phases 1–9 complete (unit + integration suite passing against live AWS; ruff + mypy clean; Apache 2.0 licensed; production-hardened; moto migration complete; write performance hardened; bulk write + migration tools; setting-up-cairn + sync-cairn-plugin skills; skill distribution via native plugin mechanisms) · Phase 10 complete (artifact commit references + caller-controlled concurrency + OKF schema alignment + MCP data resources; v0.4.0) · Phase 11 (MCP App visual reading interface) open**_
 
 ## How we work
 
@@ -22,7 +22,7 @@ This project runs as a **single open phase**, not a pre-planned roadmap. Complet
 - **Status legend:** ⬜ pending · 🔄 in progress · 🔍 in review · ✅ done · 🔴 blocked
 - **Delivery model:** each **Phase** is a coherent slice of value delivered as a set of tasks. A phase ends when we judge it done.
 
-**Current state:** Phase 10 — Artifact Commit References is open (🔄). Latest shipped: Phase 9 — Improvements and Fixes (V1).
+**Current state:** Phase 11 — Visual Reading Interface (MCP Apps) is open (🔄). Latest shipped: Phase 10 — Artifact Commit References + OKF Schema Alignment + MCP Data Resources (v0.4.0).
 
 ---
 
@@ -297,11 +297,11 @@ Goal: quality-of-life improvements and documentation polish before declaring v1,
 
 ---
 
-### Phase 10 — Artifact Commit References + OKF Schema Alignment
+### Phase 10 — Artifact Commit References + OKF Schema Alignment + MCP Data Resources
 
 Goal: close the traceability gap between artifacts and git commits (T35–T40); align the
-`feature_tags` field name with OKF vocabulary as a pure rename (T41). T35–T40 are complete;
-T41 is open.
+`feature_tags` field name with OKF vocabulary as a pure rename (T41); expose MCP data resources
+for direct artifact browsing from host tools (T42). All tasks complete.
 
 **Execution order:** T35 is an independent prerequisite (filter.py only); T36 depends on
 T35 and must complete before T37 and T38; T37 and T38 can be worked in parallel once T36
@@ -340,6 +340,27 @@ independent of T31, T32, T33, and T34 — no shared files.
     - Done when: no occurrence of `feature_tags` remains in `src/`, `tests/`, `AGENTS.md`, `SERVER-REFERENCE.md`, or `skills/`; all unit tests pass; `ruff check`, `ruff format --check`, and `mypy src/` are clean; dual-encoding tests (`test_vector_metadata_tags_is_list`, `test_s3_metadata_tags_…`) verify the S3 string vs vector list split is preserved under the new key name
     - Spec: `docs/specs/p10-t41-rename-feature-tags-to-tags.md`
     - Brainstorming: `docs/brainstorming/brainstorming-2026-06-15-okf-alignment.md` (D2)
+
+42. ✅ **MCP data resources** — expose `cairn://artifact/{id}` URI template resource returning the full markdown content of the identified artifact and `cairn://artifacts` listing resource returning a markdown-formatted index of active own-scope artifacts; both carry `audience: ["user"]` annotations signalling human-facing content; `cairn://artifact/{id}` applies the same scope, tier, and visibility gate as `read_artifact`; both registered alongside existing schema resources via `register_resources()` (FR-46, AC-51, AC-52)
+    - Done when: `cairn://artifact/{id}` returns full markdown content for valid own-scope artifacts with `mimeType: "text/markdown"`; foreign-scope tier 2 artifacts rejected; `cairn://artifacts` returns a markdown listing equivalent to `list_artifacts` with default parameters; both resources available to any connected MCP client without additional configuration; ruff + mypy clean
+    - Spec: `docs/specs/p10-t42-mcp-data-resources.md`
+
+---
+
+## Phase 11 — Visual Reading Interface (MCP Apps)
+
+Goal: a developer calling `cairn_browse` in any MCP App-supporting host (Claude Desktop, claude.ai, VS Code Copilot) sees an interactive artifact browser rendered inline — faceted filtering, semantic search, full markdown and mermaid rendering — with zero new AWS infrastructure. All cairn tool calls from within the browser pass through the existing scope gate unchanged.
+
+**Execution order:** T43 is the prerequisite (server-side infrastructure, `cairn_browse` tool registration, and HTML placeholder must exist before T44 can be developed and loaded). T44 depends on T43.
+
+43. ✅ **Server-side MCP App infrastructure and `cairn_browse` tool** *(prerequisite — establishes the entry point and resource serving before any UI work)* — add `fastmcp[apps]` optional extra to `pyproject.toml`; create `src/cairn_mcp/tools/browse.py`: `cairn_browse` tool decorated with `AppConfig(resource_uri="ui://cairn-browser/index.html")`, initial call returns active artifact listing data, branches on `ctx.client_supports_extension(UI_EXTENSION_ID)` — graceful degradation path returns a plain-text `list_artifacts` equivalent when extension not supported; register `ui://cairn-browser/index.html` resource in `resources.py` with `ResourceCSP` declaring CDN origins (`unpkg.com`, `cdn.jsdelivr.net`), reads HTML from `src/cairn_mcp/static/cairn-browser.html`; create `src/cairn_mcp/static/cairn-browser.html` placeholder; declare `src/cairn_mcp/static/` as package data in `pyproject.toml`; register tool in `server.py` via `register_tools()`; update AGENTS.md repository structure table (FR-47, FR-48)
+    - **Red (tests written before implementation):** test `cairn_browse` returns plain-text listing when `ctx.client_supports_extension(UI_EXTENSION_ID)` is `False`; test `cairn_browse` returns structured tool result when extension is supported (mock `ctx`); test `ui://cairn-browser/index.html` resource returns non-empty string content
+    - **Green:** all three tests pass; `fastmcp[apps]` installed; tool registered and callable; resource serves the HTML placeholder; `uv run ruff check`, `ruff format --check`, `mypy src/` clean
+    - Spec: `docs/specs/p11-t43-mcp-app-infrastructure.md`
+
+44. ✅ **Browser UI (HTML/JS)** *(depends on T43)* — build `src/cairn_mcp/static/cairn-browser.html`: a self-contained HTML/JS browser application with all dependencies loaded from declared CDNs; left panel providing filter controls (type, tier, status) and an artifact listing populated on open and refreshed by `list_artifacts` on filter change; right panel document viewer triggered by artifact selection that fetches via `read_artifact` and renders markdown and mermaid diagrams; semantic search box that calls `search_artifacts` and replaces the listing with ranked results, clearing restores the filter view; update `SERVER-REFERENCE.md` with `cairn_browse` tool entry; update AGENTS.md to mention `cairn_browse` as the reading entry point (FR-47, FR-48, FR-49)
+    - Done when: `cairn_browse` called in Claude Desktop renders the browser UI with a populated artifact list; selecting an artifact renders its full markdown content and mermaid diagrams correctly; semantic search returns ranked results that replace the listing; clearing the search query restores the faceted-filter listing; `uv run cairn-mcp` starts without error (startup validation passes); `uv run ruff check`, `ruff format --check`, `mypy src/` clean
+    - Spec: `docs/specs/p11-t44-browser-ui.md`
 
 ---
 
@@ -384,3 +405,9 @@ independent of T31, T32, T33, and T34 — no shared files.
 - [`docs/specs/p10-t40-migration-skill-commit-refs-backfill.md`](../specs/p10-t40-migration-skill-commit-refs-backfill.md)
 - [`docs/specs/p10-t41-rename-feature-tags-to-tags.md`](../specs/p10-t41-rename-feature-tags-to-tags.md)
 - [`docs/brainstorming/brainstorming-2026-06-15-okf-alignment.md`](../brainstorming/brainstorming-2026-06-15-okf-alignment.md)
+- [`docs/specs/p10-t42-mcp-data-resources.md`](../specs/p10-t42-mcp-data-resources.md)
+- [`docs/brainstorming/brainstorming-2026-06-14-visual-reading-interface.md`](../brainstorming/brainstorming-2026-06-14-visual-reading-interface.md)
+- [`docs/brainstorming/brainstorming-2026-06-24-mcp-apps-visual-interface.md`](../brainstorming/brainstorming-2026-06-24-mcp-apps-visual-interface.md)
+- [`docs/architecture-decisions/adr-2026-06-24-mcp-apps-visual-reading-interface.md`](../architecture-decisions/adr-2026-06-24-mcp-apps-visual-reading-interface.md)
+- [`docs/specs/p11-t43-mcp-app-infrastructure.md`](../specs/p11-t43-mcp-app-infrastructure.md)
+- [`docs/specs/p11-t44-browser-ui.md`](../specs/p11-t44-browser-ui.md)
