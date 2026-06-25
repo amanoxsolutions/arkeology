@@ -9,3 +9,5 @@ __pycache__
 .ruff_cache
 dist/
 .pytest_cache/
+dev_server.py
+.claude/

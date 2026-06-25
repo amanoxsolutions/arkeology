@@ -5,6 +5,9 @@ import logging
 from typing import Any
 
 import fastmcp
+from fastmcp.apps.config import AppConfig
+from fastmcp.server.context import Context
+from fastmcp.tools.base import ToolResult
 
 from cairn_mcp.clients.interfaces import (
     BedrockClientInterface,
@@ -12,8 +15,9 @@ from cairn_mcp.clients.interfaces import (
     VectorsClientInterface,
 )
 from cairn_mcp.config import Settings
-from cairn_mcp.resources import register_data_resources, register_resources
+from cairn_mcp.resources import register_data_resources, register_resources, register_ui_resource
 from cairn_mcp.tools.archive import archive_artifact as _archive_artifact
+from cairn_mcp.tools.browse import cairn_browse as _cairn_browse
 from cairn_mcp.tools.delete import delete_artifact as _delete_artifact
 from cairn_mcp.tools.freshness import check_synthesis_freshness as _check_synthesis_freshness
 from cairn_mcp.tools.health import health_check as _health_check
@@ -37,6 +41,7 @@ except importlib.metadata.PackageNotFoundError:
     _version = "0.0.0-dev"
 _app = fastmcp.FastMCP(name="cairn-mcp", version=_version)
 register_resources(_app)
+register_ui_resource(_app)
 
 
 def register_tools(
@@ -305,6 +310,14 @@ def register_tools(
             bedrock=bedrock,
             artifact_ids=artifact_ids,
             commit_sha=commit_sha,
+        )
+
+    @_app.tool(app=AppConfig(resource_uri="ui://cairn-browser/index.html"))
+    async def cairn_browse(ctx: Context) -> ToolResult:
+        """Browse cairn artifacts — triggers the inline MCP App browser."""
+        return await _cairn_browse(
+            settings=settings,
+            ctx=ctx,
         )
 
     register_data_resources(_app, settings, s3, vectors, bedrock)

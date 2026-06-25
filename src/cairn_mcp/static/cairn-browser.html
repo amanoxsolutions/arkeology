@@ -1,0 +1,835 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>cairn browser</title>
+<script type="module">
+import { App } from "https://unpkg.com/@modelcontextprotocol/ext-apps@1.7.4/app-with-deps";
+import { marked } from "https://cdn.jsdelivr.net/npm/marked/+esm";
+import mermaid from "https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.esm.min.mjs";
+
+// ── Mermaid init ───────────────────────────────────────────────────────────
+mermaid.initialize({ theme: "dark", darkMode: true });
+
+// ── Type configuration ─────────────────────────────────────────────────────
+const TYPE_COLORS = {
+  adr:                "var(--c-adr)",
+  prd:                "var(--c-prd)",
+  spec:               "var(--c-spec)",
+  plan:               "var(--c-plan)",
+  runbook:            "var(--c-runbook)",
+  changelog:          "var(--c-changelog)",
+  implementation_note:"var(--c-impl)",
+  code_review:        "var(--c-cr)",
+  decision_note:      "var(--c-dn)",
+  postmortem:         "var(--c-pm)",
+  brainstorming:      "var(--c-brain)",
+  session_summary:    "var(--c-ss)",
+  learning:           "var(--c-learn)",
+  synthesis:          "var(--c-synth)",
+  bug_report:         "var(--c-bug)",
+};
+
+const TYPE_LABELS = {
+  adr:                "ADR",
+  prd:                "PRD",
+  spec:               "Spec",
+  plan:               "Plan",
+  runbook:            "Runbook",
+  changelog:          "Changelog",
+  implementation_note:"Impl. Note",
+  code_review:        "Code Review",
+  decision_note:      "Decision Note",
+  postmortem:         "Postmortem",
+  brainstorming:      "Brainstorming",
+  session_summary:    "Session Summary",
+  learning:           "Learning",
+  synthesis:          "Synthesis",
+  bug_report:         "Bug Report",
+};
+
+const TYPE_HEX = {
+  adr:                "#00d4b8",
+  prd:                "#00bccc",
+  spec:               "#00a0e0",
+  plan:               "#0088f8",
+  runbook:            "#1a66ee",
+  changelog:          "#3344ee",
+  implementation_note:"#5533ee",
+  code_review:        "#7733ee",
+  decision_note:      "#9933dd",
+  postmortem:         "#bb33cc",
+  brainstorming:      "#cc22bb",
+  session_summary:    "#dd11aa",
+  learning:           "#e80088",
+  synthesis:          "#f00077",
+  bug_report:         "#f50060",
+};
+
+function typeColor(type)  { return TYPE_COLORS[type] || "var(--t3)"; }
+function typeLabel(type)  { return TYPE_LABELS[type] || type; }
+function typeBadgeBg(type) {
+  const hex = TYPE_HEX[type];
+  if (!hex) return "rgba(64,72,112,0.18)";
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return `rgba(${r},${g},${b},0.12)`;
+}
+
+function escHtml(str) {
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+// ── State ──────────────────────────────────────────────────────────────────
+let currentArtifacts = [];
+let selectedId = null;
+let filterType = "";
+let filterTier = "";
+let filterStatus = "";
+
+// ── DOM refs ───────────────────────────────────────────────────────────────
+const appEl        = document.getElementById("app");
+const scopeLabel   = document.getElementById("scope-label");
+const searchInput  = document.getElementById("search-input");
+const searchForm   = document.getElementById("search-form");
+const selType      = document.getElementById("sel-type");
+const selTier      = document.getElementById("sel-tier");
+const selStatus    = document.getElementById("sel-status");
+const artifactList = document.getElementById("artifact-list");
+const listView     = document.getElementById("list-view");
+const detailView   = document.getElementById("detail-view");
+const detailBack   = document.getElementById("detail-back");
+const detailBody   = document.getElementById("detail-body");
+
+// ── View switching ─────────────────────────────────────────────────────────
+function openDetail() { appEl.classList.add("showing-detail"); }
+function openList()   {
+  appEl.classList.remove("showing-detail");
+  selectedId = null;
+  document.querySelectorAll(".li").forEach(el => {
+    el.classList.remove("active");
+    el.setAttribute("aria-selected", "false");
+  });
+}
+
+// ── Render helpers ─────────────────────────────────────────────────────────
+function renderList(artifacts) {
+  // Sort: type ascending (A→Z), then date descending (newest first)
+  const sorted = [...(artifacts || [])].sort((a, b) => {
+    const ta = (a.type || "").toLowerCase(), tb = (b.type || "").toLowerCase();
+    if (ta !== tb) return ta < tb ? -1 : 1;
+    return (b.date || "").localeCompare(a.date || "");
+  });
+  currentArtifacts = sorted;
+  artifactList.innerHTML = "";
+
+  if (!sorted || sorted.length === 0) {
+    artifactList.innerHTML = '<p class="empty-msg">No artifacts found.</p>';
+    return;
+  }
+
+  for (const a of sorted) {
+    const id      = a.artifact_id || "";
+    const type    = a.type || "";
+    const title   = a.title || id;
+    const date    = a.date || "";
+    const tier    = a.tier || "";
+    const color   = typeColor(type);
+    const badgeBg = typeBadgeBg(type);
+    const label   = typeLabel(type);
+    const isActive = id === selectedId;
+
+    const item = document.createElement("div");
+    item.className = "li" + (isActive ? " active" : "");
+    item.dataset.id = id;
+    item.setAttribute("role", "option");
+    item.setAttribute("aria-selected", isActive ? "true" : "false");
+    item.innerHTML = `
+      <div class="li-stripe" style="background:${color};"></div>
+      <div class="li-badge" style="background:${badgeBg};color:${color};">${escHtml(label)}</div>
+      <div class="li-title">${escHtml(title)}</div>
+      <div class="li-meta">${escHtml(date)}${tier ? " · tier " + tier : ""}</div>
+    `;
+    item.addEventListener("click", () => selectArtifact(id));
+    artifactList.appendChild(item);
+  }
+}
+
+// ── Tool calls ─────────────────────────────────────────────────────────────
+let app;
+
+async function loadList() {
+  const args = {};
+  if (filterType)   args.type   = filterType;
+  if (filterTier)   args.tier   = parseInt(filterTier, 10);
+  if (filterStatus) args.status = filterStatus;
+
+  try {
+    const result = await app.callServerTool({ name: "list_artifacts", arguments: args });
+    const data = result.structuredContent ?? JSON.parse(result.content?.find(c => c.type === "text")?.text ?? "{}");
+    renderList(data.artifacts || []);
+    if (selectedId && !(data.artifacts || []).find(a => a.artifact_id === selectedId)) {
+      openList();
+    }
+  } catch {
+    artifactList.innerHTML = '<p class="empty-msg">Failed to load artifacts.</p>';
+  }
+}
+
+async function selectArtifact(id) {
+  selectedId = id;
+
+  document.querySelectorAll(".li").forEach(el => {
+    const isActive = el.dataset.id === id;
+    el.classList.toggle("active", isActive);
+    el.setAttribute("aria-selected", isActive ? "true" : "false");
+  });
+
+  const meta   = currentArtifacts.find(a => a.artifact_id === id) || {};
+  const type   = meta.type   || "";
+  const title  = meta.title  || id;
+  const color  = typeColor(type);
+  const label  = typeLabel(type);
+  const tier   = meta.tier   || "";
+  const date   = meta.date   || "";
+  const scope  = id ? id.split("/").slice(0, -1).join("/") : "";
+  const status = meta.status || "";
+
+  detailBody.innerHTML = `
+    <div class="rp-doc">
+      <div class="rp-eyebrow" style="color:${color};">${escHtml(label)}</div>
+      <h1 class="rp-title">${escHtml(title)}</h1>
+      <div class="rp-pills">
+        ${tier   ? `<span class="rp-pill">tier ${escHtml(String(tier))}</span>` : ""}
+        ${date   ? `<span class="rp-pill">${escHtml(date)}</span>`              : ""}
+        ${scope  ? `<span class="rp-pill">${escHtml(scope)}</span>`             : ""}
+        ${status ? `<span class="rp-pill">${escHtml(status)}</span>`            : ""}
+      </div>
+      <div id="rp-content-area" class="rp-content">
+        <p style="color:var(--t2);">Loading…</p>
+      </div>
+    </div>
+  `;
+
+  openDetail();
+
+  try {
+    const result = await app.callServerTool({ name: "read_artifact", arguments: { artifact_id: id } });
+    const data = result.structuredContent ?? JSON.parse(result.content?.find(c => c.type === "text")?.text ?? "{}");
+    const content = data.content || "";
+    const contentArea = document.getElementById("rp-content-area");
+    if (!contentArea) return;
+
+    let rendered;
+    try { rendered = marked.parse(content); }
+    catch { rendered = `<pre style="white-space:pre-wrap;">${escHtml(content)}</pre>`; }
+    contentArea.innerHTML = rendered;
+
+    try {
+      contentArea.querySelectorAll("code.language-mermaid").forEach(el => {
+        const pre = el.parentElement;
+        pre.className = "mermaid";
+        pre.textContent = el.textContent;
+      });
+      await mermaid.run({ querySelector: "#rp-content-area pre.mermaid" });
+    } catch (err) { console.error("Mermaid rendering failed:", err); }
+  } catch (err) {
+    console.error("read_artifact failed:", err);
+    const contentArea = document.getElementById("rp-content-area");
+    if (contentArea) contentArea.innerHTML = `<p style="color:var(--t2);">Failed to load content.</p>`;
+  }
+}
+
+async function doSearch(query) {
+  openList();
+  try {
+    const result = await app.callServerTool({ name: "search_artifacts", arguments: { query } });
+    const data = result.structuredContent ?? JSON.parse(result.content?.find(c => c.type === "text")?.text ?? "{}");
+    renderList(data.artifacts || data || []);
+  } catch {
+    artifactList.innerHTML = '<p class="empty-msg">Search failed.</p>';
+  }
+}
+
+// ── Event handlers ─────────────────────────────────────────────────────────
+detailBack.addEventListener("click", openList);
+
+searchForm.addEventListener("submit", async e => {
+  e.preventDefault();
+  const q = searchInput.value.trim();
+  if (q) await doSearch(q);
+  else   await loadList();
+});
+
+searchInput.addEventListener("input", async () => {
+  if (searchInput.value.trim() === "") await loadList();
+});
+
+selType.addEventListener("change",   async () => { filterType   = selType.value;              await loadList(); });
+selTier.addEventListener("change",   async () => { filterTier   = selTier.value;              await loadList(); });
+selStatus.addEventListener("change", async () => { filterStatus = selStatus.value;            await loadList(); });
+
+// ── App init ───────────────────────────────────────────────────────────────
+app = new App({ name: "cairn browser", version: "1.0.0" });
+
+app.ontoolresult = ({ content, structuredContent }) => {
+  const data = structuredContent ?? JSON.parse(content?.find(c => c.type === "text")?.text ?? "{}");
+  const prefix = data.write_prefix || "";
+  if (prefix) { scopeLabel.textContent = prefix; scopeLabel.style.display = ""; }
+  renderList(data.artifacts || []);
+};
+
+await app.connect();
+
+await loadList();
+
+// Request a comfortable reading height from the host.
+// Hosts that support ui/notifications/size-changed (VS Code, etc.) will
+// resize the panel; others ignore it silently.
+app.sendSizeChanged({ height: 1000 });
+</script>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --base:        #09091a;
+  --surface:     #12142a;
+  --surface-up:  #1a1d3a;
+  --surface-hi:  #222548;
+  --bd-faint:    rgba(148,158,220,0.07);
+  --bd:          rgba(148,158,220,0.13);
+  --bd-strong:   rgba(148,158,220,0.22);
+  --t1:          #e2eaff;
+  --t2:          #8390bc;
+  --t3:          #404870;
+  --mono:        "SF Mono","Cascadia Code","Fira Code",ui-monospace,monospace;
+  --g:           linear-gradient(135deg, #00d4b8, #0088ff 33%, #8844ee 66%, #e800b0);
+  --g90:         linear-gradient(90deg,  #00d4b8, #0088ff 33%, #8844ee 66%, #e800b0);
+
+  --c-adr:       #00d4b8;
+  --c-prd:       #00bccc;
+  --c-spec:      #00a0e0;
+  --c-plan:      #0088f8;
+  --c-runbook:   #1a66ee;
+  --c-changelog: #3344ee;
+  --c-impl:      #5533ee;
+  --c-cr:        #7733ee;
+  --c-dn:        #9933dd;
+  --c-pm:        #bb33cc;
+  --c-brain:     #cc22bb;
+  --c-ss:        #dd11aa;
+  --c-learn:     #e80088;
+  --c-synth:     #f00077;
+  --c-bug:       #f50060;
+}
+
+html, body {
+  height: 100%;
+  overflow: hidden;
+}
+
+html {
+  background: var(--base);
+  color: var(--t1);
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", sans-serif;
+  font-size: 15px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+@keyframes gb {
+  0%, 100% { background-position: 0 50%; }
+  50%       { background-position: 100% 50%; }
+}
+
+/* ── App shell ──────────────────────────────────────────────────────────── */
+
+#app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* ── Toolbar ────────────────────────────────────────────────────────────── */
+
+#toolbar {
+  height: 56px;
+  flex-shrink: 0;
+  background: var(--surface);
+  border-bottom: 1px solid var(--bd-faint);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 16px;
+  position: relative;
+  z-index: 10;
+}
+
+#toolbar::after {
+  content: "";
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  height: 2px;
+  background: var(--g90);
+  background-size: 200% 200%;
+  opacity: 0.8;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  #toolbar::after { animation: gb 10s ease infinite; }
+}
+
+.tb-logo {
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  flex-shrink: 0;
+  background: var(--g);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
+
+#search-form {
+  flex: 1;
+  display: flex;
+}
+
+#search-input {
+  width: 100%;
+  height: 34px;
+  background: var(--base);
+  border: 1px solid var(--bd);
+  border-radius: 8px;
+  color: var(--t1);
+  font-family: inherit;
+  font-size: 14px;
+  padding: 0 12px;
+  outline: none;
+  transition: box-shadow 0.15s, border-color 0.15s;
+}
+
+#search-input::placeholder { color: var(--t2); }
+
+#search-input:focus {
+  border-color: rgba(0,136,255,0.5);
+  box-shadow: 0 0 0 3px rgba(0,136,255,0.18);
+}
+
+#scope-label {
+  font-size: 12px;
+  color: var(--t2);
+  background: var(--base);
+  border: 1px solid var(--bd-faint);
+  border-radius: 6px;
+  padding: 4px 10px;
+  flex-shrink: 0;
+  display: none;
+  white-space: nowrap;
+}
+
+/* ── Views ──────────────────────────────────────────────────────────────── */
+
+#list-view,
+#detail-view {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+  min-height: 0;
+}
+
+/* Detail view hidden by default */
+#detail-view { display: none; }
+
+#app.showing-detail #list-view  { display: none; }
+#app.showing-detail #detail-view { display: flex; }
+
+/* ── Filters bar ────────────────────────────────────────────────────────── */
+
+#filters {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--bd-faint);
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  background: var(--surface);
+}
+
+#filters select {
+  font-size: 13px;
+  color: var(--t2);
+  background: var(--base);
+  border: 1px solid var(--bd-faint);
+  border-radius: 6px;
+  padding: 5px 8px;
+  cursor: pointer;
+  font-family: inherit;
+  outline: none;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+#filters select:focus { border-color: var(--bd); }
+
+/* ── Artifact list ──────────────────────────────────────────────────────── */
+
+#artifact-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.empty-msg {
+  color: var(--t2);
+  font-size: 14px;
+  padding: 20px 16px;
+}
+
+.li {
+  padding: 14px 14px 14px 18px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  position: relative;
+  overflow: hidden;
+  flex-shrink: 0;   /* never compress below natural height — list scrolls instead */
+  cursor: pointer;
+  transition: background 0.1s, border-color 0.1s, opacity 0.12s;
+}
+
+.li:hover {
+  background: var(--surface-up);
+  border-color: var(--bd-faint);
+}
+
+.li.active {
+  background: var(--surface-hi);
+  border-color: var(--bd);
+}
+
+.li-stripe {
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 4px;
+}
+
+.li-badge {
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 4px;
+  margin-bottom: 6px;
+  font-family: var(--mono);
+}
+
+.li-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--t1);
+  margin-bottom: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.li-meta {
+  font-size: 12px;
+  color: var(--t2);
+}
+
+/* ── Detail view ────────────────────────────────────────────────────────── */
+
+#detail-back-bar {
+  height: 48px;
+  flex-shrink: 0;
+  background: var(--surface);
+  border-bottom: 1px solid var(--bd-faint);
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+}
+
+#detail-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--t2);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 6px 10px 6px 6px;
+  border-radius: 6px;
+  transition: color 0.12s, background 0.12s;
+}
+
+#detail-back:hover {
+  color: var(--t1);
+  background: var(--surface-up);
+}
+
+#detail-back svg {
+  flex-shrink: 0;
+}
+
+#detail-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px 20px 40px;
+  background: var(--base);
+}
+
+/* ── Document view ──────────────────────────────────────────────────────── */
+
+.rp-eyebrow {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  margin-bottom: 10px;
+}
+
+.rp-title {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+  margin-bottom: 12px;
+  color: var(--t1);
+  text-wrap: balance;
+}
+
+.rp-pills {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 28px;
+}
+
+.rp-pill {
+  font-size: 12px;
+  color: var(--t2);
+  background: var(--surface);
+  border: 1px solid var(--bd-faint);
+  border-radius: 20px;
+  padding: 4px 12px;
+}
+
+/* ── Markdown rendered content ──────────────────────────────────────────── */
+
+.rp-content h1 {
+  font-size: 19px;
+  font-weight: 700;
+  color: var(--t1);
+  margin: 24px 0 10px;
+}
+
+.rp-content h2 {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--t1);
+  margin: 22px 0 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--bd-faint);
+}
+
+.rp-content h3 {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--t1);
+  margin: 18px 0 6px;
+}
+
+.rp-content p {
+  font-size: 14px;
+  color: var(--t2);
+  line-height: 1.75;
+  margin-bottom: 14px;
+}
+
+.rp-content ul,
+.rp-content ol {
+  padding-left: 22px;
+  margin-bottom: 14px;
+}
+
+.rp-content li {
+  font-size: 14px;
+  color: var(--t2);
+  line-height: 1.7;
+  margin-bottom: 4px;
+}
+
+.rp-content code {
+  font-family: var(--mono);
+  font-size: 12px;
+  background: var(--surface);
+  color: var(--c-spec);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.rp-content pre {
+  background: var(--surface);
+  border: 1px solid var(--bd-faint);
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 16px;
+  overflow-x: auto;
+}
+
+.rp-content pre code {
+  background: none;
+  padding: 0;
+  font-size: 12px;
+  color: var(--t2);
+}
+
+.rp-content table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  margin-bottom: 18px;
+  display: block;
+  overflow-x: auto;
+}
+
+.rp-content th {
+  text-align: left;
+  padding: 7px 10px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--t3);
+  border-bottom: 1px solid var(--bd-faint);
+}
+
+.rp-content td {
+  padding: 8px 10px;
+  color: var(--t2);
+  border-bottom: 1px solid rgba(148,158,220,0.04);
+  vertical-align: top;
+}
+
+.rp-content td:first-child {
+  font-weight: 500;
+  color: var(--t1);
+}
+
+.rp-content blockquote {
+  border-left: 3px solid var(--bd);
+  margin: 0 0 14px;
+  padding: 8px 16px;
+  color: var(--t3);
+  font-style: italic;
+}
+
+.rp-content a {
+  color: var(--c-spec);
+  text-decoration: none;
+}
+
+.rp-content a:hover { text-decoration: underline; }
+
+.rp-content pre.mermaid {
+  background: var(--surface);
+  border: 1px solid var(--bd-faint);
+  border-radius: 8px;
+  padding: 16px;
+  display: flex;
+  justify-content: center;
+}
+
+/* ── Scrollbars ─────────────────────────────────────────────────────────── */
+
+::-webkit-scrollbar        { width: 5px; height: 5px; }
+::-webkit-scrollbar-track  { background: transparent; }
+::-webkit-scrollbar-thumb  { background: var(--bd); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--bd-strong); }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- ── Toolbar ─────────────────────────────────────────────────────── -->
+  <header id="toolbar">
+    <div class="tb-logo">cairn</div>
+    <form id="search-form" role="search">
+      <input
+        id="search-input"
+        type="search"
+        placeholder="Search artifacts…"
+        aria-label="Search artifacts"
+        autocomplete="off"
+      >
+    </form>
+    <div id="scope-label" aria-label="Write scope"></div>
+  </header>
+
+  <!-- ── List view ───────────────────────────────────────────────────── -->
+  <div id="list-view">
+    <div id="filters">
+      <select id="sel-type" aria-label="Filter by type">
+        <option value="">All types</option>
+        <option value="adr">ADR</option>
+        <option value="prd">PRD</option>
+        <option value="spec">Spec</option>
+        <option value="plan">Plan</option>
+        <option value="runbook">Runbook</option>
+        <option value="changelog">Changelog</option>
+        <option value="implementation_note">Impl. Note</option>
+        <option value="code_review">Code Review</option>
+        <option value="decision_note">Decision Note</option>
+        <option value="postmortem">Postmortem</option>
+        <option value="brainstorming">Brainstorming</option>
+        <option value="session_summary">Session Summary</option>
+        <option value="learning">Learning</option>
+        <option value="synthesis">Synthesis</option>
+        <option value="bug_report">Bug Report</option>
+      </select>
+      <select id="sel-tier" aria-label="Filter by tier">
+        <option value="">All tiers</option>
+        <option value="2">Tier 2</option>
+        <option value="3">Tier 3</option>
+      </select>
+      <select id="sel-status" aria-label="Filter by status">
+        <option value="" selected>All</option>
+        <option value="active">Active</option>
+        <option value="inactive">Inactive</option>
+      </select>
+    </div>
+    <div id="artifact-list" role="listbox" aria-label="Artifacts"></div>
+  </div>
+
+  <!-- ── Detail view ─────────────────────────────────────────────────── -->
+  <div id="detail-view">
+    <div id="detail-back-bar">
+      <button id="detail-back" aria-label="Back to list">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <path d="M10 3L5 8L10 13" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        All artifacts
+      </button>
+    </div>
+    <div id="detail-body"></div>
+  </div>
+
+</div>
+</body>
+</html>

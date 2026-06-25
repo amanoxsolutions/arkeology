@@ -8,12 +8,18 @@ without restarting the server.
 Data resources (``cairn://artifact/{id}`` and ``cairn://artifacts``) require live AWS
 client references and are registered via ``register_data_resources``, called from
 ``server.py`` after clients are constructed.
+
+The UI resource (``ui://cairn-browser/index.html``) is static and registered via
+``register_ui_resource``, which is called at module load time alongside
+``register_resources``.
 """
 
+import importlib.resources
 import logging
 from typing import Any
 
 import fastmcp
+from fastmcp.apps.config import AppConfig, ResourceCSP
 from mcp.types import Annotations
 from ulid import ULID
 
@@ -380,6 +386,54 @@ def register_resources(app: fastmcp.FastMCP) -> None:
         return query_strategy_content()
 
     logger.debug("cairn-mcp resources registered (5 schema resources)")
+
+
+# ---------------------------------------------------------------------------
+# UI resource registration
+# ---------------------------------------------------------------------------
+
+#: CDN origins that the cairn browser application is permitted to load from.
+_BROWSER_CDN_ORIGINS: list[str] = [
+    "https://unpkg.com",
+    "https://cdn.jsdelivr.net",
+    "https://fonts.googleapis.com",
+    "https://fonts.gstatic.com",
+]
+
+
+def register_ui_resource(app: fastmcp.FastMCP) -> None:
+    """Register the ``ui://cairn-browser/index.html`` resource on the FastMCP app.
+
+    The resource serves the cairn browser HTML application. It is registered
+    with ``ResourceCSP`` declaring the CDN origins the application loads from.
+    No explicit ``mime_type`` is set — FastMCP auto-resolves ``ui://`` resources
+    to ``text/html;profile=mcp-app``, which is the MIME type Claude Desktop
+    requires to render an MCP App iframe rather than displaying raw text.
+    The HTML is read from the ``cairn_mcp/static/cairn-browser.html`` package
+    file using ``importlib.resources``.
+
+    This function must be called at module load time (alongside
+    ``register_resources``) because the UI resource is static — it requires no
+    AWS clients and must be available before any tool calls.
+
+    Args:
+        app: The FastMCP application instance to register the resource on.
+    """
+
+    @app.resource(
+        "ui://cairn-browser/index.html",
+        description="cairn artifact browser — visual reading interface.",
+        app=AppConfig(csp=ResourceCSP(resource_domains=_BROWSER_CDN_ORIGINS)),
+    )
+    def _cairn_browser_html() -> str:
+        """Return the cairn browser HTML application."""
+        return (
+            importlib.resources.files("cairn_mcp")
+            .joinpath("static/cairn-browser.html")
+            .read_text(encoding="utf-8")
+        )
+
+    logger.debug("cairn-mcp UI resource registered (ui://cairn-browser/index.html)")
 
 
 # ---------------------------------------------------------------------------
