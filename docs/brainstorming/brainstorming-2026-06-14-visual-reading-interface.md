@@ -249,7 +249,7 @@ renderers, stack-fit (MkDocs Material is pure Python).*
 *Costs: snapshot (no live freshness), re-materializes files (partially undoes "content lives
 in S3"), semantic search lost (lexical only), gate applied once at export then ungoverned.*
 
-**Idea 4 — `cairn browse` terminal-native reader (no browser, no server).**
+**Idea 4 — `` terminal-native reader (no browser, no server).**
 A read-mode subcommand set in the same Python package, reusing clients + gate in-process:
 `cairn browse` (interactive Textual TUI: filterable list pane + rendered-markdown pane),
 `cairn read <id>`, `cairn search <q> [--json]`, `cairn ls`. Markdown via Rich. The honest

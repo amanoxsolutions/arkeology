@@ -1,7 +1,7 @@
 ---
 type: spec
 title: T44 — Browser UI (HTML/JS)
-description: Feature spec for building the self-contained cairn-browser.html MCP App — a single-pane visual artifact browser with list/detail view switching, faceted filtering, artifact sort order (type A→Z then date newest-first), semantic search, and markdown/mermaid rendering served as a static asset over the MCP Apps extension.
+description: Feature spec for building the self-contained cairn-studio.html MCP App — a single-pane visual artifact browser with list/detail view switching, faceted filtering, artifact sort order (type A→Z then date newest-first), semantic search, and markdown/mermaid rendering served as a static asset over the MCP Apps extension.
 tags: []
 timestamp: 2026-06-24T00:00:00Z
 okf_version: "0.1"
@@ -32,20 +32,20 @@ revised:
 
 ## TL;DR
 
-Build `src/cairn_mcp/static/cairn-browser.html` — the self-contained HTML/JS MCP App that
+Build `src/cairn_mcp/static/cairn-studio.html` — the self-contained HTML/JS MCP App that
 becomes the single-pane visual artifact browser with list/detail view switching rendered inline
-when a developer calls `cairn_browse` from a supporting host (Claude Desktop, claude.ai, VS Code
+when a developer calls `cairn_studio` from a supporting host (Claude Desktop, claude.ai, VS Code
 Copilot). The file loads three CDN libraries (MCP Apps ext-apps SDK, marked.js, mermaid.js) and
 one Google Font, uses bidirectional MCP tool calls (`list_artifacts`, `read_artifact`,
 `search_artifacts`) via the ext-apps SDK, and follows an approved dark design system based on CSS
-custom properties. This task also adds the `cairn_browse` tool entry to `SERVER-REFERENCE.md`
-and a one-sentence mention of `cairn_browse` to `AGENTS.md`.
+custom properties. This task also adds the `cairn_studio` tool entry to `SERVER-REFERENCE.md`
+and a one-sentence mention of `cairn_studio` to `AGENTS.md`.
 
 ## Problem Statement
 
-As of T43, the server registers the `cairn_browse` tool and the `ui://cairn-browser/index.html`
-resource, but the HTML file at `src/cairn_mcp/static/cairn-browser.html` is a placeholder.
-Calling `cairn_browse` from Claude Desktop returns a populated tool result but renders an empty
+As of T43, the server registers the `cairn_studio` tool and the `ui://cairn-studio/index.html`
+resource, but the HTML file at `src/cairn_mcp/static/cairn-studio.html` is a placeholder.
+Calling `cairn_studio` from Claude Desktop returns a populated tool result but renders an empty
 frame. Developers must fall back to raw tool calls — `list_artifacts`, `search_artifacts`,
 `read_artifact` — to browse their artifact store, which is verbose and context-consuming. T44
 replaces the placeholder with the full interactive browser application, giving developers a
@@ -55,13 +55,13 @@ single-command visual entry point into their artifact memory.
 
 ### Story 1 — Developer opens the artifact browser (P1)
 
-A developer in Claude Desktop calls `cairn_browse` and wants to immediately see a populated
+A developer in Claude Desktop calls `cairn_studio` and wants to immediately see a populated
 list of their active artifacts.
 
 **Acceptance criteria:**
-- Given the host supports the `io.modelcontextprotocol/ui` extension, when `cairn_browse` is
+- Given the host supports the `io.modelcontextprotocol/ui` extension, when `cairn_studio` is
   called, then the browser UI iframe is rendered with an artifact list populated from the
-  initial `cairn_browse` tool result data.
+  initial `cairn_studio` tool result data.
 - Given the list view loads, when the page is first rendered, then no artifact is selected
   and the detail view shows the empty-state prompt until the user makes a selection.
 
@@ -103,7 +103,7 @@ A developer enters a query in the search box to find semantically relevant artif
 ## Requirements
 
 - WHEN the browser application loads THE SYSTEM SHALL populate the list view with artifact
-  listing data received from the `cairn_browse` initial tool result without issuing an
+  listing data received from the `cairn_studio` initial tool result without issuing an
   additional tool call on startup; no artifact SHALL be selected and the detail view SHALL
   display the empty state until the user makes a selection.
 - WHEN a type, tier, or status filter changes THE SYSTEM SHALL call `list_artifacts` with
@@ -131,7 +131,7 @@ A developer enters a query in the search box to find semantically relevant artif
 ## Boundaries
 
 **Always:**
-- All CSS and JS live in the single `src/cairn_mcp/static/cairn-browser.html` file — no
+- All CSS and JS live in the single `src/cairn_mcp/static/cairn-studio.html` file — no
   companion `.css` or `.js` files.
 - External dependencies are loaded only from the four declared CDN origins: `unpkg.com`
   (ext-apps SDK), `fonts.googleapis.com` + `fonts.gstatic.com` (Inter font),
@@ -161,7 +161,7 @@ A developer enters a query in the search box to find semantically relevant artif
 - Do not introduce any new MCP tool or resource — only call existing tools via the ext-apps SDK.
 - Do not inline CDN library source code — load them via `<script src>` tags only.
 - Do not add a build step, `package.json`, or any Node.js artefact.
-- Do not modify `pyproject.toml`, `server.py`, `resources.py`, `browse.py`, or any Python file.
+- Do not modify `pyproject.toml`, `server.py`, `resources.py`, `studio.py`, or any Python file.
 - Do not write to stdout — this constraint applies to Python code but is noted here to
   prevent inadvertent JS `console.log` calls that could interfere with the MCP stdio transport
   in edge cases; use `console.error` for debug output if needed.
@@ -172,10 +172,10 @@ A developer enters a query in the search box to find semantically relevant artif
 
 | File | Action | Notes |
 |------|--------|-------|
-| `src/cairn_mcp/tools/browse.py` | Modify | Update `_cairn_browse_inner` supporting-host path to return `{ "write_prefix": settings.write_prefix, "artifacts": result["artifacts"] }` instead of the bare `_list_artifacts_inner` result. Update the corresponding unit test in `tests/unit/test_tools_browse.py` to assert the `write_prefix` key is present. |
-| `src/cairn_mcp/static/cairn-browser.html` | Replace | Replace T43 placeholder with the full application |
-| `SERVER-REFERENCE.md` | Modify | Add `cairn_browse` tool entry to the Tools table; add a new "MCP App — Visual Browser" subsection after the data resources section describing the tool, its parameters (none required), return value (browser UI on supporting hosts / plain-text listing on others), and a one-line usage example |
-| `AGENTS.md` | Modify | Add one sentence to the Overview paragraph mentioning `cairn_browse` as the human reading entry point alongside the existing tool list |
+| `src/cairn_mcp/tools/studio.py` | Modify | Update `_cairn_studio_inner` supporting-host path to return `{ "write_prefix": settings.write_prefix, "artifacts": result["artifacts"] }` instead of the bare `_list_artifacts_inner` result. Update the corresponding unit test in `tests/unit/test_tools_studio.py` to assert the `write_prefix` key is present. |
+| `src/cairn_mcp/static/cairn-studio.html` | Replace | Replace T43 placeholder with the full application |
+| `SERVER-REFERENCE.md` | Modify | Add `cairn_studio` tool entry to the Tools table; add a new "MCP App — Visual Browser" subsection after the data resources section describing the tool, its parameters (none required), return value (browser UI on supporting hosts / plain-text listing on others), and a one-line usage example |
+| `AGENTS.md` | Modify | Add one sentence to the Overview paragraph mentioning `cairn_studio` as the human reading entry point alongside the existing tool list |
 
 No Python source files are touched. `ruff`, `mypy`, and the unit test suite must remain clean
 after this task — since no Python changes occur, these gates are verified by running them and
@@ -188,7 +188,7 @@ This project uses TDD. However, T44 delivers only a static HTML/JS asset and two
 edits — there is no Python business logic to unit test. The done conditions serve as the
 verification checklist in place of automated tests:
 
-1. **Manual smoke test in Claude Desktop** — call `cairn_browse` with a live cairn deployment;
+1. **Manual smoke test in Claude Desktop** — call `cairn_studio` with a live cairn deployment;
    confirm the browser iframe renders with a populated artifact list, artifact selection renders
    markdown and mermaid, and search returns ranked results that restore on clear.
 
@@ -197,7 +197,7 @@ verification checklist in place of automated tests:
    `uv run mypy src/` after T44 changes land; all must pass with zero new failures (since no
    Python was modified, this is a regression safety check only).
 
-3. **Degradation gate** — call `cairn_browse` from a non-supporting host (e.g. MCP Inspector);
+3. **Degradation gate** — call `cairn_studio` from a non-supporting host (e.g. MCP Inspector);
    confirm a plain-text artifact listing is returned without error (this behaviour is already
    tested in T43's unit tests; T44 must not break it).
 
@@ -300,9 +300,9 @@ Single-pane with view switching. Full viewport height (`height: 100vh`). `html, 
 **SDK initialisation:**
 - Import the ext-apps SDK from `https://unpkg.com/@modelcontextprotocol/ext-apps/app-with-deps`
   (the bundled build — includes all dependencies)
-- Construct the app: `const app = new App({ name: "cairn browser", version: "1.0.0" })`
+- Construct the app: `const app = new App({ name: "cairn studio", version: "1.0.0" })`
 - Set `app.ontoolresult` **before** calling `app.connect()` — the callback fires with the
-  initial `cairn_browse` result when the iframe loads
+  initial `cairn_studio` result when the iframe loads
 - Call `app.connect()` to complete the handshake
 
 **Initialisation** (via `app.ontoolresult`):
@@ -310,7 +310,7 @@ Single-pane with view switching. Full viewport height (`height: 100vh`). `html, 
   `ContentBlock` and `structuredContent` is the structured payload (if present)
 - Parse the initial artifact listing from:
   `structuredContent ?? JSON.parse(content?.find(c => c.type === "text")?.text ?? "{}")`
-- Note: `content` will contain a short human confirmation sentence (e.g. `"Cairn browser
+- Note: `content` will contain a short human confirmation sentence (e.g. `"Cairn studio
   opened — N artifacts available…"`); the actual data is always in `structuredContent`.
   The parse pattern handles both cases safely.
 - The parsed object has shape `{ write_prefix: string, artifacts: ArtifactMetadata[] }` — see Initial Data Format below
@@ -368,14 +368,14 @@ These questions were open at spec authoring time and resolved before implementat
   `@modelcontextprotocol/ext-apps` entry which requires separate dependency loading.
 - **Initialisation pattern:**
   ```js
-  const app = new App({ name: "cairn browser", version: "1.0.0" });
+  const app = new App({ name: "cairn  studio", version: "1.0.0" });
   app.ontoolresult = (result) => { /* parse initial data here */ };
   app.connect();  // must be called AFTER setting ontoolresult
   ```
 - **Tool call signature:** `await app.callServerTool({ name: string, arguments: object })`
   — takes a single options object (not two separate arguments).
 - **WRITE_PREFIX:** the ext-apps SDK does not surface `WRITE_PREFIX` in its handshake payload.
-  `browse.py` has been updated (as part of T44's file changes) to include `write_prefix` in
+  `studio.py` has been updated (as part of T44's file changes) to include `write_prefix` in
   the supporting-host return dict alongside `artifacts`.
 
 ### Type dropdown labels
@@ -389,7 +389,7 @@ parameter from `list_artifacts` arguments when the value is `""`.
 
 ### Initial data format
 
-`_cairn_browse_inner` returns (as updated in this task):
+`_cairn_studio_inner` returns (as updated in this task):
 ```json
 {
   "write_prefix": "string",
@@ -418,7 +418,7 @@ FastMCP may deliver this via `result.structuredContent` or as a JSON string in
 `result.content[0].text`. Parse safely:
 `structuredContent ?? JSON.parse(content?.find(c => c.type === "text")?.text ?? "{}")`.
 
-**ToolResult shape:** `cairn_browse` returns a `fastmcp.tools.base.ToolResult` with `content`
+**ToolResult shape:** `cairn_studio` returns a `fastmcp.tools.base.ToolResult` with `content`
 (a short human-readable confirmation sentence) and `structured_content` (the
 `{"write_prefix", "artifacts"}` payload above). The `content` text is intentionally minimal so
 the model does not generate a verbose description of the data. The iframe reads

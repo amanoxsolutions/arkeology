@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>cairn browser</title>
+<title>cairn studio</title>
 <script type="module">
 import { App } from "https://unpkg.com/@modelcontextprotocol/ext-apps@1.7.4/app-with-deps";
 import { marked } from "https://cdn.jsdelivr.net/npm/marked/+esm";
@@ -276,7 +276,7 @@ selTier.addEventListener("change",   async () => { filterTier   = selTier.value;
 selStatus.addEventListener("change", async () => { filterStatus = selStatus.value;            await loadList(); });
 
 // ── App init ───────────────────────────────────────────────────────────────
-app = new App({ name: "cairn browser", version: "1.0.0" });
+app = new App({ name: "cairn studio", version: "1.0.0" });
 
 app.ontoolresult = ({ content, structuredContent }) => {
   const data = structuredContent ?? JSON.parse(content?.find(c => c.type === "text")?.text ?? "{}");

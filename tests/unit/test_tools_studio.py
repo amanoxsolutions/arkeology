@@ -1,6 +1,6 @@
-"""Unit tests for cairn_mcp.tools.browse.
+"""Unit tests for cairn_mcp.tools.studio.
 
-Tests cairn_browse() — the simplified MCP App entry-point that triggers the
+Tests cairn_studio() — the simplified MCP App entry-point that triggers the
 inline browser widget and returns a short confirmation ToolResult.
 
 Three tests:
@@ -38,54 +38,54 @@ def settings(monkeypatch: pytest.MonkeyPatch) -> Settings:
 
 
 @pytest.mark.asyncio
-async def test_cairn_browse_non_supporting_host_returns_tool_result(
+async def test_cairn_studio_non_supporting_host_returns_tool_result(
     settings: Settings,
 ) -> None:
-    """cairn_browse returns a non-error ToolResult when the host does not support the extension."""
-    from cairn_mcp.tools.browse import cairn_browse
+    """cairn_studio returns a non-error ToolResult when the host does not support the extension."""
+    from cairn_mcp.tools.studio import cairn_studio
 
     ctx = MagicMock()
     ctx.client_supports_extension.return_value = False
 
-    result = await cairn_browse(settings=settings, ctx=ctx)
+    result = await cairn_studio(settings=settings, ctx=ctx)
 
     assert isinstance(result, ToolResult), f"Expected ToolResult, got {type(result)}: {result!r}"
     assert not result.is_error
     assert result.content, "Expected at least one content block"
     text = result.content[0].text  # type: ignore[attr-defined]
-    assert "Cairn browser opened" in text, f"Unexpected text content: {text!r}"
+    assert "Cairn studio opened" in text, f"Unexpected text content: {text!r}"
 
 
 @pytest.mark.asyncio
-async def test_cairn_browse_supporting_host_returns_tool_result(
+async def test_cairn_studio_supporting_host_returns_tool_result(
     settings: Settings,
 ) -> None:
-    """cairn_browse returns a non-error ToolResult when the host supports the UI extension."""
-    from cairn_mcp.tools.browse import cairn_browse
+    """cairn_studio returns a non-error ToolResult when the host supports the UI extension."""
+    from cairn_mcp.tools.studio import cairn_studio
 
     ctx = MagicMock()
     ctx.client_supports_extension.return_value = True
 
-    result = await cairn_browse(settings=settings, ctx=ctx)
+    result = await cairn_studio(settings=settings, ctx=ctx)
 
     assert isinstance(result, ToolResult), f"Expected ToolResult, got {type(result)}: {result!r}"
     assert not result.is_error
     assert result.content, "Expected at least one content block"
     text = result.content[0].text  # type: ignore[attr-defined]
-    assert "Cairn browser opened" in text, f"Unexpected text content: {text!r}"
+    assert "Cairn studio opened" in text, f"Unexpected text content: {text!r}"
 
 
 @pytest.mark.asyncio
-async def test_cairn_browse_exception_returns_error_tool_result(
+async def test_cairn_studio_exception_returns_error_tool_result(
     settings: Settings,
 ) -> None:
-    """When an unexpected exception occurs inside cairn_browse, it returns an error ToolResult."""
-    from cairn_mcp.tools.browse import cairn_browse
+    """When an unexpected exception occurs inside cairn_studio, it returns an error ToolResult."""
+    from cairn_mcp.tools.studio import cairn_studio
 
     ctx = MagicMock()
     ctx.client_supports_extension.side_effect = RuntimeError("boom")
 
-    result = await cairn_browse(settings=settings, ctx=ctx)
+    result = await cairn_studio(settings=settings, ctx=ctx)
 
     assert isinstance(result, ToolResult), f"Expected ToolResult, got {type(result)}: {result!r}"
     assert result.is_error

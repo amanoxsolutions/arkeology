@@ -17,7 +17,6 @@ from cairn_mcp.clients.interfaces import (
 from cairn_mcp.config import Settings
 from cairn_mcp.resources import register_data_resources, register_resources, register_ui_resource
 from cairn_mcp.tools.archive import archive_artifact as _archive_artifact
-from cairn_mcp.tools.browse import cairn_browse as _cairn_browse
 from cairn_mcp.tools.delete import delete_artifact as _delete_artifact
 from cairn_mcp.tools.freshness import check_synthesis_freshness as _check_synthesis_freshness
 from cairn_mcp.tools.health import health_check as _health_check
@@ -29,6 +28,7 @@ from cairn_mcp.tools.purge import purge_archived as _purge_archived
 from cairn_mcp.tools.read import read_artifact as _read_artifact
 from cairn_mcp.tools.reconcile import reconcile_index as _reconcile_index
 from cairn_mcp.tools.search import search_artifacts as _search_artifacts
+from cairn_mcp.tools.studio import cairn_studio as _cairn_studio
 from cairn_mcp.tools.synthesise import synthesise_artifacts as _synthesise_artifacts
 from cairn_mcp.tools.write import write_artifact as _write_artifact
 from cairn_mcp.tools.write_artifacts import write_artifacts as _write_artifacts
@@ -312,10 +312,10 @@ def register_tools(
             commit_sha=commit_sha,
         )
 
-    @_app.tool(app=AppConfig(resource_uri="ui://cairn-browser/index.html"))
-    async def cairn_browse(ctx: Context) -> ToolResult:
-        """Browse cairn artifacts — triggers the inline MCP App browser."""
-        return await _cairn_browse(
+    @_app.tool(app=AppConfig(resource_uri="ui://cairn-studio/index.html"))
+    async def cairn_studio(ctx: Context) -> ToolResult:
+        """Browse cairn artifacts using Cairn Studio — triggers the inline MCP App browser."""
+        return await _cairn_studio(
             settings=settings,
             ctx=ctx,
         )

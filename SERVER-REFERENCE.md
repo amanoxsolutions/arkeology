@@ -25,7 +25,7 @@ serve browsable artifact content to humans — see [Resources](#resources) below
 | `synthesise_artifacts` | Semantic search followed by full S3 content fetch for a set of top-k artifacts | `query`, optional: filters, `top_k` (clamped to 100) | List of full artifact dicts including `content` |
 | `reconcile_index` | Replay the failure log and scan for orphaned S3 objects, re-indexing any artifacts present in S3 but absent from the vector index | — | `reconciled` (list of re-indexed IDs with section counts), `failed` (list of IDs that failed again), `orphans_found`, `total_reconciled`, `failure_log_entries_before` / `after` |
 | `check_synthesis_freshness` | Audit every synthesis in own scope against its declared source artifacts; report stale (source newer), archived sources, missing sources (deleted), and malformed syntheses (no sources declared); optionally hard-delete malformed ones | `confirm` (bool, default `false` — set `true` to hard-delete malformed syntheses) | `stale`, `archived_sources`, `missing_sources`, `malformed`, `deleted_malformed`, `total_checked`, `all_fresh` (bool) |
-| `cairn_browse` | Opens the visual artifact browser — renders an inline HTML/JS app on supporting hosts (Claude Desktop, claude.ai, VS Code Copilot); falls back to a plain-text active-artifact listing on non-supporting hosts | — | Browser UI iframe on supporting hosts; plain-text listing on others |
+| `cairn_studio` | Opens the visual artifact browser — renders an inline HTML/JS app on supporting hosts (Claude Desktop, claude.ai, VS Code Copilot); falls back to a plain-text active-artifact listing on non-supporting hosts | — | Browser UI iframe on supporting hosts; plain-text listing on others |
 
 ## Resources
 
@@ -73,9 +73,9 @@ everything agents do — search, filter, write, synthesise, archive.
 > See [ADR-010](docs/architecture-decisions/adr-2026-06-24-mcp-apps-visual-reading-interface.md)
 > for the decision record behind this approach.
 
-The `cairn_browse` tool is the primary human reading entry point. On hosts that support
+The `cairn_studio` tool is the primary human reading entry point. On hosts that support
 the `io.modelcontextprotocol/ui` extension (Claude Desktop, claude.ai, VS Code Copilot),
-calling `cairn_browse` renders a self-contained two-pane HTML/JS application inline in
+calling `cairn_studio` renders a self-contained two-pane HTML/JS application inline in
 the host. The browser is populated from the tool's initial result and then issues
 subsequent tool calls (`list_artifacts`, `read_artifact`, `search_artifacts`) directly
 from the iframe over the same MCP connection.
@@ -95,7 +95,7 @@ in the server's `ResourceCSP` so the host can enforce a strict Content Security 
 Simply call the tool with no arguments:
 
 ```
-cairn_browse
+cairn_studio
 ```
 
 The host renders the browser inline. From there you can:

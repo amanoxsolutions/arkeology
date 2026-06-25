@@ -63,7 +63,7 @@ Three assumptions behind Direction 4 did not hold for this team:
 ## Decision
 
 We adopt MCP Apps (`io.modelcontextprotocol/ui`) as the visual reading interface for cairn-mcp.
-A `cairn_browse` tool declares a UI resource URI; calling the tool from a supporting host renders
+A `cairn_studio` tool declares a UI resource URI; calling the tool from a supporting host renders
 an interactive artifact browser inline. The browser calls the existing `list_artifacts`,
 `search_artifacts`, and `read_artifact` tools directly — no new backend, no new scope gate, no
 new AWS infrastructure.
@@ -81,7 +81,7 @@ preference. cairn-mcp does not own or configure Obsidian synchronisation.
 |--------|------|------|
 | **Chosen** — MCP Apps (`fastmcp[apps]`) | No new AWS infrastructure; scope gate unchanged (existing tool calls from within the iframe); works over stdio today; future Streamable HTTP adds claude.ai web support; FastMCP first-class support | Requires a supporting MCP App host; rendering experience constrained to sandboxed iframe; CDN dependency at runtime |
 | Direction 4 — CloudFront SPA + AgentCore Gateway + Cognito | Accessible without active Claude session; full browser rendering freedom | Significant AWS infrastructure cost and operational overhead; separate auth model; scope gate logic duplicated in Lambda; all of this was motivated by an assumption (team members not using Claude Code) that is false |
-| TUI companion (`cairn browse`, `cairn read`) | Works from any terminal; no server changes | Terminal-only; no markdown or mermaid rendering; no benefit over existing tool calls for this team |
+| TUI companion (``, `cairn read`) | Works from any terminal; no server changes | Terminal-only; no markdown or mermaid rendering; no benefit over existing tool calls for this team |
 | Obsidian + Remotely Save (team-shipped feature) | Rich markdown and mermaid rendering; works offline and outside active sessions | Pull-only sync (no real-time); per-developer setup overhead; not a project-level concern for this team |
 
 ## Consequences
@@ -89,10 +89,10 @@ preference. cairn-mcp does not own or configure Obsidian synchronisation.
 - **Added dependency**: `fastmcp[apps]` optional extra. The server requires it for MCP App tool
   and resource registration.
 
-- **New tool**: `cairn_browse` follows the existing `src/cairn_mcp/tools/browse.py` →
+- **New tool**: `cairn_studio` follows the existing `src/cairn_mcp/tools/studio.py` →
   `register_tools()` convention.
 
-- **New static asset**: `src/cairn_mcp/static/cairn-browser.html` — a self-contained HTML/JS
+- **New static asset**: `src/cairn_mcp/static/cairn-studio.html` — a self-contained HTML/JS
   application distributed as Python package data. No Node.js or Vite required at runtime;
   external dependencies loaded from CDN origins declared via `ResourceCSP`.
 

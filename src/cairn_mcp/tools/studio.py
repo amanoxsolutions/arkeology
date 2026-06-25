@@ -1,11 +1,11 @@
-"""cairn_mcp.tools.browse — cairn_browse MCP tool implementation.
+"""cairn_mcp.tools.studio — cairn_studio MCP tool implementation.
 
 Triggers the inline MCP Apps visual browser in supporting hosts; falls back to a
 plain-text artifact listing in non-supporting hosts.
 
 Return value design
 -------------------
-``cairn_browse`` returns a :class:`fastmcp.tools.base.ToolResult` with two
+``cairn_studio`` returns a :class:`fastmcp.tools.base.ToolResult` with two
 independent payloads:
 
 * ``content`` — a short human-readable sentence for the LLM.  The model sees
@@ -31,12 +31,13 @@ from cairn_mcp.config import Settings
 logger = logging.getLogger(__name__)
 
 
-async def cairn_browse(
+async def cairn_studio(
     *,
     settings: Settings,
     ctx: Context,
 ) -> ToolResult:
-    """Browse cairn artifacts — triggers the inline MCP App browser.
+    """Browse cairn artifacts using Cairn Studio — triggers the inline MCP
+    App browser.
 
     Returns a :class:`~fastmcp.tools.base.ToolResult` with:
 
@@ -54,16 +55,16 @@ async def cairn_browse(
     try:
         is_ui = ctx.client_supports_extension(UI_EXTENSION_ID)
         logger.debug(
-            "cairn_browse: UI extension %s by client",
+            "cairn_studio: UI extension %s by client",
             "supported" if is_ui else "not announced",
         )
-        text = "Cairn browser opened. Use the UI widget to browse."
+        text = "Cairn studio opened. Use the UI widget to browse artifacts."
         return ToolResult(
             content=[TextContent(type="text", text=text)],
         )
     except Exception as exc:
-        logger.exception("Unexpected error in cairn_browse")
+        logger.exception("Unexpected error in cairn_studio")
         return ToolResult(
-            content=[TextContent(type="text", text=f"Error opening cairn browser: {exc}")],
+            content=[TextContent(type="text", text=f"Error opening cairn studio: {exc}")],
             is_error=True,
         )

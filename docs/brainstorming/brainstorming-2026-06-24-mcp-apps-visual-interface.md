@@ -29,7 +29,7 @@ assumptions_challenged:
   - "FastMCP does not support _meta.ui.resourceUri — disproved: FastMCP has first-class MCP Apps support via fastmcp[apps]; AppConfig(resource_uri=...) wires the _meta field and CSP automatically"
   - "A Vite/Node.js build pipeline is required to build the MCP App UI — disproved: FastMCP's ResourceCSP.resource_domains allows loading ext-apps SDK and mermaid.js from CDN; the UI can be a plain HTML file with vanilla JS and no build step"
 decisions_locked:
-  - "D1 resolved — MCP Apps is the visual reading interface for cairn-mcp. A cairn_browse tool (or equivalent) returns a bundled HTML/JS UI rendered inline in Claude Desktop / claude.ai. The UI calls existing cairn tools (list_artifacts, search_artifacts, read_artifact) directly."
+  - "D1 resolved — MCP Apps is the visual reading interface for cairn-mcp. A cairn_studio tool (or equivalent) returns a bundled HTML/JS UI rendered inline in Claude Desktop / claude.ai. The UI calls existing cairn tools (list_artifacts, search_artifacts, read_artifact) directly."
   - "D2 resolved — Direction 4's CloudFront SPA component is dropped. MCP Apps covers the in-session reading need; Obsidian + Remotely Save covers outside-session reading for those who want it. No AWS-hosted reading UI will be built."
   - "D3 resolved — live semantic search is not a separate v1 requirement for the reading UI: the MCP App UI calls search_artifacts directly, which already performs vector search. Semantic search is available from day one via the existing tool."
   - "Requiring Claude Desktop (or a compatible MCP App host) to read an artifact is an acceptable constraint for this team. Every project participant uses Claude Code as their primary AI interface."
@@ -40,7 +40,7 @@ decisions_pending:
 decisions_closed_not_applicable:
   - "FastMCP _meta compatibility — closed (2026-06-24): FastMCP ships first-class MCP Apps support via fastmcp[apps]. AppConfig(resource_uri='ui://...') on @mcp.tool() sets the _meta.ui.resourceUri field; @mcp.resource('ui://...') serves the HTML. No lower-level workaround needed."
   - "Mermaid rendering strategy — closed (2026-06-24): FastMCP's ResourceCSP(resource_domains=[...]) allows loading mermaid.js and the ext-apps SDK from CDN. No bundling required. A Vite build pipeline is not needed unless a JS framework (React/TypeScript) is desired for the UI."
-  - "cairn_browse tool design (one vs two tools) — closed (2026-06-24): both cairn_browse and read_artifact can independently carry AppConfig(resource_uri=...) and use ctx.client_supports_extension(UI_EXTENSION_ID) for graceful degradation. No architectural blocker on the two-tool design; scope decision deferred to feature spec."
+  - "cairn_studio tool design (one vs two tools) — closed (2026-06-24): both cairn_studio and read_artifact can independently carry AppConfig(resource_uri=...) and use ctx.client_supports_extension(UI_EXTENSION_ID) for graceful degradation. No architectural blocker on the two-tool design; scope decision deferred to feature spec."
   - "D2 (prior) — 'Is the reading surface local or hosted in AWS?' — closed: MCP Apps (local/in-session) is the answer. AWS hosting is not needed for the reading surface."
   - "D3 (prior) — 'Is live semantic search a v1 requirement for the hosted UI?' — closed: moot. The MCP App calls search_artifacts directly; semantic search is inherited, not a separate build concern."
   - "D7 (prior) — 'Should the reading UI ship inside cairn-mcp or as a separate cairn-lens repo?' — closed: MCP Apps ships as pre-built HTML assets inside cairn-mcp. No separate repo."
@@ -87,8 +87,8 @@ It lets MCP tools return interactive HTML/JS UIs that render inline in the host 
 
 **Mechanism:**
 
-1. A tool declares `_meta.ui.resourceUri: "ui://cairn-browser"` in its tool description.
-2. When the host calls the tool, it also fetches the `ui://cairn-browser` resource from the MCP server.
+1. A tool declares `_meta.ui.resourceUri: "ui://cairn-studio"` in its tool description.
+2. When the host calls the tool, it also fetches the `ui://cairn-studio` resource from the MCP server.
 3. The server returns a self-contained bundled HTML file (produced by Vite + `vite-plugin-singlefile`).
 4. The host renders the HTML in a sandboxed iframe inside the conversation.
 5. The iframe communicates bidirectionally with the host via `postMessage`/JSON-RPC.
@@ -103,7 +103,7 @@ to claude.ai web — a free upgrade, not a prerequisite.
 ### Ideas Explored
 
 **Idea A — MCP Apps as the primary in-session reading UI**
-A `cairn_browse` tool declares `_meta.ui.resourceUri: "ui://cairn-browser"`. Calling it opens
+A `cairn_studio` tool declares `_meta.ui.resourceUri: "ui://cairn-studio"`. Calling it opens
 an interactive artifact browser inline in Claude Desktop — faceted filter pane (type/date/tags/tier),
 search box, document viewer with markdown + mermaid rendering. The UI calls the existing
 `list_artifacts` / `search_artifacts` / `read_artifact` tools. Zero new AWS infrastructure, no
@@ -115,8 +115,8 @@ That assumption is false for this team. The CloudFront SPA component of Directio
 redundant. AgentCore Gateway / Streamable HTTP survives as a separate transport decision (for
 Workflow subagent parallelisation), entirely orthogonal to the reading surface.
 
-**Idea C — Two-tool design: `cairn_browse` + enriched `read_artifact`**
-`cairn_browse` shows the list/search/filter UI. `read_artifact` (when called from an MCP App
+**Idea C — Two-tool design: `cairn_studio` + enriched `read_artifact`**
+`cairn_studio` shows the list/search/filter UI. `read_artifact` (when called from an MCP App
 context) shows a single-document reader with rendered markdown, mermaid, metadata panel, and
 "open related" action. Each tool has its own `ui://` resource; tools remain independently useful
 without the UI.
@@ -207,4 +207,4 @@ discovering FastMCP's native MCP Apps support (`fastmcp[apps]`, `gofastmcp.com/a
 | FastMCP `_meta` support | `AppConfig(resource_uri="ui://...")` on `@mcp.tool()` handles it natively. `pip install "fastmcp[apps]"` required. |
 | Mermaid rendering: bundle vs CDN | `ResourceCSP(resource_domains=["https://cdn.jsdelivr.net"])` on the `@mcp.resource()` allows CDN loading. No Vite build needed for external dependencies. |
 | Vite build pipeline required? | Not required. UI can be plain HTML + vanilla JS with CDN-loaded mermaid.js and ext-apps SDK. Vite is optional if a JS framework is wanted. |
-| One tool vs two tools | Both `cairn_browse` and `read_artifact` can carry independent `AppConfig`; `ctx.client_supports_extension(UI_EXTENSION_ID)` gives graceful degradation. Two-tool design has no architectural blocker; scope deferred to feature spec. |
+| One tool vs two tools | Both `cairn_studio` and `read_artifact` can carry independent `AppConfig`; `ctx.client_supports_extension(UI_EXTENSION_ID)` gives graceful degradation. Two-tool design has no architectural blocker; scope deferred to feature spec. |

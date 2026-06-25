@@ -9,7 +9,7 @@ Data resources (``cairn://artifact/{id}`` and ``cairn://artifacts``) require liv
 client references and are registered via ``register_data_resources``, called from
 ``server.py`` after clients are constructed.
 
-The UI resource (``ui://cairn-browser/index.html``) is static and registered via
+The UI resource (``ui://cairn-studio/index.html``) is static and registered via
 ``register_ui_resource``, which is called at module load time alongside
 ``register_resources``.
 """
@@ -392,7 +392,7 @@ def register_resources(app: fastmcp.FastMCP) -> None:
 # UI resource registration
 # ---------------------------------------------------------------------------
 
-#: CDN origins that the cairn browser application is permitted to load from.
+#: CDN origins that the cairn studio application is permitted to load from.
 _BROWSER_CDN_ORIGINS: list[str] = [
     "https://unpkg.com",
     "https://cdn.jsdelivr.net",
@@ -402,14 +402,14 @@ _BROWSER_CDN_ORIGINS: list[str] = [
 
 
 def register_ui_resource(app: fastmcp.FastMCP) -> None:
-    """Register the ``ui://cairn-browser/index.html`` resource on the FastMCP app.
+    """Register the ``ui://cairn-studio/index.html`` resource on the FastMCP app.
 
-    The resource serves the cairn browser HTML application. It is registered
+    The resource serves the cairn studio HTML application. It is registered
     with ``ResourceCSP`` declaring the CDN origins the application loads from.
     No explicit ``mime_type`` is set — FastMCP auto-resolves ``ui://`` resources
     to ``text/html;profile=mcp-app``, which is the MIME type Claude Desktop
     requires to render an MCP App iframe rather than displaying raw text.
-    The HTML is read from the ``cairn_mcp/static/cairn-browser.html`` package
+    The HTML is read from the ``cairn_mcp/static/cairn-studio.html`` package
     file using ``importlib.resources``.
 
     This function must be called at module load time (alongside
@@ -421,19 +421,19 @@ def register_ui_resource(app: fastmcp.FastMCP) -> None:
     """
 
     @app.resource(
-        "ui://cairn-browser/index.html",
-        description="cairn artifact browser — visual reading interface.",
+        "ui://cairn-studio/index.html",
+        description="cairn studio— visual reading interface to browse artifacts.",
         app=AppConfig(csp=ResourceCSP(resource_domains=_BROWSER_CDN_ORIGINS)),
     )
-    def _cairn_browser_html() -> str:
-        """Return the cairn browser HTML application."""
+    def _cairn_studior_html() -> str:
+        """Return the cairn studio HTML application."""
         return (
             importlib.resources.files("cairn_mcp")
-            .joinpath("static/cairn-browser.html")
+            .joinpath("static/cairn-studio.html")
             .read_text(encoding="utf-8")
         )
 
-    logger.debug("cairn-mcp UI resource registered (ui://cairn-browser/index.html)")
+    logger.debug("cairn-mcp UI resource registered (ui://cairn-studio/index.html)")
 
 
 # ---------------------------------------------------------------------------

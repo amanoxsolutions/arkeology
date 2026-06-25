@@ -8,13 +8,13 @@ structured artifacts — code reviews, ADRs, implementation notes, specs, sessio
 sessions and across team boundaries. It directly resolves the tier 2 artifact gap from the F3.2
 research: knowledge produced in one agent session is no longer discarded when the context window
 closes. Any agent or workflow that depends on recalled context relies on this server; if it is
-unavailable or misconfigured, all persisted memory is inaccessible. The `cairn_browse`
+unavailable or misconfigured, all persisted memory is inaccessible. The `cairn_studio`
 tool is the human reading entry point — it renders a visual two-pane artifact browser
 inline in supporting MCP hosts (Claude Desktop, claude.ai, VS Code Copilot) and falls
-back to a plain-text listing on non-supporting hosts. When `cairn_browse` is active and
+back to a plain-text listing on non-supporting hosts. When `cairn_studio` is active and
 the browser UI triggers `read_artifact`, `list_artifacts`, or `search_artifacts` on behalf
 of a user interaction, do not summarize, reformat, or interpret the tool result — the
-browser UI handles rendering; Claude's role ends after the initial `cairn_browse` invocation.
+browser UI handles rendering; Claude's role ends after the initial `cairn_studio` invocation.
 
 ## Project
 - **Name:** cairn-mcp
@@ -60,7 +60,7 @@ browser UI handles rendering; Claude's role ends after the initial `cairn_browse
 | `src/cairn_mcp/tools/`            | MCP tool implementations (write, search, read, and more)   |
 | `src/cairn_mcp/tools/_search_helper.py` | Shared vector re-fetch loop used by search + synthesise |
 | `src/cairn_mcp/tools/archive.py`  | archive_artifact MCP tool                                  |
-| `src/cairn_mcp/tools/browse.py`   | cairn_browse MCP tool — UI extension + plain-text fallback |
+| `src/cairn_mcp/tools/studio.py`   | cairn_studio MCP tool — UI extension + plain-text fallback |
 | `src/cairn_mcp/tools/delete.py`   | delete_artifact MCP tool                                   |
 | `src/cairn_mcp/tools/freshness.py`| check_synthesis_freshness MCP tool                         |
 | `src/cairn_mcp/tools/health.py`   | health_check MCP tool                                      |
@@ -71,7 +71,7 @@ browser UI handles rendering; Claude's role ends after the initial `cairn_browse
 | `src/cairn_mcp/tools/search.py`   | search_artifacts MCP tool                                  |
 | `src/cairn_mcp/tools/synthesise.py` | synthesise_artifacts MCP tool                            |
 | `src/cairn_mcp/tools/write.py`    | write_artifact MCP tool                                    |
-| `src/cairn_mcp/static/cairn-browser.html` | Self-contained HTML/JS MCP App: two-pane browser (272 px pinned left list + flex right reader) with faceted filter, artifact list, markdown + mermaid rendering, semantic search |
+| `src/cairn_mcp/static/cairn-studio.html` | Self-contained HTML/JS MCP App: two-pane browser (272 px pinned left list + flex right reader) with faceted filter, artifact list, markdown + mermaid rendering, semantic search |
 | `src/cairn_mcp/clients/`          | AWS client interfaces, implementations, fakes, filter      |
 | `src/cairn_mcp/clients/interfaces.py` | Protocol interfaces for S3, S3 Vectors, Bedrock        |
 | `src/cairn_mcp/clients/s3.py`     | Concrete boto3 S3 client                                   |

@@ -325,7 +325,7 @@ def test_query_strategy_content_mentions_narrow_before_broad() -> None:
 
 
 def test_register_ui_resource_returns_non_empty_html() -> None:
-    """register_ui_resource(app) registers ui://cairn-browser/index.html returning HTML."""
+    """register_ui_resource(app) registers ui://cairn-studio/index.html returning HTML."""
     # Arrange
     app = fastmcp.FastMCP(name="test-cairn-ui", version="0.0.0")
 
@@ -335,18 +335,16 @@ def test_register_ui_resource_returns_non_empty_html() -> None:
     # Assert — the resource is registered
     resources = asyncio.run(app._list_resources())  # type: ignore[attr-defined]
     registered_uris = {str(r.uri) for r in resources}
-    assert "ui://cairn-browser/index.html" in registered_uris, (
-        f"Expected 'ui://cairn-browser/index.html' not found in: {registered_uris}"
+    assert "ui://cairn-studio/index.html" in registered_uris, (
+        f"Expected 'ui://cairn-studio/index.html' not found in: {registered_uris}"
     )
 
     # Assert — the handler returns a non-empty string
-    result = asyncio.run(app.read_resource("ui://cairn-browser/index.html"))
+    result = asyncio.run(app.read_resource("ui://cairn-studio/index.html"))
     # FastMCP read_resource returns a ResourceResult with a 'contents' list.
     # Each item has a 'content' attribute (not 'text').
     contents = result.contents if hasattr(result, "contents") else []
-    assert len(contents) > 0, (
-        "Expected at least one content item from ui://cairn-browser/index.html"
-    )
+    assert len(contents) > 0, "Expected at least one content item from ui://cairn-studio/index.html"
     text = contents[0].content if hasattr(contents[0], "content") else ""
     assert isinstance(text, str) and len(text) > 0, f"Expected non-empty HTML string, got: {text!r}"
 

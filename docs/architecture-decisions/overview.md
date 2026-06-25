@@ -183,4 +183,4 @@ Key architectural choices are recorded as ADRs in this directory:
 | [ADR-007](adr-2026-05-29-tier-based-access-control.md) | Tier-based cross-scope access control model |
 | [ADR-008](adr-2026-06-02-async-concurrent-embedding.md) | Async semaphore-bounded concurrent embedding |
 | [ADR-009](adr-2026-06-16-artifact-commit-traceability.md) | Artifact commit traceability — ULID timestamps, vector-only commit links, agent-driven protocol |
-| [ADR-010](adr-2026-06-24-mcp-apps-visual-reading-interface.md) | MCP Apps as the visual reading interface — `cairn_browse` tool via `fastmcp[apps]`, Direction 4 AWS-hosted SPA retired |
+| [ADR-010](adr-2026-06-24-mcp-apps-visual-reading-interface.md) | MCP Apps as the visual reading interface — `cairn_studio` tool via `fastmcp[apps]`, Direction 4 AWS-hosted SPA retired |
