@@ -290,19 +290,33 @@ def test_read_prefixes_absent_is_empty_list(monkeypatch: pytest.MonkeyPatch) -> 
 
 
 def test_read_prefixes_comma_separated_parsed(monkeypatch: pytest.MonkeyPatch) -> None:
-    """READ_PREFIXES='network/,shared/ , ' → ['network/', 'shared/']."""
+    """READ_PREFIXES='network/,shared/ , ' → ['network', 'shared'] (slashes normalized)."""
     _required_env(monkeypatch)
     monkeypatch.setenv("READ_PREFIXES", "network/,shared/ , ")
     settings = Settings()
-    assert settings.read_prefixes_list == ["network/", "shared/"]
+    assert settings.read_prefixes_list == ["network", "shared"]
 
 
 def test_read_prefixes_single_value(monkeypatch: pytest.MonkeyPatch) -> None:
-    """READ_PREFIXES='platform/' → ['platform/']."""
+    """READ_PREFIXES='platform/' → ['platform'] (trailing slash stripped)."""
     _required_env(monkeypatch)
     monkeypatch.setenv("READ_PREFIXES", "platform/")
     settings = Settings()
-    assert settings.read_prefixes_list == ["platform/"]
+    assert settings.read_prefixes_list == ["platform"]
+
+
+def test_read_prefixes_strips_surrounding_slashes_keeps_internal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Surrounding slashes are stripped so consumers can append '/' to rebuild the scope;
+    internal slashes (multi-level prefixes) are preserved. This keeps READ_PREFIXES
+    consistent with WRITE_PREFIX, which also strips surrounding slashes — otherwise a
+    configured 'network/' becomes 'network//' at the call site and matches nothing,
+    silently disabling foreign-scope reads."""
+    _required_env(monkeypatch)
+    monkeypatch.setenv("READ_PREFIXES", "/network/,shared/org/")
+    settings = Settings()
+    assert settings.read_prefixes_list == ["network", "shared/org"]
 
 
 # --- effective_read_scopes ---
@@ -311,12 +325,12 @@ def test_read_prefixes_single_value(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_effective_read_scopes_with_prefix_and_read_prefixes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """effective_read_scopes = [write_prefix] + read_prefixes_list."""
+    """effective_read_scopes = [write_prefix] + read_prefixes_list, all slash-normalized."""
     _required_env(monkeypatch)
     monkeypatch.setenv("WRITE_PREFIX", "platform/")
     monkeypatch.setenv("READ_PREFIXES", "network/,shared/")
     settings = Settings()
-    assert settings.effective_read_scopes == ["platform", "network/", "shared/"]
+    assert settings.effective_read_scopes == ["platform", "network", "shared"]
 
 
 def test_effective_read_scopes_no_read_prefixes(
@@ -472,11 +486,11 @@ def test_read_prefixes_comment_only_token_silently_dropped(
 def test_read_prefixes_valid_and_comment_token_mixed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """READ_PREFIXES='platform/, # a comment' → only valid prefix retained."""
+    """READ_PREFIXES='platform/, # a comment' → only valid prefix retained, slash-normalized."""
     _required_env(monkeypatch)
     monkeypatch.setenv("READ_PREFIXES", "platform/, # a comment")
     settings = Settings()
-    assert settings.read_prefixes_list == ["platform/"]
+    assert settings.read_prefixes_list == ["platform"]
 
 
 def test_read_prefixes_internal_whitespace_raises(

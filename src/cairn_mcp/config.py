@@ -244,12 +244,17 @@ class Settings(BaseSettings):
     @field_validator("READ_PREFIXES")
     @classmethod
     def validate_read_prefixes(cls, v: str) -> str:
-        """Filter comment tokens and reject tokens containing internal whitespace.
+        """Filter comment tokens, reject internal whitespace, normalize surrounding slashes.
 
         Tokens starting with '#' are silently dropped — they are comment artifacts
         from .env files where inline comments were not stripped by python-dotenv.
         Tokens containing internal whitespace (e.g. 'or leave blank') are invalid
         S3 prefixes and raise an error so the operator knows to fix their .env.
+        Surrounding slashes are stripped from each token so the stored form matches
+        WRITE_PREFIX (which also strips them) and the `scope` value persisted in vector
+        metadata — consumers append '/' to rebuild the scope, so a configured 'network/'
+        must normalize to 'network' (otherwise the match becomes 'network//' and silently
+        disables foreign-scope reads). Internal slashes (multi-level prefixes) are kept.
         """
         if not v:
             return v
@@ -264,7 +269,9 @@ class Settings(BaseSettings):
                     "S3 prefixes must not contain whitespace. "
                     "Check your .env file for template placeholder text."
                 )
-            clean.append(stripped)
+            normalized = stripped.strip("/")
+            if normalized:
+                clean.append(normalized)
         return ",".join(clean)
 
     @field_validator("LOG_LEVEL")
@@ -408,10 +415,16 @@ class Settings(BaseSettings):
 
     @property
     def read_prefixes_list(self) -> list[str]:
-        """READ_PREFIXES split on commas, stripped, with empty entries removed."""
+        """READ_PREFIXES split on commas, stripped of whitespace and surrounding slashes,
+        with empty entries removed. Surrounding slashes are normalized away so consumers can
+        append '/' to rebuild a scope (kept consistent with WRITE_PREFIX and the validator)."""
         if not self.READ_PREFIXES:
             return []
-        return [p.strip() for p in self.READ_PREFIXES.split(",") if p.strip()]
+        return [
+            cleaned
+            for token in self.READ_PREFIXES.split(",")
+            if (cleaned := token.strip().strip("/"))
+        ]
 
     @property
     def effective_read_scopes(self) -> list[str]:

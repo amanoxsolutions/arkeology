@@ -58,7 +58,7 @@ value where an integer is expected) produces a clear error, not a silent wrong v
 - WHEN the `Settings` object is constructed THE SYSTEM SHALL read all environment variables from `os.environ` (or the system environment) once, at construction time.
 - WHEN a required variable is absent THE SYSTEM SHALL raise a `ConfigurationError` with the variable name, its purpose, and a remediation hint before any other processing occurs.
 - WHEN `SEARCH_FETCH_TOP_K` is set to a value above 100 THE SYSTEM SHALL raise a `ConfigurationError` identifying the ceiling constraint.
-- WHEN `READ_PREFIXES` is set to a comma-separated string THE SYSTEM SHALL parse it into a `list[str]` with whitespace stripped from each entry and empty entries removed.
+- WHEN `READ_PREFIXES` is set to a comma-separated string THE SYSTEM SHALL parse it into a `list[str]` with whitespace and surrounding slashes stripped from each entry and empty entries removed. Surrounding slashes are normalized away (mirroring `WRITE_PREFIX`) so the stored prefix matches the `scope` value persisted in vector metadata and consumers can append `"/"` to rebuild the scope; a configured `"network/"` therefore becomes `"network"`, not `"network/"` (which would match nothing at the call site and silently disable foreign-scope reads). Internal slashes in multi-level prefixes (e.g. `"shared/org"`) are preserved.
 - WHEN `WRITE_PREFIX` is not set THE SYSTEM SHALL default to an empty string (root of the bucket).
 - WHEN `READ_PREFIXES` is not set THE SYSTEM SHALL default to an empty list (no additional read scopes).
 - WHEN `AWS_PROFILE` is not set THE SYSTEM SHALL store `None` (signal to use the default credential chain).
@@ -199,7 +199,7 @@ This test can live in `test_config.py` or a new `test_main.py`.
 | `SEARCH_MAX_ITERATIONS=0` | Validation error |
 | `LOG_LEVEL=TRACE` (invalid) | Validation error; message lists valid values |
 | `LOG_LEVEL=debug` (lowercase) | Accepted; stored as `"DEBUG"` |
-| `READ_PREFIXES="network/,shared/ , "` | Parsed to `["network/", "shared/"]` (no empty entries, stripped whitespace) |
+| `READ_PREFIXES="network/,shared/ , "` | Parsed to `["network", "shared"]` (empty entries dropped; whitespace and surrounding slashes stripped) |
 | `READ_PREFIXES` absent | `read_prefixes_list == []` |
 | `WRITE_PREFIX` absent | `write_prefix == ""` |
 | `effective_read_scopes` with prefix and read prefixes | `["platform/", "network/", "shared/"]` |
