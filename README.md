@@ -49,6 +49,9 @@ making it discoverable by agents on other projects or teams that point at the sa
 - **Cross-team knowledge sharing** — canonical artifacts such as ADRs and architecture decisions can be made discoverable by agents on other projects or teams. Working documents stay project-local by default; sharing requires a deliberate promotion step, not an accidental one.
   > IMPORTANT: Cross-team visibility control is enforced at the MCP server layer. True access control (keeping content private from unauthorized AWS principals) requires enforcing permissions at the IAM or S3 resource permissions level.
 - **Rich, filterable metadata** — every artifact carries structured metadata that is returned with every search result. Browse and filter without fetching full content.
+- **Commit-to-artifact traceability** — artifact vectors carry git commit SHA references as metadata. At the end of a session, unlinked artifacts can be discovered and linked to the session's commit SHA in a single confirmation step — without re-embedding. Commit refs can also be supplied at write time.
+- **Cairn Studio — inline visual browser** — calling Cairn Studio opens an HTML application inline in any MCP host that supports [MCP Apps](https://modelcontextprotocol.io/extensions/apps/overview). It renders a filterable artifact list on the left and full markdown content — including Mermaid diagrams — issuing artifact queries over the same MCP connection without leaving the host UI. On non-supporting hosts, the full artifact listing is returned as structured data.
+- **Human-readable MCP resources** — two data resources expose artifact content for direct human browsing: `cairn://artifacts` returns a markdown table of all active own-scope artifacts; `cairn://artifact/{id}` returns the full markdown content of a named artifact. Both are readable from MCP Inspector, Claude Desktop, and Claude Code without a tool call.
 - **Knowledge synthesis** — compile multiple related artifacts into a single reference document. The result is stored as a first-class artifact with source identifiers recorded, so provenance is always traceable.
 - **Full artifact lifecycle** — archive, delete, and purge artifacts as projects evolve. Referential safety checks warn before removing an artifact that other synthesis documents depend on.
 - **Migration skill and server tools for existing projects** — adopt cairn-mcp on a project with years of accumulated docs without starting from zero. A bundled skill and a dedicated `migrate_artifacts` server tool classify, enrich, and import existing documentation in a single structured workflow. For large batches (> 10 files), Bedrock generates artifact descriptions server-side — avoiding the agent consuming and summarising hundreds of files in-context — using Amazon Nova Lite by default.
@@ -115,7 +118,7 @@ provides.
 ## How it works
 
 Artifacts are stored in S3, indexed in S3 Vectors, and embedded with Amazon Bedrock
-(Titan Text v2). The server exposes 13 MCP tools, five schema resources for runtime
+(Titan Text v2). The server exposes 16 MCP tools, five schema resources for runtime
 schema discovery, and two data resources for human browsing — see the
 [Server Reference](SERVER-REFERENCE.md#tools) for the complete tool and resource tables.
 
@@ -236,7 +239,7 @@ the correct update action automatically — no manual steps required.
 
 ## Status
 
-> **v0.2.0** — all tools implemented and unit-tested: `write_artifact`, `write_artifacts`, `migrate_artifacts`, `search_artifacts`, `read_artifact`, `list_artifacts`, `archive_artifact`, `delete_artifact`, `purge_archived`, `health_check`, `synthesise_artifacts`, `reconcile_index`, and `check_synthesis_freshness`. Five schema resources (`cairn://schema/*`) and two data resources (`cairn://artifacts`, `cairn://artifact/{id}`) are registered and available.
+> **v0.2.0** — all tools implemented and unit-tested: `write_artifact`, `write_artifacts`, `migrate_artifacts`, `search_artifacts`, `read_artifact`, `list_artifacts`, `archive_artifact`, `delete_artifact`, `purge_archived`, `health_check`, `synthesise_artifacts`, `reconcile_index`, `check_synthesis_freshness`, `propose_commit_links`, `link_commit`, and `cairn_studio`. Five schema resources (`cairn://schema/*`) and two data resources (`cairn://artifacts`, `cairn://artifact/{id}`) are registered and available.
 
 ---
 
