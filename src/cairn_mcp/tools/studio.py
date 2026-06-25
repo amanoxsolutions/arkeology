@@ -5,18 +5,15 @@ plain-text artifact listing in non-supporting hosts.
 
 Return value design
 -------------------
-``cairn_studio`` returns a :class:`fastmcp.tools.base.ToolResult` with two
-independent payloads:
+``cairn_studio`` always returns a :class:`fastmcp.tools.base.ToolResult` with a
+short ``content`` block for the LLM.
 
-* ``content`` — a short human-readable sentence for the LLM.  The model sees
-  this and does not need to describe or summarise the raw data, because the
-  host UI widget handles rendering.
-* ``structured_content`` — the full ``{"write_prefix": …, "artifacts": […]}``
-  dict consumed by the iframe's ``app.ontoolresult`` handler (which reads
-  ``structuredContent`` first, falling back to ``content``).
+When the host supports the UI extension the iframe loads the artifact list itself
+on mount — ``structured_content`` is omitted to keep the tool result lean.
 
-Keeping these payloads separate prevents the model from generating a verbose
-JSON description below the rendered widget.
+When the host does NOT support the UI extension ``structured_content`` is populated
+with ``{"write_prefix": …, "artifacts": […]}`` so non-supporting clients receive the
+artifact listing without requiring a separate ``list_artifacts`` call.
 """
 
 import logging
@@ -26,7 +23,9 @@ from fastmcp.server.context import Context
 from fastmcp.tools.base import ToolResult
 from mcp.types import TextContent
 
+from cairn_mcp.clients.interfaces import VectorsClientInterface
 from cairn_mcp.config import Settings
+from cairn_mcp.tools.list import _list_artifacts_inner
 
 logger = logging.getLogger(__name__)
 
@@ -34,19 +33,23 @@ logger = logging.getLogger(__name__)
 async def cairn_studio(
     *,
     settings: Settings,
+    vectors: VectorsClientInterface,
     ctx: Context,
 ) -> ToolResult:
-    """Browse cairn artifacts using Cairn Studio — triggers the inline MCP
-    App browser.
+    """Browse cairn artifacts using Cairn Studio — triggers the inline MCP App browser.
 
     Returns a :class:`~fastmcp.tools.base.ToolResult` with:
 
-    * ``content`` — a one-line confirmation for the LLM so it does not
-      attempt to describe the raw artifact data.
+    * ``content`` — a one-line confirmation for the LLM.
+    * ``structured_content`` — only present when the host does not support the UI
+      extension; contains ``{"write_prefix": …, "artifacts": […]}`` so the client
+      has the full listing without a separate tool call.
 
     Args:
         settings: Validated server configuration.
-        ctx: FastMCP request context — used to log extension support status.
+        vectors: S3 Vectors client — used to fetch the artifact list for the
+            non-UI fallback path.
+        ctx: FastMCP request context — used to detect UI extension support.
 
     Returns:
         A :class:`~fastmcp.tools.base.ToolResult`.
@@ -58,9 +61,33 @@ async def cairn_studio(
             "cairn_studio: UI extension %s by client",
             "supported" if is_ui else "not announced",
         )
-        text = "Cairn studio opened. Use the UI widget to browse artifacts."
+        if is_ui:
+            # Supporting host: the iframe loads artifacts on mount; no structured_content needed.
+            return ToolResult(
+                content=[
+                    TextContent(
+                        type="text",
+                        text="Cairn Studio opened. Use the UI widget to browse artifacts.",
+                    )
+                ],
+            )
+
+        # Non-supporting host: include the artifact listing so the client has the data.
+        listing = await _list_artifacts_inner(settings=settings, vectors=vectors)
         return ToolResult(
-            content=[TextContent(type="text", text=text)],
+            content=[
+                TextContent(
+                    type="text",
+                    text=(
+                        "Cairn Studio is not supported by this host. "
+                        "The artifact listing is available in structured_content."
+                    ),
+                )
+            ],
+            structured_content={
+                "write_prefix": settings.write_prefix,
+                "artifacts": listing.get("artifacts", []),
+            },
         )
     except Exception as exc:
         logger.exception("Unexpected error in cairn_studio")

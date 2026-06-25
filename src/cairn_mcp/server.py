@@ -317,6 +317,7 @@ def register_tools(
         """Browse cairn artifacts using Cairn Studio — triggers the inline MCP App browser."""
         return await _cairn_studio(
             settings=settings,
+            vectors=vectors,
             ctx=ctx,
         )
 
