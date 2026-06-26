@@ -6,7 +6,7 @@ tags: []
 timestamp: 2026-06-24T00:00:00Z
 okf_version: "0.1"
 feature: p11-t44-browser-ui
-status: ready
+status: complete
 phase: 11
 task: 44
 references:
