@@ -145,6 +145,7 @@ async def _purge_archived_inner(
 
     # ── Step 5: Delete all artifacts in purge_set + cascade_set ─────────────
     all_to_delete = list(purge_set) + [c for c in cascade_set if c not in purge_set]
+    purged_so_far: list[str] = []
 
     for artifact_id in all_to_delete:
         # Find and delete vectors
@@ -166,6 +167,7 @@ async def _purge_archived_inner(
         # Delete S3 object
         try:
             s3.delete_object(artifact_id)
+            purged_so_far.append(artifact_id)
         except CredentialError as exc:
             return {"error": "credential_error", "message": str(exc), "artifact_id": artifact_id}
         except Exception as exc:
@@ -173,6 +175,7 @@ async def _purge_archived_inner(
                 "error": "partial_delete",
                 "message": str(exc),
                 "artifact_id": artifact_id,
+                "purged_so_far": purged_so_far,
             }
 
     purged_ids = sorted(purge_set)

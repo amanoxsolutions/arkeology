@@ -271,6 +271,7 @@ def register_tools(
     async def migrate_artifacts(
         descriptors: list[dict[str, Any]],
         dry_run: bool = True,
+        artifact_concurrency: int = 3,
     ) -> dict[str, Any]:
         """Migrate artifacts, generating missing descriptions via Nova Lite."""
         return await _migrate_artifacts(
@@ -280,6 +281,7 @@ def register_tools(
             bedrock=bedrock,
             descriptors=descriptors,
             dry_run=dry_run,
+            artifact_concurrency=artifact_concurrency,
         )
 
     @_app.tool()

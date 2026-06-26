@@ -836,3 +836,53 @@ async def test_more_than_100_artifacts_all_returned(
     for artifact_id in artifact_ids:
         assert artifact_id in returned_ids, f"Missing artifact: {artifact_id}"
     assert len(result["artifacts"]) == artifact_count
+
+
+# ---------------------------------------------------------------------------
+# M17 — legacy vector missing "tier" key must not raise KeyError
+# ---------------------------------------------------------------------------
+
+
+async def test_m17_vector_missing_tier_key_does_not_raise(
+    monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
+) -> None:
+    """M17: A vector whose metadata dict has no "tier" key causes int(meta["tier"]) to raise
+    KeyError at list.py line ~200.  After the fix, the artifact is returned with a safe
+    default tier (e.g. 0 or None) rather than raising.
+
+    Scenario:
+    - Seed one own-scope vector with no "tier" in metadata.
+    - Call list_artifacts.
+    - Expect: no KeyError; the artifact appears in the result.
+    """
+    settings = _make_settings(monkeypatch)
+    # Seed a vector that has no "tier" key at all (simulates a legacy artifact)
+    vectors_client_8.put_vector(
+        "artifacts/legacy-no-tier#summary",
+        _unit_vec(1.0),
+        {
+            "artifact_id": "artifacts/legacy-no-tier",
+            "scope": "artifacts",
+            "type": "implementation_note",
+            # "tier" is intentionally absent
+            "date": "2025-01-01",
+            "status": "active",
+            "title": "Legacy artifact without tier",
+            "visibility": "shared",
+            "tags": [],
+        },
+    )
+
+    result = await list_artifacts(
+        settings=settings,
+        vectors=vectors_client_8,
+        s3=None,
+        bedrock=None,
+    )
+
+    assert "error" not in result, f"M17: Expected no error, got: {result}"
+    returned_ids = {a["artifact_id"] for a in result.get("artifacts", [])}
+    assert "artifacts/legacy-no-tier" in returned_ids, (
+        "M17: Legacy artifact without 'tier' key should appear in list results, not raise KeyError"
+    )

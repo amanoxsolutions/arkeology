@@ -697,3 +697,103 @@ async def test_migrate_artifacts_in_range_concurrency_5_dry_run_false_forwards_5
     assert len(results) == 3
     for entry in results:
         assert entry.get("written") is True, f"Expected written=True, got: {entry}"
+
+
+# ---------------------------------------------------------------------------
+# M20 Bug 1 — single Nova Lite failure must not abort all migration
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_m20_single_nova_lite_failure_does_not_abort_migration(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """M20 Bug 1: When one Nova Lite call fails (line ~181 does `raise result` when result is
+    BaseException), the current code aborts the ENTIRE migration via `raise result`.  After the
+    fix, that single failure is caught and reported gracefully; other descriptors continue.
+
+    Scenario:
+    - 3 descriptors, all WITHOUT descriptions (so all need Nova Lite).
+    - invoke_text_model succeeds on calls 1 and 3, raises RuntimeError on call 2.
+    - dry_run=True so we only need enrichment, not writes.
+    - Expected AFTER fix:
+        * Migration does NOT abort entirely (no exception, no top-level error key).
+        * Descriptor 0 and descriptor 2 receive generated descriptions.
+        * Descriptor 1 may have an empty/default description or be noted as failed,
+          but the response must include all 3 descriptors (not just 0 or 1).
+
+    Note: Before the fix, asyncio.gather(return_exceptions=True) collects exceptions
+    but `raise result` on a BaseException re-raises it, so only the first descriptor
+    is visible and the call to migrate_artifacts raises.
+    """
+    try:
+        from cairn_mcp.tools.migrate_artifacts import migrate_artifacts
+    except ImportError:
+        pytest.fail("cairn_mcp.tools.migrate_artifacts is not yet implemented")
+
+    settings = _make_settings(monkeypatch, BEDROCK_TEXT_MODEL="amazon.nova-lite-v1:0")
+    bedrock = FakeBedrockClient(dimension=1024)
+
+    call_count: dict[str, int] = {"n": 0}
+
+    def invoke_side_effect(model: str, prompt: str) -> str:
+        call_count["n"] += 1
+        if call_count["n"] == 2:
+            raise RuntimeError("simulated Nova Lite failure on 2nd call")
+        return _FAKE_DESCRIPTION
+
+    mocker.patch.object(bedrock, "invoke_text_model", create=True, side_effect=invoke_side_effect)
+
+    descriptors = [_make_descriptor(i, with_description=False) for i in range(3)]
+
+    # Before fix: migrate_artifacts raises (propagates the RuntimeError via `raise result`).
+    # After fix: should return a response dict without raising.
+    result = await migrate_artifacts(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        descriptors=descriptors,
+        dry_run=True,
+    )
+
+    assert isinstance(result, dict), (
+        "M20 Bug 1: migrate_artifacts should return a dict, not raise an exception"
+    )
+    assert "error" not in result, (
+        f"M20 Bug 1: top-level error should not abort migration for a single failure, got: {result}"
+    )
+    enriched = result.get("descriptors", [])
+    assert len(enriched) == 3, (
+        f"M20 Bug 1: all 3 descriptors should be present in result, got {len(enriched)}: {enriched}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# M20 Bug 3 — server.py migrate_artifacts tool must expose artifact_concurrency
+# ---------------------------------------------------------------------------
+
+
+def test_m20_server_migrate_artifacts_exposes_artifact_concurrency() -> None:
+    """M20 Bug 3: The MCP tool definition in server.py wraps migrate_artifacts but does not
+    forward artifact_concurrency to the inner function.  After the fix, the tool function
+    signature must include an artifact_concurrency parameter.
+
+    This test inspects the source of server.py to verify the parameter is present in the
+    migrate_artifacts tool definition.
+    """
+    import inspect
+
+    from cairn_mcp import server as server_module
+
+    # The register_tools function creates local tool closures; we inspect its source.
+    src = inspect.getsource(server_module.register_tools)
+    # The migrate_artifacts inner function definition must declare artifact_concurrency.
+    # The fix adds it as a parameter with a default value.
+    assert "artifact_concurrency" in src, (
+        "M20 Bug 3: server.py register_tools must include 'artifact_concurrency' in the "
+        "migrate_artifacts tool definition so callers can control concurrency via MCP."
+    )

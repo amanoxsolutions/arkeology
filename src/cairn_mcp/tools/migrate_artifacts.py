@@ -7,7 +7,7 @@ enriched descriptor list is returned without any writes. In live mode, the enric
 descriptors are handed to write_artifacts for concurrent bulk write.
 
 The caller-supplied ``artifact_concurrency`` parameter (default 3, range [1, 15])
-controls both the Nova Lite description semaphore (dry_run phase) and is forwarded
+controls both the Nova Lite description semaphore (enrichment phase) and is forwarded
 to write_artifacts for the write semaphore (live phase). Out-of-range values are
 clamped silently with a top-level ``"warning"`` field in the response.
 
@@ -176,11 +176,14 @@ async def _migrate_artifacts_inner(
             *[generate_description(i) for i in missing_indices],
             return_exceptions=True,
         )
-        for result in generated:
+        for i, result in zip(missing_indices, generated):
             if isinstance(result, BaseException):
-                raise result
-            idx, text = result
-            descriptors[idx] = {**descriptors[idx], "description": text}
+                logger.warning(
+                    "Description generation failed for descriptor at index %d: %s", i, result
+                )
+                continue
+            _, text = result
+            descriptors[i] = {**descriptors[i], "description": text}
 
     # ── Step 3: clip all descriptions to _MAX_DESCRIPTION_LENGTH ──────────────
     enriched: list[dict[str, Any]] = []

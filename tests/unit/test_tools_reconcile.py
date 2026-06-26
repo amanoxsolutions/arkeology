@@ -1173,3 +1173,58 @@ async def test_response_schema_includes_new_fields(
     assert "dangling_artifacts_found" in result, "Missing 'dangling_artifacts_found' in response"
     assert "dangling_vectors_pruned" in result, "Missing 'dangling_vectors_pruned' in response"
     assert "dangling_artifacts" in result, "Missing 'dangling_artifacts' in response"
+
+
+# ---------------------------------------------------------------------------
+# M15 — Phase-1 failure must not cause duplicate failed entry via Phase-2 orphan scan
+# ---------------------------------------------------------------------------
+
+
+async def test_m15_phase1_failure_not_duplicated_as_phase2_orphan(
+    reconcile_settings: Settings,
+    s3_reconcile: S3ClientImpl,
+    vectors_reconcile: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """M15: When a failure log entry re-index attempt fails in Phase 1 (e.g. bedrock.embed
+    raises), the artifact is added to failed exactly ONCE.  Before the fix, failed_ids was
+    initialised inside the ``if log_path.exists():`` block and therefore not visible to the
+    Phase-2 orphan scan, which would add the same artifact_id to failed a second time.
+
+    Scenario:
+    - Failure log has one entry for artifact_id.
+    - The S3 object exists (so Phase-1 can attempt re-indexing).
+    - bedrock.embed raises so Phase-1 fails and adds artifact_id to failed_ids.
+    - Phase-2 orphan scan sees the S3 key is not in indexed_artifact_ids and — because
+      failed_ids is inaccessible — also adds artifact_id to failed.
+    Expected: artifact_id appears in failed exactly ONCE.
+    """
+    artifact_id = "artifacts/implementation-note-2026-01-01-m15-dup"
+    s3_reconcile.put_object(artifact_id, _CONTENT_NO_SECTIONS, {**_BASE_S3_META})
+
+    _write_failure_log(
+        reconcile_settings.failure_log_path,
+        [{**_BASE_LOG_ENTRY, "artifact_id": artifact_id}],
+    )
+
+    bedrock = FakeBedrockClient(dimension=DIMENSION)
+    mocker.patch.object(
+        bedrock,
+        "embed",
+        side_effect=RuntimeError("simulated embed failure"),
+    )
+
+    result = await reconcile_index(
+        settings=reconcile_settings,
+        s3=s3_reconcile,
+        vectors=vectors_reconcile,
+        bedrock=bedrock,
+    )
+
+    assert "error" not in result
+    failed_ids = [e["artifact_id"] for e in result["failed"]]
+    count = failed_ids.count(artifact_id)
+    assert count == 1, (
+        f"M15: artifact_id should appear in failed exactly once, but found {count} times. "
+        f"failed list: {result['failed']}"
+    )

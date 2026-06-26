@@ -186,6 +186,7 @@ async def _reconcile_index_inner(
     """
     reconciled: list[dict[str, Any]] = []
     failed: list[dict[str, Any]] = []
+    failed_ids: set[str] = set()
 
     # ── Phase 1: Failure log replay ───────────────────────────────────────────
     log_path: Path = settings.failure_log_path
@@ -215,7 +216,6 @@ async def _reconcile_index_inner(
                 unique_entries.append(entry)
 
         resolved_ids: set[str] = set()
-        failed_ids: set[str] = set()
 
         for entry in unique_entries:
             artifact_id = entry.get("artifact_id", "")
@@ -307,7 +307,7 @@ async def _reconcile_index_inner(
         vectors_by_artifact.setdefault(artifact_id, []).append(vk)
     indexed_artifact_ids: set[str] = set(vectors_by_artifact.keys())
 
-    orphans = [k for k in own_keys if k not in indexed_artifact_ids]
+    orphans = [k for k in own_keys if k not in indexed_artifact_ids and k not in failed_ids]
     orphans_found = len(orphans)
 
     for orphan_key in orphans:

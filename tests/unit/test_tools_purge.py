@@ -509,3 +509,75 @@ async def test_credential_error_on_purge_returns_credential_error(
     )
 
     assert result.get("error") == "credential_error"
+
+
+# ---------------------------------------------------------------------------
+# M16 — partial_delete response must include already-purged IDs
+# ---------------------------------------------------------------------------
+
+
+async def test_m16_partial_delete_response_includes_already_purged_ids(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """M16: When the S3 delete loop fails on the second artifact, the partial_delete
+    error response must include the IDs that were already successfully deleted before
+    the failure.  Before the fix, the response omitted already-purged IDs.
+
+    Scenario:
+    - Two inactive artifacts seeded: inactive-first and inactive-second.
+    - s3.delete_object succeeds for the first artifact, raises RuntimeError for the second.
+    - Expected: response["error"] == "partial_delete" AND the ID of the first artifact
+      appears somewhere in the response (e.g. as a "purged_ids" field or in "message").
+    """
+    settings = _make_settings(monkeypatch)
+
+    # Seed two inactive artifacts
+    s3_client.put_object("artifacts/inactive-first", _CONTENT, {**_BASE_S3_META})
+    vectors_client_2.put_vector(
+        "artifacts/inactive-first#summary",
+        [1.0, 0.0],
+        {**_BASE_VECTOR_META, "artifact_id": "artifacts/inactive-first"},
+    )
+    s3_client.put_object("artifacts/inactive-second", _CONTENT, {**_BASE_S3_META})
+    vectors_client_2.put_vector(
+        "artifacts/inactive-second#summary",
+        [0.9, 0.1],
+        {**_BASE_VECTOR_META, "artifact_id": "artifacts/inactive-second"},
+    )
+
+    # Track which artifact's S3 delete is called first, succeed for it, fail for the second.
+    delete_calls: list[str] = []
+    original_delete = s3_client.delete_object
+
+    def selective_delete(key: str) -> None:
+        delete_calls.append(key)
+        if len(delete_calls) == 1:
+            # First call succeeds
+            original_delete(key)
+        else:
+            # Second call fails
+            raise RuntimeError("simulated partial S3 delete failure")
+
+    mocker.patch.object(s3_client, "delete_object", side_effect=selective_delete)
+
+    result = await purge_archived(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=None,
+        confirm=True,
+    )
+
+    assert result.get("error") == "partial_delete", (
+        f"M16: Expected error='partial_delete', got: {result}"
+    )
+    # The already-purged artifact ID must appear in the response
+    first_purged_id = delete_calls[0]
+    result_str = str(result)
+    assert first_purged_id in result_str, (
+        f"M16: The first purged artifact '{first_purged_id}' must appear in the partial_delete "
+        f"response, but got: {result}"
+    )

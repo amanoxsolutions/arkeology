@@ -56,7 +56,7 @@ browser UI handles rendering; Claude's role ends after the initial `cairn_studio
 | `src/cairn_mcp/failure_log.py`    | Failure log helper: append_failure_entry, JSONL format     |
 | `src/cairn_mcp/resources.py`      | FastMCP resource registrations                             |
 | `src/cairn_mcp/server.py`         | FastMCP app, tool registration                             |
-| `src/cairn_mcp/startup.py`        | Five-check startup validation sequence                     |
+| `src/cairn_mcp/startup.py`        | Six-check startup validation sequence                      |
 | `src/cairn_mcp/tools/`            | MCP tool implementations (write, search, read, and more)   |
 | `src/cairn_mcp/tools/_search_helper.py` | Shared vector re-fetch loop used by search + synthesise |
 | `src/cairn_mcp/tools/archive.py`  | archive_artifact MCP tool                                  |

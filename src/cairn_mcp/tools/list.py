@@ -197,7 +197,7 @@ async def _list_artifacts_inner(
                 "type": meta.get("type"),
                 "team": meta.get("team"),
                 "project": meta.get("project"),
-                "tier": int(meta["tier"]),
+                "tier": int(meta.get("tier", 0)),
                 "date": meta.get("date"),
                 "status": meta.get("status"),
                 "title": meta.get("title"),

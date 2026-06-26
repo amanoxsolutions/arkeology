@@ -529,3 +529,98 @@ async def test_credential_error_in_one_probe_does_not_skip_others(
     for key, entry in result.items():
         if isinstance(entry, dict) and "s3" not in key:
             assert entry.get("status") == "ok", f"{key} should still be ok"
+
+
+# ---------------------------------------------------------------------------
+# M22 Bug 1 — CredentialError on write_prefix probe must include write_prefix key
+# ---------------------------------------------------------------------------
+
+
+async def test_m22_credential_error_on_write_prefix_probe_key_present(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """M22 Bug 1: When s3.put_object raises CredentialError during the write_prefix probe,
+    the current code executes ``pass`` (lines 120-121) leaving result["write_prefix"] absent.
+    After the fix, result["write_prefix"] must be present with an appropriate status.
+
+    Scenario:
+    - Mock s3.put_object to raise CredentialError specifically for the probe key.
+    - Call health_check.
+    - Expected: result["write_prefix"] is present (either 'ok' or 'error' — but present).
+    """
+    settings = _make_settings(monkeypatch, READ_PREFIXES="")
+    bedrock = FakeBedrockClient(dimension=8)
+
+    # Only fail on the probe key write; allow head_bucket to succeed normally.
+    probe_key = f"{settings.write_prefix}/_cairn_health_probe"
+    original_put = s3_client.put_object
+
+    def put_object_side_effect(key: str, content: str, metadata: dict) -> None:
+        if key == probe_key:
+            raise CredentialError(
+                message="simulated credential error on probe put",
+                service="s3",
+                original=Exception("simulated"),
+            )
+        original_put(key, content, metadata)
+
+    mocker.patch.object(s3_client, "put_object", side_effect=put_object_side_effect)
+
+    result = await health_check(
+        settings=settings, s3=s3_client, vectors=vectors_client_8, bedrock=bedrock
+    )
+
+    assert "write_prefix" in result, (
+        "M22 Bug 1: result['write_prefix'] must be present even when CredentialError is raised "
+        "on the write_prefix probe; current code does 'pass' and omits the key entirely."
+    )
+
+
+# ---------------------------------------------------------------------------
+# M22 Bug 2 — probe object must be cleaned up even when get_object fails
+# ---------------------------------------------------------------------------
+
+
+async def test_m22_probe_object_cleaned_up_when_get_object_fails(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """M22 Bug 2: When s3.put_object succeeds but s3.get_object raises, the probe object
+    is left in S3 (no cleanup).  After the fix, s3.delete_object must be called for the
+    probe key regardless of whether get_object succeeded.
+
+    Scenario:
+    - s3.put_object succeeds (for the probe key).
+    - s3.get_object raises RuntimeError for the probe key.
+    - Expected: s3.delete_object is called (best-effort cleanup).
+    """
+    settings = _make_settings(monkeypatch, READ_PREFIXES="")
+    bedrock = FakeBedrockClient(dimension=8)
+
+    probe_key = f"{settings.write_prefix}/_cairn_health_probe"
+
+    # put_object succeeds (default moto behaviour)
+    # get_object raises for the probe key
+    original_get = s3_client.get_object
+
+    def get_object_side_effect(key: str) -> str:
+        if key == probe_key:
+            raise RuntimeError("simulated get_object failure on probe key")
+        return original_get(key)
+
+    mocker.patch.object(s3_client, "get_object", side_effect=get_object_side_effect)
+    delete_spy = mocker.spy(s3_client, "delete_object")
+
+    await health_check(settings=settings, s3=s3_client, vectors=vectors_client_8, bedrock=bedrock)
+
+    # Verify that delete_object was called for the probe key (cleanup)
+    called_keys = [call.args[0] for call in delete_spy.call_args_list]
+    assert probe_key in called_keys, (
+        f"M22 Bug 2: s3.delete_object must be called for probe key '{probe_key}' as cleanup "
+        f"even when get_object fails, but delete was only called for: {called_keys}"
+    )

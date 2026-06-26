@@ -497,6 +497,104 @@ def test_check5_none_dimension_raises_startup_error(
         validate_startup(settings=settings, s3=s3_client, vectors=vectors_client, bedrock=bedrock)
 
 
+# ---------------------------------------------------------------------------
+# M23 Bug 1 — non-credential head_bucket errors must be wrapped, not escape raw
+# ---------------------------------------------------------------------------
+
+
+def test_m23_check1_non_credential_error_raises_startup_validation_error(
+    settings: Settings,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """M23 Bug 1: _check_credentials only catches CredentialError; any other exception
+    (e.g. network error) escapes as a raw traceback.  After the fix, non-credential errors
+    from head_bucket must be caught and re-raised as StartupValidationError.
+
+    Scenario:
+    - Mock s3.head_bucket to raise RuntimeError("network error").
+    - Expected: StartupValidationError is raised (not RuntimeError propagating raw).
+    """
+    mocker.patch.object(s3_client, "head_bucket", side_effect=RuntimeError("network error"))
+    bedrock = FakeBedrockClient()
+
+    with pytest.raises(StartupValidationError):
+        validate_startup(settings=settings, s3=s3_client, vectors=vectors_client, bedrock=bedrock)
+
+
+# ---------------------------------------------------------------------------
+# M23 Bug 2 — non-credential describe_index errors must be wrapped
+# ---------------------------------------------------------------------------
+
+
+def test_m23_check4_non_credential_error_raises_startup_validation_error(
+    settings: Settings,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """M23 Bug 2: _check_vector_index only catches CredentialError and
+    VectorIndexNotFoundError; any other exception escapes raw.  After the fix, all other
+    exceptions from describe_index must be wrapped in StartupValidationError.
+
+    Scenario:
+    - Mock vectors.describe_index to raise RuntimeError("network error").
+    - Expected: StartupValidationError is raised (not RuntimeError propagating raw).
+    """
+    mocker.patch.object(vectors_client, "describe_index", side_effect=RuntimeError("network error"))
+    bedrock = FakeBedrockClient()
+
+    with pytest.raises(StartupValidationError):
+        validate_startup(settings=settings, s3=s3_client, vectors=vectors_client, bedrock=bedrock)
+
+
+# ---------------------------------------------------------------------------
+# M23 Bug 3 — CredentialError from invoke_text_model must propagate, not be wrapped
+# ---------------------------------------------------------------------------
+
+
+def test_m23_check6_credential_error_propagates_not_wrapped(
+    settings: Settings,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    monkeypatch: pytest.MonkeyPatch,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """M23 Bug 3: _check_text_model catches ALL exceptions with a bare `except Exception`
+    and wraps them in StartupValidationError, including CredentialError.  The project
+    convention is that CredentialError must propagate as-is (not wrapped).  After the fix,
+    CredentialError from invoke_text_model must propagate rather than being re-raised as
+    StartupValidationError.
+
+    Scenario:
+    - BEDROCK_TEXT_MODEL is configured.
+    - Mock bedrock.invoke_text_model to raise CredentialError.
+    - Expected: CredentialError propagates (not StartupValidationError).
+    """
+    monkeypatch.setenv("BEDROCK_TEXT_MODEL", "amazon.nova-lite-v1:0")
+    settings_with_model = Settings()
+    bedrock = FakeBedrockClient(dimension=1024)
+    mocker.patch.object(
+        bedrock,
+        "invoke_text_model",
+        create=True,
+        side_effect=CredentialError(
+            message="simulated credential error in text model probe",
+            service="bedrock",
+            original=Exception("simulated"),
+        ),
+    )
+
+    with pytest.raises(CredentialError):
+        validate_startup(
+            settings=settings_with_model,
+            s3=s3_client,
+            vectors=vectors_client,
+            bedrock=bedrock,
+        )
+
+
 def test_check1_credential_failure_chains_cause(
     settings: Settings,
     s3_client: S3ClientImpl,

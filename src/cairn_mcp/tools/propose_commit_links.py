@@ -79,6 +79,10 @@ async def _propose_commit_links_inner(
     scope_clause: dict[str, Any] = {"scope": {"$eq": own_scope}}
 
     if since_ulid is not None:
+        # Artifacts without last_edited_ulid are intentionally excluded when since_ulid is
+        # set — the $gte filter only matches artifacts that carry a ULID, which is consistent
+        # with the frozen requirement that session-bounded proposals apply only to artifacts
+        # written during the current session (which always have last_edited_ulid set).
         combined_filter: dict[str, Any] = {
             "$and": [
                 scope_clause,

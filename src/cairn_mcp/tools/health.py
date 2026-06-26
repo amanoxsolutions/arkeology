@@ -112,15 +112,28 @@ async def _health_check_inner(
 
     # ── Write prefix probe (put + get + delete) ───────────────────────────────
     probe_key = f"{settings.write_prefix}/_cairn_health_probe"
+    probe_written = False
     try:
         s3.put_object(probe_key, "health-probe", {})
+        probe_written = True
         s3.get_object(probe_key)
         s3.delete_object(probe_key)
+        probe_written = False
         result["write_prefix"] = {"status": "ok"}
-    except CredentialError:
-        pass  # Credential errors on write_prefix are reported via the s3 probe
+    except CredentialError as exc:
+        result["write_prefix"] = {
+            "status": "error",
+            "message": str(exc),
+            "cause": "credential_error",
+        }
     except Exception as exc:
         result["write_prefix"] = {"status": "error", "message": str(exc)}
+    finally:
+        if probe_written:
+            try:
+                s3.delete_object(probe_key)
+            except Exception as cleanup_exc:
+                logger.warning("Failed to clean up health probe '%s': %s", probe_key, cleanup_exc)
 
     # ── Read prefix probes ────────────────────────────────────────────────────
     for prefix in settings.read_prefixes_list:

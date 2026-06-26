@@ -86,6 +86,10 @@ async def _link_commit_inner(
     _ = s3
     _ = bedrock
 
+    commit_sha = commit_sha.strip()
+    if not commit_sha:
+        return {"error": "validation_error", "message": "commit_sha must not be empty"}
+
     write_prefix = settings.write_prefix
     linked = 0
     skipped = 0
@@ -139,6 +143,9 @@ async def _link_commit_inner(
             )
 
         # ── Write updated vectors back ────────────────────────────────────────
+        if not batch:
+            skipped += 1
+            continue
         try:
             vectors.put_vectors_batch(batch)
         except CredentialError as exc:

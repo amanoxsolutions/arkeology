@@ -507,3 +507,88 @@ async def test_put_vectors_batch_credential_error(
 
     assert "error" in result
     assert result["error"] == "credential_error"
+
+
+# ---------------------------------------------------------------------------
+# M18 Bug 1 — linked must not be incremented when get_vectors returns empty
+# ---------------------------------------------------------------------------
+
+
+async def test_m18_linked_not_incremented_when_get_vectors_returns_empty(
+    monkeypatch: pytest.MonkeyPatch,
+    vectors_client_2: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """M18 Bug 1: When keys are found via list_vectors_by_metadata but get_vectors returns []
+    (no items), the batch is empty and put_vectors_batch is a no-op, yet linked still gets
+    incremented to 1.  After the fix, linked should be 0 when no items are returned.
+
+    Scenario:
+    - Artifact ID is own-scope so it passes the scope gate.
+    - list_vectors_by_metadata returns non-empty keys (simulated).
+    - get_vectors returns [] (simulated).
+    - Expected: linked == 0.
+    """
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient()
+    _seed_all(vectors_client_2)
+
+    # Return non-empty keys from list_vectors_by_metadata so the code proceeds past the
+    # "if not keys: skipped += 1" guard.
+    mocker.patch.object(
+        vectors_client_2,
+        "list_vectors_by_metadata",
+        return_value=[f"{ID_A}#summary"],
+    )
+    # But get_vectors returns nothing — simulates the race where vectors disappear.
+    mocker.patch.object(vectors_client_2, "get_vectors", return_value=[])
+
+    result = await link_commit(
+        settings=settings,
+        s3=None,
+        vectors=vectors_client_2,
+        bedrock=bedrock,
+        artifact_ids=[ID_A],
+        commit_sha="abc1234",
+    )
+
+    assert result.get("linked") == 0, (
+        f"M18 Bug 1: linked should be 0 when get_vectors returns no items, "
+        f"but got linked={result.get('linked')}. Full result: {result}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# M18 Bug 2 — empty commit_sha must be rejected
+# ---------------------------------------------------------------------------
+
+
+async def test_m18_empty_commit_sha_returns_error(
+    monkeypatch: pytest.MonkeyPatch,
+    vectors_client_2: VectorsClientImpl,
+) -> None:
+    """M18 Bug 2: commit_sha="" is an invalid input but the current implementation
+    silently processes it (appending an empty string to commit_refs).  After the fix,
+    passing an empty commit_sha must return a structured error response.
+
+    Scenario:
+    - Own-scope artifact seeded.
+    - Call link_commit with commit_sha="".
+    - Expected: response contains an "error" key (e.g. "validation_error").
+    """
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient()
+    _seed_all(vectors_client_2)
+
+    result = await link_commit(
+        settings=settings,
+        s3=None,
+        vectors=vectors_client_2,
+        bedrock=bedrock,
+        artifact_ids=[ID_A],
+        commit_sha="",
+    )
+
+    assert "error" in result, (
+        f"M18 Bug 2: empty commit_sha should return an error response, got: {result}"
+    )

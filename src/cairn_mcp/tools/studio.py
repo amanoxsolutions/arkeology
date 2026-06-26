@@ -30,6 +30,48 @@ from cairn_mcp.tools.list import _list_artifacts_inner
 logger = logging.getLogger(__name__)
 
 
+async def _cairn_studio_inner(
+    *,
+    settings: Settings,
+    vectors: VectorsClientInterface,
+    ctx: Context,
+) -> ToolResult:
+    """Inner implementation of cairn_studio (separated to enable top-level catch-all)."""
+    is_ui = ctx.client_supports_extension(UI_EXTENSION_ID)
+    logger.debug(
+        "cairn_studio: UI extension %s by client",
+        "supported" if is_ui else "not announced",
+    )
+    if is_ui:
+        # Supporting host: the iframe loads artifacts on mount; no structured_content needed.
+        return ToolResult(
+            content=[
+                TextContent(
+                    type="text",
+                    text="Cairn Studio opened. Use the UI widget to browse artifacts.",
+                )
+            ],
+        )
+
+    # Non-supporting host: include the artifact listing so the client has the data.
+    listing = await _list_artifacts_inner(settings=settings, vectors=vectors)
+    return ToolResult(
+        content=[
+            TextContent(
+                type="text",
+                text=(
+                    "Cairn Studio is not supported by this host. "
+                    "The artifact listing is available in structured_content."
+                ),
+            )
+        ],
+        structured_content={
+            "write_prefix": settings.write_prefix,
+            "artifacts": listing.get("artifacts", []),
+        },
+    )
+
+
 async def cairn_studio(
     *,
     settings: Settings,
@@ -56,39 +98,7 @@ async def cairn_studio(
         On unexpected error, returns an error ``ToolResult``.
     """
     try:
-        is_ui = ctx.client_supports_extension(UI_EXTENSION_ID)
-        logger.debug(
-            "cairn_studio: UI extension %s by client",
-            "supported" if is_ui else "not announced",
-        )
-        if is_ui:
-            # Supporting host: the iframe loads artifacts on mount; no structured_content needed.
-            return ToolResult(
-                content=[
-                    TextContent(
-                        type="text",
-                        text="Cairn Studio opened. Use the UI widget to browse artifacts.",
-                    )
-                ],
-            )
-
-        # Non-supporting host: include the artifact listing so the client has the data.
-        listing = await _list_artifacts_inner(settings=settings, vectors=vectors)
-        return ToolResult(
-            content=[
-                TextContent(
-                    type="text",
-                    text=(
-                        "Cairn Studio is not supported by this host. "
-                        "The artifact listing is available in structured_content."
-                    ),
-                )
-            ],
-            structured_content={
-                "write_prefix": settings.write_prefix,
-                "artifacts": listing.get("artifacts", []),
-            },
-        )
+        return await _cairn_studio_inner(settings=settings, vectors=vectors, ctx=ctx)
     except Exception as exc:
         logger.exception("Unexpected error in cairn_studio")
         return ToolResult(

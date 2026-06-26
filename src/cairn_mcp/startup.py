@@ -76,6 +76,11 @@ def _check_credentials(settings: Settings, s3: S3ClientInterface) -> None:
                 f"{settings.aws_profile or '<profile>'}) and restart the server."
             ),
         ) from exc
+    except Exception as exc:
+        raise StartupValidationError(
+            check="credentials",
+            message=f"Credential check failed: {exc}",
+        ) from exc
 
 
 def _check_write_prefix(settings: Settings, s3: S3ClientInterface) -> None:
@@ -171,6 +176,11 @@ def _check_vector_index(settings: Settings, vectors: VectorsClientInterface) -> 
                 f"'{settings.bedrock_embedding_model}' before starting the server."
             ),
         ) from exc
+    except Exception as exc:
+        raise StartupValidationError(
+            check="vector_index",
+            message=f"Vector index check failed: {exc}",
+        ) from exc
     dim = index_info.get("dimension")
     logger.debug(
         "Check 4/6 passed: vector index '%s' found with dimension %s",
@@ -240,6 +250,8 @@ def _check_text_model(settings: Settings, bedrock: BedrockClientInterface) -> No
             "Check 6/6 passed: BEDROCK_TEXT_MODEL '%s' is reachable",
             settings.bedrock_text_model,
         )
+    except CredentialError:
+        raise
     except Exception as exc:
         raise StartupValidationError(
             check="bedrock_text_model",

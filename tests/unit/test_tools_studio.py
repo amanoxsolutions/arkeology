@@ -107,3 +107,29 @@ async def test_cairn_studio_exception_returns_error_tool_result(
     assert result.is_error
     text = result.content[0].text  # type: ignore[attr-defined]
     assert "boom" in text, f"Expected error message in content, got: {text!r}"
+
+
+# ---------------------------------------------------------------------------
+# M21 — _cairn_studio_inner must exist (refactor to _inner convention)
+# ---------------------------------------------------------------------------
+
+
+def test_m21_cairn_studio_inner_function_exists() -> None:
+    """M21: The project convention requires every tool's public function to delegate to
+    an ``_inner`` variant.  cairn_studio currently has an inline try/except and no
+    ``_cairn_studio_inner`` function.  After the refactor, ``_cairn_studio_inner`` must
+    be importable from cairn_mcp.tools.studio.
+
+    Before the refactor this test raises ImportError / AttributeError and fails.
+    """
+    try:
+        from cairn_mcp.tools.studio import _cairn_studio_inner  # noqa: F401
+    except ImportError as exc:
+        raise AssertionError(
+            "M21: _cairn_studio_inner is not exported from cairn_mcp.tools.studio. "
+            "Refactor cairn_studio to delegate to _cairn_studio_inner per project convention."
+        ) from exc
+
+    assert callable(_cairn_studio_inner), (
+        "M21: _cairn_studio_inner must be a callable function, not a non-callable object"
+    )
