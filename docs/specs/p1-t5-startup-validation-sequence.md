@@ -1,7 +1,7 @@
 ---
 type: spec
 title: T5 — Startup Validation Sequence
-description: Feature spec for a five-check startup validation sequence that verifies credentials, S3 prefix access, vector index existence, and embedding dimension before accepting any MCP tool call.
+description: Feature spec for a startup validation sequence that verifies credentials, S3 prefix access, vector index existence, and embedding dimension before accepting any MCP tool call. Originally five checks; a sixth (text-model accessibility) was added later in p9-t30.
 tags: []
 timestamp: 2026-05-29T00:00:00Z
 okf_version: "0.1"
@@ -21,6 +21,12 @@ revised:
 # T5 — Startup Validation Sequence
 
 <!-- SCOPE BLOCK -->
+
+> **Note (later evolution):** this spec defines the original **five** checks (1–5). A **sixth**
+> check — text-model accessibility (`BEDROCK_TEXT_MODEL` reachable via an `invoke_text_model`
+> probe, skipped when the var is unset) — was added later by **p9-t30** and is specified there.
+> The running sequence is six checks; log messages and the success line below now read `/6`
+> accordingly. See `p9-t30-write-artifacts.md` for the sixth check's full specification.
 
 ## Problem Statement
 
@@ -60,15 +66,15 @@ the server refuses to start with instructions for how to fix it.
 
 ### Story 4 — All checks pass: server enters the event loop (P1)
 
-When all five checks pass, the server logs a success line and enters the MCP event loop.
+When all checks pass, the server logs a success line and enters the MCP event loop.
 
 **Acceptance criteria:**
-- Given all five checks pass, when the server starts, then it logs `"Startup validation passed. cairn-mcp is ready."` at INFO level and enters the FastMCP event loop.
+- Given all checks pass, when the server starts, then it logs `"Startup validation passed. cairn-mcp is ready."` at INFO level and enters the FastMCP event loop.
 - Given all checks pass, then each check's success is logged at DEBUG level.
 
 ## Requirements
 
-- WHEN the server starts THE SYSTEM SHALL run all five startup checks in order before accepting any tool call.
+- WHEN the server starts THE SYSTEM SHALL run all startup checks in order before accepting any tool call (originally five; a sixth, text-model accessibility, was added later in p9-t30).
 - WHEN the credential check fails THE SYSTEM SHALL stop immediately, log the error at ERROR level to stderr, and exit with code 1 — no further checks are run.
 - WHEN any subsequent check fails THE SYSTEM SHALL stop, log the error at ERROR level, and exit with code 1 — checks after the failing one are not run.
 - WHEN all checks pass THE SYSTEM SHALL log a single INFO-level "ready" message and proceed to the MCP event loop.
@@ -83,9 +89,9 @@ When all five checks pass, the server logs a success line and enters the MCP eve
 **Always:**
 - Startup validation uses the client interfaces — never direct boto3 calls.
 - The validation sequence is a standalone function in `startup.py` that accepts `Settings` + client instances as arguments — it must be fully testable with fakes.
-- Each of the five checks raises a distinct `StartupValidationError` subclass (or a `StartupValidationError` with a distinct `check` field value) — the caller can identify which check failed.
-- The order of checks is fixed: credentials → write prefix → read prefixes → vector index existence → vector index dimension. This order is intentional: earlier checks gate later ones.
-- All five checks are run in a single blocking call before the server enters its async event loop.
+- Each check raises a distinct `StartupValidationError` subclass (or a `StartupValidationError` with a distinct `check` field value) — the caller can identify which check failed.
+- The order of checks is fixed: credentials → write prefix → read prefixes → vector index existence → vector index dimension (→ text-model accessibility, added later in p9-t30). This order is intentional: earlier checks gate later ones.
+- All checks are run in a single blocking call before the server enters its async event loop.
 
 **Ask First:**
 - Nothing — all constraints are defined.
@@ -93,7 +99,7 @@ When all five checks pass, the server logs a success line and enters the MCP eve
 **Never:**
 - Do not catch `StartupValidationError` inside `startup.py` — it propagates to `__main__.py` which handles the exit.
 - Do not run startup validation in a background task or defer it — it must complete synchronously before the server loop starts.
-- Do not skip checks or make them conditional on configuration flags — all five checks run every time.
+- Do not skip checks or make them conditional on configuration flags — every applicable check runs every time. (Two checks are no-ops when their input is absent: the read-prefix check when `READ_PREFIXES` is empty, and the text-model check when `BEDROCK_TEXT_MODEL` is unset.)
 
 <!-- IMPLEMENTATION BLOCK -->
 
@@ -148,7 +154,7 @@ client. Document this as the implementation choice.
 **Failure message:**
 `"Credential check failed: AWS credentials are invalid or expired. Re-authenticate (e.g. aws sso login --profile <profile>) and restart the server."`
 
-**Success log (DEBUG):** `"Check 1/5 passed: credentials valid"`
+**Success log (DEBUG):** `"Check 1/6 passed: credentials valid"`
 
 ---
 
@@ -179,7 +185,7 @@ it from real artifact keys which start with a type segment).
 **Failure message for read denial:**
 `"Write prefix access check failed for '{write_prefix}': cannot read from this prefix. Ensure the IAM policy includes s3:GetObject on arn:aws:s3:::{bucket}/{write_prefix}*."`
 
-**Success log (DEBUG):** `"Check 2/5 passed: write prefix '{write_prefix}' is readable and writable"`
+**Success log (DEBUG):** `"Check 2/6 passed: write prefix '{write_prefix}' is readable and writable"`
 
 ---
 
@@ -190,7 +196,7 @@ it from real artifact keys which start with a type segment).
 **How to check read access:** Call `list_objects(prefix=read_prefix)`. A successful call (even
 returning an empty list) confirms the prefix is readable. A permission error confirms it is not.
 
-If `read_prefixes_list` is empty, this check is skipped (log at DEBUG: "Check 3/5 skipped: no
+If `read_prefixes_list` is empty, this check is skipped (log at DEBUG: "Check 3/6 skipped: no
 foreign read prefixes configured").
 
 This check runs once per prefix. If multiple prefixes fail, report only the first failure (to avoid
@@ -199,7 +205,7 @@ a wall of errors on badly misconfigured deployments). The developer can fix one 
 **Failure message:**
 `"Read prefix access check failed for '{read_prefix}': cannot list objects. Ensure the IAM policy includes s3:ListBucket with condition StringLike s3:prefix '{read_prefix}*'."`
 
-**Success log (DEBUG):** `"Check 3/5 passed: {n} foreign read prefix(es) accessible"`
+**Success log (DEBUG):** `"Check 3/6 passed: {n} foreign read prefix(es) accessible"`
 
 ---
 
@@ -222,7 +228,7 @@ exception type and converts it to a `StartupValidationError`.
 **Failure message (index missing):**
 `"Vector index check failed: index '{index_name}' does not exist in bucket '{vectors_bucket}'. Create it with the correct dimension for model '{model_id}' before starting the server."` 
 
-**Success log (DEBUG):** `"Check 4/5 passed: vector index '{index_name}' found with dimension {dim}"`
+**Success log (DEBUG):** `"Check 4/6 passed: vector index '{index_name}' found with dimension {dim}"`
 
 ---
 
@@ -265,13 +271,13 @@ known dimension registry; probing via embedding call."`.
 **Failure message:**
 `"Embedding model dimension mismatch: model '{model_id}' produces {model_dim}-dimensional vectors but index '{index_name}' expects {index_dim} dimensions. Either recreate the index with dimension {model_dim}, or set BEDROCK_EMBEDDING_MODEL to a model that produces {index_dim}-dimensional vectors."`.
 
-**Success log (DEBUG):** `"Check 5/5 passed: model '{model_id}' dimension {model_dim} matches index dimension {index_dim}"`
+**Success log (DEBUG):** `"Check 5/6 passed: model '{model_id}' dimension {model_dim} matches index dimension {index_dim}"`
 
 ---
 
 ### After all checks pass
 
-Log at INFO: `"Startup validation passed (5/5 checks). cairn-mcp is ready."`.
+Log at INFO: `"Startup validation passed (6/6 checks). cairn-mcp is ready."`.
 
 This log line is the developer's signal that AWS resources are correctly provisioned and the server
 is accepting requests.

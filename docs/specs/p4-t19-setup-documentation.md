@@ -101,8 +101,9 @@ deployment from scratch.
   DescribeIndex, ListVectors), and Bedrock InvokeModel scoped to the embedding model ARN.
 - THE README SHALL include a "Recommended AGENTS.md Snippet" section containing a
   fenced copy-paste block covering: when to write artifacts (at session close, after
-  key decisions, after code reviews), artifact type selection guidance for all eight
-  types, description quality guidance (tweet-length, search-optimised, not a file
+  key decisions, after code reviews), artifact type selection guidance for all artifact
+  types (the full catalogue lives in `cairn://schema/types`), description quality
+  guidance (tweet-length, search-optimised, not a file
   heading), tier 2 vs tier 3 selection (point-in-time record vs living document),
   query strategy (start with type + tags filters; issue a pure semantic query
   only if filters return insufficient results; use `list_artifacts` to browse without a

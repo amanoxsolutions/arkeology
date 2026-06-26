@@ -314,7 +314,7 @@ independent of T31, T32, T33, and T34 — no shared files.
 
 36. ✅ **`commit_refs` and `last_edited_ulid` metadata fields** *(core data model)* — add `commit_refs: list[str]` to `Artifact`; generate `last_edited_ulid` via `python-ulid` on every `write_artifact` call; store both fields in S3 object metadata and vector metadata following the `feature_tags` encoding pattern (comma-joined string in S3, `list[str]` in vectors, key omitted when empty in vectors); include `last_edited_ulid` in `write_artifact` response; expose both fields in `list_artifacts` (with `commit_refs` filter parameter) and `read_artifact` responses; legacy artifacts (missing fields) return `None` — no error (FR-28, FR-29)
     - Done when: `write_artifact` response includes `last_edited_ulid`; `read_artifact` and `list_artifacts` return both fields; `commit_refs` filter in `list_artifacts` returns correct subset; empty `commit_refs` stores `""` in S3 and omits key from vector metadata; legacy artifacts return `None` for `last_edited_ulid` and `[]` for `commit_refs`; ruff + mypy clean
-    - Spec: `docs/specs/p10-t35-commit-refs-metadata-fields.md`
+    - Spec: `docs/specs/p10-t36-commit-refs-metadata-fields.md`
     - **New dependency**: `python-ulid` added to `pyproject.toml`
 
 37. ✅ **`propose_commit_links` tool** *(read-only discovery)* — scan own-scope artifacts in the vector index optionally bounded by `last_edited_ulid >= since_ulid`; deduplicate by `artifact_id`; filter client-side for artifacts with absent or empty `commit_refs`; return candidate list with human-readable timestamps; no writes (FR-31)

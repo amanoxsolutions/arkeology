@@ -1,17 +1,17 @@
 ---
 type: spec
-title: T24 — commit_refs and last_edited_ulid Metadata Fields
+title: T36 — commit_refs and last_edited_ulid Metadata Fields
 description: Spec to add commit_refs and last_edited_ulid as first-class metadata fields flowing through write, read, and list, enabling post-write commit annotation and time-range discovery.
 tags: []
 timestamp: 2026-06-06T00:00:00Z
 okf_version: "0.1"
-feature: p10-t35-commit-refs-metadata-fields
+feature: p10-t36-commit-refs-metadata-fields
 status: ready
 phase: 10
-task: 35
+task: 36
 references:
   - docs/brainstorming/brainstorming-2026-06-06-artifact-commit-refs.md
-  - docs/specs/p10-t34-filter-range-operators.md
+  - docs/specs/p10-t35-filter-range-operators.md
 authored:
   by: "analyst"
   date: "2026-06-06"
@@ -20,7 +20,7 @@ revised:
   date: ""
 ---
 
-# T24 — `commit_refs` and `last_edited_ulid` Metadata Fields
+# T36 — `commit_refs` and `last_edited_ulid` Metadata Fields
 
 <!-- SCOPE BLOCK — frozen after approval -->
 
@@ -38,7 +38,7 @@ and `read.py` following the identical encoding pattern already used by `tags`.
 There is currently no way to associate an artifact with a git commit or to discover which
 artifacts were written during a given session. Adding `commit_refs` and `last_edited_ulid`
 as first-class metadata fields creates the data model that the `propose_commit_links` and
-`link_commit` tools (T25, T26) depend on. Without these fields in place, post-write commit
+`link_commit` tools (T37, T38) depend on. Without these fields in place, post-write commit
 annotation is impossible and time-range scans over the vector index cannot be expressed.
 
 ## User Stories

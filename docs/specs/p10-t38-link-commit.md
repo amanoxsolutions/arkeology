@@ -1,18 +1,18 @@
 ---
 type: spec
-title: T26 — link_commit Tool and AGENTS.md Post-Commit Protocol
+title: T38 — link_commit Tool and AGENTS.md Post-Commit Protocol
 description: Spec for the link_commit MCP tool that appends a commit SHA to confirmed artifacts' vector metadata without re-embedding, plus the post-commit protocol for AGENTS.md.
 tags: []
 timestamp: 2026-06-06T00:00:00Z
 okf_version: "0.1"
-feature: p10-t37-link-commit
+feature: p10-t38-link-commit
 status: ready
 phase: 10
-task: 37
+task: 38
 references:
   - docs/brainstorming/brainstorming-2026-06-06-artifact-commit-refs.md
-  - docs/specs/p10-t35-commit-refs-metadata-fields.md
-  - docs/specs/p10-t36-propose-commit-links.md
+  - docs/specs/p10-t36-commit-refs-metadata-fields.md
+  - docs/specs/p10-t37-propose-commit-links.md
 authored:
   by: "analyst"
   date: "2026-06-06"
@@ -21,7 +21,7 @@ revised:
   date: ""
 ---
 
-# T26 — `link_commit` Tool and AGENTS.md Post-Commit Protocol
+# T38 — `link_commit` Tool and AGENTS.md Post-Commit Protocol
 
 <!-- SCOPE BLOCK — frozen after approval -->
 
@@ -35,7 +35,7 @@ installation skill must include in every project it configures.
 
 ## Problem Statement
 
-`propose_commit_links` (T25) discovers candidates; `link_commit` performs the actual
+`propose_commit_links` (T37) discovers candidates; `link_commit` performs the actual
 association. It must update vector metadata for all section vectors of each artifact while
 reusing their existing float32 embeddings — no Bedrock call, no S3 write. The cursor
 mechanism (`next_since_ulid`) eliminates the need for the agent to independently generate

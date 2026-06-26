@@ -1,18 +1,18 @@
 ---
 type: spec
-title: T25 — propose_commit_links Tool
+title: T37 — propose_commit_links Tool
 description: Spec for a read-only MCP tool that discovers own-scope artifacts with no commit_refs, optionally bounded by a session-start ULID, for operator confirmation before linking.
 tags: []
 timestamp: 2026-06-06T00:00:00Z
 okf_version: "0.1"
-feature: p10-t36-propose-commit-links
+feature: p10-t37-propose-commit-links
 status: ready
 phase: 10
-task: 36
+task: 37
 references:
   - docs/brainstorming/brainstorming-2026-06-06-artifact-commit-refs.md
-  - docs/specs/p10-t34-filter-range-operators.md
-  - docs/specs/p10-t35-commit-refs-metadata-fields.md
+  - docs/specs/p10-t35-filter-range-operators.md
+  - docs/specs/p10-t36-commit-refs-metadata-fields.md
 authored:
   by: "analyst"
   date: "2026-06-06"
@@ -21,7 +21,7 @@ revised:
   date: ""
 ---
 
-# T25 — `propose_commit_links` Tool
+# T37 — `propose_commit_links` Tool
 
 <!-- SCOPE BLOCK — frozen after approval -->
 
@@ -31,7 +31,7 @@ Add a read-only MCP tool `propose_commit_links` that discovers own-scope artifac
 have no `commit_refs` yet, optionally bounded to those written since a given session-start
 ULID. It presents the candidate list to the agent for confirmation before any write occurs —
 it has no side effects. This tool is the discovery half of the post-commit linking workflow
-(T26 is the write half).
+(T38 is the write half).
 
 ## Problem Statement
 

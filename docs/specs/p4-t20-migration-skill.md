@@ -6,10 +6,15 @@ tags: []
 timestamp: 2026-05-31T00:00:00Z
 okf_version: "0.1"
 feature: p4-t20-migration-skill
-status: ready
+status: superseded
 phase: 4
 task: 20
-references: []
+references:
+  - docs/specs/p7-t25b-extend-artifact-types.md
+  - docs/specs/p7-t25c-migration-skill-two-pass-classification.md
+  - docs/specs/p8-t29-migrate-skill.md
+  - docs/specs/p9-t30-write-artifacts.md
+  - docs/specs/p9-t31b-migration-skill-exclusion-gate.md
 authored:
   by: "architect"
   date: "2026-05-31"
@@ -21,6 +26,24 @@ revised:
 # T20 — Migration Skill
 
 <!-- SCOPE BLOCK — frozen after approval -->
+
+> **⚠️ SUPERSEDED — historical record only.** This spec established the original migration
+> skill, but every concrete mechanic below has since been replaced. Do not implement from this
+> spec; the live behaviour is the current `skills/migrating-to-cairn/SKILL.md`. What changed:
+> - **Classification** (docs-root discovery + single-level directory table) → reworked by
+>   **p7-t25b** (extended type vocabulary + flexible docs root) and then **p7-t25c**
+>   (two-pass filename + path-segment classification).
+> - **File-count paths** (`< 30` agent-only / `≥ 30` manifest+script) → lowered to `< 5`/`≥ 5`
+>   in **p8-t29**, then replaced entirely by server-side bulk tools in **p9-t30** (no
+>   skill-level threshold; the agent calls `write_artifacts` / `migrate_artifacts`).
+> - **`migrate.py` script + `schema.yaml`** → the `scripts/` directory was **deleted in
+>   p9-t30**; all Bedrock/description-generation and write logic now lives in the server's
+>   `migrate_artifacts` / `write_artifacts` tools. `CAIRN_IMPORT.yaml` remains as the
+>   agent-authored manifest / progress tracker.
+> - **Exclusion handling** → the `cairn-mcp:config` gate (`local_only_paths` /
+>   `local_only_types`, ADR strategy) was added by **p9-t31b** (+ setting-up-cairn, p9-t31a).
+>
+> The original spec text is retained verbatim below for provenance.
 
 ## Problem Statement
 
