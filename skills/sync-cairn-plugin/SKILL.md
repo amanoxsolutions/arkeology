@@ -27,7 +27,7 @@ Then **restart OpenCode**. The glob `cairn-mcp@git+*` covers both SSH and HTTPS 
 Pull the latest changes into the plugin clone, then reload plugins in the same session:
 
 ```bash
-git -C ~/.claude/plugins/cairn-mcp pull
+git -C ~/.claude/plugins/marketplaces/cairn-mcp pull
 ```
 
 ```
