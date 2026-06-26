@@ -564,3 +564,86 @@ async def test_write_artifacts_concurrency_omitted_defaults_to_3_no_warning(
     assert 3 in semaphore_values, (
         f"Expected asyncio.Semaphore(3) for default concurrency, got: {semaphore_values}"
     )
+
+
+# ---------------------------------------------------------------------------
+# M13 — intra-batch duplicate artifact IDs
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_duplicate_artifact_ids_second_entry_is_validation_error(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+) -> None:
+    """Two descriptors that resolve to the same artifact ID → first written, second error.
+
+    Without the pre-flight dedup check the two coroutines race on orphan cleanup:
+    each deletes the other's freshly written vectors, leaving the artifact un-indexed.
+    """
+    try:
+        from cairn_mcp.tools.write_artifacts import write_artifacts
+    except ImportError:
+        pytest.fail("cairn_mcp.tools.write_artifacts is not yet implemented")
+
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+
+    # Both descriptors produce the same artifact ID (same type/tier/date/title)
+    d1 = _make_descriptor(0)
+    d2 = _make_descriptor(0)
+
+    result = await write_artifacts(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        artifacts=[d1, d2],
+    )
+
+    results = result["results"]
+    assert len(results) == 2
+    assert results[0].get("written") is True, f"First entry should succeed: {results[0]}"
+    assert results[1].get("error") == "validation_error", (
+        f"Second duplicate entry should be validation_error: {results[1]}"
+    )
+    assert "duplicate" in results[1]["message"].lower(), (
+        f"Error message should mention 'duplicate': {results[1]['message']}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_duplicate_non_adjacent_third_entry_is_validation_error(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+) -> None:
+    """First and third entries share the same artifact ID → only third is validation_error."""
+    try:
+        from cairn_mcp.tools.write_artifacts import write_artifacts
+    except ImportError:
+        pytest.fail("cairn_mcp.tools.write_artifacts is not yet implemented")
+
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+
+    d_unique = _make_descriptor(1)  # distinct from d_dup
+    d_dup_a = _make_descriptor(0)  # first occurrence of id 0
+    d_dup_b = _make_descriptor(0)  # second occurrence of id 0 — non-adjacent
+
+    result = await write_artifacts(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        artifacts=[d_dup_a, d_unique, d_dup_b],
+    )
+
+    results = result["results"]
+    assert len(results) == 3
+    assert results[0].get("written") is True, f"Entry 0 (first dup) should succeed: {results[0]}"
+    assert results[1].get("written") is True, f"Entry 1 (unique) should succeed: {results[1]}"
+    assert results[2].get("error") == "validation_error", (
+        f"Entry 2 (second dup) should be validation_error: {results[2]}"
+    )

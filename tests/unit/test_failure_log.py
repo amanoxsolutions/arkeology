@@ -131,6 +131,24 @@ def test_nonexistent_directory_logs_stderr_does_not_raise(
         append_failure_entry(bad_path, _BASE_ENTRY)
 
 
+def test_append_non_serializable_value_still_writes_entry(tmp_path: Path) -> None:
+    """Entry containing a non-JSON-serializable value (e.g. Exception) → still written.
+
+    json.dumps(default=str) must be used so a TypeError from an unserializable
+    field does not silently swallow the whole failure record.
+    """
+    log_path = tmp_path / "failures.jsonl"
+    entry_with_exception = {**_BASE_ENTRY, "raw_error": Exception("boom")}
+
+    append_failure_entry(log_path, entry_with_exception)
+
+    lines = [ln for ln in log_path.read_text().splitlines() if ln.strip()]
+    assert len(lines) == 1
+    parsed = json.loads(lines[0])
+    assert "raw_error" in parsed
+    assert "boom" in parsed["raw_error"]
+
+
 def test_os_error_logs_stderr_does_not_raise(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:

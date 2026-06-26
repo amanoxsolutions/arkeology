@@ -2151,3 +2151,143 @@ async def test_default_file_extension_is_md(
 
     assert "error" not in result
     assert result["artifact_id"].endswith(".md")
+
+
+# ---------------------------------------------------------------------------
+# M11 — dedicated embed executor
+# ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# M12 — partial_write message includes failure log path (T15 AC)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_partial_write_embed_message_includes_failure_log_path(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    tmp_path: pytest.TempPathFactory,
+) -> None:
+    """partial_write on embed failure → message includes the failure log path (T15 AC).
+
+    A caller receiving partial_write must be able to locate the failure log entry
+    without searching — the path is embedded in the error message.
+    """
+    log_path = tmp_path / "failures.jsonl"
+    settings = _make_settings(monkeypatch, FAILURE_LOG_PATH=str(log_path))
+    bedrock = _FailOnSecondEmbedBedrock(dimension=1024)
+
+    content = _make_sections_content(3)
+    kwargs = {**_BASE_WRITE_KWARGS, "content": content}
+
+    result = await write_artifact(
+        s3=s3_client, vectors=vectors_client, bedrock=bedrock, settings=settings, **kwargs
+    )
+
+    assert result.get("error") == "partial_write"
+    assert str(log_path) in result["message"]
+
+
+@pytest.mark.asyncio
+async def test_partial_write_put_vector_message_includes_failure_log_path(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    tmp_path: pytest.TempPathFactory,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """partial_write on put_vectors_batch failure → message includes the failure log path."""
+    log_path = tmp_path / "failures.jsonl"
+    settings = _make_settings(monkeypatch, FAILURE_LOG_PATH=str(log_path))
+    bedrock = FakeBedrockClient(dimension=1024)
+    mocker.patch.object(
+        vectors_client,
+        "put_vectors_batch",
+        side_effect=RuntimeError("simulated put failure"),
+    )
+
+    result = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        **_ONE_SECTION_KWARGS,
+    )
+
+    assert result.get("error") == "partial_write"
+    assert str(log_path) in result["message"]
+
+
+def test_embed_executor_has_adequate_max_workers() -> None:
+    """_EMBED_EXECUTOR must be sized for the maximum compound concurrency.
+
+    Peak demand = artifact_concurrency_max (15) × SECTION_CONCURRENCY default (5).
+    The dedicated pool must not be smaller than that product so that SECTION_CONCURRENCY
+    semaphore slots across all concurrent artifact writes can all run simultaneously.
+    """
+    import cairn_mcp.tools.write as write_module
+    from cairn_mcp.tools.write_artifacts import _ARTIFACT_CONCURRENCY_MAX
+
+    expected_min = _ARTIFACT_CONCURRENCY_MAX * 5  # 5 = SECTION_CONCURRENCY default
+    assert write_module._EMBED_EXECUTOR._max_workers >= expected_min
+
+
+@pytest.mark.asyncio
+async def test_embed_uses_dedicated_executor(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """Section embed calls must go through _EMBED_EXECUTOR, not the default asyncio executor.
+
+    Verifies that run_in_executor(_EMBED_EXECUTOR, ...) is used rather than to_thread(),
+    so compound concurrency (artifact_concurrency × section_concurrency) is bounded by the
+    dedicated pool and not by asyncio's default executor.
+    """
+    import cairn_mcp.tools.write as write_module
+
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+    submit_spy = mocker.spy(write_module._EMBED_EXECUTOR, "submit")
+
+    content = _make_sections_content(3)
+    kwargs = {**_BASE_WRITE_KWARGS, "content": content}
+
+    result = await write_artifact(
+        s3=s3_client, vectors=vectors_client, bedrock=bedrock, settings=settings, **kwargs
+    )
+
+    assert "error" not in result
+    # 3 sections → 3 run_in_executor calls → 3 submit() calls on _EMBED_EXECUTOR
+    assert submit_spy.call_count == 3
+
+
+@pytest.mark.asyncio
+async def test_doc_fallback_embed_uses_dedicated_executor(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """Document-fallback embed (no sections) must also use _EMBED_EXECUTOR."""
+    import cairn_mcp.tools.write as write_module
+
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+    submit_spy = mocker.spy(write_module._EMBED_EXECUTOR, "submit")
+
+    # No H2 headings → falls through to document-level embedding
+    result = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        **_ONE_SECTION_KWARGS,
+    )
+
+    assert "error" not in result
+    # 1 document-level embed → exactly 1 submit call
+    assert submit_spy.call_count == 1

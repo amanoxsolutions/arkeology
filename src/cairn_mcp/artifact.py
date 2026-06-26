@@ -41,6 +41,10 @@ ARTIFACT_TYPES: frozenset[str] = frozenset(
 
 _MAX_SLUG_LEN = 60
 
+# Patterns used by parse_sections — compiled once at module load.
+_FENCE_RE: re.Pattern[str] = re.compile(r"^(`{3,}|~{3,})")
+_H2_RE: re.Pattern[str] = re.compile(r"^## (.+)$")
+
 
 def _slugify(text: str, fallback: str) -> str:
     """Normalise text into a URL/S3-safe slug.
@@ -77,10 +81,16 @@ def generate_artifact_id(*, tier: int, type: str, date: str, title: str) -> str:
     Returns:
         Deterministic, S3-safe identifier string.
     """
-    type_slug = type.replace("_", "-")
-    title_slug = _slugify(title, "artifact")
+    if type not in ARTIFACT_TYPES:
+        raise ValueError(f"type must be one of {sorted(ARTIFACT_TYPES)}, got '{type}'")
+    try:
+        _dt.date.fromisoformat(date)
+    except ValueError as exc:
+        raise ValueError(f"date must be a valid ISO-8601 date string, got '{date}'") from exc
     if tier not in {2, 3}:
         raise ValueError(f"tier must be 2 or 3, got {tier}")
+    type_slug = type.replace("_", "-")
+    title_slug = _slugify(title, "artifact")
     if tier == 3:
         return f"{type_slug}-{title_slug}"
     return f"{type_slug}-{date}-{title_slug}"
@@ -116,29 +126,52 @@ class ArtifactSection:
 
 
 def parse_sections(content: str) -> list[ArtifactSection]:
-    """Split Markdown content on H2 (``##``) headings.
+    """Split Markdown content on H2 (``##``) headings, respecting fenced code blocks.
 
-    Only ``##`` headings are treated as section boundaries. ``###`` and deeper
-    headings remain part of the section body. Content before the first ``##``
-    is discarded.
+    Only ``##`` headings that appear *outside* fenced code blocks (triple-backtick
+    or triple-tilde) are treated as section boundaries.  ``###`` and deeper headings
+    remain part of the section body.  Content before the first ``##`` is discarded.
+
+    Fence tracking follows the opening marker character (`` ` `` or ``~``): the fence
+    is closed by the next line that begins with three or more of the same character.
+    An unclosed fence causes all remaining ``##`` lines to be treated as fence content.
 
     Args:
         content: Full artifact content string.
 
     Returns:
         List of :class:`ArtifactSection` objects in document order.
-        Empty list if there are no ``##`` headings.
+        Empty list if there are no ``##`` headings outside fenced code blocks.
     """
-    pattern = re.compile(r"^## (.+)$", re.MULTILINE)
-    matches = list(pattern.finditer(content))
-    if not matches:
+    in_fence = False
+    fence_char = ""
+    # Each entry: (offset of heading line start, offset just after heading line, heading text)
+    boundaries: list[tuple[int, int, str]] = []
+
+    pos = 0
+    for line in content.splitlines(keepends=True):
+        stripped = line.rstrip("\n\r")
+        fence_m = _FENCE_RE.match(stripped)
+        if fence_m:
+            marker_char = fence_m.group(1)[0]
+            if not in_fence:
+                in_fence = True
+                fence_char = marker_char
+            elif marker_char == fence_char:
+                in_fence = False
+                fence_char = ""
+        elif not in_fence:
+            h2_m = _H2_RE.match(stripped)
+            if h2_m:
+                boundaries.append((pos, pos + len(line), h2_m.group(1).strip()))
+        pos += len(line)
+
+    if not boundaries:
         return []
 
     sections: list[ArtifactSection] = []
-    for i, match in enumerate(matches):
-        heading = match.group(1).strip()
-        body_start = match.end()
-        body_end = matches[i + 1].start() if i + 1 < len(matches) else len(content)
+    for i, (heading_start, body_start, heading) in enumerate(boundaries):
+        body_end = boundaries[i + 1][0] if i + 1 < len(boundaries) else len(content)
         body = content[body_start:body_end].strip()
         sections.append(ArtifactSection(heading=heading, body=body))
     return sections

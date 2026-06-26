@@ -15,6 +15,7 @@ import asyncio
 import logging
 from typing import Any
 
+from cairn_mcp.artifact import generate_artifact_id
 from cairn_mcp.clients.interfaces import (
     BedrockClientInterface,
     S3ClientInterface,
@@ -131,7 +132,39 @@ async def _write_artifacts_inner(
 
     semaphore = asyncio.Semaphore(effective)
 
-    async def write_one(descriptor: dict[str, Any]) -> dict[str, Any]:
+    # ── Pre-flight: detect intra-batch duplicate artifact IDs ─────────────────
+    # Two descriptors resolving to the same S3 key would race on Step 8 orphan
+    # cleanup: each deletes the other's freshly-written vectors.  Mark all but
+    # the first occurrence as validation_error before any coroutines are launched.
+    seen_keys: dict[str, int] = {}  # full s3 key → first occurrence index
+    dup_errors: list[str | None] = [None] * len(artifacts)
+
+    for idx, d in enumerate(artifacts):
+        try:
+            slug = generate_artifact_id(
+                tier=int(d["tier"]),
+                type=str(d["type"]),
+                date=str(d["date"]),
+                title=str(d["title"]),
+            )
+            ext = str(d.get("file_extension") or file_extension)
+            full_key = f"{settings.write_prefix}/{slug}{ext}"
+        except KeyError, ValueError, TypeError:
+            # Missing or invalid fields — _validate_descriptor will surface this.
+            continue
+
+        if full_key in seen_keys:
+            dup_errors[idx] = (
+                f"duplicate artifact ID '{full_key}' — "
+                f"already present at index {seen_keys[full_key]} in this batch"
+            )
+        else:
+            seen_keys[full_key] = idx
+
+    async def write_one(idx: int, descriptor: dict[str, Any]) -> dict[str, Any]:
+        dup_msg = dup_errors[idx]
+        if dup_msg is not None:
+            return {"error": "validation_error", "message": dup_msg}
         async with semaphore:
             validation_error = _validate_descriptor(descriptor)
             if validation_error:
@@ -170,7 +203,7 @@ async def _write_artifacts_inner(
                 logger.exception("Unexpected error writing artifact '%s'", descriptor.get("title"))
                 return {"error": "internal_error", "message": str(exc)}
 
-    raw_results = await asyncio.gather(*[write_one(d) for d in artifacts])
+    raw_results = await asyncio.gather(*[write_one(i, d) for i, d in enumerate(artifacts)])
     response: dict[str, Any] = {"results": list(raw_results)}
     if warning is not None:
         response["warning"] = warning

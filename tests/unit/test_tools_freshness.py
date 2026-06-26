@@ -493,7 +493,7 @@ async def test_response_always_has_all_seven_fields(
     s3_client: S3ClientImpl,
     vectors_client_8: VectorsClientImpl,
 ) -> None:
-    """All 7 fields always present in every non-error response."""
+    """All required fields always present in every non-error response."""
     settings = _make_settings(monkeypatch)
 
     result = await check_synthesis_freshness(
@@ -506,6 +506,7 @@ async def test_response_always_has_all_seven_fields(
         "missing_sources",
         "malformed",
         "deleted_malformed",
+        "delete_failed",
         "total_checked",
         "all_fresh",
     )
@@ -812,3 +813,105 @@ async def test_credential_error_on_s3_head_object_during_malformed_delete(
     )
 
     assert result.get("error") == "credential_error"
+
+
+# ---------------------------------------------------------------------------
+# M14 — non-credential partial-delete: report in delete_failed and continue
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_non_credential_s3_delete_error_continues_and_reports_failed(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """Non-credential s3.delete_object error → artifact in delete_failed; loop continues.
+
+    The second malformed synthesis must still be deleted even when the first S3 delete
+    raises a non-credential error.  Before the fix the exception propagated and aborted
+    the entire audit (T22 Boundary: 'report in failed and continue').
+    """
+    settings = _make_settings(monkeypatch)
+    synth_a = "artifacts/synthesis-malformed-fail-a"
+    synth_b = "artifacts/synthesis-malformed-fail-b"
+
+    for sid in (synth_a, synth_b):
+        s3_client.put_object(sid, "Malformed content.", {**_MALFORMED_S3_META})
+        vectors_client_8.put_vector(
+            f"{sid}#section", DUMMY_VEC, _synthesis_meta(sid, "2026-01-01", [])
+        )
+
+    original_delete = s3_client.delete_object
+
+    def failing_delete(key: str) -> None:
+        if key == synth_a:
+            raise RuntimeError("simulated S3 delete failure")
+        original_delete(key)
+
+    mocker.patch.object(s3_client, "delete_object", side_effect=failing_delete)
+
+    result = await check_synthesis_freshness(
+        settings=settings, s3=s3_client, vectors=vectors_client_8, confirm=True
+    )
+
+    assert "error" not in result
+    assert synth_a in result.get("delete_failed", []), (
+        f"synth_a should be in delete_failed: {result}"
+    )
+    assert synth_b in result.get("deleted_malformed", []), (
+        f"synth_b should be in deleted_malformed: {result}"
+    )
+    assert synth_a not in result.get("deleted_malformed", [])
+
+
+@pytest.mark.asyncio
+async def test_non_credential_vector_delete_error_reports_failed(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """Non-credential vectors.delete_vectors error → artifact in delete_failed, not deleted."""
+    settings = _make_settings(monkeypatch)
+    synth_id = "artifacts/synthesis-malformed-vec-fail"
+
+    s3_client.put_object(synth_id, "Malformed content.", {**_MALFORMED_S3_META})
+    vectors_client_8.put_vector(
+        f"{synth_id}#section", DUMMY_VEC, _synthesis_meta(synth_id, "2026-01-01", [])
+    )
+
+    mocker.patch.object(
+        vectors_client_8,
+        "delete_vectors",
+        side_effect=RuntimeError("simulated vector delete failure"),
+    )
+
+    result = await check_synthesis_freshness(
+        settings=settings, s3=s3_client, vectors=vectors_client_8, confirm=True
+    )
+
+    assert "error" not in result
+    assert synth_id in result.get("delete_failed", []), (
+        f"synth_id should be in delete_failed: {result}"
+    )
+    assert synth_id not in result.get("deleted_malformed", [])
+
+
+@pytest.mark.asyncio
+async def test_delete_failed_always_present_in_response(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
+) -> None:
+    """delete_failed field is always present in a non-error response (even when empty)."""
+    settings = _make_settings(monkeypatch)
+
+    result = await check_synthesis_freshness(
+        settings=settings, s3=s3_client, vectors=vectors_client_8
+    )
+
+    assert "error" not in result
+    assert "delete_failed" in result, f"delete_failed missing from response: {result}"
+    assert result["delete_failed"] == []

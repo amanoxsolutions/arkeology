@@ -181,11 +181,11 @@ class VectorsClientInterface(Protocol):
         """
         ...
 
-    def list_vectors_by_metadata(self, filter: dict[str, Any]) -> list[str]:  # noqa: A002
+    def list_vectors_by_metadata(self, filter_expr: dict[str, Any]) -> list[str]:
         """Return all vector keys matching a metadata filter.
 
         Args:
-            filter: Metadata filter expression.
+            filter_expr: Metadata filter expression.
 
         Returns:
             List of matching vector keys.

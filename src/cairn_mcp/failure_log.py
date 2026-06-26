@@ -26,6 +26,6 @@ def append_failure_entry(path: Path, entry: dict[str, Any]) -> None:
     """
     try:
         with path.open("a", encoding="utf-8") as fh:
-            fh.write(json.dumps(entry) + "\n")
+            fh.write(json.dumps(entry, default=str) + "\n")
     except Exception as exc:
         logger.error("Failed to write to failure log at %s: %s", path, exc)

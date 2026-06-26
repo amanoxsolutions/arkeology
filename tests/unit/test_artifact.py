@@ -38,6 +38,26 @@ _S3_SAFE_PATTERN = re.compile(r"^[a-z0-9\-_.]+$")
 # ---------------------------------------------------------------------------
 
 
+def test_generate_artifact_id_invalid_type_raises_value_error() -> None:
+    """Invalid artifact type → ValueError."""
+    with pytest.raises(ValueError, match="type"):
+        generate_artifact_id(
+            type="not_a_valid_type", title="Fix auth bug", tier=2, date="2026-05-30"
+        )
+
+
+def test_generate_artifact_id_invalid_date_raises_value_error() -> None:
+    """Invalid date string → ValueError for tier 2."""
+    with pytest.raises(ValueError, match="date"):
+        generate_artifact_id(type="code_review", title="Fix auth bug", tier=2, date="not-a-date")
+
+
+def test_generate_artifact_id_invalid_date_tier3_raises_value_error() -> None:
+    """Invalid date string → ValueError for tier 3 (date is always validated)."""
+    with pytest.raises(ValueError, match="date"):
+        generate_artifact_id(type="adr", title="Use postgres", tier=3, date="not-a-date")
+
+
 def test_tier2_same_inputs_same_id() -> None:
     """Tier 2: same type + date + title → deterministic, same id."""
     id1 = generate_artifact_id(type="code_review", title="Fix auth bug", tier=2, date="2026-05-30")
@@ -311,6 +331,45 @@ def test_parse_sections_returns_artifact_section_instances() -> None:
     result = parse_sections(content)
     assert len(result) == 1
     assert isinstance(result[0], ArtifactSection)
+
+
+def test_parse_sections_h2_inside_backtick_fence_not_treated_as_boundary() -> None:
+    """## line inside a triple-backtick fence is NOT a section boundary."""
+    content = "## Real\n\nText.\n\n```python\n## fake heading\ncode\n```\n\n## Also Real\n\nMore."
+    result = parse_sections(content)
+    assert len(result) == 2
+    assert result[0].heading == "Real"
+    assert result[1].heading == "Also Real"
+    # The fake heading should appear in the body of the "Real" section (as fence content)
+    assert "## fake heading" in result[0].body
+
+
+def test_parse_sections_h2_inside_tilde_fence_not_treated_as_boundary() -> None:
+    """## line inside a triple-tilde fence is NOT a section boundary."""
+    content = "## Section\n\n~~~\n## not a heading\n~~~\n\n## Next\n\nContent."
+    result = parse_sections(content)
+    assert len(result) == 2
+    assert result[0].heading == "Section"
+    assert result[1].heading == "Next"
+
+
+def test_parse_sections_fence_closed_restores_h2_detection() -> None:
+    """## lines after a closed fence ARE treated as section boundaries."""
+    content = "## Before\n\n```\n## inside fence\n```\n\n## After\n\ntext."
+    result = parse_sections(content)
+    assert len(result) == 2
+    assert result[0].heading == "Before"
+    assert result[1].heading == "After"
+    # Fence content is part of "Before"'s body
+    assert "## inside fence" in result[0].body
+
+
+def test_parse_sections_unclosed_fence_suppresses_h2_inside() -> None:
+    """## lines after an unclosed fence (no closing ```) are not section boundaries."""
+    content = "## Before\n\n```\n## inside unclosed fence\n\n## also inside\n"
+    result = parse_sections(content)
+    assert len(result) == 1
+    assert result[0].heading == "Before"
 
 
 # ---------------------------------------------------------------------------

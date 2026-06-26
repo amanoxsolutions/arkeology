@@ -32,6 +32,33 @@ def test_vector_index_not_found_error_is_cairn_error() -> None:
     assert isinstance(err, CairnError)
 
 
+def test_configuration_error_is_cairn_error() -> None:
+    """ConfigurationError is a subclass of CairnError."""
+    from cairn_mcp.errors import CairnError, ConfigurationError
+
+    err = ConfigurationError(message="bad config", fields=["BEDROCK_EMBEDDING_MODEL"])
+    assert isinstance(err, CairnError)
+
+
+def test_configuration_error_stores_message_and_fields() -> None:
+    """ConfigurationError exposes message and fields attributes."""
+    from cairn_mcp.errors import ConfigurationError
+
+    err = ConfigurationError(
+        message="Configuration error", fields=["BEDROCK_EMBEDDING_MODEL", "WRITE_PREFIX"]
+    )
+    assert err.message == "Configuration error"
+    assert err.fields == ["BEDROCK_EMBEDDING_MODEL", "WRITE_PREFIX"]
+
+
+def test_configuration_error_fields_defaults_to_empty_list() -> None:
+    """ConfigurationError with no fields argument → fields == []."""
+    from cairn_mcp.errors import ConfigurationError
+
+    err = ConfigurationError(message="bad config")
+    assert err.fields == []
+
+
 def test_except_credential_error_still_catches() -> None:
     """except CredentialError still catches a CredentialError instance."""
     err = CredentialError(message="test", service="s3", original=Exception("x"))

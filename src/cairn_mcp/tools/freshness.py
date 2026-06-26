@@ -88,6 +88,7 @@ async def _check_synthesis_freshness_inner(
             "missing_sources": [],
             "malformed": [],
             "deleted_malformed": [],
+            "delete_failed": [],
             "total_checked": 0,
             "all_fresh": True,
         }
@@ -191,6 +192,7 @@ async def _check_synthesis_freshness_inner(
 
     # ── Step 8: Handle malformed — delete if confirm=True ────────────────────
     deleted: list[str] = []
+    delete_failed: list[str] = []  # non-credential delete failures; always in response
     malformed_reported: list[str] = []
 
     if confirm:
@@ -198,16 +200,36 @@ async def _check_synthesis_freshness_inner(
             if not aid.startswith(settings.write_prefix + "/"):
                 logger.warning("Skipping out-of-scope malformed synthesis: %s", aid)
                 continue
-            # Vectors-first, then S3 (same ordering as delete_artifact)
+            # Vectors-first, then S3 (same ordering as delete_artifact).
+            # Non-credential errors at any step → report in delete_failed and continue
+            # (T22 Boundary: a partial delete leaves a recoverable S3 orphan).
             try:
                 vec_keys = vectors.list_vectors_by_metadata({"artifact_id": {"$eq": aid}})
             except CredentialError as exc:
                 return {"error": "credential_error", "message": str(exc)}
+            except Exception:
+                logger.warning(
+                    "Failed to list vectors for malformed synthesis %s; "
+                    "skipping deletion — recorded in delete_failed",
+                    aid,
+                    exc_info=True,
+                )
+                delete_failed.append(aid)
+                continue
             if vec_keys:
                 try:
                     vectors.delete_vectors(vec_keys)
                 except CredentialError as exc:
                     return {"error": "credential_error", "message": str(exc)}
+                except Exception:
+                    logger.warning(
+                        "Failed to delete vectors for malformed synthesis %s; "
+                        "skipping deletion — recorded in delete_failed",
+                        aid,
+                        exc_info=True,
+                    )
+                    delete_failed.append(aid)
+                    continue
             try:
                 s3.head_object(aid)
             except KeyError:
@@ -223,6 +245,15 @@ async def _check_synthesis_freshness_inner(
                 s3.delete_object(aid)
             except CredentialError as exc:
                 return {"error": "credential_error", "message": str(exc)}
+            except Exception:
+                logger.warning(
+                    "Failed to delete S3 object for malformed synthesis %s; "
+                    "vectors already deleted — S3 orphan left; recorded in delete_failed",
+                    aid,
+                    exc_info=True,
+                )
+                delete_failed.append(aid)
+                continue
             deleted.append(aid)
         malformed_reported = []
     else:
@@ -253,6 +284,7 @@ async def _check_synthesis_freshness_inner(
         "missing_sources": missing_sources_report,
         "malformed": malformed_reported,
         "deleted_malformed": deleted,
+        "delete_failed": delete_failed,
         "total_checked": len(syntheses),
         "all_fresh": all_fresh,
     }

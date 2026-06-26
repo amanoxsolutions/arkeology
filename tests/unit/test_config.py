@@ -587,3 +587,71 @@ def test_embed_max_section_length_negative_invalid(monkeypatch: pytest.MonkeyPat
     # Red: unknown field is ignored, no exception raised until field is added with validator.
     with pytest.raises(Exception):
         Settings()
+
+
+# ---------------------------------------------------------------------------
+# M4 — BEDROCK_EMBEDDING_MODEL / BEDROCK_TEXT_MODEL empty-string validators
+# ---------------------------------------------------------------------------
+
+
+def test_bedrock_embedding_model_empty_string_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    """BEDROCK_EMBEDDING_MODEL='' → ValidationError (must not be empty)."""
+    _required_env(monkeypatch)
+    monkeypatch.setenv("BEDROCK_EMBEDDING_MODEL", "")
+    with pytest.raises(Exception, match="BEDROCK_EMBEDDING_MODEL"):
+        Settings()
+
+
+def test_bedrock_text_model_empty_string_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    """BEDROCK_TEXT_MODEL='' → ValidationError (must not be empty when provided)."""
+    _required_env(monkeypatch)
+    monkeypatch.setenv("BEDROCK_TEXT_MODEL", "")
+    with pytest.raises(Exception, match="BEDROCK_TEXT_MODEL"):
+        Settings()
+
+
+# ---------------------------------------------------------------------------
+# M4 — load_settings() factory raises ConfigurationError
+# ---------------------------------------------------------------------------
+
+
+def test_load_settings_returns_settings_on_valid_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """load_settings() with valid env → returns a Settings instance."""
+    from cairn_mcp.config import load_settings
+
+    _required_env(monkeypatch)
+    settings = load_settings()
+    assert settings.aws_region == "us-east-1"
+
+
+def test_load_settings_raises_configuration_error_on_invalid_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """load_settings() with missing required fields → raises ConfigurationError."""
+    from cairn_mcp.config import load_settings
+    from cairn_mcp.errors import ConfigurationError
+
+    # All required env vars are absent (autouse fixture already cleaned them)
+    with pytest.raises(ConfigurationError):
+        load_settings()
+
+
+def test_load_settings_configuration_error_reports_failing_fields(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ConfigurationError from load_settings() lists the failing field name(s)."""
+    from cairn_mcp.config import load_settings
+    from cairn_mcp.errors import ConfigurationError
+
+    # Only AWS_REGION is missing
+    monkeypatch.setenv("ARTIFACT_BUCKET", "bucket")
+    monkeypatch.setenv("VECTORS_BUCKET", "vbucket")
+    monkeypatch.setenv("VECTORS_INDEX", "idx")
+    try:
+        load_settings()
+        pytest.fail("Expected ConfigurationError")
+    except ConfigurationError as exc:
+        assert exc.fields, "fields must be non-empty"
+        assert any("AWS_REGION" in f for f in exc.fields)

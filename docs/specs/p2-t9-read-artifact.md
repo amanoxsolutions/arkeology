@@ -43,7 +43,7 @@ After finding an artifact via `search_artifacts`, the agent passes its `artifact
   with its `artifact_id`, then the response contains the original content unchanged.
 - Given a valid `artifact_id`, when `read_artifact` returns, then the response includes all
   metadata fields: type, team, project, tier, date, status, title, visibility, tags,
-  author_role, description, and content.
+  author_role, description, source_artifacts, and content.
 - Given an `artifact_id` that does not exist in S3, when `read_artifact` is called, then
   a structured not-found error is returned — not a `KeyError` exception.
 
@@ -100,7 +100,8 @@ An expired token during the S3 GetObject call must not surface as a raw exceptio
   never a raw exception.
 - WHEN `read_artifact` succeeds THE SYSTEM SHALL return: `artifact_id`, `content` (full
   markdown string), `type`, `team`, `project`, `tier`, `date`, `status`, `title`,
-  `visibility`, `tags`, `author_role`, `description`.
+  `visibility`, `tags`, `author_role`, `description`, `source_artifacts` (list of artifact
+  IDs the artifact was synthesised from; empty list for non-synthesis artifacts).
 
 ## Boundaries
 

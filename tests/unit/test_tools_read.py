@@ -616,6 +616,39 @@ async def test_read_commit_refs_credential_error_from_list_vectors_by_metadata(
     assert result["error"] == "credential_error"
 
 
+async def test_read_non_credential_vector_error_degrades_to_empty_commit_refs(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """Non-credential error from list_vectors_by_metadata → read succeeds with commit_refs=[].
+
+    commit_refs are supplementary — a transient vector failure must not abort
+    an otherwise-successful read and return an error response.
+    """
+    settings = _make_settings(monkeypatch)
+    s3_client.put_object("artifacts/vec-error", "Content.", {**_BASE_METADATA})
+    mocker.patch.object(
+        vectors_client_2,
+        "list_vectors_by_metadata",
+        side_effect=RuntimeError("Simulated transient vector failure"),
+    )
+
+    result = await read_artifact(
+        s3=s3_client,
+        vectors=vectors_client_2,
+        settings=settings,
+        artifact_id="artifacts/vec-error",
+    )
+
+    # Read must succeed — no "error" key
+    assert "error" not in result, f"Expected success but got error: {result}"
+    assert result["artifact_id"] == "artifacts/vec-error"
+    # commit_refs degrades gracefully to []
+    assert result["commit_refs"] == []
+
+
 async def test_read_last_edited_ulid_present(
     monkeypatch: pytest.MonkeyPatch,
     s3_client: S3ClientImpl,

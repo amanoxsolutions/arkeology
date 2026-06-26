@@ -104,7 +104,11 @@ class S3ClientImpl:
             if is_credential_error(exc):
                 raise _credential_error(exc) from exc
             code = exc.response.get("Error", {}).get("Code", "")
-            if code in ("NoSuchKey", "404", "403"):
+            if code == "403":
+                # S3 HEAD requests return HTTP 403 with no body when the caller
+                # lacks s3:GetObject permission — treat as a credential/permission error.
+                raise _credential_error(exc) from exc
+            if code in ("NoSuchKey", "404"):
                 raise KeyError(key) from exc
             raise
 

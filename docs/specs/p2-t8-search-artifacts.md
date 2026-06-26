@@ -113,7 +113,9 @@ other types and feature tags.
   results by score descending before returning.
 - WHEN `search_artifacts` returns THE SYSTEM SHALL include per result: `artifact_id`, `score`
   (float), `type`, `team`, `project`, `tier`, `date`, `status`, `title`, `visibility`,
-  `tags`, `author_role` (null if absent), `description`. Never `content`.
+  `tags`, `author_role` (null if absent), `description`, `source_artifacts` (list of
+  artifact IDs the result was synthesised from; empty list for non-synthesis artifacts).
+  Never `content`.
 - WHEN a CredentialError is raised at any point THE SYSTEM SHALL return a structured error
   response — never a raw exception.
 - WHEN the index returns zero results across all iterations THE SYSTEM SHALL return an empty

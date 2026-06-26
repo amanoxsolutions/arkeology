@@ -8,14 +8,12 @@ import logging
 import os
 import sys
 
-from pydantic import ValidationError
-
 from cairn_mcp import server
 from cairn_mcp.clients.bedrock import BedrockClientImpl
 from cairn_mcp.clients.s3 import S3ClientImpl
 from cairn_mcp.clients.vectors import VectorsClientImpl
-from cairn_mcp.config import _VALID_LOG_LEVELS, Settings
-from cairn_mcp.errors import CredentialError, StartupValidationError
+from cairn_mcp.config import _VALID_LOG_LEVELS, load_settings
+from cairn_mcp.errors import ConfigurationError, CredentialError, StartupValidationError
 from cairn_mcp.startup import validate_startup
 
 logger = logging.getLogger(__name__)
@@ -77,17 +75,9 @@ def main() -> None:
 
     # ── Step 1: Parse and validate configuration ──────────────────────────────
     try:
-        settings = Settings(_env_file=".env", _env_file_encoding="utf-8")
-    except ValidationError as exc:
-        errors = exc.errors()
-        messages = []
-        for err in errors:
-            field = " → ".join(str(loc) for loc in err["loc"]) if err.get("loc") else "unknown"
-            messages.append(f"  {field}: {err['msg']}")
-        logger.critical(
-            "Configuration error — fix the following before starting cairn-mcp:\n%s",
-            "\n".join(messages),
-        )
+        settings = load_settings(_env_file=".env", _env_file_encoding="utf-8")
+    except ConfigurationError as exc:
+        logger.critical("%s", exc.message)
         sys.exit(1)
 
     # Reconfigure logging with the validated LOG_LEVEL from settings

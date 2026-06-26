@@ -40,6 +40,25 @@ class StartupValidationError(CairnError):
         self.message = message
 
 
+class ConfigurationError(CairnError):
+    """Raised when the server cannot start due to invalid or missing configuration.
+
+    Wraps Pydantic's ``ValidationError`` so callers only handle a single domain
+    exception type.  Produced by :func:`cairn_mcp.config.load_settings`.
+
+    Attributes:
+        message: Human-readable, formatted description of all validation failures
+            with remediation hints.
+        fields: Names of the configuration fields that failed validation
+            (may be empty when the error is not field-specific).
+    """
+
+    def __init__(self, message: str, fields: list[str] | None = None) -> None:
+        super().__init__(message)
+        self.message = message
+        self.fields = fields or []
+
+
 class VectorIndexNotFoundError(CairnError):
     """Raised when the configured S3 Vectors index does not exist.
 

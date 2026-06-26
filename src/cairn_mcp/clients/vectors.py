@@ -214,7 +214,7 @@ class VectorsClientImpl:
                 indexName=self._index,
             )
             index_info = response.get("index", {})
-            return {"dimension": index_info["dimension"], **index_info}
+            return dict(index_info)
         except botocore.exceptions.ClientError as exc:
             if is_credential_error(exc):
                 raise self._wrap_credential_error(exc) from exc
@@ -225,7 +225,7 @@ class VectorsClientImpl:
                 ) from exc
             raise
 
-    def list_vectors_by_metadata(self, filter: dict[str, Any]) -> list[str]:  # noqa: A002
+    def list_vectors_by_metadata(self, filter_expr: dict[str, Any]) -> list[str]:
         """Return all vector keys matching the given filter.
 
         Uses ListVectors with pagination and filters client-side because the
@@ -247,7 +247,7 @@ class VectorsClientImpl:
                 response = self._client.list_vectors(**kwargs)
                 for item in response.get("vectors", []):
                     meta = item.get("metadata") or {}
-                    if matches_filter(meta, filter):
+                    if matches_filter(meta, filter_expr):
                         matching_keys.append(item["key"])
                 next_token = response.get("nextToken")
                 if not next_token:

@@ -93,6 +93,43 @@ def test_put_vectors_batch_empty_list(
     assert spy.call_count == 0
 
 
+# ---------------------------------------------------------------------------
+# S3ClientImpl — head_object error mapping
+# ---------------------------------------------------------------------------
+
+
+def test_head_object_404_raises_key_error(
+    s3_client: S3ClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """head_object for a missing key (404) → KeyError (not-found semantics preserved)."""
+    not_found_exc = botocore.exceptions.ClientError(
+        {"Error": {"Code": "404", "Message": "Not Found"}},
+        "HeadObject",
+    )
+    mocker.patch.object(s3_client._s3, "head_object", side_effect=not_found_exc)
+    with pytest.raises(KeyError):
+        s3_client.head_object("missing/key.md")
+
+
+def test_head_object_403_raises_credential_error_not_key_error(
+    s3_client: S3ClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """head_object returning 403 (Access Denied) → CredentialError, not KeyError.
+
+    S3 HEAD requests return HTTP 403 with no body when the caller lacks
+    s3:GetObject permission.  This is a permission problem, not a missing key.
+    """
+    forbidden_exc = botocore.exceptions.ClientError(
+        {"Error": {"Code": "403", "Message": "Forbidden"}},
+        "HeadObject",
+    )
+    mocker.patch.object(s3_client._s3, "head_object", side_effect=forbidden_exc)
+    with pytest.raises(CredentialError):
+        s3_client.head_object("some/key.md")
+
+
 def test_put_vectors_batch_credential_error(
     vectors_client: VectorsClientImpl,
     mocker: pytest.MonkeyPatch,

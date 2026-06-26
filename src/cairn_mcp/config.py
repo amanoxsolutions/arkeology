@@ -10,7 +10,7 @@ import logging
 from pathlib import Path
 from typing import Annotated, Any
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, ValidationError, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _VALID_LOG_LEVELS: frozenset[str] = frozenset({"DEBUG", "INFO", "WARNING", "ERROR"})
@@ -310,7 +310,26 @@ class Settings(BaseSettings):
             raise ValueError(f"EMBED_MAX_SECTION_LENGTH must be at least 0 (got {v})")
         return v
 
-    # ── Computed properties ───────────────────────────────────────────────────
+    @field_validator("BEDROCK_EMBEDDING_MODEL")
+    @classmethod
+    def validate_bedrock_embedding_model(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError(
+                "BEDROCK_EMBEDDING_MODEL must not be empty (e.g. 'amazon.titan-embed-text-v2:0')"
+            )
+        return v
+
+    @field_validator("BEDROCK_TEXT_MODEL")
+    @classmethod
+    def validate_bedrock_text_model(cls, v: str | None) -> str | None:
+        if v is not None and not v.strip():
+            raise ValueError(
+                "BEDROCK_TEXT_MODEL must not be empty when provided; "
+                "omit it entirely to disable the text model"
+            )
+        return v
+
+    # ── Computed properties ────────────────────────────────────────────────────
     # These snake_case properties provide IDE-friendly access to the UPPER_CASE
     # pydantic-settings fields. We use explicit properties rather than an
     # alias_generator because alias_generator produces aliases on all fields
@@ -446,3 +465,42 @@ class Settings(BaseSettings):
             if val is not None and not str(val).strip():
                 raise ValueError(f"{field_name} must be a non-empty string")
         return values
+
+
+def load_settings(**kwargs: Any) -> Settings:
+    """Construct Settings from the environment, raising :exc:`ConfigurationError` on failure.
+
+    This is the canonical entry point for building Settings at startup.
+    Callers only need to handle :class:`~cairn_mcp.errors.ConfigurationError`
+    rather than Pydantic internals.
+
+    Args:
+        **kwargs: Forwarded verbatim to the :class:`Settings` constructor
+            (e.g. ``_env_file=".env"``).
+
+    Returns:
+        A valid, fully-validated :class:`Settings` instance.
+
+    Raises:
+        ConfigurationError: When one or more environment variables are invalid
+            or missing, with a human-readable message listing each failure.
+    """
+    # Import here to avoid a circular import at module load time
+    # (errors.py does not import from config.py, so the cycle is safe to break lazily).
+    from cairn_mcp.errors import ConfigurationError
+
+    try:
+        return Settings(**kwargs)
+    except ValidationError as exc:
+        error_list = exc.errors()
+        fields: list[str] = []
+        messages: list[str] = []
+        for err in error_list:
+            field = " → ".join(str(loc) for loc in err["loc"]) if err.get("loc") else "unknown"
+            fields.append(field)
+            messages.append(f"  {field}: {err['msg']}")
+        raise ConfigurationError(
+            "Configuration error — fix the following before starting cairn-mcp:\n"
+            + "\n".join(messages),
+            fields=fields,
+        ) from exc

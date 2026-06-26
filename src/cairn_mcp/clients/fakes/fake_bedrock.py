@@ -81,8 +81,10 @@ class FakeBedrockClient:
     def embed(self, text: str, model_id: str, dimensions: int) -> list[float]:
         """Return a deterministic unit vector derived from the input text.
 
-        Includes single-retry logic for transient errors (throttling, timeout),
-        matching the behavior of the real Bedrock client.
+        Includes single-retry logic for transient errors (throttling, timeout).
+        Unlike the real Bedrock client, the fake retries immediately with no
+        sleep or jitter between attempts — callers that assert on retry count
+        behave correctly, but timing-sensitive tests are not covered here.
 
         Args:
             text: Input text to embed.

@@ -7,6 +7,7 @@ vectors from the previous write are cleaned up automatically.
 
 import asyncio
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from typing import Any
 
@@ -29,6 +30,20 @@ from cairn_mcp.errors import CredentialError
 from cairn_mcp.failure_log import append_failure_entry
 
 logger = logging.getLogger(__name__)
+
+# Dedicated thread pool for Bedrock embed calls.  The default asyncio executor
+# is sized at min(32, cpu_count + 4) — typically 8–16 threads — which can
+# serialise embed calls below the configured SECTION_CONCURRENCY when multiple
+# artifacts are written concurrently via write_artifacts.
+#
+# Sizing: artifact_concurrency_max (15, see write_artifacts._ARTIFACT_CONCURRENCY_MAX)
+# × EMBED_MAX_SECTIONS default (20) = 300.  All embed calls in this module use
+# run_in_executor(_EMBED_EXECUTOR, ...) rather than asyncio.to_thread() so the
+# pool is not shared with other blocking work on the default executor.
+_EMBED_EXECUTOR: ThreadPoolExecutor = ThreadPoolExecutor(
+    max_workers=300,  # 15 artifacts × 20 sections
+    thread_name_prefix="cairn-embed",
+)
 
 
 def _build_section_embedding_text(
@@ -355,7 +370,8 @@ async def _write_artifact_inner(  # noqa: PLR0913
 
         async def embed_section(vec_key: str, text: str) -> tuple[str, list[float]]:
             async with semaphore:
-                embedding = await asyncio.to_thread(
+                embedding = await asyncio.get_running_loop().run_in_executor(
+                    _EMBED_EXECUTOR,
                     bedrock.embed,
                     text,
                     settings.bedrock_embedding_model,
@@ -401,7 +417,9 @@ async def _write_artifact_inner(  # noqa: PLR0913
             )
             return {
                 "error": "partial_write",
-                "message": str(first_other_error),
+                "message": (
+                    f"{first_other_error} — failure recorded in {settings.failure_log_path}"
+                ),
                 "artifact_id": s3_key,
             }
 
@@ -433,7 +451,7 @@ async def _write_artifact_inner(  # noqa: PLR0913
             )
             return {
                 "error": "partial_write",
-                "message": str(exc),
+                "message": (f"{exc} — failure recorded in {settings.failure_log_path}"),
                 "artifact_id": s3_key,
             }
 
@@ -448,7 +466,8 @@ async def _write_artifact_inner(  # noqa: PLR0913
         doc_embed_error: Exception | None = None
         doc_embedding: list[float] | None = None
         try:
-            doc_embedding = await asyncio.to_thread(
+            doc_embedding = await asyncio.get_running_loop().run_in_executor(
+                _EMBED_EXECUTOR,
                 bedrock.embed,
                 embed_text,
                 settings.bedrock_embedding_model,
@@ -475,7 +494,7 @@ async def _write_artifact_inner(  # noqa: PLR0913
             )
             return {
                 "error": "partial_write",
-                "message": str(doc_embed_error),
+                "message": (f"{doc_embed_error} — failure recorded in {settings.failure_log_path}"),
                 "artifact_id": s3_key,
             }
 
@@ -502,7 +521,7 @@ async def _write_artifact_inner(  # noqa: PLR0913
             )
             return {
                 "error": "partial_write",
-                "message": str(exc),
+                "message": (f"{exc} — failure recorded in {settings.failure_log_path}"),
                 "artifact_id": s3_key,
             }
 

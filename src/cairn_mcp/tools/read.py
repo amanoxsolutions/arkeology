@@ -139,6 +139,14 @@ async def _read_artifact_inner(
                         commit_refs = raw
         except CredentialError as exc:
             return {"error": "credential_error", "message": str(exc)}
+        except Exception:
+            # commit_refs are supplementary — degrade to [] rather than aborting
+            # an otherwise-successful read on a transient vector error.
+            logger.warning(
+                "Failed to read commit_refs for %s from vector metadata; returning []",
+                artifact_id,
+                exc_info=True,
+            )
 
     # ── Step 5: Deserialise remaining S3 metadata ─────────────────────────────
     tags: list[str] = [t for t in str(meta.get("tags", "")).split(",") if t]
