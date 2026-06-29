@@ -14,8 +14,8 @@ authored:
   by: architect
   date: "2026-06-24"
 revised:
-  by: ""
-  date: ""
+  by: "pm"
+  date: "2026-06-29"
 ---
 
 # MCP Apps as the Visual Reading Interface
@@ -109,7 +109,9 @@ preference. cairn-mcp does not own or configure Obsidian synchronisation.
 
 - **CDN dependency at runtime**: the browser loads the MCP Apps ext-apps SDK and mermaid.js
   from external CDNs. An air-gapped environment would require self-hosted CDN alternatives or
-  inlined assets; this is an accepted constraint for the current team environment.
+  inlined assets; this is an accepted constraint for the current team environment. In practice,
+  the CDN dependency only applies when a supporting host actually renders the iframe — which is
+  rare for this team, who access `cairn_studio` via Claude Code (non-supporting host).
 
 - **In-session only**: the MCP App renders within an active MCP session. Developers who want
   offline artifact access can configure Obsidian + Remotely Save independently.
@@ -119,3 +121,27 @@ preference. cairn-mcp does not own or configure Obsidian synchronisation.
   `fastmcp[apps]` is an additive optional dependency layer on top of the existing framework. The
   note in that ADR about stdio being the only transport is unaffected — MCP Apps works over the
   existing stdio transport.
+
+## Post-implementation Note
+
+_(Added 2026-06-29 after T44 implementation.)_
+
+The MCP App iframe was successfully registered, served, and shipped as part of T44. The
+`ui://cairn-studio/index.html` resource is declared via `ResourceCSP(["https://unpkg.com",
+"https://cdn.jsdelivr.net"])` and `cairn-studio.html` is distributed as Python package data.
+
+Post-implementation testing revealed that the iframe rendering environment in supporting hosts
+(Claude Desktop, claude.ai) is too small for the view-switching interface to be practical. The
+open risk recorded in the Alternatives Considered table — "Rendering experience constrained to
+sandboxed iframe" — materialised.
+
+As a result, the primary value of `cairn_studio` is the **non-supporting host path**: the
+structured artifact listing returned in `structured_content` (shape: `{ "write_prefix": string,
+"artifacts": [...] }`). This is the interface the team uses via Claude Code.
+
+The MCP App HTML file is retained in the package and served correctly. It remains available for
+future use if the rendering environment improves or if a simpler, single-view layout is
+implemented that fits the iframe constraints.
+
+The ADR decision remains correct: no new AWS infrastructure was needed, and the graceful
+degradation path delivers the primary use case. Direction 4's retirement stands.
