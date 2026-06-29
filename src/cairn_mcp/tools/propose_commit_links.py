@@ -17,6 +17,7 @@ from cairn_mcp.clients.interfaces import (
     VectorsClientInterface,
 )
 from cairn_mcp.config import Settings
+from cairn_mcp.constants import ErrorCode
 from cairn_mcp.errors import CredentialError
 
 logger = logging.getLogger(__name__)
@@ -57,7 +58,7 @@ async def propose_commit_links(
         )
     except Exception as exc:
         logger.exception("Unexpected error in propose_commit_links")
-        return {"error": "internal_error", "message": str(exc)}
+        return {"error": ErrorCode.INTERNAL_ERROR, "message": str(exc)}
 
 
 async def _propose_commit_links_inner(
@@ -92,20 +93,16 @@ async def _propose_commit_links_inner(
     else:
         combined_filter = scope_clause
 
-    # ── Step 2: List matching vector keys ─────────────────────────────────────
+    # ── Steps 2–3: List matching vector keys, then fetch their metadata ───────
     try:
         keys = vectors.list_vectors_by_metadata(combined_filter)
-    except CredentialError as exc:
-        return {"error": "credential_error", "message": str(exc)}
 
-    if not keys:
-        return {"proposed": [], "commit_sha": commit_sha}
+        if not keys:
+            return {"proposed": [], "commit_sha": commit_sha}
 
-    # ── Step 3: Fetch vector metadata ─────────────────────────────────────────
-    try:
         items = vectors.get_vectors(keys)
     except CredentialError as exc:
-        return {"error": "credential_error", "message": str(exc)}
+        return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
 
     # ── Step 4: Deduplicate by artifact_id ────────────────────────────────────
     seen_ids: set[str] = set()

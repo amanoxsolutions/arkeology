@@ -26,6 +26,7 @@ from cairn_mcp.clients.interfaces import (
     VectorsClientInterface,
 )
 from cairn_mcp.config import Settings
+from cairn_mcp.constants import ErrorCode
 from cairn_mcp.errors import CredentialError
 from cairn_mcp.failure_log import append_failure_entry
 
@@ -116,6 +117,56 @@ def _build_document_embedding_text(
     return "\n".join(lines)
 
 
+def _record_partial_write(
+    settings: Settings,
+    *,
+    artifact_id: str,
+    title: str,
+    artifact_type: str,
+    tier: int,
+    date: str,
+    failure_step: str,
+    reason: str,
+) -> dict[str, Any]:
+    """Append a failure-log entry and build the standard ``partial_write`` response.
+
+    Centralises the failure-log-and-return shape used after S3 has been written
+    durably but a vector embed/index step failed. The S3 object remains; the
+    failure is recorded so ``reconcile_index`` can repair the index later.
+
+    Args:
+        settings: Server configuration (for ``failure_log_path``).
+        artifact_id: S3 key of the partially written artifact.
+        title: Artifact title.
+        artifact_type: Artifact type string.
+        tier: Artifact tier.
+        date: ISO-8601 date string.
+        failure_step: Stage that failed (e.g. ``"bedrock_embed"``, ``"put_vector"``).
+        reason: Human-readable failure reason.
+
+    Returns:
+        The ``partial_write`` error response dict (includes ``artifact_id``).
+    """
+    append_failure_entry(
+        settings.failure_log_path,
+        {
+            "artifact_id": artifact_id,
+            "title": title,
+            "type": artifact_type,
+            "tier": tier,
+            "date": date,
+            "failure_step": failure_step,
+            "reason": reason,
+            "timestamp": datetime.now(UTC).isoformat(),
+        },
+    )
+    return {
+        "error": ErrorCode.PARTIAL_WRITE,
+        "message": f"{reason} — failure recorded in {settings.failure_log_path}",
+        "artifact_id": artifact_id,
+    }
+
+
 async def write_artifact(
     *,
     settings: Settings,
@@ -195,7 +246,7 @@ async def write_artifact(
         )
     except Exception as exc:
         logger.exception("Unexpected error in write_artifact")
-        return {"error": "internal_error", "message": str(exc)}
+        return {"error": ErrorCode.INTERNAL_ERROR, "message": str(exc)}
 
 
 async def _write_artifact_inner(  # noqa: PLR0913
@@ -230,7 +281,10 @@ async def _write_artifact_inner(  # noqa: PLR0913
     # which calls this inner directly, enforces the same guard and cannot produce a
     # malformed S3 key (e.g. ``...-titletxt``).
     if not file_extension.startswith("."):
-        return {"error": "validation_error", "message": "file_extension must start with '.'"}
+        return {
+            "error": ErrorCode.VALIDATION_ERROR,
+            "message": "file_extension must start with '.'",
+        }
 
     try:
         artifact = Artifact(
@@ -250,7 +304,7 @@ async def _write_artifact_inner(  # noqa: PLR0913
             commit_refs=refs,
         )
     except ValidationError as exc:
-        return {"error": "validation_error", "message": str(exc)}
+        return {"error": ErrorCode.VALIDATION_ERROR, "message": str(exc)}
 
     # ── Step 2: Derive identifiers ────────────────────────────────────────────
     artifact_id = generate_artifact_id(tier=tier, type=type, date=date, title=title)
@@ -283,12 +337,12 @@ async def _write_artifact_inner(  # noqa: PLR0913
     except KeyError:
         pass
     except CredentialError as exc:
-        return {"error": "credential_error", "message": str(exc)}
+        return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
 
     try:
         s3.put_object(s3_key, content, s3_metadata)
     except CredentialError as exc:
-        return {"error": "credential_error", "message": str(exc)}
+        return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
 
     # ── Step 5: Parse sections ────────────────────────────────────────────────
     sections = parse_sections(content)
@@ -396,32 +450,22 @@ async def _write_artifact_inner(  # noqa: PLR0913
 
         if first_cred_error is not None:
             return {
-                "error": "credential_error",
+                "error": ErrorCode.CREDENTIAL_ERROR,
                 "message": str(first_cred_error),
                 "artifact_id": s3_key,
             }
 
         if first_other_error is not None:
-            append_failure_entry(
-                settings.failure_log_path,
-                {
-                    "artifact_id": s3_key,
-                    "title": title,
-                    "type": type,
-                    "tier": tier,
-                    "date": date,
-                    "failure_step": "bedrock_embed",
-                    "reason": str(first_other_error),
-                    "timestamp": datetime.now(UTC).isoformat(),
-                },
+            return _record_partial_write(
+                settings,
+                artifact_id=s3_key,
+                title=title,
+                artifact_type=type,
+                tier=tier,
+                date=date,
+                failure_step="bedrock_embed",
+                reason=str(first_other_error),
             )
-            return {
-                "error": "partial_write",
-                "message": (
-                    f"{first_other_error} — failure recorded in {settings.failure_log_path}"
-                ),
-                "artifact_id": s3_key,
-            }
 
         # All succeeded — batch put. Filter out any BaseException entries (already checked above).
         successful: list[tuple[str, list[float]]] = [
@@ -434,26 +478,18 @@ async def _write_artifact_inner(  # noqa: PLR0913
         try:
             vectors.put_vectors_batch(items)
         except CredentialError as exc:
-            return {"error": "credential_error", "message": str(exc), "artifact_id": s3_key}
+            return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc), "artifact_id": s3_key}
         except Exception as exc:
-            append_failure_entry(
-                settings.failure_log_path,
-                {
-                    "artifact_id": s3_key,
-                    "title": title,
-                    "type": type,
-                    "tier": tier,
-                    "date": date,
-                    "failure_step": "put_vector",
-                    "reason": str(exc),
-                    "timestamp": datetime.now(UTC).isoformat(),
-                },
+            return _record_partial_write(
+                settings,
+                artifact_id=s3_key,
+                title=title,
+                artifact_type=type,
+                tier=tier,
+                date=date,
+                failure_step="put_vector",
+                reason=str(exc),
             )
-            return {
-                "error": "partial_write",
-                "message": (f"{exc} — failure recorded in {settings.failure_log_path}"),
-                "artifact_id": s3_key,
-            }
 
         new_keys = {vec_key for vec_key, _ in successful}
     else:
@@ -463,8 +499,6 @@ async def _write_artifact_inner(  # noqa: PLR0913
             tags=tags,
             description=description,
         )
-        doc_embed_error: Exception | None = None
-        doc_embedding: list[float] | None = None
         try:
             doc_embedding = await asyncio.get_running_loop().run_in_executor(
                 _EMBED_EXECUTOR,
@@ -474,56 +508,35 @@ async def _write_artifact_inner(  # noqa: PLR0913
                 settings.bedrock_embedding_dimensions,
             )
         except CredentialError as exc:
-            return {"error": "credential_error", "message": str(exc), "artifact_id": s3_key}
+            return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc), "artifact_id": s3_key}
         except Exception as exc:
-            doc_embed_error = exc
-
-        if doc_embed_error is not None:
-            append_failure_entry(
-                settings.failure_log_path,
-                {
-                    "artifact_id": s3_key,
-                    "title": title,
-                    "type": type,
-                    "tier": tier,
-                    "date": date,
-                    "failure_step": "bedrock_embed",
-                    "reason": str(doc_embed_error),
-                    "timestamp": datetime.now(UTC).isoformat(),
-                },
+            return _record_partial_write(
+                settings,
+                artifact_id=s3_key,
+                title=title,
+                artifact_type=type,
+                tier=tier,
+                date=date,
+                failure_step="bedrock_embed",
+                reason=str(exc),
             )
-            return {
-                "error": "partial_write",
-                "message": (f"{doc_embed_error} — failure recorded in {settings.failure_log_path}"),
-                "artifact_id": s3_key,
-            }
 
-        if doc_embedding is None:
-            raise RuntimeError("doc_embedding is None after successful embed — this is a bug")
         doc_item = [{"key": s3_key, "vector": doc_embedding, "metadata": vector_metadata}]
         try:
             vectors.put_vectors_batch(doc_item)
         except CredentialError as exc:
-            return {"error": "credential_error", "message": str(exc), "artifact_id": s3_key}
+            return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc), "artifact_id": s3_key}
         except Exception as exc:
-            append_failure_entry(
-                settings.failure_log_path,
-                {
-                    "artifact_id": s3_key,
-                    "title": title,
-                    "type": type,
-                    "tier": tier,
-                    "date": date,
-                    "failure_step": "put_vector",
-                    "reason": str(exc),
-                    "timestamp": datetime.now(UTC).isoformat(),
-                },
+            return _record_partial_write(
+                settings,
+                artifact_id=s3_key,
+                title=title,
+                artifact_type=type,
+                tier=tier,
+                date=date,
+                failure_step="put_vector",
+                reason=str(exc),
             )
-            return {
-                "error": "partial_write",
-                "message": (f"{exc} — failure recorded in {settings.failure_log_path}"),
-                "artifact_id": s3_key,
-            }
 
         new_keys.add(s3_key)
 

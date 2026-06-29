@@ -25,6 +25,7 @@ from cairn_mcp.clients.interfaces import (
     VectorsClientInterface,
 )
 from cairn_mcp.config import Settings
+from cairn_mcp.constants import ErrorCode
 from cairn_mcp.tools.write_artifacts import write_artifacts as _write_artifacts
 
 logger = logging.getLogger(__name__)
@@ -107,7 +108,7 @@ async def migrate_artifacts(
         )
     except Exception as exc:
         logger.exception("Unexpected error in migrate_artifacts")
-        return {"error": "internal_error", "message": str(exc)}
+        return {"error": ErrorCode.INTERNAL_ERROR, "message": str(exc)}
 
 
 async def _migrate_artifacts_inner(
@@ -123,6 +124,18 @@ async def _migrate_artifacts_inner(
     """Inner implementation: enrich descriptions, then write or return."""
     # ── Clamp artifact_concurrency to [1, 15] ────────────────────────────────
     warning: str | None = None
+
+    def _with_warning(resp: dict[str, Any]) -> dict[str, Any]:
+        """Append the clamp warning to a response only when one was raised.
+
+        When no warning was raised the response is returned unchanged, so the
+        warning-absent and warning-present dicts stay byte-identical apart from
+        the single trailing ``"warning"`` key.
+        """
+        if warning is not None:
+            resp["warning"] = warning
+        return resp
+
     if artifact_concurrency > _ARTIFACT_CONCURRENCY_MAX:
         warning = (
             f"artifact_concurrency={artifact_concurrency} exceeds the maximum of "
@@ -147,7 +160,7 @@ async def _migrate_artifacts_inner(
     missing_indices = [i for i, d in enumerate(descriptors) if not d.get("description")]
     if missing_indices and not settings.bedrock_text_model:
         return {
-            "error": "configuration_error",
+            "error": ErrorCode.CONFIGURATION_ERROR,
             "message": (
                 "BEDROCK_TEXT_MODEL is not configured. "
                 "Set it to use migrate_artifacts with missing descriptions."
@@ -194,10 +207,7 @@ async def _migrate_artifacts_inner(
 
     # ── Step 4: dry_run → return enriched list without writing ────────────────
     if dry_run:
-        response: dict[str, Any] = {"descriptors": enriched}
-        if warning is not None:
-            response["warning"] = warning
-        return response
+        return _with_warning({"descriptors": enriched})
 
     # ── Step 5: delegate to write_artifacts for the write phase ───────────────
     write_result = await _write_artifacts(
@@ -208,6 +218,4 @@ async def _migrate_artifacts_inner(
         artifacts=enriched,
         artifact_concurrency=effective,
     )
-    if warning is not None:
-        return {**write_result, "warning": warning}
-    return write_result
+    return _with_warning(write_result)

@@ -13,7 +13,13 @@ from cairn_mcp.clients.interfaces import (
     VectorsClientInterface,
 )
 from cairn_mcp.config import Settings
+from cairn_mcp.constants import ErrorCode
 from cairn_mcp.errors import CredentialError
+from cairn_mcp.tools._search_helper import (
+    build_scope_filter,
+    build_user_filters,
+    coerce_list_field,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +76,7 @@ async def list_artifacts(
         )
     except Exception as exc:
         logger.exception("Unexpected error in list_artifacts")
-        return {"error": "internal_error", "message": str(exc)}
+        return {"error": ErrorCode.INTERNAL_ERROR, "message": str(exc)}
 
 
 async def _list_artifacts_inner(
@@ -93,44 +99,14 @@ async def _list_artifacts_inner(
     _ = bedrock
 
     # ── Step 1: Build metadata filter ────────────────────────────────────────
-    clauses: list[dict[str, Any]] = []
-    clauses.append({"status": {"$eq": status}})
-    if type is not None:
-        clauses.append({"type": {"$eq": type}})
-    if team is not None:
-        clauses.append({"team": {"$eq": team}})
-    if project is not None:
-        clauses.append({"project": {"$eq": project}})
-    if tier is not None:
-        clauses.append({"tier": {"$eq": tier}})
-    if tags:
-        for tag in tags:
-            clauses.append({"tags": {"$eq": tag}})
+    clauses: list[dict[str, Any]] = [{"status": {"$eq": status}}]
+    clauses.extend(build_user_filters(type=type, team=team, project=project, tier=tier, tags=tags))
     if commit_refs:
         for ref in commit_refs:
             clauses.append({"commit_refs": {"$eq": ref}})
 
-    # ── Step 1b: Scope filter (same logic as search.py) ──────────────────────
-    own_scope = settings.write_prefix
-    read_prefixes = settings.read_prefixes_list
-
-    if read_prefixes:
-        scope_filter: dict[str, Any] = {
-            "$or": [
-                {"scope": {"$eq": own_scope}},
-                {
-                    "$and": [
-                        {"scope": {"$in": read_prefixes}},
-                        {"tier": {"$eq": 3}},
-                        {"visibility": {"$eq": "shared"}},
-                    ]
-                },
-            ]
-        }
-    else:
-        scope_filter = {"scope": {"$eq": own_scope}}
-
-    clauses.append(scope_filter)
+    # ── Step 1b: Scope filter (shared with search.py / synthesise.py) ─────────
+    clauses.append(build_scope_filter(settings))
 
     combined_filter: dict[str, Any] = {"$and": clauses} if len(clauses) > 1 else clauses[0]
 
@@ -138,7 +114,7 @@ async def _list_artifacts_inner(
     try:
         keys = vectors.list_vectors_by_metadata(combined_filter)
     except CredentialError as exc:
-        return {"error": "credential_error", "message": str(exc)}
+        return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
 
     if not keys:
         return {"artifacts": []}
@@ -147,7 +123,7 @@ async def _list_artifacts_inner(
     try:
         items = vectors.get_vectors(keys)
     except CredentialError as exc:
-        return {"error": "credential_error", "message": str(exc)}
+        return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
 
     # ── Step 4: Deduplicate by artifact_id (first occurrence wins) ────────────
     own_scope = settings.write_prefix
@@ -174,21 +150,9 @@ async def _list_artifacts_inner(
                 continue
 
         # ── Step 6: Build result dict ─────────────────────────────────────────
-        tags_val: list[str] = (
-            meta["tags"]
-            if isinstance(meta.get("tags"), list)
-            else [t for t in str(meta.get("tags", "")).split(",") if t]
-        )
-        source_artifacts_val: list[str] = (
-            meta["source_artifacts"]
-            if isinstance(meta.get("source_artifacts"), list)
-            else [s for s in str(meta.get("source_artifacts", "")).split(",") if s]
-        )
-        commit_refs_val: list[str] = (
-            meta["commit_refs"]
-            if isinstance(meta.get("commit_refs"), list)
-            else [r for r in str(meta.get("commit_refs", "")).split(",") if r]
-        )
+        tags_val = coerce_list_field(meta, "tags")
+        source_artifacts_val = coerce_list_field(meta, "source_artifacts")
+        commit_refs_val = coerce_list_field(meta, "commit_refs")
         last_edited_ulid_val: str | None = meta.get("last_edited_ulid") or None
 
         artifacts.append(

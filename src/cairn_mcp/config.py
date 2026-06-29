@@ -93,6 +93,7 @@ class Settings(BaseSettings):
         int,
         Field(
             default=1024,
+            ge=1,
             description=(
                 "Output dimension of the embedding model. "
                 "Must match the dimension of the configured VECTORS_INDEX. "
@@ -107,6 +108,8 @@ class Settings(BaseSettings):
         int,
         Field(
             default=25,
+            ge=1,
+            le=100,
             description=(
                 "Section vectors requested per S3 Vectors call in the search re-fetch loop "
                 "(1–100 inclusive)"
@@ -118,6 +121,7 @@ class Settings(BaseSettings):
         int,
         Field(
             default=3,
+            ge=1,
             description="Maximum S3 Vectors calls per search before returning available results",
         ),
     ]
@@ -126,6 +130,8 @@ class Settings(BaseSettings):
         int,
         Field(
             default=5,
+            ge=1,
+            le=100,
             description="Default artifacts returned when caller does not specify (1–100)",
         ),
     ]
@@ -153,6 +159,7 @@ class Settings(BaseSettings):
         int,
         Field(
             default=5,
+            ge=1,
             description="Maximum number of concurrent section embedding calls during write.",
         ),
     ]
@@ -161,6 +168,7 @@ class Settings(BaseSettings):
         int,
         Field(
             default=20,
+            ge=1,
             description="Maximum number of sections to embed per artifact write.",
         ),
     ]
@@ -169,6 +177,7 @@ class Settings(BaseSettings):
         int,
         Field(
             default=50,
+            ge=0,
             description=(
                 "Minimum section body length (chars) to embed. "
                 "Sections shorter than this are skipped. Set to 0 to disable."
@@ -192,6 +201,7 @@ class Settings(BaseSettings):
         int,
         Field(
             default=24000,
+            ge=0,
             description=(
                 "Maximum section body length (chars) passed to bedrock.embed. "
                 "Bodies longer than this are truncated before embedding but stored "
@@ -201,34 +211,8 @@ class Settings(BaseSettings):
     ]
 
     # ── Validators ────────────────────────────────────────────────────────────
-
-    @field_validator("SEARCH_FETCH_TOP_K")
-    @classmethod
-    def validate_search_fetch_top_k(cls, v: int) -> int:
-        if not 1 <= v <= 100:
-            raise ValueError(f"SEARCH_FETCH_TOP_K must be between 1 and 100 (got {v})")
-        return v
-
-    @field_validator("SEARCH_MAX_ITERATIONS")
-    @classmethod
-    def validate_search_max_iterations(cls, v: int) -> int:
-        if v < 1:
-            raise ValueError(f"SEARCH_MAX_ITERATIONS must be at least 1 (got {v})")
-        return v
-
-    @field_validator("SEARCH_DEFAULT_TOP_K")
-    @classmethod
-    def validate_search_default_top_k(cls, v: int) -> int:
-        if not 1 <= v <= 100:
-            raise ValueError(f"SEARCH_DEFAULT_TOP_K must be between 1 and 100 (got {v})")
-        return v
-
-    @field_validator("BEDROCK_EMBEDDING_DIMENSIONS")
-    @classmethod
-    def validate_bedrock_embedding_dimensions(cls, v: int) -> int:
-        if v < 1:
-            raise ValueError(f"BEDROCK_EMBEDDING_DIMENSIONS must be at least 1 (got {v})")
-        return v
+    # Numeric range constraints (ge/le) are declared on the fields above; only
+    # validators with bespoke logic or messages live here.
 
     @field_validator("WRITE_PREFIX")
     @classmethod
@@ -281,34 +265,6 @@ class Settings(BaseSettings):
         if upper not in _VALID_LOG_LEVELS:
             raise ValueError(f"LOG_LEVEL must be one of {sorted(_VALID_LOG_LEVELS)} (got '{v}')")
         return upper
-
-    @field_validator("SECTION_CONCURRENCY")
-    @classmethod
-    def validate_section_concurrency(cls, v: int) -> int:
-        if v < 1:
-            raise ValueError(f"SECTION_CONCURRENCY must be at least 1 (got {v})")
-        return v
-
-    @field_validator("EMBED_MAX_SECTIONS")
-    @classmethod
-    def validate_embed_max_sections(cls, v: int) -> int:
-        if v < 1:
-            raise ValueError(f"EMBED_MAX_SECTIONS must be at least 1 (got {v})")
-        return v
-
-    @field_validator("EMBED_MIN_SECTION_LENGTH")
-    @classmethod
-    def validate_embed_min_section_length(cls, v: int) -> int:
-        if v < 0:
-            raise ValueError(f"EMBED_MIN_SECTION_LENGTH must be at least 0 (got {v})")
-        return v
-
-    @field_validator("EMBED_MAX_SECTION_LENGTH")
-    @classmethod
-    def validate_embed_max_section_length(cls, v: int) -> int:
-        if v < 0:
-            raise ValueError(f"EMBED_MAX_SECTION_LENGTH must be at least 0 (got {v})")
-        return v
 
     @field_validator("BEDROCK_EMBEDDING_MODEL")
     @classmethod

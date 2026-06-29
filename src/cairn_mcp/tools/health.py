@@ -6,7 +6,9 @@ structured per-component status report. Never raises — all exceptions are
 caught and reported as component-level "error" entries.
 """
 
+import functools
 import logging
+from collections.abc import Callable
 from typing import Any
 
 from cairn_mcp.clients.interfaces import (
@@ -15,9 +17,32 @@ from cairn_mcp.clients.interfaces import (
     VectorsClientInterface,
 )
 from cairn_mcp.config import Settings
+from cairn_mcp.constants import ErrorCode
 from cairn_mcp.errors import CredentialError
 
 logger = logging.getLogger(__name__)
+
+
+def _probe(fn: Callable[[], Any]) -> dict[str, Any]:
+    """Run a single connectivity probe and map the outcome to a status dict.
+
+    Returns ``{"status": "ok"}`` on success, an ``"error"`` dict with
+    ``"cause": "credential_error"`` on :class:`CredentialError`, and a plain
+    ``"error"`` dict for any other exception. Never raises.
+
+    Args:
+        fn: Zero-argument callable performing the probe (return value ignored).
+
+    Returns:
+        Status dict for the probed component.
+    """
+    try:
+        fn()
+        return {"status": "ok"}
+    except CredentialError as exc:
+        return {"status": "error", "message": str(exc), "cause": ErrorCode.CREDENTIAL_ERROR}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
 
 
 async def health_check(
@@ -52,7 +77,7 @@ async def health_check(
         )
     except Exception as exc:
         logger.exception("Unexpected error in health_check")
-        return {"error": "internal_error", "message": str(exc)}
+        return {"error": ErrorCode.INTERNAL_ERROR, "message": str(exc)}
 
 
 async def _health_check_inner(
@@ -66,49 +91,24 @@ async def _health_check_inner(
     result: dict[str, Any] = {}
 
     # ── S3 bucket probe ───────────────────────────────────────────────────────
-    try:
-        s3.head_bucket(settings.artifact_bucket)
-        result["s3"] = {"status": "ok"}
-    except CredentialError as exc:
-        result["s3"] = {"status": "error", "message": str(exc), "cause": "credential_error"}
-    except Exception as exc:
-        result["s3"] = {"status": "error", "message": str(exc)}
+    result["s3"] = _probe(lambda: s3.head_bucket(settings.artifact_bucket))
 
     # ── Vectors index probe ───────────────────────────────────────────────────
-    try:
-        vectors.describe_index()
-        result["vectors"] = {"status": "ok"}
-    except CredentialError as exc:
-        result["vectors"] = {"status": "error", "message": str(exc), "cause": "credential_error"}
-    except Exception as exc:
-        result["vectors"] = {"status": "error", "message": str(exc)}
+    result["vectors"] = _probe(vectors.describe_index)
 
     # ── Bedrock embedding probe ───────────────────────────────────────────────
-    try:
-        bedrock.embed(
+    result["bedrock"] = _probe(
+        lambda: bedrock.embed(
             "health",
             settings.bedrock_embedding_model,
             settings.bedrock_embedding_dimensions,
         )
-        result["bedrock"] = {"status": "ok"}
-    except CredentialError as exc:
-        result["bedrock"] = {"status": "error", "message": str(exc), "cause": "credential_error"}
-    except Exception as exc:
-        result["bedrock"] = {"status": "error", "message": str(exc)}
+    )
 
     # ── Bedrock text model probe (only when BEDROCK_TEXT_MODEL is configured) ─
     if settings.bedrock_text_model is not None:
-        try:
-            bedrock.invoke_text_model(settings.bedrock_text_model, "ping")
-            result["bedrock_text_model"] = {"status": "ok"}
-        except CredentialError as exc:
-            result["bedrock_text_model"] = {
-                "status": "error",
-                "message": str(exc),
-                "cause": "credential_error",
-            }
-        except Exception as exc:
-            result["bedrock_text_model"] = {"status": "error", "message": str(exc)}
+        text_model = settings.bedrock_text_model
+        result["bedrock_text_model"] = _probe(lambda: bedrock.invoke_text_model(text_model, "ping"))
 
     # ── Write prefix probe (put + get + delete) ───────────────────────────────
     probe_key = f"{settings.write_prefix}/_cairn_health_probe"
@@ -124,7 +124,7 @@ async def _health_check_inner(
         result["write_prefix"] = {
             "status": "error",
             "message": str(exc),
-            "cause": "credential_error",
+            "cause": ErrorCode.CREDENTIAL_ERROR,
         }
     except Exception as exc:
         result["write_prefix"] = {"status": "error", "message": str(exc)}
@@ -137,17 +137,6 @@ async def _health_check_inner(
 
     # ── Read prefix probes ────────────────────────────────────────────────────
     for prefix in settings.read_prefixes_list:
-        key = f"read_prefix:{prefix}"
-        try:
-            s3.list_objects(prefix)
-            result[key] = {"status": "ok"}
-        except CredentialError as exc:
-            result[key] = {
-                "status": "error",
-                "message": str(exc),
-                "cause": "credential_error",
-            }
-        except Exception as exc:
-            result[key] = {"status": "error", "message": str(exc)}
+        result[f"read_prefix:{prefix}"] = _probe(functools.partial(s3.list_objects, prefix))
 
     return result

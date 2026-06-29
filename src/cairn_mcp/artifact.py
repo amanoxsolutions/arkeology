@@ -19,6 +19,8 @@ from dataclasses import dataclass
 
 from pydantic import BaseModel, Field, field_validator
 
+from cairn_mcp.constants import ArtifactStatus
+
 ARTIFACT_TYPES: frozenset[str] = frozenset(
     {
         "brainstorming",
@@ -44,6 +46,26 @@ _MAX_SLUG_LEN = 60
 # Patterns used by parse_sections — compiled once at module load.
 _FENCE_RE: re.Pattern[str] = re.compile(r"^(`{3,}|~{3,})")
 _H2_RE: re.Pattern[str] = re.compile(r"^## (.+)$")
+
+
+def _require_valid_type(value: str) -> None:
+    """Raise ``ValueError`` unless ``value`` is a known artifact type."""
+    if value not in ARTIFACT_TYPES:
+        raise ValueError(f"type must be one of {sorted(ARTIFACT_TYPES)}, got '{value}'")
+
+
+def _require_valid_date(value: str) -> None:
+    """Raise ``ValueError`` unless ``value`` is a valid ISO-8601 date string."""
+    try:
+        _dt.date.fromisoformat(value)
+    except ValueError as exc:
+        raise ValueError(f"date must be a valid ISO-8601 date string, got '{value}'") from exc
+
+
+def _require_valid_tier(value: int) -> None:
+    """Raise ``ValueError`` unless ``value`` is tier 2 or 3."""
+    if value not in {2, 3}:
+        raise ValueError(f"tier must be 2 or 3, got {value}")
 
 
 def _slugify(text: str, fallback: str) -> str:
@@ -81,14 +103,9 @@ def generate_artifact_id(*, tier: int, type: str, date: str, title: str) -> str:
     Returns:
         Deterministic, S3-safe identifier string.
     """
-    if type not in ARTIFACT_TYPES:
-        raise ValueError(f"type must be one of {sorted(ARTIFACT_TYPES)}, got '{type}'")
-    try:
-        _dt.date.fromisoformat(date)
-    except ValueError as exc:
-        raise ValueError(f"date must be a valid ISO-8601 date string, got '{date}'") from exc
-    if tier not in {2, 3}:
-        raise ValueError(f"tier must be 2 or 3, got {tier}")
+    _require_valid_type(type)
+    _require_valid_date(date)
+    _require_valid_tier(tier)
     type_slug = type.replace("_", "-")
     title_slug = _slugify(title, "artifact")
     if tier == 3:
@@ -218,15 +235,13 @@ class Artifact(BaseModel):
     @field_validator("type")
     @classmethod
     def validate_type(cls, v: str) -> str:
-        if v not in ARTIFACT_TYPES:
-            raise ValueError(f"type must be one of {sorted(ARTIFACT_TYPES)}, got '{v}'")
+        _require_valid_type(v)
         return v
 
     @field_validator("tier")
     @classmethod
     def validate_tier(cls, v: int) -> int:
-        if v not in {2, 3}:
-            raise ValueError(f"tier must be 2 or 3, got {v}")
+        _require_valid_tier(v)
         return v
 
     @field_validator("visibility")
@@ -239,17 +254,14 @@ class Artifact(BaseModel):
     @field_validator("status")
     @classmethod
     def validate_status(cls, v: str) -> str:
-        if v not in {"active", "inactive"}:
+        if v not in {ArtifactStatus.ACTIVE, ArtifactStatus.INACTIVE}:
             raise ValueError(f"status must be 'active' or 'inactive', got '{v}'")
         return v
 
     @field_validator("date")
     @classmethod
     def validate_date(cls, v: str) -> str:
-        try:
-            _dt.date.fromisoformat(v)
-        except ValueError as exc:
-            raise ValueError(f"date must be a valid ISO-8601 date string, got '{v}'") from exc
+        _require_valid_date(v)
         return v
 
     @field_validator("description")

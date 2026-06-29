@@ -23,6 +23,7 @@ from cairn_mcp.clients.interfaces import (
     VectorsClientInterface,
 )
 from cairn_mcp.config import Settings
+from cairn_mcp.constants import ErrorCode
 from cairn_mcp.errors import CredentialError
 
 logger = logging.getLogger(__name__)
@@ -70,7 +71,7 @@ async def link_commit(
         )
     except Exception as exc:
         logger.exception("Unexpected error in link_commit")
-        return {"error": "internal_error", "message": str(exc)}
+        return {"error": ErrorCode.INTERNAL_ERROR, "message": str(exc)}
 
 
 async def _link_commit_inner(
@@ -88,7 +89,7 @@ async def _link_commit_inner(
 
     commit_sha = commit_sha.strip()
     if not commit_sha:
-        return {"error": "validation_error", "message": "commit_sha must not be empty"}
+        return {"error": ErrorCode.VALIDATION_ERROR, "message": "commit_sha must not be empty"}
 
     write_prefix = settings.write_prefix
     linked = 0
@@ -101,55 +102,49 @@ async def _link_commit_inner(
             skipped += 1
             continue
 
-        # ── Fetch all vector keys for this artifact ───────────────────────────
         try:
+            # ── Fetch all vector keys for this artifact ───────────────────────
             keys = vectors.list_vectors_by_metadata({"artifact_id": {"$eq": artifact_id}})
-        except CredentialError as exc:
-            return {"error": "credential_error", "message": str(exc)}
 
-        if not keys:
-            logger.debug("link_commit no vectors found for artifact_id=%s", artifact_id)
-            skipped += 1
-            continue
+            if not keys:
+                logger.debug("link_commit no vectors found for artifact_id=%s", artifact_id)
+                skipped += 1
+                continue
 
-        # ── Retrieve current vectors (metadata + float32 data) ────────────────
-        try:
+            # ── Retrieve current vectors (metadata + float32 data) ────────────
             items = vectors.get_vectors(keys)
-        except CredentialError as exc:
-            return {"error": "credential_error", "message": str(exc)}
 
-        # ── Build updated batch ───────────────────────────────────────────────
-        batch: list[dict[str, Any]] = []
-        for item in items:
-            meta: dict[str, Any] = dict(item["metadata"])
-            existing_refs = meta.get("commit_refs")
-            if isinstance(existing_refs, list):
-                current: list[str] = [str(r) for r in existing_refs]
-            elif existing_refs:
-                current = [r for r in str(existing_refs).split(",") if r]
-            else:
-                current = []
+            # ── Build updated batch ───────────────────────────────────────────
+            batch: list[dict[str, Any]] = []
+            for item in items:
+                meta: dict[str, Any] = dict(item["metadata"])
+                existing_refs = meta.get("commit_refs")
+                if isinstance(existing_refs, list):
+                    current: list[str] = [str(r) for r in existing_refs]
+                elif existing_refs:
+                    current = [r for r in str(existing_refs).split(",") if r]
+                else:
+                    current = []
 
-            # Append + deduplicate, preserving order
-            merged = list(dict.fromkeys(current + [commit_sha]))
-            meta["commit_refs"] = merged
+                # Append + deduplicate, preserving order
+                merged = list(dict.fromkeys(current + [commit_sha]))
+                meta["commit_refs"] = merged
 
-            batch.append(
-                {
-                    "key": item["key"],
-                    "vector": item["data"]["float32"],
-                    "metadata": meta,
-                }
-            )
+                batch.append(
+                    {
+                        "key": item["key"],
+                        "vector": item["data"]["float32"],
+                        "metadata": meta,
+                    }
+                )
 
-        # ── Write updated vectors back ────────────────────────────────────────
-        if not batch:
-            skipped += 1
-            continue
-        try:
+            # ── Write updated vectors back ────────────────────────────────────
+            if not batch:
+                skipped += 1
+                continue
             vectors.put_vectors_batch(batch)
         except CredentialError as exc:
-            return {"error": "credential_error", "message": str(exc)}
+            return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
 
         linked += 1
         logger.info("link_commit linked artifact_id=%s sha=%s", artifact_id, commit_sha)

@@ -13,6 +13,7 @@ from cairn_mcp.clients.interfaces import (
     VectorsClientInterface,
 )
 from cairn_mcp.config import Settings
+from cairn_mcp.constants import ArtifactStatus, ErrorCode
 from cairn_mcp.errors import CredentialError
 
 logger = logging.getLogger(__name__)
@@ -49,7 +50,7 @@ async def archive_artifact(
         )
     except Exception as exc:
         logger.exception("Unexpected error in archive_artifact")
-        return {"error": "internal_error", "message": str(exc)}
+        return {"error": ErrorCode.INTERNAL_ERROR, "message": str(exc)}
 
 
 async def _archive_artifact_inner(
@@ -66,7 +67,7 @@ async def _archive_artifact_inner(
     # ── Step 1: Scope check ───────────────────────────────────────────────────
     if not artifact_id.startswith(settings.write_prefix + "/"):
         return {
-            "error": "access_denied",
+            "error": ErrorCode.ACCESS_DENIED,
             "message": (
                 f"Artifact '{artifact_id}' is not in the write scope "
                 f"'{settings.write_prefix}'. Only own-scope artifacts may be archived."
@@ -77,50 +78,40 @@ async def _archive_artifact_inner(
     try:
         s3_meta = s3.head_object(artifact_id)
     except CredentialError as exc:
-        return {"error": "credential_error", "message": str(exc)}
+        return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
     except KeyError:
         return {
-            "error": "not_found",
+            "error": ErrorCode.NOT_FOUND,
             "message": f"Artifact '{artifact_id}' not found.",
         }
 
     # ── Step 2b: Idempotency — already inactive → early return ───────────────
-    if s3_meta.get("status") == "inactive":
-        return {"artifact_id": artifact_id, "status": "inactive", "already_archived": True}
+    if s3_meta.get("status") == ArtifactStatus.INACTIVE:
+        return {
+            "artifact_id": artifact_id,
+            "status": ArtifactStatus.INACTIVE,
+            "already_archived": True,
+        }
 
-    # ── Step 3: Fetch current content ────────────────────────────────────────
+    # ── Steps 3–5: Fetch content, write back status, update all vectors ───────
+    updated_s3_meta: dict[str, str] = {**s3_meta, "status": ArtifactStatus.INACTIVE}
     try:
         content = s3.get_object(artifact_id)
-    except CredentialError as exc:
-        return {"error": "credential_error", "message": str(exc)}
-
-    # ── Step 4: Write back with updated status ────────────────────────────────
-    updated_s3_meta: dict[str, str] = {**s3_meta, "status": "inactive"}
-    try:
         s3.put_object(artifact_id, content, updated_s3_meta)
-    except CredentialError as exc:
-        return {"error": "credential_error", "message": str(exc)}
 
-    # ── Step 5: Update all section vectors ───────────────────────────────────
-    try:
         vec_keys = vectors.list_vectors_by_metadata({"artifact_id": {"$eq": artifact_id}})
-    except CredentialError as exc:
-        return {"error": "credential_error", "message": str(exc)}
-
-    if vec_keys:
-        try:
+        if vec_keys:
             vec_items = vectors.get_vectors(vec_keys)
-        except CredentialError as exc:
-            return {"error": "credential_error", "message": str(exc)}
-
-        for item in vec_items:
-            key = item["key"]
-            vector_data: list[float] = item["data"]["float32"]
-            updated_meta: dict[str, Any] = {**item["metadata"], "status": "inactive"}
-            try:
+            for item in vec_items:
+                key = item["key"]
+                vector_data: list[float] = item["data"]["float32"]
+                updated_meta: dict[str, Any] = {
+                    **item["metadata"],
+                    "status": ArtifactStatus.INACTIVE,
+                }
                 vectors.put_vector(key, vector_data, updated_meta)
-            except CredentialError as exc:
-                return {"error": "credential_error", "message": str(exc)}
+    except CredentialError as exc:
+        return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
 
     logger.info("Artifact archived: key=%s", artifact_id)
-    return {"artifact_id": artifact_id, "status": "inactive"}
+    return {"artifact_id": artifact_id, "status": ArtifactStatus.INACTIVE}

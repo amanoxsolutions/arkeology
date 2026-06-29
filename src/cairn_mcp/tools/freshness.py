@@ -15,6 +15,7 @@ from cairn_mcp.clients.interfaces import (
     VectorsClientInterface,
 )
 from cairn_mcp.config import Settings
+from cairn_mcp.constants import ArtifactStatus, ErrorCode
 from cairn_mcp.errors import CredentialError
 
 logger = logging.getLogger(__name__)
@@ -54,7 +55,7 @@ async def check_synthesis_freshness(
         )
     except Exception as exc:
         logger.exception("Unexpected error in check_synthesis_freshness")
-        return {"error": "internal_error", "message": str(exc)}
+        return {"error": ErrorCode.INTERNAL_ERROR, "message": str(exc)}
 
 
 async def _check_synthesis_freshness_inner(
@@ -72,32 +73,29 @@ async def _check_synthesis_freshness_inner(
     synth_filter: dict[str, Any] = {
         "$and": [
             {"type": {"$eq": "synthesis"}},
-            {"status": {"$eq": "active"}},
+            {"status": {"$eq": ArtifactStatus.ACTIVE}},
             {"scope": {"$eq": settings.write_prefix}},
         ]
     }
     try:
         synth_keys = vectors.list_vectors_by_metadata(synth_filter)
-    except CredentialError as exc:
-        return {"error": "credential_error", "message": str(exc)}
 
-    if not synth_keys:
-        return {
-            "stale": [],
-            "archived_sources": [],
-            "missing_sources": [],
-            "malformed": [],
-            "deleted_malformed": [],
-            "delete_failed": [],
-            "total_checked": 0,
-            "all_fresh": True,
-        }
+        if not synth_keys:
+            return {
+                "stale": [],
+                "archived_sources": [],
+                "missing_sources": [],
+                "malformed": [],
+                "deleted_malformed": [],
+                "delete_failed": [],
+                "total_checked": 0,
+                "all_fresh": True,
+            }
 
-    # ── Step 2: Fetch vector metadata for all synthesis keys ──────────────────
-    try:
+        # ── Step 2: Fetch vector metadata for all synthesis keys ──────────────
         synth_items = vectors.get_vectors(synth_keys)
     except CredentialError as exc:
-        return {"error": "credential_error", "message": str(exc)}
+        return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
 
     # ── Step 3: Deduplicate by artifact_id (first occurrence wins) ────────────
     syntheses: dict[str, dict[str, Any]] = {}
@@ -127,18 +125,15 @@ async def _check_synthesis_freshness_inner(
     for source_id in all_source_ids:
         try:
             src_keys = vectors.list_vectors_by_metadata({"artifact_id": {"$eq": source_id}})
-        except CredentialError as exc:
-            return {"error": "credential_error", "message": str(exc)}
-        if src_keys:
-            try:
+            if src_keys:
                 src_items = vectors.get_vectors(src_keys[:1])
-            except CredentialError as exc:
-                return {"error": "credential_error", "message": str(exc)}
-            if src_items:
-                source_meta[source_id] = src_items[0]["metadata"]
-            else:
-                source_meta[source_id] = None
-        else:
+                if src_items:
+                    source_meta[source_id] = src_items[0]["metadata"]
+                else:
+                    source_meta[source_id] = None
+        except CredentialError as exc:
+            return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
+        if not src_keys:
             # No vector index entries → the source is missing (T22). All freshness data
             # comes from the vector index; S3 is never read during the audit (S3 reads are
             # reserved for malformed-synthesis deletion only).
@@ -165,7 +160,7 @@ async def _check_synthesis_freshness_inner(
                 src_date: str = src_m.get("date", "")
                 if src_date > synthesis_date:
                     stale_srcs.append(src_id)
-                if src_m.get("status") == "inactive":
+                if src_m.get("status") == ArtifactStatus.INACTIVE:
                     archived_srcs.append(src_id)
 
         if stale_srcs:
@@ -206,7 +201,7 @@ async def _check_synthesis_freshness_inner(
             try:
                 vec_keys = vectors.list_vectors_by_metadata({"artifact_id": {"$eq": aid}})
             except CredentialError as exc:
-                return {"error": "credential_error", "message": str(exc)}
+                return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
             except Exception:
                 logger.warning(
                     "Failed to list vectors for malformed synthesis %s; "
@@ -220,7 +215,7 @@ async def _check_synthesis_freshness_inner(
                 try:
                     vectors.delete_vectors(vec_keys)
                 except CredentialError as exc:
-                    return {"error": "credential_error", "message": str(exc)}
+                    return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
                 except Exception:
                     logger.warning(
                         "Failed to delete vectors for malformed synthesis %s; "
@@ -240,11 +235,11 @@ async def _check_synthesis_freshness_inner(
                 deleted.append(aid)  # still report in deleted_malformed
                 continue
             except CredentialError as exc:
-                return {"error": "credential_error", "message": str(exc)}
+                return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
             try:
                 s3.delete_object(aid)
             except CredentialError as exc:
-                return {"error": "credential_error", "message": str(exc)}
+                return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
             except Exception:
                 logger.warning(
                     "Failed to delete S3 object for malformed synthesis %s; "

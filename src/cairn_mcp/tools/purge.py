@@ -13,6 +13,7 @@ from cairn_mcp.clients.interfaces import (
     VectorsClientInterface,
 )
 from cairn_mcp.config import Settings
+from cairn_mcp.constants import ArtifactStatus, ErrorCode
 from cairn_mcp.errors import CredentialError
 
 logger = logging.getLogger(__name__)
@@ -52,7 +53,7 @@ async def purge_archived(
         )
     except Exception as exc:
         logger.exception("Unexpected error in purge_archived")
-        return {"error": "internal_error", "message": str(exc)}
+        return {"error": ErrorCode.INTERNAL_ERROR, "message": str(exc)}
 
 
 async def _purge_archived_inner(
@@ -69,35 +70,32 @@ async def _purge_archived_inner(
     # ── Step 1: Confirmation gate ─────────────────────────────────────────────
     if not confirm:
         return {
-            "error": "confirmation_required",
+            "error": ErrorCode.CONFIRMATION_REQUIRED,
             "message": (
                 "Purge requires explicit confirmation. "
                 "Pass confirm=True to proceed with bulk deletion."
             ),
         }
 
-    # ── Step 2: Find all inactive vectors in own scope ────────────────────────
+    empty_result: dict[str, Any] = {"purged_count": 0, "purged_ids": [], "cascade_deleted": []}
+
+    # ── Steps 2–3: Find inactive vectors, fetch metadata, deduplicate by id ───
     own_scope = settings.write_prefix
     try:
         inactive_keys = vectors.list_vectors_by_metadata(
             {
                 "$and": [
                     {"scope": {"$eq": own_scope}},
-                    {"status": {"$eq": "inactive"}},
+                    {"status": {"$eq": ArtifactStatus.INACTIVE}},
                 ]
             }
         )
-    except CredentialError as exc:
-        return {"error": "credential_error", "message": str(exc)}
+        if not inactive_keys:
+            return empty_result
 
-    if not inactive_keys:
-        return {"purged_count": 0, "purged_ids": [], "cascade_deleted": []}
-
-    # ── Step 3: Fetch metadata and deduplicate by artifact_id ─────────────────
-    try:
         inactive_items = vectors.get_vectors(inactive_keys)
     except CredentialError as exc:
-        return {"error": "credential_error", "message": str(exc)}
+        return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
 
     purge_set: set[str] = set()
     for item in inactive_items:
@@ -106,7 +104,7 @@ async def _purge_archived_inner(
             purge_set.add(aid)
 
     if not purge_set:
-        return {"purged_count": 0, "purged_ids": [], "cascade_deleted": []}
+        return empty_result
 
     # ── Step 4: Cascade check — active synthesis in own scope ────────────────
     cascade_set: set[str] = set()
@@ -116,32 +114,28 @@ async def _purge_archived_inner(
                 "$and": [
                     {"scope": {"$eq": own_scope}},
                     {"type": {"$eq": "synthesis"}},
-                    {"status": {"$eq": "active"}},
+                    {"status": {"$eq": ArtifactStatus.ACTIVE}},
                 ]
             }
         )
-    except CredentialError as exc:
-        return {"error": "credential_error", "message": str(exc)}
-
-    if synthesis_keys:
-        try:
+        if synthesis_keys:
             synthesis_items = vectors.get_vectors(synthesis_keys)
-        except CredentialError as exc:
-            return {"error": "credential_error", "message": str(exc)}
 
-        seen_synth: set[str] = set()
-        for item in synthesis_items:
-            meta = item["metadata"]
-            synth_id: str = str(meta.get("artifact_id", ""))
-            if synth_id in seen_synth:
-                continue
-            seen_synth.add(synth_id)
-            source_arts = meta.get("source_artifacts", [])
-            if not isinstance(source_arts, list) or not source_arts:
-                continue
-            # Cascade only when ALL sources are in the purge set
-            if all(src in purge_set for src in source_arts):
-                cascade_set.add(synth_id)
+            seen_synth: set[str] = set()
+            for item in synthesis_items:
+                meta = item["metadata"]
+                synth_id: str = str(meta.get("artifact_id", ""))
+                if synth_id in seen_synth:
+                    continue
+                seen_synth.add(synth_id)
+                source_arts = meta.get("source_artifacts", [])
+                if not isinstance(source_arts, list) or not source_arts:
+                    continue
+                # Cascade only when ALL sources are in the purge set
+                if all(src in purge_set for src in source_arts):
+                    cascade_set.add(synth_id)
+    except CredentialError as exc:
+        return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
 
     # ── Step 5: Delete all artifacts in purge_set + cascade_set ─────────────
     all_to_delete = list(purge_set) + [c for c in cascade_set if c not in purge_set]
@@ -154,25 +148,29 @@ async def _purge_archived_inner(
                 {"artifact_id": {"$eq": artifact_id}}
             )
         except CredentialError as exc:
-            return {"error": "credential_error", "message": str(exc)}
+            return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
 
         if artifact_vec_keys:
             try:
                 vectors.delete_vectors(artifact_vec_keys)
             except CredentialError as exc:
-                return {"error": "credential_error", "message": str(exc)}
+                return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
             except Exception as exc:
-                return {"error": "delete_vectors_failed", "message": str(exc)}
+                return {"error": ErrorCode.DELETE_VECTORS_FAILED, "message": str(exc)}
 
         # Delete S3 object
         try:
             s3.delete_object(artifact_id)
             purged_so_far.append(artifact_id)
         except CredentialError as exc:
-            return {"error": "credential_error", "message": str(exc), "artifact_id": artifact_id}
+            return {
+                "error": ErrorCode.CREDENTIAL_ERROR,
+                "message": str(exc),
+                "artifact_id": artifact_id,
+            }
         except Exception as exc:
             return {
-                "error": "partial_delete",
+                "error": ErrorCode.PARTIAL_DELETE,
                 "message": str(exc),
                 "artifact_id": artifact_id,
                 "purged_so_far": purged_so_far,

@@ -13,7 +13,9 @@ from cairn_mcp.clients.interfaces import (
     VectorsClientInterface,
 )
 from cairn_mcp.config import Settings
+from cairn_mcp.constants import ErrorCode
 from cairn_mcp.errors import CredentialError
+from cairn_mcp.tools._search_helper import coerce_list_field
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +58,7 @@ async def read_artifact(
         )
     except Exception as exc:
         logger.exception("Unexpected error in read_artifact")
-        return {"error": "internal_error", "message": str(exc)}
+        return {"error": ErrorCode.INTERNAL_ERROR, "message": str(exc)}
 
 
 async def _read_artifact_inner(
@@ -80,48 +82,38 @@ async def _read_artifact_inner(
 
     if not own_scope and foreign_prefix is None:
         return {
-            "error": "access_denied",
+            "error": ErrorCode.ACCESS_DENIED,
             "message": f"Artifact '{artifact_id}' is not in any accessible scope.",
         }
 
     # ── Step 2: Fetch metadata and apply gate ─────────────────────────────────
-    if foreign_prefix is not None and not own_scope:
-        # Foreign scope: gate on tier == 3 and visibility == "shared"
-        try:
-            meta = s3.head_object(artifact_id)
-        except CredentialError as exc:
-            return {"error": "credential_error", "message": str(exc)}
-        except KeyError:
-            return {
-                "error": "not_found",
-                "message": f"Artifact '{artifact_id}' not found.",
-            }
+    try:
+        meta = s3.head_object(artifact_id)
+    except CredentialError as exc:
+        return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
+    except KeyError:
+        return {
+            "error": ErrorCode.NOT_FOUND,
+            "message": f"Artifact '{artifact_id}' not found.",
+        }
 
+    # Foreign scope: gate on tier == 3 and visibility == "shared".
+    # Own scope: no gate — existence is already confirmed above.
+    if foreign_prefix is not None and not own_scope:
         if int(meta["tier"]) != 3 or meta.get("visibility") != "shared":
             return {
-                "error": "access_denied",
+                "error": ErrorCode.ACCESS_DENIED,
                 "message": (
                     f"Artifact '{artifact_id}' is not accessible: "
                     "only tier-3 shared artifacts may be read from foreign scopes."
                 ),
-            }
-    else:
-        # Own scope: no gate — just verify it exists
-        try:
-            meta = s3.head_object(artifact_id)
-        except CredentialError as exc:
-            return {"error": "credential_error", "message": str(exc)}
-        except KeyError:
-            return {
-                "error": "not_found",
-                "message": f"Artifact '{artifact_id}' not found.",
             }
 
     # ── Step 3: Fetch content ─────────────────────────────────────────────────
     try:
         content = s3.get_object(artifact_id)
     except CredentialError as exc:
-        return {"error": "credential_error", "message": str(exc)}
+        return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
 
     # ── Step 4: Read commit_refs from vector metadata ─────────────────────────
     # commit_refs are stored in vector metadata only — link_commit appends SHAs
@@ -138,7 +130,7 @@ async def _read_artifact_inner(
                     if isinstance(raw, list):
                         commit_refs = raw
         except CredentialError as exc:
-            return {"error": "credential_error", "message": str(exc)}
+            return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
         except Exception:
             # commit_refs are supplementary — degrade to [] rather than aborting
             # an otherwise-successful read on a transient vector error.
@@ -149,8 +141,8 @@ async def _read_artifact_inner(
             )
 
     # ── Step 5: Deserialise remaining S3 metadata ─────────────────────────────
-    tags: list[str] = [t for t in str(meta.get("tags", "")).split(",") if t]
-    source_artifacts: list[str] = [s for s in str(meta.get("source_artifacts", "")).split(",") if s]
+    tags = coerce_list_field(meta, "tags")
+    source_artifacts = coerce_list_field(meta, "source_artifacts")
     last_edited_ulid: str | None = meta.get("last_edited_ulid") or None
 
     logger.info("Artifact read: key=%s", artifact_id)
