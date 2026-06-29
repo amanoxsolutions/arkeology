@@ -13,6 +13,7 @@ import pytest
 import cairn_mcp.artifact as artifact_module
 from cairn_mcp.artifact import ARTIFACT_TYPES
 from cairn_mcp.resources import (
+    _BROWSER_CDN_ORIGINS,
     artifact_schema_content,
     query_strategy_content,
     register_resources,
@@ -347,6 +348,32 @@ def test_register_ui_resource_returns_non_empty_html() -> None:
     assert len(contents) > 0, "Expected at least one content item from ui://cairn-studio/index.html"
     text = contents[0].content if hasattr(contents[0], "content") else ""
     assert isinstance(text, str) and len(text) > 0, f"Expected non-empty HTML string, got: {text!r}"
+
+
+# ---------------------------------------------------------------------------
+# CSP origins — Google Fonts must never be declared (Review 2026-06-29, C1)
+# ---------------------------------------------------------------------------
+
+
+def test_browser_csp_origins_are_exactly_unpkg_and_jsdelivr() -> None:
+    """The cairn studio CSP declares only the two CDN origins — no web-font origins.
+
+    Loading web fonts from Google's CDN leaks the user's IP to a third party and is
+    disallowed on GDPR grounds (Review 2026-06-29, finding C1). The accepted set is
+    exactly ``unpkg.com`` (ext-apps SDK) + ``cdn.jsdelivr.net`` (marked.js / mermaid.js).
+    """
+    assert _BROWSER_CDN_ORIGINS == [
+        "https://unpkg.com",
+        "https://cdn.jsdelivr.net",
+    ]
+
+
+def test_browser_csp_origins_exclude_google_fonts() -> None:
+    """No Google Fonts origin appears in the CSP origin list (GDPR; C1)."""
+    forbidden = {"https://fonts.googleapis.com", "https://fonts.gstatic.com"}
+    assert forbidden.isdisjoint(_BROWSER_CDN_ORIGINS), (
+        f"Google Fonts origins must not be declared in the CSP: {_BROWSER_CDN_ORIGINS}"
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -16,6 +16,7 @@ The UI resource (``ui://cairn-studio/index.html``) is static and registered via
 
 import importlib.resources
 import logging
+from collections.abc import Callable
 from typing import Any
 
 import fastmcp
@@ -348,6 +349,39 @@ For precise field constraints, valid enum values, and tier semantics, read these
 # Registration
 # ---------------------------------------------------------------------------
 
+#: Schema resource registration table: ``(uri, description, content_fn)``.
+#: ``register_resources`` loops over this to register each read-only schema
+#: resource. The description was previously each handler's docstring; it is now
+#: passed explicitly so the registrations are data-driven. Adding a schema
+#: resource is a one-line entry here.
+_SCHEMA_RESOURCES: list[tuple[str, str, Callable[[], str]]] = [
+    (
+        "cairn://schema/artifact",
+        "Full artifact schema: required/optional fields, enum values, and constraints.",
+        artifact_schema_content,
+    ),
+    (
+        "cairn://schema/tiers",
+        "Tier 2 vs tier 3 semantics, key formats, and access rules.",
+        tiers_schema_content,
+    ),
+    (
+        "cairn://schema/visibility",
+        "Visibility values and the cross-scope access gate.",
+        visibility_schema_content,
+    ),
+    (
+        "cairn://schema/types",
+        "Artifact type catalogue with one-line usage guidance per type.",
+        types_schema_content,
+    ),
+    (
+        "cairn://schema/query-strategy",
+        "Recommended query strategy: start narrow, when to list vs search vs synthesise.",
+        query_strategy_content,
+    ),
+]
+
 
 def register_resources(app: fastmcp.FastMCP) -> None:
     """Register all five cairn:// schema resources on the FastMCP app.
@@ -359,33 +393,10 @@ def register_resources(app: fastmcp.FastMCP) -> None:
     Args:
         app: The FastMCP application instance to register resources on.
     """
+    for uri, description, content_fn in _SCHEMA_RESOURCES:
+        app.resource(uri, description=description)(content_fn)
 
-    @app.resource("cairn://schema/artifact")
-    def _artifact_schema() -> str:
-        """Full artifact schema: required/optional fields, enum values, and constraints."""
-        return artifact_schema_content()
-
-    @app.resource("cairn://schema/tiers")
-    def _tiers_schema() -> str:
-        """Tier 2 vs tier 3 semantics, key formats, and access rules."""
-        return tiers_schema_content()
-
-    @app.resource("cairn://schema/visibility")
-    def _visibility_schema() -> str:
-        """Visibility values and the cross-scope access gate."""
-        return visibility_schema_content()
-
-    @app.resource("cairn://schema/types")
-    def _types_schema() -> str:
-        """Artifact type catalogue with one-line usage guidance per type."""
-        return types_schema_content()
-
-    @app.resource("cairn://schema/query-strategy")
-    def _query_strategy() -> str:
-        """Recommended query strategy: start narrow, when to list vs search vs synthesise."""
-        return query_strategy_content()
-
-    logger.debug("cairn-mcp resources registered (5 schema resources)")
+    logger.debug("cairn-mcp resources registered (%d schema resources)", len(_SCHEMA_RESOURCES))
 
 
 # ---------------------------------------------------------------------------
@@ -393,11 +404,13 @@ def register_resources(app: fastmcp.FastMCP) -> None:
 # ---------------------------------------------------------------------------
 
 #: CDN origins that the cairn studio application is permitted to load from.
+#: Only the ext-apps SDK (unpkg) and marked.js / mermaid.js (jsDelivr) are allowed.
+#: Google Fonts origins are deliberately NOT declared — loading web fonts from a
+#: third-party CDN leaks the user's IP and is disallowed on GDPR grounds; typography
+#: uses the ``system-ui`` stack. (Review 2026-06-29, finding C1.)
 _BROWSER_CDN_ORIGINS: list[str] = [
     "https://unpkg.com",
     "https://cdn.jsdelivr.net",
-    "https://fonts.googleapis.com",
-    "https://fonts.gstatic.com",
 ]
 
 
@@ -425,7 +438,7 @@ def register_ui_resource(app: fastmcp.FastMCP) -> None:
         description="cairn studio— visual reading interface to browse artifacts.",
         app=AppConfig(csp=ResourceCSP(resource_domains=_BROWSER_CDN_ORIGINS)),
     )
-    def _cairn_studior_html() -> str:
+    def _cairn_studio_html() -> str:
         """Return the cairn studio HTML application."""
         return (
             importlib.resources.files("cairn_mcp")
@@ -439,6 +452,20 @@ def register_ui_resource(app: fastmcp.FastMCP) -> None:
 # ---------------------------------------------------------------------------
 # Data resource helpers — testable content functions
 # ---------------------------------------------------------------------------
+
+
+def _error_markdown(result: dict[str, Any]) -> str:
+    """Build a markdown error message from an errored tool result dict.
+
+    Args:
+        result: A tool result dict containing an ``error`` code and optional ``message``.
+
+    Returns:
+        A markdown string of the form ``# Error: <code>\\n\\n<message>\\n``.
+    """
+    error_code = result.get("error", "error")
+    message = result.get("message", "Unknown error.")
+    return f"# Error: {error_code}\n\n{message}\n"
 
 
 async def _artifact_resource_content(
@@ -467,10 +494,7 @@ async def _artifact_resource_content(
     )
 
     if "error" in result:
-        error_code = result.get("error", "error")
-        message = result.get("message", "Unknown error.")
-        markdown = f"# Error: {error_code}\n\n{message}\n"
-        return markdown, "text/markdown"
+        return _error_markdown(result), "text/markdown"
 
     content: str = str(result.get("content", ""))
     return content, "text/markdown"
@@ -530,16 +554,12 @@ def _render_artifacts_markdown(artifacts: list[dict[str, Any]]) -> str:
         "|------------|-------|------|-------------|",
     ]
     for artifact in artifacts:
-        identifier = str(artifact.get("artifact_id", ""))
-        title = str(artifact.get("title", ""))
-        artifact_type = str(artifact.get("type", ""))
-        description = str(artifact.get("description", ""))
-        # Escape pipe characters inside cell values
-        identifier = identifier.replace("|", "\\|")
-        title = title.replace("|", "\\|")
-        artifact_type = artifact_type.replace("|", "\\|")
-        description = description.replace("|", "\\|")
-        lines.append(f"| {identifier} | {title} | {artifact_type} | {description} |")
+        # Escape pipe characters inside each cell value so they don't break the table.
+        cells = [
+            str(artifact.get(key, "")).replace("|", "\\|")
+            for key in ("artifact_id", "title", "type", "description")
+        ]
+        lines.append("| " + " | ".join(cells) + " |")
 
     return "\n".join(lines) + "\n"
 
@@ -567,9 +587,7 @@ async def _artifacts_listing_content(
     )
 
     if "error" in result:
-        error_code = result.get("error", "error")
-        message = result.get("message", "Unknown error.")
-        return f"# Error: {error_code}\n\n{message}\n"
+        return _error_markdown(result)
 
     artifacts: list[dict[str, Any]] = result.get("artifacts", [])
     return _render_artifacts_markdown(artifacts)

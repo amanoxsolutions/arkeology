@@ -133,8 +133,12 @@ An MCP host fetches the `ui://cairn-studio/index.html` resource to render the br
 - The `ui://cairn-studio/index.html` resource is registered in `resources.py` via
   `register_ui_resource(app)`, a new function that mirrors the existing `register_resources`
   pattern; it is called from `server.py` at module load time alongside `register_resources`.
-- `ResourceCSP` must declare at minimum these origins: `https://unpkg.com`,
-  `https://cdn.jsdelivr.net`, `https://fonts.googleapis.com`, `https://fonts.gstatic.com`.
+- `ResourceCSP` must declare **only** these origins: `https://unpkg.com`,
+  `https://cdn.jsdelivr.net`. **Google Fonts origins (`https://fonts.googleapis.com`,
+  `https://fonts.gstatic.com`) MUST NOT be declared** — loading fonts from Google's CDN is
+  disallowed on GDPR grounds (it exposes the user's IP to a third party). Typography uses the
+  `system-ui` stack or a font self-hosted under `src/cairn_mcp/static/`; no external font origin
+  is ever permitted in the CSP. (Review 2026-06-29, finding C1.)
 - The HTML file is read using `importlib.resources.files("cairn_mcp").joinpath("static/cairn-studio.html")` (Python 3.9+ API), not via `__file__`-relative path manipulation.
 - `src/cairn_mcp/static/cairn-studio.html` is created as a minimal placeholder
   (`<!doctype html><html><body><p>cairn studio placeholder</p></body></html>`) so the
@@ -158,7 +162,8 @@ An MCP host fetches the `ui://cairn-studio/index.html` resource to render the br
 - Do not use `__file__`-relative path manipulation to locate the static file — always use
   `importlib.resources`.
 - Do not add a new config env var for the CDN origins — they are hard-coded in
-  `ResourceCSP` and documented in the ADR as accepted constants.
+  `ResourceCSP` and documented in the ADR as accepted constants. The accepted set is exactly
+  `unpkg.com` + `cdn.jsdelivr.net`; **no Google Fonts origins** (see GDPR note above).
 
 <!-- IMPLEMENTATION BLOCK — agent-owned -->
 
