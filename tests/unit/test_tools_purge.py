@@ -1,6 +1,11 @@
 """Unit tests for cairn_mcp.tools.purge.
 
 Tests purge_archived() using moto-backed S3ClientImpl + VectorsClientImpl.
+
+Covers the best-effort bulk partial-failure contract (spec p3-t13, revised
+2026-06-29): the deletion phase is best-effort for non-credential failures
+(collected in a ``failed`` list, purge continues) and aborts only on a
+systemic CredentialError, still reporting what was purged so far.
 """
 
 from typing import Any
@@ -11,6 +16,7 @@ from pytest_mock import MockerFixture
 from cairn_mcp.clients.s3 import S3ClientImpl
 from cairn_mcp.clients.vectors import VectorsClientImpl
 from cairn_mcp.config import Settings
+from cairn_mcp.constants import ErrorCode
 from cairn_mcp.errors import CredentialError
 from cairn_mcp.tools.purge import purge_archived
 from tests.unit.conftest import _make_settings as _make_settings_base
@@ -18,6 +24,10 @@ from tests.unit.conftest import _make_settings as _make_settings_base
 
 def _make_settings(monkeypatch: pytest.MonkeyPatch, **overrides: str) -> Settings:
     return _make_settings_base(monkeypatch, READ_PREFIXES="other-team", **overrides)
+
+
+def _credential_error(service: str) -> CredentialError:
+    return CredentialError(message="Simulated.", service=service, original=Exception("sim"))
 
 
 # ---------------------------------------------------------------------------
@@ -54,6 +64,22 @@ _BASE_VECTOR_META: dict[str, Any] = {
 }
 
 _CONTENT = "## Old content."
+
+
+def _seed_inactive(
+    s3: S3ClientImpl,
+    vectors: VectorsClientImpl,
+    artifact_id: str,
+    *,
+    vec: list[float] | None = None,
+) -> None:
+    """Seed a single own-scope inactive artifact (S3 object + one section vector)."""
+    s3.put_object(artifact_id, _CONTENT, {**_BASE_S3_META})
+    vectors.put_vector(
+        f"{artifact_id}#summary",
+        vec or [1.0, 0.0],
+        {**_BASE_VECTOR_META, "artifact_id": artifact_id},
+    )
 
 
 def _seed_all(s3: S3ClientImpl, vectors: VectorsClientImpl) -> None:
@@ -178,7 +204,7 @@ async def test_purge_confirm_false_returns_error_no_writes(
         settings=settings, s3=s3_client, vectors=vectors_client_2, bedrock=None, confirm=False
     )
 
-    assert "error" in result or result.get("error_type") is not None
+    assert result["error"] == ErrorCode.CONFIRMATION_REQUIRED
     assert spy_delete.call_count == 0
 
 
@@ -187,7 +213,7 @@ async def test_purge_confirm_absent_returns_error(
     s3_client: S3ClientImpl,
     vectors_client_2: VectorsClientImpl,
 ) -> None:
-    """confirm not provided → structured error."""
+    """confirm not provided → structured error; nothing deleted."""
     settings = _make_settings(monkeypatch)
     _seed_all(s3_client, vectors_client_2)
     initial_count = len(s3_client.list_objects(""))
@@ -196,7 +222,7 @@ async def test_purge_confirm_absent_returns_error(
         settings=settings, s3=s3_client, vectors=vectors_client_2, bedrock=None
     )
 
-    assert "error" in result or result.get("error_type") is not None
+    assert result["error"] == ErrorCode.CONFIRMATION_REQUIRED
     assert len(s3_client.list_objects("")) == initial_count
 
 
@@ -210,7 +236,7 @@ async def test_purge_no_inactive_artifacts_returns_zero(
     s3_client: S3ClientImpl,
     vectors_client_2: VectorsClientImpl,
 ) -> None:
-    """No inactive artifacts in own scope → purged_count=0, empty lists, no error."""
+    """No inactive artifacts in own scope → zero purged, empty lists incl. failed, no error."""
     settings = _make_settings(monkeypatch)
     s3_client.put_object("artifacts/active-only", _CONTENT, {**_BASE_S3_META, "status": "active"})
     vectors_client_2.put_vector(
@@ -223,9 +249,12 @@ async def test_purge_no_inactive_artifacts_returns_zero(
         settings=settings, s3=s3_client, vectors=vectors_client_2, bedrock=None, confirm=True
     )
 
-    assert result["purged_count"] == 0
-    assert result["purged_ids"] == []
-    assert result["cascade_deleted"] == []
+    assert result == {
+        "purged_count": 0,
+        "purged_ids": [],
+        "cascade_deleted": [],
+        "failed": [],
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -337,12 +366,7 @@ async def test_purge_no_synthesis_cascade_deleted_empty(
 ) -> None:
     """No synthesis artifacts → cascade_deleted is empty list; no error."""
     settings = _make_settings(monkeypatch)
-    s3_client.put_object("artifacts/inactive-only", _CONTENT, {**_BASE_S3_META})
-    vectors_client_2.put_vector(
-        "artifacts/inactive-only#summary",
-        [1.0, 0.0],
-        {**_BASE_VECTOR_META, "artifact_id": "artifacts/inactive-only"},
-    )
+    _seed_inactive(s3_client, vectors_client_2, "artifacts/inactive-only")
 
     result = await purge_archived(
         settings=settings, s3=s3_client, vectors=vectors_client_2, bedrock=None, confirm=True
@@ -352,45 +376,200 @@ async def test_purge_no_synthesis_cascade_deleted_empty(
 
 
 # ---------------------------------------------------------------------------
-# Partial failure
+# All-success reporting
 # ---------------------------------------------------------------------------
 
 
-async def test_purge_s3_delete_failure_partial_failure_error(
+async def test_purge_all_success_failed_is_empty(
     monkeypatch: pytest.MonkeyPatch,
     s3_client: S3ClientImpl,
     vectors_client_2: VectorsClientImpl,
-    mocker: MockerFixture,
 ) -> None:
-    """delete_object failure on one artifact → structured partial-failure error."""
+    """All deletes succeed → purged_ids/purged_count reflect deleted set; failed is empty."""
     settings = _make_settings(monkeypatch)
-    s3_client.put_object("artifacts/inactive-t2", _CONTENT, {**_BASE_S3_META})
-    vectors_client_2.put_vector(
-        "artifacts/inactive-t2#summary",
-        [1.0, 0.0],
-        {**_BASE_VECTOR_META, "artifact_id": "artifacts/inactive-t2"},
-    )
-
-    call_count: dict[str, int] = {"n": 0}
-    original_delete = s3_client.delete_object
-
-    def fail_first(key: str) -> None:
-        call_count["n"] += 1
-        if call_count["n"] == 1:
-            raise RuntimeError("Simulated S3 delete failure")
-        original_delete(key)
-
-    mocker.patch.object(s3_client, "delete_object", side_effect=fail_first)
+    _seed_inactive(s3_client, vectors_client_2, "artifacts/inactive-a", vec=[1.0, 0.0])
+    _seed_inactive(s3_client, vectors_client_2, "artifacts/inactive-b", vec=[0.9, 0.1])
+    _seed_inactive(s3_client, vectors_client_2, "artifacts/inactive-c", vec=[0.8, 0.2])
 
     result = await purge_archived(
         settings=settings, s3=s3_client, vectors=vectors_client_2, bedrock=None, confirm=True
     )
 
-    assert "error" in result or result.get("error_type") is not None
+    assert result["failed"] == []
+    assert result["purged_count"] == 3
+    assert sorted(result["purged_ids"]) == [
+        "artifacts/inactive-a",
+        "artifacts/inactive-b",
+        "artifacts/inactive-c",
+    ]
 
 
 # ---------------------------------------------------------------------------
-# Credential failures
+# Best-effort partial failure (non-credential)
+# ---------------------------------------------------------------------------
+
+
+async def test_purge_delete_vectors_failure_one_artifact_continues(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """Non-credential delete_vectors failure on ONE artifact → it lands in failed and stays
+    fully intact; the other artifacts are still purged."""
+    settings = _make_settings(monkeypatch)
+    _seed_inactive(s3_client, vectors_client_2, "artifacts/inactive-fail", vec=[1.0, 0.0])
+    _seed_inactive(s3_client, vectors_client_2, "artifacts/inactive-ok", vec=[0.9, 0.1])
+
+    original_delete_vectors = vectors_client_2.delete_vectors
+
+    def fail_for_target(keys: list[str]) -> None:
+        if any(k.startswith("artifacts/inactive-fail") for k in keys):
+            raise RuntimeError("Simulated vector delete failure")
+        original_delete_vectors(keys)
+
+    mocker.patch.object(vectors_client_2, "delete_vectors", side_effect=fail_for_target)
+
+    result = await purge_archived(
+        settings=settings, s3=s3_client, vectors=vectors_client_2, bedrock=None, confirm=True
+    )
+
+    # Failed artifact is reported and excluded from purged_ids
+    failed_ids = [f["artifact_id"] for f in result["failed"]]
+    assert "artifacts/inactive-fail" in failed_ids
+    assert "artifacts/inactive-fail" not in result["purged_ids"]
+    failed_entry = next(
+        f for f in result["failed"] if f["artifact_id"] == "artifacts/inactive-fail"
+    )
+    assert failed_entry["error"] == ErrorCode.DELETE_VECTORS_FAILED
+    assert failed_entry["message"]
+
+    # Failed artifact remains fully intact (S3 object + vectors present)
+    all_s3_keys = s3_client.list_objects("")
+    all_vec_keys = vectors_client_2.list_vectors_by_metadata({})
+    assert "artifacts/inactive-fail" in all_s3_keys
+    assert "artifacts/inactive-fail#summary" in all_vec_keys
+
+    # The other artifact is purged
+    assert "artifacts/inactive-ok" in result["purged_ids"]
+    assert "artifacts/inactive-ok" not in all_s3_keys
+    assert "artifacts/inactive-ok#summary" not in all_vec_keys
+
+
+async def test_purge_delete_object_failure_one_artifact_continues(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """Non-credential delete_object failure after vectors deleted → orphan; the artifact lands
+    in failed, is excluded from purged_ids; other artifacts are purged."""
+    settings = _make_settings(monkeypatch)
+    _seed_inactive(s3_client, vectors_client_2, "artifacts/inactive-fail", vec=[1.0, 0.0])
+    _seed_inactive(s3_client, vectors_client_2, "artifacts/inactive-ok", vec=[0.9, 0.1])
+
+    original_delete_object = s3_client.delete_object
+
+    def fail_for_target(key: str) -> None:
+        if key == "artifacts/inactive-fail":
+            raise RuntimeError("Simulated S3 delete failure")
+        original_delete_object(key)
+
+    mocker.patch.object(s3_client, "delete_object", side_effect=fail_for_target)
+
+    result = await purge_archived(
+        settings=settings, s3=s3_client, vectors=vectors_client_2, bedrock=None, confirm=True
+    )
+
+    failed_ids = [f["artifact_id"] for f in result["failed"]]
+    assert "artifacts/inactive-fail" in failed_ids
+    assert "artifacts/inactive-fail" not in result["purged_ids"]
+    failed_entry = next(
+        f for f in result["failed"] if f["artifact_id"] == "artifacts/inactive-fail"
+    )
+    assert failed_entry["error"] == ErrorCode.PARTIAL_DELETE
+    assert failed_entry["message"]
+
+    # Recoverable orphan state: S3 object present, vectors gone
+    all_s3_keys = s3_client.list_objects("")
+    all_vec_keys = vectors_client_2.list_vectors_by_metadata({})
+    assert "artifacts/inactive-fail" in all_s3_keys
+    assert "artifacts/inactive-fail#summary" not in all_vec_keys
+
+    # The other artifact is purged
+    assert "artifacts/inactive-ok" in result["purged_ids"]
+    assert "artifacts/inactive-ok" not in all_s3_keys
+
+
+async def test_purge_cascade_synthesis_failure_lands_in_failed(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """A cascade synthesis that fails to delete (non-credential) → appears in failed, not in
+    cascade_deleted; the source inactive artifacts are still purged."""
+    settings = _make_settings(monkeypatch)
+    _seed_all(s3_client, vectors_client_2)
+
+    original_delete_object = s3_client.delete_object
+
+    def fail_for_synthesis(key: str) -> None:
+        if key == "artifacts/synthesis-cascade":
+            raise RuntimeError("Simulated synthesis delete failure")
+        original_delete_object(key)
+
+    mocker.patch.object(s3_client, "delete_object", side_effect=fail_for_synthesis)
+
+    result = await purge_archived(
+        settings=settings, s3=s3_client, vectors=vectors_client_2, bedrock=None, confirm=True
+    )
+
+    failed_ids = [f["artifact_id"] for f in result["failed"]]
+    assert "artifacts/synthesis-cascade" in failed_ids
+    assert "artifacts/synthesis-cascade" not in result["cascade_deleted"]
+
+    # Source inactive artifacts are still purged
+    assert "artifacts/inactive-t2" in result["purged_ids"]
+    assert "artifacts/inactive-t3" in result["purged_ids"]
+
+
+async def test_purge_multiple_failures_aggregated(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """Multiple non-credential failures in one purge → all appear in failed; all successful
+    deletions appear in purged_ids."""
+    settings = _make_settings(monkeypatch)
+    _seed_inactive(s3_client, vectors_client_2, "artifacts/fail-a", vec=[1.0, 0.0])
+    _seed_inactive(s3_client, vectors_client_2, "artifacts/fail-b", vec=[0.9, 0.1])
+    _seed_inactive(s3_client, vectors_client_2, "artifacts/ok-c", vec=[0.8, 0.2])
+
+    original_delete_object = s3_client.delete_object
+
+    def fail_two(key: str) -> None:
+        if key in ("artifacts/fail-a", "artifacts/fail-b"):
+            raise RuntimeError(f"Simulated failure on {key}")
+        original_delete_object(key)
+
+    mocker.patch.object(s3_client, "delete_object", side_effect=fail_two)
+
+    result = await purge_archived(
+        settings=settings, s3=s3_client, vectors=vectors_client_2, bedrock=None, confirm=True
+    )
+
+    failed_ids = {f["artifact_id"] for f in result["failed"]}
+    assert failed_ids == {"artifacts/fail-a", "artifacts/fail-b"}
+    assert result["purged_ids"] == ["artifacts/ok-c"]
+    assert result["purged_count"] == 1
+    # No failed artifact leaks into purged_ids
+    assert not failed_ids & set(result["purged_ids"])
+
+
+# ---------------------------------------------------------------------------
+# Credential failures — discovery phase aborts with no deletes
 # ---------------------------------------------------------------------------
 
 
@@ -400,184 +579,136 @@ async def test_purge_list_vectors_credential_error(
     vectors_client_2: VectorsClientImpl,
     mocker: MockerFixture,
 ) -> None:
-    """list_vectors_by_metadata raises CredentialError → structured error; no deletes."""
+    """list_vectors_by_metadata (discovery) CredentialError → structured error, no deletes."""
     settings = _make_settings(monkeypatch)
+    _seed_all(s3_client, vectors_client_2)
+    spy_delete = mocker.spy(s3_client, "delete_object")
     mocker.patch.object(
         vectors_client_2,
         "list_vectors_by_metadata",
-        side_effect=CredentialError(
-            message="Simulated.", service="s3vectors", original=Exception("sim")
-        ),
+        side_effect=_credential_error("s3vectors"),
     )
 
     result = await purge_archived(
         settings=settings, s3=s3_client, vectors=vectors_client_2, bedrock=None, confirm=True
     )
 
-    assert "error" in result or result.get("error_type") is not None
+    assert result["error"] == ErrorCode.CREDENTIAL_ERROR
+    assert spy_delete.call_count == 0
 
 
-async def test_purge_delete_vectors_credential_error(
+async def test_purge_get_vectors_cascade_credential_error_no_deletes(
     monkeypatch: pytest.MonkeyPatch,
     s3_client: S3ClientImpl,
     vectors_client_2: VectorsClientImpl,
     mocker: MockerFixture,
 ) -> None:
-    """delete_vectors raises CredentialError → structured error."""
+    """get_vectors during cascade discovery CredentialError → structured error, no deletes."""
     settings = _make_settings(monkeypatch)
-    s3_client.put_object("artifacts/inactive-t2", _CONTENT, {**_BASE_S3_META})
-    vectors_client_2.put_vector(
-        "artifacts/inactive-t2#summary",
-        [1.0, 0.0],
-        {**_BASE_VECTOR_META, "artifact_id": "artifacts/inactive-t2"},
-    )
+    _seed_all(s3_client, vectors_client_2)
+    spy_delete = mocker.spy(s3_client, "delete_object")
     mocker.patch.object(
         vectors_client_2,
-        "delete_vectors",
-        side_effect=CredentialError(
-            message="Simulated.", service="s3vectors", original=Exception("sim")
-        ),
+        "get_vectors",
+        side_effect=_credential_error("s3vectors"),
     )
 
     result = await purge_archived(
         settings=settings, s3=s3_client, vectors=vectors_client_2, bedrock=None, confirm=True
     )
 
-    assert "error" in result or result.get("error_type") is not None
+    assert result["error"] == ErrorCode.CREDENTIAL_ERROR
+    assert spy_delete.call_count == 0
 
 
-async def test_purge_delete_object_credential_error_partial_failure(
+# ---------------------------------------------------------------------------
+# Credential failures — deletion phase aborts, reports purged-so-far
+# ---------------------------------------------------------------------------
+
+
+async def test_purge_delete_vectors_credential_error_mid_loop_aborts(
     monkeypatch: pytest.MonkeyPatch,
     s3_client: S3ClientImpl,
     vectors_client_2: VectorsClientImpl,
     mocker: MockerFixture,
 ) -> None:
-    """delete_object raises CredentialError → structured partial-failure error with artifact_id."""
+    """delete_vectors raises CredentialError mid-loop → deletion phase aborts; structured
+    credential error; artifacts purged before the failure are in purged_ids."""
     settings = _make_settings(monkeypatch)
-    s3_client.put_object("artifacts/inactive-t2", _CONTENT, {**_BASE_S3_META})
-    vectors_client_2.put_vector(
-        "artifacts/inactive-t2#summary",
-        [1.0, 0.0],
-        {**_BASE_VECTOR_META, "artifact_id": "artifacts/inactive-t2"},
+    _seed_inactive(s3_client, vectors_client_2, "artifacts/inactive-a", vec=[1.0, 0.0])
+    _seed_inactive(s3_client, vectors_client_2, "artifacts/inactive-b", vec=[0.9, 0.1])
+
+    original_delete_vectors = vectors_client_2.delete_vectors
+    seen: list[str] = []
+
+    def fail_second(keys: list[str]) -> None:
+        seen.append(keys[0])
+        if len(seen) >= 2:
+            raise _credential_error("s3vectors")
+        original_delete_vectors(keys)
+
+    mocker.patch.object(vectors_client_2, "delete_vectors", side_effect=fail_second)
+
+    result = await purge_archived(
+        settings=settings, s3=s3_client, vectors=vectors_client_2, bedrock=None, confirm=True
     )
+
+    assert result["error"] == ErrorCode.CREDENTIAL_ERROR
+    # First artifact (fully deleted before the credential failure) is reported as purged.
+    assert len(result["purged_ids"]) == 1
+
+
+async def test_purge_delete_object_credential_error_mid_loop_aborts(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """delete_object raises CredentialError mid-loop → deletion phase aborts; structured
+    credential error; artifacts purged before the failure are in purged_ids."""
+    settings = _make_settings(monkeypatch)
+    _seed_inactive(s3_client, vectors_client_2, "artifacts/inactive-a", vec=[1.0, 0.0])
+    _seed_inactive(s3_client, vectors_client_2, "artifacts/inactive-b", vec=[0.9, 0.1])
+
+    original_delete_object = s3_client.delete_object
+    seen: list[str] = []
+
+    def fail_second(key: str) -> None:
+        seen.append(key)
+        if len(seen) >= 2:
+            raise _credential_error("s3")
+        original_delete_object(key)
+
+    mocker.patch.object(s3_client, "delete_object", side_effect=fail_second)
+
+    result = await purge_archived(
+        settings=settings, s3=s3_client, vectors=vectors_client_2, bedrock=None, confirm=True
+    )
+
+    assert result["error"] == ErrorCode.CREDENTIAL_ERROR
+    assert len(result["purged_ids"]) == 1
+    # The id purged before the abort is the first one deleted.
+    assert result["purged_ids"] == [seen[0]]
+
+
+async def test_purge_single_artifact_delete_object_credential_error(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """CredentialError during the only S3 delete → credential_error response, nothing purged."""
+    settings = _make_settings(monkeypatch)
+    _seed_inactive(s3_client, vectors_client_2, "artifacts/inactive-t2")
     mocker.patch.object(
         s3_client,
         "delete_object",
-        side_effect=CredentialError(message="Simulated.", service="s3", original=Exception("sim")),
+        side_effect=_credential_error("s3"),
     )
 
     result = await purge_archived(
         settings=settings, s3=s3_client, vectors=vectors_client_2, bedrock=None, confirm=True
     )
 
-    assert "error" in result or result.get("error_type") is not None
-    result_str = str(result)
-    assert "artifacts/inactive-t2" in result_str
-
-
-# ---------------------------------------------------------------------------
-# Spec 01 — CredentialError from S3 returns credential_error (not partial_purge)
-# ---------------------------------------------------------------------------
-
-
-async def test_credential_error_on_purge_returns_credential_error(
-    monkeypatch: pytest.MonkeyPatch,
-    s3_client: S3ClientImpl,
-    vectors_client_2: VectorsClientImpl,
-    mocker: MockerFixture,
-) -> None:
-    """CredentialError during S3 delete → response is credential_error, not partial_purge."""
-    settings = _make_settings(monkeypatch)
-    s3_client.put_object(
-        "artifacts/inactive-t2",
-        "archived content",
-        {**_BASE_S3_META, "status": "inactive"},
-    )
-    vectors_client_2.put_vector(
-        "artifacts/inactive-t2#summary",
-        [1.0, 0.0],
-        {**_BASE_VECTOR_META, "artifact_id": "artifacts/inactive-t2", "status": "inactive"},
-    )
-    mocker.patch.object(
-        s3_client,
-        "delete_object",
-        side_effect=CredentialError(message="Simulated.", service="s3", original=Exception("sim")),
-    )
-
-    result = await purge_archived(
-        settings=settings, s3=s3_client, vectors=vectors_client_2, bedrock=None, confirm=True
-    )
-
-    assert result.get("error") == "credential_error"
-
-
-# ---------------------------------------------------------------------------
-# M16 — partial_delete response must include already-purged IDs
-# ---------------------------------------------------------------------------
-
-
-async def test_m16_partial_delete_response_includes_already_purged_ids(
-    monkeypatch: pytest.MonkeyPatch,
-    s3_client: S3ClientImpl,
-    vectors_client_2: VectorsClientImpl,
-    mocker: MockerFixture,
-) -> None:
-    """M16: When the S3 delete loop fails on the second artifact, the partial_delete
-    error response must include the IDs that were already successfully deleted before
-    the failure.  Before the fix, the response omitted already-purged IDs.
-
-    Scenario:
-    - Two inactive artifacts seeded: inactive-first and inactive-second.
-    - s3.delete_object succeeds for the first artifact, raises RuntimeError for the second.
-    - Expected: response["error"] == "partial_delete" AND the ID of the first artifact
-      appears somewhere in the response (e.g. as a "purged_ids" field or in "message").
-    """
-    settings = _make_settings(monkeypatch)
-
-    # Seed two inactive artifacts
-    s3_client.put_object("artifacts/inactive-first", _CONTENT, {**_BASE_S3_META})
-    vectors_client_2.put_vector(
-        "artifacts/inactive-first#summary",
-        [1.0, 0.0],
-        {**_BASE_VECTOR_META, "artifact_id": "artifacts/inactive-first"},
-    )
-    s3_client.put_object("artifacts/inactive-second", _CONTENT, {**_BASE_S3_META})
-    vectors_client_2.put_vector(
-        "artifacts/inactive-second#summary",
-        [0.9, 0.1],
-        {**_BASE_VECTOR_META, "artifact_id": "artifacts/inactive-second"},
-    )
-
-    # Track which artifact's S3 delete is called first, succeed for it, fail for the second.
-    delete_calls: list[str] = []
-    original_delete = s3_client.delete_object
-
-    def selective_delete(key: str) -> None:
-        delete_calls.append(key)
-        if len(delete_calls) == 1:
-            # First call succeeds
-            original_delete(key)
-        else:
-            # Second call fails
-            raise RuntimeError("simulated partial S3 delete failure")
-
-    mocker.patch.object(s3_client, "delete_object", side_effect=selective_delete)
-
-    result = await purge_archived(
-        settings=settings,
-        s3=s3_client,
-        vectors=vectors_client_2,
-        bedrock=None,
-        confirm=True,
-    )
-
-    assert result.get("error") == "partial_delete", (
-        f"M16: Expected error='partial_delete', got: {result}"
-    )
-    # The already-purged artifact ID must appear in the response
-    first_purged_id = delete_calls[0]
-    result_str = str(result)
-    assert first_purged_id in result_str, (
-        f"M16: The first purged artifact '{first_purged_id}' must appear in the partial_delete "
-        f"response, but got: {result}"
-    )
+    assert result["error"] == ErrorCode.CREDENTIAL_ERROR
+    assert result["purged_ids"] == []

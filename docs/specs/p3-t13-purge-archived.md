@@ -9,13 +9,14 @@ feature: p3-t13-purge-archived
 status: ready
 phase: 3
 task: 13
-references: []
+references:
+  - ".docs/reviews/review-2026-06-29-simplification.md"
 authored:
   by: "architect"
   date: "2026-05-30"
 revised:
-  by: ""
-  date: ""
+  by: "pm"
+  date: "2026-06-29"
 ---
 
 # T13 — Purge Archived Tool
@@ -31,6 +32,17 @@ reclamation operation: it hard-deletes every `status=inactive` artifact in the d
 own scope at once. To handle synthesis integrity, any synthesis artifact whose every
 `source_artifact` is in the purge set is cascade-deleted and reported. The `confirm=True`
 gate prevents accidental bulk erasure.
+
+Because purge is a *bulk* hard-delete, partial failure must be handled differently from the
+single-artifact `delete_artifact` (T12). The deletion phase is **best-effort**: a
+non-credential failure on one artifact does not abort the whole operation — the remaining
+artifacts are still purged and each failure is reported in an aggregated `failed` list. The
+response always reflects what was *actually* deleted, never what was merely intended, so a
+caller has an accurate, reconcilable record of irreversible deletions. Per-artifact deletion
+ordering and recoverable-orphan semantics are inherited from T12 (vectors-first, S3-second;
+an S3 delete that fails after vectors are gone leaves a recoverable orphan, FR-17). A
+credential failure is treated as systemic and aborts the remaining deletions, still
+reporting what was purged so far.
 
 ## User Stories
 
@@ -70,8 +82,33 @@ reported.
 ### Story 4 — Credential errors return structured responses (P1)
 
 **Acceptance criteria:**
-- Given a credential failure during any AWS call, when `purge_archived` returns, then a
-  structured error is returned — not a raw exception.
+- Given a credential failure during the discovery phase (listing inactive vectors, fetching
+  metadata, or the cascade check), when `purge_archived` returns, then a structured error is
+  returned — not a raw exception — and no deletions are performed.
+- Given a credential failure during the deletion phase, when `purge_archived` returns, then
+  the remaining deletions are aborted, a structured credential error is returned, and the
+  artifacts purged so far are reported in `purged_ids`.
+
+### Story 5 — Bulk partial failure is best-effort and reported (P1)
+
+A purge of many artifacts must not lose work or hide irreversible deletions when one
+artifact fails to delete. Non-credential failures on individual artifacts are collected and
+the purge continues; the response reports exactly what was deleted and what failed.
+
+**Acceptance criteria:**
+- Given a purge set of several artifacts where one artifact's vector delete fails with a
+  non-credential error, when `purge_archived` runs with `confirm=True`, then the remaining
+  artifacts are still purged, the failed artifact appears in the `failed` list with its
+  `artifact_id` and error, and that artifact remains fully intact (vectors and S3 present).
+- Given one artifact's S3 delete fails (non-credential) after its vectors were deleted, when
+  `purge_archived` returns, then that artifact appears in the `failed` list (a recoverable
+  S3 orphan per T12/FR-17), is excluded from `purged_ids`, and the other artifacts are still
+  purged.
+- Given every deletion succeeds, when `purge_archived` returns, then `purged_ids` and
+  `purged_count` reflect the artifacts actually fully deleted and the `failed` list is empty.
+- Given a cascade synthesis fails to delete (non-credential), when `purge_archived` returns,
+  then it appears in `failed` and not in `cascade_deleted`, and other deletions still
+  proceed.
 
 ## Requirements
 
@@ -81,18 +118,38 @@ reported.
   in own scope with `status="inactive"` using `list_vectors_by_metadata`, deduplicate by
   `artifact_id` to obtain the purge set.
 - WHEN the purge set is empty THE SYSTEM SHALL return
-  `{"purged_count": 0, "purged_ids": [], "cascade_deleted": []}` — no error.
+  `{"purged_count": 0, "purged_ids": [], "cascade_deleted": [], "failed": []}` — no error.
 - WHEN the purge set is non-empty THE SYSTEM SHALL check for cascade candidates: active
   synthesis artifacts in own scope whose entire `source_artifacts` list is contained in the
   purge set; add those synthesis `artifact_id`s to the deletion set and report them
   separately.
 - WHEN executing deletion THE SYSTEM SHALL, for each artifact in the combined deletion set
   (inactive + cascade syntheses), find all vector keys via `list_vectors_by_metadata`,
-  delete vectors first, then delete the S3 object — mirroring the ordering in T12.
-- WHEN all deletions succeed THE SYSTEM SHALL return:
-  `{"purged_count": int, "purged_ids": list[str], "cascade_deleted": list[str]}`.
-- WHEN a CredentialError is raised THE SYSTEM SHALL return a structured error — never a
-  raw exception.
+  delete vectors first, then delete the S3 object — mirroring the per-artifact ordering in
+  T12.
+- WHEN executing the deletion phase THE SYSTEM SHALL be **best-effort**: a non-credential
+  failure deleting one artifact (vector delete or S3 delete) SHALL NOT abort the purge; the
+  system SHALL record the failure and continue with the remaining artifacts.
+- WHEN an individual artifact deletion fails with a non-credential error THE SYSTEM SHALL
+  record an entry in a `failed` list containing the `artifact_id`, the error code, and a
+  message. An artifact recorded in `failed` SHALL NOT appear in `purged_ids` or
+  `cascade_deleted`.
+- WHEN a vector delete fails for an artifact THE SYSTEM SHALL leave that artifact fully
+  intact (vectors and S3 both present) before continuing. WHEN an S3 delete fails after the
+  artifact's vectors were deleted THE SYSTEM SHALL leave a recoverable S3 orphan (per T12 /
+  FR-17) before continuing.
+- WHEN a CredentialError is raised during the deletion phase THE SYSTEM SHALL abort the
+  remaining deletions (credential failures are systemic), and return a structured credential
+  error together with the artifacts purged so far in `purged_ids` — never a raw exception.
+- WHEN a CredentialError is raised during the discovery phase (listing inactive vectors,
+  fetching their metadata, or the cascade check) THE SYSTEM SHALL return a structured error
+  and perform no deletions — never a raw exception.
+- WHEN the purge completes THE SYSTEM SHALL return
+  `{"purged_count": int, "purged_ids": list[str], "cascade_deleted": list[str], "failed": list[dict]}`
+  where `purged_ids` / `purged_count` reflect the artifacts **actually fully deleted** (S3
+  object removed), `cascade_deleted` reflects cascade syntheses **actually deleted**, and
+  `failed` lists the artifacts that could not be deleted. `failed` is an empty list when all
+  deletions succeed.
 - THE SYSTEM SHALL never touch artifacts outside `settings.write_prefix` regardless of
   their status.
 
@@ -105,6 +162,10 @@ reported.
 - Cascade logic applies only to synthesis artifacts whose ALL `source_artifacts` are in the
   purge set (decisions doc Q3).
 - Deletion ordering per artifact is vectors-first, S3-second (same as T12).
+- The deletion phase is best-effort for non-credential failures: collect each failure in
+  `failed` and continue with the remaining artifacts.
+- The response reports the artifacts **actually deleted** (`purged_ids` / `purged_count` /
+  `cascade_deleted`) and always includes a `failed` list (empty when all succeed).
 - The tool receives `settings`, `s3`, `vectors`, and `bedrock` (unused) as injected
   dependencies.
 
@@ -117,24 +178,32 @@ reported.
   purge set.
 - Do not skip the `confirm=True` gate.
 - Do not return an error for an empty purge set — an empty set is a valid no-op.
+- Do not abort the entire purge on a single non-credential artifact failure — only a
+  credential failure (systemic) aborts the deletion phase.
+- Do not report an artifact in `purged_ids` / `cascade_deleted` unless it was actually
+  deleted; a failed or merely-intended artifact must never appear there.
 
 <!-- IMPLEMENTATION BLOCK — agent-owned -->
 
 ## Files to Touch
 
+> Note (2026-06-29 revision): the tool already exists and is registered. This revision adds
+> the best-effort bulk partial-failure contract (`failed` list, actually-deleted reporting).
+> The work is now a **modification** of the existing files, not a fresh creation.
+
 | File | Action | Notes |
 |------|--------|-------|
-| `tests/unit/test_tools_purge.py` | Create | Written first (Red) |
-| `src/cairn_mcp/tools/purge.py` | Create | Written after unit tests (Green) |
-| `tests/integration/test_tools_purge.py` | Create | Written before integration wiring |
-| `src/cairn_mcp/server.py` | Modify | Register `purge_archived` tool on `_app` |
+| `tests/unit/test_tools_purge.py` | Modify | Update/add partial-failure tests first (Red) |
+| `src/cairn_mcp/tools/purge.py` | Modify | Implement best-effort loop + `failed` reporting (Green) |
+| `tests/integration/test_tools_purge.py` | Modify | Update if needed for the new response shape |
 
 ## Testing Approach
 
-**TDD cycle A (unit):** write `test_tools_purge.py` first → fail → implement `tools/purge.py`
-→ unit tests pass.
+**TDD cycle A (unit):** update `test_tools_purge.py` for the new contract first → fail →
+modify `tools/purge.py` → unit tests pass.
 
-**TDD cycle B (integration):** write integration tests first → fail → wire tool → pass.
+**TDD cycle B (integration):** update integration tests for the response shape if needed →
+fail → verify against live AWS → pass.
 
 ---
 
@@ -150,7 +219,7 @@ Confirmation gate:
 - `confirm` absent → structured error, no AWS writes.
 
 Empty purge set:
-- No inactive artifacts in own scope → `{"purged_count": 0, "purged_ids": [], "cascade_deleted": []}`.
+- No inactive artifacts in own scope → `{"purged_count": 0, "purged_ids": [], "cascade_deleted": [], "failed": []}`.
 
 Happy path:
 - Multiple inactive artifacts → all absent from S3 and vectors after purge; `purged_ids`
@@ -165,16 +234,31 @@ Cascade:
   present in fake S3 and vectors after purge.
 - No synthesis artifacts → `cascade_deleted` is empty list; no error.
 
-Deletion ordering (per artifact):
-- Simulate `delete_object` failure on one artifact after vectors deleted → structured
-  partial-failure error with affected `artifact_id`; successfully deleted artifacts are
-  still gone.
+All-success reporting:
+- Multiple inactive artifacts, all deletes succeed → `purged_ids`/`purged_count` reflect the
+  actually-deleted set; `failed` is an empty list.
+
+Best-effort partial failure (non-credential):
+- Simulate `delete_vectors` raising a non-credential exception for ONE artifact in a
+  multi-artifact purge → that artifact appears in `failed` (with `artifact_id` + error code)
+  and is absent from `purged_ids`; it remains fully intact (vectors and S3 present in fakes);
+  the other artifacts are deleted and listed in `purged_ids`.
+- Simulate `delete_object` failure on ONE artifact after its vectors were deleted → that
+  artifact appears in `failed` and is excluded from `purged_ids`; its vectors are absent
+  (orphan state), S3 object still present; the other artifacts are purged.
+- Simulate a cascade synthesis delete failing (non-credential) → it appears in `failed` and
+  not in `cascade_deleted`; other deletions still proceed.
+- Multiple failures in one purge → all appear in `failed`; all successful deletions appear in
+  `purged_ids`/`cascade_deleted`.
 
 Credential failures:
-- `list_vectors_by_metadata` raises `CredentialError` → structured error; no deletes.
-- `delete_vectors` raises `CredentialError` → structured error.
-- `delete_object` raises `CredentialError` → structured partial-failure error with
-  `artifact_id`.
+- `list_vectors_by_metadata` (discovery) raises `CredentialError` → structured error; no
+  deletes.
+- `get_vectors` (cascade discovery) raises `CredentialError` → structured error; no deletes.
+- `delete_vectors` raises `CredentialError` mid-loop → deletion phase aborts; structured
+  credential error returned; artifacts purged before the failure appear in `purged_ids`.
+- `delete_object` raises `CredentialError` mid-loop → deletion phase aborts; structured
+  credential error returned; artifacts purged before the failure appear in `purged_ids`.
 
 **`tests/integration/test_tools_purge.py` — integration tests (`@pytest.mark.integration`):**
 

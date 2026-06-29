@@ -40,8 +40,16 @@ async def purge_archived(
         confirm: Must be True to proceed.
 
     Returns:
-        On success: ``{"purged_count": int, "purged_ids": [...], "cascade_deleted": [...]}``
-        On error: ``{"error": str, "message": str}``
+        On success: ``{"purged_count": int, "purged_ids": [...],
+            "cascade_deleted": [...], "failed": [...]}`` — ``purged_ids`` /
+            ``purged_count`` reflect artifacts actually fully deleted (S3 object
+            removed), ``cascade_deleted`` the cascade syntheses actually deleted,
+            and ``failed`` the artifacts that could not be deleted (empty when all
+            succeed). Each ``failed`` entry is
+            ``{"artifact_id": str, "error": str, "message": str}``.
+        On a systemic error (confirm gate, discovery-phase or mid-loop credential
+            failure): ``{"error": str, "message": str}``, the latter case still
+            carrying the artifacts purged so far in ``purged_ids``.
     """
     try:
         return await _purge_archived_inner(
@@ -77,7 +85,12 @@ async def _purge_archived_inner(
             ),
         }
 
-    empty_result: dict[str, Any] = {"purged_count": 0, "purged_ids": [], "cascade_deleted": []}
+    empty_result: dict[str, Any] = {
+        "purged_count": 0,
+        "purged_ids": [],
+        "cascade_deleted": [],
+        "failed": [],
+    }
 
     # ── Steps 2–3: Find inactive vectors, fetch metadata, deduplicate by id ───
     own_scope = settings.write_prefix
@@ -137,54 +150,85 @@ async def _purge_archived_inner(
     except CredentialError as exc:
         return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
 
-    # ── Step 5: Delete all artifacts in purge_set + cascade_set ─────────────
-    all_to_delete = list(purge_set) + [c for c in cascade_set if c not in purge_set]
-    purged_so_far: list[str] = []
+    # ── Step 5: Best-effort deletion of purge_set + cascade_set ──────────────
+    # The deletion phase is best-effort: a non-credential failure on one artifact
+    # is recorded in ``failed`` and the loop continues. A CredentialError is
+    # systemic and aborts the remaining deletions, still reporting what was purged.
+    cascade_only = [c for c in cascade_set if c not in purge_set]
+    all_to_delete = list(purge_set) + cascade_only
 
-    for artifact_id in all_to_delete:
-        # Find and delete vectors
-        try:
-            artifact_vec_keys = vectors.list_vectors_by_metadata(
-                {"artifact_id": {"$eq": artifact_id}}
-            )
-        except CredentialError as exc:
-            return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
+    purged_ids: list[str] = []
+    cascade_deleted: list[str] = []
+    failed: list[dict[str, str]] = []
 
-        if artifact_vec_keys:
+    def _record_success(artifact_id: str) -> None:
+        if artifact_id in cascade_set:
+            cascade_deleted.append(artifact_id)
+        else:
+            purged_ids.append(artifact_id)
+
+    def _record_failure(artifact_id: str, error: str, message: str) -> None:
+        failed.append({"artifact_id": artifact_id, "error": error, "message": message})
+
+    try:
+        for artifact_id in all_to_delete:
+            # Find this artifact's vector keys; a non-credential failure here
+            # leaves the artifact fully intact — record and continue.
             try:
-                vectors.delete_vectors(artifact_vec_keys)
-            except CredentialError as exc:
-                return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
+                artifact_vec_keys = vectors.list_vectors_by_metadata(
+                    {"artifact_id": {"$eq": artifact_id}}
+                )
+            except CredentialError:
+                raise
             except Exception as exc:
-                return {"error": ErrorCode.DELETE_VECTORS_FAILED, "message": str(exc)}
+                _record_failure(artifact_id, ErrorCode.DELETE_VECTORS_FAILED, str(exc))
+                continue
 
-        # Delete S3 object
-        try:
-            s3.delete_object(artifact_id)
-            purged_so_far.append(artifact_id)
-        except CredentialError as exc:
-            return {
-                "error": ErrorCode.CREDENTIAL_ERROR,
-                "message": str(exc),
-                "artifact_id": artifact_id,
-            }
-        except Exception as exc:
-            return {
-                "error": ErrorCode.PARTIAL_DELETE,
-                "message": str(exc),
-                "artifact_id": artifact_id,
-                "purged_so_far": purged_so_far,
-            }
+            # Delete vectors first; a non-credential failure leaves the artifact
+            # fully intact (vectors + S3 both present) — record and continue.
+            if artifact_vec_keys:
+                try:
+                    vectors.delete_vectors(artifact_vec_keys)
+                except CredentialError:
+                    raise
+                except Exception as exc:
+                    _record_failure(artifact_id, ErrorCode.DELETE_VECTORS_FAILED, str(exc))
+                    continue
 
-    purged_ids = sorted(purge_set)
-    cascade_deleted = sorted(cascade_set)
+            # Delete the S3 object; a non-credential failure here leaves a
+            # recoverable S3 orphan (per T12 / FR-17) — record and continue.
+            try:
+                s3.delete_object(artifact_id)
+            except CredentialError:
+                raise
+            except Exception as exc:
+                _record_failure(artifact_id, ErrorCode.PARTIAL_DELETE, str(exc))
+                continue
+
+            _record_success(artifact_id)
+    except CredentialError as exc:
+        logger.warning(
+            "purge_archived aborted by credential error after purging %d artifact(s)",
+            len(purged_ids),
+        )
+        return {
+            "error": ErrorCode.CREDENTIAL_ERROR,
+            "message": str(exc),
+            "purged_count": len(purged_ids),
+            "purged_ids": sorted(purged_ids),
+            "cascade_deleted": sorted(cascade_deleted),
+            "failed": failed,
+        }
+
     logger.info(
-        "purge_archived: purged=%d cascade=%d",
+        "purge_archived: purged=%d cascade=%d failed=%d",
         len(purged_ids),
         len(cascade_deleted),
+        len(failed),
     )
     return {
-        "purged_count": len(purge_set),
-        "purged_ids": purged_ids,
-        "cascade_deleted": cascade_deleted,
+        "purged_count": len(purged_ids),
+        "purged_ids": sorted(purged_ids),
+        "cascade_deleted": sorted(cascade_deleted),
+        "failed": failed,
     }
