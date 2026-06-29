@@ -79,7 +79,7 @@ def test_embed_credential_failure_can_be_cleared() -> None:
 def test_throttle_on_first_call_succeeds_on_retry() -> None:
     """Fake simulates throttle on first call; second call succeeds."""
     client = FakeBedrockClient()
-    client.set_throttle_once()  # type: ignore[attr-defined]
+    client.set_throttle_count(1)  # type: ignore[attr-defined]
     # After throttle simulation + retry, embed should succeed
     result = client.embed("hello", _MODEL_ID, 1024)
     assert len(result) == 1024
@@ -96,7 +96,7 @@ def test_two_consecutive_throttles_raises_error() -> None:
 def test_model_timeout_retried_once() -> None:
     """ModelTimeoutException on first call, succeed on second → embedding returned."""
     client = FakeBedrockClient()
-    client.set_timeout_once()  # type: ignore[attr-defined]
+    client.set_timeout_count(1)  # type: ignore[attr-defined]
     result = client.embed("hello", _MODEL_ID, 1024)
     assert len(result) == 1024
 

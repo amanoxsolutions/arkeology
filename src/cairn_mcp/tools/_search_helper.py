@@ -10,6 +10,7 @@ from typing import Any
 
 from cairn_mcp.clients.interfaces import VectorsClientInterface
 from cairn_mcp.config import Settings
+from cairn_mcp.constants import ErrorCode
 from cairn_mcp.errors import CredentialError
 
 
@@ -42,6 +43,67 @@ def build_scope_filter(settings: Settings) -> dict[str, Any]:
             ]
         }
     return {"scope": {"$eq": write_prefix}}
+
+
+def coerce_list_field(meta: dict[str, Any], key: str) -> list[str]:
+    """Coerce a metadata list field to ``list[str]``, accepting both encodings.
+
+    Vector metadata stores list fields (``tags``, ``source_artifacts``,
+    ``commit_refs``) as ``list[str]``; S3 object metadata stores them as a
+    comma-joined string. This helper handles both: a list value is returned
+    as-is, anything else is split on commas with empty segments dropped.
+
+    Args:
+        meta: A metadata dict (vector or S3 object metadata).
+        key: The field name to read.
+
+    Returns:
+        The field value as a list of non-empty strings.
+    """
+    value = meta.get(key)
+    if isinstance(value, list):
+        return value
+    return [item for item in str(value if value is not None else "").split(",") if item]
+
+
+def build_user_filters(
+    *,
+    type: str | None = None,  # noqa: A002
+    team: str | None = None,
+    project: str | None = None,
+    tier: int | None = None,
+    tags: list[str] | None = None,
+) -> list[dict[str, Any]]:
+    """Build the caller-supplied metadata filter clauses shared by the read path.
+
+    Produces the ``type/team/project/tier/tags`` ``$eq`` clauses used by
+    search, synthesise, and list. ``tags`` expands to one ``$eq`` clause per
+    tag (AND semantics, element-in-list matching on the vector ``tags`` field).
+    Each argument is omitted from the result when ``None`` (or empty for tags).
+
+    Args:
+        type: Optional artifact type filter.
+        team: Optional team filter.
+        project: Optional project filter.
+        tier: Optional tier filter.
+        tags: Optional list of tags; all must match (AND semantics).
+
+    Returns:
+        A list of metadata filter clause dicts.
+    """
+    clauses: list[dict[str, Any]] = []
+    if type is not None:
+        clauses.append({"type": {"$eq": type}})
+    if team is not None:
+        clauses.append({"team": {"$eq": team}})
+    if project is not None:
+        clauses.append({"project": {"$eq": project}})
+    if tier is not None:
+        clauses.append({"tier": {"$eq": tier}})
+    if tags:
+        for tag in tags:
+            clauses.append({"tags": {"$eq": tag}})
+    return clauses
 
 
 def run_search_loop(
@@ -89,7 +151,7 @@ def run_search_loop(
         try:
             raw = vectors.query_vectors(query_vector, settings.search_fetch_top_k, combined_filter)
         except CredentialError as exc:
-            return {"error": "credential_error", "message": str(exc)}
+            return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
 
         # Keep highest-scoring section per artifact
         best_by_id: dict[str, tuple[float, dict[str, Any]]] = {}

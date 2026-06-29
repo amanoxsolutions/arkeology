@@ -22,6 +22,7 @@ from cairn_mcp.clients.interfaces import (
     VectorsClientInterface,
 )
 from cairn_mcp.config import Settings
+from cairn_mcp.constants import ArtifactStatus, ErrorCode
 from cairn_mcp.tools.write import _write_artifact_inner
 
 logger = logging.getLogger(__name__)
@@ -97,7 +98,7 @@ async def write_artifacts(
         )
     except Exception as exc:
         logger.exception("Unexpected error in write_artifacts")
-        return {"error": "internal_error", "message": str(exc), "results": []}
+        return {"error": ErrorCode.INTERNAL_ERROR, "message": str(exc), "results": []}
 
 
 async def _write_artifacts_inner(
@@ -164,11 +165,11 @@ async def _write_artifacts_inner(
     async def write_one(idx: int, descriptor: dict[str, Any]) -> dict[str, Any]:
         dup_msg = dup_errors[idx]
         if dup_msg is not None:
-            return {"error": "validation_error", "message": dup_msg}
+            return {"error": ErrorCode.VALIDATION_ERROR, "message": dup_msg}
         async with semaphore:
             validation_error = _validate_descriptor(descriptor)
             if validation_error:
-                return {"error": "validation_error", "message": validation_error}
+                return {"error": ErrorCode.VALIDATION_ERROR, "message": validation_error}
             try:
                 result = await _write_artifact_inner(
                     settings=settings,
@@ -188,7 +189,7 @@ async def _write_artifacts_inner(
                     author_role=descriptor.get("author_role"),
                     sources=descriptor.get("source_artifacts") or [],
                     refs=descriptor.get("commit_refs") or [],
-                    status=descriptor.get("status", "active"),
+                    status=descriptor.get("status", ArtifactStatus.ACTIVE),
                     file_extension=descriptor.get("file_extension") or file_extension,
                 )
                 # _write_artifact_inner returns error dict or success dict
@@ -201,7 +202,7 @@ async def _write_artifacts_inner(
                 }
             except Exception as exc:
                 logger.exception("Unexpected error writing artifact '%s'", descriptor.get("title"))
-                return {"error": "internal_error", "message": str(exc)}
+                return {"error": ErrorCode.INTERNAL_ERROR, "message": str(exc)}
 
     raw_results = await asyncio.gather(*[write_one(i, d) for i, d in enumerate(artifacts)])
     response: dict[str, Any] = {"results": list(raw_results)}

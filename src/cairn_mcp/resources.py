@@ -31,6 +31,7 @@ from cairn_mcp.clients.interfaces import (
     VectorsClientInterface,
 )
 from cairn_mcp.config import Settings
+from cairn_mcp.constants import ArtifactStatus
 from cairn_mcp.tools.list import list_artifacts as _list_artifacts
 from cairn_mcp.tools.read import read_artifact as _read_artifact
 
@@ -583,7 +584,7 @@ async def _artifacts_listing_content(
         s3=s3,
         vectors=vectors,
         bedrock=bedrock,
-        status="active",
+        status=ArtifactStatus.ACTIVE,
     )
 
     if "error" in result:

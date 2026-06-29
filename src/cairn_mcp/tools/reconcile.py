@@ -17,7 +17,9 @@ from cairn_mcp.clients.interfaces import (
     VectorsClientInterface,
 )
 from cairn_mcp.config import Settings
+from cairn_mcp.constants import ArtifactStatus, ErrorCode
 from cairn_mcp.errors import CredentialError
+from cairn_mcp.tools._search_helper import coerce_list_field
 from cairn_mcp.tools.write import (
     _build_document_embedding_text,
     _build_section_embedding_text,
@@ -56,9 +58,9 @@ def _reindex_artifact(
     artifact_type = raw_s3_meta.get("type", "")
     tier_raw = raw_s3_meta.get("tier", "2")
     tier = int(tier_raw)
-    tags = [t for t in raw_s3_meta.get("tags", "").split(",") if t]
-    source_artifacts_list = [s for s in raw_s3_meta.get("source_artifacts", "").split(",") if s]
-    commit_refs_list = [r for r in raw_s3_meta.get("commit_refs", "").split(",") if r]
+    tags = coerce_list_field(raw_s3_meta, "tags")
+    source_artifacts_list = coerce_list_field(raw_s3_meta, "source_artifacts")
+    commit_refs_list = coerce_list_field(raw_s3_meta, "commit_refs")
 
     vector_metadata: dict[str, Any] = {
         "artifact_id": artifact_id,
@@ -68,7 +70,7 @@ def _reindex_artifact(
         "project": raw_s3_meta.get("project", ""),
         "tier": tier,
         "date": raw_s3_meta.get("date", ""),
-        "status": raw_s3_meta.get("status", "active"),
+        "status": raw_s3_meta.get("status", ArtifactStatus.ACTIVE),
         "title": title,
         "visibility": raw_s3_meta.get("visibility", "shared"),
         "author_role": raw_s3_meta.get("author_role", ""),
@@ -96,19 +98,13 @@ def _reindex_artifact(
                 section_heading=sec.heading,
                 section_body=sec.body,
             )
-            try:
-                embedding = bedrock.embed(
-                    embed_text,
-                    settings.bedrock_embedding_model,
-                    settings.bedrock_embedding_dimensions,
-                )
-            except CredentialError:
-                raise
+            embedding = bedrock.embed(
+                embed_text,
+                settings.bedrock_embedding_model,
+                settings.bedrock_embedding_dimensions,
+            )
             vec_key = f"{artifact_id}#{section_slug(sec.heading)}"
-            try:
-                vectors.put_vector(vec_key, embedding, vector_metadata)
-            except CredentialError:
-                raise
+            vectors.put_vector(vec_key, embedding, vector_metadata)
             new_keys.add(vec_key)
     else:
         embed_text = _build_document_embedding_text(
@@ -117,18 +113,12 @@ def _reindex_artifact(
             tags=tags,
             description=raw_s3_meta.get("description", ""),
         )
-        try:
-            embedding = bedrock.embed(
-                embed_text,
-                settings.bedrock_embedding_model,
-                settings.bedrock_embedding_dimensions,
-            )
-        except CredentialError:
-            raise
-        try:
-            vectors.put_vector(artifact_id, embedding, vector_metadata)
-        except CredentialError:
-            raise
+        embedding = bedrock.embed(
+            embed_text,
+            settings.bedrock_embedding_model,
+            settings.bedrock_embedding_dimensions,
+        )
+        vectors.put_vector(artifact_id, embedding, vector_metadata)
         new_keys.add(artifact_id)
 
     return len(new_keys)
@@ -165,7 +155,7 @@ async def reconcile_index(
         )
     except Exception as exc:
         logger.exception("Unexpected error in reconcile_index")
-        return {"error": "internal_error", "message": str(exc)}
+        return {"error": ErrorCode.INTERNAL_ERROR, "message": str(exc)}
 
 
 async def _reconcile_index_inner(
@@ -227,7 +217,7 @@ async def _reconcile_index_inner(
             try:
                 raw_meta = s3.head_object(artifact_id)
             except CredentialError as exc:
-                return {"error": "credential_error", "message": str(exc)}
+                return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
             except KeyError:
                 failed.append({"artifact_id": artifact_id, "reason": "S3 object not found"})
                 failed_ids.add(artifact_id)
@@ -257,7 +247,7 @@ async def _reconcile_index_inner(
                 )
                 resolved_ids.add(artifact_id)
             except CredentialError as exc:
-                return {"error": "credential_error", "message": str(exc)}
+                return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
             except Exception as exc:
                 failed.append({"artifact_id": artifact_id, "reason": str(exc)})
                 failed_ids.add(artifact_id)
@@ -273,30 +263,23 @@ async def _reconcile_index_inner(
             )
         else:
             log_path.unlink(missing_ok=True)
-    else:
-        failure_log_entries_before = 0
-        failure_log_entries_after = 0
 
     # ── Phase 2: Orphan scan ──────────────────────────────────────────────────
     own_prefix = settings.write_prefix + "/"
     try:
         all_s3_keys = s3.list_objects(settings.write_prefix)
-    except CredentialError as exc:
-        return {"error": "credential_error", "message": str(exc)}
-    own_keys = [
-        k
-        for k in all_s3_keys
-        if k.startswith(own_prefix)
-        and "_cairn_health_probe" not in k
-        and "_cairn_mcp_startup_probe" not in k
-    ]
-
-    try:
+        own_keys = [
+            k
+            for k in all_s3_keys
+            if k.startswith(own_prefix)
+            and "_cairn_health_probe" not in k
+            and "_cairn_mcp_startup_probe" not in k
+        ]
         indexed_keys_raw = vectors.list_vectors_by_metadata(
             {"scope": {"$eq": settings.write_prefix}}
         )
     except CredentialError as exc:
-        return {"error": "credential_error", "message": str(exc)}
+        return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
     # Build vectors_by_artifact: maps artifact_id → list of its vector keys.
     # Splitting on '#' extracts the artifact_id from keys like "{artifact_id}#{section_slug}".
     # This single pass serves both Scenario 2 (indexed_artifact_ids) and
@@ -331,7 +314,7 @@ async def _reconcile_index_inner(
                 }
             )
         except CredentialError as exc:
-            return {"error": "credential_error", "message": str(exc)}
+            return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
         except Exception as exc:
             failed.append({"artifact_id": orphan_key, "reason": str(exc)})
 
@@ -354,7 +337,7 @@ async def _reconcile_index_inner(
             dangling_artifacts_found += 1
             dangling_vectors_pruned += len(keys_to_delete)
         except CredentialError as exc:
-            return {"error": "credential_error", "message": str(exc)}
+            return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
         except Exception as exc:
             failed.append({"artifact_id": dangling_id, "reason": str(exc)})
 

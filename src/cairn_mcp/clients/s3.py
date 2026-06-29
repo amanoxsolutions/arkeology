@@ -11,16 +11,14 @@ from typing import Any
 import boto3
 import botocore.exceptions
 
-from cairn_mcp.clients.credentials import is_credential_error
+from cairn_mcp.clients.credentials import (
+    _CREDENTIAL_ERROR_MESSAGE,
+    wrap_credential_errors,
+)
 from cairn_mcp.clients.interfaces import S3ClientInterface  # noqa: F401 (structural only)
 from cairn_mcp.errors import CredentialError
 
 logger = logging.getLogger(__name__)
-
-_CREDENTIAL_ERROR_MESSAGE = (
-    "AWS credentials are invalid or expired. "
-    "Re-authenticate (e.g. aws sso login) and restart the server."
-)
 
 
 def _ascii_safe_metadata(metadata: dict[str, str]) -> dict[str, str]:
@@ -42,15 +40,6 @@ def _ascii_safe_metadata(metadata: dict[str, str]) -> dict[str, str]:
     }
 
 
-def _credential_error(exc: botocore.exceptions.ClientError) -> CredentialError:
-    """Wrap a boto3 ClientError as a CredentialError for the S3 service."""
-    return CredentialError(
-        message=_CREDENTIAL_ERROR_MESSAGE,
-        service="s3",
-        original=exc,
-    )
-
-
 class S3ClientImpl:
     """boto3-backed S3 client.
 
@@ -70,76 +59,62 @@ class S3ClientImpl:
 
     def put_object(self, key: str, body: str, metadata: dict[str, str]) -> None:
         logger.debug("S3 put_object key=%s", key)
-        try:
+        with wrap_credential_errors("s3"):
             self._s3.put_object(
                 Bucket=self._bucket,
                 Key=key,
                 Body=body.encode("utf-8"),
                 Metadata=_ascii_safe_metadata(metadata),
             )
-        except botocore.exceptions.ClientError as exc:
-            if is_credential_error(exc):
-                raise _credential_error(exc) from exc
-            raise
 
     def get_object(self, key: str) -> str:
         logger.debug("S3 get_object key=%s", key)
-        try:
-            response = self._s3.get_object(Bucket=self._bucket, Key=key)
-            return response["Body"].read().decode("utf-8")
-        except botocore.exceptions.ClientError as exc:
-            if is_credential_error(exc):
-                raise _credential_error(exc) from exc
-            code = exc.response.get("Error", {}).get("Code", "")
-            if code in ("NoSuchKey", "404"):
-                raise KeyError(key) from exc
-            raise
+        with wrap_credential_errors("s3"):
+            try:
+                response = self._s3.get_object(Bucket=self._bucket, Key=key)
+                return response["Body"].read().decode("utf-8")
+            except botocore.exceptions.ClientError as exc:
+                code = exc.response.get("Error", {}).get("Code", "")
+                if code in ("NoSuchKey", "404"):
+                    raise KeyError(key) from exc
+                raise
 
     def head_object(self, key: str) -> dict[str, Any]:
         logger.debug("S3 head_object key=%s", key)
-        try:
-            response = self._s3.head_object(Bucket=self._bucket, Key=key)
-            return dict(response.get("Metadata", {}))
-        except botocore.exceptions.ClientError as exc:
-            if is_credential_error(exc):
-                raise _credential_error(exc) from exc
-            code = exc.response.get("Error", {}).get("Code", "")
-            if code == "403":
-                # S3 HEAD requests return HTTP 403 with no body when the caller
-                # lacks s3:GetObject permission — treat as a credential/permission error.
-                raise _credential_error(exc) from exc
-            if code in ("NoSuchKey", "404"):
-                raise KeyError(key) from exc
-            raise
+        with wrap_credential_errors("s3"):
+            try:
+                response = self._s3.head_object(Bucket=self._bucket, Key=key)
+                return dict(response.get("Metadata", {}))
+            except botocore.exceptions.ClientError as exc:
+                code = exc.response.get("Error", {}).get("Code", "")
+                if code == "403":
+                    # S3 HEAD requests return HTTP 403 with no body when the caller
+                    # lacks s3:GetObject permission — treat as a credential/permission error.
+                    raise CredentialError(
+                        message=_CREDENTIAL_ERROR_MESSAGE,
+                        service="s3",
+                        original=exc,
+                    ) from exc
+                if code in ("NoSuchKey", "404"):
+                    raise KeyError(key) from exc
+                raise
 
     def list_objects(self, prefix: str) -> list[str]:
         logger.debug("S3 list_objects prefix=%s", prefix)
-        try:
+        with wrap_credential_errors("s3"):
             paginator = self._s3.get_paginator("list_objects_v2")
-            keys: list[str] = []
-            for page in paginator.paginate(Bucket=self._bucket, Prefix=prefix):
-                for obj in page.get("Contents", []):
-                    keys.append(obj["Key"])
-            return keys
-        except botocore.exceptions.ClientError as exc:
-            if is_credential_error(exc):
-                raise _credential_error(exc) from exc
-            raise
+            return [
+                obj["Key"]
+                for page in paginator.paginate(Bucket=self._bucket, Prefix=prefix)
+                for obj in page.get("Contents", [])
+            ]
 
     def head_bucket(self, bucket: str) -> None:
         logger.debug("S3 head_bucket bucket=%s", bucket)
-        try:
+        with wrap_credential_errors("s3"):
             self._s3.head_bucket(Bucket=bucket)
-        except botocore.exceptions.ClientError as exc:
-            if is_credential_error(exc):
-                raise _credential_error(exc) from exc
-            raise
 
     def delete_object(self, key: str) -> None:
         logger.debug("S3 delete_object key=%s", key)
-        try:
+        with wrap_credential_errors("s3"):
             self._s3.delete_object(Bucket=self._bucket, Key=key)
-        except botocore.exceptions.ClientError as exc:
-            if is_credential_error(exc):
-                raise _credential_error(exc) from exc
-            raise

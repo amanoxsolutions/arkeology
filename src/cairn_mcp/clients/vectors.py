@@ -10,15 +10,16 @@ zero-query approach is deemed appropriate.
 """
 
 import logging
+from collections.abc import Iterator, Sequence
 from typing import Any, cast
 
 import boto3
 import botocore.exceptions
 
-from cairn_mcp.clients.credentials import is_credential_error
+from cairn_mcp.clients.credentials import wrap_credential_errors
 from cairn_mcp.clients.filter import matches_filter
 from cairn_mcp.clients.interfaces import VectorsClientInterface  # noqa: F401 (structural only)
-from cairn_mcp.errors import CredentialError, VectorIndexNotFoundError
+from cairn_mcp.errors import VectorIndexNotFoundError
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +48,12 @@ def _is_index_not_found(exc: botocore.exceptions.ClientError) -> bool:
     return code in _INDEX_NOT_FOUND_CODES
 
 
+def _chunked[T](seq: Sequence[T], size: int) -> Iterator[Sequence[T]]:
+    """Yield successive ``size``-length slices of ``seq``."""
+    for i in range(0, len(seq), size):
+        yield seq[i : i + size]
+
+
 class VectorsClientImpl:
     """boto3-backed S3 Vectors client.
 
@@ -66,71 +73,38 @@ class VectorsClientImpl:
             session = boto3.Session(region_name=region)
         self._client = session.client("s3vectors")
 
-    def _wrap_credential_error(
-        self, exc: botocore.exceptions.ClientError, service: str = "s3vectors"
-    ) -> CredentialError:
-        return CredentialError(
-            message=(
-                "AWS credentials are invalid or expired. "
-                "Re-authenticate (e.g. aws sso login) and restart the server."
-            ),
-            service=service,
-            original=exc,
-        )
-
     def put_vector(self, key: str, vector: list[float], metadata: dict[str, Any]) -> None:
         logger.debug("S3Vectors put_vector key=%s", key)
-        try:
-            self._client.put_vectors(
-                vectorBucketName=self._bucket,
-                indexName=self._index,
-                vectors=[
-                    {
-                        "key": key,
-                        "data": {"float32": vector},
-                        "metadata": metadata,
-                    }
-                ],
-            )
-        except botocore.exceptions.ClientError as exc:
-            if is_credential_error(exc):
-                raise self._wrap_credential_error(exc) from exc
-            raise
+        self.put_vectors_batch([{"key": key, "vector": vector, "metadata": metadata}])
 
     def put_vectors_batch(self, items: list[dict[str, Any]]) -> None:
         """Put a batch of vectors, chunked at 500 per PutVectors API limit."""
         if not items:
             return
-        for i in range(0, len(items), _PUT_VECTORS_CHUNK_SIZE):
-            chunk = items[i : i + _PUT_VECTORS_CHUNK_SIZE]
-            vectors_payload = [
-                {
-                    "key": item["key"],
-                    "data": {"float32": item["vector"]},
-                    "metadata": item["metadata"],
-                }
-                for item in chunk
-            ]
-            logger.debug("S3Vectors put_vectors_batch chunk size=%d", len(chunk))
-            try:
+        with wrap_credential_errors("s3vectors"):
+            for chunk in _chunked(items, _PUT_VECTORS_CHUNK_SIZE):
+                vectors_payload = [
+                    {
+                        "key": item["key"],
+                        "data": {"float32": item["vector"]},
+                        "metadata": item["metadata"],
+                    }
+                    for item in chunk
+                ]
+                logger.debug("S3Vectors put_vectors_batch chunk size=%d", len(chunk))
                 self._client.put_vectors(
                     vectorBucketName=self._bucket,
                     indexName=self._index,
                     vectors=cast(list[Any], vectors_payload),
                 )
-            except botocore.exceptions.ClientError as exc:
-                if is_credential_error(exc):
-                    raise self._wrap_credential_error(exc) from exc
-                raise
 
     def get_vectors(self, keys: list[str]) -> list[dict[str, Any]]:
         logger.debug("S3Vectors get_vectors count=%d", len(keys))
         if not keys:
             return []
         results: list[dict[str, Any]] = []
-        try:
-            for i in range(0, len(keys), _GET_VECTORS_CHUNK_SIZE):
-                chunk = keys[i : i + _GET_VECTORS_CHUNK_SIZE]
+        with wrap_credential_errors("s3vectors"):
+            for chunk in _chunked(keys, _GET_VECTORS_CHUNK_SIZE):
                 response = self._client.get_vectors(
                     vectorBucketName=self._bucket,
                     indexName=self._index,
@@ -147,10 +121,6 @@ class VectorsClientImpl:
                         }
                     )
             return results
-        except botocore.exceptions.ClientError as exc:
-            if is_credential_error(exc):
-                raise self._wrap_credential_error(exc) from exc
-            raise
 
     def query_vectors(
         self,
@@ -168,7 +138,7 @@ class VectorsClientImpl:
         }
         if filter_expr is not None:
             kwargs["filter"] = filter_expr
-        try:
+        with wrap_credential_errors("s3vectors"):
             response = self._client.query_vectors(**kwargs)
             results = []
             for item in response.get("vectors", []):
@@ -184,46 +154,35 @@ class VectorsClientImpl:
                     }
                 )
             return results
-        except botocore.exceptions.ClientError as exc:
-            if is_credential_error(exc):
-                raise self._wrap_credential_error(exc) from exc
-            raise
 
     def delete_vectors(self, keys: list[str]) -> None:
         logger.debug("S3Vectors delete_vectors count=%d", len(keys))
         if not keys:
             return
-        try:
-            for i in range(0, len(keys), _DELETE_VECTORS_CHUNK_SIZE):
-                chunk = keys[i : i + _DELETE_VECTORS_CHUNK_SIZE]
+        with wrap_credential_errors("s3vectors"):
+            for chunk in _chunked(keys, _DELETE_VECTORS_CHUNK_SIZE):
                 self._client.delete_vectors(
                     vectorBucketName=self._bucket,
                     indexName=self._index,
                     keys=chunk,
                 )
-        except botocore.exceptions.ClientError as exc:
-            if is_credential_error(exc):
-                raise self._wrap_credential_error(exc) from exc
-            raise
 
     def describe_index(self) -> dict[str, Any]:
         logger.debug("S3Vectors describe_index bucket=%s index=%s", self._bucket, self._index)
-        try:
-            response = self._client.get_index(
-                vectorBucketName=self._bucket,
-                indexName=self._index,
-            )
-            index_info = response.get("index", {})
-            return dict(index_info)
-        except botocore.exceptions.ClientError as exc:
-            if is_credential_error(exc):
-                raise self._wrap_credential_error(exc) from exc
-            if _is_index_not_found(exc):
-                raise VectorIndexNotFoundError(
-                    index_name=self._index,
-                    bucket_name=self._bucket,
-                ) from exc
-            raise
+        with wrap_credential_errors("s3vectors"):
+            try:
+                response = self._client.get_index(
+                    vectorBucketName=self._bucket,
+                    indexName=self._index,
+                )
+                return dict(response.get("index", {}))
+            except botocore.exceptions.ClientError as exc:
+                if _is_index_not_found(exc):
+                    raise VectorIndexNotFoundError(
+                        index_name=self._index,
+                        bucket_name=self._bucket,
+                    ) from exc
+                raise
 
     def list_vectors_by_metadata(self, filter_expr: dict[str, Any]) -> list[str]:
         """Return all vector keys matching the given filter.
@@ -234,7 +193,7 @@ class VectorsClientImpl:
         logger.debug("S3Vectors list_vectors_by_metadata")
         matching_keys: list[str] = []
         next_token: str | None = None
-        try:
+        with wrap_credential_errors("s3vectors"):
             while True:
                 kwargs: dict[str, Any] = {
                     "vectorBucketName": self._bucket,
@@ -252,8 +211,4 @@ class VectorsClientImpl:
                 next_token = response.get("nextToken")
                 if not next_token:
                     break
-        except botocore.exceptions.ClientError as exc:
-            if is_credential_error(exc):
-                raise self._wrap_credential_error(exc) from exc
-            raise
         return matching_keys

@@ -66,17 +66,13 @@ class FakeBedrockClient:
         """Toggle simulated credential failure for all subsequent calls."""
         self._credential_failure = value
 
-    def set_throttle_once(self) -> None:
-        """Simulate a single throttle on the next embed call."""
-        self._throttle_remaining = 1
-
     def set_throttle_count(self, count: int) -> None:
-        """Simulate multiple consecutive throttles."""
+        """Simulate ``count`` consecutive throttles on the next embed calls."""
         self._throttle_remaining = count
 
-    def set_timeout_once(self) -> None:
-        """Simulate a single model timeout on the next embed call."""
-        self._timeout_remaining = 1
+    def set_timeout_count(self, count: int) -> None:
+        """Simulate ``count`` consecutive model timeouts on the next embed calls."""
+        self._timeout_remaining = count
 
     def embed(self, text: str, model_id: str, dimensions: int) -> list[float]:
         """Return a deterministic unit vector derived from the input text.

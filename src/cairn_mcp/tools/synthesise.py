@@ -14,8 +14,13 @@ from cairn_mcp.clients.interfaces import (
     VectorsClientInterface,
 )
 from cairn_mcp.config import Settings
+from cairn_mcp.constants import ArtifactStatus, ErrorCode
 from cairn_mcp.errors import CredentialError
-from cairn_mcp.tools._search_helper import run_search_loop
+from cairn_mcp.tools._search_helper import (
+    build_user_filters,
+    coerce_list_field,
+    run_search_loop,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +72,7 @@ async def synthesise_artifacts(
         )
     except Exception as exc:
         logger.exception("Unexpected error in synthesise_artifacts")
-        return {"error": "internal_error", "message": str(exc)}
+        return {"error": ErrorCode.INTERNAL_ERROR, "message": str(exc)}
 
 
 async def _synthesise_artifacts_inner(
@@ -96,22 +101,13 @@ async def _synthesise_artifacts_inner(
             settings.bedrock_embedding_dimensions,
         )
     except CredentialError as exc:
-        return {"error": "credential_error", "message": str(exc)}
+        return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
 
-    # ── Step 3: Build user filters ────────────────────────────────────────────
-    user_filters: list[dict[str, Any]] = []
-    if type is not None:
-        user_filters.append({"type": {"$eq": type}})
-    if team is not None:
-        user_filters.append({"team": {"$eq": team}})
-    if project is not None:
-        user_filters.append({"project": {"$eq": project}})
-    if tags:
-        for tag in tags:
-            user_filters.append({"tags": {"$eq": tag}})
+    # ── Step 3: Build user filters (no tier filter for synthesise) ────────────
+    user_filters = build_user_filters(type=type, team=team, project=project, tags=tags)
 
     # ── Step 4: Status gate — always "active" for synthesis ───────────────────
-    status_filter: dict[str, Any] = {"status": {"$eq": "active"}}
+    status_filter: dict[str, Any] = {"status": {"$eq": ArtifactStatus.ACTIVE}}
 
     # ── Step 5: Run shared re-fetch loop (no tier filter for synthesise) ──────
     loop_result = run_search_loop(
@@ -141,16 +137,12 @@ async def _synthesise_artifacts_inner(
         try:
             content = s3.get_object(artifact_id)
         except CredentialError as exc:
-            return {"error": "credential_error", "message": str(exc)}
+            return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
         except Exception:
             logger.warning("Skipping artifact '%s': S3 read failed", artifact_id)
             continue
 
-        tags_val: list[str] = (
-            meta["tags"]
-            if isinstance(meta.get("tags"), list)
-            else [t for t in str(meta.get("tags", "")).split(",") if t]
-        )
+        tags_val = coerce_list_field(meta, "tags")
 
         artifacts.append(
             {

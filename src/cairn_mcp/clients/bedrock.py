@@ -8,13 +8,14 @@ import json
 import logging
 import random
 import time
+from collections.abc import Callable
+from typing import Any
 
 import boto3
 import botocore.exceptions
 
-from cairn_mcp.clients.credentials import is_credential_error
+from cairn_mcp.clients.credentials import wrap_credential_errors
 from cairn_mcp.clients.interfaces import BedrockClientInterface  # noqa: F401 (structural only)
-from cairn_mcp.errors import CredentialError
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +42,44 @@ class BedrockClientImpl:
         else:
             session = boto3.Session(region_name=region)
         self._client = session.client("bedrock-runtime")
+
+    def _invoke(
+        self,
+        model_id: str,
+        request_body: dict[str, Any],
+        extract: Callable[[dict[str, Any]], Any],
+    ) -> Any:
+        """Invoke a Bedrock model with one transient-error retry.
+
+        Wraps ``invoke_model`` with the shared retry/credential semantics used by
+        both ``embed`` and ``invoke_text_model``: credential errors surface as
+        ``CredentialError`` (via ``wrap_credential_errors``); transient errors
+        (throttle/timeout/unavailable) are retried exactly once after a jittered
+        sleep; all other errors propagate unchanged. ``extract`` maps the parsed
+        response body to the value the caller wants.
+        """
+        with wrap_credential_errors("bedrock"):
+            for attempt in range(2):
+                try:
+                    response = self._client.invoke_model(
+                        modelId=model_id,
+                        body=json.dumps(request_body),
+                        contentType="application/json",
+                        accept="application/json",
+                    )
+                    response_body = json.loads(response["body"].read())
+                    return extract(response_body)
+                except botocore.exceptions.ClientError as exc:
+                    code = exc.response.get("Error", {}).get("Code", "")
+                    if code in _TRANSIENT_ERROR_CODES and attempt == 0:
+                        logger.warning(
+                            "Bedrock transient error %s on attempt 1; retrying after %.1fs",
+                            code,
+                            _RETRY_SLEEP_SECONDS,
+                        )
+                        time.sleep(_RETRY_SLEEP_SECONDS + random.uniform(0, 1))
+                        continue
+                    raise
 
     def embed(self, text: str, model_id: str, dimensions: int) -> list[float]:
         """Generate a text embedding using the specified Bedrock model.
@@ -69,39 +108,10 @@ class BedrockClientImpl:
             len(text),
         )
         request_body: dict[str, str | int] = {"inputText": text, "dimensions": dimensions}
-        for attempt in range(2):
-            try:
-                response = self._client.invoke_model(
-                    modelId=model_id,
-                    body=json.dumps(request_body),
-                    contentType="application/json",
-                    accept="application/json",
-                )
-                response_body = json.loads(response["body"].read())
-                embedding: list[float] = response_body["embedding"]
-                return embedding
-            except botocore.exceptions.ClientError as exc:
-                if is_credential_error(exc):
-                    raise CredentialError(
-                        message=(
-                            "AWS credentials are invalid or expired. "
-                            "Re-authenticate (e.g. aws sso login) and restart the server."
-                        ),
-                        service="bedrock",
-                        original=exc,
-                    ) from exc
-                code = exc.response.get("Error", {}).get("Code", "")
-                if code in _TRANSIENT_ERROR_CODES and attempt == 0:
-                    logger.warning(
-                        "Bedrock transient error %s on attempt 1; retrying after %.1fs",
-                        code,
-                        _RETRY_SLEEP_SECONDS,
-                    )
-                    time.sleep(_RETRY_SLEEP_SECONDS + random.uniform(0, 1))
-                    continue
-                raise
-        # Should not reach here, but satisfies type checker
-        raise RuntimeError("Unreachable")
+        embedding: list[float] = self._invoke(
+            model_id, request_body, lambda body: body["embedding"]
+        )
+        return embedding
 
     def invoke_text_model(self, model_id: str, prompt: str) -> str:
         """Invoke a Bedrock text generation model and return the response text.
@@ -133,36 +143,9 @@ class BedrockClientImpl:
             "messages": [{"role": "user", "content": [{"text": prompt}]}],
             "inferenceConfig": {"maxTokens": 300},
         }
-        for attempt in range(2):
-            try:
-                response = self._client.invoke_model(
-                    modelId=model_id,
-                    body=json.dumps(request_body),
-                    contentType="application/json",
-                    accept="application/json",
-                )
-                response_body = json.loads(response["body"].read())
-                text: str = response_body["output"]["message"]["content"][0]["text"]
-                return text
-            except botocore.exceptions.ClientError as exc:
-                if is_credential_error(exc):
-                    raise CredentialError(
-                        message=(
-                            "AWS credentials are invalid or expired. "
-                            "Re-authenticate (e.g. aws sso login) and restart the server."
-                        ),
-                        service="bedrock",
-                        original=exc,
-                    ) from exc
-                code = exc.response.get("Error", {}).get("Code", "")
-                if code in _TRANSIENT_ERROR_CODES and attempt == 0:
-                    logger.warning(
-                        "Bedrock transient error %s on attempt 1; retrying after %.1fs",
-                        code,
-                        _RETRY_SLEEP_SECONDS,
-                    )
-                    time.sleep(_RETRY_SLEEP_SECONDS + random.uniform(0, 1))
-                    continue
-                raise
-        # Should not reach here, but satisfies type checker
-        raise RuntimeError("Unreachable")
+        text: str = self._invoke(
+            model_id,
+            request_body,
+            lambda body: body["output"]["message"]["content"][0]["text"],
+        )
+        return text
