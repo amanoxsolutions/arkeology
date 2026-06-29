@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-06-29
+
+### Added
+- `cairn_studio` MCP tool — two-pane visual artifact browser rendered as an MCP App in
+  supporting hosts (Claude Desktop, claude.ai, VS Code Copilot); falls back to a
+  structured artifact listing on non-supporting hosts
+- `purge_archived` best-effort bulk partial-failure: non-credential failures on individual
+  artifacts are collected in a `failed` list without aborting the purge; `CredentialError`
+  during the deletion phase aborts early and reports the artifacts purged so far in
+  `purged_ids`
+
+### Changed
+- `ErrorCode` and `ArtifactStatus` StrEnum constants extracted to `constants.py`,
+  replacing ~75 scattered string literals across the codebase
+- Config range constraints migrated from imperative `@field_validator` to declarative
+  `Field(ge=…, le=…)` in `Settings`
+- `wrap_credential_errors(service)` context manager introduced in `credentials.py`;
+  all three AWS client implementations use it, removing per-method `except` boilerplate
+- `build_user_filters` and `coerce_list_field` helpers extracted to `_search_helper.py`;
+  used by `search_artifacts`, `list_artifacts`, and `reconcile_index`
+- `_SCHEMA_RESOURCES` table-driven loop replaces five identical `@app.resource`
+  registrations in `resources.py`
+- All dependencies pinned with compatible-release operator (`~=`)
+
+### Fixed
+- `reconcile_index` now preserves `commit_refs` and `last_edited_ulid` fields when
+  re-indexing artifacts
+- `check_synthesis_freshness` reports sources missing from the vector index directly;
+  removes the unreliable S3 fallback
+- `write_artifact` enforces `file_extension` on bulk-write paths and performs
+  best-effort orphan cleanup on partial write failures
+- `READ_PREFIXES` config value now normalises surrounding slashes on load
+- `get_vectors` and `delete_vectors` now chunk requests to the S3 Vectors API cap
+  (≤ 100 keys per call), preventing `ValidationException` on large artifact sets
+- Minor code quality fixes across tools and clients (codebase review 2026-06-25)
+
 ## [0.4.0] - 2026-06-23
 
 ### Added
