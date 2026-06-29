@@ -2,6 +2,11 @@
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+  /* ============================================================
+     DESIGN TOKENS — :root = DARK (default). [data-theme="light"]
+     overrides below. Kept in sync with the implementation
+     (src/cairn_mcp/static/cairn-studio.html) per Review 2026-06-29.
+     ============================================================ */
   :root {
     --base:          #09091a;
     --surface:       #12142a;
@@ -12,13 +17,13 @@
     --bd-strong:     rgba(148,158,220,0.22);
     --t1:            #e2eaff;
     --t2:            #8390bc;
-    --t3:            #404870;
+    --t3:            #757fb0;   /* brightened from #404870 (~2.2:1, AA-fail) to ~5.09:1 on base — C2 */
     --mono:          "SF Mono","Cascadia Code","Fira Code",ui-monospace,monospace;
 
     --g:   linear-gradient(135deg, #00d4b8, #0088ff 33%, #8844ee 66%, #e800b0);
     --g90: linear-gradient(90deg,  #00d4b8, #0088ff 33%, #8844ee 66%, #e800b0);
 
-    /* Artifact type colours — teal→magenta = structural→ephemeral */
+    /* Artifact type colours — teal→magenta = structural→ephemeral (4px stripe / pip) */
     --c-adr:         #00d4b8;
     --c-prd:         #00bccc;
     --c-spec:        #00a0e0;
@@ -34,18 +39,127 @@
     --c-learn:       #e80088;
     --c-synth:       #f00077;
     --c-bug:         #f50060;
+
+    /* Badge/eyebrow TEXT colours (M8) — lightened so each clears ≥4.5:1 as text
+       on its own 16% tint over the dark base. */
+    --bt-adr:        #00d4b8;
+    --bt-prd:        #00bccc;
+    --bt-spec:       #00a0e0;
+    --bt-plan:       #0088f8;
+    --bt-runbook:    #4180f1;
+    --bt-changelog:  #6a76f3;
+    --bt-impl:       #856cf3;
+    --bt-cr:         #9966f2;
+    --bt-dn:         #ae5ee4;
+    --bt-pm:         #c654d4;
+    --bt-brain:      #d548c7;
+    --bt-ss:         #e237b8;
+    --bt-learn:      #ec2e9d;
+    --bt-synth:      #f2268b;
+    --bt-bug:        #f62476;
+
+    --focus: #0088ff;
+
+    /* Type scale (1rem = 16px base; 14px reading floor) (M3/M7) */
+    --text-h1:   1.375rem;  /* 22px */
+    --text-h2:   1.1875rem; /* 19px */
+    --text-h3:   1.0625rem; /* 17px */
+    --text-body: 1rem;      /* 16px */
+    --text-read: 0.9375rem; /* 15px */
+    --text-cap:  0.875rem;  /* 14px — smallest reading token */
+    --text-label:0.8125rem; /* 13px — micro-labels */
+    --text-badge:0.75rem;   /* 12px — type badge chips */
+    --text-th:   0.6875rem; /* 11px — table headers, eyebrow */
+
+    /* Spacing scale (4px base) (M7) */
+    --sp-1: 4px;  --sp-2: 8px;  --sp-3: 12px; --sp-4: 16px;
+    --sp-5: 24px; --sp-6: 32px; --sp-7: 48px; --sp-8: 64px;
+
+    /* Radius (M7) */
+    --r-sm: 6px; --r-md: 8px; --r-lg: 10px; --r-xl: 16px; --r-pill: 999px;
+
+    /* Elevation (M7) */
+    --shadow-1: 0 1px 2px rgba(0,0,0,0.40);
+    --shadow-2: 0 6px 18px rgba(0,0,0,0.50);
+    --shadow-3: 0 24px 60px -16px rgba(0,0,0,0.70);
+
+    /* Motion (M7) */
+    --dur-fast: 0.15s; --dur-base: 0.25s; --ease: cubic-bezier(.4,0,.2,1);
+  }
+
+  /* ============================================================
+     LIGHT THEME — designed, not inverted. Spectrum kept; stops
+     deepened so text holds ≥4.5:1 on white (m11).
+     ============================================================ */
+  [data-theme="light"] {
+    --base:        #f4f5fb;
+    --surface:     #ffffff;
+    --surface-up:  #eef0fa;
+    --surface-hi:  #e4e7f6;
+
+    --bd-faint:    rgba(40,46,90,0.07);
+    --bd:          rgba(40,46,90,0.14);
+    --bd-strong:   rgba(40,46,90,0.24);
+
+    --t1:          #15172b;
+    --t2:          #4f598a;
+    --t3:          #5e6796;
+
+    --g:   linear-gradient(135deg, #009b86, #0066e0 33%, #7a2fdd 66%, #c70098);
+    --g90: linear-gradient(90deg,  #009b86, #0066e0 33%, #7a2fdd 66%, #c70098);
+
+    --c-adr:       #007565;  --c-prd:       #00717a;  --c-spec:      #006b96;
+    --c-plan:      #0063b5;  --c-runbook:   #1759cf;  --c-changelog: #3344ee;
+    --c-impl:      #5533ee;  --c-cr:        #7231e4;  --c-dn:        #8a2ec7;
+    --c-pm:        #9b2aa9;  --c-brain:     #a71c99;  --c-ss:        #af0d86;
+    --c-learn:     #b5006a;  --c-synth:     #b9005c;  --c-bug:       #ba0049;
+
+    --bt-adr:       #007565;  --bt-prd:       #00717a;  --bt-spec:      #006b96;
+    --bt-plan:      #0063b5;  --bt-runbook:   #1759cf;  --bt-changelog: #3344ee;
+    --bt-impl:      #5533ee;  --bt-cr:        #7231e4;  --bt-dn:        #8a2ec7;
+    --bt-pm:        #9b2aa9;  --bt-brain:     #a71c99;  --bt-ss:        #af0d86;
+    --bt-learn:     #b5006a;  --bt-synth:     #b9005c;  --bt-bug:       #ba0049;
+
+    --focus: #0062d6;
+
+    --shadow-1: 0 1px 2px rgba(20,22,50,0.08);
+    --shadow-2: 0 6px 18px rgba(20,22,50,0.10);
+    --shadow-3: 0 24px 60px -16px rgba(20,22,50,0.16);
   }
 
   html {
     background: var(--base);
     color: var(--t1);
     font-family: system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI","Helvetica Neue",sans-serif;
-    font-size: 14px;
+    font-size: 16px;   /* M3: 16px base */
     line-height: 1.6;
     -webkit-font-smoothing: antialiased;
+    transition: background var(--dur-base) var(--ease), color var(--dur-base) var(--ease);
   }
 
-  body { max-width: 1160px; margin: 0 auto; padding: 72px 40px 120px; }
+  body { max-width: 1160px; margin: 0 auto; padding: var(--sp-7) 40px 120px; }
+
+  :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+  /* ── Page header bar with theme toggle ── */
+  .pagebar {
+    display: flex; align-items: center; gap: var(--sp-4);
+    margin-bottom: var(--sp-7);
+  }
+  .pagebar__spacer { flex: 1; }
+  .toggle {
+    display: inline-flex; align-items: center; gap: var(--sp-2);
+    height: 38px; padding: 0 14px;
+    background: var(--surface); color: var(--t1);
+    border: 1px solid var(--bd); border-radius: var(--r-pill);
+    font: 600 var(--text-label)/1 inherit; letter-spacing: .04em; cursor: pointer;
+    transition: border-color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
+  }
+  .toggle:hover { border-color: var(--bd-strong); }
+  .toggle__dot { width: 14px; height: 14px; border-radius: 50%; background: var(--g); }
+  .toggle .tt-dark, .toggle .tt-light { display: none; }
+  [data-theme="dark"]  .toggle .tt-dark  { display: inline; }
+  [data-theme="light"] .toggle .tt-light { display: inline; }
 
   /* ── Shared ── */
   .g-text {
@@ -57,17 +171,17 @@
   }
 
   .sec-head {
-    font-size: 10px; font-weight: 600; letter-spacing: .14em;
+    font-size: var(--text-th); font-weight: 600; letter-spacing: .14em;
     text-transform: uppercase; color: var(--t3);
-    padding-bottom: 12px; border-bottom: 1px solid var(--bd-faint); margin-bottom: 24px;
+    padding-bottom: var(--sp-3); border-bottom: 1px solid var(--bd-faint); margin-bottom: var(--sp-5);
   }
 
-  .divider { height: 1px; background: var(--bd-faint); margin: 60px 0; }
+  .divider { height: 1px; background: var(--bd-faint); margin: var(--sp-8) 0; }
 
   /* ── Header ── */
   .hd-eyebrow {
-    font-size: 11px; font-weight: 500; letter-spacing: .18em;
-    text-transform: uppercase; color: var(--t3); margin-bottom: 20px;
+    font-size: var(--text-label); font-weight: 500; letter-spacing: .18em;
+    text-transform: uppercase; color: var(--t3); margin-bottom: var(--sp-5);
   }
 
   .hd-mark {
@@ -81,27 +195,28 @@
   }
 
   .hd-desc {
-    font-size: 15px; color: var(--t2); max-width: 520px; line-height: 1.65; margin-bottom: 32px;
+    font-size: var(--text-read); color: var(--t2); max-width: 540px; line-height: 1.65; margin-bottom: var(--sp-6);
   }
 
   .g-rule { height: 2px; background: var(--g90); border-radius: 2px; max-width: 400px; }
 
   /* ── Foundation ── */
-  .found-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 48px; }
+  .found-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-7); }
 
   .swatches { display: flex; gap: 10px; flex-wrap: wrap; }
 
-  .sw { width: 84px; }
-  .sw-block { height: 52px; border-radius: 8px; border: 1px solid var(--bd-faint); margin-bottom: 8px; }
-  .sw-name  { display: block; font-size: 11px; font-weight: 600; color: var(--t2); margin-bottom: 2px; }
+  .sw { width: 92px; }
+  .sw-block { height: 52px; border-radius: var(--r-md); border: 1px solid var(--bd-faint); margin-bottom: var(--sp-2); }
+  .sw-name  { display: block; font-size: var(--text-label); font-weight: 600; color: var(--t2); margin-bottom: 2px; }
   .sw-hex   { font-family: var(--mono); font-size: 10px; color: var(--t3); }
+  .sw-hex b { color: var(--t2); font-weight: 600; }
 
   .g-strip-wrap { display: flex; flex-direction: column; gap: 10px; }
 
   .g-strip {
-    height: 52px; border-radius: 10px;
+    height: 52px; border-radius: var(--r-lg);
     background: var(--g90); background-size: 200% 200%;
-    border: 1px solid rgba(255,255,255,.06);
+    border: 1px solid var(--bd);
   }
 
   @media (prefers-reduced-motion: no-preference) {
@@ -112,41 +227,62 @@
   .g-stops { display: flex; justify-content: space-between; }
   .g-stops span { font-family: var(--mono); font-size: 10px; color: var(--t3); }
 
-  .g-note { font-size: 12px; color: var(--t2); line-height: 1.65; margin-top: 4px; }
+  .g-note { font-size: var(--text-label); color: var(--t2); line-height: 1.65; margin-top: var(--sp-1); }
+
+  /* ── Token scales (M7) ── */
+  .scale-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-7); }
+  .sp-row { display: flex; align-items: center; gap: var(--sp-4); margin-bottom: var(--sp-2); }
+  .sp-bar { height: 14px; background: var(--g90); border-radius: 3px; }
+  .sp-tok { font-family: var(--mono); font-size: var(--text-label); color: var(--t2); width: 120px; }
+  .radii { display: flex; gap: var(--sp-3); flex-wrap: wrap; }
+  .radius-chip {
+    width: 78px; height: 56px; background: var(--surface-hi); border: 1px solid var(--bd);
+    display: grid; place-items: center; font-size: var(--text-th); color: var(--t2);
+  }
+  .text-row { display: grid; grid-template-columns: 130px 1fr; gap: var(--sp-4); align-items: baseline; padding: var(--sp-2) 0; border-bottom: 1px solid var(--bd-faint); }
+  .text-meta { font-family: var(--mono); font-size: var(--text-th); color: var(--t2); }
+  .text-meta b { color: var(--t1); }
+  .elev-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: var(--sp-4); }
+  .elev { border-radius: var(--r-lg); border: 1px solid var(--bd-faint); padding: var(--sp-5); font-size: var(--text-label); color: var(--t2); }
+  .elev b { display:block; color: var(--t1); font-size: var(--text-cap); margin-bottom: var(--sp-1); }
+  .elev--0 { background: var(--base); }
+  .elev--1 { background: var(--surface);   box-shadow: var(--shadow-1); }
+  .elev--2 { background: var(--surface-up); box-shadow: var(--shadow-2); }
+  .elev--3 { background: var(--surface-hi); box-shadow: var(--shadow-3); }
 
   /* ── Type spectrum grid ── */
   .type-grid {
     display: grid;
     grid-template-columns: repeat(5, 1fr);
-    gap: 8px;
+    gap: var(--sp-2);
   }
 
   .tc {
     display: flex; align-items: center; gap: 9px;
     padding: 10px 12px; background: var(--surface);
-    border-radius: 8px; border: 1px solid var(--bd-faint);
-    transition: border-color .15s;
+    border-radius: var(--r-md); border: 1px solid var(--bd-faint);
+    transition: border-color var(--dur-fast);
   }
   .tc:hover { border-color: var(--bd); }
   .tc-pip { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-  .tc-slug { font-family: var(--mono); font-size: 11px; color: var(--t2);
+  .tc-slug { font-family: var(--mono); font-size: var(--text-label); color: var(--t2);
              white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
   /* ── Glass demo ── */
   .glass-scene {
-    border-radius: 16px; padding: 32px;
+    border-radius: var(--r-xl); padding: var(--sp-6);
     background:
-      radial-gradient(ellipse at 20% 50%, rgba(0,136,255,.09)  0%, transparent 55%),
-      radial-gradient(ellipse at 80% 50%, rgba(136,68,238,.09) 0%, transparent 55%),
+      radial-gradient(ellipse at 20% 50%, color-mix(in srgb, var(--c-plan) 9%, transparent) 0%, transparent 55%),
+      radial-gradient(ellipse at 80% 50%, color-mix(in srgb, var(--c-impl) 9%, transparent) 0%, transparent 55%),
       var(--surface);
   }
 
   .glass-row { display: grid; grid-template-columns: repeat(3,1fr); gap: 14px; }
 
   .glass-card {
-    background: rgba(9,9,26,.55);
+    background: color-mix(in srgb, var(--base) 55%, transparent);
     backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
-    border: 1px solid var(--bd); border-radius: 12px; padding: 22px;
+    border: 1px solid var(--bd); border-radius: var(--r-lg); padding: 22px;
     position: relative; overflow: hidden;
   }
 
@@ -155,23 +291,23 @@
     background: var(--g90); opacity:.35;
   }
 
-  .gc-label { font-size: 10px; font-weight: 600; letter-spacing:.1em;
+  .gc-label { font-size: var(--text-th); font-weight: 600; letter-spacing:.1em;
               text-transform: uppercase; color: var(--t3); margin-bottom: 10px; }
   .gc-val   { font-size: 32px; font-weight: 700; letter-spacing: -.03em;
               font-variant-numeric: tabular-nums; line-height: 1; }
-  .gc-sub   { font-size: 11px; color: var(--t3); margin-top: 6px; }
+  .gc-sub   { font-size: var(--text-label); color: var(--t3); margin-top: 6px; }
 
   /* ── Browser mockup ── */
   .mockup {
     border-radius: 14px; overflow: hidden;
     border: 1px solid var(--bd-strong);
-    box-shadow: 0 40px 100px -20px rgba(0,0,0,.75), 0 0 0 1px rgba(255,255,255,.03);
+    box-shadow: var(--shadow-3);
   }
 
   /* Titlebar */
   .tb {
     background: var(--surface); height: 52px;
-    display: flex; align-items: center; padding: 0 20px; gap: 16px;
+    display: flex; align-items: center; padding: 0 20px; gap: var(--sp-4);
     position: relative; border-bottom: 1px solid var(--bd-faint);
   }
 
@@ -188,19 +324,27 @@
   .tb-logo { font-size: 16px; font-weight: 800; letter-spacing: -.03em; flex-shrink:0; }
 
   .tb-search {
-    flex:1; max-width:340px; height:32px;
-    background: var(--base); border: 1px solid var(--bd); border-radius: 8px;
-    display: flex; align-items: center; padding: 0 12px; gap: 8px;
-    color: var(--t2); font-size: 12px;
+    flex:1; max-width:300px; height:32px;
+    background: var(--base); border: 1px solid var(--bd); border-radius: var(--r-md);
+    display: flex; align-items: center; padding: 0 12px; gap: var(--sp-2);
+    color: var(--t2); font-size: var(--text-label);
   }
+
+  .tb-toggle {
+    display: inline-flex; align-items: center; gap: 6px;
+    height: 30px; padding: 0 12px;
+    background: var(--base); border: 1px solid var(--bd); border-radius: var(--r-pill);
+    color: var(--t2); font-size: var(--text-label); flex-shrink: 0;
+  }
+  .tb-toggle .dot { width: 11px; height: 11px; border-radius: 50%; background: var(--g); }
 
   .tb-scope {
-    margin-left: auto; font-size: 11px; color: var(--t2);
+    font-size: var(--text-label); color: var(--t2);
     background: var(--base); border: 1px solid var(--bd-faint);
-    border-radius: 6px; padding: 4px 10px; flex-shrink: 0;
+    border-radius: var(--r-sm); padding: 4px 10px; flex-shrink: 0;
   }
 
-  /* Body */
+  /* Body — illustrative two-pane (production is single-pane with view switching; see note) */
   .mb { display: flex; height: 540px; overflow: hidden; }
 
   /* Left panel */
@@ -216,166 +360,190 @@
   }
 
   .lp-fp {
-    font-size: 10px; color: var(--t2); background: var(--base);
-    border: 1px solid var(--bd-faint); border-radius: 6px; padding: 3px 8px;
+    font-size: var(--text-label); color: var(--t2); background: var(--base);
+    border: 1px solid var(--bd-faint); border-radius: var(--r-sm); padding: 3px 8px;
   }
 
   .lp-list {
-    flex:1; overflow-y: auto; padding: 8px;
+    flex:1; overflow-y: auto; padding: var(--sp-2);
     display: flex; flex-direction: column; gap: 3px;
   }
 
   .li {
-    padding: 10px 12px 10px 15px;
-    border-radius: 8px; border: 1px solid transparent;
+    padding: 12px 12px 12px 15px;
+    border-radius: var(--r-md); border: 1px solid transparent;
     position: relative; overflow: hidden;
     flex-shrink: 0; /* never compress — list scrolls instead */
   }
 
+  .li:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+
   .li-stripe {
-    position: absolute; left:0; top:0; bottom:0; width:3px; border-radius:0;
+    position: absolute; left:0; top:0; bottom:0; width:4px; border-radius:0;
   }
 
   .li.active { background: var(--surface-hi); border-color: var(--bd); }
-  .li:not(.active) { opacity: .55; }
+  /* M4: no opacity dimming — selection signalled by --surface-hi bg + --bd border only;
+     unselected rows render at full opacity. */
 
   .li-badge {
     display: inline-block;
-    font-size: 12px; font-weight: 700; letter-spacing: .08em;
+    font-size: var(--text-badge); font-weight: 700; letter-spacing: .08em;
     text-transform: uppercase; padding: 2px 6px; border-radius: 4px;
     margin-bottom: 5px; font-family: var(--mono);
   }
 
   .li-title {
-    font-size: 12px; font-weight: 500; color: var(--t1);
+    font-size: var(--text-cap); font-weight: 500; color: var(--t1);
     margin-bottom: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
 
-  .li-meta { font-size: 10px; color: var(--t2); }
+  .li-meta { font-size: var(--text-label); color: var(--t3); }  /* C2: brightened --t3 — one rule */
 
   /* Right panel */
-  .rp { flex:1; overflow-y: auto; padding: 32px 36px; background: var(--base); }
+  .rp { flex:1; overflow-y: auto; padding: var(--sp-6); background: var(--base); }
 
   .rp-eyebrow {
-    font-size: 10px; font-weight: 700; letter-spacing:.12em;
+    font-size: var(--text-th); font-weight: 700; letter-spacing:.12em;
     text-transform: uppercase; margin-bottom: 10px;
   }
 
   .rp-title {
-    font-size: 22px; font-weight: 700; letter-spacing: -.02em;
+    font-size: var(--text-h1); font-weight: 700; letter-spacing: -.02em;
     line-height: 1.2; margin-bottom: 10px; text-wrap: balance;
   }
 
-  .rp-pills { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 28px; }
+  .rp-pills { display: flex; gap: var(--sp-2); flex-wrap: wrap; margin-bottom: 28px; }
 
   .rp-pill {
-    font-size: 10px; color: var(--t2); background: var(--surface);
-    border: 1px solid var(--bd-faint); border-radius: 20px; padding: 3px 10px;
+    font-size: var(--text-label); color: var(--t2); background: var(--surface);
+    border: 1px solid var(--bd-faint); border-radius: var(--r-pill); padding: 3px 10px;
   }
 
   .rp-h2 {
-    font-size: 13px; font-weight: 600; color: var(--t1);
-    margin: 22px 0 8px; padding-bottom: 8px;
+    font-size: var(--text-h3); font-weight: 600; color: var(--t1);
+    margin: 22px 0 var(--sp-2); padding-bottom: var(--sp-2);
     border-bottom: 1px solid var(--bd-faint);
   }
 
   .rp-p {
-    font-size: 12px; color: var(--t2); line-height: 1.75;
-    margin-bottom: 12px; max-width: 580px;
+    font-size: var(--text-body); color: var(--t2); line-height: 1.75;
+    margin-bottom: var(--sp-3); max-width: 620px;
   }
 
   .rp-code {
-    font-family: var(--mono); font-size: 11px;
+    font-family: var(--mono); font-size: var(--text-cap);
     padding: 2px 6px; border-radius: 4px;
   }
 
-  .rp-table { width: 100%; border-collapse: collapse; font-size: 11px; margin-bottom: 18px; }
+  .rp-table { width: 100%; border-collapse: collapse; font-size: var(--text-read); margin-bottom: 18px; }
   .rp-table th {
     text-align: left; padding: 6px 10px;
-    font-size: 9px; font-weight: 700; letter-spacing:.1em; text-transform: uppercase;
+    font-size: var(--text-th); font-weight: 700; letter-spacing:.1em; text-transform: uppercase;
     color: var(--t3); border-bottom: 1px solid var(--bd-faint);
   }
   .rp-table td {
     padding: 7px 10px; color: var(--t2);
-    border-bottom: 1px solid rgba(148,158,220,.04); vertical-align: top;
+    border-bottom: 1px solid var(--bd-faint); vertical-align: top;
   }
   .rp-table td:first-child { font-weight: 500; color: var(--t1); }
 
   /* Fake diagram node strip */
   .rp-diagram {
     background: var(--surface); border: 1px solid var(--bd-faint);
-    border-radius: 10px; height: 76px;
+    border-radius: var(--r-lg); height: 76px;
     display: flex; align-items: center; justify-content: center; gap: 10px;
     margin-bottom: 14px;
   }
 
   .rp-node {
     background: var(--surface-up); border: 1px solid var(--bd);
-    border-radius: 6px; padding: 5px 11px;
-    font-size: 11px; font-weight: 500; color: var(--t2);
+    border-radius: var(--r-sm); padding: 5px 11px;
+    font-size: var(--text-label); font-weight: 500; color: var(--t2);
   }
 
-  .rp-arr { color: var(--t3); font-size: 14px; }
+  .rp-arr { color: var(--t3); font-size: var(--text-cap); }
+
+  .note-box {
+    background: var(--surface); border: 1px solid var(--bd-faint);
+    border-left: 3px solid var(--c-plan); border-radius: var(--r-md);
+    padding: var(--sp-4); font-size: var(--text-label); color: var(--t2); line-height: 1.7;
+    margin-bottom: var(--sp-4);
+  }
+  .note-box b { color: var(--t1); }
+
+  @media (max-width: 820px) {
+    .found-grid, .scale-grid { grid-template-columns: 1fr; }
+    .elev-grid { grid-template-columns: 1fr 1fr; }
+    .type-grid { grid-template-columns: repeat(2, 1fr); }
+    .mb { flex-direction: column; height: auto; }
+    .lp { width: auto; }
+  }
+
+  /* Touch viewports — ≥44px targets (m10) */
+  @media (hover: none) and (pointer: coarse) {
+    .toggle { min-height: 44px; }
+  }
 </style>
 
+<!-- ── Page bar (theme toggle renders the whole identity page in both themes) ── -->
+<div class="pagebar">
+  <span class="pagebar__spacer"></span>
+  <button class="toggle" id="themeToggle" type="button" aria-pressed="false" aria-label="Toggle light and dark theme">
+    <span class="toggle__dot" aria-hidden="true"></span>
+    <span class="tt-dark">Dark</span>
+    <span class="tt-light">Light</span>
+  </button>
+</div>
+
 <!-- ── Identity header ── -->
-<header style="margin-bottom:80px;">
+<header style="margin-bottom:var(--sp-8);">
   <p class="hd-eyebrow">Visual Identity · cairn-mcp browser</p>
   <div style="margin-bottom:28px;">
     <span class="hd-mark g-text">cairn</span>
-    <span class="hd-sub">browser</span>
+    <span class="hd-sub">studio</span>
   </div>
   <p class="hd-desc">
-    A dark spectrum-accented developer tool surfacing persistent AI artifact memory through
-    a two-pane reading interface embedded inline in Claude Desktop and compatible MCP hosts.
+    A spectrum-accented developer tool surfacing persistent AI artifact memory through a
+    reading interface embedded inline in Claude Desktop and compatible MCP hosts. Dark by
+    default, with a designed light theme (toggle, top right) — both meet WCAG AA.
   </p>
   <div class="g-rule"></div>
 </header>
 
 <!-- ── Foundation ── -->
-<section style="margin-bottom:56px;">
-  <p class="sec-head">Foundation — base palette &amp; spectrum accent</p>
+<section style="margin-bottom:var(--sp-7);">
+  <p class="sec-head">Foundation — base palette &amp; spectrum accent (toggle the theme to see both)</p>
   <div class="found-grid">
 
     <div>
-      <p style="font-size:10px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--t3);margin-bottom:16px;">Base palette</p>
+      <p style="font-size:var(--text-th);font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--t3);margin-bottom:16px;">Surfaces &amp; text · token / dark / light</p>
       <div class="swatches">
-        <div class="sw">
-          <div class="sw-block" style="background:#09091a;"></div>
-          <span class="sw-name">base</span><span class="sw-hex">#09091a</span>
-        </div>
-        <div class="sw">
-          <div class="sw-block" style="background:#12142a;"></div>
-          <span class="sw-name">surface</span><span class="sw-hex">#12142a</span>
-        </div>
-        <div class="sw">
-          <div class="sw-block" style="background:#222548;"></div>
-          <span class="sw-name">active</span><span class="sw-hex">#222548</span>
-        </div>
-        <div class="sw">
-          <div class="sw-block" style="background:#e2eaff;border:none;"></div>
-          <span class="sw-name">text-1</span><span class="sw-hex">#e2eaff</span>
-        </div>
-        <div class="sw">
-          <div class="sw-block" style="background:#8390bc;"></div>
-          <span class="sw-name">text-2</span><span class="sw-hex">#8390bc</span>
-        </div>
+        <div class="sw"><div class="sw-block" style="background:var(--base);"></div><span class="sw-name">--base</span><span class="sw-hex"><b>#09091a</b> · #f4f5fb</span></div>
+        <div class="sw"><div class="sw-block" style="background:var(--surface);"></div><span class="sw-name">--surface</span><span class="sw-hex"><b>#12142a</b> · #ffffff</span></div>
+        <div class="sw"><div class="sw-block" style="background:var(--surface-hi);"></div><span class="sw-name">--surface-hi</span><span class="sw-hex"><b>#222548</b> · #e4e7f6</span></div>
+        <div class="sw"><div class="sw-block" style="background:var(--t1);"></div><span class="sw-name">--t1</span><span class="sw-hex"><b>#e2eaff</b> · #15172b</span></div>
+        <div class="sw"><div class="sw-block" style="background:var(--t2);"></div><span class="sw-name">--t2</span><span class="sw-hex"><b>#8390bc</b> · #4f598a</span></div>
+        <div class="sw"><div class="sw-block" style="background:var(--t3);"></div><span class="sw-name">--t3</span><span class="sw-hex"><b>#757fb0</b> · #5e6796</span></div>
       </div>
+      <p class="g-note" style="margin-top:var(--sp-3);">
+        <b style="color:var(--t1);">--t3 was brightened</b> from #404870 (~2.2:1, AA-fail) to
+        #757fb0 (~5.09:1 on the dark base). It now carries <code style="font-family:var(--mono)">.li-meta</code>
+        (date + tier), the detail empty-state, and small labels — one rule, AA in both themes (C2/m12).
+      </p>
     </div>
 
     <div class="g-strip-wrap">
-      <p style="font-size:10px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--t3);margin-bottom:16px;">Spectrum accent</p>
+      <p style="font-size:var(--text-th);font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--t3);margin-bottom:16px;">Spectrum accent</p>
       <div class="g-strip"></div>
       <div class="g-stops">
-        <span>#00d4b8 teal</span>
-        <span>#0088ff blue</span>
-        <span>#8844ee purple</span>
-        <span>#e800b0 magenta</span>
+        <span>teal</span><span>blue</span><span>purple</span><span>magenta</span>
       </div>
       <p class="g-note">
-        Used as: toolbar accent rule, list-item left stripes, type badge chips,
-        gradient text on the logo, inline code tints, input focus rings, and button fills.
-        Applied as the full live spectrum — never clipped to a single stop.
+        Used as: toolbar accent rule, list-item left stripes, type badge chips, gradient text on
+        the logo, inline code tints, input focus rings, and the theme-toggle dot. Applied as the
+        full live spectrum — never clipped to a single stop. On light surfaces the four stops
+        deepen so contrast holds.
       </p>
     </div>
 
@@ -384,8 +552,57 @@
 
 <div class="divider"></div>
 
+<!-- ── Token scales (M7) ── -->
+<section style="margin-bottom:var(--sp-7);">
+  <p class="sec-head">Token scales — spacing, radius, type, elevation, motion (M7)</p>
+  <div class="scale-grid">
+    <div>
+      <p style="font-size:var(--text-th);font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--t3);margin-bottom:16px;">Spacing (4px base) · --sp-1..8</p>
+      <div class="sp-row"><span class="sp-tok">--sp-1 · 4px</span><div class="sp-bar" style="width:4px"></div></div>
+      <div class="sp-row"><span class="sp-tok">--sp-2 · 8px</span><div class="sp-bar" style="width:8px"></div></div>
+      <div class="sp-row"><span class="sp-tok">--sp-3 · 12px</span><div class="sp-bar" style="width:12px"></div></div>
+      <div class="sp-row"><span class="sp-tok">--sp-4 · 16px</span><div class="sp-bar" style="width:16px"></div></div>
+      <div class="sp-row"><span class="sp-tok">--sp-5 · 24px</span><div class="sp-bar" style="width:24px"></div></div>
+      <div class="sp-row"><span class="sp-tok">--sp-6 · 32px</span><div class="sp-bar" style="width:32px"></div></div>
+      <div class="sp-row"><span class="sp-tok">--sp-7 · 48px</span><div class="sp-bar" style="width:48px"></div></div>
+      <div class="sp-row"><span class="sp-tok">--sp-8 · 64px</span><div class="sp-bar" style="width:64px"></div></div>
+
+      <p style="font-size:var(--text-th);font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--t3);margin:var(--sp-5) 0 16px;">Radius · --r-sm..pill</p>
+      <div class="radii">
+        <div class="radius-chip" style="border-radius:var(--r-sm)">sm 6</div>
+        <div class="radius-chip" style="border-radius:var(--r-md)">md 8</div>
+        <div class="radius-chip" style="border-radius:var(--r-lg)">lg 10</div>
+        <div class="radius-chip" style="border-radius:var(--r-xl)">xl 16</div>
+        <div class="radius-chip" style="border-radius:var(--r-pill)">pill</div>
+      </div>
+      <p class="g-note" style="margin-top:var(--sp-3)">Motion: <code style="font-family:var(--mono)">--dur-fast .15s · --dur-base .25s · --ease cubic-bezier(.4,0,.2,1)</code></p>
+    </div>
+
+    <div>
+      <p style="font-size:var(--text-th);font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--t3);margin-bottom:16px;">Type scale · 16px base, 14px reading floor (M3)</p>
+      <div class="text-row"><div class="text-meta"><b>h1</b> · 22px · 700</div><div style="font-size:var(--text-h1);font-weight:700;letter-spacing:-.02em">Artifact title</div></div>
+      <div class="text-row"><div class="text-meta"><b>h2</b> · 19px · 600</div><div style="font-size:var(--text-h2);font-weight:600">Section heading</div></div>
+      <div class="text-row"><div class="text-meta"><b>h3</b> · 17px · 600</div><div style="font-size:var(--text-h3);font-weight:600">Sub heading</div></div>
+      <div class="text-row"><div class="text-meta"><b>body</b> · 16px · 1.6</div><div style="font-size:var(--text-body);color:var(--t2)">Detail-view paragraph copy — reads at the 16px base.</div></div>
+      <div class="text-row"><div class="text-meta"><b>read</b> · 15px</div><div style="font-size:var(--text-read);color:var(--t2)">Table cells &amp; list items — above the 14px floor.</div></div>
+      <div class="text-row"><div class="text-meta"><b>cap</b> · 14px</div><div style="font-size:var(--text-cap);color:var(--t2)">List titles — the floor for reading content.</div></div>
+      <div class="text-row"><div class="text-meta"><b>label/badge/th</b> · 13/12/11px</div><div style="color:var(--t3)">Micro-labels only — pills, meta, badges, table headers, eyebrow.</div></div>
+
+      <p style="font-size:var(--text-th);font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--t3);margin:var(--sp-5) 0 16px;">Elevation · --shadow-1..3</p>
+      <div class="elev-grid">
+        <div class="elev elev--0"><b>--base</b>page bg</div>
+        <div class="elev elev--1"><b>--surface</b>cards, rows</div>
+        <div class="elev elev--2"><b>--surface-up</b>hover, menus</div>
+        <div class="elev elev--3"><b>--surface-hi</b>active, dialogs</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
 <!-- ── Type spectrum ── -->
-<section style="margin-bottom:56px;">
+<section style="margin-bottom:var(--sp-7);">
   <p class="sec-head">Artifact type colour system — structural (teal) → ephemeral (magenta)</p>
   <div class="type-grid">
     <div class="tc"><div class="tc-pip" style="background:var(--c-adr)"></div><span class="tc-slug">adr</span></div>
@@ -404,12 +621,21 @@
     <div class="tc"><div class="tc-pip" style="background:var(--c-synth)"></div><span class="tc-slug">synthesis</span></div>
     <div class="tc"><div class="tc-pip" style="background:var(--c-bug)"></div><span class="tc-slug">bug_report</span></div>
   </div>
+  <p class="g-note" style="margin-top:var(--sp-4)">
+    <b style="color:var(--t1);">Badge contrast (M8):</b> the 4px stripe / pip uses the identity
+    <code style="font-family:var(--mono)">--c-*</code> token. Badge and eyebrow <em>text</em> uses a
+    dedicated <code style="font-family:var(--mono)">--bt-*</code> token (a lightened stop on dark, a
+    deepened stop on light) so every one of the 15 types clears ≥4.5:1 as text on its own tint.
+    Badge backgrounds are derived with
+    <code style="font-family:var(--mono)">color-mix(in srgb, var(--c-*) 16%, transparent)</code> — no
+    hand-written rgba duplicating the hex (m9). Meaning is always carried by the text label too.
+  </p>
 </section>
 
 <div class="divider"></div>
 
 <!-- ── Glass components ── -->
-<section style="margin-bottom:56px;">
+<section style="margin-bottom:var(--sp-7);">
   <p class="sec-head">Glassmorphism surface — stat panels (shown over ambient gradient glow)</p>
   <div class="glass-scene">
     <div class="glass-row">
@@ -436,12 +662,24 @@
 
 <!-- ── Browser mockup ── -->
 <section>
-  <p class="sec-head">Browser UI — two-pane layout</p>
-  <p style="font-size:12px;color:var(--t2);margin-bottom:16px;line-height:1.7;">
-    <strong style="color:var(--t1);">List sort order:</strong> type ascending (A→Z), then date descending (newest first) within each type.<br>
-    <strong style="color:var(--t1);">List items:</strong> <code style="font-family:monospace;font-size:11px;background:var(--surface);padding:1px 5px;border-radius:3px;">flex-shrink: 0</code> — items always render at natural height; the list container scrolls.<br>
-    <strong style="color:var(--t1);">Search placeholder &amp; secondary metadata text:</strong> <code style="font-family:monospace;font-size:11px;background:var(--surface);padding:1px 5px;border-radius:3px;">color: var(--t2)</code> (#8390bc) — applies to <code style="font-family:monospace;font-size:11px;background:var(--surface);padding:1px 5px;border-radius:3px;">.li-meta</code>, <code style="font-family:monospace;font-size:11px;background:var(--surface);padding:1px 5px;border-radius:3px;">.rp-pill</code>, scope label, filter pills, and placeholder text. Never --t3 (#404870) which is unreadable on the dark base.
-  </p>
+  <p class="sec-head">Browser UI — list &amp; detail</p>
+  <div class="note-box">
+    <b>Illustrative layout note (m12):</b> the production layout is
+    <b>single-pane with view switching</b> — a list view (<code style="font-family:var(--mono)">#list-view</code>)
+    and a detail view (<code style="font-family:var(--mono)">#detail-view</code>) toggled by the
+    <code style="font-family:var(--mono)">showing-detail</code> class, with an "All artifacts" back
+    bar. The two-pane mockup below is illustrative only — it shows the list and detail surfaces side
+    by side so both can be read on one page; it is not the shipped layout.
+  </div>
+  <div class="note-box" style="border-left-color:var(--c-spec)">
+    <b>List sort order:</b> type ascending (A→Z), then date descending (newest first) within each type.
+    <b>List items:</b> <code style="font-family:var(--mono)">flex-shrink: 0</code> — items render at
+    natural height; the list scrolls. <b>Selection (M4):</b> the active row uses
+    <code style="font-family:var(--mono)">--surface-hi</code> background + <code style="font-family:var(--mono)">--bd</code>
+    border; unselected rows are at full opacity (no dimming). <b>Focus (M5):</b> every control shows a
+    <code style="font-family:var(--mono)">2px solid var(--focus)</code> ring; rows are real
+    <code style="font-family:var(--mono)">&lt;button&gt;</code>s with Up/Down + Enter/Space (M6).
+  </div>
   <div class="mockup">
 
     <!-- Titlebar -->
@@ -449,17 +687,18 @@
       <div class="tb-logo g-text">cairn</div>
       <div class="tb-search">
         <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
-          <circle cx="5" cy="5" r="3.5" stroke="#8390bc" stroke-width="1.2"/>
-          <line x1="7.8" y1="7.8" x2="10.5" y2="10.5" stroke="#8390bc" stroke-width="1.2" stroke-linecap="round"/>
+          <circle cx="5" cy="5" r="3.5" stroke="currentColor" stroke-width="1.2"/>
+          <line x1="7.8" y1="7.8" x2="10.5" y2="10.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
         </svg>
         <span>Search artifacts…</span>
       </div>
+      <div class="tb-toggle"><span class="dot" aria-hidden="true"></span>Theme</div>
       <div class="tb-scope">team / cairn-mcp</div>
     </div>
 
     <div class="mb">
 
-      <!-- Left panel -->
+      <!-- Left panel (list view surface) -->
       <div class="lp">
         <div class="lp-filters">
           <div class="lp-fp">type: all ▾</div>
@@ -467,40 +706,40 @@
           <div class="lp-fp">status: active ▾</div>
         </div>
 
-        <div class="lp-list">
+        <div class="lp-list" role="listbox" aria-label="Artifacts">
           <!-- Sorted: type A→Z, then date newest-first within type -->
 
-          <div class="li active">
+          <div class="li active" role="option" aria-selected="true">
             <div class="li-stripe" style="background:var(--c-adr);"></div>
-            <div class="li-badge" style="background:rgba(0,212,184,.12);color:var(--c-adr);">adr</div>
+            <div class="li-badge" style="background:color-mix(in srgb, var(--c-adr) 16%, transparent);color:var(--bt-adr);">adr</div>
             <div class="li-title">FastMCP as Server Framework</div>
             <div class="li-meta">2026-05-29 · tier 3</div>
           </div>
 
-          <div class="li">
+          <div class="li" role="option" aria-selected="false">
             <div class="li-stripe" style="background:var(--c-cr);"></div>
-            <div class="li-badge" style="background:rgba(119,51,238,.12);color:var(--c-cr);">code_review</div>
+            <div class="li-badge" style="background:color-mix(in srgb, var(--c-cr) 16%, transparent);color:var(--bt-cr);">code_review</div>
             <div class="li-title">Phase 10 — Commit Refs</div>
             <div class="li-meta">2026-06-18 · tier 2</div>
           </div>
 
-          <div class="li">
+          <div class="li" role="option" aria-selected="false">
             <div class="li-stripe" style="background:var(--c-learn);"></div>
-            <div class="li-badge" style="background:rgba(232,0,136,.12);color:var(--c-learn);">learning</div>
+            <div class="li-badge" style="background:color-mix(in srgb, var(--c-learn) 16%, transparent);color:var(--bt-learn);">learning</div>
             <div class="li-title">moto query_vectors Extension</div>
             <div class="li-meta">2026-05-31 · tier 2</div>
           </div>
 
-          <div class="li">
+          <div class="li" role="option" aria-selected="false">
             <div class="li-stripe" style="background:var(--c-ss);"></div>
-            <div class="li-badge" style="background:rgba(221,17,170,.12);color:var(--c-ss);">session_summary</div>
+            <div class="li-badge" style="background:color-mix(in srgb, var(--c-ss) 16%, transparent);color:var(--bt-ss);">session_summary</div>
             <div class="li-title">Search Helper Refactor</div>
             <div class="li-meta">2026-06-10 · tier 2</div>
           </div>
 
-          <div class="li">
+          <div class="li" role="option" aria-selected="false">
             <div class="li-stripe" style="background:var(--c-spec);"></div>
-            <div class="li-badge" style="background:rgba(0,160,224,.12);color:var(--c-spec);">spec</div>
+            <div class="li-badge" style="background:color-mix(in srgb, var(--c-spec) 16%, transparent);color:var(--bt-spec);">spec</div>
             <div class="li-title">MCP App Infrastructure</div>
             <div class="li-meta">2026-06-24 · tier 3</div>
           </div>
@@ -508,10 +747,10 @@
         </div>
       </div>
 
-      <!-- Right panel — document viewer -->
+      <!-- Right panel — document viewer (detail view surface) -->
       <div class="rp">
 
-        <div class="rp-eyebrow" style="color:var(--c-adr);">Architecture Decision Record</div>
+        <div class="rp-eyebrow" style="color:var(--bt-adr);">Architecture Decision Record</div>
         <h1 class="rp-title">FastMCP as the MCP Server Framework</h1>
         <div class="rp-pills">
           <span class="rp-pill">tier 3 · shared</span>
@@ -531,13 +770,13 @@
         <h2 class="rp-h2">Decision</h2>
         <p class="rp-p">
           We chose
-          <code class="rp-code" style="color:var(--c-adr);background:rgba(0,212,184,.08);">fastmcp</code>
+          <code class="rp-code" style="color:var(--bt-adr);background:color-mix(in srgb, var(--c-adr) 10%, transparent);">fastmcp</code>
           as the MCP server framework. Tool functions are registered via
-          <code class="rp-code" style="color:var(--c-spec);background:rgba(0,160,224,.08);">@_app.tool()</code>
+          <code class="rp-code" style="color:var(--bt-spec);background:color-mix(in srgb, var(--c-spec) 10%, transparent);">@_app.tool()</code>
           inside
-          <code class="rp-code" style="color:var(--c-spec);background:rgba(0,160,224,.08);">register_tools()</code>
+          <code class="rp-code" style="color:var(--bt-spec);background:color-mix(in srgb, var(--c-spec) 10%, transparent);">register_tools()</code>
           in
-          <code class="rp-code" style="color:var(--c-spec);background:rgba(0,160,224,.08);">server.py</code>.
+          <code class="rp-code" style="color:var(--bt-spec);background:color-mix(in srgb, var(--c-spec) 10%, transparent);">server.py</code>.
         </p>
 
         <h2 class="rp-h2">Alternatives Considered</h2>
@@ -590,3 +829,30 @@
     </div>
   </div>
 </section>
+
+<script>
+  // Theme toggle for this identity page — default dark, persisted, honours OS scheme.
+  (function () {
+    var KEY = "cairn-design-theme";
+    var root = document.documentElement;
+    var btn = document.getElementById("themeToggle");
+    function read() { try { return localStorage.getItem(KEY); } catch (e) { console.error(e); return null; } }
+    function store(v) { try { localStorage.setItem(KEY, v); } catch (e) { console.error(e); } }
+    function osLight() {
+      try { return window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches; }
+      catch (e) { console.error(e); return false; }
+    }
+    var theme = read();
+    if (theme !== "light" && theme !== "dark") theme = osLight() ? "light" : "dark";
+    function apply(t) {
+      root.setAttribute("data-theme", t);
+      btn.setAttribute("aria-pressed", t === "light" ? "true" : "false");
+    }
+    apply(theme);
+    btn.addEventListener("click", function () {
+      theme = theme === "light" ? "dark" : "light";
+      apply(theme);
+      store(theme);
+    });
+  })();
+</script>

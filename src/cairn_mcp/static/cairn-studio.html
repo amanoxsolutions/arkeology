@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -9,26 +9,66 @@ import { App } from "https://unpkg.com/@modelcontextprotocol/ext-apps@1.7.4/app-
 import { marked } from "https://cdn.jsdelivr.net/npm/marked/+esm";
 import mermaid from "https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.esm.min.mjs";
 
-// ── Mermaid init ───────────────────────────────────────────────────────────
-mermaid.initialize({ theme: "dark", darkMode: true });
+// ── Theme management ─────────────────────────────────────────────────────────
+// Default dark; honour prefers-color-scheme on first load; persist to localStorage.
+const THEME_KEY = "cairn-studio-theme";
+
+function readStoredTheme() {
+  try { return localStorage.getItem(THEME_KEY); }
+  catch (err) { console.error("localStorage read failed:", err); return null; }
+}
+
+function storeTheme(theme) {
+  try { localStorage.setItem(THEME_KEY, theme); }
+  catch (err) { console.error("localStorage write failed:", err); }
+}
+
+function initialTheme() {
+  const stored = readStoredTheme();
+  if (stored === "light" || stored === "dark") return stored;
+  // No stored preference — honour the host's colour scheme, defaulting to dark.
+  try {
+    if (window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches) {
+      return "light";
+    }
+  } catch (err) { console.error("matchMedia failed:", err); }
+  return "dark";
+}
+
+function mermaidThemeFor(theme) { return theme === "light" ? "default" : "dark"; }
+
+function applyTheme(theme) {
+  document.documentElement.setAttribute("data-theme", theme);
+  const btn = document.getElementById("theme-toggle");
+  if (btn) btn.setAttribute("aria-pressed", theme === "light" ? "true" : "false");
+  // Keep mermaid's theme aligned with the active app theme.
+  mermaid.initialize({ theme: mermaidThemeFor(theme), darkMode: theme !== "light" });
+}
+
+// Apply the initial theme as early as possible to avoid a flash.
+let currentTheme = initialTheme();
+document.documentElement.setAttribute("data-theme", currentTheme);
+mermaid.initialize({ theme: mermaidThemeFor(currentTheme), darkMode: currentTheme !== "light" });
 
 // ── Type configuration ─────────────────────────────────────────────────────
-const TYPE_COLORS = {
-  adr:                "var(--c-adr)",
-  prd:                "var(--c-prd)",
-  spec:               "var(--c-spec)",
-  plan:               "var(--c-plan)",
-  runbook:            "var(--c-runbook)",
-  changelog:          "var(--c-changelog)",
-  implementation_note:"var(--c-impl)",
-  code_review:        "var(--c-cr)",
-  decision_note:      "var(--c-dn)",
-  postmortem:         "var(--c-pm)",
-  brainstorming:      "var(--c-brain)",
-  session_summary:    "var(--c-ss)",
-  learning:           "var(--c-learn)",
-  synthesis:          "var(--c-synth)",
-  bug_report:         "var(--c-bug)",
+// --c-*  : identity colour (4px stripe). --bt-* : AA-safe badge/eyebrow text.
+// Both are theme-aware CSS custom properties; we reference them by var() name.
+const TYPE_VARS = {
+  adr:                 { c: "--c-adr",       bt: "--bt-adr" },
+  prd:                 { c: "--c-prd",       bt: "--bt-prd" },
+  spec:                { c: "--c-spec",      bt: "--bt-spec" },
+  plan:                { c: "--c-plan",      bt: "--bt-plan" },
+  runbook:             { c: "--c-runbook",   bt: "--bt-runbook" },
+  changelog:           { c: "--c-changelog", bt: "--bt-changelog" },
+  implementation_note: { c: "--c-impl",      bt: "--bt-impl" },
+  code_review:         { c: "--c-cr",        bt: "--bt-cr" },
+  decision_note:       { c: "--c-dn",        bt: "--bt-dn" },
+  postmortem:          { c: "--c-pm",        bt: "--bt-pm" },
+  brainstorming:       { c: "--c-brain",     bt: "--bt-brain" },
+  session_summary:     { c: "--c-ss",        bt: "--bt-ss" },
+  learning:            { c: "--c-learn",     bt: "--bt-learn" },
+  synthesis:           { c: "--c-synth",     bt: "--bt-synth" },
+  bug_report:          { c: "--c-bug",       bt: "--bt-bug" },
 };
 
 const TYPE_LABELS = {
@@ -49,34 +89,21 @@ const TYPE_LABELS = {
   bug_report:         "Bug Report",
 };
 
-const TYPE_HEX = {
-  adr:                "#00d4b8",
-  prd:                "#00bccc",
-  spec:               "#00a0e0",
-  plan:               "#0088f8",
-  runbook:            "#1a66ee",
-  changelog:          "#3344ee",
-  implementation_note:"#5533ee",
-  code_review:        "#7733ee",
-  decision_note:      "#9933dd",
-  postmortem:         "#bb33cc",
-  brainstorming:      "#cc22bb",
-  session_summary:    "#dd11aa",
-  learning:           "#e80088",
-  synthesis:          "#f00077",
-  bug_report:         "#f50060",
-};
-
-function typeColor(type)  { return TYPE_COLORS[type] || "var(--t3)"; }
-function typeLabel(type)  { return TYPE_LABELS[type] || type; }
-function typeBadgeBg(type) {
-  const hex = TYPE_HEX[type];
-  if (!hex) return "rgba(64,72,112,0.18)";
-  const r = parseInt(hex.slice(1, 3), 16);
-  const g = parseInt(hex.slice(3, 5), 16);
-  const b = parseInt(hex.slice(5, 7), 16);
-  return `rgba(${r},${g},${b},0.12)`;
+function stripeColor(type) {
+  const v = TYPE_VARS[type];
+  return v ? `var(${v.c})` : "var(--t3)";
 }
+function badgeTextColor(type) {
+  const v = TYPE_VARS[type];
+  return v ? `var(${v.bt})` : "var(--t3)";
+}
+// m9: tint derived from the identity token via color-mix, not a duplicated rgba literal.
+function badgeBg(type) {
+  const v = TYPE_VARS[type];
+  if (!v) return "color-mix(in srgb, var(--t3) 16%, transparent)";
+  return `color-mix(in srgb, var(${v.c}) 16%, transparent)`;
+}
+function typeLabel(type) { return TYPE_LABELS[type] || type; }
 
 function escHtml(str) {
   return String(str)
@@ -96,6 +123,7 @@ let filterStatus = "";
 // ── DOM refs ───────────────────────────────────────────────────────────────
 const appEl        = document.getElementById("app");
 const scopeLabel   = document.getElementById("scope-label");
+const themeToggle  = document.getElementById("theme-toggle");
 const searchInput  = document.getElementById("search-input");
 const searchForm   = document.getElementById("search-form");
 const selType      = document.getElementById("sel-type");
@@ -106,6 +134,9 @@ const listView     = document.getElementById("list-view");
 const detailView   = document.getElementById("detail-view");
 const detailBack   = document.getElementById("detail-back");
 const detailBody   = document.getElementById("detail-body");
+
+// Sync the toggle's pressed state with the theme applied before DOM was ready.
+applyTheme(currentTheme);
 
 // ── View switching ─────────────────────────────────────────────────────────
 function openDetail() { appEl.classList.add("showing-detail"); }
@@ -140,19 +171,18 @@ function renderList(artifacts) {
     const title   = a.title || id;
     const date    = a.date || "";
     const tier    = a.tier || "";
-    const color   = typeColor(type);
-    const badgeBg = typeBadgeBg(type);
-    const label   = typeLabel(type);
     const isActive = id === selectedId;
 
-    const item = document.createElement("div");
+    // M6: each row is a real <button> inside the listbox so it is keyboard-operable.
+    const item = document.createElement("button");
+    item.type = "button";
     item.className = "li" + (isActive ? " active" : "");
     item.dataset.id = id;
     item.setAttribute("role", "option");
     item.setAttribute("aria-selected", isActive ? "true" : "false");
     item.innerHTML = `
-      <div class="li-stripe" style="background:${color};"></div>
-      <div class="li-badge" style="background:${badgeBg};color:${color};">${escHtml(label)}</div>
+      <div class="li-stripe" style="background:${stripeColor(type)};"></div>
+      <div class="li-badge" style="background:${badgeBg(type)};color:${badgeTextColor(type)};">${escHtml(typeLabel(type))}</div>
       <div class="li-title">${escHtml(title)}</div>
       <div class="li-meta">${escHtml(date)}${tier ? " · tier " + tier : ""}</div>
     `;
@@ -160,6 +190,29 @@ function renderList(artifacts) {
     artifactList.appendChild(item);
   }
 }
+
+// M6: roving keyboard navigation across list rows (Up/Down move; Enter/Space open).
+artifactList.addEventListener("keydown", e => {
+  const rows = [...artifactList.querySelectorAll(".li")];
+  if (rows.length === 0) return;
+  const idx = rows.indexOf(document.activeElement);
+  if (e.key === "ArrowDown") {
+    e.preventDefault();
+    const next = rows[Math.min(idx + 1, rows.length - 1)] || rows[0];
+    next.focus();
+  } else if (e.key === "ArrowUp") {
+    e.preventDefault();
+    const prev = idx <= 0 ? rows[0] : rows[idx - 1];
+    prev.focus();
+  } else if (e.key === "Home") {
+    e.preventDefault();
+    rows[0].focus();
+  } else if (e.key === "End") {
+    e.preventDefault();
+    rows[rows.length - 1].focus();
+  }
+  // Enter / Space are handled natively by the <button> click.
+});
 
 // ── Tool calls ─────────────────────────────────────────────────────────────
 let app;
@@ -194,7 +247,6 @@ async function selectArtifact(id) {
   const meta   = currentArtifacts.find(a => a.artifact_id === id) || {};
   const type   = meta.type   || "";
   const title  = meta.title  || id;
-  const color  = typeColor(type);
   const label  = typeLabel(type);
   const tier   = meta.tier   || "";
   const date   = meta.date   || "";
@@ -203,7 +255,7 @@ async function selectArtifact(id) {
 
   detailBody.innerHTML = `
     <div class="rp-doc">
-      <div class="rp-eyebrow" style="color:${color};">${escHtml(label)}</div>
+      <div class="rp-eyebrow" style="color:${badgeTextColor(type)};">${escHtml(label)}</div>
       <h1 class="rp-title">${escHtml(title)}</h1>
       <div class="rp-pills">
         ${tier   ? `<span class="rp-pill">tier ${escHtml(String(tier))}</span>` : ""}
@@ -257,8 +309,16 @@ async function doSearch(query) {
   }
 }
 
-// ── Event handlers ─────────────────────────────────────────────────────────
+// ── Event handlers ───────────────────────────────────────────────────────────
 detailBack.addEventListener("click", openList);
+
+themeToggle.addEventListener("click", () => {
+  currentTheme = currentTheme === "light" ? "dark" : "light";
+  applyTheme(currentTheme);
+  storeTheme(currentTheme);
+  // Re-render the open artifact so mermaid diagrams pick up the new theme.
+  if (selectedId) selectArtifact(selectedId);
+});
 
 searchForm.addEventListener("submit", async e => {
   e.preventDefault();
@@ -297,21 +357,35 @@ app.sendSizeChanged({ height: 1000 });
 <style>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+/* ============================================================
+   DESIGN TOKENS — :root = DARK (default). [data-theme="light"]
+   overrides below. Token scales adopted from the benchmark
+   (aws-certs-exam-study design system) per Review 2026-06-29.
+   ============================================================ */
 :root {
+  /* — Surfaces — */
   --base:        #09091a;
   --surface:     #12142a;
   --surface-up:  #1a1d3a;
   --surface-hi:  #222548;
+
+  /* — Borders — */
   --bd-faint:    rgba(148,158,220,0.07);
   --bd:          rgba(148,158,220,0.13);
   --bd-strong:   rgba(148,158,220,0.22);
-  --t1:          #e2eaff;
-  --t2:          #8390bc;
-  --t3:          #404870;
+
+  /* — Text — */
+  --t1:          #e2eaff;   /* primary   — body + headings (AAA on base) */
+  --t2:          #8390bc;   /* secondary — meta, body copy (AA on base)  */
+  --t3:          #757fb0;   /* tertiary  — readable labels (AA on base; brightened from #404870, C2) */
+
   --mono:        "SF Mono","Cascadia Code","Fira Code",ui-monospace,monospace;
+
+  /* — Spectrum accent — */
   --g:           linear-gradient(135deg, #00d4b8, #0088ff 33%, #8844ee 66%, #e800b0);
   --g90:         linear-gradient(90deg,  #00d4b8, #0088ff 33%, #8844ee 66%, #e800b0);
 
+  /* — Type identity colours (4px stripe; decorative) — */
   --c-adr:       #00d4b8;
   --c-prd:       #00bccc;
   --c-spec:      #00a0e0;
@@ -327,6 +401,119 @@ app.sendSizeChanged({ height: 1000 });
   --c-learn:     #e80088;
   --c-synth:     #f00077;
   --c-bug:       #f50060;
+
+  /* — Type badge/eyebrow TEXT colours (M8) — lightened so each clears ≥4.5:1
+     as text on its own 16% tint over the dark base. Stops at or above plan
+     already pass and are kept identical to their --c-* value. — */
+  --bt-adr:       #00d4b8;
+  --bt-prd:       #00bccc;
+  --bt-spec:      #00a0e0;
+  --bt-plan:      #0088f8;
+  --bt-runbook:   #4180f1;
+  --bt-changelog: #6a76f3;
+  --bt-impl:      #856cf3;
+  --bt-cr:        #9966f2;
+  --bt-dn:        #ae5ee4;
+  --bt-pm:        #c654d4;
+  --bt-brain:     #d548c7;
+  --bt-ss:        #e237b8;
+  --bt-learn:     #ec2e9d;
+  --bt-synth:     #f2268b;
+  --bt-bug:       #f62476;
+
+  /* — Focus ring — */
+  --focus: #0088ff;
+
+  /* — Type scale (1rem = 16px base; 14px reading floor) (M3/M7) — */
+  --text-h1:   1.375rem;  /* 22px */
+  --text-h2:   1.1875rem; /* 19px */
+  --text-h3:   1.0625rem; /* 17px */
+  --text-h4:   1rem;      /* 16px */
+  --text-body: 1rem;      /* 16px — reading floor for paragraphs/list/tables ≥14px */
+  --text-read: 0.9375rem; /* 15px — dense reading content (table cells, list items) */
+  --text-cap:  0.875rem;  /* 14px — smallest reading token */
+  --text-label:0.8125rem; /* 13px — micro-labels: pills, meta, scope */
+  --text-badge:0.75rem;   /* 12px — type badge chips */
+  --text-th:   0.6875rem; /* 11px — table headers, eyebrow */
+
+  /* — Spacing scale (4px base) (M7) — */
+  --sp-1: 4px;  --sp-2: 8px;  --sp-3: 12px; --sp-4: 16px;
+  --sp-5: 24px; --sp-6: 32px; --sp-7: 48px; --sp-8: 64px;
+
+  /* — Radius (M7) — */
+  --r-sm: 6px; --r-md: 8px; --r-lg: 10px; --r-xl: 16px; --r-pill: 999px;
+
+  /* — Elevation (M7) — */
+  --shadow-1: 0 1px 2px rgba(0,0,0,0.40);
+  --shadow-2: 0 6px 18px rgba(0,0,0,0.50);
+  --shadow-3: 0 24px 60px -16px rgba(0,0,0,0.70);
+
+  /* — Motion (M7) — */
+  --dur-fast: 0.15s; --dur-base: 0.25s; --ease: cubic-bezier(.4,0,.2,1);
+}
+
+/* ============================================================
+   LIGHT THEME — designed, not inverted. Spectrum identity kept;
+   stops deepened so text holds ≥4.5:1 on white (m11).
+   ============================================================ */
+[data-theme="light"] {
+  --base:        #f4f5fb;
+  --surface:     #ffffff;
+  --surface-up:  #eef0fa;
+  --surface-hi:  #e4e7f6;
+
+  --bd-faint:    rgba(40,46,90,0.07);
+  --bd:          rgba(40,46,90,0.14);
+  --bd-strong:   rgba(40,46,90,0.24);
+
+  --t1:          #15172b;   /* primary   (AAA on base) */
+  --t2:          #4f598a;   /* secondary (AA on base)  */
+  --t3:          #5e6796;   /* tertiary  (AA on base)  */
+
+  /* Deepened spectrum stops for the brand gradient on white. */
+  --g:           linear-gradient(135deg, #009b86, #0066e0 33%, #7a2fdd 66%, #c70098);
+  --g90:         linear-gradient(90deg,  #009b86, #0066e0 33%, #7a2fdd 66%, #c70098);
+
+  /* Deepened identity stops (stripe stays vivid on white). */
+  --c-adr:       #007565;
+  --c-prd:       #00717a;
+  --c-spec:      #006b96;
+  --c-plan:      #0063b5;
+  --c-runbook:   #1759cf;
+  --c-changelog: #3344ee;
+  --c-impl:      #5533ee;
+  --c-cr:        #7231e4;
+  --c-dn:        #8a2ec7;
+  --c-pm:        #9b2aa9;
+  --c-brain:     #a71c99;
+  --c-ss:        #af0d86;
+  --c-learn:     #b5006a;
+  --c-synth:     #b9005c;
+  --c-bug:       #ba0049;
+
+  /* Badge/eyebrow text — darkened stops, each ≥4.5:1 on its own 16% tint over
+     the light base (and ≥4.5:1 on the light base directly, for the eyebrow). */
+  --bt-adr:       #007565;
+  --bt-prd:       #00717a;
+  --bt-spec:      #006b96;
+  --bt-plan:      #0063b5;
+  --bt-runbook:   #1759cf;
+  --bt-changelog: #3344ee;
+  --bt-impl:      #5533ee;
+  --bt-cr:        #7231e4;
+  --bt-dn:        #8a2ec7;
+  --bt-pm:        #9b2aa9;
+  --bt-brain:     #a71c99;
+  --bt-ss:        #af0d86;
+  --bt-learn:     #b5006a;
+  --bt-synth:     #b9005c;
+  --bt-bug:       #ba0049;
+
+  --focus: #0062d6;
+
+  --shadow-1: 0 1px 2px rgba(20,22,50,0.08);
+  --shadow-2: 0 6px 18px rgba(20,22,50,0.10);
+  --shadow-3: 0 24px 60px -16px rgba(20,22,50,0.16);
 }
 
 html, body {
@@ -338,14 +525,21 @@ html {
   background: var(--base);
   color: var(--t1);
   font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", sans-serif;
-  font-size: 15px;
+  font-size: 16px;            /* M3: 16px base */
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
+  transition: background var(--dur-base) var(--ease), color var(--dur-base) var(--ease);
 }
 
 @keyframes gb {
   0%, 100% { background-position: 0 50%; }
   50%       { background-position: 100% 50%; }
+}
+
+/* M5: a single visible focus ring for every interactive control. */
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
 }
 
 /* ── App shell ──────────────────────────────────────────────────────────── */
@@ -366,8 +560,8 @@ html {
   border-bottom: 1px solid var(--bd-faint);
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 0 16px;
+  gap: var(--sp-3);
+  padding: 0 var(--sp-4);
   position: relative;
   z-index: 10;
 }
@@ -408,28 +602,60 @@ html {
   height: 34px;
   background: var(--base);
   border: 1px solid var(--bd);
-  border-radius: 8px;
+  border-radius: var(--r-md);
   color: var(--t1);
   font-family: inherit;
-  font-size: 14px;
-  padding: 0 12px;
-  outline: none;
-  transition: box-shadow 0.15s, border-color 0.15s;
+  font-size: var(--text-cap);
+  padding: 0 var(--sp-3);
+  outline: none;     /* replaced by the :focus-visible ring below (M5) */
+  transition: box-shadow var(--dur-fast), border-color var(--dur-fast);
 }
 
 #search-input::placeholder { color: var(--t2); }
 
 #search-input:focus {
-  border-color: rgba(0,136,255,0.5);
-  box-shadow: 0 0 0 3px rgba(0,136,255,0.18);
+  border-color: color-mix(in srgb, var(--focus) 50%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--focus) 18%, transparent);
 }
 
+#search-input:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* Theme toggle (m11) */
+#theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  height: 34px;
+  padding: 0 12px;
+  flex-shrink: 0;
+  background: var(--base);
+  color: var(--t1);
+  border: 1px solid var(--bd);
+  border-radius: var(--r-pill);
+  font: 600 var(--text-label)/1 inherit;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
+}
+#theme-toggle:hover { border-color: var(--bd-strong); }
+#theme-toggle__dot {
+  width: 13px; height: 13px; border-radius: 50%;
+  background: var(--g); flex-shrink: 0;
+}
+#theme-toggle .tt-label-dark,
+#theme-toggle .tt-label-light { display: none; }
+[data-theme="dark"]  #theme-toggle .tt-label-dark  { display: inline; }
+[data-theme="light"] #theme-toggle .tt-label-light { display: inline; }
+
 #scope-label {
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--t2);
   background: var(--base);
   border: 1px solid var(--bd-faint);
-  border-radius: 6px;
+  border-radius: var(--r-sm);
   padding: 4px 10px;
   flex-shrink: 0;
   display: none;
@@ -456,61 +682,78 @@ html {
 /* ── Filters bar ────────────────────────────────────────────────────────── */
 
 #filters {
-  padding: 10px 12px;
+  padding: var(--sp-3);
   border-bottom: 1px solid var(--bd-faint);
   display: flex;
-  gap: 8px;
+  gap: var(--sp-2);
   flex-wrap: wrap;
   background: var(--surface);
 }
 
 #filters select {
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--t2);
   background: var(--base);
   border: 1px solid var(--bd-faint);
-  border-radius: 6px;
-  padding: 5px 8px;
+  border-radius: var(--r-sm);
+  padding: 5px var(--sp-2);
   cursor: pointer;
   font-family: inherit;
-  outline: none;
+  outline: none;     /* replaced by the :focus-visible ring below (M5) */
   appearance: none;
   -webkit-appearance: none;
 }
 
 #filters select:focus { border-color: var(--bd); }
+#filters select:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
 
 /* ── Artifact list ──────────────────────────────────────────────────────── */
 
 #artifact-list {
   flex: 1;
   overflow-y: auto;
-  padding: 8px;
+  padding: var(--sp-2);
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--sp-1);
 }
 
 .empty-msg {
-  color: var(--t2);
-  font-size: 14px;
-  padding: 20px 16px;
+  color: var(--t3);     /* C2: brightened --t3 is AA on base */
+  font-size: var(--text-cap);
+  padding: var(--sp-5) var(--sp-4);
 }
 
 .li {
   padding: 14px 14px 14px 18px;
-  border-radius: 10px;
+  border-radius: var(--r-lg);
   border: 1px solid transparent;
   position: relative;
   overflow: hidden;
   flex-shrink: 0;   /* never compress below natural height — list scrolls instead */
   cursor: pointer;
-  transition: background 0.1s, border-color 0.1s, opacity 0.12s;
+  /* M6: real <button> — reset native button chrome, keep left-aligned block layout. */
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  /* M4: no opacity dimming — unselected rows render at full opacity. */
+  transition: background var(--dur-fast), border-color var(--dur-fast);
 }
 
 .li:hover {
   background: var(--surface-up);
   border-color: var(--bd-faint);
+}
+
+.li:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;   /* keep the ring inside the row's rounded edge */
 }
 
 .li.active {
@@ -526,29 +769,29 @@ html {
 
 .li-badge {
   display: inline-block;
-  font-size: 12px;
+  font-size: var(--text-badge);
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   padding: 2px 7px;
   border-radius: 4px;
-  margin-bottom: 6px;
+  margin-bottom: var(--sp-1);
   font-family: var(--mono);
 }
 
 .li-title {
-  font-size: 14px;
+  font-size: var(--text-cap);   /* 14px reading floor for list titles (M3) */
   font-weight: 500;
   color: var(--t1);
-  margin-bottom: 4px;
+  margin-bottom: var(--sp-1);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .li-meta {
-  font-size: 12px;
-  color: var(--t2);
+  font-size: var(--text-label);
+  color: var(--t3);     /* C2: meta uses brightened --t3 — one rule */
 }
 
 /* ── Detail view ────────────────────────────────────────────────────────── */
@@ -560,27 +803,32 @@ html {
   border-bottom: 1px solid var(--bd-faint);
   display: flex;
   align-items: center;
-  padding: 0 16px;
+  padding: 0 var(--sp-4);
 }
 
 #detail-back {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  font-size: 14px;
+  gap: var(--sp-1);
+  font-size: var(--text-cap);
   font-weight: 500;
   color: var(--t2);
   background: none;
   border: none;
   cursor: pointer;
   padding: 6px 10px 6px 6px;
-  border-radius: 6px;
-  transition: color 0.12s, background 0.12s;
+  border-radius: var(--r-sm);
+  transition: color var(--dur-fast), background var(--dur-fast);
 }
 
 #detail-back:hover {
   color: var(--t1);
   background: var(--surface-up);
+}
+
+#detail-back:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
 }
 
 #detail-back svg {
@@ -590,14 +838,14 @@ html {
 #detail-body {
   flex: 1;
   overflow-y: auto;
-  padding: 24px 20px 40px;
+  padding: var(--sp-5) var(--sp-5) var(--sp-7);
   background: var(--base);
 }
 
 /* ── Document view ──────────────────────────────────────────────────────── */
 
 .rp-eyebrow {
-  font-size: 11px;
+  font-size: var(--text-th);
   font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -605,58 +853,58 @@ html {
 }
 
 .rp-title {
-  font-size: 22px;
+  font-size: var(--text-h1);
   font-weight: 700;
   letter-spacing: -0.02em;
   line-height: 1.25;
-  margin-bottom: 12px;
+  margin-bottom: var(--sp-3);
   color: var(--t1);
   text-wrap: balance;
 }
 
 .rp-pills {
   display: flex;
-  gap: 8px;
+  gap: var(--sp-2);
   flex-wrap: wrap;
   margin-bottom: 28px;
 }
 
 .rp-pill {
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--t2);
   background: var(--surface);
   border: 1px solid var(--bd-faint);
-  border-radius: 20px;
+  border-radius: var(--r-pill);
   padding: 4px 12px;
 }
 
 /* ── Markdown rendered content ──────────────────────────────────────────── */
 
 .rp-content h1 {
-  font-size: 19px;
+  font-size: var(--text-h2);
   font-weight: 700;
   color: var(--t1);
-  margin: 24px 0 10px;
+  margin: var(--sp-5) 0 10px;
 }
 
 .rp-content h2 {
-  font-size: 16px;
+  font-size: var(--text-h3);
   font-weight: 600;
   color: var(--t1);
-  margin: 22px 0 8px;
-  padding-bottom: 8px;
+  margin: 22px 0 var(--sp-2);
+  padding-bottom: var(--sp-2);
   border-bottom: 1px solid var(--bd-faint);
 }
 
 .rp-content h3 {
-  font-size: 14px;
+  font-size: var(--text-h4);
   font-weight: 600;
   color: var(--t1);
   margin: 18px 0 6px;
 }
 
 .rp-content p {
-  font-size: 14px;
+  font-size: var(--text-body);   /* 16px reading paragraphs (M3) */
   color: var(--t2);
   line-height: 1.75;
   margin-bottom: 14px;
@@ -669,17 +917,17 @@ html {
 }
 
 .rp-content li {
-  font-size: 14px;
+  font-size: var(--text-read);   /* 15px — above the 14px floor (M3) */
   color: var(--t2);
   line-height: 1.7;
-  margin-bottom: 4px;
+  margin-bottom: var(--sp-1);
 }
 
 .rp-content code {
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--text-cap);    /* 14px — code is reading content */
   background: var(--surface);
-  color: var(--c-spec);
+  color: var(--bt-spec);
   padding: 2px 6px;
   border-radius: 4px;
 }
@@ -687,23 +935,23 @@ html {
 .rp-content pre {
   background: var(--surface);
   border: 1px solid var(--bd-faint);
-  border-radius: 8px;
-  padding: 16px;
-  margin-bottom: 16px;
+  border-radius: var(--r-md);
+  padding: var(--sp-4);
+  margin-bottom: var(--sp-4);
   overflow-x: auto;
 }
 
 .rp-content pre code {
   background: none;
   padding: 0;
-  font-size: 12px;
+  font-size: var(--text-cap);
   color: var(--t2);
 }
 
 .rp-content table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 13px;
+  font-size: var(--text-read);   /* 15px table cells (M3) */
   margin-bottom: 18px;
   display: block;
   overflow-x: auto;
@@ -712,7 +960,7 @@ html {
 .rp-content th {
   text-align: left;
   padding: 7px 10px;
-  font-size: 10px;
+  font-size: var(--text-th);     /* 11px — micro-label, table header */
   font-weight: 700;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -721,9 +969,9 @@ html {
 }
 
 .rp-content td {
-  padding: 8px 10px;
+  padding: var(--sp-2) 10px;
   color: var(--t2);
-  border-bottom: 1px solid rgba(148,158,220,0.04);
+  border-bottom: 1px solid var(--bd-faint);
   vertical-align: top;
 }
 
@@ -735,13 +983,13 @@ html {
 .rp-content blockquote {
   border-left: 3px solid var(--bd);
   margin: 0 0 14px;
-  padding: 8px 16px;
-  color: var(--t3);
+  padding: var(--sp-2) var(--sp-4);
+  color: var(--t3);     /* C2: brightened --t3 */
   font-style: italic;
 }
 
 .rp-content a {
-  color: var(--c-spec);
+  color: var(--bt-spec);
   text-decoration: none;
 }
 
@@ -750,8 +998,8 @@ html {
 .rp-content pre.mermaid {
   background: var(--surface);
   border: 1px solid var(--bd-faint);
-  border-radius: 8px;
-  padding: 16px;
+  border-radius: var(--r-md);
+  padding: var(--sp-4);
   display: flex;
   justify-content: center;
 }
@@ -762,6 +1010,15 @@ html {
 ::-webkit-scrollbar-track  { background: transparent; }
 ::-webkit-scrollbar-thumb  { background: var(--bd); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--bd-strong); }
+
+/* ── Touch targets (m10) — bump controls/rows to ≥44px on coarse pointers ── */
+@media (hover: none) and (pointer: coarse) {
+  #search-input { height: 44px; }
+  #theme-toggle { height: 44px; }
+  #filters select { min-height: 44px; }
+  #detail-back { min-height: 44px; }
+  .li { padding-top: 16px; padding-bottom: 16px; min-height: 44px; }
+}
 </style>
 </head>
 <body>
@@ -779,6 +1036,16 @@ html {
         autocomplete="off"
       >
     </form>
+    <button
+      id="theme-toggle"
+      type="button"
+      aria-pressed="false"
+      aria-label="Toggle light and dark theme"
+    >
+      <span id="theme-toggle__dot" aria-hidden="true"></span>
+      <span class="tt-label-dark">Dark</span>
+      <span class="tt-label-light">Light</span>
+    </button>
     <div id="scope-label" aria-label="Write scope"></div>
   </header>
 

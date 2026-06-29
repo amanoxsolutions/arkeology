@@ -35,10 +35,11 @@ revised:
 Build `src/cairn_mcp/static/cairn-studio.html` — the self-contained HTML/JS MCP App that
 becomes the single-pane visual artifact browser with list/detail view switching rendered inline
 when a developer calls `cairn_studio` from a supporting host (Claude Desktop, claude.ai, VS Code
-Copilot). The file loads three CDN libraries (MCP Apps ext-apps SDK, marked.js, mermaid.js) and
-one Google Font, uses bidirectional MCP tool calls (`list_artifacts`, `read_artifact`,
-`search_artifacts`) via the ext-apps SDK, and follows an approved dark design system based on CSS
-custom properties. This task also adds the `cairn_studio` tool entry to `SERVER-REFERENCE.md`
+Copilot). The file loads three CDN libraries (MCP Apps ext-apps SDK, marked.js, mermaid.js) —
+**no web fonts** (typography uses the `system-ui` stack; see GDPR note below) — uses bidirectional
+MCP tool calls (`list_artifacts`, `read_artifact`, `search_artifacts`) via the ext-apps SDK, and
+follows an approved design system (dark + light themes with a toggle) based on CSS custom
+properties. This task also adds the `cairn_studio` tool entry to `SERVER-REFERENCE.md`
 and a one-sentence mention of `cairn_studio` to `AGENTS.md`.
 
 ## Problem Statement
@@ -134,9 +135,11 @@ A developer enters a query in the search box to find semantically relevant artif
 **Always:**
 - All CSS and JS live in the single `src/cairn_mcp/static/cairn-studio.html` file — no
   companion `.css` or `.js` files.
-- External dependencies are loaded only from the four declared CDN origins: `unpkg.com`
-  (ext-apps SDK), `fonts.googleapis.com` + `fonts.gstatic.com` (Inter font),
-  `cdn.jsdelivr.net` (marked.js and mermaid.js). No other external origins.
+- External dependencies are loaded only from the two declared CDN origins: `unpkg.com`
+  (ext-apps SDK) and `cdn.jsdelivr.net` (marked.js and mermaid.js). No other external origins.
+  **No web-font origins** — `fonts.googleapis.com` / `fonts.gstatic.com` are forbidden on GDPR
+  grounds (they leak the user's IP to a third party); typography uses the `system-ui` stack, or a
+  font self-hosted under `src/cairn_mcp/static/` and `@font-face`'d locally. (Review 2026-06-29, C1.)
 - No JS build step, no Vite, no bundler — the file must work as-is in a browser sandbox.
 - The CSS design system (all `--c-*`, `--g`, `--g90`, base palette tokens, layout structure)
   is defined exclusively as CSS custom properties in `:root`, enabling future extraction to an
@@ -213,6 +216,53 @@ verification checklist in place of automated tests:
 Implement the following design tokens and layout rules precisely. This section is a
 normative reference; the agent must not deviate from token values or structural rules.
 
+### Design System v2 — review fixes (2026-06-29)
+
+The following requirements supersede the original v1 details below where they conflict. They
+resolve the findings in `.docs/reviews/review-2026-06-29-cairn-studio-design.md`; the benchmark
+is `aws-certs-exam-study/docs/specs/frontend-design-system.html` (adopt its token scales and a11y
+discipline — but **not** its Google-Fonts dependency).
+
+- **No web fonts (C1)** — `system-ui` stack only; remove any `<link>` to `fonts.googleapis.com`
+  / `fonts.gstatic.com`; the `ResourceCSP` in `resources.py` must list only `unpkg.com` +
+  `cdn.jsdelivr.net`.
+- **`--t3 = #757fb0` (C2)** — never use `#404870` for text. `.li-meta` (date + tier), the
+  detail empty-state, and all small labels use the brightened `--t3` (AA on base/surface).
+  Reconcile the design HTML: meta uses `--t3` (brightened), one rule, no contradiction (m12).
+- **Type scale + 14px reading floor (M3)** — 16px base; detail paragraphs/tables/list titles
+  ≥ 14px; sub-14px only for badges/pills/meta/table-headers. Express the scale as tokens
+  (`--text-*`) per the benchmark.
+- **No content dimming (M4)** — remove `.li:not(.active){ opacity:.55 }`. Signal selection with
+  `--surface-hi` background + `--bd` border only; unselected rows render at full opacity.
+- **Visible focus (M5)** — every interactive control (search input, the three filter `<select>`s,
+  each list row, the back button) shows `:focus-visible { outline: 2px solid #0088ff;
+  outline-offset: 2px }`. Never `outline: none` without this replacement.
+- **List keyboard + ARIA semantics (M6)** — list rows are real `<button>`s (or carry
+  `role="option"` + `tabindex`) inside the `role="listbox"` container, with Up/Down to move and
+  Enter/Space to open; selection works without a mouse.
+- **Type-badge contrast audit (M8)** — verify each of the 15 type colours as text on its own
+  tint reaches ≥ 4.5:1; lighten the text stop or raise tint opacity for any that fail. Meaning is
+  always carried by the text label too, never hue alone.
+- **Token scales (M7)** — add benchmark-style scales to `:root` and reference them instead of
+  inline literals: spacing `--sp-1..8` (4px base), radius `--r-sm..pill`, elevation
+  `--shadow-1..3`, type `--text-*`, motion `--dur-*` + `--ease`.
+- **Derive tints with `color-mix` (m9)** — badge/pip tints use
+  `color-mix(in srgb, var(--c-*) 14%, transparent)`, not hand-written `rgba()` duplicating the hex.
+- **Touch targets (m10)** — `@media (hover:none) and (pointer:coarse)` bumps controls/rows to
+  ≥ 44px.
+- **Light theme + toggle (m11)** — ship a designed light theme via `[data-theme="light"]` token
+  overrides (use the benchmark's light values: `--base:#f4f5fb`, `--surface:#ffffff`,
+  `--surface-up:#eef0fa`, `--surface-hi:#e4e7f6`, `--t1:#15172b`, `--t2:#4f598a`, `--t3:#5e6796`,
+  borders `rgba(40,46,90,.07/.14/.24)`, and the deepened spectrum stops
+  `--spec-*` / type colours so they hold contrast on white). Add a toolbar **theme toggle button**
+  (icon + label, `aria-pressed`, `:focus-visible` ring) that flips `data-theme` on the root and
+  persists the choice to `localStorage`; default to dark, and honour `prefers-color-scheme` on
+  first load when no stored preference exists. Both themes must pass the same AA contrast bar.
+  The animated gradient accent stays gated behind `prefers-reduced-motion`.
+
+These apply to **both** `src/cairn_mcp/static/cairn-studio.html` (the implementation) and
+`docs/specs/p11-t44-browser-ui-design.html` (the visual companion), which must be kept in sync.
+
 ### CSS Tokens (`:root`)
 
 ```
@@ -225,7 +275,7 @@ normative reference; the agent must not deviate from token values or structural 
 --bd-strong: rgba(148,158,220,0.22)
 --t1: #e2eaff
 --t2: #8390bc
---t3: #404870
+--t3: #757fb0   /* brightened from #404870 (~2.2:1, AA-fail) to ~5.09:1 on --base — Review 2026-06-29, C2 */
 --mono: "SF Mono","Cascadia Code","Fira Code",ui-monospace,monospace
 --g:   linear-gradient(135deg, #00d4b8, #0088ff 33%, #8844ee 66%, #e800b0)
 --g90: linear-gradient(90deg,  #00d4b8, #0088ff 33%, #8844ee 66%, #e800b0)
@@ -250,9 +300,14 @@ Type-to-token mapping (canonical):
 
 ### Typography
 
-- Body: Inter (weights 300–700 from Google Fonts); fallback `system-ui, -apple-system, sans-serif`
+- Body: `system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", sans-serif`
+  — **no web font**, no Google Fonts (GDPR; see Boundaries). If a branded face is ever wanted it
+  must be self-hosted under `src/cairn_mcp/static/` via `@font-face`, never fetched from a CDN.
 - Monospace: `var(--mono)`
-- Base: `font-size: 14px`, `line-height: 1.6`, `-webkit-font-smoothing: antialiased`
+- Base: `font-size: 16px`, `line-height: 1.6`, `-webkit-font-smoothing: antialiased`. **Reading
+  content (detail-view paragraphs, tables, list titles) has a 14px floor**; sizes below 14px are
+  reserved for dense micro-labels only (type badges, filter pills, meta/scope labels, table
+  headers). (Review 2026-06-29, M3.)
 
 ### Layout
 
