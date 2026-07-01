@@ -1,7 +1,7 @@
 ---
 type: adr
 title: Artifact Commit Traceability — ULID Timestamps, Vector-Only Commit Links, and Agent-Driven Protocol
-description: Records the three coupled design decisions that close the artifact-to-commit traceability gap: ULID as the write-time timestamp, vector-metadata-only commit reference storage, and an agent-driven AGENTS.md post-commit protocol.
+description: "Records the three coupled design decisions that close the artifact-to-commit traceability gap: ULID as the write-time timestamp, vector-metadata-only commit reference storage, and an agent-driven AGENTS.md post-commit protocol."
 tags: []
 timestamp: 2026-06-16T00:00:00Z
 okf_version: "0.1"

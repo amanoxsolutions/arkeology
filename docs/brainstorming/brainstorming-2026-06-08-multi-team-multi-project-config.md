@@ -39,7 +39,7 @@ decisions_locked:
         prefix-based isolation within one backend is sufficient; Direction 3 kept on roadmap
   - D5: setting-up-cairn skill must be updated to document all four client setups;
         content and exact syntax documented in Session 3 of this file
-  - D6: opencode merge is additive at the mcp server-name level — a project config that only
+  - D6: "opencode merge is additive at the mcp server-name level — a project config that only
         contains a new server name adds it to the global server list without disturbing existing
         global entries; empirically confirmed (Session 4). Same-name override behaviour is
         inferred shallow (replace entire entry) pending a separate test.
@@ -47,7 +47,7 @@ decisions_locked:
         picked up by opencode as a project config — it was not loaded in a session started
         from the project root, while the three global configs were. The officially documented
         project config filename is `opencode.json` (no dot prefix). The dot-prefix variant
-        may work in some contexts/versions but cannot be relied upon. Use `opencode.json`.
+        may work in some contexts/versions but cannot be relied upon. Use `opencode.json`."
   - D8: The setting-up-cairn skill must check whether config files already exist and EDIT them
         (insert the cairn entry) rather than create or overwrite; must handle .json and .jsonc
         variants for JSON-based clients and the existing TOML structure for Codex

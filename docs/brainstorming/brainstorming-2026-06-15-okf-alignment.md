@@ -20,14 +20,14 @@ techniques_used:
   - cross-pollination (linked OKF export to the in-flight visual-reading-interface Idea 3/Surface B)
   - challenge (contradiction surfaced in the D2-before-D1 sequencing)
 assumptions_challenged:
-  - "OKF is a competitor to cairn" → reframed: OKF is a file/interchange format; cairn is a service. They sit in different layers and are complementary.
-  - "Adopting OKF means changing cairn's native schema" → an adapter (export/import) isolates the v0.1-draft churn risk better than a native rewrite.
-  - "Updating the README fully delivers D3" → the positioning half does; the underlying moat claim (semantic recall > index.md navigation at scale) is an unvalidated assumption.
-  - "Frontmatter alignment (D2) is an all-or-nothing choice (adopt OKF names vs keep ours)" → false: it is per-field. The one clean alignment (`feature_tags`→`tags`) is adopted internally; `date` is kept because OKF `timestamp` is a different concept (last-modified, not the immutable identity date) and would map from `last_edited_ulid`. Wholesale renaming is rejected because the boundary mapping function exists regardless.
-  - "OKF's index.md progressive-disclosure model is strictly weaker than cairn" → LLMs navigate tables of contents well; the recall-degrades-at-scale claim must be tested, not assumed.
-  - "cairn stores OKF-style YAML frontmatter inside the document" → false today: `content` is written to S3 as a pure markdown body (`write.py:262`); metadata lives separately in S3 object metadata and vector metadata. OKF frontmatter would be *synthesized at export*, not stored.
-  - "S3 Vectors metadata must match OKF field names to be OKF-compliant" → no: OKF is a document-serialization format with no opinion on internal index metadata; vector metadata is query-filter infrastructure (`tier` as int, `feature_tags` as `list[str]`) and stays OKF-agnostic.
-  - "Making documents OKF-compliant is cairn's responsibility (a transform/mapping cairn performs)" → no: OKF authoring is the writing agent's job and is out of scope for cairn. cairn stores content verbatim; any future export is best-effort enrichment of the existing frontmatter, never a transform of non-OKF content.
+  - "OKF is a competitor to cairn → reframed: OKF is a file/interchange format; cairn is a service. They sit in different layers and are complementary."
+  - "Adopting OKF means changing cairn's native schema → an adapter (export/import) isolates the v0.1-draft churn risk better than a native rewrite."
+  - "Updating the README fully delivers D3 → the positioning half does; the underlying moat claim (semantic recall > index.md navigation at scale) is an unvalidated assumption."
+  - "Frontmatter alignment (D2) is an all-or-nothing choice (adopt OKF names vs keep ours) → false: it is per-field. The one clean alignment (`feature_tags`→`tags`) is adopted internally; `date` is kept because OKF `timestamp` is a different concept (last-modified, not the immutable identity date) and would map from `last_edited_ulid`. Wholesale renaming is rejected because the boundary mapping function exists regardless."
+  - "OKF's index.md progressive-disclosure model is strictly weaker than cairn → LLMs navigate tables of contents well; the recall-degrades-at-scale claim must be tested, not assumed."
+  - "cairn stores OKF-style YAML frontmatter inside the document → false today: `content` is written to S3 as a pure markdown body (`write.py:262`); metadata lives separately in S3 object metadata and vector metadata. OKF frontmatter would be *synthesized at export*, not stored."
+  - "S3 Vectors metadata must match OKF field names to be OKF-compliant → no: OKF is a document-serialization format with no opinion on internal index metadata; vector metadata is query-filter infrastructure (`tier` as int, `feature_tags` as `list[str]`) and stays OKF-agnostic."
+  - "Making documents OKF-compliant is cairn's responsibility (a transform/mapping cairn performs) → no: OKF authoring is the writing agent's job and is out of scope for cairn. cairn stores content verbatim; any future export is best-effort enrichment of the existing frontmatter, never a transform of non-OKF content."
 decisions_locked:
   - D1
   - D2

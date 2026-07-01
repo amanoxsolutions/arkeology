@@ -53,7 +53,7 @@ decisions_locked:
   - D9: propose_commit_links fetches all artifacts in time range then filters client-side for missing commit_refs (avoids needing $exists operator)
   - D10: link_commit returns next_since_ulid in its response; write_artifact returns last_edited_ulid in its response
   - D11: since_ulid is optional in propose_commit_links; when absent, returns all unlinked artifacts in own scope regardless of age
-  - D12: migration skill default is do not backfill commit_refs; three options available: (1) do not backfill, (2) link all to current HEAD via one `git rev-parse HEAD` call + one `link_commit` call — fast but imprecise (HEAD is migration-time snapshot, not per-file provenance), (3) backfill per-file from git history via `git log -1` per file — accurate but O(n) git calls
+  - D12: "migration skill default is do not backfill commit_refs; three options available: (1) do not backfill, (2) link all to current HEAD via one `git rev-parse HEAD` call + one `link_commit` call — fast but imprecise (HEAD is migration-time snapshot, not per-file provenance), (3) backfill per-file from git history via `git log -1` per file — accurate but O(n) git calls"
   - D13: S3 object metadata update for commit_refs (copy_object) is out of scope; commit_refs is read from vector metadata by read_artifact — no copy_object needed for read visibility
 decisions_closed_not_applicable:
   - Direction 1 (caller-supplied commit_refs at write time) — caller may not know the SHA at write time; post-write annotation is the right model
