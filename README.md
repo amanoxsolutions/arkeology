@@ -262,6 +262,7 @@ Three skills, delivered via the plugin mechanisms above — no manual file copyi
 uv run pytest tests/unit/ -q -m 'not integration'
 
 # Integration tests (require real AWS credentials via environment or MCP config)
+# See CONTRIBUTING.md "Integration tests" — safe to run against any store, run-scoped.
 uv run pytest tests/integration/ -q
 
 # Lint

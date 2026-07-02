@@ -28,6 +28,26 @@ uv run mypy src/
 python3 scripts/validate.py
 ```
 
+## Integration tests
+
+`tests/integration/` requires a project-root `.env` with real AWS credentials and
+resource names (`AWS_REGION`, `ARTIFACT_BUCKET`, `VECTORS_BUCKET`, `VECTORS_INDEX`, and
+optionally `AWS_PROFILE`). Tests are skipped automatically when these are absent.
+
+The suite ignores whatever `WRITE_PREFIX` / `READ_PREFIXES` your `.env` configures — it
+writes only under an ephemeral `integration-tests/<run-id>` prefix generated fresh for
+each run, and a second `integration-tests/<run-id>-foreign` prefix stands in for any
+cross-scope reads. Both prefixes are deleted (S3 objects and vectors) in a best-effort
+session-end teardown. This means the suite is **safe to run against any store**,
+including one already holding real team memory — it never touches operator-configured
+data. It does incur real AWS and Bedrock usage, so it is not free to run.
+
+Run it with:
+
+```bash
+uv run pytest tests/integration/ -q
+```
+
 ## Wiring skills into your AI tools
 
 ### Automatic — `install.sh`

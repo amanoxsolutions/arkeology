@@ -20,15 +20,34 @@ WHY a session fixture instead of pytest_configure:
     A session-scoped autouse fixture in this conftest only executes when at
     least one test in tests/integration/ is collected, leaving unit tests
     with a clean environment.
+
+RUN-SCOPED ISOLATION (review finding C-4):
+    The suite must be safe to run against ANY configured store — .env still
+    supplies AWS credentials and resource names (bucket/index/region), but
+    the operator's WRITE_PREFIX and READ_PREFIXES are never used. Immediately
+    after .env is loaded, ``isolate_run_scope`` below overwrites both in
+    os.environ with an ephemeral ``integration-tests/<run-id>`` pair (see
+    ``tests/integration/_isolation.py``). Every ``Settings()`` built by any
+    test file's own fixtures afterwards therefore sees only run-scoped
+    values. Session-end teardown best-effort deletes everything written
+    under those prefixes.
 """
 
 import os
-import uuid
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
 
+from cairn_mcp.clients.s3 import S3ClientImpl
+from cairn_mcp.clients.vectors import VectorsClientImpl
 from cairn_mcp.config import Settings
+from tests.integration._isolation import (
+    RunScope,
+    apply_run_scope_env,
+    generate_run_scope,
+    teardown_run_scope,
+)
 
 # .env lives at the project root — three levels up from this file:
 # tests/integration/conftest.py → tests/integration → tests → project root
@@ -71,21 +90,50 @@ def require_env_vars(load_env: None) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Spec 14 — Unique run ID for integration test isolation
+# Run-scoped isolation (review finding C-4)
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture(scope="session")
-def unique_run_id() -> str:
-    """Session-scoped unique run ID to isolate parallel test runs.
+@pytest.fixture(scope="session", autouse=True)
+def isolate_run_scope(load_env: None) -> Iterator[RunScope]:
+    """Override WRITE_PREFIX/READ_PREFIXES with an ephemeral run-scoped pair.
 
-    Appended to artifact titles/IDs so concurrent test sessions do not
-    collide. Format: 8-char hex from uuid4.
+    Session-scoped and autouse: per pytest's fixture ordering rules, autouse
+    fixtures run before explicitly-requested fixtures of the same scope, so
+    this always overwrites the environment before any test file's own
+    session-scoped ``settings()`` fixture constructs a ``Settings()`` object
+    — exactly mirroring how ``load_env`` (also session-scoped autouse) already
+    guarantees .env values are visible before Settings() is built. Explicitly
+    depending on ``load_env`` makes that ordering a hard dependency rather
+    than an incidental one.
+
+    Teardown (best-effort) deletes every S3 object and vector written under
+    both prefixes, using a dedicated client pair built from the post-override
+    Settings — independent of whichever s3/vectors fixtures individual test
+    files construct for themselves.
     """
-    return uuid.uuid4().hex[:8]
+    scope = generate_run_scope()
+    apply_run_scope_env(scope)
+
+    settings = Settings()
+    s3 = S3ClientImpl(
+        region=settings.aws_region,
+        profile=settings.aws_profile,
+        bucket=settings.artifact_bucket,
+    )
+    vectors = VectorsClientImpl(
+        region=settings.aws_region,
+        profile=settings.aws_profile,
+        bucket=settings.vectors_bucket,
+        index=settings.vectors_index,
+    )
+
+    yield scope
+
+    teardown_run_scope(s3, vectors, scope)
 
 
 @pytest.fixture(scope="session")
-def integration_settings(load_env: None) -> Settings:
-    """Session-scoped Settings constructed from environment after load_env runs."""
+def integration_settings(load_env: None, isolate_run_scope: RunScope) -> Settings:
+    """Session-scoped Settings constructed from environment after isolation is applied."""
     return Settings()

@@ -102,7 +102,9 @@ async def test_purge_two_archived_artifacts_both_absent(
             settings=settings, s3=s3, vectors=vectors, bedrock=bedrock, confirm=True
         )
 
-        assert result["purged_count"] >= 2
+        # Run-scoped isolation (see tests/integration/_isolation.py) guarantees this
+        # scope contains no other archived artifacts, so the count is exact.
+        assert result["purged_count"] == 2
         assert id1 in result["purged_ids"]
         assert id2 in result["purged_ids"]
 
