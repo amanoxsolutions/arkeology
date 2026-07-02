@@ -16,7 +16,7 @@ from cairn_mcp.clients.credentials import (
     wrap_credential_errors,
 )
 from cairn_mcp.clients.interfaces import S3ClientInterface  # noqa: F401 (structural only)
-from cairn_mcp.errors import CredentialError
+from cairn_mcp.errors import ArtifactCollisionError, CredentialError
 
 logger = logging.getLogger(__name__)
 
@@ -57,15 +57,35 @@ class S3ClientImpl:
             session = boto3.Session(region_name=region)
         self._s3 = session.client("s3")
 
-    def put_object(self, key: str, body: str, metadata: dict[str, str]) -> None:
-        logger.debug("S3 put_object key=%s", key)
+    def put_object(
+        self,
+        key: str,
+        body: str,
+        metadata: dict[str, str],
+        *,
+        if_none_match: bool = False,
+    ) -> None:
+        logger.debug("S3 put_object key=%s if_none_match=%s", key, if_none_match)
+        kwargs: dict[str, Any] = {
+            "Bucket": self._bucket,
+            "Key": key,
+            "Body": body.encode("utf-8"),
+            "Metadata": _ascii_safe_metadata(metadata),
+        }
+        if if_none_match:
+            # Atomic conditional-create (A-2): "*" matches any existing object, so the
+            # request is rejected with HTTP 412 PreconditionFailed if the key already
+            # exists. This closes the head_object-then-put_object TOCTOU race — the
+            # existence check and the write happen as a single S3-side atomic operation.
+            kwargs["IfNoneMatch"] = "*"
         with wrap_credential_errors("s3"):
-            self._s3.put_object(
-                Bucket=self._bucket,
-                Key=key,
-                Body=body.encode("utf-8"),
-                Metadata=_ascii_safe_metadata(metadata),
-            )
+            try:
+                self._s3.put_object(**kwargs)
+            except botocore.exceptions.ClientError as exc:
+                code = exc.response.get("Error", {}).get("Code", "")
+                if if_none_match and code == "PreconditionFailed":
+                    raise ArtifactCollisionError(key) from exc
+                raise
 
     def get_object(self, key: str) -> str:
         logger.debug("S3 get_object key=%s", key)

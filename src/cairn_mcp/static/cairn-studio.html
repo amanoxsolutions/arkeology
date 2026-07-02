@@ -8,6 +8,12 @@
 import { App } from "https://unpkg.com/@modelcontextprotocol/ext-apps@1.7.4/app-with-deps";
 import { marked } from "https://cdn.jsdelivr.net/npm/marked/+esm";
 import mermaid from "https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.esm.min.mjs";
+// C-2: marked.parse() passes raw HTML through unchanged. Artifact content (including
+// cross-scope tier-3 "shared" artifacts written by other teams) is untrusted input, so
+// the rendered HTML is sanitised with DOMPurify before it ever reaches innerHTML. Pinned
+// version — loaded from cdn.jsdelivr.net, already an allowed CSP origin (see resources.py
+// _BROWSER_CDN_ORIGINS).
+import DOMPurify from "https://cdn.jsdelivr.net/npm/dompurify@3.4.11/+esm";
 
 // ── Theme management ─────────────────────────────────────────────────────────
 // Default dark; honour prefers-color-scheme on first load; persist to localStorage.
@@ -42,13 +48,24 @@ function applyTheme(theme) {
   const btn = document.getElementById("theme-toggle");
   if (btn) btn.setAttribute("aria-pressed", theme === "light" ? "true" : "false");
   // Keep mermaid's theme aligned with the active app theme.
-  mermaid.initialize({ theme: mermaidThemeFor(theme), darkMode: theme !== "light" });
+  // securityLevel: "strict" (C-2) — mermaid HTML-escapes label text and disables
+  // clickable-node script/href injection; diagram source comes from untrusted
+  // artifact content (see the DOMPurify import above for the same reason).
+  mermaid.initialize({
+    theme: mermaidThemeFor(theme),
+    darkMode: theme !== "light",
+    securityLevel: "strict",
+  });
 }
 
 // Apply the initial theme as early as possible to avoid a flash.
 let currentTheme = initialTheme();
 document.documentElement.setAttribute("data-theme", currentTheme);
-mermaid.initialize({ theme: mermaidThemeFor(currentTheme), darkMode: currentTheme !== "light" });
+mermaid.initialize({
+  theme: mermaidThemeFor(currentTheme),
+  darkMode: currentTheme !== "light",
+  securityLevel: "strict",
+});
 
 // ── Type configuration ─────────────────────────────────────────────────────
 // --c-*  : identity colour (4px stripe). --bt-* : AA-safe badge/eyebrow text.
@@ -281,7 +298,11 @@ async function selectArtifact(id) {
     let rendered;
     try { rendered = marked.parse(content); }
     catch { rendered = `<pre style="white-space:pre-wrap;">${escHtml(content)}</pre>`; }
-    contentArea.innerHTML = rendered;
+    // C-2: content is untrusted (cross-scope tier-3 "shared" artifacts may come from a
+    // different, possibly compromised, team) — sanitise the rendered HTML before it
+    // reaches innerHTML so a stored payload like <img src=x onerror=...> cannot execute
+    // and reach app.callServerTool with this reader's credentials.
+    contentArea.innerHTML = DOMPurify.sanitize(rendered);
 
     try {
       contentArea.querySelectorAll("code.language-mermaid").forEach(el => {

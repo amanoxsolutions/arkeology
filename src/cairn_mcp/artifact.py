@@ -10,9 +10,17 @@ section_slug — applied in this order:
   4. Strip leading/trailing '-'.
   5. Truncate to 60 characters; re-strip trailing '-' after truncation.
   6. If empty after all steps → fallback ("artifact" for IDs, "section" for slugs).
+
+``generate_artifact_id`` additionally appends a short deterministic hash suffix
+(see ``_title_hash``) derived from the full, untruncated, un-normalised title to
+every generated ID. This guarantees distinct titles always produce distinct keys,
+even when the normalisation pipeline above would otherwise collapse them to the
+same slug (empty-slug fallback, 60-char truncation, or punctuation collapse) —
+see ADR-005's ``revised`` entry.
 """
 
 import datetime as _dt
+import hashlib
 import re
 import unicodedata
 from dataclasses import dataclass
@@ -42,6 +50,18 @@ ARTIFACT_TYPES: frozenset[str] = frozenset(
 )
 
 _MAX_SLUG_LEN = 60
+
+# Length (in hex characters) of the deterministic title-hash suffix appended to every
+# generated artifact ID (C-3). 8 hex chars = 32 bits of a SHA-256 digest. The relevant
+# collision population is NOT the full per-type/date artifact corpus: two titles with
+# different title_slug values already produce distinct IDs from the slug alone, hash or
+# no hash. The hash only has to disambiguate the much smaller subset of titles that
+# already collide on type + date + title_slug (empty-slug fallback, 60-char truncation
+# matches, punctuation-collapse matches) — in practice a handful of titles per
+# type/date, not the whole corpus. Against that small a population, the birthday-bound
+# collision probability at 32 bits is negligible, while keeping the suffix short and
+# readable in the S3 console alongside the slug it disambiguates.
+_TITLE_HASH_LEN = 8
 
 # Patterns used by parse_sections — compiled once at module load.
 _FENCE_RE: re.Pattern[str] = re.compile(r"^(`{3,}|~{3,})")
@@ -88,11 +108,36 @@ def _slugify(text: str, fallback: str) -> str:
     return truncated if truncated else fallback
 
 
+def _title_hash(title: str) -> str:
+    """Return a short, deterministic hex digest of the full, original title.
+
+    Args:
+        title: The raw (un-normalised, un-truncated) artifact title.
+
+    Returns:
+        The first ``_TITLE_HASH_LEN`` hex characters of the title's SHA-256 digest.
+        Deterministic — the same title always yields the same suffix. Never random
+        or UUID-based (project rule): two writes of the same title always collide
+        on this suffix too, which is required for tier 2/3 idempotency.
+    """
+    return hashlib.sha256(title.encode("utf-8")).hexdigest()[:_TITLE_HASH_LEN]
+
+
 def generate_artifact_id(*, tier: int, type: str, date: str, title: str) -> str:  # noqa: A002
     """Generate a deterministic artifact ID from its key attributes.
 
-    Tier 2 format: ``{type_slug}-{date}-{title_slug}``
-    Tier 3 format: ``{type_slug}-{title_slug}`` (date excluded — stable across updates)
+    Tier 2 format: ``{type_slug}-{date}-{title_slug}-{hash}``
+    Tier 3 format: ``{type_slug}-{title_slug}-{hash}`` (date excluded — stable across updates)
+
+    ``hash`` is a deterministic 8-hex-char SHA-256 prefix of the full, original title
+    (see ``_title_hash``) and is *always* appended, regardless of whether the slug
+    normalisation above collided or not. This structurally eliminates three collision
+    classes that used to silently destroy artifacts (C-3): titles with no Latin/digit
+    content (which all fell back to the constant ``"artifact"`` slug), two titles that
+    differ only after the 60-character truncation point, and titles that differ only
+    in punctuation stripped by the slug normalisation (e.g. ``"Auth: Module Review"``
+    vs. ``"Auth module (review)"``). The slug portion is kept alongside the hash for
+    human readability in the S3 console; the hash alone is what guarantees uniqueness.
 
     Args:
         tier: Artifact tier (2 or 3).
@@ -108,9 +153,10 @@ def generate_artifact_id(*, tier: int, type: str, date: str, title: str) -> str:
     _require_valid_tier(tier)
     type_slug = type.replace("_", "-")
     title_slug = _slugify(title, "artifact")
+    title_hash = _title_hash(title)
     if tier == 3:
-        return f"{type_slug}-{title_slug}"
-    return f"{type_slug}-{date}-{title_slug}"
+        return f"{type_slug}-{title_slug}-{title_hash}"
+    return f"{type_slug}-{date}-{title_slug}-{title_hash}"
 
 
 def section_slug(heading: str) -> str:

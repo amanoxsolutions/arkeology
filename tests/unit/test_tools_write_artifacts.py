@@ -647,3 +647,131 @@ async def test_duplicate_non_adjacent_third_entry_is_validation_error(
     assert results[2].get("error") == "validation_error", (
         f"Entry 2 (second dup) should be validation_error: {results[2]}"
     )
+
+
+# ---------------------------------------------------------------------------
+# C-3 — batch path: collision guard + overwrite flag (batch-level and per-descriptor)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_write_artifacts_existing_key_without_overwrite_is_validation_error(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+) -> None:
+    """A descriptor targeting an already-existing key (from a prior batch call) without
+    overwrite → validation_error; the existing artifact is left untouched.
+    """
+    try:
+        from cairn_mcp.tools.write_artifacts import write_artifacts
+    except ImportError:
+        pytest.fail("cairn_mcp.tools.write_artifacts is not yet implemented")
+
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+    descriptor = _make_descriptor(0)
+
+    first = await write_artifacts(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        artifacts=[descriptor],
+    )
+    assert first["results"][0].get("written") is True
+
+    second = await write_artifacts(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        artifacts=[descriptor],
+    )
+
+    assert second["results"][0].get("error") == "validation_error"
+    assert len(s3_client.list_objects("")) == 1
+
+
+@pytest.mark.asyncio
+async def test_write_artifacts_batch_level_overwrite_true_allows_update(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+) -> None:
+    """Batch-level overwrite=True allows every descriptor in the batch to replace
+    an existing key (mirrors the file_extension batch-default/per-descriptor shape).
+    """
+    try:
+        from cairn_mcp.tools.write_artifacts import write_artifacts
+    except ImportError:
+        pytest.fail("cairn_mcp.tools.write_artifacts is not yet implemented")
+
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+    descriptor = _make_descriptor(0)
+
+    await write_artifacts(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        artifacts=[descriptor],
+    )
+
+    updated = {**descriptor, "content": "## Summary\n\nUpdated content for artifact 0."}
+    result = await write_artifacts(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        artifacts=[updated],
+        overwrite=True,
+    )
+
+    assert result["results"][0].get("written") is True
+    artifact_id = result["results"][0]["artifact_id"]
+    assert "Updated content for artifact 0." in s3_client.get_object(artifact_id)
+
+
+@pytest.mark.asyncio
+async def test_write_artifacts_per_descriptor_overwrite_overrides_batch_default(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+) -> None:
+    """A descriptor-level "overwrite": True overrides the batch-level default (False)."""
+    try:
+        from cairn_mcp.tools.write_artifacts import write_artifacts
+    except ImportError:
+        pytest.fail("cairn_mcp.tools.write_artifacts is not yet implemented")
+
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+    descriptor = _make_descriptor(0)
+
+    await write_artifacts(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        artifacts=[descriptor],
+    )
+
+    updated = {
+        **descriptor,
+        "content": "## Summary\n\nUpdated via per-descriptor overwrite.",
+        "overwrite": True,
+    }
+    # Batch-level default remains False — only this descriptor opts in.
+    result = await write_artifacts(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        artifacts=[updated],
+    )
+
+    assert result["results"][0].get("written") is True
+    artifact_id = result["results"][0]["artifact_id"]
+    assert "Updated via per-descriptor overwrite." in s3_client.get_object(artifact_id)

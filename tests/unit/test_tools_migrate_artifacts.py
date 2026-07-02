@@ -777,6 +777,130 @@ async def test_m20_single_nova_lite_failure_does_not_abort_migration(
 # ---------------------------------------------------------------------------
 
 
+async def test_a1_migrate_writes_only_new_and_skips_pre_existing_key(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """A-1: a descriptor whose generated key was already written by a prior call is
+    skipped (no overwrite, no error); the other, genuinely-new descriptors are written.
+    """
+    try:
+        from cairn_mcp.tools.migrate_artifacts import migrate_artifacts
+    except ImportError:
+        pytest.fail("cairn_mcp.tools.migrate_artifacts is not yet implemented")
+
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+    mocker.patch.object(bedrock, "invoke_text_model", create=True, return_value=_FAKE_DESCRIPTION)
+
+    # Prior write — same type/team/project/tier/date/title as descriptor 0 below, so it
+    # resolves to the identical generated key.
+    prior = _make_descriptor(0, content="## Context\n\nORIGINAL content, do not overwrite.")
+    await migrate_artifacts(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        descriptors=[prior],
+        dry_run=False,
+    )
+    prior_key = s3_client.list_objects("")[0]
+    original_content = s3_client.get_object(prior_key)
+
+    # Descriptor 0 collides with the prior write; descriptor 1 is genuinely new.
+    colliding = _make_descriptor(0, content="## Context\n\nCHANGED content — must be rejected.")
+    fresh = _make_descriptor(1)
+    result = await migrate_artifacts(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        descriptors=[colliding, fresh],
+        dry_run=False,
+    )
+
+    results = result.get("results", [])
+    assert len(results) == 2, f"Expected one result per input descriptor, got {results}"
+
+    # The colliding entry must not report an error and must not claim to have written.
+    assert "error" not in results[0], f"Skip must not be surfaced as an error: {results[0]}"
+    assert results[0].get("written") is not True, (
+        f"Colliding entry must not be written: {results[0]}"
+    )
+
+    # The fresh entry writes normally.
+    assert results[1].get("written") is True, f"Fresh descriptor should write: {results[1]}"
+
+    # Skipped items are surfaced explicitly.
+    skipped = result.get("skipped_existing", [])
+    assert len(skipped) == 1, f"Expected exactly one skipped_existing entry, got {skipped}"
+
+    # The original content is untouched — no silent overwrite occurred.
+    assert s3_client.get_object(prior_key) == original_content
+    # Exactly 2 objects total: the untouched original + the one new write.
+    assert len(s3_client.list_objects("")) == 2
+
+
+async def test_a1_migrate_rerun_over_full_corpus_is_idempotent_and_non_destructive(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """A-1: re-running a migration over an already-imported corpus writes nothing and
+    skips everything — idempotent and non-destructive, even when re-run content differs.
+    """
+    try:
+        from cairn_mcp.tools.migrate_artifacts import migrate_artifacts
+    except ImportError:
+        pytest.fail("cairn_mcp.tools.migrate_artifacts is not yet implemented")
+
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+    mocker.patch.object(bedrock, "invoke_text_model", create=True, return_value=_FAKE_DESCRIPTION)
+
+    descriptors = [_make_descriptor(i) for i in range(4)]
+
+    first = await migrate_artifacts(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        descriptors=descriptors,
+        dry_run=False,
+    )
+    assert all(r.get("written") is True for r in first.get("results", []))
+    objects_after_first = sorted(s3_client.list_objects(""))
+    contents_after_first = {k: s3_client.get_object(k) for k in objects_after_first}
+
+    # Re-run with the exact same descriptors (the realistic re-import scenario).
+    second = await migrate_artifacts(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        descriptors=descriptors,
+        dry_run=False,
+    )
+
+    second_results = second.get("results", [])
+    assert len(second_results) == 4
+    for entry in second_results:
+        assert "error" not in entry, f"Re-run must not surface skips as errors: {entry}"
+        assert entry.get("written") is not True, f"Re-run must not rewrite anything: {entry}"
+
+    assert len(second.get("skipped_existing", [])) == 4, (
+        f"Expected all 4 to be skipped on re-run, got: {second.get('skipped_existing')}"
+    )
+
+    # Nothing was mutated: same object set, same content, no duplicates.
+    assert sorted(s3_client.list_objects("")) == objects_after_first
+    for key, content in contents_after_first.items():
+        assert s3_client.get_object(key) == content
+
+
 def test_m20_server_migrate_artifacts_exposes_artifact_concurrency() -> None:
     """M20 Bug 3: The MCP tool definition in server.py wraps migrate_artifacts but does not
     forward artifact_concurrency to the inner function.  After the fix, the tool function

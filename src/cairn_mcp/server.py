@@ -79,8 +79,13 @@ def register_tools(
         source_artifacts: list[str] | None = None,
         commit_refs: list[str] | None = None,
         status: str = "active",
+        overwrite: bool = False,
     ) -> dict[str, Any]:
-        """Write an artifact to S3 and index its sections in S3 Vectors."""
+        """Write an artifact to S3 and index its sections in S3 Vectors.
+
+        A write whose generated key already exists is rejected with a
+        validation_error unless overwrite=True is passed explicitly.
+        """
         return await _write_artifact(
             settings=settings,
             s3=s3,
@@ -100,6 +105,7 @@ def register_tools(
             source_artifacts=source_artifacts,
             commit_refs=commit_refs,
             status=status,
+            overwrite=overwrite,
         )
 
     @_app.tool()
@@ -257,14 +263,22 @@ def register_tools(
         )
 
     @_app.tool()
-    async def write_artifacts(artifacts: list[dict[str, Any]]) -> dict[str, Any]:
-        """Write a list of artifact descriptors concurrently."""
+    async def write_artifacts(
+        artifacts: list[dict[str, Any]],
+        overwrite: bool = False,
+    ) -> dict[str, Any]:
+        """Write a list of artifact descriptors concurrently.
+
+        overwrite is a batch-level default for the collision guard; each
+        descriptor may include its own "overwrite" key to override it.
+        """
         return await _write_artifacts(
             settings=settings,
             s3=s3,
             vectors=vectors,
             bedrock=bedrock,
             artifacts=artifacts,
+            overwrite=overwrite,
         )
 
     @_app.tool()
@@ -273,7 +287,12 @@ def register_tools(
         dry_run: bool = True,
         artifact_concurrency: int = 3,
     ) -> dict[str, Any]:
-        """Migrate artifacts, generating missing descriptions via Nova Lite."""
+        """Migrate artifacts, generating missing descriptions via Nova Lite.
+
+        Never overwrites: a descriptor whose generated key already exists is skipped
+        (not written, not an error) and reported under "skipped_existing" — re-running
+        a migration over an already-imported corpus is idempotent and non-destructive.
+        """
         return await _migrate_artifacts(
             settings=settings,
             s3=s3,

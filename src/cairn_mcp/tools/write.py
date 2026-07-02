@@ -27,7 +27,7 @@ from cairn_mcp.clients.interfaces import (
 )
 from cairn_mcp.config import Settings
 from cairn_mcp.constants import ErrorCode
-from cairn_mcp.errors import CredentialError
+from cairn_mcp.errors import ArtifactCollisionError, CredentialError
 from cairn_mcp.failure_log import append_failure_entry
 
 logger = logging.getLogger(__name__)
@@ -188,6 +188,7 @@ async def write_artifact(
     commit_refs: list[str] | None = None,
     status: str = "active",
     file_extension: str = ".md",
+    overwrite: bool = False,
 ) -> dict[str, Any]:
     """Store an artifact to S3 and index its sections in S3 Vectors.
 
@@ -213,6 +214,15 @@ async def write_artifact(
         file_extension: File extension for the S3 key, including the leading dot
             (e.g. ``".md"``, ``".txt"``). Defaults to ``".md"``. Must start with
             ``"."``.
+        overwrite: If ``False`` (default) and the generated key already exists,
+            the write is rejected with a ``validation_error`` and the existing
+            artifact/vectors are left untouched. Set ``True`` to intentionally
+            replace an existing artifact in place (tier 3 living-doc updates,
+            corrections). Never implied — collisions are always explicit. The
+            guard is enforced atomically: the S3 write itself is a conditional
+            create (``IfNoneMatch``) when ``overwrite=False``, so two concurrent
+            same-key writes cannot both succeed — a preceding existence check is
+            only a friendly fast path, not the authoritative guard.
 
     Returns:
         On success: ``{"artifact_id": str, "sections_indexed": int, "last_edited_ulid": str}``
@@ -243,6 +253,7 @@ async def write_artifact(
             refs=refs,
             status=status,
             file_extension=file_extension,
+            overwrite=overwrite,
         )
     except Exception as exc:
         logger.exception("Unexpected error in write_artifact")
@@ -270,6 +281,7 @@ async def _write_artifact_inner(  # noqa: PLR0913
     refs: list[str],
     status: str,
     file_extension: str = ".md",
+    overwrite: bool = False,
 ) -> dict[str, Any]:
     """Inner implementation of write_artifact (separated to enable top-level catch-all).
 
@@ -329,7 +341,28 @@ async def _write_artifact_inner(  # noqa: PLR0913
         "last_edited_ulid": last_edited_ulid,
     }
 
-    # ── Step 4: Write to S3 (check existence first for orphan cleanup) ───────
+    # ── Step 4: Check existing before writing (collision guard + orphan detection) ──
+    # C-3: a write whose generated key already exists is rejected by default — silent
+    # overwrite-by-collision is the worst failure mode for a store whose purpose is
+    # never losing memory. The caller must pass overwrite=True to intentionally
+    # replace an existing artifact (tier 3 living-doc updates, corrections).
+    #
+    # A-2: head_object here is a *friendly fast path* only — check-then-act is racy
+    # (two concurrent same-key writes can both pass this check). The authoritative,
+    # atomic guard is the conditional put_object(if_none_match=True) below, which
+    # closes the race by making the existence check and the write a single S3-side
+    # atomic operation.
+    def _collision_response() -> dict[str, Any]:
+        return {
+            "error": ErrorCode.VALIDATION_ERROR,
+            "message": (
+                f"An artifact already exists at key '{s3_key}'. The write was rejected "
+                "to avoid a silent overwrite-by-collision. Pass overwrite=True to "
+                "intentionally replace this artifact in place."
+            ),
+            "artifact_id": s3_key,
+        }
+
     is_existing = False
     try:
         s3.head_object(s3_key)
@@ -339,8 +372,16 @@ async def _write_artifact_inner(  # noqa: PLR0913
     except CredentialError as exc:
         return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
 
+    if is_existing and not overwrite:
+        return _collision_response()
+
     try:
-        s3.put_object(s3_key, content, s3_metadata)
+        s3.put_object(s3_key, content, s3_metadata, if_none_match=not overwrite)
+    except ArtifactCollisionError:
+        # The fast-path check above missed a concurrent writer that created the key
+        # between the head_object call and this put_object call — the atomic
+        # conditional put is what actually caught the collision.
+        return _collision_response()
     except CredentialError as exc:
         return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
 

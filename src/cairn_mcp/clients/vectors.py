@@ -19,7 +19,7 @@ import botocore.exceptions
 from cairn_mcp.clients.credentials import wrap_credential_errors
 from cairn_mcp.clients.filter import matches_filter
 from cairn_mcp.clients.interfaces import VectorsClientInterface  # noqa: F401 (structural only)
-from cairn_mcp.errors import VectorIndexNotFoundError
+from cairn_mcp.errors import VectorDistanceMissingError, VectorIndexNotFoundError
 
 logger = logging.getLogger(__name__)
 
@@ -135,6 +135,9 @@ class VectorsClientImpl:
             "topK": top_k,
             "queryVector": {"float32": vector},
             "returnMetadata": True,
+            # AWS defaults returnDistance to false; without it every result comes back
+            # with no 'distance' field and ranking silently degenerates (see C-1).
+            "returnDistance": True,
         }
         if filter_expr is not None:
             kwargs["filter"] = filter_expr
@@ -145,7 +148,11 @@ class VectorsClientImpl:
                 # S3 Vectors returns 'distance'; lower is more similar (cosine distance
                 # for normalised vectors is in [0, 2]). score = 1.0 - distance → [-1, 1],
                 # matching the moto query_vectors extension in tests/unit/conftest.py.
-                distance = item.get("distance", 0.0)
+                # A missing 'distance' must never be treated as perfect similarity
+                # (score 1.0) — that silently breaks ranking — so it is a hard error.
+                if "distance" not in item:
+                    raise VectorDistanceMissingError(key=item.get("key", "<unknown>"))
+                distance = item["distance"]
                 results.append(
                     {
                         "key": item["key"],

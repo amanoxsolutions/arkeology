@@ -130,12 +130,66 @@ def test_tier3_date_not_in_id() -> None:
 
 
 def test_tier3_learning_id_is_date_independent() -> None:
-    """Tier 3 'learning': id is the date-independent {type_slug}-{title_slug} form."""
+    """Tier 3 'learning': id is the date-independent {type_slug}-{title_slug}-{hash} form."""
     artifact_id = generate_artifact_id(
         type="learning", title="Project Learnings", tier=3, date="2026-06-15"
     )
-    assert artifact_id == "learning-project-learnings"
+    assert artifact_id.startswith("learning-project-learnings-")
+    suffix = artifact_id.removeprefix("learning-project-learnings-")
+    assert re.fullmatch(r"[0-9a-f]{8}", suffix), f"unexpected hash suffix: {suffix!r}"
     assert "2026" not in artifact_id
+
+
+# ---------------------------------------------------------------------------
+# C-3 — deterministic hash suffix disambiguates slug collisions
+# ---------------------------------------------------------------------------
+
+
+def test_cjk_titles_with_empty_slug_produce_distinct_ids() -> None:
+    """Two titles with no Latin/digit content both fall back to 'artifact' slug,
+    but the hash suffix (derived from the full original title) makes the ids distinct.
+    """
+    id1 = generate_artifact_id(type="adr", title="日本語のタイトル", tier=3, date="2026-05-30")
+    id2 = generate_artifact_id(type="adr", title="中文标题", tier=3, date="2026-05-30")
+    assert "artifact" in id1
+    assert "artifact" in id2
+    assert id1 != id2
+
+
+def test_long_titles_differing_past_truncation_point_produce_distinct_ids() -> None:
+    """Two >60-char titles differing only after the truncation point → distinct ids."""
+    title1 = "a" * 60 + "one"
+    title2 = "a" * 60 + "two"
+    id1 = generate_artifact_id(type="adr", title=title1, tier=3, date="2026-05-30")
+    id2 = generate_artifact_id(type="adr", title=title2, tier=3, date="2026-05-30")
+    assert id1 != id2
+
+
+def test_punctuation_collapse_titles_produce_distinct_ids() -> None:
+    """Titles that normalise to the same slug via punctuation collapse → distinct ids."""
+    id1 = generate_artifact_id(
+        type="code_review", title="Auth: Module Review", tier=2, date="2026-05-30"
+    )
+    id2 = generate_artifact_id(
+        type="code_review", title="Auth module (review)", tier=2, date="2026-05-30"
+    )
+    assert id1 != id2
+
+
+def test_hash_suffix_is_deterministic_across_calls() -> None:
+    """Same title → same hash suffix (and same id) across repeated calls."""
+    id1 = generate_artifact_id(type="adr", title="Determinism check", tier=3, date="2026-05-30")
+    id2 = generate_artifact_id(type="adr", title="Determinism check", tier=3, date="2026-05-30")
+    assert id1 == id2
+
+
+def test_tier2_id_ends_with_eight_char_hex_hash_suffix() -> None:
+    """Tier 2 id format is {type_slug}-{date}-{title_slug}-{hash}; hash is 8 hex chars."""
+    artifact_id = generate_artifact_id(
+        type="code_review", title="Fix auth bug", tier=2, date="2026-05-30"
+    )
+    suffix = artifact_id.rsplit("-", 1)[-1]
+    assert re.fullmatch(r"[0-9a-f]{8}", suffix), f"unexpected hash suffix: {suffix!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -192,13 +246,18 @@ def test_punctuation_only_title_uses_fallback() -> None:
 
 
 def test_long_title_slug_is_truncated() -> None:
-    """Long title (200 chars) → the title slug portion is ≤ 60 characters."""
+    """Long title (200 chars) → the title slug portion is ≤ 60 characters.
+
+    Tier-3 format: {type_slug}-{title_slug}-{hash}. The hash suffix is a fixed-width
+    8-hex-char segment separated by its own hyphen, so it is stripped from the end
+    before isolating the title slug for the length assertion.
+    """
     long_title = "a" * 200
     artifact_id = generate_artifact_id(type="adr", title=long_title, tier=3, date="2026-05-30")
+    without_hash = artifact_id.rsplit("-", 1)[0]
     # Strip the type prefix to isolate the title slug
-    # Tier-3 format: {type_slug}-{title_slug}
-    parts = artifact_id.split("-", 1)
-    title_slug_part = parts[1] if len(parts) > 1 else artifact_id
+    parts = without_hash.split("-", 1)
+    title_slug_part = parts[1] if len(parts) > 1 else without_hash
     assert len(title_slug_part) <= 60
 
 

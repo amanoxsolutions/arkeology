@@ -8,7 +8,7 @@ import pytest
 
 from cairn_mcp.clients.s3 import S3ClientImpl
 from cairn_mcp.clients.vectors import VectorsClientImpl
-from cairn_mcp.errors import CredentialError
+from cairn_mcp.errors import ArtifactCollisionError, CredentialError
 
 # ---------------------------------------------------------------------------
 # S3ClientImpl — metadata ASCII sanitization
@@ -128,6 +128,45 @@ def test_head_object_403_raises_credential_error_not_key_error(
     mocker.patch.object(s3_client._s3, "head_object", side_effect=forbidden_exc)
     with pytest.raises(CredentialError):
         s3_client.head_object("some/key.md")
+
+
+# ---------------------------------------------------------------------------
+# A-2 — S3ClientImpl.put_object conditional-create mode (IfNoneMatch: "*")
+# ---------------------------------------------------------------------------
+
+
+def test_put_object_if_none_match_succeeds_for_new_key(s3_client: S3ClientImpl) -> None:
+    """A conditional-create put against a key that does not yet exist succeeds normally."""
+    s3_client.put_object(
+        key="test/fresh.md", body="content", metadata={"title": "Fresh"}, if_none_match=True
+    )
+    assert s3_client.get_object("test/fresh.md") == "content"
+
+
+def test_put_object_if_none_match_raises_collision_on_existing_key(
+    s3_client: S3ClientImpl,
+) -> None:
+    """A conditional-create put against an already-existing key raises ArtifactCollisionError
+    and leaves the existing object untouched (the S3 request is rejected atomically —
+    moto 5.2.2 enforces IfNoneMatch on PutObject with HTTP 412 PreconditionFailed)."""
+    s3_client.put_object(key="test/exists.md", body="original", metadata={})
+
+    with pytest.raises(ArtifactCollisionError) as exc_info:
+        s3_client.put_object(
+            key="test/exists.md", body="replacement", metadata={}, if_none_match=True
+        )
+
+    assert exc_info.value.key == "test/exists.md"
+    assert s3_client.get_object("test/exists.md") == "original"
+
+
+def test_put_object_without_if_none_match_overwrites_existing_key(
+    s3_client: S3ClientImpl,
+) -> None:
+    """Default behaviour (if_none_match=False) still performs an unconditional overwrite."""
+    s3_client.put_object(key="test/overwrite.md", body="original", metadata={})
+    s3_client.put_object(key="test/overwrite.md", body="replacement", metadata={})
+    assert s3_client.get_object("test/overwrite.md") == "replacement"
 
 
 def test_put_vectors_batch_credential_error(

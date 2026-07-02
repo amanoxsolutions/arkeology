@@ -136,6 +136,7 @@ async def test_tier3_rewrite_fewer_sections_cleans_orphans(
             vectors=vectors,
             bedrock=bedrock,
             settings=settings,
+            overwrite=True,
             **{**kwargs_2, "content": two_section_content},
         )
 
@@ -179,7 +180,7 @@ async def test_upsert_tier2_twice_one_s3_object_same_vector_count(
         count_after_first = len(keys_after_first)
 
         result2 = await write_artifact(
-            s3=s3, vectors=vectors, bedrock=bedrock, settings=settings, **kwargs
+            s3=s3, vectors=vectors, bedrock=bedrock, settings=settings, overwrite=True, **kwargs
         )
         assert result1["artifact_id"] == result2["artifact_id"]
 

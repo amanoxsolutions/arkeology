@@ -97,6 +97,46 @@ def test_query_vectors_returns_result(
         vectors_client.delete_vectors([test_key])
 
 
+def test_query_vectors_scores_non_trivially_ordered(
+    vectors_client: VectorsClientImpl, index_dimension: int
+) -> None:
+    """C-1: real S3 Vectors query_vectors returns distinct, correctly ranked scores.
+
+    Regression guard for the production bug where returnDistance was never requested,
+    so every result scored 1.0 and ranking silently degenerated to insertion order.
+    Seeds three vectors at increasing angular distance from the query and asserts
+    their scores are distinct and ordered near > mid > far.
+    """
+    query = _unit_vec(index_dimension)
+    near_key = f"_cairn_integration_{uuid.uuid4().hex}_near"
+    mid_key = f"_cairn_integration_{uuid.uuid4().hex}_mid"
+    far_key = f"_cairn_integration_{uuid.uuid4().hex}_far"
+
+    def _vec_with_second_component(second: float) -> list[float]:
+        values = [1.0, second] + [0.0] * (index_dimension - 2)
+        norm = math.sqrt(sum(v * v for v in values))
+        return [v / norm for v in values]
+
+    near_vec = _vec_with_second_component(0.1)
+    mid_vec = _vec_with_second_component(1.0)
+    far_vec = _vec_with_second_component(10.0)
+
+    vectors_client.put_vector(near_key, near_vec, {"artifact_id": "test-near"})
+    vectors_client.put_vector(mid_key, mid_vec, {"artifact_id": "test-mid"})
+    vectors_client.put_vector(far_key, far_vec, {"artifact_id": "test-far"})
+    try:
+        results = vectors_client.query_vectors(query, top_k=10, filter_expr=None)
+        scores = {r["key"]: r["score"] for r in results if r["key"] in (near_key, mid_key, far_key)}
+
+        assert len(scores) == 3, f"expected all three seeded keys in results: {scores}"
+        assert len({round(s, 6) for s in scores.values()}) > 1, (
+            f"all scores identical — ranking did not occur: {scores}"
+        )
+        assert scores[near_key] > scores[mid_key] > scores[far_key]
+    finally:
+        vectors_client.delete_vectors([near_key, mid_key, far_key])
+
+
 def test_describe_index_returns_dimension(vectors_client: VectorsClientImpl) -> None:
     """describe_index returns an index info dict with a dimension field."""
     info = vectors_client.describe_index()

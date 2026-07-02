@@ -11,8 +11,8 @@ authored:
   by: architect
   date: "2026-05-29"
 revised:
-  by: ""
-  date: ""
+  by: "analyst"
+  date: "2026-07-02"
 ---
 
 # Deterministic Slug-Based Artifact Identifiers
@@ -92,3 +92,38 @@ section slug: `{s3_key}#{section_slug}` (e.g. `team/project/code-review-2026-05-
 - S3 keys are fully human-readable and browsable in the AWS console without a manifest file.
 - The `#` character used as the section vector key separator is confirmed valid by AWS
   documentation and empirically by the T17 integration test suite (2026-05-31).
+
+## Revision — 2026-07-02
+
+A full-project review (finding C-3) established that the "intentional deduplication" framing
+above did not hold for three collision classes the original design did not consider:
+
+1. **Empty-slug collapse.** Any title with no Latin/digit content (CJK, Cyrillic, Arabic,
+   emoji) normalises to an empty string and falls back to the constant slug `"artifact"`. All
+   such titles of the same type (and tier 2 date) silently shared one key — an unrelated write
+   destroyed the previous artifact's content and vectors, not a deliberate dedup.
+2. **Truncation collision.** Two distinct titles longer than 60 characters that differ only
+   after the truncation point produced the same `title_slug` and therefore the same key.
+3. **Punctuation-collapse collision.** Titles differing only in punctuation stripped by
+   normalisation (e.g. `"Auth: Module Review"` vs. `"Auth module (review)"`) both slugify to
+   `auth-module-review` and collided.
+
+For a store whose purpose is durable memory, silent overwrite-by-collision in these three
+classes is a defect, not a feature — unlike the genuinely intentional case this ADR
+documents (e.g. `"Auth Module"` vs. `"auth_module"`), none of the three above express any
+real intent to treat the two titles as the same artifact.
+
+**Resolution (operator-approved 2026-07-02):** `generate_artifact_id` now *always* appends a
+short deterministic hash suffix — the first 8 hex characters of a SHA-256 digest of the full,
+original (un-normalised, un-truncated) title — to the generated key, for both tiers:
+
+- Tier 2: `{type_slug}-{date}-{title_slug}-{hash}`
+- Tier 3: `{type_slug}-{title_slug}-{hash}`
+
+The hash is deterministic (never random/UUID, preserving this ADR's core idempotency
+guarantee) and structurally eliminates all three collision classes above, while the slug
+portion is retained for human readability in the S3 console. Additionally, `write_artifact`
+now rejects a write whose generated key already exists with a `validation_error` unless the
+caller passes an explicit `overwrite=true` flag — collapsing two distinct titles onto the
+same key (the one case this ADR still treats as intentional dedup) now requires the same
+explicit opt-in as any other same-key overwrite, rather than happening silently.

@@ -11,6 +11,11 @@ controls both the Nova Lite description semaphore (enrichment phase) and is forw
 to write_artifacts for the write semaphore (live phase). Out-of-range values are
 clamped silently with a top-level ``"warning"`` field in the response.
 
+A-1: bulk migration never overwrites a pre-existing key. Before the write phase, each
+candidate's generated key is checked for existence; any candidate that already exists
+is skipped (no write, no error) and reported in the ``"skipped_existing"`` list, so
+re-running a migration over an already-imported corpus is idempotent and non-destructive.
+
 Note: A compound artifact_concurrency × section_concurrency ≤ ceiling validation
 is intentionally absent from this task; it is noted here as a future concern.
 """
@@ -19,6 +24,7 @@ import asyncio
 import logging
 from typing import Any
 
+from cairn_mcp.artifact import generate_artifact_id
 from cairn_mcp.clients.interfaces import (
     BedrockClientInterface,
     S3ClientInterface,
@@ -26,6 +32,7 @@ from cairn_mcp.clients.interfaces import (
 )
 from cairn_mcp.config import Settings
 from cairn_mcp.constants import ErrorCode
+from cairn_mcp.errors import CredentialError
 from cairn_mcp.tools.write_artifacts import write_artifacts as _write_artifacts
 
 logger = logging.getLogger(__name__)
@@ -91,8 +98,16 @@ async def migrate_artifacts(
 
     Returns:
         ``dry_run=True``:  ``{"descriptors": [...]}`` — enriched descriptor list.
-        ``dry_run=False``: ``{"results": [...]}`` — per-artifact write results from
-            write_artifacts.
+        ``dry_run=False``: ``{"results": [...]}`` — one entry per input descriptor,
+            positionally aligned. A descriptor whose generated key already exists is
+            **skipped** — never overwritten — and its entry is
+            ``{"written": False, "skipped": True, "artifact_id": ...}``; all other
+            entries are the usual write_artifacts outcome. When any descriptor was
+            skipped, a top-level ``"skipped_existing"`` list is also included, one
+            entry per skip (``index``, ``artifact_id``, ``title``). Re-running a
+            migration over an already-imported corpus is therefore idempotent and
+            non-destructive: every already-present artifact is skipped and nothing is
+            overwritten or deleted.
         When ``artifact_concurrency`` is out of range, a top-level ``"warning"`` key
         is included in the response.
     """
@@ -209,13 +224,69 @@ async def _migrate_artifacts_inner(
     if dry_run:
         return _with_warning({"descriptors": enriched})
 
-    # ── Step 5: delegate to write_artifacts for the write phase ───────────────
-    write_result = await _write_artifacts(
-        settings=settings,
-        s3=s3,
-        vectors=vectors,
-        bedrock=bedrock,
-        artifacts=enriched,
-        artifact_concurrency=effective,
-    )
-    return _with_warning(write_result)
+    # ── Step 5: skip-existing filter (A-1) ─────────────────────────────────────
+    # Bulk migration is commonly re-run over the same corpus (resuming an interrupted
+    # import, or re-importing an updated corpus). It must NEVER overwrite: a
+    # candidate whose generated key already exists is skipped — not written, not an
+    # error — so re-running a migration is idempotent and non-destructive. This is
+    # deliberately never bypassed with overwrite=True, which would reopen the
+    # silent-overwrite hole C-3's collision guard exists to close.
+    to_write_indices: list[int] = []
+    skipped_existing: list[dict[str, Any]] = []
+    combined_results: list[dict[str, Any] | None] = [None] * len(enriched)
+
+    for idx, descriptor in enumerate(enriched):
+        try:
+            slug = generate_artifact_id(
+                tier=int(descriptor["tier"]),
+                type=str(descriptor["type"]),
+                date=str(descriptor["date"]),
+                title=str(descriptor["title"]),
+            )
+        except KeyError, ValueError, TypeError:
+            # Malformed descriptor — defer to write_artifacts' own per-item
+            # validation, which surfaces a clear validation_error for this entry.
+            to_write_indices.append(idx)
+            continue
+
+        ext = str(descriptor.get("file_extension") or ".md")
+        candidate_key = f"{settings.write_prefix}/{slug}{ext}"
+        try:
+            s3.head_object(candidate_key)
+        except KeyError:
+            to_write_indices.append(idx)
+            continue
+        except CredentialError as exc:
+            return _with_warning({"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)})
+
+        combined_results[idx] = {
+            "written": False,
+            "skipped": True,
+            "artifact_id": candidate_key,
+        }
+        skipped_existing.append(
+            {"index": idx, "artifact_id": candidate_key, "title": descriptor.get("title", "")}
+        )
+
+    # ── Step 6: delegate to write_artifacts for the genuinely-new candidates ──────
+    if to_write_indices:
+        write_result = await _write_artifacts(
+            settings=settings,
+            s3=s3,
+            vectors=vectors,
+            bedrock=bedrock,
+            artifacts=[enriched[i] for i in to_write_indices],
+            artifact_concurrency=effective,
+            overwrite=False,
+        )
+        if "results" not in write_result:
+            # write_artifacts hit its own top-level catch-all — propagate as-is
+            # rather than silently dropping the failure.
+            return _with_warning(write_result)
+        for pos, idx in enumerate(to_write_indices):
+            combined_results[idx] = write_result["results"][pos]
+
+    response: dict[str, Any] = {"results": combined_results}
+    if skipped_existing:
+        response["skipped_existing"] = skipped_existing
+    return _with_warning(response)

@@ -44,11 +44,18 @@ def _backend_query_vectors(
     query_vector: list[float],
     top_k: int,
     filter_expr: dict[str, Any] | None = None,
+    return_distance: bool = False,
 ) -> list[dict[str, Any]]:
     """Moto extension: cosine similarity search over moto's in-memory vector store.
 
     Score = 1.0 - cosine_distance = cosine_similarity, range [-1, 1].
     Matches VectorsClientImpl.query_vectors score semantics exactly.
+
+    ``return_distance`` mirrors the real S3 Vectors ``returnDistance`` request flag
+    (AWS default: false) — 'distance' is only included in each result when it is
+    truthy. This is required so a client that forgets to request distances (as
+    production code did before the C-1 fix) sees the same missing-field shape a
+    real S3 Vectors response would return, rather than the fixture masking the bug.
     """
     bucket = next(
         (b for b in self.vector_buckets.values() if b.vector_bucket_name == vector_bucket_name),
@@ -62,16 +69,19 @@ def _backend_query_vectors(
     )
     if index is None:
         raise KeyError(f"Index not found: {index_name}")
-    candidates: list[dict[str, Any]] = []
+    scored: list[tuple[float, dict[str, Any]]] = []
     for key, entry in index.vectors.items():
         meta = entry.metadata or {}
         if filter_expr is not None and not matches_filter(meta, filter_expr):
             continue
         vec = entry.data["float32"]
         cosine_dist = 1.0 - _cosine_similarity(query_vector, vec)
-        candidates.append({"key": key, "distance": cosine_dist, "metadata": meta})
-    candidates.sort(key=lambda r: float(r["distance"]))
-    return candidates[:top_k]
+        result: dict[str, Any] = {"key": key, "metadata": meta}
+        if return_distance:
+            result["distance"] = cosine_dist
+        scored.append((cosine_dist, result))
+    scored.sort(key=lambda pair: pair[0])
+    return [result for _, result in scored[:top_k]]
 
 
 def _response_query_vectors(self: Any) -> ActionResult:
@@ -81,12 +91,14 @@ def _response_query_vectors(self: Any) -> ActionResult:
     query_vector: list[float] = query_vector_raw.get("float32", [])
     top_k: int = self._get_param("topK")
     filter_expr = self._get_param("filter")
+    return_distance = self._get_bool_param("returnDistance", False)
     results = self.s3vectors_backend.query_vectors(
         vector_bucket_name=vector_bucket_name,
         index_name=index_name,
         query_vector=query_vector,
         top_k=top_k,
         filter_expr=filter_expr,
+        return_distance=return_distance,
     )
     return ActionResult(result={"vectors": results})
 

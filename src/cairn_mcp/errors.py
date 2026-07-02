@@ -71,3 +71,43 @@ class VectorIndexNotFoundError(CairnError):
         super().__init__(f"Vector index '{index_name}' not found in bucket '{bucket_name}'")
         self.index_name = index_name
         self.bucket_name = bucket_name
+
+
+class ArtifactCollisionError(CairnError):
+    """Raised when a conditional-create ``PutObject`` (``IfNoneMatch: "*"``) is rejected
+    because an object already exists at the target key (HTTP 412 PreconditionFailed).
+
+    This is the authoritative, atomic collision signal for the write-path's
+    ``overwrite=False`` guard (see ``tools/write.py``). A prior ``head_object``-based
+    existence check is a friendly fast path only and is inherently racy (check-then-act);
+    this error is raised from the same atomic S3 call that performs the write itself, so
+    two concurrent same-key writes cannot both succeed — the loser of the race gets this
+    error instead of silently overwriting the winner.
+
+    Attributes:
+        key: The S3 key whose conditional create was rejected.
+    """
+
+    def __init__(self, key: str) -> None:
+        super().__init__(f"Conditional create rejected: an object already exists at key '{key}'")
+        self.key = key
+
+
+class VectorDistanceMissingError(CairnError):
+    """Raised when a ``query_vectors`` result is missing the ``distance`` field.
+
+    S3 Vectors only returns ``distance`` when the request sets ``returnDistance: true``.
+    A missing distance must never be silently treated as perfect similarity
+    (``score = 1.0``) — that would make ranked semantic recall degenerate to an
+    arbitrary tie order. Raise instead of defaulting.
+
+    Attributes:
+        key: The vector key whose result was missing a ``distance`` value.
+    """
+
+    def __init__(self, key: str) -> None:
+        super().__init__(
+            f"query_vectors result for key '{key}' is missing 'distance' — "
+            "the request must set returnDistance=True to receive scored results"
+        )
+        self.key = key

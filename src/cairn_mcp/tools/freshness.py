@@ -121,22 +121,48 @@ async def _check_synthesis_freshness_inner(
             all_source_ids.add(src_id)
 
     # ── Step 6: Fetch source metadata — one lookup per unique source ID ───────
+    # Cross-scope gate (C-5): identical to list.py's Step 5 — own-scope sources are
+    # always readable; a foreign-scope source is only readable when it is tier 3 AND
+    # visibility="shared". A gated-out source is treated exactly as an unresolved
+    # source (None) so it surfaces as missing and its date/status are never read or
+    # reported — this must never leak whether a foreign artifact exists.
+    own_scope = settings.write_prefix
+    read_prefixes = settings.read_prefixes_list
     source_meta: dict[str, dict[str, Any] | None] = {}
     for source_id in all_source_ids:
         try:
             src_keys = vectors.list_vectors_by_metadata({"artifact_id": {"$eq": source_id}})
-            if src_keys:
-                src_items = vectors.get_vectors(src_keys[:1])
-                if src_items:
-                    source_meta[source_id] = src_items[0]["metadata"]
-                else:
-                    source_meta[source_id] = None
         except CredentialError as exc:
             return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
+
         if not src_keys:
             # No vector index entries → the source is missing (T22). All freshness data
             # comes from the vector index; S3 is never read during the audit (S3 reads are
             # reserved for malformed-synthesis deletion only).
+            source_meta[source_id] = None
+            continue
+
+        try:
+            src_items = vectors.get_vectors(src_keys[:1])
+        except CredentialError as exc:
+            return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
+
+        if not src_items:
+            source_meta[source_id] = None
+            continue
+
+        meta = src_items[0]["metadata"]
+
+        if source_id.startswith(own_scope + "/"):
+            source_meta[source_id] = meta  # own scope — always allowed
+            continue
+
+        is_foreign_readable = any(source_id.startswith(p + "/") for p in read_prefixes)
+        item_tier = int(meta.get("tier", 0))
+        item_visibility = str(meta.get("visibility", ""))
+        if is_foreign_readable and item_tier == 3 and item_visibility == "shared":
+            source_meta[source_id] = meta
+        else:
             source_meta[source_id] = None
 
     # ── Step 7: Build stale, archived_sources, missing_sources per synthesis ──

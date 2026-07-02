@@ -61,6 +61,7 @@ async def write_artifacts(
     artifacts: list[dict[str, Any]],
     artifact_concurrency: int = _ARTIFACT_CONCURRENCY_DEFAULT,
     file_extension: str = ".md",
+    overwrite: bool = False,
 ) -> dict[str, Any]:
     """Write a list of artifact descriptors concurrently.
 
@@ -78,6 +79,11 @@ async def write_artifacts(
             Must be in [1, 15]. Values > 15 are capped to 15 (with a warning in
             the response). Values < 1 are substituted with the default 3 (with a
             warning). Out-of-range values are never an error. Defaults to 3.
+        overwrite: Batch-level default for the C-3 collision guard (default
+            ``False`` — a descriptor targeting an already-existing key is
+            rejected with ``validation_error``). Each descriptor may also supply
+            an ``overwrite`` key to override this default for that entry only,
+            mirroring the ``file_extension`` batch-default/per-descriptor shape.
 
     Returns:
         ``{"results": [...]}`` where each entry corresponds positionally to the
@@ -95,6 +101,7 @@ async def write_artifacts(
             artifacts=artifacts,
             artifact_concurrency=artifact_concurrency,
             file_extension=file_extension,
+            overwrite=overwrite,
         )
     except Exception as exc:
         logger.exception("Unexpected error in write_artifacts")
@@ -110,6 +117,7 @@ async def _write_artifacts_inner(
     artifacts: list[dict[str, Any]],
     artifact_concurrency: int = _ARTIFACT_CONCURRENCY_DEFAULT,
     file_extension: str = ".md",
+    overwrite: bool = False,
 ) -> dict[str, Any]:
     """Inner implementation: concurrent writes bounded by artifact_concurrency."""
     # ── Clamp artifact_concurrency to [1, 15] ────────────────────────────────
@@ -191,6 +199,7 @@ async def _write_artifacts_inner(
                     refs=descriptor.get("commit_refs") or [],
                     status=descriptor.get("status", ArtifactStatus.ACTIVE),
                     file_extension=descriptor.get("file_extension") or file_extension,
+                    overwrite=descriptor.get("overwrite", overwrite),
                 )
                 # _write_artifact_inner returns error dict or success dict
                 if "error" in result:

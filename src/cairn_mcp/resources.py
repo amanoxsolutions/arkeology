@@ -114,13 +114,17 @@ def tiers_schema_content() -> str:
 ## Tier 2 — Project-local, date-anchored records
 
 Tier 2 artifacts are session-scoped working records. They are **append-only**:
-once written, their content is **immutable** — re-writing the same title and date
-produces the same key (idempotent), but the content cannot be updated.
+once written, their content is **immutable** by default — re-writing the same
+title and date targets the same key and is **rejected** (`validation_error`)
+rather than silently overwritten. Pass `overwrite=true` to `write_artifact` to
+intentionally replace an existing tier 2 record in place (e.g. a correction).
 
-**Key format:** `{type_slug}-{date}-{title_slug}`
+**Key format:** `{type_slug}-{date}-{title_slug}-{hash}` — `hash` is a deterministic
+8-hex-char digest of the full title, always appended so distinct titles never
+collide on the same key even after slug normalisation.
 
 Example: a code review written on 2026-05-31 with title "Auth module review" becomes
-`code-review-2026-05-31-auth-module-review`.
+`code-review-2026-05-31-auth-module-review-33559d57`.
 
 **Use for:** brainstorming, code_review, session_summary, implementation_note, bug_report,
 changelog, postmortem
@@ -133,14 +137,17 @@ accessible outside the deployment's own `WRITE_PREFIX` scope, regardless of visi
 ## Tier 3 — Permanent, date-independent knowledge
 
 Tier 3 artifacts are canonical knowledge that persists and evolves. Re-writing a tier 3
-artifact with the same type and title **overwrites in place** — the key is stable and
-date-independent. Orphaned section vectors from the previous version are cleaned up
-automatically.
+artifact with the same type and title targets the same stable, date-independent key —
+but is still rejected by default (`validation_error`) unless the write explicitly passes
+`overwrite=true` to `write_artifact`, which then **overwrites in place**. Orphaned
+section vectors from the previous version are cleaned up automatically on an
+overwrite.
 
-**Key format:** `{type_slug}-{title_slug}` (omits date — date-independent)
+**Key format:** `{type_slug}-{title_slug}-{hash}` (omits date — date-independent;
+`hash` is the same deterministic 8-hex-char title digest as tier 2)
 
 Example: an ADR with title "Use S3 Vectors for embeddings" becomes
-`adr-use-s3-vectors-for-embeddings`.
+`adr-use-s3-vectors-for-embeddings-788ff524`.
 
 **Use for:** adr, spec, decision_note, synthesis, plan, prd, runbook, learning
 

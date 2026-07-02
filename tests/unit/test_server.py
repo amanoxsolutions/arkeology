@@ -107,6 +107,98 @@ async def test_write_artifact_mcp_layer_forwards_commit_refs(
 
 
 # ---------------------------------------------------------------------------
+# MCP tool layer — C-3: overwrite flag is reachable by MCP callers
+# ---------------------------------------------------------------------------
+
+
+async def test_write_artifact_mcp_layer_forwards_overwrite(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """write_artifact MCP tool forwards overwrite to the underlying _write_artifact."""
+    settings = _make_settings(monkeypatch)
+    mock_write = AsyncMock(return_value={"artifact_id": "artifacts/test"})
+    monkeypatch.setattr("cairn_mcp.server._write_artifact", mock_write)
+
+    register_tools(
+        settings=settings,
+        s3=MagicMock(),
+        vectors=MagicMock(),
+        bedrock=MagicMock(),
+    )
+    tool = await _app.get_tool("write_artifact")
+    await tool.fn(
+        type="code_review",
+        team="platform",
+        project="cairn",
+        tier=2,
+        date="2026-06-12",
+        title="Test",
+        description="A test.",
+        content="## Summary\n\nOK.",
+        visibility="shared",
+        overwrite=True,
+    )
+
+    mock_write.assert_awaited_once()
+    _, call_kwargs = mock_write.call_args
+    assert call_kwargs["overwrite"] is True
+
+
+async def test_write_artifact_mcp_layer_overwrite_defaults_false(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """write_artifact MCP tool defaults overwrite to False when the caller omits it."""
+    settings = _make_settings(monkeypatch)
+    mock_write = AsyncMock(return_value={"artifact_id": "artifacts/test"})
+    monkeypatch.setattr("cairn_mcp.server._write_artifact", mock_write)
+
+    register_tools(
+        settings=settings,
+        s3=MagicMock(),
+        vectors=MagicMock(),
+        bedrock=MagicMock(),
+    )
+    tool = await _app.get_tool("write_artifact")
+    await tool.fn(
+        type="code_review",
+        team="platform",
+        project="cairn",
+        tier=2,
+        date="2026-06-12",
+        title="Test",
+        description="A test.",
+        content="## Summary\n\nOK.",
+        visibility="shared",
+    )
+
+    mock_write.assert_awaited_once()
+    _, call_kwargs = mock_write.call_args
+    assert call_kwargs["overwrite"] is False
+
+
+async def test_write_artifacts_mcp_layer_forwards_overwrite(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """write_artifacts MCP tool forwards the batch-level overwrite to _write_artifacts."""
+    settings = _make_settings(monkeypatch)
+    mock_write_batch = AsyncMock(return_value={"results": []})
+    monkeypatch.setattr("cairn_mcp.server._write_artifacts", mock_write_batch)
+
+    register_tools(
+        settings=settings,
+        s3=MagicMock(),
+        vectors=MagicMock(),
+        bedrock=MagicMock(),
+    )
+    tool = await _app.get_tool("write_artifacts")
+    await tool.fn(artifacts=[], overwrite=True)
+
+    mock_write_batch.assert_awaited_once()
+    _, call_kwargs = mock_write_batch.call_args
+    assert call_kwargs["overwrite"] is True
+
+
+# ---------------------------------------------------------------------------
 # MCP tool layer — CRITICAL-2: list_artifacts forwards commit_refs
 # ---------------------------------------------------------------------------
 

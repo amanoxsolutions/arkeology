@@ -15,13 +15,29 @@ VectorMetadata = dict[str, str | int | float | list[str]]
 class S3ClientInterface(Protocol):
     """Protocol interface for S3 object storage operations."""
 
-    def put_object(self, key: str, body: str, metadata: dict[str, str]) -> None:
+    def put_object(
+        self,
+        key: str,
+        body: str,
+        metadata: dict[str, str],
+        *,
+        if_none_match: bool = False,
+    ) -> None:
         """Store an object under the given key with optional metadata.
 
         Args:
             key: S3 object key.
             body: Object content as a UTF-8 string.
             metadata: Key-value metadata to attach to the object.
+            if_none_match: When True, perform an atomic conditional-create
+                (``IfNoneMatch: "*"``) instead of an unconditional put. Use this to
+                close the check-then-act race of a separate ``head_object`` existence
+                check followed by an unconditional ``put_object``.
+
+        Raises:
+            ArtifactCollisionError: If ``if_none_match=True`` and an object already
+                exists at ``key`` (HTTP 412 PreconditionFailed).
+            CredentialError: If credentials are invalid or expired.
         """
         ...
 

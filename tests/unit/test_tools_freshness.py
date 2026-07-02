@@ -58,6 +58,8 @@ def _source_meta(
     date: str,
     status: str = "active",
     scope: str = "artifacts",
+    tier: int = 2,
+    visibility: str = "shared",
 ) -> dict[str, Any]:
     """Build vector metadata for a source artifact."""
     return {
@@ -69,8 +71,8 @@ def _source_meta(
         "title": "Test Source",
         "team": "platform",
         "project": "cairn",
-        "tier": 2,
-        "visibility": "shared",
+        "tier": tier,
+        "visibility": visibility,
         "description": "A test source artifact.",
     }
 
@@ -481,6 +483,106 @@ async def test_scope_gate_only_own_scope_synthesis_checked(
 
     assert "error" not in result
     assert result["total_checked"] == 1
+
+
+# ---------------------------------------------------------------------------
+# C-5: cross-scope gate on source lookups (non-negotiable rule)
+# ---------------------------------------------------------------------------
+
+
+async def test_cross_scope_gate_foreign_tier2_source_not_leaked(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
+) -> None:
+    """A foreign tier-2 source is gated out: reported missing, never as stale/archived.
+
+    Before the fix, freshness Step 6 looked up any source by bare artifact_id with no
+    scope/tier/visibility gate — the exact non-negotiable-rule violation read_artifact
+    and list_artifacts already guard against. A foreign tier-2 source that is newer
+    than the synthesis AND archived must not leak its date/status: it must be
+    classified inaccessible (== missing), not stale or archived.
+    """
+    settings = _make_settings(monkeypatch, READ_PREFIXES="other-team")
+    synth_id = "artifacts/synthesis-foreign-tier2-source"
+    foreign_src_id = "other-team/implementation-note-2026-01-01-foreign-tier2"
+
+    vectors_client_8.put_vector(
+        f"{synth_id}#section",
+        DUMMY_VEC,
+        _synthesis_meta(synth_id, "2026-01-01", [foreign_src_id]),
+    )
+    # Newer date (would be "stale") AND inactive (would be "archived") if leaked.
+    vectors_client_8.put_vector(
+        foreign_src_id,
+        DUMMY_VEC,
+        _source_meta(
+            foreign_src_id,
+            "2026-06-01",
+            status="inactive",
+            scope="other-team",
+            tier=2,
+            visibility="shared",
+        ),
+    )
+
+    result = await check_synthesis_freshness(
+        settings=settings, s3=s3_client, vectors=vectors_client_8
+    )
+
+    assert "error" not in result
+    stale_ids = [e["artifact_id"] for e in result["stale"]]
+    archived_ids = [e["artifact_id"] for e in result["archived_sources"]]
+    missing_entry = next(
+        (e for e in result["missing_sources"] if e["artifact_id"] == synth_id), None
+    )
+    assert synth_id not in stale_ids, "foreign tier-2 source date must not be reported as stale"
+    assert synth_id not in archived_ids, "foreign tier-2 source status must not be reported"
+    assert missing_entry is not None, "gated-out foreign source must be classified missing"
+    assert foreign_src_id in missing_entry["missing_sources"]
+
+
+async def test_cross_scope_gate_foreign_tier3_shared_source_read_normally(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
+) -> None:
+    """A foreign tier-3 'shared' source passes the gate and is read normally.
+
+    Matches the same allowance as list.py: foreign + tier 3 + visibility=shared is
+    the one case that must NOT be gated out.
+    """
+    settings = _make_settings(monkeypatch, READ_PREFIXES="other-team")
+    synth_id = "artifacts/synthesis-foreign-tier3-shared-source"
+    foreign_src_id = "other-team/adr-foreign-shared-decision"
+
+    vectors_client_8.put_vector(
+        f"{synth_id}#section",
+        DUMMY_VEC,
+        _synthesis_meta(synth_id, "2026-01-01", [foreign_src_id]),
+    )
+    vectors_client_8.put_vector(
+        foreign_src_id,
+        DUMMY_VEC,
+        _source_meta(
+            foreign_src_id,
+            "2026-06-01",  # newer than synthesis → should be reported stale
+            scope="other-team",
+            tier=3,
+            visibility="shared",
+        ),
+    )
+
+    result = await check_synthesis_freshness(
+        settings=settings, s3=s3_client, vectors=vectors_client_8
+    )
+
+    assert "error" not in result
+    missing_ids = [e["artifact_id"] for e in result["missing_sources"]]
+    assert synth_id not in missing_ids, "foreign tier-3 shared source must not be missing"
+    stale_entry = next((e for e in result["stale"] if e["artifact_id"] == synth_id), None)
+    assert stale_entry is not None, "foreign tier-3 shared source must be read normally"
+    assert foreign_src_id in stale_entry["stale_sources"]
 
 
 # ---------------------------------------------------------------------------

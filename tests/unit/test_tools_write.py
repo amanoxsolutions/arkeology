@@ -361,6 +361,241 @@ async def test_response_has_artifact_id_and_sections_indexed(
 
 
 # ---------------------------------------------------------------------------
+# C-3 — collision guard: same-key write rejected by default, overwrite flag opts in
+# ---------------------------------------------------------------------------
+
+
+async def test_same_key_write_without_overwrite_returns_validation_error(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+) -> None:
+    """Writing to an already-existing key without overwrite=True → validation_error."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+
+    await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        **_BASE_WRITE_KWARGS,
+    )
+    result = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        **_BASE_WRITE_KWARGS,
+    )
+
+    assert result.get("error") == "validation_error"
+    assert "message" in result
+
+
+async def test_same_key_write_without_overwrite_does_not_mutate_s3_content(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+) -> None:
+    """A rejected same-key write leaves the existing S3 object's content untouched."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+
+    first = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        **_BASE_WRITE_KWARGS,
+    )
+    original_content = s3_client.get_object(first["artifact_id"])
+
+    changed_kwargs = {**_BASE_WRITE_KWARGS, "content": "## Summary\n\nSomething different."}
+    result = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        **changed_kwargs,
+    )
+
+    assert result.get("error") == "validation_error"
+    assert s3_client.get_object(first["artifact_id"]) == original_content
+    assert len(s3_client.list_objects("")) == 1
+
+
+async def test_same_key_write_without_overwrite_does_not_mutate_vectors(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+) -> None:
+    """A rejected same-key write does not add, remove, or change any existing vectors."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+
+    await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        **_BASE_WRITE_KWARGS,
+    )
+    keys_before = sorted(vectors_client.list_vectors_by_metadata({}))
+
+    result = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        **_BASE_WRITE_KWARGS,
+    )
+
+    assert result.get("error") == "validation_error"
+    assert sorted(vectors_client.list_vectors_by_metadata({})) == keys_before
+
+
+async def test_same_key_write_with_overwrite_true_succeeds(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+) -> None:
+    """Writing to an already-existing key WITH overwrite=True → succeeds and updates content."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+
+    first = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        **_BASE_WRITE_KWARGS,
+    )
+
+    changed_kwargs = {**_BASE_WRITE_KWARGS, "content": "## Summary\n\nUpdated content."}
+    result = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        overwrite=True,
+        **changed_kwargs,
+    )
+
+    assert "error" not in result
+    assert result["artifact_id"] == first["artifact_id"]
+    assert "Updated content." in s3_client.get_object(result["artifact_id"])
+    assert len(s3_client.list_objects("")) == 1
+
+
+# ---------------------------------------------------------------------------
+# A-2 — atomic conditional-create put closes the head_object-then-put_object TOCTOU race
+# ---------------------------------------------------------------------------
+
+
+async def test_conditional_put_race_returns_validation_error_no_vectors_written(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """Simulates the TOCTOU race the head_object fast-path cannot catch: head_object
+    reports the key does not exist (as if a concurrent writer had not yet completed when
+    this call checked), but the key already exists by the time the atomic conditional
+    put_object executes. The conditional put must be the authoritative guard: it is
+    rejected with the same validation_error shape, and no embedding/vector work happens.
+    """
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+
+    # Key already exists (the "other" concurrent writer already won).
+    await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        **_BASE_WRITE_KWARGS,
+    )
+    keys_before = sorted(vectors_client.list_vectors_by_metadata({}))
+
+    # Only spy from here on — the setup write above legitimately embeds 3 sections.
+    embed_spy = mocker.spy(bedrock, "embed")
+
+    # Force the fast-path check to (incorrectly) report "not existing".
+    mocker.patch.object(s3_client, "head_object", side_effect=KeyError("simulated race"))
+
+    result = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        **_BASE_WRITE_KWARGS,
+    )
+
+    assert result.get("error") == "validation_error"
+    assert "artifact_id" in result
+    assert embed_spy.call_count == 0, "no embedding work must happen after a rejected put"
+    assert sorted(vectors_client.list_vectors_by_metadata({})) == keys_before
+
+
+async def test_overwrite_false_put_object_called_with_if_none_match_true(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """overwrite=False → the actual s3.put_object call requests the atomic
+    conditional-create (if_none_match=True), not just a friendly pre-check."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+    spy = mocker.spy(s3_client, "put_object")
+
+    await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        **_BASE_WRITE_KWARGS,
+    )
+
+    assert spy.call_count == 1
+    assert spy.call_args.kwargs.get("if_none_match") is True
+
+
+async def test_overwrite_true_put_object_called_without_if_none_match(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """overwrite=True → the s3.put_object call is unconditional (if_none_match=False)."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+
+    await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        **_BASE_WRITE_KWARGS,
+    )
+
+    spy = mocker.spy(s3_client, "put_object")
+    result = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        overwrite=True,
+        **_BASE_WRITE_KWARGS,
+    )
+
+    assert "error" not in result
+    assert spy.call_count == 1
+    assert spy.call_args.kwargs.get("if_none_match") is False
+
+
+# ---------------------------------------------------------------------------
 # Tier 2 idempotency
 # ---------------------------------------------------------------------------
 
@@ -370,7 +605,7 @@ async def test_tier2_write_twice_same_date_one_s3_object(
     s3_client: S3ClientImpl,
     vectors_client: VectorsClientImpl,
 ) -> None:
-    """Write same tier 2 artifact twice (same date) → exactly 1 S3 object."""
+    """Write same tier 2 artifact twice (same date, overwrite=True) → exactly 1 S3 object."""
     settings = _make_settings(monkeypatch)
     bedrock = FakeBedrockClient(dimension=1024)
 
@@ -386,6 +621,7 @@ async def test_tier2_write_twice_same_date_one_s3_object(
         vectors=vectors_client,
         bedrock=bedrock,
         settings=settings,
+        overwrite=True,
         **_BASE_WRITE_KWARGS,
     )
 
@@ -397,7 +633,8 @@ async def test_tier2_write_twice_same_date_vector_count_unchanged(
     s3_client: S3ClientImpl,
     vectors_client: VectorsClientImpl,
 ) -> None:
-    """Write same tier 2 artifact twice (same date) → vector count is unchanged (upsert)."""
+    """Write same tier 2 artifact twice (same date, overwrite=True) → vector count unchanged
+    (upsert)."""
     settings = _make_settings(monkeypatch)
     bedrock = FakeBedrockClient(dimension=1024)
 
@@ -414,6 +651,7 @@ async def test_tier2_write_twice_same_date_vector_count_unchanged(
         vectors=vectors_client,
         bedrock=bedrock,
         settings=settings,
+        overwrite=True,
         **_BASE_WRITE_KWARGS,
     )
 
@@ -474,7 +712,12 @@ async def test_tier3_rewrite_fewer_sections_cleans_orphans(
     assert len(keys_before) == 3
 
     await write_artifact(
-        s3=s3_client, vectors=vectors_client, bedrock=bedrock, settings=settings, **kwargs_2
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        overwrite=True,
+        **kwargs_2,
     )
 
     all_keys_after = vectors_client.list_vectors_by_metadata({})
@@ -503,7 +746,12 @@ async def test_tier3_rewrite_more_sections(
     artifact_id = result["artifact_id"]
 
     await write_artifact(
-        s3=s3_client, vectors=vectors_client, bedrock=bedrock, settings=settings, **kwargs_3
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        overwrite=True,
+        **kwargs_3,
     )
 
     all_keys = vectors_client.list_vectors_by_metadata({})
@@ -529,7 +777,12 @@ async def test_tier3_rewrite_identical_sections_count_unchanged(
     count_after_first = len(vectors_client.list_vectors_by_metadata({}))
 
     await write_artifact(
-        s3=s3_client, vectors=vectors_client, bedrock=bedrock, settings=settings, **kwargs
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        overwrite=True,
+        **kwargs,
     )
     assert len(vectors_client.list_vectors_by_metadata({})) == count_after_first
 
@@ -555,7 +808,12 @@ async def test_tier3_different_dates_same_artifact_id(
         s3=s3_client, vectors=vectors_client, bedrock=bedrock, settings=settings, **kwargs_day1
     )
     result2 = await write_artifact(
-        s3=s3_client, vectors=vectors_client, bedrock=bedrock, settings=settings, **kwargs_day2
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        overwrite=True,
+        **kwargs_day2,
     )
 
     assert result1["artifact_id"] == result2["artifact_id"]
@@ -1007,7 +1265,12 @@ async def test_failure_log_appends_across_multiple_failures(
     tmp_path: pytest.TempPathFactory,
     mocker: pytest.MonkeyPatch,
 ) -> None:
-    """Two separate partial write failures → failure log has two entries (append behaviour)."""
+    """Two separate partial write failures → failure log has two entries (append behaviour).
+
+    Uses two distinct titles (rather than retrying the same key) so the C-3 collision
+    guard does not interfere — this test verifies failure-log append behaviour, not
+    overwrite semantics.
+    """
     log_path = tmp_path / "failures.jsonl"
     settings = _make_settings(monkeypatch, FAILURE_LOG_PATH=str(log_path))
     bedrock = FakeBedrockClient(dimension=1024)
@@ -1017,13 +1280,13 @@ async def test_failure_log_appends_across_multiple_failures(
         side_effect=RuntimeError("simulated put_vectors_batch failure"),
     )
 
-    for _ in range(2):
+    for title in ("First failing artifact", "Second failing artifact"):
         await write_artifact(
             s3=s3_client,
             vectors=vectors_client,
             bedrock=bedrock,
             settings=settings,
-            **_ONE_SECTION_KWARGS,
+            **{**_ONE_SECTION_KWARGS, "title": title},
         )
 
     lines = log_path.read_text().splitlines()
@@ -1142,6 +1405,7 @@ async def test_existing_artifact_runs_orphan_cleanup(
         vectors=vectors_client,
         bedrock=bedrock,
         settings=settings,
+        overwrite=True,
         **_BASE_WRITE_KWARGS,
     )
 
@@ -1185,6 +1449,7 @@ async def test_orphan_cleanup_list_failure_does_not_fail_write(
         vectors=vectors_client,
         bedrock=bedrock,
         settings=settings,
+        overwrite=True,
         **_BASE_WRITE_KWARGS,
     )
 
@@ -1220,7 +1485,12 @@ async def test_orphan_cleanup_delete_failure_does_not_fail_write(
     mocker.patch.object(vectors_client, "delete_vectors", side_effect=RuntimeError("boom"))
 
     result = await write_artifact(
-        s3=s3_client, vectors=vectors_client, bedrock=bedrock, settings=settings, **kwargs_2
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        overwrite=True,
+        **kwargs_2,
     )
 
     assert "error" not in result, f"cleanup failure must not fail the write, got: {result}"
@@ -1264,6 +1534,7 @@ async def test_orphan_cleanup_credential_failure_does_not_fail_write(
         vectors=vectors_client,
         bedrock=bedrock,
         settings=settings,
+        overwrite=True,
         **_BASE_WRITE_KWARGS,
     )
 
