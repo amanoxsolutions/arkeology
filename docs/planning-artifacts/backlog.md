@@ -26,6 +26,27 @@ Items that were promoted to a phase are **not** listed here — see the phase hi
   the "semantic memory beats progressive-disclosure wiki at scale" positioning claim.
   Source: [`brainstorming-2026-06-15-okf-alignment.md`](../brainstorming/brainstorming-2026-06-15-okf-alignment.md) (OQ1).
 
+## Cross-scope security
+
+- **B-5 — Hard cross-scope security boundary.** Today the tier/visibility gate is a soft
+  control: S3 Vectors authorization is all-or-nothing per index, so every team sharing the
+  vector index can technically read all teams' vector metadata (titles, descriptions, tags)
+  and embeddings, including tier 2 — cross-scope deployment is a mutual-trust topology
+  (documented 2026-07-02 in ADR-007 revision, PRD Known Limitations, and the
+  SERVER-REFERENCE Cross-Scope Security Model). Two candidate solutions, design-first
+  (brainstorming + ADR before spec):
+  1. **Hosted MCP server** — deploy cairn-mcp as a shared service (requires the HTTP
+     transport, NFR-05): the server holds the AWS credentials, clients authenticate to it,
+     and the tier/visibility gate runs on the trusted side of the boundary. Turns the
+     existing gate into a real access control without index topology changes.
+  2. **Split vector index** — each team owns a private vector index; tier 3 `shared`
+     vectors are additionally replicated into a shared discovery index. Index-level IAM
+     (resource tags / separate ARNs) then provides a true hard boundary. Costs: dual
+     writes on tier 3 shared artifacts, a cross-index reconcile story, and a search path
+     that queries two indexes.
+  Source: [`adr-2026-05-29-tier-based-access-control.md`](../architecture-decisions/adr-2026-05-29-tier-based-access-control.md)
+  (Revision 2026-07-02); full-project review CA-1 (2026-07-02).
+
 ## OKF interoperability
 
 - **B-2 — OKF export adapter (+ governance).** `cairn export --okf <scope>` emitting an OKF bundle
