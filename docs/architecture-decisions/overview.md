@@ -142,7 +142,10 @@ Access across scope boundaries is governed by artifact tier and visibility:
 | 3 (permanent) | `hidden` | Readable and writable | **Never accessible** |
 | 3 (permanent) | `shared` | Readable and writable | **Read-only** |
 
-Enforcement is server-side (soft control). IAM policies are the authoritative security boundary.
+Enforcement is server-side (soft control). IAM can hard-bound S3 *content* per prefix, but it
+cannot discriminate within a shared vector index — S3 Vectors authorization is all-or-nothing
+per index, so sharing an index implies mutual trust between participating teams at the
+metadata, description, and embedding level (see ADR-007, revision 2026-07-02).
 Cross-scope semantic search requires all participating deployments to share the same S3 Vectors
 index and embedding model.
 

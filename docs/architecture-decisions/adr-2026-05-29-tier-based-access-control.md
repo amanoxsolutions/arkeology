@@ -11,8 +11,8 @@ authored:
   by: architect
   date: "2026-05-29"
 revised:
-  by: ""
-  date: ""
+  by: "analyst"
+  date: "2026-07-02"
 ---
 
 # Tier-Based Cross-Scope Access Control Model
@@ -69,9 +69,25 @@ search, list, and synthesise tool:
 
 Write, archive, delete, and purge operations are always restricted to the own scope.
 
-This is a **soft control** enforced at the server layer. It does not substitute for
-IAM policies. Operators who want a hard boundary must configure IAM to restrict cross-bucket
-or cross-prefix access accordingly — the server README documents this distinction.
+This is a **soft control** enforced at the server layer, and its reach differs by storage
+side (revised 2026-07-02 — see the Revision note below):
+
+- **S3 content can be hard-bounded**: IAM supports prefix-scoped object permissions, so a
+  team can be denied `s3:GetObject` on foreign prefixes — foreign tier 2 *content* is
+  infrastructure-protectable.
+- **The shared vector index cannot**: the IAM condition keys applicable to
+  `s3vectors:QueryVectors`/`GetVectors`/`ListVectors` (`aws:ResourceTag`,
+  `s3vectors:VectorBucketTag`) evaluate at the index/bucket resource level only — no
+  condition key references vector keys, vector metadata, or the request's filter
+  expression. Any principal with query access to the shared index can read **all**
+  participants' vector metadata (titles, descriptions, tags, tier, status) and embeddings —
+  including tier 2 and hidden artifacts — with plain AWS API calls; no modified server is
+  required.
+
+Sharing a vector index therefore implies **mutual trust between all participating teams at
+the metadata, description, and embedding level**. The tier/visibility gate is a policy
+convention honoured by unmodified servers, not an access control. The server README
+documents this distinction.
 
 Cross-scope semantic search requires all participating deployments to share the same S3
 Vectors index, embedding model, and vector dimension. Deployments using separate indexes
@@ -104,3 +120,29 @@ cannot perform cross-scope semantic search (documented in deployment prerequisit
 - The delete synthesis reference check in `delete_artifact` is scoped to own scope only —
   foreign-scope synthesis identifiers must never appear in delete warnings (confirmed as a
   known bug in Phase 3 and fixed in Phase 6).
+
+## Revision — 2026-07-02
+
+The original Decision text claimed "operators who want a hard boundary must configure IAM
+to restrict cross-bucket or cross-prefix access accordingly." A full-project review (finding
+CA-1) established that no IAM configuration can provide a tier-aware boundary *within* a
+shared vector index — verified against the
+[Service Authorization Reference for Amazon S3 Vectors](https://docs.aws.amazon.com/service-authorization/latest/reference/list_amazons3vectors.html):
+all condition keys applicable to the query/read actions evaluate at the index/bucket
+resource level (resource tags), never at the vector or metadata level. The Decision text
+above now records the content/index asymmetry and the mutual-trust assumption. The tier +
+visibility gate itself is unchanged and remains correctly implemented.
+
+Hard-boundary directions, if ever required (candidates for a future ADR; anchored in the
+PRD Future Considerations entry "full visibility cross-scope enforcement"):
+
+1. **Per-team vector indexes + tier 3 replication** — each team owns a private index; tier 3
+   `shared` vectors are additionally written to a shared discovery index. Dual writes and a
+   reconcile story, but index-level resource tags then give a true IAM boundary between
+   teams.
+2. **Metadata redaction for non-shared artifacts** — keep `description` (and optionally
+   `title`) out of the shared index for tier 2 / hidden artifacts, shrinking the exposure to
+   embeddings only.
+3. **Hosted deployment** — a shared server process holds the AWS credentials and clients
+   authenticate to it; the gate then runs on the trusted side of the boundary. Requires the
+   HTTP transport listed as a future consideration (NFR-05).

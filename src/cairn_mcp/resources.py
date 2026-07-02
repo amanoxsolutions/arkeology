@@ -187,8 +187,11 @@ The cross-scope gate enforces two conditions simultaneously:
   discoverability.
 - Use `visibility=hidden` for team-specific working documents, drafts, or anything
   containing information that should not cross team boundaries.
-- **Note:** cross-scope visibility control is enforced at the MCP server layer. True
-  access restriction requires IAM permissions on the S3 bucket and S3 Vectors index.
+- **Note:** cross-scope visibility control is enforced at the MCP server layer, not by the
+  storage layer. Artifact content in S3 can be IAM-restricted per prefix, but a shared
+  vector index cannot discriminate between callers — every deployment sharing the index can
+  technically read all vector metadata (titles, descriptions, tags) and embeddings,
+  regardless of tier or visibility. Write descriptions of `hidden` artifacts accordingly.
 """
 
 

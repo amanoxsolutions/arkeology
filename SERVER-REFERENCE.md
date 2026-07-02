@@ -129,6 +129,27 @@ Claude Code fetches the resource via the MCP resources protocol and returns the
 pre-rendered markdown table — useful for a quick human-readable index without
 incurring tool-call overhead.
 
+## Cross-Scope Security Model
+
+The tier + visibility gate (only tier 3 + `shared` artifacts are served across scopes) is
+applied by the server process at query time. It is a **soft control**: the filter is part of
+the request the server sends, not a rule AWS enforces.
+
+What IAM can and cannot hard-bound:
+
+| Surface | Hard boundary possible? | How / why not |
+|---|---|---|
+| Artifact content (S3) | **Yes** | Prefix-scoped `s3:GetObject` — deny reads on foreign teams' prefixes |
+| Vector index (S3 Vectors) | **No** | Authorization stops at the index ARN. The condition keys applicable to `s3vectors:QueryVectors`/`GetVectors`/`ListVectors` (`aws:ResourceTag`, `s3vectors:VectorBucketTag`) evaluate per index/bucket resource — none reference vector metadata or query filters |
+
+Consequence: every principal granted query access to a shared index can read **all**
+participants' vector metadata (titles, descriptions, tags, tier, status) and embeddings —
+including tier 2 and hidden artifacts — with plain AWS API calls. Sharing a vector index is
+a mutual-trust topology: choose index sharing according to the trust level between teams,
+and write tier 2 descriptions knowing every index participant can read them. A hard
+cross-team boundary requires separate vector indexes (see ADR-007, revision 2026-07-02, for
+the candidate designs).
+
 ## Minimum IAM Policy
 
 Attach the following policy to the IAM user or role that runs cairn-mcp. Replace each `YOUR-*` placeholder with your actual values before applying.
