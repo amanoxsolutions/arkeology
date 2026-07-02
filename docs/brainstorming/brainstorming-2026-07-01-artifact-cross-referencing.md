@@ -21,18 +21,23 @@ authored:
   by: "analyst"
   date: "2026-07-01"
 revised:
-  by: ""
-  date: ""
+  by: "analyst"
+  date: "2026-07-02"
 techniques_used:
   - inversion ("what would make this actively harmful, not just incomplete?")
   - scope-reframing (migration-only vs. general cross-referencing capability)
   - codebase archaeology (grounding option generation in existing shipped precedents rather than inventing new mechanisms)
   - assumption interview (challenging-assumptions skill — relentless one-question-at-a-time drill-down with recommended answers on each branch)
+  - AWS documentation research (2026-07-02 — grounding the S3 metadata-type choice in primary AWS docs plus boto3/moto feasibility checks rather than memory)
+  - cross-pollination / foreign lens (2026-07-02 — evaluating S3 annotations, a feature built for AI/ML payloads and data lineage, as a home for link-data storage)
 assumptions_challenged:
   - "Rewriting cross-references requires new content-mutation machinery → reframed: cairn already ships a resolvable URI scheme (`cairn://artifact/{id}`) and a generic list-membership query operator (`$eq`) — the design reuses both instead of inventing new plumbing."
   - "Fixing a stale link is not a content change, it's just plumbing → examined in depth and split: a structured metadata field can be safely backfilled post-hoc (precedented by `link_commit`), but rewriting the stored content text is a genuine content mutation with re-embedding cost, and was NOT given the same treatment."
   - "Tier 2 'append-only' is an absolute rule with no established backfill precedent → found `link_commit` already backfills tier 2 artifacts' structured metadata today, without touching stored content — the append-only principle turned out to be about content, not all metadata."
   - "Cross-team reference leakage via a human-readable artifact_id needs new validation → challenged, then explicitly closed as not applicable, since a `references` entry can only exist as a resolved artifact_id if the target is already a real cairn artifact."
+  - "(2026-07-02) D8's 'vector-metadata-only, no S3 touch' is the optimal mechanism → revised: writing the durable S3-side copy too makes `reconcile_index` lossless. `reconcile_index` already rebuilds `commit_refs` from S3 object metadata; it returns empty only because `link_commit` never writes it there. OQ2's fix belongs on the write side, not in reconcile."
+  - "(2026-07-02) User-defined S3 metadata is the only place to store these fields → challenged via AWS docs: S3 annotations (mutable in place, 1 MiB, no re-PUT, ETag-stable) are a stronger fit for unbounded/high-churn link-data, but moto lacks support and object overwrite wipes annotations — a real trade-off, not a free win. Storage-type left as a pending operator decision."
+  - "(2026-07-02) Generalizing the delete reference-check needs new cross-scope validation → closed: the reverse-lookup queries vector metadata (references as list[str]) and must stay own-scope-only per the existing non-negotiable rule, identical to the synthesis check; no new validation needed."
 decisions_locked:
   - "D1 — Scope: only the frontmatter `references:` YAML list is mechanically rewritten during migration; in-body markdown links are explicitly out of scope for automated rewriting."
   - "D2 — `references: list[str]` becomes a first-class field on the `Artifact` model, storing only resolved bare `artifact_id` values (no URI prefix), dual-stored exactly like `source_artifacts` (S3 object metadata: comma-joined string; S3 Vectors metadata: `list[str]`), queryable via the existing generic `$eq` list-membership filter."
@@ -44,10 +49,17 @@ decisions_locked:
   - "D8 — Mutability is split by representation, not by a single retroactive-editing rule: the structured `references` field may be backfilled post-hoc on ANY tier, mirroring `link_commit`'s exact mechanism (re-fetch existing vector + embedding, merge metadata, re-put without re-embedding — no content touch, no re-embedding cost). Stored content text is only ever rewritten to `cairn://artifact/{id}` at first-write time (migration or new session write); it is never retroactively patched into an already-written tier 2 artifact. Tier 3 keeps its existing 'updated in place' freedom for content as well."
   - "D9 — AGENTS.md gains two new guidance snippets: (1) new artifact writes should proactively use `cairn://artifact/{id}` when referencing a target already known to be a cairn artifact; (2) 'reference healing' — an agent that encounters a broken or unresolved reference during normal work should search for the likely target and propose a fix to the operator, never silently rewrite it."
   - "D10 — A deferred, optional cleanup skill/step (mirroring the existing commit-refs backfill pattern: separate, decoupled, skippable by default) is the vehicle for the post-hoc structured-field backfill described in D8."
+  - "D11 (2026-07-02) — Direction α confirmed: generalize `link_commit` into a single `link_metadata` primitive (fetch → merge+dedup → re-put, no re-embed) that backfills the structured link fields (`commit_refs`, `references`), operator-invoked via a skill that content-scans against the path→id map and presents a dry-run batch report. It writes a *dual-write*: the durable S3-side copy AND vector metadata. This REVISES D8 (mechanism is dual-write, not vector-metadata-only) and folds OQ2's fix onto the write side — `reconcile_index` already rebuilds these fields from the S3 side, so making the durable copy authoritative is the fix, not changing reconcile. Write durable-side first, vectors second (recoverable-state ordering, mirroring `delete_artifact`)."
+  - "D12 (2026-07-02) — Storage-type CONFIRMED: the durable S3-side copy of BOTH `commit_refs` and `references` is stored as **S3 object annotations** (`PutObjectAnnotation`, mutable in place, 1 MiB, ETag-stable), NOT user-defined metadata. One uniform mechanism for both similar fields (operator rejected the split). Vector metadata is unchanged (both fields remain `list[str]` there for `$eq` filtering). moto remains the default AWS-testing tool; annotations are self-mocked via a conftest extension, exactly as `query_vectors` already is (repo currently pins moto 5.2.2). Consequences now live: (a) object overwrite WIPES annotations, so any overwriting write must re-apply them (see D14); (b) write-time `references` (D7) becomes `put_object` + `put_object_annotation`; (c) `reconcile_index` must read both fields via `ListObjectAnnotations`/`GetObjectAnnotation`. Annotation availability (region/bucket-type) and IAM validation are handled per D15 (annotations unavailable in UAE/Bahrain, S3 Express/Outposts/directory buckets, and require new IAM actions)."
+  - "D13 (2026-07-02) — OQ3 CONFIRMED: generalize `delete_artifact`'s synthesis-reference check into a single unified own-scope 'referenced_by' warning covering BOTH `source_artifacts` (synthesis, existing) and the new `references` field (any type). Warn-but-don't-block. Applied to `delete_artifact` (permanent → stronger warning) and `archive_artifact` (reversible → informational). Own-scope only per the existing non-negotiable rule (never reveal foreign-scope identifiers); use server-side `$eq` list-membership filtering rather than fetch-all-then-filter-in-process."
+  - "D14 (2026-07-02) — Overwrite preservation CONFIRMED (analyst default; Architect finalizes mechanics): on an overwriting `write_artifact` (tier-3 update-in-place, the only case that re-PUTs the same key), the write path must read-forward the artifact's existing `commit_refs` (and any backfilled `references`) and re-apply them, because `write_artifact` can restore `references` from its inputs but does NOT know `commit_refs` (added post-hoc by `link_commit`). Read-forward SOURCE is a free choice between two equally-valid stores, since these fields are dual-stored (D11): (a) the S3 annotations via `GetObjectAnnotation` before the `PutObject` wipes them, or (b) the existing VECTOR metadata via `get_vectors` — which is NOT touched by the S3 `PutObject` and still holds the old `commit_refs` until the write re-puts the vectors. Option (b) is likely simpler since the write path already touches vectors. Either way the merged value must be written back to BOTH stores. CopyObject's COPY-directive does not apply (it cannot carry a new body). Chosen 'Preserve' over 'Accept clearing' because silent loss of an append-only trail is exactly what cairn exists to prevent."
+  - "D15 (2026-07-02) — Annotation availability/IAM validation placement CONFIRMED: NOT a hard server-startup gate. Rationale: annotations back only the feature-level `commit_refs`/`references`, not the core store (S3 content + vectors + embeddings all work without them), so refusing to boot the whole memory server over an annotation problem would be disproportionate. Instead: (1) add a one-time availability + IAM-permission check to the `setting-up-cairn` skill, alongside its existing resource-reachability checks (Checks 4–7), for a friendly early failure with operator guidance; (2) handle the annotation-unavailable / AccessDenied error gracefully at runtime in `link_metadata`/write to cover post-setup DRIFT (IAM edit, bucket/region change) that a one-time setup check cannot catch. Concrete findings (verified 2026-07-02): (i) AWS CLI support for annotation operations is VERSION-GATED — absent in aws-cli 2.34.44 (`aws s3api put-object-annotation` → 'invalid choice') but present from 2.35.14 (all four ops). So the setup-skill probe CAN stay CLI-native like the other checks, provided it guards on a minimum aws-cli version (≥ 2.35.14); otherwise fall back to a boto3 snippet via `uv run` (the repo's botocore 1.43.36 supports the APIs regardless). (ii) The four IAM actions the deployment policy must grant are `s3:PutObjectAnnotation`, `s3:GetObjectAnnotation`, `s3:ListObjectAnnotations`, `s3:DeleteObjectAnnotation` (confirmed from the CLI operation help)."
 decisions_pending:
-  - "OQ1 — Exact design of the deferred cleanup skill/step from D10: trigger conditions, tool shape (new MCP tool vs. skill-only orchestration of existing tools), and the UX for presenting proposed backfills to the operator."
-  - "OQ2 — Backlog item, explicitly deferred and out of scope for this feature: `reconcile_index` rebuilds vector metadata from S3 object metadata and currently drops any field stored only in vector metadata (`commit_refs` today, `references` once shipped, per D8/D10). Needs a fix, to be tackled for both fields together, not blocking this design."
-  - "OQ3 — Whether/how the existing `delete_artifact` synthesis-reference-check pattern (which warns when deleting an artifact that a `synthesis`'s `source_artifacts` depends on) should be generalized to also warn on deleting or archiving any artifact that other artifacts' `references` field points to. Raised as a natural consumer of the new field but not designed in this session."
+  - "OQ1-cleanup — Remaining detail of the D10/D11 cleanup skill beyond the confirmed shape: discovery scan specifics and per-artifact vs batch approval nuance. Architect/PM territory, not blocking."
+  - "Sweep — one-time re-link of `commit_refs` already backfilled by the current vector-only `link_commit`, so they land in annotations and survive future reconciles. Migration/ops detail, not blocking the design."
+  - "OQ3 — Analyst recommendation captured, awaiting operator confirmation: unified own-scope, warn-only `referenced_by` scan (covering both `source_artifacts` and `references`) applied to both `delete` (stronger warning, permanent) and `archive` (informational, reversible), using server-side `$eq` filtering. Must stay own-scope only per the non-negotiable rule."
+decisions_resolved_pending_implementation:
+  - "OQ2 (2026-07-02) — Resolved via D11's dual-write + D12's annotations choice: `reconcile_index` becomes lossless for these fields by reading both `commit_refs` and `references` from S3 annotations (`ListObjectAnnotations`/`GetObjectAnnotation`) and re-adding them to rebuilt vector metadata. Supersedes the original 'fix reconcile to carry vector-only fields' framing — annotations are durable on the object, so reconcile rebuilds from them."
 decisions_closed_not_applicable:
   - "Cross-team reference leakage via a human-readable artifact_id appearing in another team's shared artifact — raised, examined, and explicitly closed as not applicable. A `references` entry can only ever hold a resolved artifact_id, which means the target is already a real cairn artifact; no special validation or restriction is being added for the cross-scope case."
 ---
@@ -215,3 +227,108 @@ to a reference discovered during a later retry.
 - **OQ3** — Whether the existing `delete_artifact` synthesis-reference-check pattern should be
   generalized into a broader "referenced by" delete/archive warning covering the new
   `references` field, beyond the current `synthesis`/`source_artifacts` special case.
+
+## Session 2026-07-02
+
+### Focus
+
+Continuation session to work the three open questions (OQ1, OQ2, OQ3) left by the
+2026-07-01 session. Selection agreed with the operator: **Direction α** for OQ1 —
+generalize `link_commit` into a single `link_metadata` primitive, operator-invoked, that
+content-scans against the path→id map and presents a dry-run batch report. The operator
+then added a decisive refinement that reshaped the relationship between OQ1 and OQ2.
+
+### OQ1 — Direction α refined; OQ2 folds into the write side
+
+The operator's refinement: `link_metadata` must write the field to the **durable S3-side
+store as well**, not only vector metadata. Grounding confirmed why this is the correct
+fix for OQ2 rather than a change to `reconcile_index`:
+
+- `reconcile_index._reindex_artifact` (`reconcile.py`) **already** rebuilds `commit_refs`
+  from the S3 side via `coerce_list_field(raw_s3_meta, "commit_refs")` and re-adds it to
+  vector metadata. It returns empty today **only** because `link_commit` never writes
+  `commit_refs` to the S3 object at all (`link_commit.py` leaves `s3` unused: `_ = s3`).
+- Therefore OQ2's "fix" is not in `reconcile_index` — it needs **zero** change for
+  `commit_refs` and a ~3-line addition for `references`. The real fix is on the **write
+  side**: make the durable S3-side copy authoritative, which reconcile already rebuilds
+  from. **This supersedes/revises D8**: the mechanism is a *dual-write* (durable S3-side +
+  vector metadata), not "vector-metadata-only." Writing structured metadata still does not
+  touch content body and does not re-embed, so D8's core principle (no content mutation,
+  no re-embed, preserve `last_edited_ulid`) holds.
+
+Write-ordering (mirroring `delete_artifact`'s recoverable-state reasoning): write the
+durable S3-side copy **first**, vectors **second** — if the vector write fails, a later
+`reconcile_index` rebuilds vectors from the durable side and self-heals. Merge+dedup makes
+re-runs idempotent. Note also: existing vector-only `commit_refs` already backfilled by the
+current `link_commit` remain at risk until re-linked (a one-time sweep may be warranted).
+
+### The S3 metadata-type question (raised by operator, researched against AWS docs)
+
+The operator asked which of S3's three custom-metadata types we use, and whether
+**annotations** (a newer feature: named payloads up to 1 MiB, mutable in place) would be a
+better home. Researched against primary AWS docs + boto3/moto feasibility checks:
+
+- **Today we use user-defined metadata** (`x-amz-meta-*`): **2 KB total cap, immutable
+  after upload** — the only way to change it is to copy/re-PUT the whole object.
+- **Object tags**: 10 max, 256-char values — too small, rejected.
+- **Annotations**: **1 MiB per payload, up to 1,000 per object, mutable via
+  `PutObjectAnnotation` without re-PUT and without changing the object's ETag**, any UTF-8
+  format. Durable on the object, so `reconcile_index` can still rebuild from them. This
+  kills **both** original risks at once (2 KB ceiling *and* full-body re-PUT / re-embed /
+  `last_edited_ulid` disturbance) and draws a clean line: immutable identity metadata stays
+  in user-defined metadata; mutable, accreting link-data (`commit_refs`, `references`) moves
+  to annotations — exactly the feature's intended use ("data lineage," "audit trails").
+
+**Verified feasibility & caveats:**
+- ✅ **boto3 ready** — `PutObjectAnnotation`/`GetObjectAnnotation`/`ListObjectAnnotations`/
+  `DeleteObjectAnnotation` are all present in the installed botocore 1.43.36 service model.
+- ⚠️ **moto is NOT** — moto 5.2.2 has zero annotation request handling; the project's
+  testing convention mandates moto for S3 ops. Needs a custom moto extension (precedent: the
+  `query_vectors` cosine patch in `conftest.py`) or integration-only coverage.
+- ⚠️ **Overwrite wipes annotations** — overwriting an object *replaces* its annotations;
+  cairn's tier-3 "updated in place" re-writes would silently drop accumulated link-data
+  unless re-copied. Direct interaction with a cairn invariant.
+- ⚠️ **Deployment-agnostic tension** — annotations are unavailable in UAE/Bahrain regions
+  and on S3 Express One Zone / Outposts / directory buckets; becomes a startup-check or
+  documented constraint, plus new IAM actions.
+- ⚠️ **Cannot be set during `PutObject`** — only after upload. So a write-time `references`
+  (D7) becomes `put_object` + `put_object_annotation`, and is exposed to the overwrite-wipe.
+  This pushes `references` (bounded, write-settable) toward user-defined metadata and
+  `commit_refs` (unbounded, pure post-hoc churn) toward annotations — a possible **split**.
+
+**Storage-type decision: CONFIRMED 2026-07-02 (D12) — annotations for BOTH fields.** The
+operator chose one uniform mechanism over the split ("let's not use 2 different mechanisms
+for 2 things very similar"), accepting the moto gap (self-mock via a conftest extension, as
+`query_vectors` already is). This makes three consequences live: object overwrite wipes
+annotations (any overwriting write must re-apply them — see OQ1-overwrite); write-time
+`references` becomes `put_object` + `put_object_annotation`; and `reconcile_index` reads
+both fields via the annotation APIs. Annotation availability (region/bucket-type) + IAM
+validation is placed in the `setting-up-cairn` skill plus graceful runtime handling, NOT a
+hard startup gate (D15) — since annotations back only a feature, not the core store.
+
+### OQ3 — Generalized "referenced by" delete/archive warning
+
+Decoupling: the reverse-lookup queries **vector metadata** (`references` stored as
+`list[str]` per D2), so OQ3 is **independent of the S3 storage-type decision**. Directions:
+unified `referenced_by` scan (both `source_artifacts` and `references`, delete + archive);
+delete-only; or a parallel non-unified check. Two hard constraints from grounding: the
+check **must stay own-scope only** (existing non-negotiable rule — else it re-opens the
+cross-scope leakage closed in the prior session), and a `references` reverse-lookup can
+filter **server-side** (`{"references": {"$eq": target}}`) rather than fetch-all-then-filter.
+
+Analyst recommendation (PENDING operator confirmation): **unified `referenced_by` scan**,
+own-scope only, warn-only/non-blocking, applied to both `delete` (stronger warning —
+permanent) and `archive` (informational — reversible).
+
+### Open Questions (updated)
+
+- **OQ1 — storage-type CONFIRMED (D12): annotations for both fields.** Overwrite
+  preservation CONFIRMED (D14): the write path reads-forward and re-applies annotations on
+  an overwriting `PutObject`, so tier-3 edits don't drop the `commit_refs` audit trail.
+  Remaining non-blocking items: cleanup-skill detail and a one-time re-link sweep for
+  already-backfilled `commit_refs`.
+- **OQ2 — RESOLVED (write-side + annotations):** `reconcile_index` rebuilds both fields from
+  durable annotations via `ListObjectAnnotations`/`GetObjectAnnotation`; no more vector-only
+  data loss.
+- **OQ3 — CONFIRMED (D13):** unified own-scope `referenced_by` warn-only check across delete
+  (permanent, stronger) and archive (reversible, informational), server-side `$eq` filtered.
