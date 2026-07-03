@@ -14,11 +14,17 @@ authored:
   by: "architect"
   date: "2026-05-31"
 revised:
-  by: ""
-  date: ""
+  by: "architect"
+  date: "2026-07-03"
 ---
 
 # T21 — Reconciliation Tool
+
+> **Forward-pointer note (2026-07-03, ADR-011).** In addition to the S3↔vector reconciliation
+> described below, `reconcile_index` now also rebuilds the `commit_refs` and `references` vector
+> metadata fields from the artifact's **durable S3 object annotations** (reading annotations, not
+> user-defined object metadata). This closes the earlier "reconcile drops `commit_refs`" limitation.
+> That behaviour is specced in `p12-t48`; this spec is not re-opened for it.
 
 <!-- SCOPE BLOCK — frozen after approval -->
 

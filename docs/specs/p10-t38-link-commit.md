@@ -6,22 +6,34 @@ tags: []
 timestamp: 2026-06-06T00:00:00Z
 okf_version: "0.1"
 feature: p10-t38-link-commit
-status: ready
+status: superseded
 phase: 10
 task: 38
 references:
   - docs/brainstorming/brainstorming-2026-06-06-artifact-commit-refs.md
   - docs/specs/p10-t36-commit-refs-metadata-fields.md
   - docs/specs/p10-t37-propose-commit-links.md
+  - docs/architecture-decisions/adr-2026-07-03-annotation-backed-link-storage.md
 authored:
   by: "analyst"
   date: "2026-06-06"
 revised:
-  by: ""
-  date: ""
+  by: "architect"
+  date: "2026-07-03"
 ---
 
 # T38 — `link_commit` Tool and AGENTS.md Post-Commit Protocol
+
+> **Status: SUPERSEDED by `p12-t49-link-metadata` (2026-07-03, ADR-011).** `link_commit` is
+> generalized into a single `link_metadata` primitive that backfills **both** `commit_refs` and the
+> new `references` field. `link_metadata` performs an **annotation-first dual-write** — durable S3
+> object annotation first, vector metadata second — reusing the existing embeddings, so it still
+> makes no Bedrock call and does not disturb `last_edited_ulid`. Because the durable copy now lives
+> in S3 object annotations, the "vector-metadata-only, reconcile drops `commit_refs`" **known
+> limitation described below (Boundaries and the AGENTS.md snippet) no longer applies**:
+> `reconcile_index` rebuilds `commit_refs` (and `references`) from annotations — see `p12-t48`. Do
+> not implement from this spec; implement from `p12-t49-link-metadata` (owned by the cross-referencing
+> Architect). The original content is preserved unchanged below as history.
 
 <!-- SCOPE BLOCK — frozen after approval -->
 

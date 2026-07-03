@@ -14,11 +14,16 @@ authored:
   by: "architect"
   date: "2026-05-30"
 revised:
-  by: ""
-  date: ""
+  by: "architect"
+  date: "2026-07-03"
 ---
 
 # T9 — Read Artifact Tool
+
+> **Forward-pointer note (2026-07-03, ADR-011 / ADR-012).** `read_artifact` continues to surface
+> `commit_refs` from **vector metadata**, and now additionally surfaces the new first-class
+> `references` field (also read from vector metadata). This field addition is specced in `p12-t46`;
+> this spec is not re-opened for it.
 
 <!-- SCOPE BLOCK — frozen after approval -->
 

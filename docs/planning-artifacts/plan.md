@@ -22,7 +22,7 @@ This project runs as a **single open phase**, not a pre-planned roadmap. Complet
 - **Status legend:** ⬜ pending · 🔄 in progress · 🔍 in review · ✅ done · 🔴 blocked
 - **Delivery model:** each **Phase** is a coherent slice of value delivered as a set of tasks. A phase ends when we judge it done.
 
-**Current state:** Phase 12 — Artifact Cross-Referencing + Annotation-Backed Link Storage is open (🔄, in planning; PRD updated, specs pending Architect). Latest shipped: Phase 11 — Visual Reading Interface (MCP Apps).
+**Current state:** Phase 12 — Artifact Cross-Referencing + Annotation-Backed Link Storage is open (🔄, in planning; PRD + ADRs updated; cross-referencing specs T45–T53 written; T54 (search age transparency) done; T55 (M-5 write-path metadata validation) added — spec pending). Latest shipped: Phase 11 — Visual Reading Interface (MCP Apps).
 
 ---
 
@@ -377,56 +377,64 @@ revisions to FR-32, FR-17, FR-28, FR-09. Design source: `docs/brainstorming/brai
 storage (Phase 10 T38 "Known limitation") and the "commit references lost after reconcile" PRD
 limitation are replaced by annotation-backed dual-write. The Phase 10 specs `p10-t36`, `p10-t38`,
 and `p10-t40`, plus the read (`p2-t9`) and reconcile (`p5-t21`) specs touched by the annotation
-change, are revised as part of this phase — **assigned to an Architect** (see execution note).
+change, are revised as part of this phase — **assigned to an Architect** (see execution note). A
+one-time relink sweep for legacy vector-only `commit_refs` was considered and dropped — no live
+deployment has such data to sweep (see ADR-011).
 
 **Execution order:** T45 is the hard prerequisite (annotation client + test infra) — nothing
 durable can be built or tested without it. T46 (`references` field) is the other early
 prerequisite. Once both merge: T47, T49, T52 can proceed; T48 (reconcile) needs annotations
 being written (T47/T49); T50 depends on T46 only and is independent of all annotation work
-(parallelisable); T51 depends on T46; T53 depends on T49 + T51; T54 is a non-blocking ops sweep
-after T49. Testing approach: **TDD** (NFR-07) — tests written and failing before implementation
-on every task with testable logic.
+(parallelisable); T51 depends on T46; T53 depends on T49 + T51. **T54** (CA-4 search age transparency) is an independent review fix folded into this
+phase — it depends on nothing and is parallelisable with all cross-referencing work. **T55** (M-5 metadata validation) is a write-path robustness fix that must land before or with T46/T47, which enlarge the validated metadata payload. Testing
+approach: **TDD** (NFR-07) — tests written and failing before implementation on every task with
+testable logic.
 
 45. ⬜ **S3 object annotation client support + moto self-mock extension** *(prerequisite — client layer + test infrastructure)* — add put/get/list/delete object-annotation operations to the S3 client interface (`typing.Protocol`) and the concrete boto3 implementation; add a moto conftest extension self-mocking the annotation APIs, mirroring the existing `query_vectors` cosine patch (moto has no native annotation support). No tool changes. (FR-54)
     - Why: annotations are the durable store for all link data in this phase; every downstream task depends on being able to read/write and unit-test them.
     - Done when: **(Red)** client-method and moto-extension tests are written and failing before implementation; **(Green)** an annotation put→get→list→delete round-trip passes through the moto extension in unit tests and against a real bucket in an integration test; the extension returns results consistent with the real S3 Vectors annotation API; ruff + mypy clean
-    - Spec: *to be written by Architect*
+    - Spec: `docs/specs/p12-t45-s3-annotation-client.md`
 
 46. ⬜ **`references` first-class field on the `Artifact` model + write / read / list surfacing** *(core data model)* — add `references: list[str]` to `Artifact`; dual-store durably on the S3 object (annotation, per T47) and as `list[str]` in vector metadata; accept `references` at write time; return it in `write_artifact`, `read_artifact`, and `list_artifacts` responses; add a `references` list-membership filter to `list_artifacts` (AND semantics); legacy artifacts return `[]`. (FR-51)
     - Done when: **(Red)** field, encoding, and filter tests written and failing first; **(Green)** round-trip write→read→list returns supplied `references`; the `references` filter returns the correct subset; absent field returns `[]` (no error); the deliberate S3-vs-vector dual-encoding is preserved under the new field; ruff + mypy clean
-    - Depends on: T45 (annotation storage). Spec: *to be written by Architect*
+    - Depends on: T45 (annotation storage). Spec: `docs/specs/p12-t46-references-field.md`
 
 47. ⬜ **Annotation dual-write in the write path + overwrite preservation** — write `commit_refs` and `references` to S3 object annotations (durable-side first, vectors second — recoverable-state ordering); on an overwriting tier-3 write, read forward the existing `commit_refs`/`references` and re-apply them to both stores, because `PutObject` clears annotations. Content body is never re-embedded by this path. (FR-54, FR-55)
     - Done when: **(Red)** tests for durable-first ordering and tier-3 overwrite preservation written and failing first; **(Green)** a write persists both fields to annotations and vector metadata; a tier-3 same-type+title overwrite preserves prior `commit_refs`/`references` in both stores even though the underlying `PutObject` cleared annotations; no Bedrock re-embed is triggered by the annotation write; ruff + mypy clean
-    - Depends on: T45, T46. Spec: *to be written by Architect*
+    - Depends on: T45, T46. Spec: `docs/specs/p12-t47-annotation-dual-write.md`
 
 48. ⬜ **`reconcile_index` rebuilds `commit_refs` + `references` from annotations** — when re-indexing an artifact, restore both link fields into vector metadata by reading the object's durable annotations (`ListObjectAnnotations`/`GetObjectAnnotation`) instead of standard object metadata. Resolves OQ2. (FR-17, FR-54)
     - Done when: **(Red)** a test proving reconcile currently drops the fields is written and failing first; **(Green)** an artifact whose vectors are rebuilt by reconcile retains its `commit_refs` and `references` sourced from annotations; clean-state reconcile is unaffected; own-scope gate preserved; ruff + mypy clean
-    - Depends on: T45, and annotations being written (T47/T49). Spec: *to be written by Architect*
+    - Depends on: T45, and annotations being written (T47/T49). Spec: `docs/specs/p12-t48-reconcile-from-annotations.md`
 
 49. ⬜ **`link_metadata` tool — generalizes and supersedes `link_commit`** — fetch existing vectors + embeddings → merge and deduplicate the supplied `commit_refs`/`references` → dual-write (durable annotations first, vectors second) with the same embeddings; no Bedrock call; own-scope only (foreign identifiers skipped and counted); idempotent on re-run; returns counts and the write-time cursor. Rename/retire `link_commit`; keep `propose_commit_links` (FR-31). (FR-53, supersedes FR-32)
     - Done when: **(Red)** dual-write, no-re-embed (Bedrock spy), merge-dedup, and scope-gate tests written and failing first; **(Green)** `link_metadata` backfills either field to both stores, makes zero embedding calls, does not disturb `last_edited_ulid`, skips + counts foreign-scope IDs, and is idempotent; ruff + mypy clean
-    - Depends on: T45, T46, T47. Spec: *to be written by Architect*
+    - Depends on: T45, T46, T47. Spec: `docs/specs/p12-t49-link-metadata.md`
 
 50. ⬜ **Unified own-scope `referenced_by` warning on delete + archive** *(independent of annotation work)* — before delete or archive, reverse-lookup other own-scope artifacts referencing the target across both `source_artifacts` and `references` using server-side `$eq` list-membership filtering; warn-but-don't-block (delete: stronger, permanent; archive: informational, reversible); strictly own-scope — never reveal foreign-scope identifiers. Generalizes the existing synthesis-source delete warning (FR-21). (FR-56)
     - Done when: **(Red)** warning tests for both delete and archive, covering `source_artifacts` and `references`, plus an own-scope-only assertion, written and failing first; **(Green)** delete/archive of a referenced artifact returns the referencing identifiers and still performs the operation; a foreign-scope referrer is never revealed; server-side filtering used (not fetch-all-then-filter); ruff + mypy clean
-    - Depends on: T46 only (references in vector metadata). Parallelisable with T47–T49. Spec: *to be written by Architect*
+    - Depends on: T46 only (references in vector metadata). Parallelisable with T47–T49. Spec: `docs/specs/p12-t50-referenced-by-warning.md`
 
 51. ⬜ **Migration frontmatter reference rewriting + `cairn://` content rewrite** *(migration path)* — build a single authoritative path→identifier map from the full migration manifest before any writes (forward-reference safe); resolve frontmatter `references:` path entries to artifact identifiers to populate `references` (T46); rewrite resolved references in stored content to `cairn://artifact/{id}`; best-effort bounded path normalization; leave `http(s)://` URLs and unresolved/excluded targets untouched; in-body markdown links out of scope. (FR-52)
     - Done when: **(Red)** resolution-map, forward-reference, normalization-ceiling, and untouched-URL tests written and failing first; **(Green)** a same-batch forward reference resolves; the migrated artifact's `references` is populated and content rewritten to `cairn://artifact/{id}`; URLs and unresolved/excluded targets are left verbatim; no tier-2 content is retroactively patched; ruff + mypy clean
-    - Depends on: T46. Spec: *to be written by Architect*
+    - Depends on: T46. Spec: `docs/specs/p12-t51-migration-reference-rewrite.md`
 
 52. ⬜ **`setting-up-cairn` annotation availability + IAM check; runtime graceful handling; README + AGENTS.md** — add a one-time annotation availability + IAM-permission probe to the `setting-up-cairn` skill (aws-cli ≥ 2.35.14 guard or boto3 fallback via `uv run`); document the four required IAM actions and the regions/bucket types where annotations are unavailable in the README reference policy; handle annotation-unavailable / AccessDenied gracefully at runtime in `link_metadata` and the write path (post-setup drift); add the `cairn://` referencing and "reference healing" guidance to the AGENTS.md snippet (D9). NOT a hard startup gate (D15). (FR-57, NFR-12)
     - Done when: **(Red)** runtime graceful-handling tests (annotation unavailable / AccessDenied → structured error, core store still works) written and failing first; **(Green)** those errors surface structured, actionable responses and never a raw exception; the skill probe reports availability + the four IAM actions; README documents actions + unavailable regions/bucket types; AGENTS.md snippet carries the reference guidance; server still boots when annotations are unavailable; ruff + mypy clean
-    - Depends on: T45. Spec: *to be written by Architect*
+    - Depends on: T45. Spec: `docs/specs/p12-t52-annotation-availability-graceful.md`
 
 53. ⬜ **Reference-backfill cleanup skill** *(skill-only; optional, decoupled)* — ship an optional, skippable-by-default skill that content-scans artifacts against the migration path→identifier map, presents a dry-run batch report of proposed `references` backfills for operator review, and applies confirmed backfills via `link_metadata`; never rewrites stored content; never mutates metadata without confirmation. Resolves OQ1-cleanup. (FR-58)
     - Done when: the skill presents a dry-run batch report before any write; confirmed backfills route through `link_metadata`; declining leaves all artifacts unchanged; no stored content is rewritten; skill text is consistent with existing skill style; ruff + mypy unaffected (skill-only)
-    - Depends on: T49 (`link_metadata`), T51 (path→id map). Spec: *to be written by Architect*
+    - Depends on: T49 (`link_metadata`), T51 (path→id map). Spec: `docs/specs/p12-t53-reference-backfill-skill.md`
 
-54. ⬜ **One-time sweep: re-link vector-only `commit_refs` into annotations** *(ops / migration; non-blocking)* — re-link `commit_refs` that were backfilled under the superseded vector-only `link_commit` so they land in annotations and survive future reconciles. Documented as a one-time operator action, not a server code path. (Known Limitations)
-    - Done when: the sweep procedure is documented and, when run against a deployment, existing vector-only `commit_refs` are present in annotations afterwards and survive a subsequent `reconcile_index`
-    - Depends on: T49. Spec: *to be written by Architect (procedure doc)*
+54. ✅ **Search age transparency (CA-4 Option A)** *(review fix; independent of annotation work)* — surface the last-edited timestamp on every `search_artifacts` result so agents can judge and discount stale artifacts. Add the raw `last_edited_ulid` (already stored on every vector — no re-index) and a derived ISO 8601 `last_edited_at` to each result entry, reusing the existing ULID→ISO derivation used by `propose_commit_links` / `resources.py`. **No ranking change** — recency-weighted ranking is Option B, deferred to backlog B-6 (design-first, ADR before spec). (Review CA-4)
+    - Done when: **(Red)** tests written and failing first — a searched artifact returns correct `last_edited_ulid` + `last_edited_at`; missing/malformed ULID degrades to `null` without error; result ordering is unchanged with vs without the new fields; **(Green)** `search_artifacts` results carry both fields; existing unit suite + ruff + format + mypy clean.
+    - Depends on: nothing (parallelisable with all annotation tasks). Spec: `docs/specs/p12-t54-search-age-transparency.md`
+
+55. ⬜ **Write-path metadata size + charset validation (M-5)** *(review fix; write-path robustness)* — before any storage write, validate that the artifact's metadata fits the S3 object-metadata and vector-metadata size budgets and fail fast with a structured error, so an oversize artifact never produces a deterministic partial write (S3 ok, vector fails) that `reconcile_index` replays forever; neutralise control characters that corrupt metadata (e.g. a newline raising a raw urllib3 `ValueError`); bound `title` length in the `Artifact` model; and preserve non-ASCII titles consistently so `read_artifact` and `search_artifacts` never disagree. The size-budget check must account for `references` and `commit_refs`. (FR-59, AC-67; review M-5)
+    - Why: T46/T47 add `references` to the metadata payload, increasing pressure on the same vector-metadata size budget M-5 flags — the guard must exist before the references field goes live. Moving `commit_refs`/`references` durable copies to annotations relieves only the S3-user-metadata side, not the vector side.
+    - Done when: **(Red)** tests written and failing first — an oversize-metadata write is rejected before any S3 or vector write (no partial write, no failure-log replay loop); a control char in a metadata value returns a structured error rather than a raw exception; a non-ASCII title round-trips identically through `read_artifact` and `search_artifacts`; an over-long title is rejected with a clear error; **(Green)** all pass; existing suite + ruff + format + mypy clean.
+    - Depends on: nothing to start, but **must land before/with T46 + T47 going live** (it validates the enlarged payload). Spec: *to be written by Architect*
 
 **Phase 10 spec revisions (Architect):** revise `p10-t36` (commit_refs metadata fields → annotation durable store), `p10-t38` (`link_commit` → `link_metadata`, remove the vector-only known limitation), `p10-t40` (migration backfill uses `link_metadata`), and touch `p2-t9` (read) / `p5-t21` (reconcile) where the annotation change lands. These are spec-consistency updates, not new behaviour beyond FR-51–FR-58.
 

@@ -838,7 +838,7 @@ async def test_search_top_k_within_limit_not_clamped(
 
 
 # ---------------------------------------------------------------------------
-# P12·T55 — CA-4 Option A: last-edited age transparency in search results
+# P12·T54 — CA-4 Option A: last-edited age transparency in search results
 # ---------------------------------------------------------------------------
 
 

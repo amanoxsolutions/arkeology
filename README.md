@@ -131,8 +131,13 @@ skill or starting the server manually:
 
 - **S3 bucket** — a standard S3 bucket for artifact content storage
 - **S3 Vectors bucket and index** — created with `float32` data type, `cosine` distance
-  metric, and two non-filterable metadata keys: `description` and `source_artifacts`;
-  the index dimension must match your embedding model (default: `1024` for Titan Text v2)
+  metric, and four non-filterable metadata keys — `description`, `source_artifacts`, `title`,
+  and `author_role` (display fields never used in `$eq` filters, so declaring them non-filterable
+  keeps them out of the scarce filterable-metadata budget and leaves it for the fields that are
+  actually filtered); the index dimension must match your embedding model (default: `1024` for
+  Titan Text v2). These index attributes — dimension, distance metric, and the non-filterable
+  metadata keys — are fixed at index creation and immutable; changing any of them later requires
+  deleting and recreating the index, which loses all stored vectors
 - **Amazon Bedrock** — embedding model access (`amazon.titan-embed-text-v2:0` by default)
   enabled in your AWS region; a Nova Lite model is only required when using `migrate_artifacts`.
   **Cross-region inference profiles are required in most regions outside `us-east-1`** — use a

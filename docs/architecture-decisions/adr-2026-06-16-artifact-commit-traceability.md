@@ -5,18 +5,19 @@ description: "Records the three coupled design decisions that close the artifact
 tags: []
 timestamp: 2026-06-16T00:00:00Z
 okf_version: "0.1"
-status: accepted
+status: Superseded by adr-2026-07-03-annotation-backed-link-storage.md
 references:
   - docs/brainstorming/brainstorming-2026-06-06-artifact-commit-refs.md
   - docs/specs/p10-t36-commit-refs-metadata-fields.md
   - docs/specs/p10-t37-propose-commit-links.md
   - docs/specs/p10-t38-link-commit.md
+  - docs/architecture-decisions/adr-2026-07-03-annotation-backed-link-storage.md
 authored:
   by: architect
   date: "2026-06-16"
 revised:
-  by: ""
-  date: ""
+  by: architect
+  date: "2026-07-03"
 ---
 
 # Artifact Commit Traceability — ULID Timestamps, Vector-Only Commit Links, and Agent-Driven Protocol
@@ -32,7 +33,15 @@ V1 trigger mechanism.
 
 ## Status
 
-Accepted
+Superseded by [adr-2026-07-03-annotation-backed-link-storage.md](adr-2026-07-03-annotation-backed-link-storage.md).
+
+**Only the "Vector-only `commit_refs` storage (V1)" decision is superseded** — along with its
+consequence that `reconcile_index` drops commit links. The durable store for the mutable link
+fields (`commit_refs`, and the new `references`) moves to S3 object annotations, dual-written with
+vector metadata; `link_commit` is generalized into `link_metadata`. The other two decisions in this
+ADR remain **in force and unchanged**: the **ULID `last_edited_ulid`** write-time timestamp, and the
+**agent-driven AGENTS.md post-commit protocol (Path 2)** as the linking trigger (which now invokes
+`link_metadata`). See the superseding ADR for the full rationale.
 
 ## Context
 

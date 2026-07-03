@@ -16,11 +16,25 @@ authored:
   by: "analyst"
   date: "2026-06-06"
 revised:
-  by: ""
-  date: ""
+  by: "architect"
+  date: "2026-07-03"
 ---
 
 # T36 — `commit_refs` and `last_edited_ulid` Metadata Fields
+
+> **Alignment note (2026-07-03, ADR-011 — annotation-backed link storage).** This spec predates
+> ADR-011. Wherever it states that `commit_refs` is stored **in S3 object metadata** (Story 2, the
+> corresponding Requirements bullets, and Boundaries), the **durable copy of `commit_refs` — and,
+> going forward, the new `references` field — now lives in an S3 object *annotation*, dual-written
+> with vector metadata (durable annotation first, vector second), NOT in user-defined S3 object
+> metadata.** The vector-metadata `list[str]` representation and the `$eq` list-membership filter
+> (Story 3) are unchanged. The annotation client and its moto self-mock are specced in `p12-t45`;
+> the write-path dual-write is specced in `p12-t47`; `link_commit` is generalized into
+> `link_metadata` in `p12-t49-link-metadata`.
+>
+> `last_edited_ulid` is **unaffected**: it remains a write-time system field set atomically in
+> user-defined S3 object metadata at `PutObject`. It is never backfilled post-hoc, so it does **not**
+> move to annotations. All ULID and `$gte`/`$lte` time-range content in this spec remains valid.
 
 <!-- SCOPE BLOCK — frozen after approval -->
 
