@@ -12,7 +12,7 @@ authored:
   date: "2026-05-29"
 revised:
   by: "pm"
-  date: "2026-07-02"
+  date: "2026-07-03"
 ---
 
 # Product Requirements Document — cairn-mcp
@@ -76,7 +76,7 @@ Before the server can start, the following must be provisioned externally:
 
 **Regional constraint:** S3 Vectors is not available in all AWS regions. The operator is responsible for selecting a supported region. The server does not validate regional availability at startup.
 
-**Cross-scope constraint:** cross-scope semantic search requires all participating deployments to share the same S3 Vectors index, embedding model, and vector dimension. Each team may have its own S3 prefix or bucket for content storage, but the vector index must be shared. Deployments using separate vector indexes per team cannot perform cross-scope semantic search.
+**Cross-scope constraint:** cross-scope semantic search requires all participating deployments to share the same content storage bucket and the same S3 Vectors index, embedding model, and vector dimension. Teams participating in cross-scope search are separated by prefix within that shared storage, not by separate buckets — a foreign artifact's full content must be reachable to be recalled across scopes. A team that runs a fully separate deployment — its own content bucket, its own vector index, its own server — shares nothing with other teams and does not participate in cross-scope search or cross-scope reads. Deployments using separate content buckets or separate vector indexes per team cannot perform cross-scope semantic search.
 
 **Cross-scope trust constraint:** vector-store access control is all-or-nothing per index. Sharing a vector index grants every participating deployment the technical ability to read all vector metadata (titles, descriptions, tags) and embeddings in that index, regardless of tier or visibility — the tier/visibility gate is honoured by unmodified servers, not enforced by the storage layer. Cross-scope participation therefore implies mutual trust between teams at that level. Artifact full content remains restrictable per team at the infrastructure level.
 
