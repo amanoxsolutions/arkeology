@@ -14,6 +14,9 @@ import boto3
 import pytest
 from moto import mock_aws
 from moto.core.responses import ActionResult
+from moto.s3.exceptions import MissingKey, S3ClientError
+from moto.s3.models import S3Backend
+from moto.s3.responses import S3Response
 from moto.s3vectors.models import S3VectorsBackend
 from moto.s3vectors.responses import S3VectorsResponse
 from moto.s3vectors.urls import url_paths
@@ -107,6 +110,124 @@ def _response_query_vectors(self: Any) -> ActionResult:
 S3VectorsBackend.query_vectors = _backend_query_vectors  # type: ignore[attr-defined]
 S3VectorsResponse.query_vectors = _response_query_vectors  # type: ignore[attr-defined]
 url_paths["{0}/QueryVectors$"] = S3VectorsResponse.dispatch
+
+
+# ---------------------------------------------------------------------------
+# moto S3 object-annotation self-mock extension — applied once at module load
+#
+# moto 5.2.2 has no native support for the four S3 object-annotation operations
+# (PutObjectAnnotation / GetObjectAnnotation / ListObjectAnnotations /
+# DeleteObjectAnnotation — see ADR-011). This extension self-mocks them by
+# intercepting S3Response's existing key-level GET/PUT/DELETE dispatch for the
+# "?annotation" subresource — the same seam moto itself uses to dispatch "?tagging"
+# / "?acl" — and backs them with a module-level in-memory store keyed by
+# (bucket, key). It also wraps S3Backend.put_object so that writing a new object
+# version clears that key's annotations, matching real S3 overwrite-wipe semantics.
+# ---------------------------------------------------------------------------
+
+_ANNOTATION_STORE: dict[tuple[str, str], dict[str, bytes]] = {}
+
+
+class _NoSuchAnnotation(S3ClientError):
+    """Mirrors the real S3 ``NoSuchAnnotation`` error (404) for an absent annotation."""
+
+    code = "NoSuchAnnotation"
+
+    def __init__(self, annotation_name: str) -> None:
+        super().__init__("The specified annotation does not exist.")
+        self.annotation_name = annotation_name
+
+
+def _require_object(self: Any, bucket_name: str, key_name: str) -> None:
+    if self.backend.get_object(bucket_name, key_name) is None:
+        raise MissingKey(key_name)
+
+
+def _annotation_get_or_list(self: Any, query: dict[str, Any], key_name: str) -> Any:
+    _require_object(self, self.bucket_name, key_name)
+    store = _ANNOTATION_STORE.get((self.bucket_name, key_name), {})
+    if "annotationName" in query:
+        name = query["annotationName"][0]
+        if name not in store:
+            raise _NoSuchAnnotation(name)
+        self.data["Action"] = "GetObjectAnnotation"
+        return self.serialized(ActionResult({"AnnotationPayload": store[name]}))
+    self.data["Action"] = "ListObjectAnnotations"
+    names = sorted(store)
+    return self.serialized(
+        ActionResult(
+            {
+                "Annotations": [{"AnnotationName": n} for n in names],
+                "AnnotationCount": len(names),
+            }
+        )
+    )
+
+
+def _annotation_put(self: Any, query: dict[str, Any], key_name: str) -> Any:
+    _require_object(self, self.bucket_name, key_name)
+    name = query["annotationName"][0]
+    payload = self.body.encode("utf-8") if isinstance(self.body, str) else (self.body or b"")
+    _ANNOTATION_STORE.setdefault((self.bucket_name, key_name), {})[name] = payload
+    self.data["Action"] = "PutObjectAnnotation"
+    return self.serialized(ActionResult({"AnnotationName": name}))
+
+
+def _annotation_delete(self: Any, bucket_name: str, key_name: str, query: dict[str, Any]) -> Any:
+    _require_object(self, bucket_name, key_name)
+    name = query["annotationName"][0]
+    store = _ANNOTATION_STORE.get((bucket_name, key_name), {})
+    if name not in store:
+        raise _NoSuchAnnotation(name)
+    del store[name]
+    self.data["Action"] = "DeleteObjectAnnotation"
+    return self.serialized(ActionResult({}))
+
+
+_orig_key_response_get = S3Response._key_response_get
+_orig_key_response_put = S3Response._key_response_put
+_orig_key_response_delete = S3Response._key_response_delete
+
+
+def _key_response_get_with_annotations(self: Any, query: dict[str, Any], key_name: str) -> Any:
+    if "annotation" in query:
+        return _annotation_get_or_list(self, query, key_name)
+    return _orig_key_response_get(self, query, key_name)
+
+
+def _key_response_put_with_annotations(self: Any, query: dict[str, Any], key_name: str) -> Any:
+    if "annotation" in query:
+        return _annotation_put(self, query, key_name)
+    return _orig_key_response_put(self, query, key_name)
+
+
+def _key_response_delete_with_annotations(
+    self: Any, bucket_name: str, query: dict[str, Any], key_name: str
+) -> Any:
+    if "annotation" in query:
+        return _annotation_delete(self, bucket_name, key_name, query)
+    return _orig_key_response_delete(self, bucket_name, query, key_name)
+
+
+S3Response._key_response_get = _key_response_get_with_annotations  # type: ignore[method-assign]
+S3Response._key_response_put = _key_response_put_with_annotations  # type: ignore[method-assign]
+S3Response._key_response_delete = (  # type: ignore[method-assign]
+    _key_response_delete_with_annotations
+)
+
+
+_orig_backend_put_object = S3Backend.put_object
+
+
+def _backend_put_object_clears_annotations(
+    self: Any, bucket_name: str, key_name: str, *args: Any, **kwargs: Any
+) -> Any:
+    # Real S3 clears an object's annotations whenever it is overwritten (ADR-011).
+    _ANNOTATION_STORE.pop((bucket_name, key_name), None)
+    return _orig_backend_put_object(self, bucket_name, key_name, *args, **kwargs)
+
+
+S3Backend.put_object = _backend_put_object_clears_annotations  # type: ignore[method-assign]
 
 
 # ---------------------------------------------------------------------------

@@ -138,3 +138,64 @@ class S3ClientImpl:
         logger.debug("S3 delete_object key=%s", key)
         with wrap_credential_errors("s3"):
             self._s3.delete_object(Bucket=self._bucket, Key=key)
+
+    def put_object_annotation(self, key: str, annotation_name: str, payload: str) -> None:
+        logger.debug("S3 put_object_annotation key=%s annotation_name=%s", key, annotation_name)
+        with wrap_credential_errors("s3"):
+            self._s3.put_object_annotation(
+                Bucket=self._bucket,
+                Key=key,
+                AnnotationName=annotation_name,
+                AnnotationPayload=payload.encode("utf-8"),
+            )
+
+    def get_object_annotation(self, key: str, annotation_name: str) -> str:
+        logger.debug("S3 get_object_annotation key=%s annotation_name=%s", key, annotation_name)
+        with wrap_credential_errors("s3"):
+            try:
+                response = self._s3.get_object_annotation(
+                    Bucket=self._bucket, Key=key, AnnotationName=annotation_name
+                )
+                return response["AnnotationPayload"].read().decode("utf-8")
+            except botocore.exceptions.ClientError as exc:
+                code = exc.response.get("Error", {}).get("Code", "")
+                if code in ("NoSuchKey", "NoSuchAnnotation", "404"):
+                    raise KeyError(key) from exc
+                raise
+
+    def list_object_annotations(self, key: str) -> list[str]:
+        logger.debug("S3 list_object_annotations key=%s", key)
+        with wrap_credential_errors("s3"):
+            names: list[str] = []
+            continuation_token: str | None = None
+            while True:
+                kwargs: dict[str, Any] = {"Bucket": self._bucket, "Key": key}
+                if continuation_token:
+                    kwargs["ContinuationToken"] = continuation_token
+                try:
+                    response = self._s3.list_object_annotations(**kwargs)
+                except botocore.exceptions.ClientError as exc:
+                    code = exc.response.get("Error", {}).get("Code", "")
+                    if code in ("NoSuchKey", "404"):
+                        raise KeyError(key) from exc
+                    raise
+                names.extend(
+                    annotation["AnnotationName"] for annotation in response.get("Annotations", [])
+                )
+                continuation_token = response.get("NextContinuationToken")
+                if not continuation_token:
+                    break
+            return names
+
+    def delete_object_annotation(self, key: str, annotation_name: str) -> None:
+        logger.debug("S3 delete_object_annotation key=%s annotation_name=%s", key, annotation_name)
+        with wrap_credential_errors("s3"):
+            try:
+                self._s3.delete_object_annotation(
+                    Bucket=self._bucket, Key=key, AnnotationName=annotation_name
+                )
+            except botocore.exceptions.ClientError as exc:
+                code = exc.response.get("Error", {}).get("Code", "")
+                if code in ("NoSuchKey", "NoSuchAnnotation", "404"):
+                    return
+                raise

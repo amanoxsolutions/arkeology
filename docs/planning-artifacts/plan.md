@@ -390,7 +390,7 @@ phase — it depends on nothing and is parallelisable with all cross-referencing
 approach: **TDD** (NFR-07) — tests written and failing before implementation on every task with
 testable logic.
 
-45. ⬜ **S3 object annotation client support + moto self-mock extension** *(prerequisite — client layer + test infrastructure)* — add put/get/list/delete object-annotation operations to the S3 client interface (`typing.Protocol`) and the concrete boto3 implementation; add a moto conftest extension self-mocking the annotation APIs, mirroring the existing `query_vectors` cosine patch (moto has no native annotation support). No tool changes. (FR-54)
+45. ✅ **S3 object annotation client support + moto self-mock extension** *(prerequisite — client layer + test infrastructure)* — add put/get/list/delete object-annotation operations to the S3 client interface (`typing.Protocol`) and the concrete boto3 implementation; add a moto conftest extension self-mocking the annotation APIs, mirroring the existing `query_vectors` cosine patch (moto has no native annotation support). No tool changes. (FR-54)
     - Why: annotations are the durable store for all link data in this phase; every downstream task depends on being able to read/write and unit-test them.
     - Done when: **(Red)** client-method and moto-extension tests are written and failing before implementation; **(Green)** an annotation put→get→list→delete round-trip passes through the moto extension in unit tests and against a real bucket in an integration test; the extension returns results consistent with the real S3 Vectors annotation API; ruff + mypy clean
     - Spec: `docs/specs/p12-t45-s3-annotation-client.md`

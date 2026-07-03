@@ -74,7 +74,7 @@ browser UI handles rendering; Claude's role ends after the initial `cairn_studio
 | `src/cairn_mcp/static/cairn-studio.html` | Self-contained HTML/JS MCP App: two-pane browser (272 px pinned left list + flex right reader) with faceted filter, artifact list, markdown + mermaid rendering, semantic search |
 | `src/cairn_mcp/clients/`          | AWS client interfaces, implementations, fakes, filter      |
 | `src/cairn_mcp/clients/interfaces.py` | Protocol interfaces for S3, S3 Vectors, Bedrock        |
-| `src/cairn_mcp/clients/s3.py`     | Concrete boto3 S3 client                                   |
+| `src/cairn_mcp/clients/s3.py`     | Concrete boto3 S3 client, incl. object-annotation put/get/list/delete |
 | `src/cairn_mcp/clients/vectors.py`| Concrete boto3 S3 Vectors client                           |
 | `src/cairn_mcp/clients/bedrock.py`| Concrete boto3 Bedrock embeddings client                   |
 | `src/cairn_mcp/clients/credentials.py` | Credential error code detection helper                |
@@ -84,6 +84,7 @@ browser UI handles rendering; Claude's role ends after the initial `cairn_studio
 | `tests/unit/`                     | Unit tests (moto + `FakeBedrockClient`, no real AWS)       |
 | `tests/unit/conftest.py`          | moto `query_vectors` extension + shared fixtures (settings, aws_mock, s3_client, vectors_client_*) |
 | `tests/unit/clients/test_moto_query_vectors_extension.py` | Verifies the cosine-similarity moto extension |
+| `tests/unit/clients/test_s3_annotations.py` | Verifies the S3 object-annotation client methods + moto self-mock extension |
 | `tests/integration/`              | Integration tests (real AWS, @pytest.mark.integration)     |
 | `docs/planning-artifacts/`        | PRD and plan                                               |
 | `docs/specs/`                     | Per-task feature specs                                     |
@@ -122,6 +123,13 @@ one makes all persisted memory inaccessible:
   module load and is active for all unit tests. Do not reimplement it per-test. The extension
   returns `score = 1.0 − cosine_distance` (cosine similarity, range [−1, 1]), matching
   `VectorsClientImpl` exactly.
+- **S3 object annotations are not implemented in moto** — the four annotation operations
+  (`put_object_annotation` / `get_object_annotation` / `list_object_annotations` /
+  `delete_object_annotation`) are self-mocked in `tests/unit/conftest.py` by intercepting
+  `S3Response`'s key-level GET/PUT/DELETE dispatch for the `?annotation` subresource and
+  backing it with an in-memory store, plus a `S3Backend.put_object` wrapper that clears a
+  key's annotations on overwrite (matching real S3 semantics). This patch is applied once
+  at module load and is active for all unit tests. Do not reimplement it per-test.
 - **`FakeBedrockClient` is kept intentionally** — moto's `invoke_model` returns a generic
   stub, not deterministic per-text embedding vectors. `FakeBedrockClient` generates
   hash-derived unit vectors (SHA-256) so the same text always produces the same vector,
