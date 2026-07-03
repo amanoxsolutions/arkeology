@@ -3,10 +3,12 @@
 Tests search_artifacts() using moto-backed VectorsClientImpl and FakeBedrockClient.
 """
 
+import logging
 import math
 
 import pytest
 from pytest_mock import MockerFixture
+from ulid import ULID
 
 from cairn_mcp.clients.fakes.fake_bedrock import FakeBedrockClient
 from cairn_mcp.clients.vectors import VectorsClientImpl
@@ -833,3 +835,149 @@ async def test_search_top_k_within_limit_not_clamped(
     )
 
     assert result.get("clamped") is not True
+
+
+# ---------------------------------------------------------------------------
+# P12·T55 — CA-4 Option A: last-edited age transparency in search results
+# ---------------------------------------------------------------------------
+
+
+def _put_dim8_vector(
+    vectors: VectorsClientImpl,
+    artifact_id: str,
+    seed: float,
+    meta_extra: dict[str, object],
+) -> None:
+    """Seed a single dim-8 active own-scope tier-3 vector with extra metadata."""
+    raw = [seed + i * 0.1 for i in range(8)]
+    base_meta: dict[str, object] = {
+        "artifact_id": artifact_id,
+        "scope": "artifacts",
+        "type": "adr",
+        "team": "platform",
+        "project": "cairn",
+        "tier": 3,
+        "visibility": "shared",
+        "status": "active",
+        "tags": [],
+        "title": artifact_id.rsplit("/", 1)[-1],
+    }
+    base_meta.update(meta_extra)
+    vectors.put_vector(artifact_id, _unit_vec(raw), base_meta)
+
+
+async def test_search_result_includes_last_edited_fields_when_ulid_present(
+    monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
+) -> None:
+    """US-1: a found artifact carries its raw last_edited_ulid and a derived ISO last_edited_at."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=8)
+    known_ulid = ULID()
+    _put_dim8_vector(
+        vectors_client_8,
+        "artifacts/adr-with-ulid",
+        1.0,
+        {"last_edited_ulid": str(known_ulid)},
+    )
+
+    result = await search_artifacts(
+        vectors=vectors_client_8, bedrock=bedrock, settings=settings, query="adr", top_k=5
+    )
+
+    seeded = next(
+        (a for a in result["artifacts"] if a["artifact_id"] == "artifacts/adr-with-ulid"),
+        None,
+    )
+    assert seeded is not None
+    assert seeded["last_edited_ulid"] == str(known_ulid)
+    assert seeded["last_edited_at"] == ULID.from_str(str(known_ulid)).datetime.isoformat()
+
+
+async def test_search_result_last_edited_fields_null_when_ulid_absent(
+    monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
+) -> None:
+    """US-2: metadata with no last_edited_ulid → both fields null, result still returned."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=8)
+    _put_dim8_vector(vectors_client_8, "artifacts/adr-no-ulid", 1.0, {})
+
+    result = await search_artifacts(
+        vectors=vectors_client_8, bedrock=bedrock, settings=settings, query="adr", top_k=5
+    )
+
+    seeded = next(
+        (a for a in result["artifacts"] if a["artifact_id"] == "artifacts/adr-no-ulid"),
+        None,
+    )
+    assert seeded is not None
+    assert seeded["last_edited_ulid"] is None
+    assert seeded["last_edited_at"] is None
+
+
+async def test_search_result_malformed_ulid_yields_null_at_and_logs_warning(
+    monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """US-2: non-ULID value → last_edited_at null, raw value returned unchanged, warning logged."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=8)
+    _put_dim8_vector(
+        vectors_client_8,
+        "artifacts/adr-bad-ulid",
+        1.0,
+        {"last_edited_ulid": "not-a-valid-ulid"},
+    )
+
+    with caplog.at_level(logging.WARNING, logger="cairn_mcp.tools.search"):
+        result = await search_artifacts(
+            vectors=vectors_client_8, bedrock=bedrock, settings=settings, query="adr", top_k=5
+        )
+
+    seeded = next(
+        (a for a in result["artifacts"] if a["artifact_id"] == "artifacts/adr-bad-ulid"),
+        None,
+    )
+    assert seeded is not None
+    assert seeded["last_edited_ulid"] == "not-a-valid-ulid"
+    assert seeded["last_edited_at"] is None
+    assert any("not-a-valid-ulid" in rec.getMessage() for rec in caplog.records)
+
+
+async def test_search_ordering_unchanged_by_last_edited_fields(
+    monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
+) -> None:
+    """Ranking invariance: recency does not reorder — order stays by score descending.
+
+    Seeds artifacts whose last_edited_ulid recency is the inverse of their semantic
+    score, so any recency weighting would visibly reorder the results.
+    """
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=8)
+
+    # ulid_old is chronologically older than ulid_new.
+    ulid_old = ULID()
+    ulid_new = ULID()
+    assert str(ulid_old) < str(ulid_new)
+
+    # Higher seed (1.0) is more similar to the query vector → higher score, but is the OLDER doc.
+    _put_dim8_vector(
+        vectors_client_8, "artifacts/high-score-old", 1.0, {"last_edited_ulid": str(ulid_old)}
+    )
+    _put_dim8_vector(
+        vectors_client_8, "artifacts/low-score-new", 0.5, {"last_edited_ulid": str(ulid_new)}
+    )
+
+    result = await search_artifacts(
+        vectors=vectors_client_8, bedrock=bedrock, settings=settings, query="adr", top_k=10
+    )
+
+    scores = [a["score"] for a in result["artifacts"]]
+    assert scores == sorted(scores, reverse=True), "results must remain ordered by score descending"
+
+    # The newer (but lower-scoring) artifact must NOT be promoted above the older top hit.
+    ids = [a["artifact_id"] for a in result["artifacts"]]
+    assert ids.index("artifacts/high-score-old") < ids.index("artifacts/low-score-new")

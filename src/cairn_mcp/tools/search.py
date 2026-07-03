@@ -7,6 +7,8 @@ artifacts from the S3 Vectors index, subject to scope and access-control gates.
 import logging
 from typing import Any
 
+from ulid import ULID
+
 from cairn_mcp.clients.interfaces import (
     BedrockClientInterface,
     S3ClientInterface,
@@ -151,6 +153,21 @@ async def _search_artifacts_inner(  # noqa: PLR0913
 
         tags_val = coerce_list_field(meta, "tags")
         source_artifacts_val = coerce_list_field(meta, "source_artifacts")
+
+        # Last-edited age transparency (CA-4 Option A): surface the raw ULID and a
+        # derived ISO 8601 timestamp so agents can discount stale hits. This is
+        # transparency only — it never influences result ordering.
+        last_edited_ulid: str | None = meta.get("last_edited_ulid") or None
+        last_edited_at: str | None = None
+        if last_edited_ulid:
+            try:
+                last_edited_at = ULID.from_str(last_edited_ulid).datetime.isoformat()
+            except Exception:
+                logger.warning(
+                    "Malformed last_edited_ulid %r — timestamp will be null", last_edited_ulid
+                )
+                last_edited_at = None
+
         results.append(
             {
                 "artifact_id": aid,
@@ -167,6 +184,8 @@ async def _search_artifacts_inner(  # noqa: PLR0913
                 "author_role": meta.get("author_role") or None,
                 "description": meta.get("description"),
                 "source_artifacts": source_artifacts_val,
+                "last_edited_ulid": last_edited_ulid,
+                "last_edited_at": last_edited_at,
             }
         )
 

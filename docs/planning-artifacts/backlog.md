@@ -26,6 +26,20 @@ Items that were promoted to a phase are **not** listed here — see the phase hi
   the "semantic memory beats progressive-disclosure wiki at scale" positioning claim.
   Source: [`brainstorming-2026-06-15-okf-alignment.md`](../brainstorming/brainstorming-2026-06-15-okf-alignment.md) (OQ1).
 
+- **B-6 — Recency-weighted search ranking (CA-4 Option B).** Blend an age signal into
+  `search_artifacts` ranking so a fresher artifact is not tied by pure cosine similarity with a
+  superseded older one. The temporal data already exists (`last_edited_ulid` on every vector — no
+  re-index needed) and the ranking choke point is single (`_search_helper.py` `run_search_loop`
+  final sort, shared by search + synthesise). **Design-first — requires an ADR before spec** for
+  three non-trivial decisions: (1) **tier/type-aware decay** — tier-3 canonical ADRs are *meant* to
+  age slowly while tier-2 session notes should decay fast, so a blanket penalty is likely wrong;
+  (2) **score combination** — cosine scores are in [−1, 1], so a naive multiplicative decay
+  misbehaves on negative scores and needs normalization; (3) **default-on vs opt-in per query**,
+  and the caveat that post-hoc reranking only reorders the fetched candidate pool, not the whole
+  index. CA-4 Option A (age transparency, no ranking change) shipped separately — see
+  [`p12-t55-search-age-transparency.md`](../specs/p12-t55-search-age-transparency.md).
+  Source: full-project review CA-4 (2026-07-02).
+
 ## Cross-scope security
 
 - **B-5 — Hard cross-scope security boundary.** Today the tier/visibility gate is a soft

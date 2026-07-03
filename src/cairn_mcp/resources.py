@@ -88,6 +88,12 @@ by the caller.
 | Field | Type | Notes |
 |-------|------|-------|
 | `last_edited_ulid` | string | Write-time ULID; use as `since_ulid` in `propose_commit_links` |
+| `last_edited_at` | string or null | ISO-8601 time from `last_edited_ulid`; `null` if unparseable |
+
+`last_edited_ulid` is returned by `read_artifact`, `list_artifacts`, and `search_artifacts`.
+`search_artifacts` results additionally carry the derived `last_edited_at`: because search
+ranking is by semantic relevance only, use this last-edited time to judge recency and
+discount stale hits rather than trusting rank order alone.
 
 ## Valid artifact types
 
@@ -308,7 +314,9 @@ def query_strategy_content() -> str:
 
 4. **Use `search_artifacts` for concept queries.** When the question is conceptual — "what
    did we decide about the auth redesign?" — use `search_artifacts` with a natural-language
-   `query`. Combine with `type` or `tags` to stay narrow.
+   `query`. Combine with `type` or `tags` to stay narrow. Results are ranked by semantic
+   relevance only; each entry carries `last_edited_ulid` and a derived `last_edited_at`, so
+   check the last-edited time to discount stale hits rather than trusting rank order alone.
 
 ## When to use `synthesise_artifacts`
 
