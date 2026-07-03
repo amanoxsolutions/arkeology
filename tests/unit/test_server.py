@@ -283,3 +283,78 @@ async def test_list_artifacts_mcp_layer_forwards_references(
     mock_list.assert_awaited_once()
     _, call_kwargs = mock_list.call_args
     assert call_kwargs["references"] == ["a-1"]
+
+
+# ---------------------------------------------------------------------------
+# T49 — link_commit superseded by link_metadata
+# ---------------------------------------------------------------------------
+
+
+async def test_link_commit_no_longer_registered(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """link_commit (p10-t38) is retired — it must not be registered on the app
+    once link_metadata (T49) supersedes it."""
+    settings = _make_settings(monkeypatch)
+
+    register_tools(
+        settings=settings,
+        s3=MagicMock(),
+        vectors=MagicMock(),
+        bedrock=MagicMock(),
+    )
+    tool = await _app.get_tool("link_commit")
+    assert tool is None
+
+
+async def test_link_metadata_registered_and_forwards_arguments(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """link_metadata is registered and forwards artifact_ids/commit_refs/references
+    to the underlying _link_metadata implementation."""
+    settings = _make_settings(monkeypatch)
+    mock_link: AsyncMock = AsyncMock(
+        return_value={"linked": 1, "skipped": 0, "next_since_ulid": "01ABC"}
+    )
+    monkeypatch.setattr("cairn_mcp.server._link_metadata", mock_link)
+
+    register_tools(
+        settings=settings,
+        s3=MagicMock(),
+        vectors=MagicMock(),
+        bedrock=MagicMock(),
+    )
+    tool = await _app.get_tool("link_metadata")
+    assert tool is not None
+    await tool.fn(artifact_ids=["artifacts/a1"], commit_refs=["abc1234"], references=["a-1"])
+
+    mock_link.assert_awaited_once()
+    _, call_kwargs = mock_link.call_args
+    assert call_kwargs["artifact_ids"] == ["artifacts/a1"]
+    assert call_kwargs["commit_refs"] == ["abc1234"]
+    assert call_kwargs["references"] == ["a-1"]
+
+
+async def test_propose_commit_links_still_registered_and_functional(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """propose_commit_links (FR-31) is retained unchanged by T49 — still registered
+    and still forwards its arguments to the underlying implementation."""
+    settings = _make_settings(monkeypatch)
+    mock_propose: AsyncMock = AsyncMock(return_value={"proposed": []})
+    monkeypatch.setattr("cairn_mcp.server._propose_commit_links", mock_propose)
+
+    register_tools(
+        settings=settings,
+        s3=MagicMock(),
+        vectors=MagicMock(),
+        bedrock=MagicMock(),
+    )
+    tool = await _app.get_tool("propose_commit_links")
+    assert tool is not None
+    await tool.fn(commit_sha="abc1234", since_ulid="01ABC")
+
+    mock_propose.assert_awaited_once()
+    _, call_kwargs = mock_propose.call_args
+    assert call_kwargs["commit_sha"] == "abc1234"
+    assert call_kwargs["since_ulid"] == "01ABC"

@@ -20,7 +20,7 @@ from cairn_mcp.tools.archive import archive_artifact as _archive_artifact
 from cairn_mcp.tools.delete import delete_artifact as _delete_artifact
 from cairn_mcp.tools.freshness import check_synthesis_freshness as _check_synthesis_freshness
 from cairn_mcp.tools.health import health_check as _health_check
-from cairn_mcp.tools.link_commit import link_commit as _link_commit
+from cairn_mcp.tools.link_metadata import link_metadata as _link_metadata
 from cairn_mcp.tools.list import list_artifacts as _list_artifacts
 from cairn_mcp.tools.migrate_artifacts import migrate_artifacts as _migrate_artifacts
 from cairn_mcp.tools.propose_commit_links import propose_commit_links as _propose_commit_links
@@ -323,18 +323,25 @@ def register_tools(
         )
 
     @_app.tool()
-    async def link_commit(
+    async def link_metadata(
         artifact_ids: list[str],
-        commit_sha: str,
+        commit_refs: list[str] | None = None,
+        references: list[str] | None = None,
     ) -> dict[str, Any]:
-        """Append a commit SHA to the commit_refs vector metadata of own-scope artifacts."""
-        return await _link_commit(
+        """Backfill commit_refs and/or references onto existing own-scope artifacts.
+
+        Dual-writes the merged, deduplicated values to durable S3 annotations
+        (first) and vector metadata (second), reusing existing embeddings — no
+        Bedrock call, no content mutation, no last_edited_ulid change.
+        """
+        return await _link_metadata(
             settings=settings,
             s3=s3,
             vectors=vectors,
             bedrock=bedrock,
             artifact_ids=artifact_ids,
-            commit_sha=commit_sha,
+            commit_refs=commit_refs,
+            references=references,
         )
 
     @_app.tool(app=AppConfig(resource_uri="ui://cairn-studio/index.html"))

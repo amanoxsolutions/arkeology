@@ -78,7 +78,7 @@ def artifact_schema_content() -> str:
 | `tags` | list[string] | Searchable tags; enables `tags` filter |
 | `author_role` | string | Role of the author (e.g. `"developer"`) |
 | `source_artifacts` | list[string] | Source IDs for a `synthesis` artifact |
-| `commit_refs` | list[string] | Git commit SHAs linked to this artifact via `link_commit` |
+| `commit_refs` | list[string] | Git commit SHAs linked to this artifact via `link_metadata` |
 | `references` | list[string] | Resolved bare artifact IDs this artifact points at |
 
 ## System-generated fields
@@ -336,7 +336,7 @@ results in a single call. After synthesising in-context, write the result back u
 This records which artifacts contributed to the synthesis and makes the compiled knowledge
 searchable as a standalone tier 3 artifact.
 
-## When to use `propose_commit_links` and `link_commit`
+## When to use `propose_commit_links` and `link_metadata`
 
 Use these two tools together at the end of a coding session to attach the session's commit
 SHA(s) to every artifact written during that session.
@@ -348,8 +348,10 @@ SHA(s) to every artifact written during that session.
 2. Call `propose_commit_links(commit_sha=<sha>, since_ulid=<ulid>)` — returns own-scope
    artifacts with no `commit_refs` that were written at or after `since_ulid`.
 3. Review the proposed list. Confirm which artifact IDs should be linked.
-4. Call `link_commit(artifact_ids=[...], commit_sha=<sha>)` — appends the SHA to each
-   confirmed artifact without re-embedding.
+4. Call `link_metadata(artifact_ids=[...], commit_refs=[<sha>])` — merges the SHA into
+   each confirmed artifact's `commit_refs` without re-embedding. `link_metadata` also
+   accepts a `references` list to backfill resolved artifact-to-artifact references in
+   the same call.
 
 If `since_ulid` is omitted, `propose_commit_links` returns **all** own-scope artifacts
 with no `commit_refs` — useful for a bulk back-fill of an existing index.
