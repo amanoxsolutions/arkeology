@@ -5,12 +5,12 @@ Non-credential errors propagate unchanged.
 """
 
 import logging
-import unicodedata
 from typing import Any
 
 import boto3
 import botocore.exceptions
 
+from cairn_mcp.artifact import encode_metadata_value
 from cairn_mcp.clients.credentials import (
     _CREDENTIAL_ERROR_MESSAGE,
     wrap_credential_errors,
@@ -21,23 +21,22 @@ from cairn_mcp.errors import ArtifactCollisionError, CredentialError
 logger = logging.getLogger(__name__)
 
 
-def _ascii_safe_metadata(metadata: dict[str, str]) -> dict[str, str]:
-    """Return a copy of metadata with all values sanitized to ASCII.
+def _transport_safe_metadata(metadata: dict[str, str]) -> dict[str, str]:
+    """Return a copy of metadata with all values percent-encoded for safe HTTP transport.
 
-    S3 object metadata is transmitted as HTTP headers, which only support ASCII.
-    NFKD normalization decomposes accented characters to their ASCII base
-    (e.g. é → e); remaining non-ASCII characters (e.g. em dash) are dropped.
+    S3 object metadata is transmitted as HTTP headers, which only support ASCII and
+    reject raw control characters. Every value is percent-encoded via
+    :func:`cairn_mcp.artifact.encode_metadata_value` (T55) — fully reversible via
+    :func:`cairn_mcp.artifact.decode_metadata_value`, unlike the previous NFKD-ASCII-strip
+    which silently discarded non-Latin content (e.g. an em dash or "café" losing its é).
 
     Args:
         metadata: Original metadata dict with potentially non-ASCII string values.
 
     Returns:
-        New dict with all values sanitized to ASCII.
+        New dict with all values percent-encoded to ASCII.
     """
-    return {
-        k: unicodedata.normalize("NFKD", v).encode("ascii", errors="ignore").decode("ascii")
-        for k, v in metadata.items()
-    }
+    return {k: encode_metadata_value(v) for k, v in metadata.items()}
 
 
 class S3ClientImpl:
@@ -70,7 +69,7 @@ class S3ClientImpl:
             "Bucket": self._bucket,
             "Key": key,
             "Body": body.encode("utf-8"),
-            "Metadata": _ascii_safe_metadata(metadata),
+            "Metadata": _transport_safe_metadata(metadata),
         }
         if if_none_match:
             # Atomic conditional-create (A-2): "*" matches any existing object, so the

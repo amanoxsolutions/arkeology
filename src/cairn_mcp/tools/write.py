@@ -16,6 +16,8 @@ from ulid import ULID
 
 from cairn_mcp.artifact import (
     Artifact,
+    check_metadata_budgets,
+    encode_metadata_value,
     generate_artifact_id,
     parse_sections,
     section_slug,
@@ -27,7 +29,7 @@ from cairn_mcp.clients.interfaces import (
 )
 from cairn_mcp.config import Settings
 from cairn_mcp.constants import ErrorCode
-from cairn_mcp.errors import ArtifactCollisionError, CredentialError
+from cairn_mcp.errors import ArtifactCollisionError, CredentialError, MetadataTooLargeError
 from cairn_mcp.failure_log import append_failure_entry
 
 logger = logging.getLogger(__name__)
@@ -341,6 +343,46 @@ async def _write_artifact_inner(  # noqa: PLR0913
         "last_edited_ulid": last_edited_ulid,
     }
 
+    # ── Step 3b: Build vector metadata (types match filter requirements) ─────
+    # Built here — before the collision check and any write — so the T55 budget check
+    # below can validate the actual representations about to be written before any
+    # head_object/put_object/put_vectors_batch call.
+    vector_metadata: dict[str, Any] = {
+        "artifact_id": s3_key,
+        "scope": settings.write_prefix,
+        "type": artifact.type,
+        "team": artifact.team,
+        "project": artifact.project,
+        "tier": artifact.tier,  # stored as int for filter compatibility
+        "date": artifact.date,
+        "status": artifact.status,
+        "title": artifact.title,
+        "visibility": artifact.visibility,
+        "author_role": author_role or "",
+        "description": description,
+        "last_edited_ulid": last_edited_ulid,
+    }
+    # S3 Vectors rejects empty arrays in metadata — omit list fields when empty.
+    # Non-empty lists are stored as list[str] so $eq filters can match individual elements.
+    if tags:
+        vector_metadata["tags"] = tags
+    if sources:
+        vector_metadata["source_artifacts"] = sources
+    if refs:
+        vector_metadata["commit_refs"] = refs
+
+    # ── Step 3c: Metadata size budgets (M-5) — fail fast, before any write ───
+    # Measures the actual assembled representations: the S3 aggregate against the
+    # transport-encoded s3_metadata dict, and the vector filterable/total budgets against
+    # vector_metadata. A breach here means NO head_object, NO put_object, NO
+    # put_vectors_batch, and NO failure-log append — an oversize write must never produce
+    # a partial write that reconcile_index replays forever.
+    encoded_s3_metadata = {key: encode_metadata_value(value) for key, value in s3_metadata.items()}
+    try:
+        check_metadata_budgets(encoded_s3_metadata, vector_metadata)
+    except MetadataTooLargeError as exc:
+        return {"error": ErrorCode.VALIDATION_ERROR, "message": str(exc)}
+
     # ── Step 4: Check existing before writing (collision guard + orphan detection) ──
     # C-3: a write whose generated key already exists is rejected by default — silent
     # overwrite-by-collision is the worst failure mode for a store whose purpose is
@@ -403,31 +445,6 @@ async def _write_artifact_inner(  # noqa: PLR0913
     if len(sections) > settings.embed_max_sections:
         logger.debug("Capping sections from %d to %d", len(sections), settings.embed_max_sections)
         sections = sections[: settings.embed_max_sections]
-
-    # ── Step 6: Build vector metadata (types match filter requirements) ───────
-    vector_metadata: dict[str, Any] = {
-        "artifact_id": s3_key,
-        "scope": settings.write_prefix,
-        "type": artifact.type,
-        "team": artifact.team,
-        "project": artifact.project,
-        "tier": artifact.tier,  # stored as int for filter compatibility
-        "date": artifact.date,
-        "status": artifact.status,
-        "title": artifact.title,
-        "visibility": artifact.visibility,
-        "author_role": author_role or "",
-        "description": description,
-        "last_edited_ulid": last_edited_ulid,
-    }
-    # S3 Vectors rejects empty arrays in metadata — omit list fields when empty.
-    # Non-empty lists are stored as list[str] so $eq filters can match individual elements.
-    if tags:
-        vector_metadata["tags"] = tags
-    if sources:
-        vector_metadata["source_artifacts"] = sources
-    if refs:
-        vector_metadata["commit_refs"] = refs
 
     # ── Step 7: Embed and index ───────────────────────────────────────────────
     new_keys: set[str] = set()

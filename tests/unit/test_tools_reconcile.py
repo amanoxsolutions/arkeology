@@ -1228,3 +1228,42 @@ async def test_m15_phase1_failure_not_duplicated_as_phase2_orphan(
         f"M15: artifact_id should appear in failed exactly once, but found {count} times. "
         f"failed list: {result['failed']}"
     )
+
+
+# ---------------------------------------------------------------------------
+# T55 (M-5, Story 4) — reconcile rebuild preserves non-ASCII titles losslessly
+# ---------------------------------------------------------------------------
+
+
+async def test_reindex_preserves_non_ascii_title(
+    reconcile_settings: Settings,
+    s3_reconcile: S3ClientImpl,
+    vectors_reconcile: VectorsClientImpl,
+) -> None:
+    """An artifact seeded with a non-Latin title (transport-encoded on S3 by put_object,
+    exactly as write_artifact would produce) is rebuilt by reconcile_index with the
+    original title in vector metadata — not the percent-encoded transport form and not a
+    stripped/empty string.
+    """
+    artifact_id = "artifacts/implementation-note-2026-01-01-non-ascii-title"
+    non_ascii_title = "日本語のタイトル"
+    s3_reconcile.put_object(
+        artifact_id, _CONTENT_NO_SECTIONS, {**_BASE_S3_META, "title": non_ascii_title}
+    )
+    bedrock = FakeBedrockClient(dimension=DIMENSION)
+
+    result = await reconcile_index(
+        settings=reconcile_settings,
+        s3=s3_reconcile,
+        vectors=vectors_reconcile,
+        bedrock=bedrock,
+    )
+    assert "error" not in result
+
+    keys = vectors_reconcile.list_vectors_by_metadata({"artifact_id": {"$eq": artifact_id}})
+    items = vectors_reconcile.get_vectors(keys)
+    assert items, "reconcile should have indexed vectors for the artifact"
+    assert items[0]["metadata"]["title"] == non_ascii_title
+
+    reconciled_entry = next(e for e in result["reconciled"] if e["artifact_id"] == artifact_id)
+    assert reconciled_entry["title"] == non_ascii_title

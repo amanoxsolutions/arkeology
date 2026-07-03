@@ -10,10 +10,12 @@ import logging
 import botocore.exceptions
 import pytest
 
+from cairn_mcp.artifact import S3_USER_METADATA_MAX_BYTES
 from cairn_mcp.clients.fakes.fake_bedrock import FakeBedrockClient
 from cairn_mcp.clients.s3 import S3ClientImpl
 from cairn_mcp.clients.vectors import VectorsClientImpl
 from cairn_mcp.errors import CredentialError
+from cairn_mcp.tools.reconcile import reconcile_index
 from cairn_mcp.tools.write import (
     _build_document_embedding_text,
     _build_section_embedding_text,
@@ -2562,3 +2564,158 @@ async def test_doc_fallback_embed_uses_dedicated_executor(
     assert "error" not in result
     # 1 document-level embed → exactly 1 submit call
     assert submit_spy.call_count == 1
+
+
+# ---------------------------------------------------------------------------
+# T55 (M-5) — write-path metadata size + charset validation, fail-fast pre-write
+# ---------------------------------------------------------------------------
+
+
+async def test_oversize_s3_metadata_rejected_before_any_write(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    tmp_path: pytest.TempPathFactory,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """An oversize source_artifacts value pushes the S3 user-metadata aggregate past its
+    2 KB budget. This value is non-filterable in vector metadata (excluded from the 2 KB
+    filterable budget) and small relative to the 40 KB total budget, so it isolates the S3
+    budget specifically. The write must be rejected with validation_error and must perform
+    NO head_object/put_object/put_vectors_batch call and append NO failure-log entry —
+    the M-5 defect being closed is exactly the case where S3 succeeds first and only the
+    vector write fails later, leaving a partial write that reconcile replays forever.
+    """
+    log_path = tmp_path / "failures.jsonl"
+    settings = _make_settings(monkeypatch, FAILURE_LOG_PATH=str(log_path))
+    bedrock = FakeBedrockClient(dimension=1024)
+    head_spy = mocker.spy(s3_client, "head_object")
+    put_spy = mocker.spy(s3_client, "put_object")
+    batch_spy = mocker.spy(vectors_client, "put_vectors_batch")
+
+    oversize_source = "a" * (S3_USER_METADATA_MAX_BYTES + 200)
+    kwargs = {**_BASE_WRITE_KWARGS, "source_artifacts": [oversize_source]}
+
+    result = await write_artifact(
+        s3=s3_client, vectors=vectors_client, bedrock=bedrock, settings=settings, **kwargs
+    )
+
+    assert result.get("error") == "validation_error"
+    assert head_spy.call_count == 0
+    assert put_spy.call_count == 0
+    assert batch_spy.call_count == 0
+    assert not log_path.exists()
+    assert len(s3_client.list_objects("")) == 0
+    assert len(vectors_client.list_vectors_by_metadata({})) == 0
+
+
+async def test_oversize_tags_rejected_before_any_write(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    tmp_path: pytest.TempPathFactory,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """A very large tags list breaches the vector filterable-metadata budget (tags is a
+    filterable field). Today it also breaches the S3 aggregate budget because tags is
+    mirrored into S3 user-metadata pre-T47 — either guard rejects the write before any
+    storage operation, which is what this test verifies: validation_error, zero
+    head_object/put_object/put_vectors_batch calls, no failure-log entry.
+    """
+    log_path = tmp_path / "failures.jsonl"
+    settings = _make_settings(monkeypatch, FAILURE_LOG_PATH=str(log_path))
+    bedrock = FakeBedrockClient(dimension=1024)
+    head_spy = mocker.spy(s3_client, "head_object")
+    put_spy = mocker.spy(s3_client, "put_object")
+    batch_spy = mocker.spy(vectors_client, "put_vectors_batch")
+
+    huge_tag = "t" * (S3_USER_METADATA_MAX_BYTES + 200)
+    kwargs = {**_BASE_WRITE_KWARGS, "tags": [huge_tag]}
+
+    result = await write_artifact(
+        s3=s3_client, vectors=vectors_client, bedrock=bedrock, settings=settings, **kwargs
+    )
+
+    assert result.get("error") == "validation_error"
+    assert head_spy.call_count == 0
+    assert put_spy.call_count == 0
+    assert batch_spy.call_count == 0
+    assert not log_path.exists()
+
+
+async def test_oversize_metadata_leaves_nothing_for_reconcile_to_replay(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    tmp_path: pytest.TempPathFactory,
+) -> None:
+    """After a rejected oversize write, reconcile_index finds nothing to replay: no S3
+    object was created and no failure-log entry exists, so the failure never becomes a
+    self-perpetuating reconcile-replay loop.
+    """
+    log_path = tmp_path / "failures.jsonl"
+    settings = _make_settings(monkeypatch, FAILURE_LOG_PATH=str(log_path))
+    bedrock = FakeBedrockClient(dimension=1024)
+
+    oversize_source = "a" * (S3_USER_METADATA_MAX_BYTES + 200)
+    kwargs = {**_BASE_WRITE_KWARGS, "source_artifacts": [oversize_source]}
+
+    write_result = await write_artifact(
+        s3=s3_client, vectors=vectors_client, bedrock=bedrock, settings=settings, **kwargs
+    )
+    assert write_result.get("error") == "validation_error"
+
+    reconcile_result = await reconcile_index(
+        settings=settings, s3=s3_client, vectors=vectors_client, bedrock=bedrock
+    )
+
+    assert reconcile_result["reconciled"] == []
+    assert reconcile_result["failed"] == []
+    assert reconcile_result["failure_log_entries_before"] == 0
+    assert reconcile_result["orphans_found"] == 0
+
+
+async def test_control_char_in_title_rejected_as_validation_error(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """A control character (e.g. newline) in title must surface as a structured
+    validation_error — never a raw exception (previously this reached urllib3 as a bare
+    ValueError once the value hit S3's HTTP-header transport)."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+    put_spy = mocker.spy(s3_client, "put_object")
+
+    kwargs = {**_BASE_WRITE_KWARGS, "title": "Bad\ntitle"}
+
+    result = await write_artifact(
+        s3=s3_client, vectors=vectors_client, bedrock=bedrock, settings=settings, **kwargs
+    )
+
+    assert result.get("error") == "validation_error"
+    assert "message" in result
+    assert put_spy.call_count == 0
+
+
+async def test_non_ascii_title_written_and_read_back_via_vector_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+) -> None:
+    """A non-Latin title writes successfully; the vector metadata (search's title source)
+    holds the raw, undamaged UTF-8 title — never a percent-encoded or stripped copy."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+
+    kwargs = {**_ONE_SECTION_KWARGS, "title": "日本語のタイトル"}
+    result = await write_artifact(
+        s3=s3_client, vectors=vectors_client, bedrock=bedrock, settings=settings, **kwargs
+    )
+
+    assert "error" not in result
+    artifact_id = result["artifact_id"]
+    keys = vectors_client.list_vectors_by_metadata({"artifact_id": {"$eq": artifact_id}})
+    entries = vectors_client.get_vectors(keys)
+    assert entries[0]["metadata"]["title"] == "日本語のタイトル"

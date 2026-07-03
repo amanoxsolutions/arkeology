@@ -6,12 +6,21 @@ import pytest
 from pydantic import ValidationError
 
 from cairn_mcp.artifact import (
+    NON_FILTERABLE_METADATA_KEYS,
+    S3_USER_METADATA_MAX_BYTES,
+    TITLE_MAX_LENGTH,
+    VECTOR_FILTERABLE_METADATA_MAX_BYTES,
+    VECTOR_TOTAL_METADATA_MAX_BYTES,
     Artifact,
     ArtifactSection,
+    check_metadata_budgets,
+    decode_metadata_value,
+    encode_metadata_value,
     generate_artifact_id,
     parse_sections,
     section_slug,
 )
+from cairn_mcp.errors import MetadataTooLargeError
 
 # ---------------------------------------------------------------------------
 # Shared fixture data
@@ -648,3 +657,203 @@ def test_artifact_commit_refs_defaults_to_empty_list() -> None:
     """commit_refs absent → defaults to []."""
     artifact = Artifact(**VALID_ARTIFACT_KWARGS)
     assert artifact.commit_refs == []
+
+
+# ---------------------------------------------------------------------------
+# T55 — TITLE_MAX_LENGTH
+# ---------------------------------------------------------------------------
+
+
+def test_title_at_max_length_valid() -> None:
+    """title exactly TITLE_MAX_LENGTH chars → constructs without error."""
+    kwargs = {**VALID_ARTIFACT_KWARGS, "title": "x" * TITLE_MAX_LENGTH}
+    artifact = Artifact(**kwargs)
+    assert len(artifact.title) == TITLE_MAX_LENGTH
+
+
+def test_title_over_max_length_rejected() -> None:
+    """title one char over TITLE_MAX_LENGTH → ValidationError naming the bound and length."""
+    kwargs = {**VALID_ARTIFACT_KWARGS, "title": "x" * (TITLE_MAX_LENGTH + 1)}
+    with pytest.raises(ValidationError, match=str(TITLE_MAX_LENGTH)):
+        Artifact(**kwargs)
+
+
+# ---------------------------------------------------------------------------
+# T55 — control-character rejection (reject, not strip)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("control_char", ["\n", "\t", "\r", "\x00", "\x7f"])
+def test_title_with_control_char_rejected(control_char: str) -> None:
+    """A control character (newline, tab, CR, NUL, DEL) in title → ValidationError."""
+    kwargs = {**VALID_ARTIFACT_KWARGS, "title": f"Bad{control_char}title"}
+    with pytest.raises(ValidationError, match="title"):
+        Artifact(**kwargs)
+
+
+def test_description_with_control_char_rejected() -> None:
+    """A control character in description → ValidationError naming the field."""
+    kwargs = {**VALID_ARTIFACT_KWARGS, "description": "Bad\ndescription"}
+    with pytest.raises(ValidationError, match="description"):
+        Artifact(**kwargs)
+
+
+def test_author_role_with_control_char_rejected() -> None:
+    """A control character in author_role → ValidationError naming the field."""
+    kwargs = {**VALID_ARTIFACT_KWARGS, "author_role": "dev\x00eloper"}
+    with pytest.raises(ValidationError, match="author_role"):
+        Artifact(**kwargs)
+
+
+def test_author_role_none_with_no_control_char_check_error() -> None:
+    """author_role=None is unaffected by the control-char validator."""
+    kwargs = {**VALID_ARTIFACT_KWARGS, "author_role": None}
+    artifact = Artifact(**kwargs)
+    assert artifact.author_role is None
+
+
+def test_tags_element_with_control_char_rejected() -> None:
+    """A control character in a tags element → ValidationError naming the field."""
+    kwargs = {**VALID_ARTIFACT_KWARGS, "tags": ["auth", "sec\nurity"]}
+    with pytest.raises(ValidationError, match="tags"):
+        Artifact(**kwargs)
+
+
+def test_source_artifacts_element_with_control_char_rejected() -> None:
+    """A control character in a source_artifacts element → ValidationError naming the field."""
+    kwargs = {**VALID_ARTIFACT_KWARGS, "source_artifacts": ["adr-\x01one"]}
+    with pytest.raises(ValidationError, match="source_artifacts"):
+        Artifact(**kwargs)
+
+
+def test_commit_refs_element_with_control_char_rejected() -> None:
+    """A control character in a commit_refs element → ValidationError naming the field."""
+    kwargs = {**VALID_ARTIFACT_KWARGS, "commit_refs": ["abc1234\t"]}
+    with pytest.raises(ValidationError, match="commit_refs"):
+        Artifact(**kwargs)
+
+
+# ---------------------------------------------------------------------------
+# T55 — non-Latin title accepted and preserved (Story 4)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "non_latin_title",
+    ["日本語のタイトル", "Заголовок на русском", "عنوان عربي"],
+)
+def test_non_latin_title_accepted_and_preserved(non_latin_title: str) -> None:
+    """Non-Latin titles (Japanese, Cyrillic, Arabic) are accepted and stored verbatim."""
+    kwargs = {**VALID_ARTIFACT_KWARGS, "title": non_latin_title}
+    artifact = Artifact(**kwargs)
+    assert artifact.title == non_latin_title
+
+
+# ---------------------------------------------------------------------------
+# T55 — encode_metadata_value / decode_metadata_value (lossless transport encoding)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "café",
+        "A title — with em dash",
+        "日本語のタイトル",
+        "Заголовок",
+        "100% done",
+        "plain ascii, no surprises",
+        "",
+    ],
+)
+def test_encode_decode_metadata_value_round_trips(value: str) -> None:
+    """decode_metadata_value(encode_metadata_value(x)) == x for any input, including
+    non-ASCII text and literal '%' characters."""
+    assert decode_metadata_value(encode_metadata_value(value)) == value
+
+
+def test_encode_metadata_value_output_is_header_safe_ascii() -> None:
+    """encode_metadata_value output contains only printable ASCII — safe for an HTTP header
+    value — even when the input has non-ASCII and control characters."""
+    encoded = encode_metadata_value("日本語\n\x00タイトル")
+    encoded.encode("ascii")  # raises UnicodeEncodeError if non-ASCII
+    assert all(0x20 <= ord(ch) <= 0x7E for ch in encoded)
+
+
+def test_encode_metadata_value_leaves_plain_ascii_unchanged() -> None:
+    """Plain ASCII text without '%' passes through encode_metadata_value unchanged."""
+    value = "Plain ASCII Title, with punctuation!"
+    assert encode_metadata_value(value) == value
+
+
+# ---------------------------------------------------------------------------
+# T55 — check_metadata_budgets (M-5): three byte budgets, representation-driven
+# ---------------------------------------------------------------------------
+
+_MINIMAL_S3_METADATA: dict[str, str] = {"title": "ok", "type": "adr"}
+_MINIMAL_VECTOR_METADATA: dict[str, object] = {"title": "ok", "type": "adr"}
+
+
+def test_check_metadata_budgets_passes_within_all_three_budgets() -> None:
+    """Small, well-within-budget metadata dicts → no exception raised."""
+    check_metadata_budgets(_MINIMAL_S3_METADATA, _MINIMAL_VECTOR_METADATA)
+
+
+def test_check_metadata_budgets_s3_budget_exceeded_raises() -> None:
+    """s3_metadata aggregate > S3_USER_METADATA_MAX_BYTES → MetadataTooLargeError naming
+    the s3_user_metadata budget."""
+    oversize_s3 = {"description": "x" * (S3_USER_METADATA_MAX_BYTES + 1)}
+    with pytest.raises(MetadataTooLargeError) as exc_info:
+        check_metadata_budgets(oversize_s3, _MINIMAL_VECTOR_METADATA)
+    assert exc_info.value.budget == "s3_user_metadata"
+
+
+def test_check_metadata_budgets_s3_budget_just_under_passes() -> None:
+    """s3_metadata aggregate exactly at the budget boundary → no exception."""
+    # Single key "d" (1 byte) + value sized so total == S3_USER_METADATA_MAX_BYTES exactly.
+    value_len = S3_USER_METADATA_MAX_BYTES - 1
+    s3_meta = {"d": "x" * value_len}
+    check_metadata_budgets(s3_meta, _MINIMAL_VECTOR_METADATA)
+
+
+def test_check_metadata_budgets_vector_filterable_exceeded_raises() -> None:
+    """A large filterable vector field (not in NON_FILTERABLE_METADATA_KEYS) pushing the
+    filterable JSON past VECTOR_FILTERABLE_METADATA_MAX_BYTES → MetadataTooLargeError naming
+    the vector_filterable_metadata budget, even though the S3 dict is tiny."""
+    oversize_vector = {
+        "title": "ok",  # non-filterable — must NOT count toward the filterable budget
+        "tags": ["x" * (VECTOR_FILTERABLE_METADATA_MAX_BYTES + 1)],
+    }
+    with pytest.raises(MetadataTooLargeError) as exc_info:
+        check_metadata_budgets(_MINIMAL_S3_METADATA, oversize_vector)
+    assert exc_info.value.budget == "vector_filterable_metadata"
+
+
+def test_check_metadata_budgets_non_filterable_fields_excluded_from_filterable_budget() -> None:
+    """A huge NON_FILTERABLE_METADATA_KEYS field (e.g. description) does not, by itself,
+    breach the filterable budget — only the total budget is representation-driven over
+    the full dict."""
+    huge_description = "x" * (VECTOR_FILTERABLE_METADATA_MAX_BYTES + 500)
+    vector_meta = {"title": "ok", "description": huge_description}
+    assert "description" in NON_FILTERABLE_METADATA_KEYS
+    # Must not raise for the filterable budget (total budget is also not breached at this size).
+    check_metadata_budgets(_MINIMAL_S3_METADATA, vector_meta)
+
+
+def test_check_metadata_budgets_vector_total_exceeded_raises() -> None:
+    """Full vector metadata JSON > VECTOR_TOTAL_METADATA_MAX_BYTES → MetadataTooLargeError
+    naming the vector_total_metadata budget."""
+    oversize_vector = {
+        "title": "ok",
+        "description": "x" * (VECTOR_TOTAL_METADATA_MAX_BYTES + 1),
+    }
+    with pytest.raises(MetadataTooLargeError) as exc_info:
+        check_metadata_budgets(_MINIMAL_S3_METADATA, oversize_vector)
+    assert exc_info.value.budget == "vector_total_metadata"
+
+
+def test_check_metadata_budgets_vector_total_just_under_passes() -> None:
+    """Full vector metadata JSON just under VECTOR_TOTAL_METADATA_MAX_BYTES → no exception."""
+    # Account for JSON overhead (quotes, braces, key names) by leaving headroom.
+    vector_meta = {"title": "ok", "description": "x" * (VECTOR_TOTAL_METADATA_MAX_BYTES - 100)}
+    check_metadata_budgets(_MINIMAL_S3_METADATA, vector_meta)

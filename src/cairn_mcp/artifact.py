@@ -21,13 +21,17 @@ see ADR-005's ``revised`` entry.
 
 import datetime as _dt
 import hashlib
+import json
 import re
 import unicodedata
+import urllib.parse
 from dataclasses import dataclass
+from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
 from cairn_mcp.constants import ArtifactStatus
+from cairn_mcp.errors import MetadataTooLargeError
 
 ARTIFACT_TYPES: frozenset[str] = frozenset(
     {
@@ -48,6 +52,152 @@ ARTIFACT_TYPES: frozenset[str] = frozenset(
         "learning",
     }
 )
+
+# T55 (M-5) — write-path metadata size + charset validation constants. Single source of
+# truth, mirroring ARTIFACT_TYPES: never duplicate these elsewhere.
+#
+# TITLE_MAX_LENGTH is a coarse model-level sanity bound (headline-length); the three byte
+# budgets below are the authoritative whole-payload guards, checked by
+# check_metadata_budgets() against the actual assembled S3 and vector metadata dicts
+# immediately before any storage write.
+TITLE_MAX_LENGTH = 256
+
+# S3 user-defined object metadata is capped at 2 KB aggregate (sum of UTF-8 bytes of every
+# key plus its transport-encoded value) — verified against the AWS S3 user guide.
+S3_USER_METADATA_MAX_BYTES = 2048
+
+# S3 Vectors caps filterable metadata (the subset of keys usable in a query filter) at 2 KB
+# and total per-vector metadata at 40 KB — see
+# https://docs.aws.amazon.com/AmazonS3/latest/userguide/s3-vectors-limitations.html.
+VECTOR_FILTERABLE_METADATA_MAX_BYTES = 2048
+VECTOR_TOTAL_METADATA_MAX_BYTES = 40960
+
+# Vector-metadata keys that are NOT filterable (must match the externally-created S3
+# Vectors index's declared non-filterable slots exactly — see the PRD Deployment
+# Prerequisites). Every other vector-metadata key counts against the filterable budget.
+NON_FILTERABLE_METADATA_KEYS: tuple[str, ...] = (
+    "description",
+    "source_artifacts",
+    "title",
+    "author_role",
+)
+
+# Printable ASCII characters (space through tilde) that pass through
+# encode_metadata_value() unchanged. '%' is excluded because it is the escape character
+# used for percent-encoding and must itself be encoded to keep the transform reversible.
+_TRANSPORT_SAFE_CHARS = "".join(chr(code) for code in range(0x20, 0x7F) if chr(code) != "%")
+
+
+def encode_metadata_value(value: str) -> str:
+    """Percent-encode a metadata value for lossless, header-safe S3 transport.
+
+    S3 user-defined object metadata is transmitted as HTTP headers, which only support
+    ASCII and reject raw control characters. This encodes every character outside the
+    printable-ASCII-minus-percent safe set (non-ASCII text, control characters, and
+    literal '%') as its UTF-8 byte sequence in ``%XX`` form; everything else passes
+    through unchanged. Unlike the previous NFKD-ASCII-strip, this is fully reversible via
+    :func:`decode_metadata_value` — no non-Latin content is ever silently discarded.
+
+    Args:
+        value: The raw metadata value (may contain any Unicode text).
+
+    Returns:
+        An ASCII-only, HTTP-header-safe string. Percent-decoding it with
+        :func:`decode_metadata_value` recovers ``value`` exactly.
+    """
+    return urllib.parse.quote(value, safe=_TRANSPORT_SAFE_CHARS)
+
+
+def decode_metadata_value(value: str) -> str:
+    """Reverse :func:`encode_metadata_value`, recovering the original Unicode text.
+
+    Args:
+        value: A string previously produced by :func:`encode_metadata_value` (or any
+            plain string with no ``%XX`` escapes, which passes through unchanged).
+
+    Returns:
+        The original, decoded Unicode string.
+    """
+    return urllib.parse.unquote(value)
+
+
+def _require_no_control_chars(field: str, value: str) -> None:
+    """Raise ``ValueError`` if ``value`` contains a Unicode category ``Cc`` control
+    character (U+0000-U+001F or U+007F-U+009F).
+
+    Reject, not strip (Open Question, resolved): a control character in a short,
+    human-authored identity field is a mistake or injection, and silently stripping it
+    would mutate the stored value — directly undermining Story 4's requirement that
+    ``title`` round-trip identically.
+
+    Args:
+        field: Name of the field being validated (used in the error message).
+        value: The string to check.
+
+    Raises:
+        ValueError: naming the field and the offending character.
+    """
+    for ch in value:
+        if unicodedata.category(ch) == "Cc":
+            raise ValueError(
+                f"{field} must not contain control characters, found {ch!r} in {value!r}"
+            )
+
+
+def check_metadata_budgets(
+    s3_metadata: dict[str, str],
+    vector_metadata: dict[str, Any],
+) -> None:
+    """Validate assembled write-path metadata against the three byte budgets (M-5).
+
+    Representation-driven, not field-list-driven: this measures the actual assembled
+    dicts about to be written, so it stays correct regardless of which fields later move
+    between S3 user-metadata and vector metadata (see ADR-011). Call this BEFORE issuing
+    any ``head_object``/``put_object``/``put_vectors_batch`` call and before any
+    failure-log append, so a rejected write touches neither S3, vectors, nor the failure
+    log.
+
+    Args:
+        s3_metadata: The S3 user-metadata dict with values already transport-encoded
+            (see :func:`encode_metadata_value`) exactly as they will be transmitted.
+        vector_metadata: The vector metadata dict exactly as it will be written to
+            S3 Vectors.
+
+    Raises:
+        MetadataTooLargeError: if the S3 aggregate, the vector filterable subset, or the
+            full vector metadata breaches its respective budget.
+    """
+    s3_bytes = sum(
+        len(key.encode("utf-8")) + len(value.encode("utf-8")) for key, value in s3_metadata.items()
+    )
+    if s3_bytes > S3_USER_METADATA_MAX_BYTES:
+        raise MetadataTooLargeError(
+            budget="s3_user_metadata",
+            actual_bytes=s3_bytes,
+            max_bytes=S3_USER_METADATA_MAX_BYTES,
+        )
+
+    filterable_metadata = {
+        key: value
+        for key, value in vector_metadata.items()
+        if key not in NON_FILTERABLE_METADATA_KEYS
+    }
+    filterable_bytes = len(json.dumps(filterable_metadata).encode("utf-8"))
+    if filterable_bytes > VECTOR_FILTERABLE_METADATA_MAX_BYTES:
+        raise MetadataTooLargeError(
+            budget="vector_filterable_metadata",
+            actual_bytes=filterable_bytes,
+            max_bytes=VECTOR_FILTERABLE_METADATA_MAX_BYTES,
+        )
+
+    total_bytes = len(json.dumps(vector_metadata).encode("utf-8"))
+    if total_bytes > VECTOR_TOTAL_METADATA_MAX_BYTES:
+        raise MetadataTooLargeError(
+            budget="vector_total_metadata",
+            actual_bytes=total_bytes,
+            max_bytes=VECTOR_TOTAL_METADATA_MAX_BYTES,
+        )
+
 
 _MAX_SLUG_LEN = 60
 
@@ -315,4 +465,41 @@ class Artifact(BaseModel):
     def validate_description(cls, v: str) -> str:
         if len(v) > 280:
             raise ValueError(f"description must be at most 280 characters, got {len(v)}")
+        _require_no_control_chars("description", v)
+        return v
+
+    @field_validator("title")
+    @classmethod
+    def validate_title(cls, v: str) -> str:
+        if len(v) > TITLE_MAX_LENGTH:
+            raise ValueError(f"title must be at most {TITLE_MAX_LENGTH} characters, got {len(v)}")
+        _require_no_control_chars("title", v)
+        return v
+
+    @field_validator("author_role")
+    @classmethod
+    def validate_author_role(cls, v: str | None) -> str | None:
+        if v is not None:
+            _require_no_control_chars("author_role", v)
+        return v
+
+    @field_validator("tags")
+    @classmethod
+    def validate_tags(cls, v: list[str]) -> list[str]:
+        for item in v:
+            _require_no_control_chars("tags", item)
+        return v
+
+    @field_validator("source_artifacts")
+    @classmethod
+    def validate_source_artifacts(cls, v: list[str]) -> list[str]:
+        for item in v:
+            _require_no_control_chars("source_artifacts", item)
+        return v
+
+    @field_validator("commit_refs")
+    @classmethod
+    def validate_commit_refs(cls, v: list[str]) -> list[str]:
+        for item in v:
+            _require_no_control_chars("commit_refs", item)
         return v

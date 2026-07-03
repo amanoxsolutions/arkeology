@@ -684,3 +684,34 @@ async def test_read_last_edited_ulid_missing_returns_none(
 
     assert "last_edited_ulid" in result
     assert result["last_edited_ulid"] is None
+
+
+# ---------------------------------------------------------------------------
+# T55 (M-5, Story 4) — non-ASCII title round-trips identically via read_artifact
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "non_ascii_title",
+    ["日本語のタイトル", "Заголовок на русском", "café — la révision"],
+)
+async def test_non_ascii_title_read_back_identically(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    non_ascii_title: str,
+) -> None:
+    """A non-Latin title, seeded exactly as S3ClientImpl.put_object would transport-encode
+    it, is decoded back to the original by read_artifact — never silently ASCII-stripped
+    to '' or otherwise damaged."""
+    settings = _make_settings(monkeypatch)
+    s3_client.put_object(
+        "artifacts/non-ascii-title",
+        "Content.",
+        {**_BASE_METADATA, "title": non_ascii_title},
+    )
+
+    result = await read_artifact(
+        s3=s3_client, settings=settings, artifact_id="artifacts/non-ascii-title"
+    )
+
+    assert result["title"] == non_ascii_title

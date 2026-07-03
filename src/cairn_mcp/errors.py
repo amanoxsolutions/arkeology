@@ -93,6 +93,26 @@ class ArtifactCollisionError(CairnError):
         self.key = key
 
 
+class MetadataTooLargeError(CairnError):
+    """Raised when assembled write-path metadata breaches one of the three byte budgets
+    checked before any S3 or vector write — see ``cairn_mcp.artifact.check_metadata_budgets``.
+
+    Attributes:
+        budget: Which budget was breached: ``"s3_user_metadata"``,
+            ``"vector_filterable_metadata"``, or ``"vector_total_metadata"``.
+        actual_bytes: The measured size of the offending representation, in bytes.
+        max_bytes: The budget's maximum allowed size, in bytes.
+    """
+
+    def __init__(self, budget: str, actual_bytes: int, max_bytes: int) -> None:
+        super().__init__(
+            f"Metadata exceeds the {budget} budget: {actual_bytes} bytes > {max_bytes} bytes"
+        )
+        self.budget = budget
+        self.actual_bytes = actual_bytes
+        self.max_bytes = max_bytes
+
+
 class VectorDistanceMissingError(CairnError):
     """Raised when a ``query_vectors`` result is missing the ``distance`` field.
 

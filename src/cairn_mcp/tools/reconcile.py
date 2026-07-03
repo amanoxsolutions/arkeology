@@ -10,7 +10,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from cairn_mcp.artifact import parse_sections, section_slug
+from cairn_mcp.artifact import decode_metadata_value, parse_sections, section_slug
 from cairn_mcp.clients.interfaces import (
     BedrockClientInterface,
     S3ClientInterface,
@@ -54,6 +54,11 @@ def _reindex_artifact(
     Returns:
         Number of vectors written (one per section, or 1 for the fallback).
     """
+    # T55 (M-5, Story 4): decode transport-encoded S3 user-metadata values (see
+    # cairn_mcp.artifact.encode_metadata_value) so a non-ASCII title (and any other
+    # metadata value) is rebuilt into vector metadata as the original Unicode text, not
+    # the percent-encoded transport form. Plain ASCII values decode to themselves.
+    raw_s3_meta = {key: decode_metadata_value(value) for key, value in raw_s3_meta.items()}
     title = raw_s3_meta.get("title", "")
     artifact_type = raw_s3_meta.get("type", "")
     tier_raw = raw_s3_meta.get("tier", "2")
@@ -240,7 +245,7 @@ async def _reconcile_index_inner(
                 reconciled.append(
                     {
                         "artifact_id": artifact_id,
-                        "title": raw_meta.get("title", ""),
+                        "title": decode_metadata_value(raw_meta.get("title", "")),
                         "sections_indexed": n,
                         "source": "failure_log",
                     }
@@ -308,7 +313,7 @@ async def _reconcile_index_inner(
             reconciled.append(
                 {
                     "artifact_id": orphan_key,
-                    "title": raw_meta.get("title", ""),
+                    "title": decode_metadata_value(raw_meta.get("title", "")),
                     "sections_indexed": n,
                     "source": "orphan_scan",
                 }
