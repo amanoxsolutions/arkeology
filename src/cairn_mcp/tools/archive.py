@@ -2,6 +2,9 @@
 
 Sets an artifact's status to "inactive" in both S3 object metadata and all
 corresponding vector metadata entries. Scoped to the deployment's own prefix.
+Before archiving, performs a unified own-scope referenced_by check (T50,
+ADR-012 D13) covering both source_artifacts and references — warn-but-don't-block,
+informational (reversible) phrasing.
 """
 
 import logging
@@ -15,6 +18,7 @@ from cairn_mcp.clients.interfaces import (
 from cairn_mcp.config import Settings
 from cairn_mcp.constants import ArtifactStatus, ErrorCode
 from cairn_mcp.errors import CredentialError
+from cairn_mcp.tools._search_helper import find_referrers
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +41,10 @@ async def archive_artifact(
         artifact_id: Full S3 key of the artifact to archive.
 
     Returns:
-        On success: ``{"artifact_id": str, "status": "inactive"}``
+        On success: ``{"artifact_id": str, "status": "inactive"}`` plus optional
+            ``"warning"`` (list of referring artifact ids) and ``"warning_message"``
+            (informational, reversible-action phrasing) if own-scope referrers were
+            found.
         On error: ``{"error": str, "message": str}``
     """
     try:
@@ -93,7 +100,13 @@ async def _archive_artifact_inner(
             "already_archived": True,
         }
 
-    # ── Steps 3–5: Fetch content, write back status, update all vectors ───────
+    # ── Step 3: Unified own-scope referenced_by check (T50, ADR-012 D13) ─────
+    try:
+        referrers = find_referrers(vectors=vectors, settings=settings, artifact_id=artifact_id)
+    except CredentialError as exc:
+        return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
+
+    # ── Steps 4–6: Fetch content, write back status, update all vectors ───────
     updated_s3_meta: dict[str, str] = {**s3_meta, "status": ArtifactStatus.INACTIVE}
     try:
         content = s3.get_object(artifact_id)
@@ -114,4 +127,12 @@ async def _archive_artifact_inner(
         return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
 
     logger.info("Artifact archived: key=%s", artifact_id)
-    return {"artifact_id": artifact_id, "status": ArtifactStatus.INACTIVE}
+    result: dict[str, Any] = {"artifact_id": artifact_id, "status": ArtifactStatus.INACTIVE}
+    if referrers:
+        result["warning"] = referrers
+        result["warning_message"] = (
+            f"'{artifact_id}' was archived, but it is referenced by {len(referrers)} other "
+            f"artifact(s): {', '.join(referrers)}. Archiving is reversible, so those references "
+            "remain valid unless this artifact is later permanently deleted."
+        )
+    return result

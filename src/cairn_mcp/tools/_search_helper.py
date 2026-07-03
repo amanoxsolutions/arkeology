@@ -8,9 +8,10 @@ logic (content fetching, response shape) is handled by each tool independently.
 
 from typing import Any
 
+from cairn_mcp.artifact import NON_FILTERABLE_METADATA_KEYS, REFERENCE_FIELDS
 from cairn_mcp.clients.interfaces import VectorsClientInterface
 from cairn_mcp.config import Settings
-from cairn_mcp.constants import ErrorCode
+from cairn_mcp.constants import ArtifactStatus, ErrorCode
 from cairn_mcp.errors import CredentialError
 
 
@@ -176,3 +177,90 @@ def run_search_loop(
 
     results.sort(key=lambda r: float(r["score"]), reverse=True)
     return results[:effective_top_k]
+
+
+def find_referrers(
+    *,
+    vectors: VectorsClientInterface,
+    settings: Settings,
+    artifact_id: str,
+) -> list[str]:
+    """Reverse-look-up own-scope, active artifacts that reference ``artifact_id``.
+
+    Generalizes ``delete_artifact``'s former synthesis-only check (ADR-012 D13, T50)
+    into a single unified own-scope ``referenced_by`` lookup covering every field in
+    :data:`cairn_mcp.artifact.REFERENCE_FIELDS`, reused by both ``delete_artifact`` and
+    ``archive_artifact``. The lookup branches by each field's filterability, driven by
+    :data:`cairn_mcp.artifact.NON_FILTERABLE_METADATA_KEYS` — never hardcoded per tool:
+
+    - **Filterable** fields (currently ``references``) are resolved with a single
+      ``list_vectors_by_metadata`` query ANDing the own-scope filter, the active-status
+      filter, and an ``$or`` of one ``{field: {"$eq": artifact_id}}`` clause per
+      filterable field.
+    - **Non-filterable** ``source_artifacts`` — which S3 Vectors rejects a server-side
+      ``$eq`` on — is resolved via a bounded, filterable ``type = synthesis`` prefilter
+      (own-scope, active) fetched via ``list_vectors_by_metadata``, followed by an
+      in-process membership check of ``artifact_id`` in each candidate's
+      ``source_artifacts`` value. A server-side ``$eq`` is never issued on
+      ``source_artifacts``.
+
+    Results from both branches are unioned and deduplicated by ``artifact_id``; the
+    target itself is always excluded.
+
+    Args:
+        vectors: S3 Vectors client.
+        settings: Server configuration (supplies the own-scope filter clause).
+        artifact_id: The artifact about to be deleted or archived.
+
+    Returns:
+        Sorted list of distinct own-scope referrer ``artifact_id`` strings. Empty if
+        no referrers are found.
+
+    Raises:
+        CredentialError: Propagated from the underlying vector client calls; callers
+            are expected to catch it and return a structured credential error.
+    """
+    filterable_fields = [f for f in REFERENCE_FIELDS if f not in NON_FILTERABLE_METADATA_KEYS]
+    non_filterable_fields = [f for f in REFERENCE_FIELDS if f in NON_FILTERABLE_METADATA_KEYS]
+
+    referrers: set[str] = set()
+
+    # ── Filterable branch: single server-side $eq/$or query ──────────────────────
+    if filterable_fields:
+        filter_expr: dict[str, Any] = {
+            "$and": [
+                {"scope": {"$eq": settings.write_prefix}},
+                {"status": {"$eq": ArtifactStatus.ACTIVE}},
+                {"$or": [{field: {"$eq": artifact_id}} for field in filterable_fields]},
+            ]
+        }
+        keys = vectors.list_vectors_by_metadata(filter_expr)
+        if keys:
+            for item in vectors.get_vectors(keys):
+                referrer_id = str(item["metadata"].get("artifact_id", ""))
+                if referrer_id and referrer_id != artifact_id:
+                    referrers.add(referrer_id)
+
+    # ── Non-filterable branch: type=synthesis prefilter + in-process check ───────
+    # source_artifacts only ever appears on synthesis artifacts (bounded prefilter,
+    # not an unbounded fetch-all-then-filter). No other non-filterable reference field
+    # is currently defined; a future one requires its own field-appropriate prefilter.
+    if "source_artifacts" in non_filterable_fields:
+        prefilter: dict[str, Any] = {
+            "$and": [
+                {"type": {"$eq": "synthesis"}},
+                {"status": {"$eq": ArtifactStatus.ACTIVE}},
+                {"scope": {"$eq": settings.write_prefix}},
+            ]
+        }
+        keys = vectors.list_vectors_by_metadata(prefilter)
+        if keys:
+            for item in vectors.get_vectors(keys):
+                meta = item["metadata"]
+                referrer_id = str(meta.get("artifact_id", ""))
+                if referrer_id == artifact_id:
+                    continue
+                if artifact_id in coerce_list_field(meta, "source_artifacts"):
+                    referrers.add(referrer_id)
+
+    return sorted(referrers)

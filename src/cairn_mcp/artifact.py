@@ -82,6 +82,13 @@ NON_FILTERABLE_METADATA_KEYS: tuple[str, ...] = (
     "author_role",
 )
 
+# T50 (FR-56, AC-61) — single source of truth for reverse-lookup-bearing metadata fields
+# consumed by the unified own-scope referenced_by check on delete_artifact and
+# archive_artifact (see find_referrers in tools/_search_helper.py). Never duplicate this
+# list elsewhere. The filterable/non-filterable branch of that check is driven by each
+# field's membership in NON_FILTERABLE_METADATA_KEYS above, not hardcoded per tool.
+REFERENCE_FIELDS: tuple[str, ...] = ("source_artifacts", "references")
+
 # Printable ASCII characters (space through tilde) that pass through
 # encode_metadata_value() unchanged. '%' is excluded because it is the escape character
 # used for percent-encoding and must itself be encoded to keep the transform reversible.

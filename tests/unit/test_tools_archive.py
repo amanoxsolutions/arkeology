@@ -239,6 +239,186 @@ async def test_archive_doc_level_vector_updated(
 
 
 # ---------------------------------------------------------------------------
+# T50 — unified own-scope referenced_by check (references + source_artifacts)
+# ---------------------------------------------------------------------------
+
+
+async def test_archive_referenced_via_references_field_warns_informationally(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+) -> None:
+    """Archiving an artifact referenced via another own-scope artifact's `references`
+    field → archived AND response includes an informational warning listing it."""
+    settings = _make_settings(monkeypatch)
+    _seed_all(s3_client, vectors_client_2)
+    s3_client.put_object(
+        "artifacts/referrer-via-refs",
+        _CONTENT,
+        {**_BASE_S3_META, "type": "adr", "status": "active"},
+    )
+    vectors_client_2.put_vector(
+        "artifacts/referrer-via-refs#summary",
+        [0.5, 0.5],
+        {
+            **_BASE_VECTOR_META,
+            "artifact_id": "artifacts/referrer-via-refs",
+            "type": "adr",
+            "status": "active",
+            "references": ["artifacts/active-review"],
+        },
+    )
+
+    result = await archive_artifact(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=None,
+        artifact_id="artifacts/active-review",
+    )
+
+    assert result["status"] == "inactive"
+    warning = result.get("warning", [])
+    assert "artifacts/referrer-via-refs" in warning
+    message = result.get("warning_message", "").lower()
+    assert "revers" in message
+
+
+async def test_archive_referenced_via_source_artifacts_warns(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+) -> None:
+    """Archiving an artifact that is a `source_artifacts` entry of an active own-scope
+    synthesis → warned via the type=synthesis prefilter + in-process check."""
+    settings = _make_settings(monkeypatch)
+    _seed_all(s3_client, vectors_client_2)
+    s3_client.put_object(
+        "artifacts/synthesis-archived-src",
+        _CONTENT,
+        {
+            **_BASE_S3_META,
+            "type": "synthesis",
+            "source_artifacts": "artifacts/active-review",
+            "status": "active",
+        },
+    )
+    vectors_client_2.put_vector(
+        "artifacts/synthesis-archived-src#summary",
+        [0.6, 0.4],
+        {
+            **_BASE_VECTOR_META,
+            "artifact_id": "artifacts/synthesis-archived-src",
+            "type": "synthesis",
+            "source_artifacts": ["artifacts/active-review"],
+            "status": "active",
+        },
+    )
+
+    result = await archive_artifact(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=None,
+        artifact_id="artifacts/active-review",
+    )
+
+    assert result["status"] == "inactive"
+    warning = result.get("warning", [])
+    assert "artifacts/synthesis-archived-src" in warning
+
+
+async def test_archive_foreign_scope_referrer_never_listed(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+) -> None:
+    """A foreign-scope artifact referencing the archive target is NEVER listed."""
+    settings = _make_settings(monkeypatch)
+    _seed_all(s3_client, vectors_client_2)
+    s3_client.put_object(
+        "other-team/foreign-referrer",
+        _CONTENT,
+        {**_BASE_S3_META, "team": "network"},
+    )
+    vectors_client_2.put_vector(
+        "other-team/foreign-referrer#summary",
+        [0.3, 0.7],
+        {
+            **_BASE_VECTOR_META,
+            "artifact_id": "other-team/foreign-referrer",
+            "scope": "other-team",
+            "references": ["artifacts/active-review"],
+        },
+    )
+
+    result = await archive_artifact(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=None,
+        artifact_id="artifacts/active-review",
+    )
+
+    assert result["status"] == "inactive"
+    warning = result.get("warning", [])
+    assert "other-team/foreign-referrer" not in warning
+
+
+async def test_archive_no_referrers_no_warning_field(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+) -> None:
+    """Archiving an unreferenced artifact → no "warning" field in the response."""
+    settings = _make_settings(monkeypatch)
+    _seed_all(s3_client, vectors_client_2)
+
+    result = await archive_artifact(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=None,
+        artifact_id="artifacts/doc-level-only",
+    )
+
+    assert result["status"] == "inactive"
+    assert "warning" not in result
+
+
+async def test_archive_referenced_by_lookup_credential_error(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """CredentialError during the referenced_by reverse-lookup → structured
+    credential error; no S3 write is performed."""
+    settings = _make_settings(monkeypatch)
+    _seed_all(s3_client, vectors_client_2)
+    spy_put = mocker.spy(s3_client, "put_object")
+    initial_put_count = spy_put.call_count
+    mocker.patch.object(
+        vectors_client_2,
+        "list_vectors_by_metadata",
+        side_effect=CredentialError(
+            message="Simulated.", service="s3vectors", original=Exception("sim")
+        ),
+    )
+
+    result = await archive_artifact(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=None,
+        artifact_id="artifacts/active-review",
+    )
+
+    assert result.get("error") == "credential_error"
+    assert spy_put.call_count == initial_put_count
+
+
+# ---------------------------------------------------------------------------
 # Access control
 # ---------------------------------------------------------------------------
 
