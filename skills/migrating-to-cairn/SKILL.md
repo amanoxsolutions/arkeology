@@ -19,6 +19,12 @@ classification steps, the file count determines which path to follow:
   tracking, previews with `migrate_artifacts(dry_run=True)` so the operator can
   review server-generated descriptions before committing, then executes with `dry_run=False`.
 
+Both paths additionally resolve frontmatter `references:` entries against a
+single, full-manifest path→`artifact_id` map before any file is written, and
+rewrite resolved entries in stored content to `cairn://artifact/{id}` — see
+"Building the path→artifact_id map" under Step 3. This is orthogonal to the
+≤ 10 / > 10 file-count branch.
+
 ## Workflow
 
 1. **Health check** — verify cairn-mcp is reachable.
@@ -172,6 +178,107 @@ Wait for operator confirmation of the table before continuing.
 
 ---
 
+### Building the path→artifact_id map (ADR-012 D4)
+
+Applies to both Step 3.A and Step 3.B. Before either path writes anything, build a
+single, authoritative path→`artifact_id` map covering **every** confirmed file —
+including files from a resumed manifest (Step 2a) that already carry
+`status: written` or `status: failed`, not just the files this run is about to
+process. Because artifact IDs are deterministic (never random or UUID-based), a
+file's future identifier is computable as soon as its `type`, `tier`, `title`, and
+`date` are known — with no dependency on write order. This is what makes both
+same-batch forward references (a file referencing a sibling scheduled later in this
+batch) and multi-session forward references (a file referencing a sibling migrated
+in an earlier or later session) resolve correctly.
+
+For each confirmed file, determine (same extraction rules used in 3.A1 / 3.B1 —
+re-read the first 150 lines if the title/date is not already known from a prior
+manifest entry):
+- `type`, `tier` — from the classification table.
+- `title` — OKF frontmatter `title:` → first `# H1` heading → cleaned filename.
+- `date` — OKF frontmatter `timestamp:` / `authored.date:` → `YYYY-MM-DD` in the
+  filename → `git log` → today's date as fallback.
+
+Compute each file's `artifact_id` using this exact deterministic scheme — the same
+algorithm implemented and unit-tested as `generate_artifact_id` /
+`build_path_to_id_map` in `src/cairn_mcp/references.py`, the authoritative
+reference implementation:
+
+1. `type_slug` = `type` with every `_` replaced by `-`.
+2. `title_slug` = transliterate `title` to ASCII (Unicode NFKD, then
+   encode/decode `ascii`, ignoring non-ASCII) → lowercase → replace runs of
+   non-alphanumeric characters with a single `-` → strip leading/trailing `-` →
+   truncate to 60 characters (re-stripping any trailing `-` left by truncation) →
+   fall back to `artifact` if empty.
+3. `title_hash` = the first 8 hex characters of `SHA-256(title)`, computed over the
+   full, original, untruncated title — always appended, regardless of whether
+   `title_slug` collided with another title's slug.
+4. Tier 3 (date-independent): `artifact_id = {type_slug}-{title_slug}-{title_hash}`.
+   Tier 2 (date-anchored): `artifact_id = {type_slug}-{date}-{title_slug}-{title_hash}`.
+
+A short script computes this exactly instead of doing it by hand — run once per
+file (`$TYPE`, `$TIER`, `$DATE`, `$TITLE` are that file's resolved values):
+
+```bash
+python3 - "$TYPE" "$TIER" "$DATE" "$TITLE" <<'PY'
+import hashlib, re, sys, unicodedata
+
+type_, tier, date, title = sys.argv[1], int(sys.argv[2]), sys.argv[3], sys.argv[4]
+
+def slugify(text, fallback):
+    ascii_text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii")
+    slug = re.sub(r"[^a-z0-9]+", "-", ascii_text.lower()).strip("-")[:60].rstrip("-")
+    return slug or fallback
+
+type_slug = type_.replace("_", "-")
+title_slug = slugify(title, "artifact")
+title_hash = hashlib.sha256(title.encode("utf-8")).hexdigest()[:8]
+artifact_id = (
+    f"{type_slug}-{title_slug}-{title_hash}"
+    if tier == 3
+    else f"{type_slug}-{date}-{title_slug}-{title_hash}"
+)
+print(artifact_id)
+PY
+```
+
+Keep the resulting `{path: artifact_id}` map in memory for the rest of this
+migration run — it is not written to disk.
+
+### Resolving a `references:` entry against the map
+
+Once the map is built, resolve each frontmatter `references:` entry from every
+file being processed this run:
+
+1. **`http://` / `https://` entries are never path candidates.** Leave them
+   verbatim in content and never add them to the artifact's `references` field.
+2. For any other entry, apply this bounded normalization — and no further
+   transformation — before looking it up in the map:
+   - Convert backslashes (`\`) to forward slashes (`/`).
+   - Then strip exactly one of: a leading `./`, a single leading `/`, or neither
+     (whichever applies).
+3. **Match found** → add the resolved bare `artifact_id` to the artifact's
+   `references` field (T46) and rewrite that entry, in the stored content's
+   frontmatter `references:` list only, to `cairn://artifact/{id}`.
+4. **No match** (absent from the map, excluded/never-migrated target, or a path
+   that would only match after normalization beyond the bounded ceiling above —
+   e.g. `../` relative navigation) → leave the entry's original path text
+   completely untouched in content, omit it from the `references` field, and
+   record it (file + entry text) for the migration report. Never drop it
+   silently, and never attempt further repair.
+
+**Only the frontmatter `references:` YAML list is touched.** In-body Markdown
+links anywhere else in the file are explicitly out of scope for this rewrite —
+matching them would require fragile regex over inconsistent free-form prose, and
+ADR-012 (D1) deliberately excludes them. Content is rewritten only once, at
+first-write time (when this file is actually passed to `migrate_artifacts` with
+`dry_run=False`) — an already-written tier 2 artifact's content is never
+retroactively patched on a later run. Mixed addressing across the corpus
+(`cairn://…` links next to raw `/docs/…` paths) is the expected, permanent
+steady state, not a defect to clean up.
+
+---
+
 ## Step 3.A — ≤ 10 files
 
 > Agent generates descriptions in-context.
@@ -193,6 +300,7 @@ For each file, read its full content and build a descriptor:
 | `content` | **full file text — must not be empty** |
 | `tags` | from frontmatter only; omit if not present |
 | `description` | OKF frontmatter `description:` (if ≤ 280 chars use as-is; if > 280 chars truncate or rewrite to fit) → **write in-context, ≤ 280 chars** — be specific, mention decision/outcome/scope; avoid "This document describes…" preamble |
+| `references` | resolved bare `artifact_id`s only — see "Resolving `references:` entries" below; omit or leave empty if none resolve |
 | `file_extension` | source file extension including the dot (e.g. `.md`); default `.md` if the file has no extension |
 
 Git date commands:
@@ -202,6 +310,20 @@ git log --diff-filter=A --format="%ad" --date=short -- <file> | head -1
 # Tier 3 — last commit date
 git log --format="%ad" --date=short -1 -- <file>
 ```
+
+### 3.A1b — Build the map and resolve `references:` entries
+
+Every file in this batch has now had its `type`/`tier`/`title`/`date` determined
+above — this **is** the full manifest for a ≤ 10-file run, so it satisfies D4
+without any extra file reads. Build the path→`artifact_id` map per "Building the
+path→artifact_id map" (Step 3), then, for each file, extract its frontmatter
+`references:` list (already present in the `content` read above — no re-read
+needed) and resolve each entry per "Resolving a `references:` entry against the
+map" (Step 3): populate that file's descriptor `references` field with the
+resolved ids, and rewrite resolved entries in that file's `content` string (the
+frontmatter `references:` list only) to `cairn://artifact/{id}`. Keep a running
+list of unresolved entries (file + entry text) for the migration report in
+Step 4.
 
 ### 3.A2 — Operator confirmation
 
@@ -282,6 +404,18 @@ artifacts:
     # description: "Optional — supply your own description; skips server-side generation"
     # tags: ["search", "vectors"]
 ```
+
+### 3.B1b — Build the path→artifact_id map
+
+Every entry now has a known `path` / `type` / `tier` / `title` / `date` — either
+just extracted above, or (on a resumed run, Step 2a) already present in the
+persisted manifest. Build the path→`artifact_id` map per "Building the
+path→artifact_id map" (Step 3) from **every** entry in `CAIRN_IMPORT.yaml`, not
+only the `status: pending` entries this run is about to write — a `status:
+written` entry from an earlier session must still be resolvable as a target for
+a reference discovered in this run (D4). Keep the map in memory; frontmatter
+`references:` resolution and content rewriting happen later, in 3.B5, when each
+file's full content is actually read for the first time.
 
 ### 3.B2 — Operator review of manifest
 
@@ -367,6 +501,17 @@ Re-read `CAIRN_IMPORT.yaml`. For every `status: pending` entry, read the file at
 `description` field is now populated for every entry, so server-side
 generation is not triggered.
 
+**This is first-write time — resolve `references:` here, not in 3.B3.** For each
+file, extract its frontmatter `references:` list from the now-fully-read content
+and resolve each entry per "Resolving a `references:` entry against the map"
+(Step 3), using the map built in 3.B1b: populate the descriptor's `references`
+field with the resolved bare ids, and rewrite resolved entries in the file's full
+`content` (the frontmatter `references:` list only) to `cairn://artifact/{id}`.
+Keep a running list of unresolved entries (path + entry text) for the migration
+report in Step 4. If a file was already written in an earlier session
+(`status: written`), do not re-process it — content is rewritten only once, at
+first-write time, never retroactively.
+
 Compute `artifact_concurrency = min(file_count, 15)`. Explain to the operator: in the
 write phase each concurrent artifact also runs up to `SECTION_CONCURRENCY` (default 5)
 Titan embedding calls, so `artifact_concurrency=15` at default settings means up to 75
@@ -408,6 +553,13 @@ After all writes (either path), verify the migration succeeded:
    ADRs, specs, or summaries in the migrated set.
 3. If any artifact is missing from `list_artifacts`, check the write output for
    errors and re-run that entry.
+4. Present the reference-resolution report accumulated during 3.A1b / 3.B5: for
+   each unresolved `references:` entry, show the file it came from and the exact
+   entry text left untouched (never silently dropped) — grouped by reason where
+   known (`http(s):// URL`, `not in manifest / excluded`, `normalization ceiling
+   exceeded`). If every entry resolved, say so explicitly rather than omitting
+   the report. This is informational only — an unresolved reference never blocks
+   or fails the migration.
 
 ---
 
