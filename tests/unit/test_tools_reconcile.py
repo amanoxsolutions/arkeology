@@ -12,6 +12,7 @@ import boto3
 import pytest
 from pytest_mock import MockerFixture
 
+from cairn_mcp.annotations import apply_link_annotations
 from cairn_mcp.clients.fakes.fake_bedrock import FakeBedrockClient
 from cairn_mcp.clients.s3 import S3ClientImpl
 from cairn_mcp.clients.vectors import VectorsClientImpl
@@ -477,17 +478,21 @@ async def test_reindex_preserves_commit_refs_and_last_edited_ulid(
     vectors_reconcile: VectorsClientImpl,
 ) -> None:
     """Reconcile must reconstruct vector metadata mirroring write_artifact (T21), including
-    commit_refs (as list[str]) and last_edited_ulid — otherwise commit-ref filtering silently
-    stops matching and last_edited_ulid is lost for the rebuilt artifact.
+    commit_refs (as list[str], sourced from the durable annotation per ADR-011/T48 — S3
+    user-defined metadata no longer carries this field post-T47) and last_edited_ulid —
+    otherwise commit-ref filtering silently stops matching and last_edited_ulid is lost
+    for the rebuilt artifact.
     """
     artifact_id = "artifacts/implementation-note-2026-01-01-with-refs"
     ulid = "01HZZZ0000000000000000000A"
     meta = {
         **_BASE_S3_META,
-        "commit_refs": "abc123,def456",
         "last_edited_ulid": ulid,
     }
     s3_reconcile.put_object(artifact_id, _CONTENT_TWO_SECTIONS, meta)
+    apply_link_annotations(
+        s3_reconcile, artifact_id, commit_refs=["abc123", "def456"], references=[]
+    )
     bedrock = FakeBedrockClient(dimension=DIMENSION)
 
     result = await reconcile_index(
@@ -504,6 +509,161 @@ async def test_reindex_preserves_commit_refs_and_last_edited_ulid(
     vmeta = items[0]["metadata"]
     assert vmeta.get("commit_refs") == ["abc123", "def456"]
     assert vmeta.get("last_edited_ulid") == ulid
+
+
+# ---------------------------------------------------------------------------
+# T48 — reconcile rebuilds commit_refs / references from durable annotations
+# ---------------------------------------------------------------------------
+
+
+async def test_reindex_restores_link_fields_from_annotations(
+    reconcile_settings: Settings,
+    s3_reconcile: S3ClientImpl,
+    vectors_reconcile: VectorsClientImpl,
+) -> None:
+    """RED proof (ADR-011 / T48, Story 2): an object whose S3 user-defined metadata has
+    NO commit_refs/references keys at all (the post-T47 reality) but whose durable
+    annotations carry both fields — reconcile must source the rebuilt vector metadata
+    from the annotations, not from S3 metadata. Fails before the fix because the
+    current implementation only ever reads commit_refs from S3 metadata (which is
+    absent here) and never reads references at all.
+    """
+    artifact_id = "artifacts/implementation-note-2026-01-01-from-annotations"
+    s3_reconcile.put_object(artifact_id, _CONTENT_TWO_SECTIONS, {**_BASE_S3_META})
+    apply_link_annotations(
+        s3_reconcile,
+        artifact_id,
+        commit_refs=["abc123", "def456"],
+        references=["implementation-note-2026-01-01-other"],
+    )
+    bedrock = FakeBedrockClient(dimension=DIMENSION)
+
+    result = await reconcile_index(
+        settings=reconcile_settings,
+        s3=s3_reconcile,
+        vectors=vectors_reconcile,
+        bedrock=bedrock,
+    )
+
+    assert "error" not in result
+    keys = vectors_reconcile.list_vectors_by_metadata({"artifact_id": {"$eq": artifact_id}})
+    items = vectors_reconcile.get_vectors(keys)
+    assert items, "reconcile should have indexed vectors for the artifact"
+    vmeta = items[0]["metadata"]
+    assert vmeta.get("commit_refs") == ["abc123", "def456"]
+    assert vmeta.get("references") == ["implementation-note-2026-01-01-other"]
+
+
+async def test_reindex_clean_state_omits_empty_link_fields(
+    reconcile_settings: Settings,
+    s3_reconcile: S3ClientImpl,
+    vectors_reconcile: VectorsClientImpl,
+) -> None:
+    """An object with no link annotations at all reconciles to rebuilt vector metadata
+    that simply omits commit_refs and references — no error, no empty-list keys (S3
+    Vectors rejects empty arrays)."""
+    artifact_id = "artifacts/implementation-note-2026-01-01-clean-state"
+    s3_reconcile.put_object(artifact_id, _CONTENT_NO_SECTIONS, {**_BASE_S3_META})
+    bedrock = FakeBedrockClient(dimension=DIMENSION)
+
+    result = await reconcile_index(
+        settings=reconcile_settings,
+        s3=s3_reconcile,
+        vectors=vectors_reconcile,
+        bedrock=bedrock,
+    )
+
+    assert "error" not in result
+    keys = vectors_reconcile.list_vectors_by_metadata({"artifact_id": {"$eq": artifact_id}})
+    items = vectors_reconcile.get_vectors(keys)
+    assert items, "reconcile should have indexed vectors for the artifact"
+    vmeta = items[0]["metadata"]
+    assert "commit_refs" not in vmeta
+    assert "references" not in vmeta
+
+
+async def test_reindex_annotations_unavailable_degrades(
+    reconcile_settings: Settings,
+    s3_reconcile: S3ClientImpl,
+    vectors_reconcile: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """When reading annotations fails for reasons other than absence (feature
+    unavailable in this region/bucket type, AccessDenied, or any other exception),
+    reconcile logs the failure and treats both link fields as empty for that
+    artifact — the run must still complete (ADR-011 decision 5), not abort."""
+    artifact_id = "artifacts/implementation-note-2026-01-01-annotations-unavailable"
+    s3_reconcile.put_object(artifact_id, _CONTENT_NO_SECTIONS, {**_BASE_S3_META})
+    mocker.patch.object(
+        s3_reconcile,
+        "get_object_annotation",
+        side_effect=RuntimeError("simulated annotation feature unavailable"),
+    )
+    bedrock = FakeBedrockClient(dimension=DIMENSION)
+
+    result = await reconcile_index(
+        settings=reconcile_settings,
+        s3=s3_reconcile,
+        vectors=vectors_reconcile,
+        bedrock=bedrock,
+    )
+
+    assert "error" not in result
+    reconciled_ids = [e["artifact_id"] for e in result["reconciled"]]
+    assert artifact_id in reconciled_ids
+    keys = vectors_reconcile.list_vectors_by_metadata({"artifact_id": {"$eq": artifact_id}})
+    items = vectors_reconcile.get_vectors(keys)
+    assert items, "reconcile should still have indexed vectors for the artifact"
+    vmeta = items[0]["metadata"]
+    assert "commit_refs" not in vmeta
+    assert "references" not in vmeta
+
+
+async def test_failure_log_replay_and_orphan_scan_both_restore(
+    reconcile_settings: Settings,
+    s3_reconcile: S3ClientImpl,
+    vectors_reconcile: VectorsClientImpl,
+) -> None:
+    """Both _reindex_artifact call sites — Phase 1 failure-log replay and Phase 2
+    orphan scan — pass s3 through and restore link fields identically from
+    annotations."""
+    replay_id = "artifacts/implementation-note-2026-01-01-replay-restores"
+    orphan_id = "artifacts/implementation-note-2026-01-01-orphan-restores"
+
+    s3_reconcile.put_object(replay_id, _CONTENT_NO_SECTIONS, {**_BASE_S3_META})
+    apply_link_annotations(s3_reconcile, replay_id, commit_refs=["aaa1111"], references=[])
+    _write_failure_log(
+        reconcile_settings.failure_log_path,
+        [{**_BASE_LOG_ENTRY, "artifact_id": replay_id}],
+    )
+
+    s3_reconcile.put_object(orphan_id, _CONTENT_NO_SECTIONS, {**_BASE_S3_META})
+    apply_link_annotations(s3_reconcile, orphan_id, commit_refs=["bbb2222"], references=[])
+
+    bedrock = FakeBedrockClient(dimension=DIMENSION)
+
+    result = await reconcile_index(
+        settings=reconcile_settings,
+        s3=s3_reconcile,
+        vectors=vectors_reconcile,
+        bedrock=bedrock,
+    )
+
+    assert "error" not in result
+
+    replay_keys = vectors_reconcile.list_vectors_by_metadata({"artifact_id": {"$eq": replay_id}})
+    replay_items = vectors_reconcile.get_vectors(replay_keys)
+    assert replay_items, "failure-log replay should have indexed vectors"
+    assert replay_items[0]["metadata"].get("commit_refs") == ["aaa1111"]
+
+    orphan_keys = vectors_reconcile.list_vectors_by_metadata({"artifact_id": {"$eq": orphan_id}})
+    orphan_items = vectors_reconcile.get_vectors(orphan_keys)
+    assert orphan_items, "orphan scan should have indexed vectors"
+    assert orphan_items[0]["metadata"].get("commit_refs") == ["bbb2222"]
+
+    reconciled_by_source = {e["artifact_id"]: e["source"] for e in result["reconciled"]}
+    assert reconciled_by_source[replay_id] == "failure_log"
+    assert reconciled_by_source[orphan_id] == "orphan_scan"
 
 
 # ---------------------------------------------------------------------------

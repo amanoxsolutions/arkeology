@@ -10,6 +10,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from cairn_mcp.annotations import read_link_annotations
 from cairn_mcp.artifact import decode_metadata_value, parse_sections, section_slug
 from cairn_mcp.clients.interfaces import (
     BedrockClientInterface,
@@ -28,11 +29,44 @@ from cairn_mcp.tools.write import (
 logger = logging.getLogger(__name__)
 
 
+def _read_link_fields_for_reindex(
+    s3: S3ClientInterface, artifact_id: str
+) -> tuple[list[str], list[str]]:
+    """Read the durable ``commit_refs`` / ``references`` annotations for a re-index.
+
+    Per ADR-011 decision 3, reconcile restores both mutable link fields from the
+    object's durable annotations (T45/T47), not from S3 user-defined metadata
+    (which no longer carries them post-T47). Per ADR-011 decision 5, annotation
+    availability is a feature-level concern, not a hard failure: any exception
+    while reading (feature unavailable in this region/bucket type, AccessDenied,
+    a transient CredentialError, etc.) is logged and degrades to empty lists for
+    this artifact — it must never abort the broader reconcile run.
+
+    Args:
+        s3: S3 client.
+        artifact_id: Full S3 key of the artifact.
+
+    Returns:
+        ``(commit_refs, references)`` — each ``[]`` when absent or unreadable.
+    """
+    try:
+        return read_link_annotations(s3, artifact_id)
+    except Exception:
+        logger.warning(
+            "Failed to read link annotations for %s during reconcile; "
+            "omitting commit_refs/references for this artifact",
+            artifact_id,
+            exc_info=True,
+        )
+        return [], []
+
+
 def _reindex_artifact(
     artifact_id: str,
     content: str,
     raw_s3_meta: dict[str, Any],
     settings: Settings,
+    s3: S3ClientInterface,
     vectors: VectorsClientInterface,
     bedrock: BedrockClientInterface,
 ) -> int:
@@ -48,6 +82,8 @@ def _reindex_artifact(
         content: Artifact body text.
         raw_s3_meta: Metadata dict returned by ``head_object`` (string values).
         settings: Server configuration.
+        s3: S3 client, used to read the durable commit_refs/references annotations
+            (ADR-011 / T48).
         vectors: Vectors client for upsert.
         bedrock: Bedrock client for embedding.
 
@@ -65,7 +101,7 @@ def _reindex_artifact(
     tier = int(tier_raw)
     tags = coerce_list_field(raw_s3_meta, "tags")
     source_artifacts_list = coerce_list_field(raw_s3_meta, "source_artifacts")
-    commit_refs_list = coerce_list_field(raw_s3_meta, "commit_refs")
+    commit_refs_list, references_list = _read_link_fields_for_reindex(s3, artifact_id)
 
     vector_metadata: dict[str, Any] = {
         "artifact_id": artifact_id,
@@ -90,6 +126,8 @@ def _reindex_artifact(
         vector_metadata["source_artifacts"] = source_artifacts_list
     if commit_refs_list:
         vector_metadata["commit_refs"] = commit_refs_list
+    if references_list:
+        vector_metadata["references"] = references_list
 
     sections = parse_sections(content)
     new_keys: set[str] = set()
@@ -239,6 +277,7 @@ async def _reconcile_index_inner(
                     content,
                     raw_meta,
                     settings,
+                    s3,
                     vectors,
                     bedrock,
                 )
@@ -307,6 +346,7 @@ async def _reconcile_index_inner(
                 content,
                 raw_meta,
                 settings,
+                s3,
                 vectors,
                 bedrock,
             )

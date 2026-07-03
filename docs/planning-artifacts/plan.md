@@ -403,7 +403,7 @@ testable logic.
     - Done when: **(Red)** tests for durable-first ordering and tier-3 overwrite preservation written and failing first; **(Green)** a write persists both fields to annotations and vector metadata; a tier-3 same-type+title overwrite preserves prior `commit_refs`/`references` in both stores even though the underlying `PutObject` cleared annotations; no Bedrock re-embed is triggered by the annotation write; ruff + mypy clean
     - Depends on: T45, T46. Spec: `docs/specs/p12-t47-annotation-dual-write.md`
 
-48. ⬜ **`reconcile_index` rebuilds `commit_refs` + `references` from annotations** — when re-indexing an artifact, restore both link fields into vector metadata by reading the object's durable annotations (`ListObjectAnnotations`/`GetObjectAnnotation`) instead of standard object metadata. Resolves OQ2. (FR-17, FR-54)
+48. ✅ **`reconcile_index` rebuilds `commit_refs` + `references` from annotations** — when re-indexing an artifact, restore both link fields into vector metadata by reading the object's durable annotations (`ListObjectAnnotations`/`GetObjectAnnotation`) instead of standard object metadata. Resolves OQ2. (FR-17, FR-54)
     - Done when: **(Red)** a test proving reconcile currently drops the fields is written and failing first; **(Green)** an artifact whose vectors are rebuilt by reconcile retains its `commit_refs` and `references` sourced from annotations; clean-state reconcile is unaffected; own-scope gate preserved; ruff + mypy clean
     - Depends on: T45, and annotations being written (T47/T49). Spec: `docs/specs/p12-t48-reconcile-from-annotations.md`
 
