@@ -188,6 +188,7 @@ async def write_artifact(
     author_role: str | None = None,
     source_artifacts: list[str] | None = None,
     commit_refs: list[str] | None = None,
+    references: list[str] | None = None,
     status: str = "active",
     file_extension: str = ".md",
     overwrite: bool = False,
@@ -212,6 +213,9 @@ async def write_artifact(
         author_role: Optional author role.
         source_artifacts: Optional list of source artifact IDs.
         commit_refs: Optional list of git commit SHAs to pre-link this artifact.
+        references: Optional list of resolved bare artifact IDs this artifact points
+            at (ADR-012 D2). Stored as ``list[str]`` in vector metadata only — the
+            durable annotation copy is added in T47 (ADR-011).
         status: ``"active"`` (default) or ``"inactive"``.
         file_extension: File extension for the S3 key, including the leading dot
             (e.g. ``".md"``, ``".txt"``). Defaults to ``".md"``. Must start with
@@ -233,6 +237,7 @@ async def write_artifact(
     normalized_tags: list[str] = tags if tags is not None else []
     sources: list[str] = source_artifacts if source_artifacts is not None else []
     refs: list[str] = commit_refs if commit_refs is not None else []
+    refs2: list[str] = references if references is not None else []
 
     try:
         return await _write_artifact_inner(
@@ -253,6 +258,7 @@ async def write_artifact(
             author_role=author_role,
             sources=sources,
             refs=refs,
+            references=refs2,
             status=status,
             file_extension=file_extension,
             overwrite=overwrite,
@@ -281,6 +287,7 @@ async def _write_artifact_inner(  # noqa: PLR0913
     author_role: str | None,
     sources: list[str],
     refs: list[str],
+    references: list[str],
     status: str,
     file_extension: str = ".md",
     overwrite: bool = False,
@@ -316,6 +323,7 @@ async def _write_artifact_inner(  # noqa: PLR0913
             author_role=author_role,
             source_artifacts=sources,
             commit_refs=refs,
+            references=references,
         )
     except ValidationError as exc:
         return {"error": ErrorCode.VALIDATION_ERROR, "message": str(exc)}
@@ -370,6 +378,8 @@ async def _write_artifact_inner(  # noqa: PLR0913
         vector_metadata["source_artifacts"] = sources
     if refs:
         vector_metadata["commit_refs"] = refs
+    if references:
+        vector_metadata["references"] = references
 
     # ── Step 3c: Metadata size budgets (M-5) — fail fast, before any write ───
     # Measures the actual assembled representations: the S3 aggregate against the

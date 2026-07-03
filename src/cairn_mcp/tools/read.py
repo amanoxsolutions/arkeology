@@ -41,7 +41,7 @@ async def read_artifact(
     Args:
         settings: Server configuration.
         s3: S3 client for content and metadata retrieval.
-        vectors: S3 Vectors client for reading commit_refs from vector metadata.
+        vectors: S3 Vectors client for reading commit_refs/references from vector metadata.
         bedrock: Bedrock client (unused; injected for interface consistency).
         artifact_id: Full S3 key of the artifact to retrieve.
 
@@ -124,27 +124,34 @@ async def _read_artifact_inner(
     except CredentialError as exc:
         return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
 
-    # ── Step 4: Read commit_refs from vector metadata ─────────────────────────
-    # commit_refs are stored in vector metadata only — link_commit appends SHAs
-    # there without touching S3 object metadata.  Reading from vectors ensures
-    # post-link_commit SHAs are surfaced.
+    # ── Step 4: Read commit_refs / references from vector metadata ───────────
+    # commit_refs and references are stored in vector metadata only — link_commit
+    # (commit_refs) and ordinary writes (references) do not touch S3 object metadata
+    # for these fields. Reading from vectors ensures post-link_commit SHAs and
+    # backfilled references are surfaced (T46: references' durable annotation copy
+    # is added in T47).
     commit_refs: list[str] = []
+    references: list[str] = []
     if vectors is not None:
         try:
             keys = vectors.list_vectors_by_metadata({"artifact_id": {"$eq": artifact_id}})
             if keys:
                 entries = vectors.get_vectors([keys[0]])
                 if entries:
-                    raw = entries[0].get("metadata", {}).get("commit_refs", [])
-                    if isinstance(raw, list):
-                        commit_refs = raw
+                    entry_metadata = entries[0].get("metadata", {})
+                    raw_commit_refs = entry_metadata.get("commit_refs", [])
+                    if isinstance(raw_commit_refs, list):
+                        commit_refs = raw_commit_refs
+                    raw_references = entry_metadata.get("references", [])
+                    if isinstance(raw_references, list):
+                        references = raw_references
         except CredentialError as exc:
             return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
         except Exception:
-            # commit_refs are supplementary — degrade to [] rather than aborting
-            # an otherwise-successful read on a transient vector error.
+            # commit_refs / references are supplementary — degrade to [] rather than
+            # aborting an otherwise-successful read on a transient vector error.
             logger.warning(
-                "Failed to read commit_refs for %s from vector metadata; returning []",
+                "Failed to read commit_refs/references for %s from vector metadata; returning []",
                 artifact_id,
                 exc_info=True,
             )
@@ -171,5 +178,6 @@ async def _read_artifact_inner(
         "description": meta.get("description"),
         "source_artifacts": source_artifacts,
         "commit_refs": commit_refs,
+        "references": references,
         "last_edited_ulid": last_edited_ulid,
     }

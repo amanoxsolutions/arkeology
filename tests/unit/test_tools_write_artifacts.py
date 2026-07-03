@@ -775,3 +775,41 @@ async def test_write_artifacts_per_descriptor_overwrite_overrides_batch_default(
     assert result["results"][0].get("written") is True
     artifact_id = result["results"][0]["artifact_id"]
     assert "Updated via per-descriptor overwrite." in s3_client.get_object(artifact_id)
+
+
+# ---------------------------------------------------------------------------
+# T46 — references threading (Story 4)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_write_artifacts_descriptor_references_round_trips_to_vector_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+) -> None:
+    """A descriptor carrying references=['a-1'] writes references into vector metadata."""
+    try:
+        from cairn_mcp.tools.write_artifacts import write_artifacts
+    except ImportError:
+        pytest.fail("cairn_mcp.tools.write_artifacts is not yet implemented")
+
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+    descriptor = _make_descriptor(0, references=["a-1"])
+
+    result = await write_artifacts(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        artifacts=[descriptor],
+    )
+
+    assert result["results"][0].get("written") is True
+    artifact_id = result["results"][0]["artifact_id"]
+    keys = vectors_client.list_vectors_by_metadata({"artifact_id": {"$eq": artifact_id}})
+    assert keys
+    entries = vectors_client.get_vectors(keys)
+    for entry in entries:
+        assert entry["metadata"]["references"] == ["a-1"]

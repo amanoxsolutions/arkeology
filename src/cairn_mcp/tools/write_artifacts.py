@@ -197,6 +197,7 @@ async def _write_artifacts_inner(
                     author_role=descriptor.get("author_role"),
                     sources=descriptor.get("source_artifacts") or [],
                     refs=descriptor.get("commit_refs") or [],
+                    references=descriptor.get("references") or [],
                     status=descriptor.get("status", ArtifactStatus.ACTIVE),
                     file_extension=descriptor.get("file_extension") or file_extension,
                     overwrite=descriptor.get("overwrite", overwrite),

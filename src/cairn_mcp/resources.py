@@ -79,6 +79,7 @@ def artifact_schema_content() -> str:
 | `author_role` | string | Role of the author (e.g. `"developer"`) |
 | `source_artifacts` | list[string] | Source IDs for a `synthesis` artifact |
 | `commit_refs` | list[string] | Git commit SHAs linked to this artifact via `link_commit` |
+| `references` | list[string] | Resolved bare artifact IDs this artifact points at |
 
 ## System-generated fields
 

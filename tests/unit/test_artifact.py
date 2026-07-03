@@ -734,6 +734,30 @@ def test_commit_refs_element_with_control_char_rejected() -> None:
 
 
 # ---------------------------------------------------------------------------
+# T46 — references field
+# ---------------------------------------------------------------------------
+
+
+def test_artifact_references_with_values_stored_correctly() -> None:
+    """references=["adr-use-postgres-abc12345"] → stored as-is on the model."""
+    artifact = Artifact(**{**VALID_ARTIFACT_KWARGS, "references": ["adr-use-postgres-abc12345"]})
+    assert artifact.references == ["adr-use-postgres-abc12345"]
+
+
+def test_artifact_references_defaults_to_empty_list() -> None:
+    """references absent → defaults to []."""
+    artifact = Artifact(**VALID_ARTIFACT_KWARGS)
+    assert artifact.references == []
+
+
+def test_references_element_with_control_char_rejected() -> None:
+    """A control character in a references element → ValidationError naming the field."""
+    kwargs = {**VALID_ARTIFACT_KWARGS, "references": ["adr-one\t"]}
+    with pytest.raises(ValidationError, match="references"):
+        Artifact(**kwargs)
+
+
+# ---------------------------------------------------------------------------
 # T55 — non-Latin title accepted and preserved (Story 4)
 # ---------------------------------------------------------------------------
 

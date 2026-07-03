@@ -411,6 +411,9 @@ class Artifact(BaseModel):
         author_role: Optional role identifier of the author.
         source_artifacts: Optional list of artifact IDs that this synthesises.
         commit_refs: Optional list of git commit SHAs linked to this artifact.
+        references: Optional list of resolved bare artifact IDs this artifact points
+            at (ADR-012 D2). Holds only resolved identifiers — no ``cairn://`` prefix,
+            no path text.
     """
 
     type: str  # noqa: A003
@@ -427,6 +430,7 @@ class Artifact(BaseModel):
     author_role: str | None = None
     source_artifacts: list[str] = Field(default_factory=list)
     commit_refs: list[str] = Field(default_factory=list)
+    references: list[str] = Field(default_factory=list)
 
     @field_validator("type")
     @classmethod
@@ -502,4 +506,11 @@ class Artifact(BaseModel):
     def validate_commit_refs(cls, v: list[str]) -> list[str]:
         for item in v:
             _require_no_control_chars("commit_refs", item)
+        return v
+
+    @field_validator("references")
+    @classmethod
+    def validate_references(cls, v: list[str]) -> list[str]:
+        for item in v:
+            _require_no_control_chars("references", item)
         return v

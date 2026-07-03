@@ -2353,6 +2353,90 @@ async def test_write_empty_commit_refs_stored_as_empty_string_in_s3(
 
 
 # ---------------------------------------------------------------------------
+# T46 — references field
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_write_references_stored_as_list_in_vector_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """references=['a-1', 'b-2'] stored as list[str] in vector metadata."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+    vec_spy = mocker.spy(vectors_client, "put_vectors_batch")
+
+    await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        **{**_BASE_WRITE_KWARGS, "references": ["a-1", "b-2"]},
+    )
+
+    vec_items = vec_spy.call_args.args[0]
+    for item in vec_items:
+        assert item["metadata"]["references"] == ["a-1", "b-2"]
+
+
+@pytest.mark.asyncio
+async def test_write_empty_references_omitted_from_vector_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """references=[] (or omitted) omits the 'references' key from vector metadata."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+    vec_spy = mocker.spy(vectors_client, "put_vectors_batch")
+
+    await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        **_BASE_WRITE_KWARGS,
+    )
+
+    vec_items = vec_spy.call_args.args[0]
+    for item in vec_items:
+        assert "references" not in item["metadata"]
+
+
+@pytest.mark.asyncio
+async def test_write_references_not_stored_in_s3_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """references is never written to S3 user-defined object metadata (durable copy is T47's job).
+
+    Preserves the dual-encoding split: S3 object metadata carries only
+    write-time-set identity fields; the annotation-backed durable copy is added
+    in T47 (ADR-011). This spec only covers vector metadata + read/list surfacing.
+    """
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+    s3_spy = mocker.spy(s3_client, "put_object")
+
+    await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        **{**_BASE_WRITE_KWARGS, "references": ["a-1"]},
+    )
+
+    _, _, s3_meta = s3_spy.call_args.args
+    assert "references" not in s3_meta
+
+
+# ---------------------------------------------------------------------------
 # file_extension parameter
 # ---------------------------------------------------------------------------
 

@@ -107,6 +107,44 @@ async def test_write_artifact_mcp_layer_forwards_commit_refs(
 
 
 # ---------------------------------------------------------------------------
+# MCP tool layer — T46: write_artifact / list_artifacts forward references
+# ---------------------------------------------------------------------------
+
+
+async def test_write_artifact_mcp_layer_forwards_references(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """write_artifact MCP tool forwards references to the underlying _write_artifact."""
+    settings = _make_settings(monkeypatch)
+    mock_write = AsyncMock(return_value={"artifact_id": "artifacts/test"})
+    monkeypatch.setattr("cairn_mcp.server._write_artifact", mock_write)
+
+    register_tools(
+        settings=settings,
+        s3=MagicMock(),
+        vectors=MagicMock(),
+        bedrock=MagicMock(),
+    )
+    tool = await _app.get_tool("write_artifact")
+    await tool.fn(
+        type="code_review",
+        team="platform",
+        project="cairn",
+        tier=2,
+        date="2026-06-12",
+        title="Test",
+        description="A test.",
+        content="## Summary\n\nOK.",
+        visibility="shared",
+        references=["a-1"],
+    )
+
+    mock_write.assert_awaited_once()
+    _, call_kwargs = mock_write.call_args
+    assert call_kwargs["references"] == ["a-1"]
+
+
+# ---------------------------------------------------------------------------
 # MCP tool layer — C-3: overwrite flag is reachable by MCP callers
 # ---------------------------------------------------------------------------
 
@@ -223,3 +261,25 @@ async def test_list_artifacts_mcp_layer_forwards_commit_refs(
     mock_list.assert_awaited_once()
     _, call_kwargs = mock_list.call_args
     assert call_kwargs["commit_refs"] == ["abc1234"]
+
+
+async def test_list_artifacts_mcp_layer_forwards_references(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """list_artifacts MCP tool forwards references to the underlying _list_artifacts."""
+    settings = _make_settings(monkeypatch)
+    mock_list: AsyncMock = AsyncMock(return_value={"artifacts": []})
+    monkeypatch.setattr("cairn_mcp.server._list_artifacts", mock_list)
+
+    register_tools(
+        settings=settings,
+        s3=MagicMock(),
+        vectors=MagicMock(),
+        bedrock=MagicMock(),
+    )
+    tool = await _app.get_tool("list_artifacts")
+    await tool.fn(references=["a-1"])
+
+    mock_list.assert_awaited_once()
+    _, call_kwargs = mock_list.call_args
+    assert call_kwargs["references"] == ["a-1"]

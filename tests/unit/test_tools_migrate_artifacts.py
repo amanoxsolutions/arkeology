@@ -921,3 +921,47 @@ def test_m20_server_migrate_artifacts_exposes_artifact_concurrency() -> None:
         "M20 Bug 3: server.py register_tools must include 'artifact_concurrency' in the "
         "migrate_artifacts tool definition so callers can control concurrency via MCP."
     )
+
+
+# ---------------------------------------------------------------------------
+# T46 — references threading (Story 4, migrate_artifacts dry_run=False path)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_migrate_artifacts_dry_run_false_threads_references_to_vector_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+) -> None:
+    """A descriptor carrying references=['a-1'] round-trips into the written artifact's
+    vector metadata when migrate_artifacts(dry_run=False) delegates to write_artifacts.
+    """
+    try:
+        from cairn_mcp.tools.migrate_artifacts import migrate_artifacts
+    except ImportError:
+        pytest.fail("cairn_mcp.tools.migrate_artifacts is not yet implemented")
+
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+    descriptors = [_make_descriptor(0, references=["a-1"])]
+
+    result = await migrate_artifacts(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        descriptors=descriptors,
+        dry_run=False,
+    )
+
+    results = result.get("results", [])
+    assert len(results) == 1
+    assert results[0].get("written") is True
+    artifact_id = results[0]["artifact_id"]
+
+    keys = vectors_client.list_vectors_by_metadata({"artifact_id": {"$eq": artifact_id}})
+    assert keys
+    entries = vectors_client.get_vectors(keys)
+    for entry in entries:
+        assert entry["metadata"]["references"] == ["a-1"]

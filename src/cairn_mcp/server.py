@@ -78,6 +78,7 @@ def register_tools(
         author_role: str | None = None,
         source_artifacts: list[str] | None = None,
         commit_refs: list[str] | None = None,
+        references: list[str] | None = None,
         status: str = "active",
         overwrite: bool = False,
     ) -> dict[str, Any]:
@@ -104,6 +105,7 @@ def register_tools(
             author_role=author_role,
             source_artifacts=source_artifacts,
             commit_refs=commit_refs,
+            references=references,
             status=status,
             overwrite=overwrite,
         )
@@ -155,6 +157,7 @@ def register_tools(
         tags: list[str] | None = None,
         tier: int | None = None,
         commit_refs: list[str] | None = None,
+        references: list[str] | None = None,
     ) -> dict[str, Any]:
         """List artifacts by metadata filters without a semantic query."""
         return await _list_artifacts(
@@ -169,6 +172,7 @@ def register_tools(
             tags=tags,
             tier=tier,
             commit_refs=commit_refs,
+            references=references,
         )
 
     @_app.tool()

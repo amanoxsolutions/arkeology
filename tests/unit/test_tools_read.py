@@ -649,6 +649,72 @@ async def test_read_non_credential_vector_error_degrades_to_empty_commit_refs(
     assert result["commit_refs"] == []
 
 
+async def test_read_references_from_vector_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+) -> None:
+    """references: ['adr-one'] in vector metadata → response returns ['adr-one']."""
+    settings = _make_settings(monkeypatch)
+    s3_client.put_object("artifacts/with-reference", "Content.", {**_BASE_METADATA})
+    vectors_client_2.put_vector(
+        key="artifacts/with-reference#section-0",
+        vector=[1.0, 0.0],
+        metadata={"artifact_id": "artifacts/with-reference", "references": ["adr-one"]},
+    )
+
+    result = await read_artifact(
+        s3=s3_client,
+        vectors=vectors_client_2,
+        settings=settings,
+        artifact_id="artifacts/with-reference",
+    )
+
+    assert result["references"] == ["adr-one"]
+
+
+async def test_read_references_returns_empty_list_when_absent(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+) -> None:
+    """No 'references' key in vector metadata → response returns []."""
+    settings = _make_settings(monkeypatch)
+    s3_client.put_object("artifacts/no-reference", "Content.", {**_BASE_METADATA})
+    vectors_client_2.put_vector(
+        key="artifacts/no-reference#section-0",
+        vector=[1.0, 0.0],
+        metadata={"artifact_id": "artifacts/no-reference"},
+    )
+
+    result = await read_artifact(
+        s3=s3_client,
+        vectors=vectors_client_2,
+        settings=settings,
+        artifact_id="artifacts/no-reference",
+    )
+
+    assert result["references"] == []
+
+
+async def test_read_references_returns_empty_list_when_vectors_is_none(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+) -> None:
+    """vectors=None → references is [] (graceful degradation when client not injected)."""
+    settings = _make_settings(monkeypatch)
+    s3_client.put_object("artifacts/no-vectors-client-ref", "Content.", {**_BASE_METADATA})
+
+    result = await read_artifact(
+        s3=s3_client,
+        vectors=None,
+        settings=settings,
+        artifact_id="artifacts/no-vectors-client-ref",
+    )
+
+    assert result["references"] == []
+
+
 async def test_read_last_edited_ulid_present(
     monkeypatch: pytest.MonkeyPatch,
     s3_client: S3ClientImpl,
