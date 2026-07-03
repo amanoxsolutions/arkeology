@@ -1441,9 +1441,23 @@ async def test_orphan_cleanup_list_failure_does_not_fail_write(
         **_BASE_WRITE_KWARGS,
     )
 
-    # Orphan cleanup (only reached on the re-write) hits a non-credential error.
+    # list_vectors_by_metadata is now called twice on an overwriting write: once for
+    # the T47 read-forward (Step 4a, must succeed so link fields are not lost) and once
+    # for orphan cleanup (Step 8, best-effort). Let the first (read-forward) call
+    # through and only fail from the second call onward, isolating this test to the
+    # orphan-cleanup failure it is meant to exercise.
+    original_list = vectors_client.list_vectors_by_metadata
+    call_count = 0
+
+    def _list_fails_after_first(*args: object, **kwargs: object) -> list[str]:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return original_list(*args, **kwargs)  # type: ignore[arg-type]
+        raise RuntimeError("boom")
+
     mocker.patch.object(
-        vectors_client, "list_vectors_by_metadata", side_effect=RuntimeError("boom")
+        vectors_client, "list_vectors_by_metadata", side_effect=_list_fails_after_first
     )
 
     result = await write_artifact(
@@ -1521,14 +1535,26 @@ async def test_orphan_cleanup_credential_failure_does_not_fail_write(
         **_BASE_WRITE_KWARGS,
     )
 
-    mocker.patch.object(
-        vectors_client,
-        "list_vectors_by_metadata",
-        side_effect=CredentialError(
+    # See test_orphan_cleanup_list_failure_does_not_fail_write: list_vectors_by_metadata
+    # is now also used by the T47 read-forward (Step 4a), which must succeed. Only fail
+    # from the second call onward so this test still isolates the orphan-cleanup
+    # (Step 8) credential failure it is meant to exercise.
+    original_list = vectors_client.list_vectors_by_metadata
+    call_count = 0
+
+    def _list_fails_after_first(*args: object, **kwargs: object) -> list[str]:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return original_list(*args, **kwargs)  # type: ignore[arg-type]
+        raise CredentialError(
             message="AWS credentials are invalid or expired (simulated).",
             service="s3vectors",
             original=Exception("simulated"),
-        ),
+        )
+
+    mocker.patch.object(
+        vectors_client, "list_vectors_by_metadata", side_effect=_list_fails_after_first
     )
 
     result = await write_artifact(
@@ -2295,19 +2321,20 @@ async def test_write_last_edited_ulid_in_vector_metadata(
 
 
 @pytest.mark.asyncio
-async def test_write_commit_refs_stored_in_s3_and_vector_metadata(
+async def test_write_commit_refs_stored_in_annotation_and_vector_metadata(
     monkeypatch: pytest.MonkeyPatch,
     s3_client: S3ClientImpl,
     vectors_client: VectorsClientImpl,
     mocker: pytest.MonkeyPatch,
 ) -> None:
-    """commit_refs=['abc1234'] stored as comma-joined string in S3 and list[str] in vectors."""
+    """commit_refs=['abc1234'] stored as a comma-joined S3 annotation (T47/ADR-011,
+    NOT S3 user-defined metadata) and as list[str] in vector metadata."""
     settings = _make_settings(monkeypatch)
     bedrock = FakeBedrockClient(dimension=1024)
     s3_spy = mocker.spy(s3_client, "put_object")
     vec_spy = mocker.spy(vectors_client, "put_vectors_batch")
 
-    await write_artifact(
+    result = await write_artifact(
         s3=s3_client,
         vectors=vectors_client,
         bedrock=bedrock,
@@ -2316,7 +2343,9 @@ async def test_write_commit_refs_stored_in_s3_and_vector_metadata(
     )
 
     _, _, s3_meta = s3_spy.call_args.args
-    assert s3_meta["commit_refs"] == "abc1234"
+    assert "commit_refs" not in s3_meta
+
+    assert s3_client.get_object_annotation(result["artifact_id"], "commit_refs") == "abc1234"
 
     vec_items = vec_spy.call_args.args[0]
     for item in vec_items:
@@ -2324,19 +2353,20 @@ async def test_write_commit_refs_stored_in_s3_and_vector_metadata(
 
 
 @pytest.mark.asyncio
-async def test_write_empty_commit_refs_stored_as_empty_string_in_s3(
+async def test_write_empty_commit_refs_annotation_absent(
     monkeypatch: pytest.MonkeyPatch,
     s3_client: S3ClientImpl,
     vectors_client: VectorsClientImpl,
     mocker: pytest.MonkeyPatch,
 ) -> None:
-    """commit_refs=[] stored as '' in S3 metadata and omitted from vector metadata."""
+    """commit_refs=[] → no commit_refs annotation is written, no S3 metadata key, and
+    the field is omitted from vector metadata."""
     settings = _make_settings(monkeypatch)
     bedrock = FakeBedrockClient(dimension=1024)
     s3_spy = mocker.spy(s3_client, "put_object")
     vec_spy = mocker.spy(vectors_client, "put_vectors_batch")
 
-    await write_artifact(
+    result = await write_artifact(
         s3=s3_client,
         vectors=vectors_client,
         bedrock=bedrock,
@@ -2345,7 +2375,10 @@ async def test_write_empty_commit_refs_stored_as_empty_string_in_s3(
     )
 
     _, _, s3_meta = s3_spy.call_args.args
-    assert s3_meta["commit_refs"] == ""
+    assert "commit_refs" not in s3_meta
+
+    with pytest.raises(KeyError):
+        s3_client.get_object_annotation(result["artifact_id"], "commit_refs")
 
     vec_items = vec_spy.call_args.args[0]
     for item in vec_items:
@@ -2434,6 +2467,262 @@ async def test_write_references_not_stored_in_s3_metadata(
 
     _, _, s3_meta = s3_spy.call_args.args
     assert "references" not in s3_meta
+
+
+# ---------------------------------------------------------------------------
+# T47 — annotation dual-write in the write path + overwrite preservation (AC-60)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_write_references_stored_in_annotation_and_vector_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """references=['a-1', 'b-2'] is written as a comma-joined S3 annotation and as
+    list[str] in vector metadata."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+    vec_spy = mocker.spy(vectors_client, "put_vectors_batch")
+
+    result = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        **{**_BASE_WRITE_KWARGS, "references": ["a-1", "b-2"]},
+    )
+
+    assert s3_client.get_object_annotation(result["artifact_id"], "references") == "a-1,b-2"
+    vec_items = vec_spy.call_args.args[0]
+    for item in vec_items:
+        assert item["metadata"]["references"] == ["a-1", "b-2"]
+
+
+@pytest.mark.asyncio
+async def test_write_empty_references_annotation_absent(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+) -> None:
+    """references=[] → no references annotation is written."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+
+    result = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        **_BASE_WRITE_KWARGS,
+    )
+
+    with pytest.raises(KeyError):
+        s3_client.get_object_annotation(result["artifact_id"], "references")
+
+
+@pytest.mark.asyncio
+async def test_write_annotations_written_after_put_object_before_put_vectors_batch(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """Durable-first ordering (ADR-011, Story 3): PutObject → annotation write →
+    put_vectors_batch, so a failed vector write can self-heal from the durable side
+    via a later reconcile_index (T48)."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+
+    call_order: list[str] = []
+
+    original_put_object = s3_client.put_object
+
+    def _put_object(*args: object, **kwargs: object) -> None:
+        call_order.append("put_object")
+        return original_put_object(*args, **kwargs)  # type: ignore[arg-type]
+
+    original_put_annotation = s3_client.put_object_annotation
+
+    def _put_annotation(*args: object, **kwargs: object) -> None:
+        call_order.append("put_object_annotation")
+        return original_put_annotation(*args, **kwargs)  # type: ignore[arg-type]
+
+    original_batch = vectors_client.put_vectors_batch
+
+    def _put_batch(*args: object, **kwargs: object) -> None:
+        call_order.append("put_vectors_batch")
+        return original_batch(*args, **kwargs)  # type: ignore[arg-type]
+
+    mocker.patch.object(s3_client, "put_object", side_effect=_put_object)
+    mocker.patch.object(s3_client, "put_object_annotation", side_effect=_put_annotation)
+    mocker.patch.object(vectors_client, "put_vectors_batch", side_effect=_put_batch)
+
+    result = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        **{**_BASE_WRITE_KWARGS, "commit_refs": ["abc1234"]},
+    )
+
+    assert "error" not in result
+    assert call_order == ["put_object", "put_object_annotation", "put_vectors_batch"]
+
+
+@pytest.mark.asyncio
+async def test_write_with_link_fields_triggers_no_extra_embed_call(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """Supplying commit_refs/references triggers no additional Bedrock embed call — the
+    annotation write is metadata-only and never re-embeds (Story 1 AC)."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+    embed_spy = mocker.spy(bedrock, "embed")
+
+    await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        **{**_BASE_WRITE_KWARGS, "commit_refs": ["abc1234"], "references": ["a-1"]},
+    )
+
+    # _BASE_WRITE_KWARGS content has exactly 3 sections (Summary, Details, Action Items) —
+    # one embed call per section, and none extra for the annotation write.
+    assert embed_spy.call_count == 3
+
+
+@pytest.mark.asyncio
+async def test_tier3_overwrite_preserves_commit_refs_and_merges_references(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+) -> None:
+    """AC-60 (core test): a tier-3 overwrite must not lose commit_refs/references that
+    were accumulated on the artifact, even though the underlying PutObject clears S3
+    annotations. The overwrite here supplies only a new reference (no new commit_refs);
+    the prior commit_refs must be read forward and re-applied unchanged, and the
+    supplied reference must be unioned with the prior references."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+    tier3_kwargs = {**_BASE_WRITE_KWARGS, "tier": 3}
+
+    first = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        **{**tier3_kwargs, "commit_refs": ["abc1234"], "references": ["a-1"]},
+    )
+    artifact_id = first["artifact_id"]
+
+    # Sanity: the durable annotation copy exists after the first write.
+    assert s3_client.get_object_annotation(artifact_id, "commit_refs") == "abc1234"
+
+    result = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        overwrite=True,
+        **{
+            **tier3_kwargs,
+            "content": "## Summary\n\nUpdated content.",
+            "references": ["b-2"],
+        },
+    )
+
+    assert "error" not in result
+    assert result["artifact_id"] == artifact_id
+
+    # PutObject cleared the annotations; the write path must have read the prior values
+    # forward from vector metadata and re-applied them to both durable stores.
+    assert s3_client.get_object_annotation(artifact_id, "commit_refs") == "abc1234"
+    assert s3_client.get_object_annotation(artifact_id, "references") == "a-1,b-2"
+
+    keys = vectors_client.list_vectors_by_metadata({"artifact_id": {"$eq": artifact_id}})
+    entries = vectors_client.get_vectors(keys)
+    assert entries, "expected at least one vector for the overwritten artifact"
+    for entry in entries:
+        assert entry["metadata"]["commit_refs"] == ["abc1234"]
+        assert entry["metadata"]["references"] == ["a-1", "b-2"]
+
+
+@pytest.mark.asyncio
+async def test_tier2_explicit_overwrite_preserves_prior_link_fields(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+) -> None:
+    """The tier-2 explicit-replacement overwrite path (ADR-011 decision 4) also
+    preserves prior commit_refs/references — the same read-forward + merge applies
+    regardless of tier."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+
+    first = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        **{**_BASE_WRITE_KWARGS, "commit_refs": ["abc1234"]},
+    )
+    artifact_id = first["artifact_id"]
+
+    result = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        overwrite=True,
+        **{**_BASE_WRITE_KWARGS, "content": "## Summary\n\nUpdated content."},
+    )
+
+    assert "error" not in result
+    assert s3_client.get_object_annotation(artifact_id, "commit_refs") == "abc1234"
+
+    keys = vectors_client.list_vectors_by_metadata({"artifact_id": {"$eq": artifact_id}})
+    entries = vectors_client.get_vectors(keys)
+    for entry in entries:
+        assert entry["metadata"]["commit_refs"] == ["abc1234"]
+
+
+@pytest.mark.asyncio
+async def test_write_credential_error_from_annotation_write_is_structured(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """A CredentialError raised by put_object_annotation surfaces as a structured
+    credential_error including artifact_id — never a raw exception — and no vector
+    write is attempted."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+    mocker.patch.object(
+        s3_client,
+        "put_object_annotation",
+        side_effect=CredentialError("expired", "s3", Exception("boom")),
+    )
+    batch_spy = mocker.spy(vectors_client, "put_vectors_batch")
+
+    result = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        **{**_BASE_WRITE_KWARGS, "commit_refs": ["abc1234"]},
+    )
+
+    assert result["error"] == "credential_error"
+    assert "artifact_id" in result
+    assert batch_spy.call_count == 0
 
 
 # ---------------------------------------------------------------------------
