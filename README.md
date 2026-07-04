@@ -250,12 +250,13 @@ the correct update action automatically — no manual steps required.
 
 ## Skills
 
-Three skills, delivered via the plugin mechanisms above — no manual file copying needed.
+Four skills, delivered via the plugin mechanisms above — no manual file copying needed.
 
 | Skill | Purpose |
 |-------|---------|
 | `setting-up-cairn` | First-time project setup: validate AWS connectivity, configure your MCP client, write the AGENTS.md cairn config block |
 | `migrating-to-cairn` | One-time migration of existing documentation — run `setting-up-cairn` first |
+| `backfilling-references` | Optional, decoupled, dry-run-first: backfill unresolved `references` onto already-written artifacts via `link_metadata` |
 | `sync-cairn-plugin` | Keep skills current: detects your tool and applies the correct update action |
 
 ---
