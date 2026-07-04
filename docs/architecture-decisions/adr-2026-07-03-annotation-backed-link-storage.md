@@ -259,9 +259,23 @@ The line is drawn by **mutability, not by whether a field is "a reference"**: an
 
 ## Consequences
 
-- **Reconcile is lossless for link data (OQ2 resolved).** Any `reconcile_index` run rebuilds both
-  `commit_refs` and `references` into vector metadata from durable annotations. The ADR-009 "reconcile
-  drops commit links" limitation is closed and the corresponding PRD Known Limitation is superseded.
+- **Authority model: union-of-both stores (revised 2026-07-04, operator-approved).** The durable link
+  state is the **union (order-preserving dedup) of the annotation copy and the vector-metadata copy**,
+  applied on every read-forward AND on `reconcile_index` restore — neither store is sole authority and
+  no path ever *reduces* the fields. This revises the original "annotations are authoritative;
+  reconcile rebuilds from annotations only" framing, which the Phase 12 review (C5) found erased
+  vector-only fields: an annotation-unavailable deployment (T52 graceful degrade) writes link fields to
+  vectors only, and an annotations-only reconcile would drop them; a partial `link_metadata` dual-write
+  (annotation newer than vector) would be clobbered by a vector-only read-forward. Under the union rule,
+  `reconcile_index` restores `union(annotations, existing vector metadata)` and the write-path
+  read-forward reads the union of both stores, so single-store loss self-heals rather than propagating.
+  OQ2 (reconcile no longer drops link data) remains resolved, under this stronger rule.
+  **Residual accepted window:** a process crash *between* `put_object` (which clears annotations) and
+  the subsequent `apply_link_annotations`, occurring before the vector write, can lose that single
+  write's incremental link additions — there is no distributed transaction across the two AWS stores.
+  This narrow mid-write-crash window is accepted and not further mitigated; it never affects
+  already-persisted link data, which the union rule preserves. (The PRD Known Limitations / FR-54
+  "lossless" wording should be reconciled to this union framing in the docs pass — review M11.)
 
 - **`link_metadata` remains embedding-free and timestamp-neutral.** The dual-write adds an S3
   annotation operation but still makes zero Bedrock calls, does not mutate content, and does not shift

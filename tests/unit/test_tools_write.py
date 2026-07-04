@@ -3290,3 +3290,58 @@ async def test_overwrite_merged_commit_refs_under_budget_still_succeeds(
     entries = vectors_client.get_vectors(keys)
     for entry in entries:
         assert entry["metadata"]["commit_refs"] == ["abc1234", "def5678"]
+
+
+# ---------------------------------------------------------------------------
+# C5(b) (Phase 12 review) — union-of-both-stores authority model
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_overwrite_read_forward_preserves_annotation_only_value(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+) -> None:
+    """C5(b) RED: after a partial dual-write (e.g. an out-of-band ``link_metadata`` call)
+    leaves the annotation copy ahead of the vector copy — the annotation holds a value
+    vector metadata lacks — a tier-3 overwrite's Step 4a read-forward must preserve the
+    union of both stores. Before the fix, Step 4a sourced the existing link fields from
+    vector metadata only, so the annotation-only value was silently dropped: PutObject
+    wipes the S3 annotation, and the read-forward never saw the value to re-apply it.
+    """
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+    tier3_kwargs = {**_BASE_WRITE_KWARGS, "tier": 3}
+
+    first = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        **{**tier3_kwargs, "commit_refs": ["abc1234"]},
+    )
+    assert "error" not in first
+    artifact_id = first["artifact_id"]
+
+    # Simulate a partial dual-write: an out-of-band annotation update succeeded, but the
+    # paired vector-metadata update did not — the annotation copy now holds a value
+    # ("def5678") the vector copy lacks.
+    s3_client.put_object_annotation(artifact_id, "commit_refs", "abc1234,def5678")
+
+    result = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        overwrite=True,
+        **{**tier3_kwargs, "content": "## Summary\n\nUpdated content."},
+    )
+
+    assert "error" not in result
+    keys = vectors_client.list_vectors_by_metadata({"artifact_id": {"$eq": artifact_id}})
+    entries = vectors_client.get_vectors(keys)
+    assert entries, "expected at least one vector for the overwritten artifact"
+    for entry in entries:
+        assert entry["metadata"]["commit_refs"] == ["abc1234", "def5678"]
+    assert s3_client.get_object_annotation(artifact_id, "commit_refs") == "abc1234,def5678"

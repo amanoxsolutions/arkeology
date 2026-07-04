@@ -14,7 +14,7 @@ from typing import Any
 from pydantic import ValidationError
 from ulid import ULID
 
-from cairn_mcp.annotations import apply_link_annotations
+from cairn_mcp.annotations import apply_link_annotations, read_current_link_fields
 from cairn_mcp.artifact import (
     Artifact,
     check_metadata_budgets,
@@ -173,41 +173,6 @@ def _record_partial_write(
         "message": f"{reason} — failure recorded in {settings.failure_log_path}",
         "artifact_id": artifact_id,
     }
-
-
-def _read_forward_link_fields(
-    vectors: VectorsClientInterface, s3_key: str
-) -> tuple[list[str], list[str]]:
-    """Read the current ``commit_refs`` / ``references`` from vector metadata.
-
-    Used only on an overwriting write to recover the values ``PutObject`` is about to
-    clear from the S3 annotations (ADR-011 decision 4). Vector metadata is unaffected
-    by ``PutObject`` and is the simpler of the two equally-valid durable sources
-    (ADR-011 D14) — mirrors the pattern already used by ``read_artifact``.
-
-    Args:
-        vectors: S3 Vectors client.
-        s3_key: The artifact's S3 key (== vector metadata ``artifact_id``).
-
-    Returns:
-        ``(commit_refs, references)`` — each ``[]`` when no vectors are indexed for
-        this key yet, or when the field is absent from the fetched metadata.
-
-    Raises:
-        CredentialError: If credentials are invalid or expired.
-    """
-    keys = vectors.list_vectors_by_metadata({"artifact_id": {"$eq": s3_key}})
-    if not keys:
-        return [], []
-    entries = vectors.get_vectors([keys[0]])
-    if not entries:
-        return [], []
-    metadata = entries[0].get("metadata", {})
-    raw_commit_refs = metadata.get("commit_refs", [])
-    raw_references = metadata.get("references", [])
-    commit_refs = [str(r) for r in raw_commit_refs] if isinstance(raw_commit_refs, list) else []
-    references = [str(r) for r in raw_references] if isinstance(raw_references, list) else []
-    return commit_refs, references
 
 
 async def write_artifact(
@@ -473,16 +438,19 @@ async def _write_artifact_inner(  # noqa: PLR0913
     # ── Step 4a: Read-forward + merge link fields on an overwriting write (ADR-011 D4) ──
     # PutObject clears S3 annotations, so an in-place re-PUT (a tier-3 living-document
     # update, or an explicit tier-2 replacement) would otherwise silently lose the
-    # accumulated commit_refs/references trail. Read the current values forward from
-    # vector metadata — unaffected by PutObject and the simpler of the two equally-valid
-    # durable sources (ADR-011 D14) — and merge them with the values supplied to this
-    # write (union, dedup, order-preserving) before either store is touched. A fresh
-    # write (is_existing is False) or a rejected overwrite has nothing to merge.
+    # accumulated commit_refs/references trail. Read the current values forward as the
+    # union of both durable stores (Phase 12 review C5/M6 — neither the annotation copy
+    # nor the vector-metadata copy is sole authority; see
+    # ``annotations.read_current_link_fields``) and merge them with the values supplied
+    # to this write (union, dedup, order-preserving) before either store is touched. A
+    # fresh write (is_existing is False) or a rejected overwrite has nothing to merge.
     final_commit_refs = refs
     final_references = references
     if is_existing and overwrite:
         try:
-            existing_commit_refs, existing_references = _read_forward_link_fields(vectors, s3_key)
+            existing_commit_refs, existing_references = read_current_link_fields(
+                s3, vectors, s3_key
+            )
         except CredentialError as exc:
             return {
                 "error": ErrorCode.CREDENTIAL_ERROR,

@@ -667,6 +667,96 @@ async def test_failure_log_replay_and_orphan_scan_both_restore(
 
 
 # ---------------------------------------------------------------------------
+# C5(a) / M6 (Phase 12 review) — union-of-both-stores authority model
+# ---------------------------------------------------------------------------
+
+
+async def test_reindex_from_failure_log_preserves_vector_only_link_fields(
+    reconcile_settings: Settings,
+    s3_reconcile: S3ClientImpl,
+    vectors_reconcile: VectorsClientImpl,
+) -> None:
+    """C5(a) RED: an artifact whose commit_refs/references live ONLY in vector metadata
+    (e.g. a T52 annotation-unavailable deployment, where the annotation write degraded
+    but the vector write still carried the fields) must survive a reconcile re-index
+    with those fields intact. Re-index is forced here via a failure-log entry so
+    ``_reindex_artifact`` runs even though a vector is already indexed. Before the fix,
+    reconcile read annotations only (empty, since none were ever written), and
+    overwrote vector metadata from that — erasing the only durable copy of the fields.
+    """
+    artifact_id = "artifacts/implementation-note-2026-01-01-vector-only-links"
+    s3_reconcile.put_object(artifact_id, _CONTENT_NO_SECTIONS, {**_BASE_S3_META})
+    # No apply_link_annotations call — simulates an annotation-unavailable deployment.
+    vectors_reconcile.put_vector(
+        artifact_id,
+        [0.1] * DIMENSION,
+        {
+            "artifact_id": artifact_id,
+            "scope": reconcile_settings.write_prefix,
+            "type": "implementation_note",
+            "commit_refs": ["abc123"],
+            "references": ["implementation-note-2026-01-01-other"],
+        },
+    )
+    _write_failure_log(
+        reconcile_settings.failure_log_path,
+        [{**_BASE_LOG_ENTRY, "artifact_id": artifact_id}],
+    )
+    bedrock = FakeBedrockClient(dimension=DIMENSION)
+
+    result = await reconcile_index(
+        settings=reconcile_settings,
+        s3=s3_reconcile,
+        vectors=vectors_reconcile,
+        bedrock=bedrock,
+    )
+
+    assert "error" not in result
+    keys = vectors_reconcile.list_vectors_by_metadata({"artifact_id": {"$eq": artifact_id}})
+    items = vectors_reconcile.get_vectors(keys)
+    assert items, "reconcile should have re-indexed vectors for the artifact"
+    vmeta = items[0]["metadata"]
+    assert vmeta.get("commit_refs") == ["abc123"]
+    assert vmeta.get("references") == ["implementation-note-2026-01-01-other"]
+
+
+async def test_reindex_credential_error_from_annotation_read_propagates(
+    reconcile_settings: Settings,
+    s3_reconcile: S3ClientImpl,
+    vectors_reconcile: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """M6 RED: a CredentialError raised while reading link annotations during reconcile
+    must propagate as a structured credential_error and abort the run — not be silently
+    swallowed by a bare ``except Exception``, which would otherwise re-index every
+    remaining artifact without its commit_refs/references and report success."""
+    artifact_id = "artifacts/implementation-note-2026-01-01-cred-error"
+    s3_reconcile.put_object(artifact_id, _CONTENT_NO_SECTIONS, {**_BASE_S3_META})
+    _write_failure_log(
+        reconcile_settings.failure_log_path,
+        [{**_BASE_LOG_ENTRY, "artifact_id": artifact_id}],
+    )
+    mocker.patch.object(
+        s3_reconcile,
+        "get_object_annotation",
+        side_effect=CredentialError("expired", "s3", Exception("boom")),
+    )
+    bedrock = FakeBedrockClient(dimension=DIMENSION)
+
+    result = await reconcile_index(
+        settings=reconcile_settings,
+        s3=s3_reconcile,
+        vectors=vectors_reconcile,
+        bedrock=bedrock,
+    )
+
+    assert result.get("error") == "credential_error"
+    # The artifact must not have been silently re-indexed without its link fields.
+    keys = vectors_reconcile.list_vectors_by_metadata({"artifact_id": {"$eq": artifact_id}})
+    assert keys == []
+
+
+# ---------------------------------------------------------------------------
 # Response structure
 # ---------------------------------------------------------------------------
 
