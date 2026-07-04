@@ -11,7 +11,7 @@ from pytest_mock import MockerFixture
 from cairn_mcp.clients.s3 import S3ClientImpl
 from cairn_mcp.clients.vectors import VectorsClientImpl
 from cairn_mcp.config import Settings
-from cairn_mcp.errors import CredentialError
+from cairn_mcp.errors import AnnotationUnavailableError, CredentialError
 from cairn_mcp.tools.archive import archive_artifact
 from tests.unit.conftest import _make_settings as _make_settings_base
 
@@ -723,3 +723,147 @@ async def test_archive_already_inactive_makes_no_writes(
     assert spy_put_vec.call_count == 0
     assert len(s3_client.list_objects("")) == count_before_s3
     assert len(vectors_client_2.list_vectors_by_metadata({})) == count_before_vec
+
+
+# ---------------------------------------------------------------------------
+# Phase 12 review C2 — annotation preservation across the archive status re-PUT
+# ---------------------------------------------------------------------------
+#
+# archive_artifact flips status by re-PUTting the S3 object. PutObject clears an
+# object's S3 annotations, so without a read-forward / re-apply step the durable
+# commit_refs/references annotation trail (ADR-011) is silently destroyed. These
+# tests assert the read-forward + re-apply invariant holds, mirroring write.py's
+# Step 4a/4b pattern and its AnnotationUnavailableError graceful degrade.
+
+
+async def test_archive_preserves_commit_refs_and_references_annotations(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+) -> None:
+    """Archiving an artifact that has durable commit_refs/references annotations
+    must preserve both annotations intact — the status re-PUT must not silently
+    wipe the annotation trail (Phase 12 review C2)."""
+    settings = _make_settings(monkeypatch)
+    _seed_all(s3_client, vectors_client_2)
+    s3_client.put_object_annotation("artifacts/active-review", "commit_refs", "abc1234,def5678")
+    s3_client.put_object_annotation("artifacts/active-review", "references", "artifacts/some-adr")
+
+    result = await archive_artifact(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=None,
+        artifact_id="artifacts/active-review",
+    )
+
+    assert "error" not in result
+    assert result["status"] == "inactive"
+    assert (
+        s3_client.get_object_annotation("artifacts/active-review", "commit_refs")
+        == "abc1234,def5678"
+    )
+    assert (
+        s3_client.get_object_annotation("artifacts/active-review", "references")
+        == "artifacts/some-adr"
+    )
+
+
+async def test_archive_preserves_link_fields_sourced_from_vector_metadata_only(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+) -> None:
+    """When commit_refs/references exist only in vector metadata (no annotation —
+    e.g. an annotation-unavailable deployment per T52), archiving must still
+    re-apply them as the durable annotation copy, per the union-of-both-stores
+    authority model (read_current_link_fields, C5)."""
+    settings = _make_settings(monkeypatch)
+    _seed_all(s3_client, vectors_client_2)
+    vectors_client_2.put_vector(
+        "artifacts/active-review#summary",
+        [1.0, 0.0],
+        {
+            **_BASE_VECTOR_META,
+            "artifact_id": "artifacts/active-review",
+            "status": "active",
+            "commit_refs": ["abc1234"],
+        },
+    )
+
+    result = await archive_artifact(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=None,
+        artifact_id="artifacts/active-review",
+    )
+
+    assert "error" not in result
+    assert result["status"] == "inactive"
+    assert s3_client.get_object_annotation("artifacts/active-review", "commit_refs") == "abc1234"
+
+
+async def test_archive_annotation_unavailable_still_succeeds_with_warning(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """An AnnotationUnavailableError raised while re-applying link annotations after
+    the status re-PUT must never fail the archive (ADR-011 decision 5, mirroring the
+    write path's graceful degrade): the artifact is still archived and the response
+    carries a warning instead of an error."""
+    settings = _make_settings(monkeypatch)
+    _seed_all(s3_client, vectors_client_2)
+    s3_client.put_object_annotation("artifacts/active-review", "commit_refs", "abc1234")
+    mocker.patch.object(
+        s3_client,
+        "put_object_annotation",
+        side_effect=AnnotationUnavailableError(
+            "S3 object annotations are unavailable for this bucket.", "s3", Exception("boom")
+        ),
+    )
+
+    result = await archive_artifact(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=None,
+        artifact_id="artifacts/active-review",
+    )
+
+    assert "error" not in result
+    assert result["status"] == "inactive"
+    assert result.get("annotation_warning")
+
+
+async def test_archive_annotation_credential_error_aborts(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """A CredentialError raised while re-applying link annotations after the status
+    re-PUT still aborts the archive with a structured credential error, unlike the
+    AnnotationUnavailableError graceful degrade."""
+    settings = _make_settings(monkeypatch)
+    _seed_all(s3_client, vectors_client_2)
+    s3_client.put_object_annotation("artifacts/active-review", "commit_refs", "abc1234")
+    spy_put_vec = mocker.spy(vectors_client_2, "put_vector")
+    mocker.patch.object(
+        s3_client,
+        "put_object_annotation",
+        side_effect=CredentialError(message="Simulated.", service="s3", original=Exception("sim")),
+    )
+
+    result = await archive_artifact(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=None,
+        artifact_id="artifacts/active-review",
+    )
+
+    assert result.get("error") == "credential_error"
+    assert spy_put_vec.call_count == 0
