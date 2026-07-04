@@ -10,7 +10,7 @@ import logging
 import botocore.exceptions
 import pytest
 
-from cairn_mcp.artifact import S3_USER_METADATA_MAX_BYTES
+from cairn_mcp.artifact import S3_USER_METADATA_MAX_BYTES, VECTOR_FILTERABLE_METADATA_MAX_BYTES
 from cairn_mcp.clients.fakes.fake_bedrock import FakeBedrockClient
 from cairn_mcp.clients.s3 import S3ClientImpl
 from cairn_mcp.clients.vectors import VectorsClientImpl
@@ -3165,3 +3165,128 @@ async def test_non_ascii_title_written_and_read_back_via_vector_metadata(
     keys = vectors_client.list_vectors_by_metadata({"artifact_id": {"$eq": artifact_id}})
     entries = vectors_client.get_vectors(keys)
     assert entries[0]["metadata"]["title"] == "日本語のタイトル"
+
+
+# ---------------------------------------------------------------------------
+# C4 (Phase 12 review) — T55 budget re-check must cover the T47 read-forward
+# merge on an overwrite. Step 3c only measures the *supplied* commit_refs/
+# references; the Step 4a merge unions them with the values already indexed
+# in vector metadata and can push the enlarged list past the 2 KB filterable
+# budget with no re-check in between — reintroducing the exact deterministic
+# partial-write / failure-log-replay loop T55 exists to prevent.
+# ---------------------------------------------------------------------------
+
+# Each list is comfortably under VECTOR_FILTERABLE_METADATA_MAX_BYTES (2048) on
+# its own once combined with the artifact's other filterable fields, but their
+# union is not — this isolates the missing post-merge re-check rather than
+# re-testing the pre-merge Step 3c guard already covered above.
+_LINK_FIELD_ITEM_LEN = 40
+_LINK_FIELD_ITEM_COUNT = 22
+
+
+def _make_link_field_batch(prefix: str) -> list[str]:
+    """Build a list of unique commit-ref-shaped strings for budget-breach tests."""
+    return [f"{prefix}{i:04d}" + "x" * _LINK_FIELD_ITEM_LEN for i in range(_LINK_FIELD_ITEM_COUNT)]
+
+
+@pytest.mark.asyncio
+async def test_overwrite_merged_commit_refs_exceeding_filterable_budget_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    tmp_path: pytest.TempPathFactory,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """C4: a tier-3 overwrite whose *supplied* commit_refs pass the pre-merge Step 3c
+    check, but whose union with the *already-indexed* commit_refs (read forward by
+    Step 4a) breaches the vector filterable-metadata budget, must be rejected with
+    validation_error — with NO put_object, NO put_vectors_batch, and NO failure-log
+    entry on the overwrite attempt. The original artifact and vectors must be left
+    completely untouched.
+    """
+    log_path = tmp_path / "failures.jsonl"
+    settings = _make_settings(monkeypatch, FAILURE_LOG_PATH=str(log_path))
+    bedrock = FakeBedrockClient(dimension=1024)
+    tier3_kwargs = {**_BASE_WRITE_KWARGS, "tier": 3}
+
+    existing_refs = _make_link_field_batch("a")
+    new_refs = _make_link_field_batch("b")
+    # Sanity: each batch alone is under budget — the breach only appears after the union.
+    assert len(json.dumps(existing_refs).encode("utf-8")) < VECTOR_FILTERABLE_METADATA_MAX_BYTES
+    assert len(json.dumps(new_refs).encode("utf-8")) < VECTOR_FILTERABLE_METADATA_MAX_BYTES
+
+    first = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        **{**tier3_kwargs, "commit_refs": existing_refs},
+    )
+    assert "error" not in first
+    artifact_id = first["artifact_id"]
+
+    put_spy = mocker.spy(s3_client, "put_object")
+    batch_spy = mocker.spy(vectors_client, "put_vectors_batch")
+
+    result = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        overwrite=True,
+        **{**tier3_kwargs, "content": "## Summary\n\nUpdated content.", "commit_refs": new_refs},
+    )
+
+    assert result.get("error") == "validation_error"
+    assert put_spy.call_count == 0
+    assert batch_spy.call_count == 0
+    assert not log_path.exists()
+
+    # The original artifact and its vector metadata are untouched by the rejected overwrite.
+    stored_content = s3_client.get_object(artifact_id)
+    assert "Updated content" not in stored_content
+    keys = vectors_client.list_vectors_by_metadata({"artifact_id": {"$eq": artifact_id}})
+    entries = vectors_client.get_vectors(keys)
+    assert entries, "expected the original vectors to remain indexed"
+    for entry in entries:
+        assert entry["metadata"]["commit_refs"] == existing_refs
+
+
+@pytest.mark.asyncio
+async def test_overwrite_merged_commit_refs_under_budget_still_succeeds(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+) -> None:
+    """C4 positive case: an overwrite whose merged (existing + supplied) commit_refs
+    stay under the filterable budget must still succeed — the post-merge re-check
+    must not reject writes that were always going to fit.
+    """
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+    tier3_kwargs = {**_BASE_WRITE_KWARGS, "tier": 3}
+
+    first = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        **{**tier3_kwargs, "commit_refs": ["abc1234"]},
+    )
+    assert "error" not in first
+    artifact_id = first["artifact_id"]
+
+    result = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        overwrite=True,
+        **{**tier3_kwargs, "content": "## Summary\n\nUpdated content.", "commit_refs": ["def5678"]},
+    )
+
+    assert "error" not in result
+    keys = vectors_client.list_vectors_by_metadata({"artifact_id": {"$eq": artifact_id}})
+    entries = vectors_client.get_vectors(keys)
+    for entry in entries:
+        assert entry["metadata"]["commit_refs"] == ["abc1234", "def5678"]

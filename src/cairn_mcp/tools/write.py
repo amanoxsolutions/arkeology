@@ -501,6 +501,20 @@ async def _write_artifact_inner(  # noqa: PLR0913
         else:
             vector_metadata.pop("references", None)
 
+        # ── Step 4a (cont.): re-check budgets after the merge enlarges vector_metadata ──
+        # Step 3c only measured the *supplied* commit_refs/references. The read-forward
+        # merge above can union them with values already indexed in vector metadata and
+        # push the vector filterable/total budgets over their limits even though the
+        # s3_metadata side is unaffected (commit_refs/references live in annotations, not
+        # S3 user metadata, post-T47). Re-check here — before any put_object or
+        # put_vectors_batch — so a breach is rejected with NO write and NO failure-log
+        # entry, matching the Step 3c guard exactly rather than reintroducing the
+        # deterministic partial-write / reconcile-replay loop T55 exists to prevent.
+        try:
+            check_metadata_budgets(encoded_s3_metadata, vector_metadata)
+        except MetadataTooLargeError as exc:
+            return {"error": ErrorCode.VALIDATION_ERROR, "message": str(exc)}
+
     try:
         s3.put_object(s3_key, content, s3_metadata, if_none_match=not overwrite)
     except ArtifactCollisionError:
