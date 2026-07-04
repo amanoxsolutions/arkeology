@@ -488,7 +488,7 @@ Before moving to 3.B5, validate that every `status: pending` entry has all requi
 fields populated. Run from the repo root (where `CAIRN_IMPORT.yaml` lives):
 
 ```bash
-uv run skills/migrating-to-cairn/scripts/validate_manifest.py
+uv run plugins/cairn-mcp/skills/migrating-to-cairn/scripts/validate_manifest.py
 ```
 
 If the script reports errors, show them to the operator and wait for the manifest to

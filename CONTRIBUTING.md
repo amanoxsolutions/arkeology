@@ -105,7 +105,7 @@ a public function that wraps an `_inner` variant in `try/except Exception`.
 
 ## Adding a new skill
 
-Skills live in `skills/<skill-name>/SKILL.md`. Each skill must have a YAML frontmatter
+Skills live in `plugins/cairn-mcp/skills/<skill-name>/SKILL.md`. Each skill must have a YAML frontmatter
 block with `name` and `description` fields. If the `description` value contains `: `
 (colon-space), it must be wrapped in double quotes — the Go YAML parser used by
 `gh skill install` rejects unquoted colon-space values.
