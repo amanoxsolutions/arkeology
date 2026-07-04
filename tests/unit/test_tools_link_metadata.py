@@ -793,6 +793,120 @@ async def test_link_metadata_put_vectors_batch_credential_error(
     assert result.get("error") == "credential_error"
 
 
+# ---------------------------------------------------------------------------
+# Story 6 — C3 fix: union read + only-touch-supplied-fields (Phase 12 review)
+# ---------------------------------------------------------------------------
+
+
+async def test_link_metadata_only_references_supplied_preserves_annotation_only_commit_refs(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+) -> None:
+    """C3: commit_refs exists ONLY as an S3 annotation (the partial-write state — the
+    vector write of a prior link_metadata call failed after the annotation write
+    succeeded). Supplying ONLY references on a subsequent call must leave the
+    commit_refs annotation intact rather than deleting it (the vector-only read this
+    fix replaces would see no commit_refs, merge in nothing, and apply_link_annotations
+    would then delete the annotation since the merged list is empty)."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient()
+    _seed_all(s3_client, vectors_client_2)
+
+    # Simulate the partial-write state: annotation written, vector metadata never
+    # updated (no commit_refs key in vector metadata for artifact-own-A).
+    s3_client.put_object_annotation(ID_A, "commit_refs", "orphan-sha")
+
+    result = await link_metadata(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=bedrock,
+        artifact_ids=[ID_A],
+        references=["a-1"],
+    )
+
+    assert result.get("linked") == 1
+    # The commit_refs annotation must survive — not be deleted just because
+    # commit_refs was never supplied to this call.
+    assert s3_client.get_object_annotation(ID_A, "commit_refs") == "orphan-sha"
+    # The supplied field is applied as normal.
+    assert s3_client.get_object_annotation(ID_A, "references") == "a-1"
+
+
+async def test_link_metadata_idempotent_supply_preserves_other_fields_annotation_only_value(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+) -> None:
+    """C3: re-supplying a commit_refs value already fully present in both stores is
+    idempotent, and must not disturb a references value that exists only as an
+    annotation (references was never supplied to this call)."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient()
+    _seed_all(s3_client, vectors_client_2)
+
+    # artifact-own-B already has commit_refs=["prev123"] in vector metadata (seeded).
+    # Bring the annotation copy fully in sync, and add a references value that is
+    # annotation-only (not indexed in vector metadata).
+    s3_client.put_object_annotation(ID_B, "commit_refs", "prev123")
+    s3_client.put_object_annotation(ID_B, "references", "ref-xyz")
+
+    result = await link_metadata(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=bedrock,
+        artifact_ids=[ID_B],
+        commit_refs=["prev123"],
+    )
+
+    assert result.get("linked") == 1
+
+    # commit_refs unchanged (idempotent re-supply of an already-present value).
+    items = vectors_client_2.get_vectors([KEY_B])
+    assert items[0]["metadata"]["commit_refs"] == ["prev123"]
+    assert s3_client.get_object_annotation(ID_B, "commit_refs") == "prev123"
+
+    # references annotation, never supplied to this call, must survive untouched.
+    assert s3_client.get_object_annotation(ID_B, "references") == "ref-xyz"
+
+
+async def test_link_metadata_union_read_heals_vector_copy_missing_annotation_value(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+) -> None:
+    """C3: the union read heals a state where the annotation holds a commit_refs value
+    the vector copy lacks — after linking a new value, the vector metadata must contain
+    BOTH the pre-existing annotation-only value and the newly supplied one."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient()
+    _seed_all(s3_client, vectors_client_2)
+
+    # Annotation-only state: "old-sha" lives only in the annotation, not in vector
+    # metadata, for artifact-own-A.
+    s3_client.put_object_annotation(ID_A, "commit_refs", "old-sha")
+
+    result = await link_metadata(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=bedrock,
+        artifact_ids=[ID_A],
+        commit_refs=["new-sha"],
+    )
+
+    assert result.get("linked") == 1
+
+    # The vector copy is healed to include the annotation-only value, merged with
+    # the newly supplied one — neither store is treated as sole authority.
+    items = vectors_client_2.get_vectors([KEY_A1, KEY_A2])
+    for item in items:
+        assert item["metadata"]["commit_refs"] == ["old-sha", "new-sha"]
+    assert s3_client.get_object_annotation(ID_A, "commit_refs") == "old-sha,new-sha"
+
+
 async def test_link_metadata_linked_not_incremented_when_get_vectors_returns_empty(
     monkeypatch: pytest.MonkeyPatch,
     s3_client: S3ClientImpl,

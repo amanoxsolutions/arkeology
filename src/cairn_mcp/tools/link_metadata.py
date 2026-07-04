@@ -2,10 +2,13 @@
 
 Generalizes and supersedes ``link_commit`` (p10-t38): backfills ``commit_refs``
 and/or ``references`` onto existing own-scope artifacts by fetching the current
-vectors + embeddings, merging and deduplicating the supplied values into the
-existing ones, and dual-writing the result — durable S3 annotations first
-(``apply_link_annotations``), then vector metadata second, reusing each
-vector's existing float32 embedding unchanged (ADR-011, T49).
+vectors + embeddings, reading the current link-field state as the union of both
+durable stores (``annotations.read_current_link_fields`` — Phase 12 review C3/C5;
+neither the S3 annotation copy nor the vector-metadata copy is sole authority),
+merging and deduplicating the supplied values into that union, and dual-writing
+the result — durable S3 annotations first (``apply_link_annotations``), then
+vector metadata second, reusing each vector's existing float32 embedding
+unchanged (ADR-011, T49).
 
 No Bedrock call is made, no artifact content is mutated, and
 ``last_edited_ulid`` is never touched. If the vector write fails after the
@@ -25,7 +28,7 @@ from typing import Any
 
 from ulid import ULID
 
-from cairn_mcp.annotations import apply_link_annotations
+from cairn_mcp.annotations import apply_link_annotations, read_current_link_fields
 from cairn_mcp.clients.interfaces import (
     BedrockClientInterface,
     S3ClientInterface,
@@ -38,26 +41,20 @@ from cairn_mcp.errors import AnnotationUnavailableError, CredentialError
 logger = logging.getLogger(__name__)
 
 
-def _merge_link_field(existing: Any, supplied: list[str]) -> list[str]:
+def _merge_link_field(existing: list[str], supplied: list[str]) -> list[str]:
     """Merge ``supplied`` values into ``existing``, deduplicating and order-preserving.
 
     Args:
-        existing: The current value of the field as read from vector metadata —
-            normally a ``list[str]``, but tolerated as a comma-joined string or
-            ``None``/absent for robustness.
+        existing: The current value of the field — the order-preserving dedup union
+            of both durable stores (``annotations.read_current_link_fields``), so
+            neither store is treated as sole authority (Phase 12 review C3/C5).
         supplied: The values requested by this call (may be empty, in which case
             the existing value is returned unchanged, only deduplicated).
 
     Returns:
         The merged, deduplicated, order-preserving list.
     """
-    if isinstance(existing, list):
-        current = [str(v) for v in existing]
-    elif existing:
-        current = [v for v in str(existing).split(",") if v]
-    else:
-        current = []
-    return list(dict.fromkeys(current + supplied))
+    return list(dict.fromkeys(existing + supplied))
 
 
 async def link_metadata(
@@ -163,16 +160,18 @@ async def _link_metadata_inner(
                 skipped += 1
                 continue
 
-            # ── Merge + dedup per field. All section vectors of an artifact
-            # carry identical link-field metadata, so the first item's metadata
-            # is the canonical existing state. ────────────────────────────────
-            existing_meta = items[0]["metadata"]
-            merged_commit_refs = _merge_link_field(
-                existing_meta.get("commit_refs"), supplied_commit_refs
+            # ── Read-forward the current state as the union of BOTH durable stores
+            # (Phase 12 review C3/C5) — never vector metadata alone. A vector-only
+            # read misses a value that lives only in the S3 annotation (e.g. a prior
+            # link_metadata call whose annotation write succeeded but whose vector
+            # write failed), and merging supplied=[] against that missing value would
+            # make the apply_link_annotations call below delete the annotation instead
+            # of healing it. See ``annotations.read_current_link_fields``. ──────────
+            existing_commit_refs, existing_references = read_current_link_fields(
+                s3, vectors, artifact_id
             )
-            merged_references = _merge_link_field(
-                existing_meta.get("references"), supplied_references
-            )
+            merged_commit_refs = _merge_link_field(existing_commit_refs, supplied_commit_refs)
+            merged_references = _merge_link_field(existing_references, supplied_references)
 
             # ── Durable annotation write FIRST (ADR-011) ──────────────────────
             apply_link_annotations(
