@@ -34,8 +34,9 @@ revised:
 
 ## TL;DR
 
-Add `references: list[str]` as a first-class `Artifact` field holding resolved bare artifact
-identifiers, following the exact `commit_refs` / `source_artifacts` plumbing. It is accepted at
+Add `references: list[str]` as a first-class `Artifact` field holding resolved full S3 keys (the
+operative `artifact_id` — see review finding C1), following the exact `commit_refs` /
+`source_artifacts` plumbing. It is accepted at
 write time, stored as `list[str]` in vector metadata (durable annotation storage is added in T47),
 surfaced in `write_artifact`, `read_artifact`, and `list_artifacts` responses, and queryable via a
 new `references` list-membership filter with AND semantics. Absent/legacy `references` returns `[]`.
@@ -115,9 +116,10 @@ An agent writes an artifact with `references=["adr-use-postgres-abc12345"]`; rea
 ## Boundaries
 
 **Always:**
-- `references` holds **only resolved bare `artifact_id` values** — no `cairn://` prefix, no path text
-  (ADR-012 D2). Validation of resolvability is out of scope (a `references` entry can only ever be a
-  real cairn artifact — no cross-scope validation, ADR-012 "closed as not applicable").
+- `references` holds **only resolved full S3 keys (the operative `artifact_id`, review finding
+  C1)** — no `cairn://` prefix, no path text (ADR-012 D2). Validation of resolvability is out of
+  scope (a `references` entry can only ever be a real cairn artifact — no cross-scope validation,
+  ADR-012 "closed as not applicable").
 - Encoding mirrors `commit_refs` exactly: `list[str]` in vector metadata, key omitted when empty.
 - `references` is read from **vector metadata** in `read_artifact` / `list_artifacts` (consistent
   with how `commit_refs` is surfaced today) — NOT from S3 user-defined metadata.

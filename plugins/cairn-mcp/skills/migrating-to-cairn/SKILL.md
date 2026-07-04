@@ -20,10 +20,12 @@ classification steps, the file count determines which path to follow:
   review server-generated descriptions before committing, then executes with `dry_run=False`.
 
 Both paths additionally resolve frontmatter `references:` entries against a
-single, full-manifest path→`artifact_id` map before any file is written, and
+single, full-manifest path→full-key map before any file is written, and
 rewrite resolved entries in stored content to `cairn://artifact/{id}` — see
-"Building the path→artifact_id map" under Step 3. This is orthogonal to the
-≤ 10 / > 10 file-count branch.
+"Building the path→full-key map" under Step 3. The map's values are the full S3
+key (`{write_prefix}/{bare_id}{extension}`), not the bare id alone — this is the
+operative `artifact_id` used everywhere else in cairn-mcp (review finding C1).
+This is orthogonal to the ≤ 10 / > 10 file-count branch.
 
 ## Workflow
 
@@ -178,18 +180,45 @@ Wait for operator confirmation of the table before continuing.
 
 ---
 
-### Building the path→artifact_id map (ADR-012 D4)
+### Determining `write_prefix` (review finding C1)
+
+The map built below must produce the **full S3 key** for each file, not a bare
+identifier — the full S3 key (`{write_prefix}/{bare_id}{extension}`) is the operative
+`artifact_id` everywhere else in cairn-mcp: it's what `write_artifact` stores as the
+vector `artifact_id`, what `read_artifact`'s scope gate expects, and what the
+`referenced_by` reverse lookup matches on. A map keyed to the bare id alone resolves
+to nothing on any of those surfaces. Determine `write_prefix` once, before building
+the map:
+
+1. **If any own-scope artifact already exists**, call `list_artifacts(team=<team>,
+   project=<project>)` (from the `cairn-mcp:config` block, Step 2 pre-flight). Take
+   any returned entry's `artifact_id`, `type`, `tier`, `title`, and `date`, compute
+   that entry's *bare* id with the script below, and strip the trailing
+   `/{bare_id}{extension}` from `artifact_id` — what remains is `write_prefix`. Use
+   this value; it is authoritative because it came from a real write.
+2. **If no own-scope artifact exists yet** (first-ever migration into a fresh
+   deployment), there is nothing to derive `write_prefix` from — ask the operator
+   directly: "What is this deployment's configured `WRITE_PREFIX`? (Check the MCP
+   server's `.env` or client config — by convention it is `<team>/<project>`, e.g.
+   `myteam/myproject`, per the `setting-up-cairn` skill, but confirm the exact value
+   rather than assuming it.)" Use the operator-confirmed value for the rest of this
+   run.
+
+Never guess `write_prefix` silently — an incorrect value produces `references`
+entries and rewritten `cairn://` links that look plausible but never resolve.
+
+### Building the path→full-key map (ADR-012 D4, C1)
 
 Applies to both Step 3.A and Step 3.B. Before either path writes anything, build a
-single, authoritative path→`artifact_id` map covering **every** confirmed file —
+single, authoritative path→full-key map covering **every** confirmed file —
 including files from a resumed manifest (Step 2a) that already carry
 `status: written` or `status: failed`, not just the files this run is about to
-process. Because artifact IDs are deterministic (never random or UUID-based), a
-file's future identifier is computable as soon as its `type`, `tier`, `title`, and
-`date` are known — with no dependency on write order. This is what makes both
-same-batch forward references (a file referencing a sibling scheduled later in this
-batch) and multi-session forward references (a file referencing a sibling migrated
-in an earlier or later session) resolve correctly.
+process. Because bare artifact ids are deterministic (never random or UUID-based), a
+file's future full key is computable as soon as its `type`, `tier`, `title`, `date`,
+and this deployment's `write_prefix` (above) are known — with no dependency on write
+order. This is what makes both same-batch forward references (a file referencing a
+sibling scheduled later in this batch) and multi-session forward references (a file
+referencing a sibling migrated in an earlier or later session) resolve correctly.
 
 For each confirmed file, determine (same extraction rules used in 3.A1 / 3.B1 —
 re-read the first 150 lines if the title/date is not already known from a prior
@@ -198,8 +227,11 @@ manifest entry):
 - `title` — OKF frontmatter `title:` → first `# H1` heading → cleaned filename.
 - `date` — OKF frontmatter `timestamp:` / `authored.date:` → `YYYY-MM-DD` in the
   filename → `git log` → today's date as fallback.
+- `extension` — the file's own extension including the dot (e.g. `.md`); default
+  `.md` if the file has no extension (same default `write_artifact`'s
+  `file_extension` parameter uses).
 
-Compute each file's `artifact_id` using this exact deterministic scheme — the same
+Compute each file's full key using this exact deterministic scheme — the same
 algorithm implemented and unit-tested as `generate_artifact_id` /
 `build_path_to_id_map` in `src/cairn_mcp/references.py`, the authoritative
 reference implementation:
@@ -213,17 +245,21 @@ reference implementation:
 3. `title_hash` = the first 8 hex characters of `SHA-256(title)`, computed over the
    full, original, untruncated title — always appended, regardless of whether
    `title_slug` collided with another title's slug.
-4. Tier 3 (date-independent): `artifact_id = {type_slug}-{title_slug}-{title_hash}`.
-   Tier 2 (date-anchored): `artifact_id = {type_slug}-{date}-{title_slug}-{title_hash}`.
+4. Tier 3 (date-independent): `bare_id = {type_slug}-{title_slug}-{title_hash}`.
+   Tier 2 (date-anchored): `bare_id = {type_slug}-{date}-{title_slug}-{title_hash}`.
+5. `full_key = {write_prefix}/{bare_id}{extension}` — **this full key, not `bare_id`
+   alone, is the map's value and the operative `artifact_id`** (C1).
 
 A short script computes this exactly instead of doing it by hand — run once per
-file (`$TYPE`, `$TIER`, `$DATE`, `$TITLE` are that file's resolved values):
+file (`$TYPE`, `$TIER`, `$DATE`, `$TITLE`, `$EXTENSION`, `$WRITE_PREFIX` are that
+file's resolved values and this run's determined write prefix):
 
 ```bash
-python3 - "$TYPE" "$TIER" "$DATE" "$TITLE" <<'PY'
+python3 - "$TYPE" "$TIER" "$DATE" "$TITLE" "$EXTENSION" "$WRITE_PREFIX" <<'PY'
 import hashlib, re, sys, unicodedata
 
-type_, tier, date, title = sys.argv[1], int(sys.argv[2]), sys.argv[3], sys.argv[4]
+type_, tier, date, title, extension, write_prefix = sys.argv[1:7]
+tier = int(tier)
 
 def slugify(text, fallback):
     ascii_text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii")
@@ -233,16 +269,17 @@ def slugify(text, fallback):
 type_slug = type_.replace("_", "-")
 title_slug = slugify(title, "artifact")
 title_hash = hashlib.sha256(title.encode("utf-8")).hexdigest()[:8]
-artifact_id = (
+bare_id = (
     f"{type_slug}-{title_slug}-{title_hash}"
     if tier == 3
     else f"{type_slug}-{date}-{title_slug}-{title_hash}"
 )
-print(artifact_id)
+full_key = f"{write_prefix}/{bare_id}{extension}"
+print(full_key)
 PY
 ```
 
-Keep the resulting `{path: artifact_id}` map in memory for the rest of this
+Keep the resulting `{path: full_key}` map in memory for the rest of this
 migration run — it is not written to disk.
 
 ### Resolving a `references:` entry against the map
@@ -270,9 +307,11 @@ file being processed this run:
    - Convert backslashes (`\`) to forward slashes (`/`).
    - Then strip exactly one of: a leading `./`, a single leading `/`, or neither
      (whichever applies).
-4. **Match found** → add the resolved bare `artifact_id` to the artifact's
-   `references` field (T46) and rewrite that entry, in the stored content's
-   frontmatter `references:` list only, to `cairn://artifact/{id}`.
+4. **Match found** → add the resolved full S3 key (the operative `artifact_id`, C1)
+   to the artifact's `references` field (T46) and rewrite that entry, in the stored
+   content's frontmatter `references:` list only, to `cairn://artifact/{id}` (`{id}`
+   here is that same full key — it contains `/` from `write_prefix`, which the
+   `cairn://artifact/{id*}` resource template on the server is registered to accept).
 5. **No match** (absent from the map, excluded/never-migrated target, or a path
    that escapes the repo root, or that would only match after further repair
    beyond the join + bounded normalization above) → leave the entry's original
@@ -316,7 +355,7 @@ For each file, read its full content and build a descriptor:
 | `content` | **full file text — must not be empty** |
 | `tags` | from frontmatter only; omit if not present |
 | `description` | OKF frontmatter `description:` (if ≤ 280 chars use as-is; if > 280 chars truncate or rewrite to fit) → **write in-context, ≤ 280 chars** — be specific, mention decision/outcome/scope; avoid "This document describes…" preamble |
-| `references` | resolved bare `artifact_id`s only — see "Resolving `references:` entries" below; omit or leave empty if none resolve |
+| `references` | resolved full S3 keys (the operative `artifact_id`s, C1) only — see "Resolving `references:` entries" below; omit or leave empty if none resolve |
 | `file_extension` | source file extension including the dot (e.g. `.md`); default `.md` if the file has no extension |
 
 Git date commands:
@@ -331,13 +370,14 @@ git log --format="%ad" --date=short -1 -- <file>
 
 Every file in this batch has now had its `type`/`tier`/`title`/`date` determined
 above — this **is** the full manifest for a ≤ 10-file run, so it satisfies D4
-without any extra file reads. Build the path→`artifact_id` map per "Building the
-path→artifact_id map" (Step 3), then, for each file, extract its frontmatter
+without any extra file reads. Determine `write_prefix` per "Determining
+`write_prefix`" (Step 3) and build the path→full-key map per "Building the
+path→full-key map" (Step 3), then, for each file, extract its frontmatter
 `references:` list (already present in the `content` read above — no re-read
 needed) and resolve each entry per "Resolving a `references:` entry against the
 map" (Step 3): populate that file's descriptor `references` field with the
-resolved ids, and rewrite resolved entries in that file's `content` string (the
-frontmatter `references:` list only) to `cairn://artifact/{id}`. Keep a running
+resolved full S3 keys, and rewrite resolved entries in that file's `content` string
+(the frontmatter `references:` list only) to `cairn://artifact/{id}`. Keep a running
 list of unresolved entries (file + entry text) for the migration report in
 Step 4.
 
@@ -421,17 +461,18 @@ artifacts:
     # tags: ["search", "vectors"]
 ```
 
-### 3.B1b — Build the path→artifact_id map
+### 3.B1b — Build the path→full-key map
 
 Every entry now has a known `path` / `type` / `tier` / `title` / `date` — either
 just extracted above, or (on a resumed run, Step 2a) already present in the
-persisted manifest. Build the path→`artifact_id` map per "Building the
-path→artifact_id map" (Step 3) from **every** entry in `CAIRN_IMPORT.yaml`, not
-only the `status: pending` entries this run is about to write — a `status:
-written` entry from an earlier session must still be resolvable as a target for
-a reference discovered in this run (D4). Keep the map in memory; frontmatter
-`references:` resolution and content rewriting happen later, in 3.B5, when each
-file's full content is actually read for the first time.
+persisted manifest. Determine `write_prefix` per "Determining `write_prefix`"
+(Step 3) and build the path→full-key map per "Building the path→full-key map"
+(Step 3) from **every** entry in `CAIRN_IMPORT.yaml`, not only the `status:
+pending` entries this run is about to write — a `status: written` entry from an
+earlier session must still be resolvable as a target for a reference discovered
+in this run (D4). Keep the map in memory; frontmatter `references:` resolution
+and content rewriting happen later, in 3.B5, when each file's full content is
+actually read for the first time.
 
 ### 3.B2 — Operator review of manifest
 
@@ -521,12 +562,13 @@ generation is not triggered.
 file, extract its frontmatter `references:` list from the now-fully-read content
 and resolve each entry per "Resolving a `references:` entry against the map"
 (Step 3), using the map built in 3.B1b: populate the descriptor's `references`
-field with the resolved bare ids, and rewrite resolved entries in the file's full
-`content` (the frontmatter `references:` list only) to `cairn://artifact/{id}`.
-Keep a running list of unresolved entries (path + entry text) for the migration
-report in Step 4. If a file was already written in an earlier session
-(`status: written`), do not re-process it — content is rewritten only once, at
-first-write time, never retroactively.
+field with the resolved full S3 keys (the operative `artifact_id`s, C1), and
+rewrite resolved entries in the file's full `content` (the frontmatter
+`references:` list only) to `cairn://artifact/{id}`. Keep a running list of
+unresolved entries (path + entry text) for the migration report in Step 4. If a
+file was already written in an earlier session (`status: written`), do not
+re-process it — content is rewritten only once, at first-write time, never
+retroactively.
 
 Compute `artifact_concurrency = min(file_count, 15)`. Explain to the operator: in the
 write phase each concurrent artifact also runs up to `SECTION_CONCURRENCY` (default 5)

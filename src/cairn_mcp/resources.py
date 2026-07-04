@@ -5,7 +5,7 @@ function reads ``ARTIFACT_TYPES`` from the ``cairn_mcp.artifact`` module object 
 call-time so that monkey-patching in tests (and future schema changes) are reflected
 without restarting the server.
 
-Data resources (``cairn://artifact/{id}`` and ``cairn://artifacts``) require live AWS
+Data resources (``cairn://artifact/{id*}`` and ``cairn://artifacts``) require live AWS
 client references and are registered via ``register_data_resources``, called from
 ``server.py`` after clients are constructed.
 
@@ -79,7 +79,7 @@ def artifact_schema_content() -> str:
 | `author_role` | string | Role of the author (e.g. `"developer"`) |
 | `source_artifacts` | list[string] | Source IDs for a `synthesis` artifact |
 | `commit_refs` | list[string] | Git commit SHAs linked to this artifact via `link_metadata` |
-| `references` | list[string] | Resolved bare artifact IDs this artifact points at |
+| `references` | list[string] | Full S3 keys (the operative `artifact_id`) this artifact points at |
 
 ## System-generated fields
 
@@ -498,7 +498,7 @@ async def _artifact_resource_content(
     vectors: VectorsClientInterface | None,
     bedrock: BedrockClientInterface | None,
 ) -> tuple[str, str]:
-    """Fetch artifact content for the cairn://artifact/{id} resource.
+    """Fetch artifact content for the cairn://artifact/{id*} resource.
 
     Delegates entirely to ``read_artifact`` so the cross-scope gate is enforced
     without duplication.
@@ -535,7 +535,7 @@ async def _artifact_last_modified(
     Returns ``None`` when the artifact has no ``last_edited_ulid`` (annotation omitted).
 
     Intentionally retained though not wired into the resource handler: emitting a per-read
-    ``lastModified`` annotation on the ``cairn://artifact/{id}`` *template* resource is not
+    ``lastModified`` annotation on the ``cairn://artifact/{id*}`` *template* resource is not
     expressible in the pinned stack (FastMCP 3.4 + MCP SDK) — template annotations are static
     and ``TextResourceContents`` carries no ``annotations`` field. This helper keeps the
     (unit-tested) ULID→ISO conversion ready to wire in once the protocol supports it. See the
@@ -631,10 +631,14 @@ def register_data_resources(
 
     Registers two resources with ``audience: ["user"]`` annotations:
 
-    - ``cairn://artifact/{id}`` — URI template; returns full markdown content of
-      a named artifact, applying the same cross-scope gate as ``read_artifact``.
-      Includes a ``lastModified`` annotation derived from ``last_edited_ulid`` when
-      present.
+    - ``cairn://artifact/{id*}`` — URI template; returns full markdown content of
+      a named artifact, applying the same cross-scope gate as ``read_artifact``. The
+      ``{id*}`` RFC 6570 wildcard-path parameter (not plain ``{id}``) is required
+      because ``id`` is the full S3 key — ``{write_prefix}/{bare_id}{extension}`` —
+      which contains ``/`` characters; a plain ``{id}`` segment parameter (the FastMCP
+      default) only matches a single path segment and would reject every real
+      artifact_id (review finding C1). Includes a ``lastModified`` annotation derived
+      from ``last_edited_ulid`` when present.
     - ``cairn://artifacts`` — static listing; returns a markdown table of all active
       own-scope artifacts.
 
@@ -650,16 +654,22 @@ def register_data_resources(
     """
 
     @app.resource(
-        "cairn://artifact/{id}",
+        "cairn://artifact/{id*}",
         mime_type="text/markdown",
         annotations=Annotations(audience=["user"]),
         description="Full markdown content of a named artifact.",
     )
     async def _artifact_resource(id: str) -> str:  # noqa: A002
-        """Return the full markdown content of the artifact identified by ``id``."""
+        """Return the full markdown content of the artifact identified by ``id``.
+
+        ``id`` is the full S3 key (``{write_prefix}/{bare_id}{extension}``), matched via
+        the ``{id*}`` RFC 6570 wildcard-path template parameter so that the ``/``
+        characters in a real artifact_id are captured rather than truncating the match
+        at the first path segment (review finding C1).
+        """
         try:
             # NOTE: the per-artifact `lastModified` annotation (T42) is intentionally NOT
-            # emitted here — it is waived. This is a resource *template* (`{id}`): its
+            # emitted here — it is waived. This is a resource *template* (`{id*}`): its
             # `annotations` are declared once at registration and cannot vary per id, and the
             # only per-read channel, `TextResourceContents`, has no `annotations` field in the
             # pinned MCP SDK. So a per-artifact `lastModified` cannot be attached to a template
@@ -676,7 +686,7 @@ def register_data_resources(
             )
             return content
         except Exception as exc:
-            logger.exception("Unexpected error in cairn://artifact/{id} resource handler")
+            logger.exception("Unexpected error in cairn://artifact/{id*} resource handler")
             return f"# Error: internal_error\n\n{exc}\n"
 
     @app.resource(
@@ -698,4 +708,4 @@ def register_data_resources(
             logger.exception("Unexpected error in cairn://artifacts resource handler")
             return f"# Error: internal_error\n\n{exc}\n"
 
-    logger.debug("cairn-mcp data resources registered (cairn://artifact/{id}, cairn://artifacts)")
+    logger.debug("cairn-mcp data resources registered (cairn://artifact/{id*}, cairn://artifacts)")

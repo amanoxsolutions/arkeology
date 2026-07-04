@@ -21,7 +21,8 @@ Before starting, read the project's `AGENTS.md` `<!-- cairn-mcp:config` block (t
 scope, `local_only_paths`) and, if present, `CAIRN_IMPORT.yaml` in the repo root — both carry
 context this skill depends on: the config block supplies the own-scope `team`/`project` filter
 for every tool call, and a still-present manifest is the most accurate source for the
-path→`artifact_id` map (Step 2 below).
+path→full-key map (Step 2 below). The map's values are the full S3 key — the operative
+`artifact_id` used everywhere else in cairn-mcp — not a bare id (review finding C1).
 
 ## Gotchas
 
@@ -34,11 +35,11 @@ path→`artifact_id` map (Step 2 below).
   `references:` entries are proposed as backfill candidates. A resolved in-body link match is
   surfaced in its own report section for operator awareness; it never appears in the applied
   batch even under a wholesale "approve all" (ADR-012 D1, mirrored from the migration rewrite).
-- **A resolved id must belong to a currently active own-scope artifact.** The path→id map can
-  compute an identifier for any candidate file, whether or not that file was ever actually
-  migrated. Cross-check every resolution against the artifact IDs gathered in Step 3 before
-  proposing it — an id with no matching live artifact is not a valid candidate (leave it out of
-  the report entirely, do not list it as unresolved either, since it never was a match).
+- **A resolved full key must belong to a currently active own-scope artifact.** The path→full-key
+  map can compute a full key for any candidate file, whether or not that file was ever actually
+  migrated. Cross-check every resolution against the artifact IDs gathered in Step 4 before
+  proposing it — a full key with no matching live artifact is not a valid candidate (leave it out
+  of the report entirely, do not list it as unresolved either, since it never was a match).
 - **`cairn://artifact/{id}` entries are already resolved — skip them.** Only raw path text (not
   already a `cairn://` URI, not `http(s)://`) is a candidate for resolution.
 - **Zero candidates is a normal, complete outcome**, not an error — say so explicitly and stop.
@@ -57,7 +58,22 @@ path→`artifact_id` map (Step 2 below).
    and `project`; carry them through every tool call below. Then check whether
    `CAIRN_IMPORT.yaml` exists in the repo root — it changes how Step 3 builds the map.
 
-3. **Build the path→`artifact_id` map**
+3. **Build the path→full-key map**
+
+   The map's values must be the **full S3 key** (`{write_prefix}/{bare_id}{extension}`), not the
+   bare id alone — the full S3 key is the operative `artifact_id` everywhere else in cairn-mcp
+   (`write_artifact`'s vector metadata, `read_artifact`'s scope gate, the own-scope existence
+   check in step 4 below, and `link_metadata`'s target ids in step 8) — a map keyed to the bare
+   id alone never matches any of them (review finding C1).
+
+   **Determine `write_prefix` first.** Call `list_artifacts(team=<team>, project=<project>,
+   status="active")` (this doubles as the enumeration needed in step 4 below — do not call it
+   twice). If it returns at least one entry, take any one, compute its *bare* id from its own
+   `type`/`tier`/`title`/`date` with the script below, and strip the trailing
+   `/{bare_id}{extension}` from its `artifact_id` — what remains is `write_prefix`. If the list is
+   empty (no own-scope artifacts exist yet), ask the operator directly for the deployment's exact
+   `WRITE_PREFIX` (check the MCP server's `.env` / client config; by convention it is
+   `<team>/<project>`, but confirm rather than assume). Never guess it silently.
 
    - **`CAIRN_IMPORT.yaml` found** — use its entries directly (every entry, any `status` —
      `written`, `pending`, or `failed` — the map must be as complete as possible, not limited to
@@ -69,15 +85,18 @@ path→`artifact_id` map (Step 2 below).
      skill's `SKILL.md` and follow Steps 2–3 verbatim, stopping once you have, per candidate
      file, its `path`, `type`, `tier`, `title`, and `date`.
 
-   For every entry (either source), compute its deterministic `artifact_id` — the exact
-   algorithm implemented and unit-tested as `generate_artifact_id` /
-   `build_path_to_id_map` in `src/cairn_mcp/references.py`:
+   For every entry (either source), compute its full key — the exact algorithm implemented and
+   unit-tested as `generate_artifact_id` / `build_path_to_id_map` in
+   `src/cairn_mcp/references.py` (`$EXTENSION` is the entry's own file extension including the
+   dot, e.g. `.md`; default `.md` if the path has none — same default `write_artifact`'s
+   `file_extension` parameter uses; `$WRITE_PREFIX` is the value determined above):
 
    ```bash
-   python3 - "$TYPE" "$TIER" "$DATE" "$TITLE" <<'PY'
+   python3 - "$TYPE" "$TIER" "$DATE" "$TITLE" "$EXTENSION" "$WRITE_PREFIX" <<'PY'
    import hashlib, re, sys, unicodedata
 
-   type_, tier, date, title = sys.argv[1], int(sys.argv[2]), sys.argv[3], sys.argv[4]
+   type_, tier, date, title, extension, write_prefix = sys.argv[1:7]
+   tier = int(tier)
 
    def slugify(text, fallback):
        ascii_text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii")
@@ -87,16 +106,17 @@ path→`artifact_id` map (Step 2 below).
    type_slug = type_.replace("_", "-")
    title_slug = slugify(title, "artifact")
    title_hash = hashlib.sha256(title.encode("utf-8")).hexdigest()[:8]
-   artifact_id = (
+   bare_id = (
        f"{type_slug}-{title_slug}-{title_hash}"
        if tier == 3
        else f"{type_slug}-{date}-{title_slug}-{title_hash}"
    )
-   print(artifact_id)
+   full_key = f"{write_prefix}/{bare_id}{extension}"
+   print(full_key)
    PY
    ```
 
-   Keep the resulting `{path: artifact_id}` map in memory for the rest of this run — it is not
+   Keep the resulting `{path: full_key}` map in memory for the rest of this run — it is not
    written to disk.
 
 4. **Enumerate own-scope active artifacts** — call `list_artifacts(team=<team>,
@@ -126,9 +146,10 @@ path→`artifact_id` map (Step 2 below).
      - Take the entry as written (if not relative) or the joined path from the step above, and
        normalize it — convert `\` to `/`, then strip exactly one of a leading `./`, a single
        leading `/`, or neither — and look it up in the Step 3 map.
-     - If it resolves to an `artifact_id` that (a) is present in the Step 4 own-scope list and
-       (b) is **not already** in this artifact's structured `references` field, record it as a
-       proposed candidate: `(artifact_id, original path text, resolved id)`.
+     - If it resolves to a full key (the operative `artifact_id`) that (a) is present in the
+       Step 4 own-scope list and (b) is **not already** in this artifact's structured
+       `references` field, record it as a proposed candidate:
+       `(artifact_id, original path text, resolved full key)`.
      - A well-formed relative path that still fails to resolve after the join step above is a
        genuinely broken or out-of-tree reference — not the canonical "just needs joining" case
        anymore — and should be reported as unresolved like any other non-match.
@@ -145,14 +166,17 @@ path→`artifact_id` map (Step 2 below).
 
    | Artifact | Target path | Resolves to |
    |----------|-------------|-------------|
-   | adr-...-a1b2c3d4 | docs/specs/search.md | spec-search-e5f6a7b8 |
+   | myteam/myproject/adr-...-a1b2c3d4.md | docs/specs/search.md | myteam/myproject/spec-search-e5f6a7b8.md |
 
    ## Advisory — in-body link matches (not applied automatically)
 
    | Artifact | In-body link path | Resolves to |
    |----------|--------------------|-------------|
-   | adr-...-a1b2c3d4 | ./decisions/xyz.md | adr-2026-...-c9d0e1f2 |
+   | myteam/myproject/adr-...-a1b2c3d4.md | ./decisions/xyz.md | myteam/myproject/adr-2026-...-c9d0e1f2.md |
    ```
+
+   `Artifact` and `Resolves to` are always the full S3 key (the operative `artifact_id`,
+   review finding C1) — never the bare id shown without its `write_prefix`.
 
    If the proposed-candidates table is empty, say so explicitly ("No backfill candidates
    found — every resolvable frontmatter reference is already backfilled") and stop; there is

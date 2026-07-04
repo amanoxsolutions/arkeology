@@ -3,9 +3,17 @@
 This module is AWS-free and I/O-free, matching ``artifact.py``'s posture. It implements
 the ADR-012 (D4/D6) algorithm the ``migrating-to-cairn`` skill uses to carry
 frontmatter ``references:`` path entries across the file-path -> ``artifact_id``
-addressing boundary:
+addressing boundary.
 
-1. Build a single authoritative path -> ``artifact_id`` map from the FULL migration
+The canonical, operative ``artifact_id`` form used everywhere else in cairn-mcp
+(``write_artifact``'s vector metadata, ``read_artifact``'s scope gate, the
+``referenced_by`` reverse lookup) is the **full S3 key** —
+``f"{write_prefix}/{bare_id}{extension}"`` — never the bare
+:func:`cairn_mcp.artifact.generate_artifact_id` output on its own (review finding C1).
+Every helper in this module that produces or consumes an identifier uses that same
+full-key form:
+
+1. Build a single authoritative path -> full-key map from the FULL migration
    manifest, before any writes, using the pure :func:`cairn_mcp.artifact.generate_artifact_id`
    (:func:`build_path_to_id_map`). Because id generation is a pure function of
    type + title (+ date for tier 2), a target's future identifier is computable
@@ -91,33 +99,50 @@ def normalize_reference_path(path: str) -> str:
     return slashed
 
 
-def build_path_to_id_map(manifest_entries: list[ManifestEntry]) -> dict[str, str]:
-    """Build a path -> ``artifact_id`` map from the FULL migration manifest (ADR-012 D4).
+def build_path_to_id_map(
+    manifest_entries: list[ManifestEntry], write_prefix: str
+) -> dict[str, str]:
+    """Build a path -> full-key map from the FULL migration manifest (ADR-012 D4).
 
     Must be called with every manifest entry, of any status, across sessions — not just
     the subset currently being written or retried — so that forward references (a file
     referencing a sibling scheduled later in the same batch, or in an earlier/later
-    session) always resolve regardless of write order. Each identifier is computed via
-    the pure :func:`cairn_mcp.artifact.generate_artifact_id`, so it is deterministic and
-    matches exactly what the artifact will be keyed as once actually written.
+    session) always resolve regardless of write order. Each bare identifier is computed
+    via the pure :func:`cairn_mcp.artifact.generate_artifact_id`, so it is deterministic;
+    it is then composed into the full S3 key using the exact same form
+    ``write_artifact`` uses (``f"{write_prefix}/{bare_id}{extension}"``, see
+    ``cairn_mcp.tools.write``) — this is the operative ``artifact_id`` every other
+    cairn-mcp surface (vector metadata, ``read_artifact``'s scope gate, the
+    ``referenced_by`` reverse lookup) matches on (review finding C1). A map keyed to
+    the bare id alone is dead on every one of those surfaces.
 
     Args:
         manifest_entries: Every entry from the migration manifest, each already carrying
             a resolved ``title`` and ``date`` (fallback extraction — frontmatter, H1,
             filename, git log, today — happens upstream in the skill, not here).
+        write_prefix: This deployment's configured S3 write prefix (``Settings.write_prefix``
+            / ``WRITE_PREFIX``) — the same value ``write_artifact`` prepends to every key.
+            Callers outside the server process (the migration/backfill skills) must obtain
+            this from the operator or by deriving it from an already-known full artifact_id;
+            it is never guessed here.
 
     Returns:
-        A ``dict`` mapping each entry's manifest ``path`` to its deterministic
-        ``artifact_id``. Empty when ``manifest_entries`` is empty.
+        A ``dict`` mapping each entry's manifest ``path`` to its full S3 key
+        (``{write_prefix}/{bare_id}{extension}``), where ``extension`` is derived from the
+        entry's ``path`` via :func:`posixpath.splitext`, defaulting to ``.md`` when the
+        path carries no extension — mirroring ``write_artifact``'s own ``file_extension``
+        default. Empty when ``manifest_entries`` is empty.
     """
     path_to_id: dict[str, str] = {}
     for entry in manifest_entries:
-        path_to_id[entry["path"]] = generate_artifact_id(
+        bare_id = generate_artifact_id(
             tier=entry["tier"],
             type=entry["type"],
             date=entry["date"],
             title=entry["title"],
         )
+        extension = posixpath.splitext(entry["path"])[1] or ".md"
+        path_to_id[entry["path"]] = f"{write_prefix}/{bare_id}{extension}"
     return path_to_id
 
 
@@ -183,8 +208,8 @@ def resolve_reference(
             When provided, enables relative (``./``/``../``) join resolution.
 
     Returns:
-        The resolved ``artifact_id`` if the (joined and normalized) path is present in
-        the map, otherwise ``None``.
+        The resolved full S3 key (the operative ``artifact_id``) if the (joined and
+        normalized) path is present in the map, otherwise ``None``.
     """
     if path.startswith(_URL_PREFIXES):
         return None

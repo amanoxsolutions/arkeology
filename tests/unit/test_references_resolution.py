@@ -1,7 +1,8 @@
 """Unit tests for cairn_mcp.references — pure migration reference resolution helpers.
 
-Maps to AC-58 (T51): bounded path normalization, forward-safe path->artifact_id map
-construction, and reference resolution with http(s):// / unresolved passthrough. No AWS,
+Maps to AC-58 (T51) and review finding C1: bounded path normalization, forward-safe
+path->full-key map construction (the full S3 key is the operative artifact_id — see
+C1), and reference resolution with http(s):// / unresolved passthrough. No AWS,
 no I/O — every helper here is pure.
 """
 
@@ -15,6 +16,10 @@ from cairn_mcp.references import (
     normalize_reference_path,
     resolve_reference,
 )
+
+# Write prefix used across tests — matches the documented WRITE_PREFIX convention
+# (see setting-up-cairn skill) but any value proves the composition is parameterised.
+_WRITE_PREFIX = "myteam/myproject"
 
 # ---------------------------------------------------------------------------
 # Shared fixture helper
@@ -74,19 +79,63 @@ def test_normalize_reference_path_does_not_repair_beyond_ceiling() -> None:
 
 
 # ---------------------------------------------------------------------------
-# build_path_to_id_map — full-manifest, forward-safe (D4)
+# build_path_to_id_map — full-manifest, forward-safe (D4), full-key output (C1)
 # ---------------------------------------------------------------------------
 
 
 def test_build_path_to_id_map_matches_deterministic_generate_artifact_id() -> None:
-    """The map's id for a path matches generate_artifact_id computed directly with the
-    same attributes — the map must not invent its own id scheme."""
+    """The map's value for a path is the FULL S3 key — write_prefix + '/' + the bare
+    id from generate_artifact_id + extension — not the bare id alone (C1). This is
+    the exact composition write.py uses for the operative artifact_id."""
     entries = [_entry("docs/adr/001-use-s3.md", "adr", 3, "Use S3", "2026-01-01")]
 
-    result = build_path_to_id_map(entries)
+    result = build_path_to_id_map(entries, write_prefix=_WRITE_PREFIX)
 
-    expected_id = generate_artifact_id(type="adr", tier=3, date="2026-01-01", title="Use S3")
-    assert result == {"docs/adr/001-use-s3.md": expected_id}
+    bare_id = generate_artifact_id(type="adr", tier=3, date="2026-01-01", title="Use S3")
+    assert result == {"docs/adr/001-use-s3.md": f"{_WRITE_PREFIX}/{bare_id}.md"}
+
+
+def test_build_path_to_id_map_full_key_matches_write_path_s3_key_form() -> None:
+    """Red-first (C1): the map's full key for an entry must equal EXACTLY the
+    f'{write_prefix}/{bare_id}{extension}' form write.py composes as its s3_key
+    (write.py:342) and stores as the vector artifact_id (write.py:367) — the map must
+    never emit the bare generate_artifact_id output on its own."""
+    entries = [_entry("docs/spec/search.md", "spec", 3, "Search Spec", "2026-02-01")]
+
+    result = build_path_to_id_map(entries, write_prefix=_WRITE_PREFIX)
+
+    bare_id = generate_artifact_id(type="spec", tier=3, date="2026-02-01", title="Search Spec")
+    expected_full_key = f"{_WRITE_PREFIX}/{bare_id}.md"
+    assert result["docs/spec/search.md"] == expected_full_key
+    # The bare id alone (the pre-fix, dead-on-every-surface value) must NOT be what
+    # is returned — this is exactly what C1 flagged as broken.
+    assert result["docs/spec/search.md"] != bare_id
+
+
+def test_build_path_to_id_map_derives_extension_from_path() -> None:
+    """The file extension in the full key is derived from the manifest entry's own
+    path (posixpath.splitext), not hardcoded to '.md'."""
+    entries = [_entry("docs/notes/readme.txt", "session_summary", 2, "Readme", "2026-01-05")]
+
+    result = build_path_to_id_map(entries, write_prefix=_WRITE_PREFIX)
+
+    bare_id = generate_artifact_id(
+        type="session_summary", tier=2, date="2026-01-05", title="Readme"
+    )
+    assert result["docs/notes/readme.txt"] == f"{_WRITE_PREFIX}/{bare_id}.txt"
+
+
+def test_build_path_to_id_map_defaults_extension_to_md_when_path_has_none() -> None:
+    """A manifest path with no extension defaults to '.md' — mirroring write_artifact's
+    own file_extension default."""
+    entries = [_entry("docs/notes/README", "session_summary", 2, "Readme", "2026-01-05")]
+
+    result = build_path_to_id_map(entries, write_prefix=_WRITE_PREFIX)
+
+    bare_id = generate_artifact_id(
+        type="session_summary", tier=2, date="2026-01-05", title="Readme"
+    )
+    assert result["docs/notes/README"] == f"{_WRITE_PREFIX}/{bare_id}.md"
 
 
 def test_build_path_to_id_map_forward_reference_present_regardless_of_order() -> None:
@@ -97,15 +146,17 @@ def test_build_path_to_id_map_forward_reference_present_regardless_of_order() ->
         _entry("docs/decisions/b.md", "adr", 3, "B decision", "2026-01-02"),
     ]
 
-    result = build_path_to_id_map(entries)
+    result = build_path_to_id_map(entries, write_prefix=_WRITE_PREFIX)
 
-    expected_b_id = generate_artifact_id(type="adr", tier=3, date="2026-01-02", title="B decision")
-    assert result["docs/decisions/b.md"] == expected_b_id
+    expected_b_bare_id = generate_artifact_id(
+        type="adr", tier=3, date="2026-01-02", title="B decision"
+    )
+    assert result["docs/decisions/b.md"] == f"{_WRITE_PREFIX}/{expected_b_bare_id}.md"
 
 
 def test_build_path_to_id_map_empty_manifest_returns_empty_map() -> None:
     """An empty manifest produces an empty map, not an error."""
-    result = build_path_to_id_map([])
+    result = build_path_to_id_map([], write_prefix=_WRITE_PREFIX)
 
     assert result == {}
 
@@ -118,7 +169,7 @@ def test_build_path_to_id_map_empty_manifest_returns_empty_map() -> None:
 def test_resolve_reference_resolves_matching_path() -> None:
     """A path present in the map (after bounded normalization) resolves to its id."""
     entries = [_entry("docs/adr/001-use-s3.md", "adr", 3, "Use S3", "2026-01-01")]
-    path_to_id_map = build_path_to_id_map(entries)
+    path_to_id_map = build_path_to_id_map(entries, write_prefix=_WRITE_PREFIX)
 
     result = resolve_reference("./docs/adr/001-use-s3.md", path_to_id_map)
 
@@ -132,7 +183,7 @@ def test_resolve_reference_forward_reference_resolves_regardless_of_order() -> N
         _entry("docs/a.md", "spec", 3, "A spec", "2026-01-01"),
         _entry("docs/decisions/b.md", "adr", 3, "B decision", "2026-01-02"),
     ]
-    path_to_id_map = build_path_to_id_map(entries)
+    path_to_id_map = build_path_to_id_map(entries, write_prefix=_WRITE_PREFIX)
 
     result = resolve_reference("docs/decisions/b.md", path_to_id_map)
 
@@ -228,7 +279,7 @@ def test_resolve_reference_joins_dotdot_relative_against_referencing_file() -> N
     forward reference using a well-formed relative path (C6 fix: relative references
     now resolve instead of falling through as unresolvable)."""
     entries = [_entry("decisions/B.md", "adr", 3, "B decision", "2026-01-02")]
-    path_to_id_map = build_path_to_id_map(entries)
+    path_to_id_map = build_path_to_id_map(entries, write_prefix=_WRITE_PREFIX)
 
     result = resolve_reference(
         "../decisions/B.md", path_to_id_map, referencing_file_path="notes/A.md"
@@ -241,7 +292,7 @@ def test_resolve_reference_joins_dot_relative_against_referencing_file() -> None
     """'./sibling.md' referenced from 'dir/A.md' joins to 'dir/sibling.md' before the
     map lookup and resolves to the sibling's id."""
     entries = [_entry("dir/sibling.md", "spec", 3, "Sibling", "2026-01-01")]
-    path_to_id_map = build_path_to_id_map(entries)
+    path_to_id_map = build_path_to_id_map(entries, write_prefix=_WRITE_PREFIX)
 
     result = resolve_reference("./sibling.md", path_to_id_map, referencing_file_path="dir/A.md")
 

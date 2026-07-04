@@ -95,9 +95,10 @@ the primary risk (ADR-012 D1/D5/D6).
   `/`, none) — and no further transformation.
 - WHEN a `references:` entry is an `http://` / `https://` URL THE SYSTEM SHALL leave it untouched and
   never treat it as a path.
-- WHEN a `references:` path resolves THE SYSTEM SHALL add the resolved bare `artifact_id` to the
-  migrated artifact's `references` field (threaded into the `migrate_artifacts` descriptor, T46) and
-  rewrite that path in the stored content to `cairn://artifact/{id}`.
+- WHEN a `references:` path resolves THE SYSTEM SHALL add the resolved full S3 key (the operative
+  `artifact_id` — review finding C1) to the migrated artifact's `references` field (threaded into
+  the `migrate_artifacts` descriptor, T46) and rewrite that path in the stored content to
+  `cairn://artifact/{id}`.
 - WHEN a `references:` path does not resolve (unresolved / excluded / never-migrated) THE SYSTEM
   SHALL leave the original path text untouched in content, omit it from `references`, and surface it
   in the migration report — never drop it silently.
@@ -110,7 +111,8 @@ the primary risk (ADR-012 D1/D5/D6).
 
 **Always:**
 - Only the frontmatter `references:` YAML list is mechanically rewritten (ADR-012 D1).
-- `references` holds resolved bare identifiers; content links use `cairn://artifact/{id}` (D2/D3).
+- `references` holds resolved full S3 keys (the operative `artifact_id`, review finding C1);
+  content links use `cairn://artifact/{id}` (D2/D3), where `{id}` is that same full key.
 - The map is built from the FULL manifest, not the retry subset (D4 — multi-session safety).
 - Mixed addressing (`cairn://…` next to raw `/docs/…`) is the correct permanent steady state (D3).
 
