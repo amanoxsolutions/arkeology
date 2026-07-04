@@ -75,8 +75,9 @@ HTTPS alternative (no SSH key required):
 "plugin": ["cairn-mcp@git+https://github.com/amanoxsolutions/cairn-mcp.git"]
 ```
 
-Restart OpenCode to activate the plugin. Both cairn-mcp skills (`setting-up-cairn` and
-`migrating-to-cairn`) will be available in every subsequent session.
+Restart OpenCode to activate the plugin. All four cairn-mcp skills (`setting-up-cairn`,
+`migrating-to-cairn`, `sync-cairn-plugin`, and `backfilling-references`) will be available
+in every subsequent session.
 
 ### Manual — Claude Code
 
@@ -94,8 +95,9 @@ claude plugin marketplace add https://github.com/amanoxsolutions/cairn-mcp.git
 claude plugin install cairn@cairn-mcp
 ```
 
-This installs both skills as `cairn:setting-up-cairn` and `cairn:migrating-to-cairn`
-slash commands. To update the plugin clone later, run `/cairn:sync-cairn-plugin`.
+This installs all four skills as `cairn:setting-up-cairn`, `cairn:migrating-to-cairn`,
+`cairn:sync-cairn-plugin`, and `cairn:backfilling-references` slash commands. To update
+the plugin clone later, run `/cairn:sync-cairn-plugin`.
 
 ## Adding a new tool
 

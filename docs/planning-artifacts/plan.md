@@ -22,7 +22,7 @@ This project runs as a **single open phase**, not a pre-planned roadmap. Complet
 - **Status legend:** ⬜ pending · 🔄 in progress · 🔍 in review · ✅ done · 🔴 blocked
 - **Delivery model:** each **Phase** is a coherent slice of value delivered as a set of tasks. A phase ends when we judge it done.
 
-**Current state:** Phase 12 — Artifact Cross-Referencing + Annotation-Backed Link Storage is open (🔄, in planning; PRD + ADRs updated; cross-referencing specs T45–T53 written; T54 (search age transparency) done; T55 (M-5 write-path metadata validation) added — spec pending). Latest shipped: Phase 11 — Visual Reading Interface (MCP Apps).
+**Current state:** Phase 12 — Artifact Cross-Referencing + Annotation-Backed Link Storage: all planned tasks (T45–T55) implemented, unit-tested (suite green), and committed on branch `phase-12-cross-referencing`; skills consolidated under `plugins/cairn-mcp/skills/`; specs, ADR-011/ADR-012, and user docs aligned. Phase remains **open** for any further scope at the operator's discretion. Latest shipped: Phase 11 — Visual Reading Interface (MCP Apps).
 
 ---
 

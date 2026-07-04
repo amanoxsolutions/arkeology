@@ -138,6 +138,13 @@ skill or starting the server manually:
   Titan Text v2). These index attributes — dimension, distance metric, and the non-filterable
   metadata keys — are fixed at index creation and immutable; changing any of them later requires
   deleting and recreating the index, which loses all stored vectors
+- **S3 object annotations** (optional) — back the `commit_refs` / `references` link-tracking
+  feature (`link_metadata` and the write path's dual-write). Unavailable in the UAE and Bahrain
+  regions and on S3 Express One Zone, Outposts, and directory buckets — no IAM change fixes a
+  bucket in one of these categories. The `setting-up-cairn` skill probes availability and IAM
+  permissions during setup; the core server starts and serves content, search, and embeddings
+  normally when annotations are unavailable — only this one feature degrades. See the
+  [Server Reference](SERVER-REFERENCE.md#minimum-iam-policy) for the required IAM actions
 - **Amazon Bedrock** — embedding model access (`amazon.titan-embed-text-v2:0` by default)
   enabled in your AWS region; a Nova Lite model is only required when using `migrate_artifacts`.
   **Cross-region inference profiles are required in most regions outside `us-east-1`** — use a
@@ -244,7 +251,7 @@ the correct update action automatically — no manual steps required.
 
 ## Status
 
-> **v0.2.0** — all tools implemented and unit-tested: `write_artifact`, `write_artifacts`, `migrate_artifacts`, `search_artifacts`, `read_artifact`, `list_artifacts`, `archive_artifact`, `delete_artifact`, `purge_archived`, `health_check`, `synthesise_artifacts`, `reconcile_index`, `check_synthesis_freshness`, `propose_commit_links`, `link_commit`, and `cairn_studio`. Five schema resources (`cairn://schema/*`) and two data resources (`cairn://artifacts`, `cairn://artifact/{id}`) are registered and available.
+> **v0.2.0** — all tools implemented and unit-tested: `write_artifact`, `write_artifacts`, `migrate_artifacts`, `search_artifacts`, `read_artifact`, `list_artifacts`, `archive_artifact`, `delete_artifact`, `purge_archived`, `health_check`, `synthesise_artifacts`, `reconcile_index`, `check_synthesis_freshness`, `propose_commit_links`, `link_metadata`, and `cairn_studio`. Five schema resources (`cairn://schema/*`) and two data resources (`cairn://artifacts`, `cairn://artifact/{id}`) are registered and available.
 
 ---
 

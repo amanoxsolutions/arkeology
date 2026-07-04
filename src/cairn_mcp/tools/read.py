@@ -125,11 +125,11 @@ async def _read_artifact_inner(
         return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
 
     # ── Step 4: Read commit_refs / references from vector metadata ───────────
-    # commit_refs and references are stored in vector metadata only — link_commit
-    # (commit_refs) and ordinary writes (references) do not touch S3 object metadata
-    # for these fields. Reading from vectors ensures post-link_commit SHAs and
-    # backfilled references are surfaced (T46: references' durable annotation copy
-    # is added in T47).
+    # commit_refs and references are durably stored as S3 object annotations
+    # (ADR-011) and dual-written to vector metadata by link_metadata and the
+    # write path. This read still sources from vector metadata rather than the
+    # annotations, so it surfaces both link_metadata-backfilled SHAs and
+    # write-time-supplied references.
     commit_refs: list[str] = []
     references: list[str] = []
     if vectors is not None:
