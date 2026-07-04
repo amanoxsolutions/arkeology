@@ -34,6 +34,7 @@ class ErrorCode(StrEnum):
     PARTIAL_WRITE = "partial_write"
     PARTIAL_DELETE = "partial_delete"
     DELETE_VECTORS_FAILED = "delete_vectors_failed"
+    ANNOTATION_UNAVAILABLE = "annotation_unavailable"
 
 
 class ArtifactStatus(StrEnum):

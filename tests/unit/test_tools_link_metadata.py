@@ -16,7 +16,7 @@ from cairn_mcp.clients.fakes.fake_bedrock import FakeBedrockClient
 from cairn_mcp.clients.s3 import S3ClientImpl
 from cairn_mcp.clients.vectors import VectorsClientImpl
 from cairn_mcp.config import Settings
-from cairn_mcp.errors import CredentialError
+from cairn_mcp.errors import AnnotationUnavailableError, CredentialError
 from cairn_mcp.tools.link_metadata import link_metadata
 from tests.unit.conftest import _make_settings as _make_settings_base
 
@@ -712,6 +712,51 @@ async def test_link_metadata_put_object_annotation_credential_error(
     )
 
     assert result.get("error") == "credential_error"
+    assert batch_spy.call_count == 0
+
+
+# ---------------------------------------------------------------------------
+# T52 — annotation availability graceful degrade (link_metadata)
+# ---------------------------------------------------------------------------
+
+
+async def test_link_metadata_annotation_unavailable_returns_structured_error(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """An AnnotationUnavailableError raised by put_object_annotation must surface as a
+    structured 'annotation_unavailable' error (not a raw exception, and distinct from
+    credential_error) — the durable annotation write is link_metadata's contract, so
+    the artifact is not reported as linked, and no vector write is attempted."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient()
+    _seed_all(s3_client, vectors_client_2)
+
+    mocker.patch.object(
+        s3_client,
+        "put_object_annotation",
+        side_effect=AnnotationUnavailableError(
+            "S3 object annotations are unavailable for this bucket.",
+            "s3",
+            Exception("simulated"),
+        ),
+    )
+    batch_spy = mocker.spy(vectors_client_2, "put_vectors_batch")
+
+    result = await link_metadata(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=bedrock,
+        artifact_ids=[ID_A],
+        commit_refs=["abc1234"],
+    )
+
+    assert result.get("error") == "annotation_unavailable"
+    assert result.get("message")
+    assert "linked" not in result
     assert batch_spy.call_count == 0
 
 

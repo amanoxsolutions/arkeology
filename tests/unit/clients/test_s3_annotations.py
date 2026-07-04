@@ -10,7 +10,7 @@ import botocore.exceptions
 import pytest
 
 from cairn_mcp.clients.s3 import S3ClientImpl
-from cairn_mcp.errors import CredentialError
+from cairn_mcp.errors import AnnotationUnavailableError, CredentialError
 
 # ---------------------------------------------------------------------------
 # Story 1 — annotation round-trip through the client
@@ -165,3 +165,102 @@ def test_delete_object_annotation_credential_error(
 
     with pytest.raises(CredentialError):
         s3_client.delete_object_annotation("artifacts/a7.md", "commit_refs")
+
+
+# ---------------------------------------------------------------------------
+# Story 3 (T52) — annotation-unavailable / access-denied errors are structured
+# ---------------------------------------------------------------------------
+
+
+def _access_denied_error(operation: str) -> botocore.exceptions.ClientError:
+    return botocore.exceptions.ClientError(
+        {
+            "Error": {
+                "Code": "AccessDenied",
+                "Message": "Access Denied",
+            }
+        },
+        operation,
+    )
+
+
+def _not_implemented_error(operation: str) -> botocore.exceptions.ClientError:
+    return botocore.exceptions.ClientError(
+        {
+            "Error": {
+                "Code": "NotImplemented",
+                "Message": "A header you provided implies functionality that is not implemented",
+            }
+        },
+        operation,
+    )
+
+
+def test_put_object_annotation_access_denied_raises_annotation_unavailable(
+    s3_client: S3ClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """AccessDenied on put_object_annotation raises AnnotationUnavailableError — a
+    distinct, structured error, never a raw botocore exception or a CredentialError."""
+    mocker.patch.object(
+        s3_client._s3,
+        "put_object_annotation",
+        side_effect=_access_denied_error("PutObjectAnnotation"),
+    )
+
+    with pytest.raises(AnnotationUnavailableError) as excinfo:
+        s3_client.put_object_annotation("artifacts/a8.md", "commit_refs", "abc")
+
+    # Message is actionable: names the four required IAM actions.
+    assert "s3:PutObjectAnnotation" in str(excinfo.value)
+    assert "s3:GetObjectAnnotation" in str(excinfo.value)
+    assert "s3:ListObjectAnnotations" in str(excinfo.value)
+    assert "s3:DeleteObjectAnnotation" in str(excinfo.value)
+
+
+def test_get_object_annotation_not_implemented_raises_annotation_unavailable(
+    s3_client: S3ClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """A NotImplemented response (region/bucket-type rejection) on
+    get_object_annotation raises AnnotationUnavailableError, not KeyError or a raw
+    botocore exception."""
+    mocker.patch.object(
+        s3_client._s3,
+        "get_object_annotation",
+        side_effect=_not_implemented_error("GetObjectAnnotation"),
+    )
+
+    with pytest.raises(AnnotationUnavailableError):
+        s3_client.get_object_annotation("artifacts/a8.md", "commit_refs")
+
+
+def test_list_object_annotations_access_denied_raises_annotation_unavailable(
+    s3_client: S3ClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """AccessDenied on list_object_annotations raises AnnotationUnavailableError."""
+    mocker.patch.object(
+        s3_client._s3,
+        "list_object_annotations",
+        side_effect=_access_denied_error("ListObjectAnnotations"),
+    )
+
+    with pytest.raises(AnnotationUnavailableError):
+        s3_client.list_object_annotations("artifacts/a8.md")
+
+
+def test_delete_object_annotation_not_implemented_raises_annotation_unavailable(
+    s3_client: S3ClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """A NotImplemented response on delete_object_annotation raises
+    AnnotationUnavailableError rather than being swallowed as a no-op."""
+    mocker.patch.object(
+        s3_client._s3,
+        "delete_object_annotation",
+        side_effect=_not_implemented_error("DeleteObjectAnnotation"),
+    )
+
+    with pytest.raises(AnnotationUnavailableError):
+        s3_client.delete_object_annotation("artifacts/a8.md", "commit_refs")

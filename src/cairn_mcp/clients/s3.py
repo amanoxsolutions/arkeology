@@ -12,11 +12,13 @@ import botocore.exceptions
 
 from cairn_mcp.artifact import encode_metadata_value
 from cairn_mcp.clients.credentials import (
+    _ANNOTATION_UNAVAILABLE_MESSAGE,
     _CREDENTIAL_ERROR_MESSAGE,
+    is_annotation_unavailable_error,
     wrap_credential_errors,
 )
 from cairn_mcp.clients.interfaces import S3ClientInterface  # noqa: F401 (structural only)
-from cairn_mcp.errors import ArtifactCollisionError, CredentialError
+from cairn_mcp.errors import AnnotationUnavailableError, ArtifactCollisionError, CredentialError
 
 logger = logging.getLogger(__name__)
 
@@ -141,12 +143,19 @@ class S3ClientImpl:
     def put_object_annotation(self, key: str, annotation_name: str, payload: str) -> None:
         logger.debug("S3 put_object_annotation key=%s annotation_name=%s", key, annotation_name)
         with wrap_credential_errors("s3"):
-            self._s3.put_object_annotation(
-                Bucket=self._bucket,
-                Key=key,
-                AnnotationName=annotation_name,
-                AnnotationPayload=payload.encode("utf-8"),
-            )
+            try:
+                self._s3.put_object_annotation(
+                    Bucket=self._bucket,
+                    Key=key,
+                    AnnotationName=annotation_name,
+                    AnnotationPayload=payload.encode("utf-8"),
+                )
+            except botocore.exceptions.ClientError as exc:
+                if is_annotation_unavailable_error(exc):
+                    raise AnnotationUnavailableError(
+                        _ANNOTATION_UNAVAILABLE_MESSAGE, "s3", exc
+                    ) from exc
+                raise
 
     def get_object_annotation(self, key: str, annotation_name: str) -> str:
         logger.debug("S3 get_object_annotation key=%s annotation_name=%s", key, annotation_name)
@@ -157,6 +166,10 @@ class S3ClientImpl:
                 )
                 return response["AnnotationPayload"].read().decode("utf-8")
             except botocore.exceptions.ClientError as exc:
+                if is_annotation_unavailable_error(exc):
+                    raise AnnotationUnavailableError(
+                        _ANNOTATION_UNAVAILABLE_MESSAGE, "s3", exc
+                    ) from exc
                 code = exc.response.get("Error", {}).get("Code", "")
                 if code in ("NoSuchKey", "NoSuchAnnotation", "404"):
                     raise KeyError(key) from exc
@@ -174,6 +187,10 @@ class S3ClientImpl:
                 try:
                     response = self._s3.list_object_annotations(**kwargs)
                 except botocore.exceptions.ClientError as exc:
+                    if is_annotation_unavailable_error(exc):
+                        raise AnnotationUnavailableError(
+                            _ANNOTATION_UNAVAILABLE_MESSAGE, "s3", exc
+                        ) from exc
                     code = exc.response.get("Error", {}).get("Code", "")
                     if code in ("NoSuchKey", "404"):
                         raise KeyError(key) from exc
@@ -194,6 +211,10 @@ class S3ClientImpl:
                     Bucket=self._bucket, Key=key, AnnotationName=annotation_name
                 )
             except botocore.exceptions.ClientError as exc:
+                if is_annotation_unavailable_error(exc):
+                    raise AnnotationUnavailableError(
+                        _ANNOTATION_UNAVAILABLE_MESSAGE, "s3", exc
+                    ) from exc
                 code = exc.response.get("Error", {}).get("Code", "")
                 if code in ("NoSuchKey", "NoSuchAnnotation", "404"):
                     return

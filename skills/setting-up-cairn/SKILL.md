@@ -71,8 +71,12 @@ scope so artifacts from different projects do not mix. Agents can only write to 
 
 ## Step 2 — Pre-flight checks
 
-Run these seven checks in order. Stop at the first failure and report which check failed
-and why. Do not continue until the operator resolves the issue.
+Run these eight checks in order. **Checks 1–7 are blocking** — stop at the first failure
+and report which check failed and why; do not continue until the operator resolves the
+issue. **Check 8 is feature-level and non-blocking** (see its own section below) — S3
+object annotations back only the `commit_refs` / `references` link-tracking feature, not
+the core content/vector/embedding store, so a Check 8 failure never stops the
+installation (ADR-011 decision 5: annotation availability is never a hard startup gate).
 
 If `AWS_PROFILE` was provided in Step 1, add `--profile <profile>` to every `aws` command
 below (e.g. `aws --profile mydev-eu sts get-caller-identity`).
@@ -170,7 +174,120 @@ format (e.g. bare `amazon.nova-lite-v1:0` instead of the cross-region inference 
 `eu.amazon.nova-lite-v1:0` for EU). Instruct the operator to enable the model in the
 Bedrock console and verify the model ID format before proceeding.
 
-Once all seven checks pass, proceed to Step 3.
+**Check 8 — S3 object annotation availability + IAM (feature-level, non-blocking)**
+
+S3 object annotations are the durable store behind cairn-mcp's `commit_refs` /
+`references` link-tracking feature (`link_metadata`, and the write path's automatic
+link-field persistence). They require four IAM actions beyond core S3 storage, and are
+unavailable in some regions and on some bucket types — none of which affects the core
+memory server (content, search, embeddings). This check probes both, but **unlike
+Checks 1–7, a failure here does not stop the installation** — report the outcome and let
+the operator decide whether to proceed; the feature simply degrades gracefully at
+runtime (a `warning` on `write_artifact`, a structured error from `link_metadata`).
+
+The four required IAM actions:
+
+- `s3:PutObjectAnnotation`
+- `s3:GetObjectAnnotation`
+- `s3:ListObjectAnnotations`
+- `s3:DeleteObjectAnnotation`
+
+Annotations are **unavailable** in the UAE and Bahrain regions, and on **S3 Express One
+Zone**, **Outposts**, and **directory** buckets — no IAM change fixes a bucket in one of
+these categories; the operator must accept the degraded feature or relocate the bucket.
+
+First determine the AWS CLI version already captured in Check 1:
+
+```bash
+AWS_CLI_VERSION=$(aws --version 2>&1 | sed -E 's#.*aws-cli/([0-9.]+).*#\1#')
+if [ "$(printf '%s\n' "2.35.14" "$AWS_CLI_VERSION" | sort -V | head -n1)" = "2.35.14" ]; then
+  echo "native"   # aws-cli >= 2.35.14 — use the CLI's native annotation commands below
+else
+  echo "fallback"  # older aws-cli — annotation subcommands are absent; use the boto3 fallback
+fi
+```
+
+**If `native`** (aws-cli ≥ 2.35.14), put→get→delete a throwaway annotation on a throwaway
+object directly with the CLI:
+
+```bash
+printf 'cairn-probe' > /tmp/cairn-annotation-probe.txt
+
+aws s3api put-object --bucket <ARTIFACT_BUCKET> \
+  --key "<WRITE_PREFIX>/_cairn_mcp_annotation_probe" --body /dev/null --region <REGION>
+
+aws s3api put-object-annotation --bucket <ARTIFACT_BUCKET> \
+  --key "<WRITE_PREFIX>/_cairn_mcp_annotation_probe" \
+  --annotation-name cairn_probe --annotation-payload fileb:///tmp/cairn-annotation-probe.txt \
+  --region <REGION>
+
+aws s3api get-object-annotation --bucket <ARTIFACT_BUCKET> \
+  --key "<WRITE_PREFIX>/_cairn_mcp_annotation_probe" \
+  --annotation-name cairn_probe --region <REGION> /tmp/cairn-annotation-probe-out.txt
+
+diff /tmp/cairn-annotation-probe.txt /tmp/cairn-annotation-probe-out.txt && echo "ANNOTATIONS_OK"
+
+aws s3api delete-object-annotation --bucket <ARTIFACT_BUCKET> \
+  --key "<WRITE_PREFIX>/_cairn_mcp_annotation_probe" \
+  --annotation-name cairn_probe --region <REGION>
+
+aws s3api delete-object --bucket <ARTIFACT_BUCKET> \
+  --key "<WRITE_PREFIX>/_cairn_mcp_annotation_probe" --region <REGION>
+```
+
+**If `fallback`** (aws-cli < 2.35.14 — the CLI's annotation subcommands are absent, but
+botocore supports the underlying APIs regardless of CLI version), run the equivalent
+probe through boto3 via `uv run` — no dependency on the cairn-mcp repo being cloned yet,
+since `--with boto3` installs it into a throwaway environment:
+
+```bash
+uv run --with boto3 python - <<'PYEOF'
+import boto3
+import botocore.exceptions
+
+region = "<REGION>"
+profile = "<AWS_PROFILE>"  # omit profile_name entirely if no AWS_PROFILE was provided
+bucket = "<ARTIFACT_BUCKET>"
+key = "<WRITE_PREFIX>/_cairn_mcp_annotation_probe"
+
+session = boto3.Session(profile_name=profile, region_name=region)
+s3 = session.client("s3")
+try:
+    s3.put_object(Bucket=bucket, Key=key, Body=b"")
+    s3.put_object_annotation(Bucket=bucket, Key=key, AnnotationName="cairn_probe", AnnotationPayload=b"cairn-probe")
+    payload = s3.get_object_annotation(Bucket=bucket, Key=key, AnnotationName="cairn_probe")["AnnotationPayload"].read()
+    print("ANNOTATIONS_OK" if payload == b"cairn-probe" else f"ANNOTATIONS_FAILED: unexpected payload {payload!r}")
+    s3.delete_object_annotation(Bucket=bucket, Key=key, AnnotationName="cairn_probe")
+except botocore.exceptions.ClientError as exc:
+    code = exc.response.get("Error", {}).get("Code", "")
+    print(f"ANNOTATIONS_FAILED: {code} — {exc}")
+finally:
+    s3.delete_object(Bucket=bucket, Key=key)
+PYEOF
+```
+
+Interpreting the result:
+
+- **`ANNOTATIONS_OK`** — annotations are available and IAM is correctly configured.
+  `commit_refs` / `references` will be durably tracked. Continue to Step 3.
+- **`ANNOTATIONS_FAILED: AccessDenied ...`** — the bucket/region supports annotations but
+  the caller's IAM policy is missing one or more of the four actions listed above. Show
+  the operator the failing action and ask them to add it to the deployment's IAM policy,
+  then re-run this check. Or, if they choose, proceed anyway — `link_metadata` will
+  return a structured `annotation_unavailable` error and `write_artifact` will succeed
+  with a `warning` until the policy is fixed.
+- **`ANNOTATIONS_FAILED: NotImplemented ...`** (or a similar region/bucket-type
+  rejection) — the bucket's region or type does not support annotations at all (see the
+  unavailable list above). No IAM change will fix this. Inform the operator the
+  `commit_refs` / `references` feature will not be durable on this bucket — core memory
+  (content, search, embeddings) is fully unaffected — and let them decide whether to
+  proceed, migrate to a supported bucket/region, or accept the limitation.
+- Any other failure (e.g. the throwaway object/bucket itself is unreachable) — report the
+  raw error and let the operator decide whether it is safe to proceed; this check never
+  blocks Step 3 by itself.
+
+Once Checks 1–7 pass, proceed to Step 3 (Check 8's outcome is reported but never blocks
+progression).
 
 ---
 

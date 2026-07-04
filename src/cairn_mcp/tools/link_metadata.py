@@ -11,6 +11,13 @@ No Bedrock call is made, no artifact content is mutated, and
 ``last_edited_ulid`` is never touched. If the vector write fails after the
 annotation write succeeds, the durable side is already correct and a later
 ``reconcile_index`` run (T48) rebuilds vector metadata from it.
+
+If annotations are unavailable (unsupported region/bucket type) or access is
+denied, the durable write is this tool's contract: it returns a structured
+``annotation_unavailable`` error rather than reporting the artifact as linked
+(ADR-011 decision 5, T52). This differs from the write path (``write.py``),
+where the same condition degrades to a warning because the artifact's content
+and vectors must never be lost.
 """
 
 import logging
@@ -26,7 +33,7 @@ from cairn_mcp.clients.interfaces import (
 )
 from cairn_mcp.config import Settings
 from cairn_mcp.constants import ErrorCode
-from cairn_mcp.errors import CredentialError
+from cairn_mcp.errors import AnnotationUnavailableError, CredentialError
 
 logger = logging.getLogger(__name__)
 
@@ -197,6 +204,13 @@ async def _link_metadata_inner(
                 )
 
             vectors.put_vectors_batch(batch)
+        except AnnotationUnavailableError as exc:
+            # T52 / ADR-011 decision 5: the durable annotation write is link_metadata's
+            # contract (it exists precisely to make commit_refs/references durable), so
+            # unlike the write path's graceful degrade, this is not silently absorbed —
+            # it is reported as a structured, actionable error and this artifact_id is
+            # never counted as linked.
+            return {"error": ErrorCode.ANNOTATION_UNAVAILABLE, "message": str(exc)}
         except CredentialError as exc:
             return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
 

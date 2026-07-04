@@ -59,6 +59,34 @@ class ConfigurationError(CairnError):
         self.fields = fields or []
 
 
+class AnnotationUnavailableError(CairnError):
+    """Raised when an S3 object annotation call fails because annotations are
+    unavailable (unsupported region or bucket type) or the caller lacks the
+    required IAM permission.
+
+    Distinct from :class:`CredentialError`: this signals an annotation-specific
+    limitation, not a general credential/authentication failure. Annotations
+    back only the mutable ``commit_refs`` / ``references`` link fields
+    (ADR-011) — core content, vector, and embedding operations are unaffected
+    and must keep functioning when this error is raised. Per ADR-011
+    decision 5, callers degrade gracefully (a warning on the write path, a
+    structured error from ``link_metadata``) rather than treating this as a
+    hard failure, and it is never used as a startup gate.
+
+    Attributes:
+        message: Human-readable, actionable explanation (required IAM actions,
+            unsupported regions/bucket types).
+        service: Which AWS service triggered the error (always ``"s3"``).
+        original: The original botocore exception, preserved for logging.
+    """
+
+    def __init__(self, message: str, service: str, original: Exception) -> None:
+        super().__init__(message)
+        self.message = message
+        self.service = service
+        self.original = original
+
+
 class VectorIndexNotFoundError(CairnError):
     """Raised when the configured S3 Vectors index does not exist.
 

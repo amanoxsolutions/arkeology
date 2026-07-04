@@ -30,7 +30,12 @@ from cairn_mcp.clients.interfaces import (
 )
 from cairn_mcp.config import Settings
 from cairn_mcp.constants import ErrorCode
-from cairn_mcp.errors import ArtifactCollisionError, CredentialError, MetadataTooLargeError
+from cairn_mcp.errors import (
+    AnnotationUnavailableError,
+    ArtifactCollisionError,
+    CredentialError,
+    MetadataTooLargeError,
+)
 from cairn_mcp.failure_log import append_failure_entry
 
 logger = logging.getLogger(__name__)
@@ -512,10 +517,27 @@ async def _write_artifact_inner(  # noqa: PLR0913
     # fails below, the durable annotation side is already correct and a later
     # reconcile_index run rebuilds vectors from it (T48). Metadata-only: never
     # triggers a re-embed.
+    #
+    # T52 / ADR-011 decision 5: annotation availability is a feature-level concern,
+    # not a hard failure. When annotations are unavailable (unsupported region/bucket
+    # type) or access is denied, the content and vectors already written (or about to
+    # be written below) must never be lost — record a warning and keep going, rather
+    # than aborting like the CredentialError branch below (a real credential failure
+    # is very likely to also break the upcoming Bedrock/vector calls, so aborting
+    # there remains correct).
+    annotation_warning: str | None = None
     try:
         apply_link_annotations(
             s3, s3_key, commit_refs=final_commit_refs, references=final_references
         )
+    except AnnotationUnavailableError as exc:
+        logger.warning(
+            "Annotation write unavailable for key=%s; content and vectors will still "
+            "be persisted without a durable commit_refs/references copy: %s",
+            s3_key,
+            exc,
+        )
+        annotation_warning = str(exc)
     except CredentialError as exc:
         return {
             "error": ErrorCode.CREDENTIAL_ERROR,
@@ -718,8 +740,11 @@ async def _write_artifact_inner(  # noqa: PLR0913
             )
 
     logger.info("Artifact written: key=%s sections=%d tier=%d", s3_key, len(new_keys), tier)
-    return {
+    result: dict[str, Any] = {
         "artifact_id": s3_key,
         "sections_indexed": len(new_keys),
         "last_edited_ulid": last_edited_ulid,
     }
+    if annotation_warning is not None:
+        result["warning"] = annotation_warning
+    return result

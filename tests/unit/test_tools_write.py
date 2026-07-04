@@ -14,7 +14,7 @@ from cairn_mcp.artifact import S3_USER_METADATA_MAX_BYTES
 from cairn_mcp.clients.fakes.fake_bedrock import FakeBedrockClient
 from cairn_mcp.clients.s3 import S3ClientImpl
 from cairn_mcp.clients.vectors import VectorsClientImpl
-from cairn_mcp.errors import CredentialError
+from cairn_mcp.errors import AnnotationUnavailableError, CredentialError
 from cairn_mcp.tools.reconcile import reconcile_index
 from cairn_mcp.tools.write import (
     _build_document_embedding_text,
@@ -2723,6 +2723,79 @@ async def test_write_credential_error_from_annotation_write_is_structured(
     assert result["error"] == "credential_error"
     assert "artifact_id" in result
     assert batch_spy.call_count == 0
+
+
+# ---------------------------------------------------------------------------
+# T52 — annotation availability graceful degrade (write path)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_write_annotation_unavailable_still_succeeds_with_warning(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """An AnnotationUnavailableError raised by the durable annotation write must never
+    lose the artifact (ADR-011 decision 5): content and vectors are still persisted and
+    the response carries a non-empty top-level 'warning' instead of an 'error'."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+    mocker.patch.object(
+        s3_client,
+        "put_object_annotation",
+        side_effect=AnnotationUnavailableError(
+            "S3 object annotations are unavailable for this bucket.", "s3", Exception("boom")
+        ),
+    )
+
+    result = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        **{**_BASE_WRITE_KWARGS, "commit_refs": ["abc1234"]},
+    )
+
+    assert "error" not in result
+    assert result["artifact_id"]
+    assert result["sections_indexed"] == 3
+    assert result.get("warning")
+
+    # Content is durably stored despite the annotation failure.
+    stored_content = s3_client.get_object(result["artifact_id"])
+    assert stored_content == _BASE_WRITE_KWARGS["content"]
+
+    # Vectors carry the supplied commit_refs even though the durable annotation
+    # copy could not be written.
+    keys = vectors_client.list_vectors_by_metadata({"artifact_id": {"$eq": result["artifact_id"]}})
+    entries = vectors_client.get_vectors(keys)
+    assert entries
+    for entry in entries:
+        assert entry["metadata"]["commit_refs"] == ["abc1234"]
+
+
+@pytest.mark.asyncio
+async def test_write_without_link_fields_no_warning_when_annotations_available(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+) -> None:
+    """A normal write with annotations available carries no 'warning' field."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+
+    result = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        **_BASE_WRITE_KWARGS,
+    )
+
+    assert "error" not in result
+    assert "warning" not in result
 
 
 # ---------------------------------------------------------------------------
