@@ -114,15 +114,29 @@ path→`artifact_id` map (Step 2 below).
    - Parse the frontmatter `references:` YAML list from `content` (if present). For each entry:
      - Skip it if it already starts with `cairn://` (already resolved at first-write time) or
        `http://` / `https://` (never a path candidate, ADR-012 D5).
-     - Otherwise, normalize the path — convert `\` to `/`, then strip exactly one of a leading
-       `./`, a single leading `/`, or neither — and look it up in the Step 3 map.
+     - Otherwise, if the entry is a well-formed relative path (starts with `./` or `../`), join
+       it against the *current artifact's own source file path* first — the same
+       `join_reference_path` algorithm in `src/cairn_mcp/references.py`: convert `\` to `/`,
+       then POSIX-join the relative path against the referencing file's directory (not the repo
+       root) and normalize the result. A path that escapes above the repo root simply normalizes
+       to something absent from the map — it falls through to unresolved, not an error. If the
+       artifact's original source path is unknown (e.g. it was authored directly via
+       `write_artifact`, never migrated from a file), skip this join step for that entry — there
+       is no directory to join against — and proceed straight to normalization below.
+     - Take the entry as written (if not relative) or the joined path from the step above, and
+       normalize it — convert `\` to `/`, then strip exactly one of a leading `./`, a single
+       leading `/`, or neither — and look it up in the Step 3 map.
      - If it resolves to an `artifact_id` that (a) is present in the Step 4 own-scope list and
        (b) is **not already** in this artifact's structured `references` field, record it as a
        proposed candidate: `(artifact_id, original path text, resolved id)`.
+     - A well-formed relative path that still fails to resolve after the join step above is a
+       genuinely broken or out-of-tree reference — not the canonical "just needs joining" case
+       anymore — and should be reported as unresolved like any other non-match.
    - Separately, scan the rest of `content` (outside frontmatter) for Markdown links
      (`[text](target)`) whose `target` is not `http(s)://` and not already `cairn://`. Resolve
-     each the same way. Any that resolve are **advisory findings only** — record them in a
-     separate list; never add them to the proposed-candidates list.
+     each the same way (including the relative-join step above). Any that resolve are **advisory
+     findings only** — record them in a separate list; never add them to the proposed-candidates
+     list.
 
 6. **Present the dry-run batch report** — a single consolidated report, before any write:
 

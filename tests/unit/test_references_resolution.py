@@ -11,6 +11,7 @@ from cairn_mcp.artifact import generate_artifact_id
 from cairn_mcp.references import (
     ManifestEntry,
     build_path_to_id_map,
+    join_reference_path,
     normalize_reference_path,
     resolve_reference,
 )
@@ -162,9 +163,111 @@ def test_resolve_reference_returns_none_for_unresolved_path() -> None:
 def test_resolve_reference_returns_none_when_match_requires_beyond_ceiling_normalization() -> None:
     """Story 3 (AC-58): a path that would only match after normalization beyond the
     bounded ceiling (e.g. '../' relative navigation) returns None rather than being
-    repaired — no further transformation is attempted."""
+    repaired — no further transformation is attempted, when no referencing_file_path
+    is supplied (the join step is opt-in via that parameter)."""
     path_to_id_map = {"docs/decisions/b.md": "adr-b-decision-abcd1234"}
 
     result = resolve_reference("../decisions/b.md", path_to_id_map)
+
+    assert result is None
+
+
+# ---------------------------------------------------------------------------
+# join_reference_path — relative ('./', '../') path joining (C6 fix)
+# ---------------------------------------------------------------------------
+
+
+def test_join_reference_path_joins_dotdot_relative_against_referencing_directory() -> None:
+    """A '../' relative reference joins against the referencing file's own directory,
+    not the repo root."""
+    result = join_reference_path("notes/A.md", "../decisions/B.md")
+
+    assert result == "decisions/B.md"
+
+
+def test_join_reference_path_joins_dot_relative_against_referencing_directory() -> None:
+    """A './' relative reference joins against the referencing file's own directory."""
+    result = join_reference_path("dir/A.md", "./sibling.md")
+
+    assert result == "dir/sibling.md"
+
+
+def test_join_reference_path_leaves_url_unchanged() -> None:
+    """An http(s):// URL is never treated as a path candidate and passes through
+    unchanged, regardless of the referencing file's location."""
+    result = join_reference_path("notes/A.md", "https://example.com/x")
+
+    assert result == "https://example.com/x"
+
+
+def test_join_reference_path_leaves_repo_relative_non_dotted_path_unchanged() -> None:
+    """A path that is already repo-relative (does not start with './' or '../') is not
+    joined against the referencing file's directory — it is returned unchanged."""
+    result = join_reference_path("notes/A.md", "docs/adr/001-use-s3.md")
+
+    assert result == "docs/adr/001-use-s3.md"
+
+
+def test_join_reference_path_escaping_repo_root_does_not_raise() -> None:
+    """A '../' that escapes above the repo root normalizes to a path that still carries
+    a leading '../' — which simply will not be present in any map — rather than
+    raising."""
+    result = join_reference_path("notes/A.md", "../../outside/C.md")
+
+    assert result == "../outside/C.md"
+
+
+# ---------------------------------------------------------------------------
+# resolve_reference — relative-path join wiring (C6 fix, T51 Story 1)
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_reference_joins_dotdot_relative_against_referencing_file() -> None:
+    """T51 Story 1 (AC-58): '../decisions/B.md' referenced from 'notes/A.md' joins to
+    'decisions/B.md' before the map lookup and resolves to B's id — a same-batch
+    forward reference using a well-formed relative path (C6 fix: relative references
+    now resolve instead of falling through as unresolvable)."""
+    entries = [_entry("decisions/B.md", "adr", 3, "B decision", "2026-01-02")]
+    path_to_id_map = build_path_to_id_map(entries)
+
+    result = resolve_reference(
+        "../decisions/B.md", path_to_id_map, referencing_file_path="notes/A.md"
+    )
+
+    assert result == path_to_id_map["decisions/B.md"]
+
+
+def test_resolve_reference_joins_dot_relative_against_referencing_file() -> None:
+    """'./sibling.md' referenced from 'dir/A.md' joins to 'dir/sibling.md' before the
+    map lookup and resolves to the sibling's id."""
+    entries = [_entry("dir/sibling.md", "spec", 3, "Sibling", "2026-01-01")]
+    path_to_id_map = build_path_to_id_map(entries)
+
+    result = resolve_reference("./sibling.md", path_to_id_map, referencing_file_path="dir/A.md")
+
+    assert result == path_to_id_map["dir/sibling.md"]
+
+
+def test_resolve_reference_escaping_root_relative_path_stays_unresolved() -> None:
+    """A '../' path that escapes above the repo root joins to a path absent from any
+    map and resolves to None — no exception is raised."""
+    path_to_id_map = {"decisions/b.md": "adr-b-decision-abcd1234"}
+
+    result = resolve_reference(
+        "../../outside.md", path_to_id_map, referencing_file_path="notes/A.md"
+    )
+
+    assert result is None
+
+
+@pytest.mark.parametrize("url", ["http://example.com/x", "https://example.com/x"])
+def test_resolve_reference_url_passthrough_unaffected_by_referencing_file_path(
+    url: str,
+) -> None:
+    """http(s):// entries still resolve to None even when a referencing_file_path is
+    supplied — URLs are never treated as path candidates, joined or not."""
+    path_to_id_map = {"docs/a.md": "spec-2026-01-01-a-spec-abcd1234"}
+
+    result = resolve_reference(url, path_to_id_map, referencing_file_path="notes/A.md")
 
     assert result is None

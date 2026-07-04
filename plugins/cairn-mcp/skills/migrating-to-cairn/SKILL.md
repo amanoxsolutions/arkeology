@@ -252,20 +252,36 @@ file being processed this run:
 
 1. **`http://` / `https://` entries are never path candidates.** Leave them
    verbatim in content and never add them to the artifact's `references` field.
-2. For any other entry, apply this bounded normalization — and no further
-   transformation — before looking it up in the map:
+2. **If the entry is a well-formed relative path** (starts with `./` or `../`),
+   **join it against the referencing file's own directory first** — this is
+   `join_reference_path` in `src/cairn_mcp/references.py`, the authoritative
+   reference implementation: convert backslashes to forward slashes, then
+   POSIX-join the relative path against the directory of the file currently
+   being processed (not the repo root), and normalize the result (collapsing
+   `..`/`.` segments). For example, `../decisions/B.md` referenced from
+   `notes/A.md` joins to `decisions/B.md`. This is what makes T51 Story 1
+   (a same-batch forward reference written as a relative path) resolve. A
+   relative path that escapes above the repo root simply normalizes to
+   something with a leading `../` that will not be in the map — it falls
+   through to step 4 below, not an error.
+3. Take the entry as written (if not relative) or the joined path from step 2,
+   and apply this bounded normalization — and no further transformation —
+   before looking it up in the map:
    - Convert backslashes (`\`) to forward slashes (`/`).
    - Then strip exactly one of: a leading `./`, a single leading `/`, or neither
      (whichever applies).
-3. **Match found** → add the resolved bare `artifact_id` to the artifact's
+4. **Match found** → add the resolved bare `artifact_id` to the artifact's
    `references` field (T46) and rewrite that entry, in the stored content's
    frontmatter `references:` list only, to `cairn://artifact/{id}`.
-4. **No match** (absent from the map, excluded/never-migrated target, or a path
-   that would only match after normalization beyond the bounded ceiling above —
-   e.g. `../` relative navigation) → leave the entry's original path text
-   completely untouched in content, omit it from the `references` field, and
-   record it (file + entry text) for the migration report. Never drop it
-   silently, and never attempt further repair.
+5. **No match** (absent from the map, excluded/never-migrated target, or a path
+   that escapes the repo root, or that would only match after further repair
+   beyond the join + bounded normalization above) → leave the entry's original
+   path text completely untouched in content, omit it from the `references`
+   field, and record it (file + entry text) for the migration report. Never
+   drop it silently, and never attempt further repair. Well-formed relative
+   paths (`./`, `../`) are resolved by step 2 above — they are no longer a
+   canonical example of an unresolvable reference; only genuinely broken or
+   out-of-tree paths fall through here.
 
 **Only the frontmatter `references:` YAML list is touched.** In-body Markdown
 links anywhere else in the file are explicitly out of scope for this rewrite —
@@ -556,10 +572,13 @@ After all writes (either path), verify the migration succeeded:
 4. Present the reference-resolution report accumulated during 3.A1b / 3.B5: for
    each unresolved `references:` entry, show the file it came from and the exact
    entry text left untouched (never silently dropped) — grouped by reason where
-   known (`http(s):// URL`, `not in manifest / excluded`, `normalization ceiling
-   exceeded`). If every entry resolved, say so explicitly rather than omitting
-   the report. This is informational only — an unresolved reference never blocks
-   or fails the migration.
+   known (`http(s):// URL`, `not in manifest / excluded`, `relative path escapes
+   repo root`, `normalization ceiling exceeded`). Well-formed `./`/`../` relative
+   paths are resolved by the join step and are not expected to appear here — only
+   genuinely broken, out-of-tree, or never-migrated targets should. If every entry
+   resolved, say so explicitly rather than omitting the report. This is
+   informational only — an unresolved reference never blocks or fails the
+   migration.
 
 ---
 

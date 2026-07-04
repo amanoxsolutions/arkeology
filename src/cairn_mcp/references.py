@@ -20,16 +20,22 @@ addressing boundary:
    ``http://`` / ``https://`` entries as never-path candidates and returning ``None``
    for anything absent from the map after the bounded normalization above.
 
-Relative (``../``) path navigation is deliberately out of this bounded ceiling: joining
-a reference against the referencing file's own directory (if needed) is the skill's
-responsibility, performed in-context before calling these helpers, not something this
-module infers.
+4. Join a well-formed relative reference (``./`` or ``../``) against the referencing
+   file's own directory (:func:`join_reference_path`) before the D6 normalization and
+   map lookup above, so that ``../decisions/B.md`` written in ``notes/A.md`` resolves
+   against ``decisions/B.md`` in the map. This is resolution of a well-formed relative
+   path, not the "repair" of a genuinely broken/inconsistent reference that D6
+   deliberately excludes — those still fall through to unresolved. :func:`resolve_reference`
+   accepts an optional ``referencing_file_path`` to apply this join automatically; when
+   omitted, behaviour is unchanged (no join is attempted, matching the original D6-only
+   ceiling).
 
-The ``migrating-to-cairn`` skill documents and drives this exact algorithm (OQ-T51-a) —
-this module is the authoritative, unit-tested reference implementation; do not
-reimplement the algorithm elsewhere.
+The ``migrating-to-cairn`` and ``backfilling-references`` skills document and drive this
+exact algorithm (OQ-T51-a) — this module is the authoritative, unit-tested reference
+implementation; do not reimplement the algorithm elsewhere.
 """
 
+import posixpath
 from typing import TypedDict
 
 from cairn_mcp.artifact import generate_artifact_id
@@ -115,26 +121,74 @@ def build_path_to_id_map(manifest_entries: list[ManifestEntry]) -> dict[str, str
     return path_to_id
 
 
-def resolve_reference(path: str, path_to_id_map: dict[str, str]) -> str | None:
+def join_reference_path(referencing_file_path: str, reference_path: str) -> str:
+    """Join a well-formed relative reference path against the referencing file's own
+    directory, producing a repo-relative path suitable for a
+    :func:`build_path_to_id_map` lookup (C6 fix — relative-path resolution).
+
+    ``http://`` / ``https://`` URLs pass through unchanged (ADR-012 D5). A path that
+    does not start with ``./`` or ``../`` (after backslash normalization) is already
+    absolute or repo-relative and also passes through unchanged — only well-formed
+    dotted-relative paths are joined. Joining uses POSIX semantics
+    (:func:`posixpath.join` + :func:`posixpath.normpath`) against
+    ``referencing_file_path``'s directory, not the repo root. A ``../`` that escapes
+    above the repo root simply normalizes to a path carrying a leading ``../`` — it
+    is not present in any map and stays unresolved downstream, rather than raising.
+
+    Args:
+        referencing_file_path: Repo-relative path of the file the reference was
+            written in (e.g. ``"notes/A.md"``).
+        reference_path: The raw reference path (or URL) text from a ``references:``
+            entry, as it appears in source frontmatter.
+
+    Returns:
+        The joined, POSIX-normalized repo-relative path when ``reference_path`` is a
+        well-formed relative (``./`` or ``../``) path; ``reference_path`` unchanged
+        otherwise (URLs and already-absolute/repo-relative paths).
+    """
+    if reference_path.startswith(_URL_PREFIXES):
+        return reference_path
+    slashed = reference_path.replace("\\", "/")
+    if not (slashed.startswith("./") or slashed.startswith("../")):
+        return reference_path
+    referencing_dir = posixpath.dirname(referencing_file_path.replace("\\", "/"))
+    return posixpath.normpath(posixpath.join(referencing_dir, slashed))
+
+
+def resolve_reference(
+    path: str,
+    path_to_id_map: dict[str, str],
+    referencing_file_path: str | None = None,
+) -> str | None:
     """Resolve a single ``references:`` path entry against the manifest-wide map.
 
     ``http://`` / ``https://`` entries are never treated as path candidates (ADR-012
-    D5) and always resolve to ``None``. Any other path is normalized via the bounded
-    ceiling in :func:`normalize_reference_path` and looked up directly; a path absent
-    from the map — including one that would only match after normalization beyond the
-    ceiling, such as ``../`` relative navigation — also resolves to ``None``. The
-    caller (the migration skill) is responsible for leaving an unresolved path's
-    original text untouched in content and surfacing it in the migration report
-    (cluster E) — this function never repairs or guesses.
+    D5) and always resolve to ``None``, regardless of ``referencing_file_path``. When
+    ``referencing_file_path`` is supplied, a well-formed relative (``./`` or ``../``)
+    path is first joined against its directory via :func:`join_reference_path` (C6
+    fix) — this is what makes ``../decisions/B.md`` written in ``notes/A.md`` resolve
+    to B's id. When ``referencing_file_path`` is omitted, no join is attempted and
+    behaviour matches the original bounded (D6) ceiling exactly. Either way, the
+    (possibly joined) path is then normalized via :func:`normalize_reference_path` and
+    looked up directly; a path absent from the map — including a ``../`` that escapes
+    above the repo root — resolves to ``None``. The caller (the migration or backfill
+    skill) is responsible for leaving an unresolved path's original text untouched in
+    content and surfacing it in the migration report (cluster E) — this function never
+    repairs or guesses beyond the documented join + D6 normalization.
 
     Args:
         path: The raw reference path (or URL) text from a ``references:`` entry.
         path_to_id_map: The full-manifest map built by :func:`build_path_to_id_map`.
+        referencing_file_path: Repo-relative path of the file ``path`` was written in.
+            When provided, enables relative (``./``/``../``) join resolution.
 
     Returns:
-        The resolved ``artifact_id`` if the (normalized) path is present in the map,
-        otherwise ``None``.
+        The resolved ``artifact_id`` if the (joined and normalized) path is present in
+        the map, otherwise ``None``.
     """
     if path.startswith(_URL_PREFIXES):
         return None
-    return path_to_id_map.get(normalize_reference_path(path))
+    candidate = path
+    if referencing_file_path is not None:
+        candidate = join_reference_path(referencing_file_path, path)
+    return path_to_id_map.get(normalize_reference_path(candidate))
