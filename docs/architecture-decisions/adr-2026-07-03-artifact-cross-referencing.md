@@ -1,7 +1,7 @@
 ---
 type: adr
 title: Artifact Cross-Referencing — First-Class references Field, Migration Rewrite, and referenced_by Warning
-description: "Records the design of cairn-mcp's artifact cross-referencing capability: references promoted to a first-class Artifact field holding resolved bare identifiers; migration frontmatter rewrite scope and its bounded normalization ceiling; the cairn://artifact/{id} content-rewrite target format; forward-reference resolution via a manifest-wide path→id map; mutability split by representation; AGENTS.md guidance; a deferred cleanup skill; and a unified own-scope referenced_by delete/archive warning. Durable storage mechanics are recorded in ADR-011; this ADR records the cross-referencing design."
+description: "Records the design of cairn-mcp's artifact cross-referencing capability: references promoted to a first-class Artifact field holding resolved full S3 keys (the operative artifact_id); migration frontmatter rewrite scope and its bounded normalization ceiling; the cairn://artifact/{id} content-rewrite target format; forward-reference resolution via a manifest-wide path→id map; mutability split by representation; AGENTS.md guidance; a deferred cleanup skill; and a unified own-scope referenced_by delete/archive warning. Durable storage mechanics are recorded in ADR-011; this ADR records the cross-referencing design."
 tags: []
 timestamp: 2026-07-03T00:00:00Z
 okf_version: "0.1"
@@ -99,7 +99,7 @@ tier-based access-control model (ADR-007); every reverse-lookup gate here remain
 ### D2 — `references` promoted to a first-class `Artifact` field (FR-51)
 
 `references: list[str]` becomes a first-class field on the `Artifact` model, storing **only
-resolved bare `artifact_id` values** — no `cairn://` prefix, no path text. It is **dual-stored
+resolved full S3 keys** — the operative `artifact_id` (e.g. `{write_prefix}/{id}{ext}`), not a bare id (**revised 2026-07-04, review C1**: the canonical form is the full S3 key, matching what the read gate, `referenced_by` `$eq`, and vector metadata use) — no `cairn://` prefix, no raw path text. It is **dual-stored
 following the same pattern as `source_artifacts`** — a durable copy on the S3 object (location and
 encoding recorded in ADR-011) and a `list[str]` in S3 Vectors metadata — and it is queryable via
 the existing generic `$eq` list-membership filter with AND semantics (all supplied identifiers must
@@ -254,7 +254,7 @@ graph TD
     end
 
     subgraph Field["references field (D2 / D7)"]
-        F["first-class Artifact field\nresolved bare ids · $eq-queryable"]
+        F["first-class Artifact field\nresolved full S3 keys · $eq-queryable"]
     end
 
     subgraph Lifecycle["Reference lifecycle"]
@@ -284,7 +284,7 @@ graph TD
 
 | Option | Pros | Cons |
 |--------|------|------|
-| **Chosen** — resolved bare `artifact_id` in the structured field + `cairn://artifact/{id}` in content | Reuses an already-registered MCP resource URI; the field stays clean resolved ids for `$eq` filtering; content is navigable in MCP hosts | Corpus permanently mixes `cairn://` and raw paths (accepted as correct steady state, not a defect) |
+| **Chosen** — resolved full-key `artifact_id` in the structured field + `cairn://artifact/{id*}` in content | Reuses an already-registered MCP resource URI; the field stays clean resolved ids for `$eq` filtering; content is navigable in MCP hosts | Corpus permanently mixes `cairn://` and raw paths (accepted as correct steady state, not a defect) |
 | Bare `artifact_id` string dropped into the content link target | Shortest text | Not a resolvable URI in MCP hosts; ambiguous with ordinary text; no navigation affordance |
 | Footnote/table appended mapping old path → new identifier | Preserves original text exactly | Adds boilerplate to every migrated body; still leaves the in-line link dead; no queryable structure |
 
