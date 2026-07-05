@@ -15,12 +15,24 @@ authored:
   date: "2026-06-03"
 revised:
   by: "developer"
-  date: "2026-06-09"
+  date: "2026-07-05"
 ---
 
 # Reconcile Phase 3 — Dangling Vector Pruning
 
 <!-- SCOPE BLOCK — frozen after approval -->
+
+> **Revised (2026-07-05, Phase 12 review M-2).** The "zero additional API cost" design
+> below has a race: an artifact fully written between the Scenario 2 S3 listing and the
+> vector listing was misclassified dangling and its brand-new vectors were pruned.
+> `reconcile_index` now re-confirms S3 absence with one `head_object` call per dangling
+> candidate immediately before deleting its vectors — only pruning when the object is
+> confirmed absent at prune time. This is a deliberate, narrow exception to the "no
+> additional `list_vectors_by_metadata` or `list_objects` calls in Scenario 3" boundary
+> below: `head_object` is a different, cheap, per-candidate call, not a repeated bulk
+> listing, and it is the only way to close the race without reordering the two listings
+> (which narrows but does not eliminate the window). The Requirements and Boundaries
+> sections are not rewritten; this note documents the correction.
 
 ## TL;DR
 

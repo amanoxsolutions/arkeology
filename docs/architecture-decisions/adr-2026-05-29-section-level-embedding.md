@@ -11,8 +11,8 @@ authored:
   by: architect
   date: "2026-05-29"
 revised:
-  by: ""
-  date: ""
+  by: developer
+  date: "2026-07-05"
 ---
 
 # Section-Level Embedding at H2 Boundaries
@@ -99,3 +99,12 @@ Three configurable guards bound the embedding cost per artifact:
   Truncation is logged at DEBUG and is never visible to the agent.
 - Cost at Titan Text Embeddings v2 pricing (on-demand) is negligible even at the 20-section
   ceiling — documented in NFR-14.
+
+> **Revised (2026-07-05, Phase 12 review M-3).** The three guards in this decision, and the
+> embedding-text construction described above, are implemented in a single shared module
+> (`tools/_section_pipeline.py`) called from both `write_artifact` and `reconcile_index` —
+> not duplicated per tool. This was tightened after a review finding that `reconcile_index`
+> re-embedded sections directly, bypassing the min-length filter, the `EMBED_MAX_SECTIONS`
+> cap, and `EMBED_MAX_SECTION_LENGTH` truncation entirely; a section truncated at write time
+> was resubmitted full-length on every reconcile replay and failed Titan's input limit
+> forever. Both tools now apply identical filtering/capping/truncation by construction.

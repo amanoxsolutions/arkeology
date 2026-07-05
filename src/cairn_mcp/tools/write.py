@@ -20,7 +20,6 @@ from cairn_mcp.artifact import (
     check_metadata_budgets,
     encode_metadata_value,
     generate_artifact_id,
-    parse_sections,
     section_slug,
 )
 from cairn_mcp.clients.interfaces import (
@@ -37,6 +36,10 @@ from cairn_mcp.errors import (
     MetadataTooLargeError,
 )
 from cairn_mcp.failure_log import append_failure_entry
+from cairn_mcp.tools._section_pipeline import (
+    build_document_embedding_text,
+    prepare_sections_for_embedding,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -55,74 +58,54 @@ _EMBED_EXECUTOR: ThreadPoolExecutor = ThreadPoolExecutor(
 )
 
 
-def _build_section_embedding_text(
+def _log_partial_write_failure(
+    settings: Settings,
     *,
+    artifact_id: str,
     title: str,
     artifact_type: str,
-    tags: list[str],
-    section_heading: str,
-    section_body: str,
-) -> str:
-    """Build the embedding input text for a single section vector.
+    tier: int,
+    date: str,
+    failure_step: str,
+    reason: str,
+) -> None:
+    """Append a failure-log entry recording a partial write (S3 succeeded, a
+    downstream step failed).
 
-    Format::
-
-        Title: {title}
-        Type: {type}
-        Tags: {tag1}, {tag2}    ← omitted when tags is empty
-
-        ## {section_heading}
-        {section_body}
-
-    Args:
-        title: Artifact title.
-        artifact_type: Artifact type string.
-        tags: List of tag strings (may be empty).
-        section_heading: Heading text of this section.
-        section_body: Body text of this section.
-
-    Returns:
-        Formatted embedding input string.
-    """
-    lines = [f"Title: {title}", f"Type: {artifact_type}"]
-    if tags:
-        lines.append(f"Tags: {', '.join(tags)}")
-    lines.append("")
-    lines.append(f"## {section_heading}")
-    lines.append(section_body)
-    return "\n".join(lines)
-
-
-def _build_document_embedding_text(
-    *,
-    title: str,
-    artifact_type: str,
-    tags: list[str],
-    description: str,
-) -> str:
-    """Build the embedding input text for a document-level fallback vector.
-
-    Format::
-
-        Title: {title}
-        Type: {type}
-        Tags: {tag1}, {tag2}    ← omitted when tags is empty
-        Description: {description}
+    Shared by the ``partial_write`` response path (:func:`_record_partial_write`)
+    and the credential-error branches that occur after the S3 put has already
+    succeeded (Phase 12 review M-4): a credential failure is no less a partial
+    write than any other kind of failure — the S3 object is durably written but
+    the index does not yet reflect it (or, for an ``overwrite=True`` rewrite,
+    still reflects the pre-overwrite version) — and only a failure-log entry lets
+    ``reconcile_index`` find and repair it. Without this, a retried credential
+    failure after S3 success left no trace, so the stale or missing index state
+    was never picked up by reconciliation.
 
     Args:
+        settings: Server configuration (for ``failure_log_path``).
+        artifact_id: S3 key of the partially written artifact.
         title: Artifact title.
         artifact_type: Artifact type string.
-        tags: List of tag strings (may be empty).
-        description: Short artifact description.
-
-    Returns:
-        Formatted embedding input string.
+        tier: Artifact tier.
+        date: ISO-8601 date string.
+        failure_step: Stage that failed (e.g. ``"bedrock_embed"``, ``"put_vector"``,
+            ``"annotation_write"``).
+        reason: Human-readable failure reason.
     """
-    lines = [f"Title: {title}", f"Type: {artifact_type}"]
-    if tags:
-        lines.append(f"Tags: {', '.join(tags)}")
-    lines.append(f"Description: {description}")
-    return "\n".join(lines)
+    append_failure_entry(
+        settings.failure_log_path,
+        {
+            "artifact_id": artifact_id,
+            "title": title,
+            "type": artifact_type,
+            "tier": tier,
+            "date": date,
+            "failure_step": failure_step,
+            "reason": reason,
+            "timestamp": datetime.now(UTC).isoformat(),
+        },
+    )
 
 
 def _record_partial_write(
@@ -155,18 +138,15 @@ def _record_partial_write(
     Returns:
         The ``partial_write`` error response dict (includes ``artifact_id``).
     """
-    append_failure_entry(
-        settings.failure_log_path,
-        {
-            "artifact_id": artifact_id,
-            "title": title,
-            "type": artifact_type,
-            "tier": tier,
-            "date": date,
-            "failure_step": failure_step,
-            "reason": reason,
-            "timestamp": datetime.now(UTC).isoformat(),
-        },
+    _log_partial_write_failure(
+        settings,
+        artifact_id=artifact_id,
+        title=title,
+        artifact_type=artifact_type,
+        tier=tier,
+        date=date,
+        failure_step=failure_step,
+        reason=reason,
     )
     return {
         "error": ErrorCode.PARTIAL_WRITE,
@@ -521,64 +501,49 @@ async def _write_artifact_inner(  # noqa: PLR0913
         )
         annotation_warning = str(exc)
     except CredentialError as exc:
+        # M-4: the S3 put above has already succeeded — this is a partial write,
+        # not a clean failure. Without a failure-log entry here, a retried
+        # credential failure after S3 success left no repairable trace, and for
+        # an overwrite=True rewrite the pre-overwrite vectors would silently
+        # survive forever (reconcile never sees a reason to touch this artifact).
+        _log_partial_write_failure(
+            settings,
+            artifact_id=s3_key,
+            title=title,
+            artifact_type=type,
+            tier=tier,
+            date=date,
+            failure_step="annotation_write",
+            reason=str(exc),
+        )
         return {
             "error": ErrorCode.CREDENTIAL_ERROR,
             "message": str(exc),
             "artifact_id": s3_key,
         }
 
-    # ── Step 5: Parse sections ────────────────────────────────────────────────
-    sections = parse_sections(content)
-
-    # ── Step 5a: Length filter ────────────────────────────────────────────────
-    if settings.embed_min_section_length > 0:
-        dropped = [s for s in sections if len(s.body.strip()) < settings.embed_min_section_length]
-        if dropped:
-            logger.debug(
-                "Dropping %d sections below min length %d",
-                len(dropped),
-                settings.embed_min_section_length,
-            )
-        sections = [s for s in sections if len(s.body.strip()) >= settings.embed_min_section_length]
-
-    # ── Step 5b: Cap sections ─────────────────────────────────────────────────
-    if len(sections) > settings.embed_max_sections:
-        logger.debug("Capping sections from %d to %d", len(sections), settings.embed_max_sections)
-        sections = sections[: settings.embed_max_sections]
+    # ── Step 5: Parse, filter, cap, and truncate sections (M-3 shared pipeline) ──
+    # Delegates to the same helper reconcile_index uses, so a section that write-time
+    # drops (min-length), caps (max-sections), or truncates (max-section-length) is
+    # dropped/capped/truncated identically on a later reconcile replay.
+    prepared_sections = prepare_sections_for_embedding(
+        content,
+        title=title,
+        artifact_type=type,
+        tags=tags,
+        settings=settings,
+    )
 
     # ── Step 7: Embed and index ───────────────────────────────────────────────
     new_keys: set[str] = set()
 
-    if sections:
+    if prepared_sections:
         # Concurrent embedding with bounded semaphore
         semaphore = asyncio.Semaphore(settings.section_concurrency)
 
-        sections_to_embed: list[tuple[str, str]] = []
-        limit = settings.embed_max_section_length
-        for sec in sections:
-            vec_key = f"{s3_key}#{section_slug(sec.heading)}"
-            if limit > 0 and len(sec.body) > limit:
-                logger.debug(
-                    "Section '%s' body truncated from %d to %d chars for embedding",
-                    sec.heading,
-                    len(sec.body),
-                    limit,
-                )
-                embed_body = sec.body[:limit]
-            else:
-                embed_body = sec.body
-            sections_to_embed.append(
-                (
-                    vec_key,
-                    _build_section_embedding_text(
-                        title=title,
-                        artifact_type=type,
-                        tags=tags,
-                        section_heading=sec.heading,
-                        section_body=embed_body,
-                    ),
-                )
-            )
+        sections_to_embed: list[tuple[str, str]] = [
+            (f"{s3_key}#{section_slug(p.heading)}", p.embed_text) for p in prepared_sections
+        ]
 
         async def embed_section(vec_key: str, text: str) -> tuple[str, list[float]]:
             async with semaphore:
@@ -607,6 +572,16 @@ async def _write_artifact_inner(  # noqa: PLR0913
                 first_other_error = r
 
         if first_cred_error is not None:
+            _log_partial_write_failure(
+                settings,
+                artifact_id=s3_key,
+                title=title,
+                artifact_type=type,
+                tier=tier,
+                date=date,
+                failure_step="bedrock_embed",
+                reason=str(first_cred_error),
+            )
             return {
                 "error": ErrorCode.CREDENTIAL_ERROR,
                 "message": str(first_cred_error),
@@ -636,6 +611,16 @@ async def _write_artifact_inner(  # noqa: PLR0913
         try:
             vectors.put_vectors_batch(items)
         except CredentialError as exc:
+            _log_partial_write_failure(
+                settings,
+                artifact_id=s3_key,
+                title=title,
+                artifact_type=type,
+                tier=tier,
+                date=date,
+                failure_step="put_vector",
+                reason=str(exc),
+            )
             return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc), "artifact_id": s3_key}
         except Exception as exc:
             return _record_partial_write(
@@ -651,7 +636,7 @@ async def _write_artifact_inner(  # noqa: PLR0913
 
         new_keys = {vec_key for vec_key, _ in successful}
     else:
-        embed_text = _build_document_embedding_text(
+        embed_text = build_document_embedding_text(
             title=title,
             artifact_type=type,
             tags=tags,
@@ -666,6 +651,16 @@ async def _write_artifact_inner(  # noqa: PLR0913
                 settings.bedrock_embedding_dimensions,
             )
         except CredentialError as exc:
+            _log_partial_write_failure(
+                settings,
+                artifact_id=s3_key,
+                title=title,
+                artifact_type=type,
+                tier=tier,
+                date=date,
+                failure_step="bedrock_embed",
+                reason=str(exc),
+            )
             return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc), "artifact_id": s3_key}
         except Exception as exc:
             return _record_partial_write(
@@ -683,6 +678,16 @@ async def _write_artifact_inner(  # noqa: PLR0913
         try:
             vectors.put_vectors_batch(doc_item)
         except CredentialError as exc:
+            _log_partial_write_failure(
+                settings,
+                artifact_id=s3_key,
+                title=title,
+                artifact_type=type,
+                tier=tier,
+                date=date,
+                failure_step="put_vector",
+                reason=str(exc),
+            )
             return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc), "artifact_id": s3_key}
         except Exception as exc:
             return _record_partial_write(

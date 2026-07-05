@@ -1282,6 +1282,57 @@ async def test_phase2_and_phase3_both_run(
     assert dangling_id in result["dangling_artifacts"]
 
 
+async def test_phase3_race_written_after_vector_listing_not_pruned(
+    reconcile_settings: Settings,
+    s3_reconcile: S3ClientImpl,
+    vectors_reconcile: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """M-2 RED proof: an artifact whose S3 object exists at prune time, but was excluded
+    from the S3 listing snapshot Phase 2/3 took (simulating a write that completed
+    between the S3 listing and the vector listing), must NOT have its vectors pruned.
+    A re-``head_object`` check immediately before deletion must confirm the object is
+    actually absent before treating the vector entry as dangling. Before the fix, the
+    listing snapshot alone decided dangling-ness, so this concurrently-written
+    artifact's fresh vectors would be deleted."""
+    artifact_id = "artifacts/implementation-note-2026-01-01-race-written"
+    vec_key = f"{artifact_id}#section"
+
+    # The artifact is actually present in S3 (simulating: it was written between the
+    # S3 listing and the vector listing) and its vector is indexed.
+    s3_reconcile.put_object(artifact_id, _CONTENT_NO_SECTIONS, {**_BASE_S3_META})
+    vectors_reconcile.put_vector(
+        vec_key,
+        [1.0] + [0.0] * (DIMENSION - 1),
+        {"artifact_id": artifact_id, "scope": "artifacts"},
+    )
+
+    # Simulate the race: the S3 listing snapshot taken by Phase 2/3 did NOT include
+    # this key, as if it had not yet been written when list_objects ran — even though
+    # the object exists in S3 by the time Phase 3 prunes.
+    real_list_objects = s3_reconcile.list_objects
+
+    def _stale_listing(prefix: str) -> list[str]:
+        return [k for k in real_list_objects(prefix) if k != artifact_id]
+
+    mocker.patch.object(s3_reconcile, "list_objects", side_effect=_stale_listing)
+    spy_delete = mocker.spy(vectors_reconcile, "delete_vectors")
+
+    result = await reconcile_index(
+        settings=reconcile_settings,
+        s3=s3_reconcile,
+        vectors=vectors_reconcile,
+        bedrock=FakeBedrockClient(dimension=DIMENSION),
+    )
+
+    assert "error" not in result
+    assert artifact_id not in result["dangling_artifacts"]
+    assert spy_delete.call_count == 0
+    # The vector must still be present — not pruned.
+    keys = vectors_reconcile.list_vectors_by_metadata({"artifact_id": {"$eq": artifact_id}})
+    assert vec_key in keys
+
+
 async def test_phase3_foreign_scope_not_pruned(
     reconcile_settings: Settings,
     s3_reconcile: S3ClientImpl,

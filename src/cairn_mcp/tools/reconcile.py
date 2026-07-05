@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from cairn_mcp.annotations import read_current_link_fields
-from cairn_mcp.artifact import decode_metadata_value, parse_sections, section_slug
+from cairn_mcp.artifact import decode_metadata_value, section_slug
 from cairn_mcp.clients.interfaces import (
     BedrockClientInterface,
     S3ClientInterface,
@@ -21,9 +21,9 @@ from cairn_mcp.config import Settings
 from cairn_mcp.constants import ArtifactStatus, ErrorCode
 from cairn_mcp.errors import CredentialError
 from cairn_mcp.tools._search_helper import coerce_list_field
-from cairn_mcp.tools.write import (
-    _build_document_embedding_text,
-    _build_section_embedding_text,
+from cairn_mcp.tools._section_pipeline import (
+    build_document_embedding_text,
+    prepare_sections_for_embedding,
 )
 
 logger = logging.getLogger(__name__)
@@ -107,28 +107,33 @@ def _reindex_artifact(
     if references_list:
         vector_metadata["references"] = references_list
 
-    sections = parse_sections(content)
+    # M-3: use the same shared pipeline write_artifact uses — min-length filtering,
+    # max-sections capping, and per-section truncation — so a section that write-time
+    # truncates (or drops, or caps) is truncated (or dropped, or capped) identically on
+    # reconcile. Before this shared helper existed, reconcile embedded every parsed
+    # section verbatim, so a section truncated at write time was resubmitted
+    # full-length on every reconcile replay and failed Titan's input limit forever.
+    prepared_sections = prepare_sections_for_embedding(
+        content,
+        title=title,
+        artifact_type=artifact_type,
+        tags=tags,
+        settings=settings,
+    )
     new_keys: set[str] = set()
 
-    if sections:
-        for sec in sections:
-            embed_text = _build_section_embedding_text(
-                title=title,
-                artifact_type=artifact_type,
-                tags=tags,
-                section_heading=sec.heading,
-                section_body=sec.body,
-            )
+    if prepared_sections:
+        for prepared in prepared_sections:
             embedding = bedrock.embed(
-                embed_text,
+                prepared.embed_text,
                 settings.bedrock_embedding_model,
                 settings.bedrock_embedding_dimensions,
             )
-            vec_key = f"{artifact_id}#{section_slug(sec.heading)}"
+            vec_key = f"{artifact_id}#{section_slug(prepared.heading)}"
             vectors.put_vector(vec_key, embedding, vector_metadata)
             new_keys.add(vec_key)
     else:
-        embed_text = _build_document_embedding_text(
+        embed_text = build_document_embedding_text(
             title=title,
             artifact_type=artifact_type,
             tags=tags,
@@ -355,6 +360,19 @@ async def _reconcile_index_inner(
     for dangling_id in dangling_artifact_ids:
         keys_to_delete = vectors_by_artifact[dangling_id]
         try:
+            # M-2: an artifact fully written between the S3 listing and the vector
+            # listing above would otherwise be misclassified dangling here and have
+            # its brand-new vectors pruned. Re-confirm S3 absence immediately before
+            # deleting — only prune when the object is actually gone right now.
+            try:
+                s3.head_object(dangling_id)
+            except KeyError:
+                pass  # confirmed absent at prune time — safe to prune
+            else:
+                # A concurrent write raced the initial listings; not dangling after
+                # all. Leave its vectors untouched.
+                continue
+
             vectors.delete_vectors(keys_to_delete)
             dangling_artifacts.append(dangling_id)
             dangling_artifacts_found += 1

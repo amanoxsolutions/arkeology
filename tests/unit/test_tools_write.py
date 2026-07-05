@@ -16,11 +16,7 @@ from cairn_mcp.clients.s3 import S3ClientImpl
 from cairn_mcp.clients.vectors import VectorsClientImpl
 from cairn_mcp.errors import AnnotationUnavailableError, CredentialError
 from cairn_mcp.tools.reconcile import reconcile_index
-from cairn_mcp.tools.write import (
-    _build_document_embedding_text,
-    _build_section_embedding_text,
-    write_artifact,
-)
+from cairn_mcp.tools.write import write_artifact
 from tests.unit.conftest import _make_settings
 
 # Base write kwargs
@@ -48,137 +44,14 @@ _ONE_SECTION_KWARGS: dict = {
 
 
 # ---------------------------------------------------------------------------
-# _build_section_embedding_text
-# ---------------------------------------------------------------------------
-
-
-def test_section_embed_starts_with_title() -> None:
-    """_build_section_embedding_text output starts with 'Title: {title}'."""
-    text = _build_section_embedding_text(
-        title="Fix auth bug",
-        artifact_type="code_review",
-        tags=[],
-        section_heading="Summary",
-        section_body="All looks good.",
-    )
-    assert text.startswith("Title: Fix auth bug")
-
-
-def test_section_embed_contains_type() -> None:
-    """_build_section_embedding_text output contains 'Type: {type}'."""
-    text = _build_section_embedding_text(
-        title="Fix auth bug",
-        artifact_type="code_review",
-        tags=[],
-        section_heading="Summary",
-        section_body="All looks good.",
-    )
-    assert "Type: code_review" in text
-
-
-def test_section_embed_contains_tags_when_present() -> None:
-    """_build_section_embedding_text output contains tags when tags non-empty."""
-    text = _build_section_embedding_text(
-        title="Fix auth bug",
-        artifact_type="code_review",
-        tags=["auth", "security"],
-        section_heading="Summary",
-        section_body="All looks good.",
-    )
-    assert "Tags:" in text
-    assert "auth" in text
-    assert "security" in text
-
-
-def test_section_embed_omits_tags_when_empty() -> None:
-    """_build_section_embedding_text omits the Tags line when tags is empty."""
-    text = _build_section_embedding_text(
-        title="Fix auth bug",
-        artifact_type="code_review",
-        tags=[],
-        section_heading="Summary",
-        section_body="All looks good.",
-    )
-    assert "Tags:" not in text
-
-
-def test_section_embed_contains_heading_and_body() -> None:
-    """_build_section_embedding_text contains the section heading and body."""
-    text = _build_section_embedding_text(
-        title="Fix auth bug",
-        artifact_type="code_review",
-        tags=[],
-        section_heading="Summary",
-        section_body="All looks good.",
-    )
-    assert "Summary" in text
-    assert "All looks good." in text
-
-
-# ---------------------------------------------------------------------------
-# _build_document_embedding_text
-# ---------------------------------------------------------------------------
-
-
-def test_document_embed_starts_with_title() -> None:
-    """_build_document_embedding_text output starts with 'Title: {title}'."""
-    text = _build_document_embedding_text(
-        title="Fix auth bug",
-        artifact_type="code_review",
-        tags=[],
-        description="Review of the auth module.",
-    )
-    assert text.startswith("Title: Fix auth bug")
-
-
-def test_document_embed_contains_type() -> None:
-    """_build_document_embedding_text output contains 'Type: {type}'."""
-    text = _build_document_embedding_text(
-        title="Fix auth bug",
-        artifact_type="code_review",
-        tags=[],
-        description="Review of the auth module.",
-    )
-    assert "Type: code_review" in text
-
-
-def test_document_embed_contains_description() -> None:
-    """_build_document_embedding_text output contains 'Description: {description}'."""
-    text = _build_document_embedding_text(
-        title="Fix auth bug",
-        artifact_type="code_review",
-        tags=[],
-        description="Review of the auth module.",
-    )
-    assert "Description: Review of the auth module." in text
-
-
-def test_document_embed_omits_tags_when_empty() -> None:
-    """_build_document_embedding_text omits the Tags line when tags is empty."""
-    text = _build_document_embedding_text(
-        title="Fix auth bug",
-        artifact_type="code_review",
-        tags=[],
-        description="A description.",
-    )
-    assert "Tags:" not in text
-
-
-def test_document_embed_contains_tags_when_present() -> None:
-    """_build_document_embedding_text contains tags when tags non-empty."""
-    text = _build_document_embedding_text(
-        title="Fix auth bug",
-        artifact_type="code_review",
-        tags=["payments"],
-        description="A description.",
-    )
-    assert "Tags:" in text
-    assert "payments" in text
-
-
-# ---------------------------------------------------------------------------
 # write_artifact — happy path
 # ---------------------------------------------------------------------------
+#
+# Note: unit tests for the section-embedding-text helpers and the section
+# filter/cap/truncate pipeline (formerly private to this module) now live in
+# tests/unit/test_tools_section_pipeline.py — they moved to
+# cairn_mcp.tools._section_pipeline as a shared helper used by both
+# write_artifact and reconcile_index (Phase 12 review M-3).
 
 
 async def test_three_section_content_indexes_three_sections(
@@ -943,9 +816,12 @@ async def test_bedrock_credential_failure_returns_error(
     monkeypatch: pytest.MonkeyPatch,
     s3_client: S3ClientImpl,
     vectors_client: VectorsClientImpl,
+    tmp_path: pytest.TempPathFactory,
 ) -> None:
-    """Bedrock credential failure → error in response (S3 may already have been written)."""
-    settings = _make_settings(monkeypatch)
+    """Bedrock credential failure → error in response (S3 already written by this
+    point — a failure-log entry is written per M-4, hence the tmp-path-scoped log)."""
+    log_path = tmp_path / "failures.jsonl"
+    settings = _make_settings(monkeypatch, FAILURE_LOG_PATH=str(log_path))
     bedrock = FakeBedrockClient(dimension=1024)
     bedrock.set_credential_failure(True)
 
@@ -1298,13 +1174,16 @@ async def test_failure_log_appends_across_multiple_failures(
         assert entry["failure_step"] == "put_vector"
 
 
-async def test_bedrock_credential_error_no_failure_log(
+async def test_bedrock_credential_error_writes_failure_log(
     monkeypatch: pytest.MonkeyPatch,
     s3_client: S3ClientImpl,
     vectors_client: VectorsClientImpl,
     tmp_path: pytest.TempPathFactory,
 ) -> None:
-    """Bedrock CredentialError → credential_error response; no failure log entry written."""
+    """Bedrock CredentialError (doc-level fallback path) → credential_error response;
+    a failure-log entry IS written (M-4) since the S3 put has already succeeded by
+    this point — without it, reconcile_index has no way to discover and repair the
+    artifact's missing vector index entry."""
     log_path = tmp_path / "failures.jsonl"
     settings = _make_settings(monkeypatch, FAILURE_LOG_PATH=str(log_path))
     bedrock = FakeBedrockClient(dimension=1024)
@@ -1319,17 +1198,22 @@ async def test_bedrock_credential_error_no_failure_log(
     )
 
     assert result.get("error") == "credential_error"
-    assert not log_path.exists()
+    assert log_path.exists()
+    entries = [json.loads(line) for line in log_path.read_text().splitlines()]
+    assert len(entries) == 1
+    assert entries[0]["failure_step"] == "bedrock_embed"
+    assert entries[0]["artifact_id"] == result["artifact_id"]
 
 
-async def test_put_vector_credential_error_no_failure_log(
+async def test_put_vector_credential_error_writes_failure_log(
     monkeypatch: pytest.MonkeyPatch,
     s3_client: S3ClientImpl,
     vectors_client: VectorsClientImpl,
     tmp_path: pytest.TempPathFactory,
     mocker: pytest.MonkeyPatch,
 ) -> None:
-    """put_vectors_batch CredentialError → credential_error response; no failure log written."""
+    """put_vectors_batch CredentialError (doc-level fallback path) → credential_error
+    response; a failure-log entry IS written (M-4)."""
     log_path = tmp_path / "failures.jsonl"
     settings = _make_settings(monkeypatch, FAILURE_LOG_PATH=str(log_path))
     bedrock = FakeBedrockClient(dimension=1024)
@@ -1352,7 +1236,11 @@ async def test_put_vector_credential_error_no_failure_log(
     )
 
     assert result.get("error") == "credential_error"
-    assert not log_path.exists()
+    assert log_path.exists()
+    entries = [json.loads(line) for line in log_path.read_text().splitlines()]
+    assert len(entries) == 1
+    assert entries[0]["failure_step"] == "put_vector"
+    assert entries[0]["artifact_id"] == result["artifact_id"]
 
 
 # ---------------------------------------------------------------------------
@@ -1731,9 +1619,12 @@ async def test_write_embed_credential_error_aborts(
     s3_client: S3ClientImpl,
     vectors_client: VectorsClientImpl,
     mocker: pytest.MonkeyPatch,
+    tmp_path: pytest.TempPathFactory,
 ) -> None:
-    """CredentialError on any embed → response error == 'credential_error'; no vectors written."""
-    settings = _make_settings(monkeypatch)
+    """CredentialError on any embed → response error == 'credential_error'; no vectors
+    written; a failure-log entry IS written (M-4) since S3 already succeeded."""
+    log_path = tmp_path / "failures.jsonl"
+    settings = _make_settings(monkeypatch, FAILURE_LOG_PATH=str(log_path))
     bedrock = FakeBedrockClient(dimension=1024)
     bedrock.set_credential_failure(True)
     batch_spy = mocker.spy(vectors_client, "put_vectors_batch")
@@ -1747,6 +1638,10 @@ async def test_write_embed_credential_error_aborts(
 
     assert result.get("error") == "credential_error"
     assert batch_spy.call_count == 0
+    assert log_path.exists()
+    entries = [json.loads(line) for line in log_path.read_text().splitlines()]
+    assert len(entries) == 1
+    assert entries[0]["failure_step"] == "bedrock_embed"
 
 
 @pytest.mark.asyncio
@@ -2188,7 +2083,12 @@ async def test_section_truncation_logged_at_debug(
     vectors_client: VectorsClientImpl,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """When a section body is truncated, the event is logged at DEBUG level."""
+    """When a section body is truncated, the event is logged at DEBUG level.
+
+    The truncation now happens inside the shared ``cairn_mcp.tools._section_pipeline``
+    helper (M-3), not in ``cairn_mcp.tools.write`` directly, so the log is emitted
+    under that module's logger.
+    """
     settings = _make_settings(monkeypatch, EMBED_MAX_SECTION_LENGTH="50")
     bedrock = FakeBedrockClient(dimension=1024)
 
@@ -2196,7 +2096,7 @@ async def test_section_truncation_logged_at_debug(
     content = f"## Long Section\n\n{body}"
     kwargs = {**_BASE_WRITE_KWARGS, "content": content}
 
-    with caplog.at_level(logging.DEBUG, logger="cairn_mcp.tools.write"):
+    with caplog.at_level(logging.DEBUG, logger="cairn_mcp.tools._section_pipeline"):
         await write_artifact(
             s3=s3_client,
             vectors=vectors_client,
@@ -2699,11 +2599,14 @@ async def test_write_credential_error_from_annotation_write_is_structured(
     s3_client: S3ClientImpl,
     vectors_client: VectorsClientImpl,
     mocker: pytest.MonkeyPatch,
+    tmp_path: pytest.TempPathFactory,
 ) -> None:
     """A CredentialError raised by put_object_annotation surfaces as a structured
     credential_error including artifact_id — never a raw exception — and no vector
-    write is attempted."""
-    settings = _make_settings(monkeypatch)
+    write is attempted. A failure-log entry IS written (M-4) since the S3 put has
+    already succeeded by this point — the annotation write happens after PutObject."""
+    log_path = tmp_path / "failures.jsonl"
+    settings = _make_settings(monkeypatch, FAILURE_LOG_PATH=str(log_path))
     bedrock = FakeBedrockClient(dimension=1024)
     mocker.patch.object(
         s3_client,
@@ -2723,6 +2626,11 @@ async def test_write_credential_error_from_annotation_write_is_structured(
     assert result["error"] == "credential_error"
     assert "artifact_id" in result
     assert batch_spy.call_count == 0
+    assert log_path.exists()
+    entries = [json.loads(line) for line in log_path.read_text().splitlines()]
+    assert len(entries) == 1
+    assert entries[0]["failure_step"] == "annotation_write"
+    assert entries[0]["artifact_id"] == result["artifact_id"]
 
 
 # ---------------------------------------------------------------------------

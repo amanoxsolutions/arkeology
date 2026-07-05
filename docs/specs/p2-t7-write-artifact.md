@@ -14,8 +14,8 @@ authored:
   by: "architect"
   date: "2026-05-30"
 revised:
-  by: ""
-  date: ""
+  by: "developer"
+  date: "2026-07-05"
 ---
 
 # T7 — Write Artifact Tool
@@ -251,6 +251,19 @@ Implement a private helper `_build_section_embedding_text` and
 `_build_document_embedding_text` in `tools/write.py`. Both must be unit-tested directly
 (pass strings in, assert the formatted output) — these helpers are the most fragile part of
 the write pipeline.
+
+> **Revised (2026-07-05, Phase 12 review M-3).** These two helpers, plus the min-length
+> filter / `EMBED_MAX_SECTIONS` cap / per-section truncation steps that sit around them,
+> have moved out of `tools/write.py` into a shared module,
+> `tools/_section_pipeline.py` (`build_section_embedding_text`,
+> `build_document_embedding_text`, `prepare_sections_for_embedding`). `reconcile_index`
+> re-embeds artifacts using the same section pipeline as `write_artifact` — before this
+> refactor it bypassed the filter/cap/truncation steps entirely, so a section truncated
+> at write time was re-submitted full-length on every reconcile replay and failed
+> Titan's input limit forever. `write_artifact` now calls
+> `prepare_sections_for_embedding` at Step 5 instead of parsing sections and building
+> embedding text inline. Their unit tests now live in
+> `tests/unit/test_tools_section_pipeline.py`.
 
 ## Tier 3 Orphan Cleanup Timing — Decision
 
