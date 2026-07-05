@@ -4,6 +4,7 @@ Retrieves a single artifact from S3, applying scope and access-control gates
 before fetching content.
 """
 
+import asyncio
 import logging
 from typing import Any
 
@@ -87,9 +88,9 @@ async def _read_artifact_inner(
             "message": f"Artifact '{artifact_id}' is not in any accessible scope.",
         }
 
-    # ── Step 2: Fetch metadata and apply gate ─────────────────────────────────
+    # ── Step 2: Fetch metadata and apply gate (M-8: off the event loop) ──────
     try:
-        meta = s3.head_object(artifact_id)
+        meta = await asyncio.to_thread(s3.head_object, artifact_id)
     except CredentialError as exc:
         return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
     except KeyError:
@@ -118,9 +119,9 @@ async def _read_artifact_inner(
                 ),
             }
 
-    # ── Step 3: Fetch content ─────────────────────────────────────────────────
+    # ── Step 3: Fetch content (M-8: off the event loop) ───────────────────────
     try:
-        content = s3.get_object(artifact_id)
+        content = await asyncio.to_thread(s3.get_object, artifact_id)
     except CredentialError as exc:
         return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
 
@@ -134,9 +135,12 @@ async def _read_artifact_inner(
     references: list[str] = []
     if vectors is not None:
         try:
-            keys = vectors.list_vectors_by_metadata({"artifact_id": {"$eq": artifact_id}})
+            # M-8: off the event loop — blocking boto3 calls.
+            keys = await asyncio.to_thread(
+                vectors.list_vectors_by_metadata, {"artifact_id": {"$eq": artifact_id}}
+            )
             if keys:
-                entries = vectors.get_vectors([keys[0]])
+                entries = await asyncio.to_thread(vectors.get_vectors, [keys[0]])
                 if entries:
                     entry_metadata = entries[0].get("metadata", {})
                     raw_commit_refs = entry_metadata.get("commit_refs", [])

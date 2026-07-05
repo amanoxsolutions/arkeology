@@ -4,6 +4,7 @@ Tests list_artifacts() using moto-backed VectorsClientImpl — no S3 or Bedrock 
 """
 
 import math
+import threading
 from typing import Any
 
 import pytest
@@ -1064,4 +1065,47 @@ async def test_m17_vector_missing_tier_key_does_not_raise(
     returned_ids = {a["artifact_id"] for a in result.get("artifacts", [])}
     assert "artifacts/legacy-no-tier" in returned_ids, (
         "M17: Legacy artifact without 'tier' key should appear in list results, not raise KeyError"
+    )
+
+
+# ---------------------------------------------------------------------------
+# M-8 — list_artifacts's blocking client calls are offloaded off the event loop
+# ---------------------------------------------------------------------------
+
+
+async def test_list_vector_calls_run_off_event_loop(
+    monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """list_vectors_by_metadata and get_vectors execute on a worker thread, never on
+    the calling event-loop thread — proves the calls are routed through
+    asyncio.to_thread."""
+    settings = _make_settings(monkeypatch)
+    _seed_vectors(vectors_client_8)
+    main_thread = threading.current_thread()
+    seen_threads: list[threading.Thread] = []
+
+    original_list = vectors_client_8.list_vectors_by_metadata
+    original_get_vectors = vectors_client_8.get_vectors
+
+    def spy_list(*args: Any, **kwargs: Any) -> Any:
+        seen_threads.append(threading.current_thread())
+        return original_list(*args, **kwargs)
+
+    def spy_get_vectors(*args: Any, **kwargs: Any) -> Any:
+        seen_threads.append(threading.current_thread())
+        return original_get_vectors(*args, **kwargs)
+
+    mocker.patch.object(vectors_client_8, "list_vectors_by_metadata", side_effect=spy_list)
+    mocker.patch.object(vectors_client_8, "get_vectors", side_effect=spy_get_vectors)
+
+    result = await list_artifacts(
+        settings=settings, vectors=vectors_client_8, s3=None, bedrock=None
+    )
+
+    assert "error" not in result
+    assert seen_threads, "list_vectors_by_metadata/get_vectors were never called"
+    assert all(t is not main_thread for t in seen_threads), (
+        "Vector calls ran on the event-loop thread — they must be offloaded"
     )

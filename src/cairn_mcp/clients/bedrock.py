@@ -27,6 +27,20 @@ _TRANSIENT_ERROR_CODES = frozenset(
 # Sleep duration between attempts for transient errors (seconds)
 _RETRY_SLEEP_SECONDS: float = 2.0
 
+# M-8 (Phase 12 review): embed()/invoke_text_model() are synchronous Protocol methods
+# (BedrockClientInterface) — making the retry sleep below `await asyncio.sleep(...)`
+# would require turning both methods (and the interface, every concrete/fake
+# implementation, and every direct caller — startup.py, health.py) into coroutines, far
+# beyond a surgical fix. Instead, the guarantee that this blocking `time.sleep` (and the
+# blocking `invoke_model` call itself) never freezes the asyncio event loop is provided
+# by every async caller: search.py, synthesise.py, and reconcile.py route their
+# embed()/invoke_text_model() calls through `asyncio.to_thread`, and write.py routes
+# them through its bounded `_EMBED_EXECUTOR` — the entire synchronous call, retry sleep
+# included, runs on a worker thread, never on the event-loop thread. startup.py calls
+# these methods directly, but synchronously before the event loop starts. health.py's
+# direct (non-offloaded) calls are a known, separately-tracked gap — out of scope for
+# this cluster, which covers only search/read/list/reconcile/freshness (M-8 acceptance).
+
 
 class BedrockClientImpl:
     """boto3-backed Bedrock embeddings client.

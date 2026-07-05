@@ -4,6 +4,7 @@ Returns metadata-only listings from the vector index with metadata filtering
 and cross-scope gate enforcement. No S3 reads — all data comes from vector metadata.
 """
 
+import asyncio
 import logging
 from typing import Any
 
@@ -118,18 +119,19 @@ async def _list_artifacts_inner(
 
     combined_filter: dict[str, Any] = {"$and": clauses} if len(clauses) > 1 else clauses[0]
 
-    # ── Step 2: Query vector index ────────────────────────────────────────────
+    # ── Step 2: Query vector index (M-8: off the event loop) ──────────────────
     try:
-        keys = vectors.list_vectors_by_metadata(combined_filter)
+        keys = await asyncio.to_thread(vectors.list_vectors_by_metadata, combined_filter)
     except CredentialError as exc:
         return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
 
     if not keys:
         return {"artifacts": []}
 
-    # ── Step 3: Fetch vector metadata (the client chunks to the GetVectors limit) ──
+    # ── Step 3: Fetch vector metadata (the client chunks to the GetVectors limit;
+    # M-8: off the event loop) ─────────────────────────────────────────────────
     try:
-        items = vectors.get_vectors(keys)
+        items = await asyncio.to_thread(vectors.get_vectors, keys)
     except CredentialError as exc:
         return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
 

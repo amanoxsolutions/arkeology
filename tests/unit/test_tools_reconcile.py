@@ -5,6 +5,7 @@ All tests run without real AWS calls.
 """
 
 import json
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -1568,3 +1569,119 @@ async def test_reindex_preserves_non_ascii_title(
 
     reconciled_entry = next(e for e in result["reconciled"] if e["artifact_id"] == artifact_id)
     assert reconciled_entry["title"] == non_ascii_title
+
+
+# ---------------------------------------------------------------------------
+# M-8 — reconcile_index's blocking client calls are offloaded off the event loop
+# ---------------------------------------------------------------------------
+
+
+async def test_reconcile_orphan_scan_calls_run_off_event_loop(
+    reconcile_settings: Settings,
+    s3_reconcile: S3ClientImpl,
+    vectors_reconcile: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """During the orphan scan, s3.list_objects/get_object/head_object and
+    bedrock.embed (invoked inside _reindex_artifact) all execute on a worker thread,
+    never on the calling event-loop thread — proves the calls are routed through
+    asyncio.to_thread."""
+    artifact_id = "artifacts/implementation-note-2026-01-01-off-loop-orphan"
+    s3_reconcile.put_object(artifact_id, _CONTENT_NO_SECTIONS, {**_BASE_S3_META})
+    bedrock = FakeBedrockClient(dimension=DIMENSION)
+    main_thread = threading.current_thread()
+    seen_threads: list[threading.Thread] = []
+
+    original_list_objects = s3_reconcile.list_objects
+    original_get_object = s3_reconcile.get_object
+    original_head_object = s3_reconcile.head_object
+    original_embed = bedrock.embed
+
+    def spy_list_objects(*args: Any, **kwargs: Any) -> Any:
+        seen_threads.append(threading.current_thread())
+        return original_list_objects(*args, **kwargs)
+
+    def spy_get_object(*args: Any, **kwargs: Any) -> Any:
+        seen_threads.append(threading.current_thread())
+        return original_get_object(*args, **kwargs)
+
+    def spy_head_object(*args: Any, **kwargs: Any) -> Any:
+        seen_threads.append(threading.current_thread())
+        return original_head_object(*args, **kwargs)
+
+    def spy_embed(*args: Any, **kwargs: Any) -> Any:
+        seen_threads.append(threading.current_thread())
+        return original_embed(*args, **kwargs)
+
+    mocker.patch.object(s3_reconcile, "list_objects", side_effect=spy_list_objects)
+    mocker.patch.object(s3_reconcile, "get_object", side_effect=spy_get_object)
+    mocker.patch.object(s3_reconcile, "head_object", side_effect=spy_head_object)
+    mocker.patch.object(bedrock, "embed", side_effect=spy_embed)
+
+    result = await reconcile_index(
+        settings=reconcile_settings,
+        s3=s3_reconcile,
+        vectors=vectors_reconcile,
+        bedrock=bedrock,
+    )
+
+    assert "error" not in result
+    assert result["orphans_found"] == 1
+    assert seen_threads, "s3/bedrock calls were never made"
+    assert all(t is not main_thread for t in seen_threads), (
+        "s3/bedrock calls ran on the event-loop thread — they must be offloaded"
+    )
+
+
+async def test_reconcile_dangling_prune_calls_run_off_event_loop(
+    reconcile_settings: Settings,
+    s3_reconcile: S3ClientImpl,
+    vectors_reconcile: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """During dangling-vector pruning, vectors.list_vectors_by_metadata,
+    s3.head_object (re-confirmation), and vectors.delete_vectors all execute on a
+    worker thread, never on the calling event-loop thread."""
+    dangling_id = "artifacts/implementation-note-2026-01-01-off-loop-dangling"
+    vectors_reconcile.put_vector(
+        f"{dangling_id}#section",
+        [0.1] * DIMENSION,
+        {"artifact_id": dangling_id, "scope": "artifacts"},
+    )
+    bedrock = FakeBedrockClient(dimension=DIMENSION)
+    main_thread = threading.current_thread()
+    seen_threads: list[threading.Thread] = []
+
+    original_list_by_meta = vectors_reconcile.list_vectors_by_metadata
+    original_head_object = s3_reconcile.head_object
+    original_delete_vectors = vectors_reconcile.delete_vectors
+
+    def spy_list_by_meta(*args: Any, **kwargs: Any) -> Any:
+        seen_threads.append(threading.current_thread())
+        return original_list_by_meta(*args, **kwargs)
+
+    def spy_head_object(*args: Any, **kwargs: Any) -> Any:
+        seen_threads.append(threading.current_thread())
+        return original_head_object(*args, **kwargs)
+
+    def spy_delete_vectors(*args: Any, **kwargs: Any) -> Any:
+        seen_threads.append(threading.current_thread())
+        return original_delete_vectors(*args, **kwargs)
+
+    mocker.patch.object(vectors_reconcile, "list_vectors_by_metadata", side_effect=spy_list_by_meta)
+    mocker.patch.object(s3_reconcile, "head_object", side_effect=spy_head_object)
+    mocker.patch.object(vectors_reconcile, "delete_vectors", side_effect=spy_delete_vectors)
+
+    result = await reconcile_index(
+        settings=reconcile_settings,
+        s3=s3_reconcile,
+        vectors=vectors_reconcile,
+        bedrock=bedrock,
+    )
+
+    assert "error" not in result
+    assert result["dangling_artifacts_found"] == 1
+    assert seen_threads, "vector/s3 calls were never made"
+    assert all(t is not main_thread for t in seen_threads), (
+        "Dangling-prune calls ran on the event-loop thread — they must be offloaded"
+    )

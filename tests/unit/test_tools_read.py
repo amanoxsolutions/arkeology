@@ -3,6 +3,9 @@
 Tests read_artifact() using moto-backed S3ClientImpl with pre-seeded objects.
 """
 
+import threading
+from typing import Any
+
 import pytest
 from pytest_mock import MockerFixture
 
@@ -781,3 +784,89 @@ async def test_non_ascii_title_read_back_identically(
     )
 
     assert result["title"] == non_ascii_title
+
+
+# ---------------------------------------------------------------------------
+# M-8 — read_artifact's blocking client calls are offloaded off the event loop
+# ---------------------------------------------------------------------------
+
+
+async def test_read_s3_calls_run_off_event_loop(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """head_object and get_object execute on a worker thread, never on the calling
+    event-loop thread — proves the calls are routed through asyncio.to_thread."""
+    settings = _make_settings(monkeypatch)
+    _seed_objects(s3_client)
+    main_thread = threading.current_thread()
+    seen_threads: list[threading.Thread] = []
+
+    original_head = s3_client.head_object
+    original_get = s3_client.get_object
+
+    def spy_head(*args: Any, **kwargs: Any) -> Any:
+        seen_threads.append(threading.current_thread())
+        return original_head(*args, **kwargs)
+
+    def spy_get(*args: Any, **kwargs: Any) -> Any:
+        seen_threads.append(threading.current_thread())
+        return original_get(*args, **kwargs)
+
+    mocker.patch.object(s3_client, "head_object", side_effect=spy_head)
+    mocker.patch.object(s3_client, "get_object", side_effect=spy_get)
+
+    result = await read_artifact(s3=s3_client, settings=settings, artifact_id="artifacts/t2-shared")
+
+    assert "content" in result
+    assert seen_threads, "head_object/get_object were never called"
+    assert all(t is not main_thread for t in seen_threads), (
+        "S3 calls ran on the event-loop thread — they must be offloaded"
+    )
+
+
+async def test_read_vector_calls_run_off_event_loop(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """list_vectors_by_metadata and get_vectors (commit_refs/references lookup) execute
+    on a worker thread, never on the calling event-loop thread."""
+    settings = _make_settings(monkeypatch)
+    s3_client.put_object("artifacts/with-vector-ref", "Content.", {**_BASE_METADATA})
+    vectors_client_2.put_vector(
+        key="artifacts/with-vector-ref#section-0",
+        vector=[1.0, 0.0],
+        metadata={"artifact_id": "artifacts/with-vector-ref", "commit_refs": ["abc1234"]},
+    )
+    main_thread = threading.current_thread()
+    seen_threads: list[threading.Thread] = []
+
+    original_list = vectors_client_2.list_vectors_by_metadata
+    original_get_vectors = vectors_client_2.get_vectors
+
+    def spy_list(*args: Any, **kwargs: Any) -> Any:
+        seen_threads.append(threading.current_thread())
+        return original_list(*args, **kwargs)
+
+    def spy_get_vectors(*args: Any, **kwargs: Any) -> Any:
+        seen_threads.append(threading.current_thread())
+        return original_get_vectors(*args, **kwargs)
+
+    mocker.patch.object(vectors_client_2, "list_vectors_by_metadata", side_effect=spy_list)
+    mocker.patch.object(vectors_client_2, "get_vectors", side_effect=spy_get_vectors)
+
+    result = await read_artifact(
+        s3=s3_client,
+        vectors=vectors_client_2,
+        settings=settings,
+        artifact_id="artifacts/with-vector-ref",
+    )
+
+    assert result["commit_refs"] == ["abc1234"]
+    assert seen_threads, "list_vectors_by_metadata/get_vectors were never called"
+    assert all(t is not main_thread for t in seen_threads), (
+        "Vector calls ran on the event-loop thread — they must be offloaded"
+    )

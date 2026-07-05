@@ -14,15 +14,50 @@ import botocore.exceptions
 
 from cairn_mcp.errors import CredentialError
 
-# botocore error codes that indicate credential/auth problems
+# botocore error codes that indicate credential/auth problems.
+#
+# M-7 (Phase 12 review): the original set only covered the STS/"Exception"-suffixed
+# forms. AWS also returns the bare S3 XML forms (no "Exception" suffix) for the same
+# underlying conditions — expired session token, malformed/unknown access key, a
+# request signed with the wrong secret key, and S3's own plain "AccessDenied" — plus
+# "UnrecognizedClientException", which several services (including Bedrock) return for
+# an invalid/malformed SigV4 signature. All are credential/auth problems, not
+# authorization-scope problems, and are added here.
+#
+# Caution: "AccessDenied" is deliberately also part of ANNOTATION_UNAVAILABLE_ERROR_CODES
+# below (T52 / ADR-011 decision 5) for the four S3 object-annotation operations. This is
+# not a conflict: every annotation client method (see clients/s3.py) checks
+# is_annotation_unavailable_error() and raises AnnotationUnavailableError *before* the
+# exception ever reaches wrap_credential_errors' is_credential_error() check — so an
+# annotation-path AccessDenied is always classified as annotation-unavailable, never as a
+# credential error, regardless of what is in this set. Only non-annotation S3 calls
+# (get_object, put_object, head_bucket, list_objects, delete_object) and other services
+# fall through to the credential classification below.
 CREDENTIAL_ERROR_CODES: frozenset[str] = frozenset(
     {
         "ExpiredTokenException",
+        "ExpiredToken",
         "InvalidClientTokenId",
+        "InvalidAccessKeyId",
+        "SignatureDoesNotMatch",
         "AuthFailure",
         "AccessDeniedException",
+        "AccessDenied",
         "UnauthorizedOperation",
+        "UnrecognizedClientException",
     }
+)
+
+# botocore exception types (raised locally, never wrapped in a ClientError response)
+# that indicate a credential/auth problem — missing local credentials or an expired/
+# invalid SSO or bearer token. Unlike CREDENTIAL_ERROR_CODES above (which classifies a
+# ClientError's response body), these are raised directly by botocore's credential
+# resolution machinery before any API call is even made, so wrap_credential_errors must
+# catch them independently of the ClientError branch (M-7).
+_CREDENTIAL_EXCEPTION_TYPES: tuple[type[Exception], ...] = (
+    botocore.exceptions.NoCredentialsError,
+    botocore.exceptions.SSOError,
+    botocore.exceptions.TokenRetrievalError,
 )
 
 # botocore error codes that indicate S3 object annotations are unavailable — either
@@ -83,6 +118,13 @@ def wrap_credential_errors(service: str) -> Iterator[None]:
     the given ``service``; all other ``ClientError``s (and every other exception
     type) propagate unchanged so callers can apply their own special-case
     handling (not-found mapping, transient retries, index-not-found, …).
+
+    M-7 (Phase 12 review): also catches ``NoCredentialsError`` and the SSO/bearer-token
+    exceptions (``SSOError`` and its subclasses, ``TokenRetrievalError``) — these are
+    raised directly by botocore's local credential resolution, not delivered as a
+    ``ClientError`` response, so they previously escaped as an uncaught
+    ``BotoCoreError`` (surfacing to MCP callers as ``internal_error`` instead of the
+    actionable ``aws sso login`` remediation path).
     """
     try:
         yield
@@ -94,3 +136,9 @@ def wrap_credential_errors(service: str) -> Iterator[None]:
                 original=exc,
             ) from exc
         raise
+    except _CREDENTIAL_EXCEPTION_TYPES as exc:
+        raise CredentialError(
+            message=_CREDENTIAL_ERROR_MESSAGE,
+            service=service,
+            original=exc,
+        ) from exc

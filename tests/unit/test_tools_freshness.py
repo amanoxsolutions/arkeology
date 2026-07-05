@@ -3,6 +3,7 @@
 Tests check_synthesis_freshness() using moto-backed S3ClientImpl + VectorsClientImpl.
 """
 
+import threading
 from typing import Any
 
 import pytest
@@ -1017,3 +1018,103 @@ async def test_delete_failed_always_present_in_response(
     assert "error" not in result
     assert "delete_failed" in result, f"delete_failed missing from response: {result}"
     assert result["delete_failed"] == []
+
+
+# ---------------------------------------------------------------------------
+# M-8 — check_synthesis_freshness's blocking client calls are offloaded off the
+# event loop
+# ---------------------------------------------------------------------------
+
+
+async def test_freshness_vector_calls_run_off_event_loop(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """list_vectors_by_metadata and get_vectors execute on a worker thread, never on
+    the calling event-loop thread, during a plain audit (confirm=False)."""
+    settings = _make_settings(monkeypatch)
+    synth_id = "artifacts/synthesis-off-loop"
+    src_id = "artifacts/implementation-note-2026-01-01-off-loop"
+    s3_client.put_object(synth_id, "Synthesis content.", {})
+    vectors_client_8.put_vector(
+        f"{synth_id}#section", DUMMY_VEC, _synthesis_meta(synth_id, "2026-01-01", [src_id])
+    )
+    vectors_client_8.put_vector(f"{src_id}#section", DUMMY_VEC, _source_meta(src_id, "2026-01-01"))
+    main_thread = threading.current_thread()
+    seen_threads: list[threading.Thread] = []
+
+    original_list = vectors_client_8.list_vectors_by_metadata
+    original_get_vectors = vectors_client_8.get_vectors
+
+    def spy_list(*args: Any, **kwargs: Any) -> Any:
+        seen_threads.append(threading.current_thread())
+        return original_list(*args, **kwargs)
+
+    def spy_get_vectors(*args: Any, **kwargs: Any) -> Any:
+        seen_threads.append(threading.current_thread())
+        return original_get_vectors(*args, **kwargs)
+
+    mocker.patch.object(vectors_client_8, "list_vectors_by_metadata", side_effect=spy_list)
+    mocker.patch.object(vectors_client_8, "get_vectors", side_effect=spy_get_vectors)
+
+    result = await check_synthesis_freshness(
+        settings=settings, s3=s3_client, vectors=vectors_client_8
+    )
+
+    assert "error" not in result
+    assert seen_threads, "list_vectors_by_metadata/get_vectors were never called"
+    assert all(t is not main_thread for t in seen_threads), (
+        "Vector calls ran on the event-loop thread — they must be offloaded"
+    )
+
+
+async def test_freshness_malformed_deletion_calls_run_off_event_loop(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """During malformed-synthesis deletion (confirm=True), delete_vectors, head_object,
+    and delete_object all execute on a worker thread, never on the calling event-loop
+    thread."""
+    settings = _make_settings(monkeypatch)
+    synth_id = "artifacts/synthesis-malformed-off-loop"
+    s3_client.put_object(synth_id, "Malformed content.", {**_MALFORMED_S3_META})
+    vectors_client_8.put_vector(
+        f"{synth_id}#section", DUMMY_VEC, _synthesis_meta(synth_id, "2026-01-01", [])
+    )
+    main_thread = threading.current_thread()
+    seen_threads: list[threading.Thread] = []
+
+    original_delete_vectors = vectors_client_8.delete_vectors
+    original_head_object = s3_client.head_object
+    original_delete_object = s3_client.delete_object
+
+    def spy_delete_vectors(*args: Any, **kwargs: Any) -> Any:
+        seen_threads.append(threading.current_thread())
+        return original_delete_vectors(*args, **kwargs)
+
+    def spy_head_object(*args: Any, **kwargs: Any) -> Any:
+        seen_threads.append(threading.current_thread())
+        return original_head_object(*args, **kwargs)
+
+    def spy_delete_object(*args: Any, **kwargs: Any) -> Any:
+        seen_threads.append(threading.current_thread())
+        return original_delete_object(*args, **kwargs)
+
+    mocker.patch.object(vectors_client_8, "delete_vectors", side_effect=spy_delete_vectors)
+    mocker.patch.object(s3_client, "head_object", side_effect=spy_head_object)
+    mocker.patch.object(s3_client, "delete_object", side_effect=spy_delete_object)
+
+    result = await check_synthesis_freshness(
+        settings=settings, s3=s3_client, vectors=vectors_client_8, confirm=True
+    )
+
+    assert "error" not in result
+    assert synth_id in result["deleted_malformed"]
+    assert seen_threads, "delete_vectors/head_object/delete_object were never called"
+    assert all(t is not main_thread for t in seen_threads), (
+        "Deletion calls ran on the event-loop thread — they must be offloaded"
+    )

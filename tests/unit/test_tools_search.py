@@ -3,8 +3,11 @@
 Tests search_artifacts() using moto-backed VectorsClientImpl and FakeBedrockClient.
 """
 
+import json
 import logging
 import math
+import threading
+from typing import Any
 
 import pytest
 from pytest_mock import MockerFixture
@@ -625,6 +628,218 @@ async def test_top_k_capped_at_100(
 
     assert isinstance(result["artifacts"], list)
     assert len(result["artifacts"]) <= 100
+
+
+# ---------------------------------------------------------------------------
+# M-6 — $nin exclusion list is byte-bounded; non-credential mid-loop failures
+# return partial results instead of internal_error
+# ---------------------------------------------------------------------------
+
+_NIN_BYTE_BUDGET = 1024  # must match _search_helper._NIN_EXCLUSION_BYTE_BUDGET
+
+
+def _nin_bytes_from_filter(filter_expr: Any) -> int | None:
+    """Recursively find an $nin clause on 'artifact_id' in a filter expr and return
+    the UTF-8 byte size of its JSON-encoded list, or None if no $nin clause is present."""
+    if not isinstance(filter_expr, dict):
+        return None
+    if "artifact_id" in filter_expr and isinstance(filter_expr["artifact_id"], dict):
+        nin = filter_expr["artifact_id"].get("$nin")
+        if nin is not None:
+            return len(json.dumps(nin).encode("utf-8"))
+    for key in ("$and", "$or"):
+        for clause in filter_expr.get(key, []):
+            found = _nin_bytes_from_filter(clause)
+            if found is not None:
+                return found
+    return None
+
+
+async def test_nin_exclusion_list_never_exceeds_byte_budget(
+    monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """Many distinct matching artifacts → the $nin exclusion list stops growing once it
+    would approach the S3 Vectors filter-size limit, and the loop terminates gracefully
+    (fewer results than are actually available) rather than sending an oversized filter.
+    """
+    settings = _make_settings(monkeypatch, SEARCH_MAX_ITERATIONS="50", SEARCH_FETCH_TOP_K="1")
+    bedrock = FakeBedrockClient(dimension=8)
+
+    # Seed 40 distinct, moderately long artifact_ids — well beyond the ~20 that fit in
+    # a 1024-byte $nin list — each as its own artifact (own vector), so with
+    # SEARCH_FETCH_TOP_K=1 every successful iteration yields exactly one new artifact.
+    for i in range(40):
+        raw = [1.0 - i * 0.001 + j * 0.01 for j in range(8)]
+        norm = math.sqrt(sum(v * v for v in raw))
+        vec = [v / norm for v in raw]
+        vectors_client_8.put_vector(
+            f"artifacts/artifact-with-a-fairly-long-slug-{i:04d}",
+            vec,
+            {
+                "artifact_id": f"artifacts/artifact-with-a-fairly-long-slug-{i:04d}",
+                "scope": "artifacts",
+                "type": "adr",
+                "team": "platform",
+                "project": "cairn",
+                "tier": 3,
+                "visibility": "shared",
+                "status": "active",
+                "tags": [],
+                "title": f"Artifact {i}",
+            },
+        )
+    spy = mocker.spy(vectors_client_8, "query_vectors")
+
+    result = await search_artifacts(
+        vectors=vectors_client_8, bedrock=bedrock, settings=settings, query="adr", top_k=1000
+    )
+
+    assert "error" not in result
+    for call in spy.call_args_list:
+        filter_expr = call.args[2] if len(call.args) > 2 else call.kwargs.get("filter_expr")
+        nin_bytes = _nin_bytes_from_filter(filter_expr)
+        if nin_bytes is not None:
+            assert nin_bytes <= _NIN_BYTE_BUDGET, (
+                f"$nin list grew to {nin_bytes} bytes, exceeding the {_NIN_BYTE_BUDGET} budget"
+            )
+    # The loop must have stopped before collecting all 40 seeded artifacts — proof that
+    # the byte budget (not top_k or SEARCH_MAX_ITERATIONS) is what ended the loop.
+    assert len(result["artifacts"]) < 40
+
+
+async def test_non_credential_failure_mid_loop_returns_partial_results(
+    monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """A non-credential exception raised by query_vectors after the first iteration
+    already collected results → those results are returned (not internal_error)."""
+    settings = _make_settings(monkeypatch, SEARCH_MAX_ITERATIONS="5", SEARCH_FETCH_TOP_K="1")
+    bedrock = FakeBedrockClient(dimension=8)
+    _seed_vectors(vectors_client_8)
+
+    original_query_vectors = vectors_client_8.query_vectors
+    call_count = 0
+
+    def flaky_query_vectors(*args: Any, **kwargs: Any) -> Any:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return original_query_vectors(*args, **kwargs)
+        raise ValueError("simulated non-credential failure (e.g. ValidationException)")
+
+    mocker.patch.object(vectors_client_8, "query_vectors", side_effect=flaky_query_vectors)
+
+    result = await search_artifacts(
+        vectors=vectors_client_8, bedrock=bedrock, settings=settings, query="review", top_k=10
+    )
+
+    assert "error" not in result, f"Expected partial success, got error response: {result}"
+    assert len(result["artifacts"]) == 1
+    assert call_count == 2
+
+
+async def test_credential_failure_mid_loop_still_returns_credential_error(
+    monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """A CredentialError raised after the first iteration already collected results
+    still returns the structured credential_error — partial-results handling (M-6) is
+    scoped to non-credential failures only; credential-error classification is unchanged.
+    """
+    settings = _make_settings(monkeypatch, SEARCH_MAX_ITERATIONS="5", SEARCH_FETCH_TOP_K="1")
+    bedrock = FakeBedrockClient(dimension=8)
+    _seed_vectors(vectors_client_8)
+
+    original_query_vectors = vectors_client_8.query_vectors
+    call_count = 0
+
+    def flaky_query_vectors(*args: Any, **kwargs: Any) -> Any:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return original_query_vectors(*args, **kwargs)
+        raise CredentialError(
+            message="Credential failure (simulated).",
+            service="s3vectors",
+            original=Exception("simulated"),
+        )
+
+    mocker.patch.object(vectors_client_8, "query_vectors", side_effect=flaky_query_vectors)
+
+    result = await search_artifacts(
+        vectors=vectors_client_8, bedrock=bedrock, settings=settings, query="review", top_k=10
+    )
+
+    assert result.get("error") == "credential_error"
+
+
+# ---------------------------------------------------------------------------
+# M-8 — search's blocking client calls are offloaded off the asyncio event loop
+# ---------------------------------------------------------------------------
+
+
+async def test_search_bedrock_embed_runs_off_event_loop(
+    monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """bedrock.embed executes on a worker thread, never on the calling event-loop
+    thread — proves the call is routed through asyncio.to_thread (or equivalent)."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=8)
+    _seed_vectors(vectors_client_8)
+    main_thread = threading.current_thread()
+    seen_threads: list[threading.Thread] = []
+    original_embed = bedrock.embed
+
+    def spy_embed(text: str, model_id: str, dimensions: int) -> list[float]:
+        seen_threads.append(threading.current_thread())
+        return original_embed(text, model_id, dimensions)
+
+    mocker.patch.object(bedrock, "embed", side_effect=spy_embed)
+
+    await search_artifacts(
+        vectors=vectors_client_8, bedrock=bedrock, settings=settings, query="review", top_k=5
+    )
+
+    assert seen_threads, "bedrock.embed was never called"
+    assert all(t is not main_thread for t in seen_threads), (
+        "bedrock.embed ran on the event-loop thread — it must be offloaded"
+    )
+
+
+async def test_search_query_vectors_runs_off_event_loop(
+    monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """vectors.query_vectors executes on a worker thread, never on the calling
+    event-loop thread."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=8)
+    _seed_vectors(vectors_client_8)
+    main_thread = threading.current_thread()
+    seen_threads: list[threading.Thread] = []
+    original_query_vectors = vectors_client_8.query_vectors
+
+    def spy_query_vectors(*args: Any, **kwargs: Any) -> Any:
+        seen_threads.append(threading.current_thread())
+        return original_query_vectors(*args, **kwargs)
+
+    mocker.patch.object(vectors_client_8, "query_vectors", side_effect=spy_query_vectors)
+
+    await search_artifacts(
+        vectors=vectors_client_8, bedrock=bedrock, settings=settings, query="review", top_k=5
+    )
+
+    assert seen_threads, "vectors.query_vectors was never called"
+    assert all(t is not main_thread for t in seen_threads), (
+        "vectors.query_vectors ran on the event-loop thread — it must be offloaded"
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -5,6 +5,7 @@ re-indexing any artifacts that are present in S3 but absent from the vector
 index.
 """
 
+import asyncio
 import json
 import logging
 from pathlib import Path
@@ -241,7 +242,8 @@ async def _reconcile_index_inner(
                 logger.warning("Skipping out-of-scope failure log entry: %s", artifact_id)
                 continue
             try:
-                raw_meta = s3.head_object(artifact_id)
+                # M-8: off the event loop — blocking boto3 call.
+                raw_meta = await asyncio.to_thread(s3.head_object, artifact_id)
             except CredentialError as exc:
                 return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
             except KeyError:
@@ -254,8 +256,12 @@ async def _reconcile_index_inner(
                 continue
 
             try:
-                content = s3.get_object(artifact_id)
-                n = _reindex_artifact(
+                # M-8: off the event loop — both the S3 read and _reindex_artifact
+                # (which embeds via bedrock.embed, including its blocking retry sleep,
+                # and writes vectors) are blocking; run each via asyncio.to_thread.
+                content = await asyncio.to_thread(s3.get_object, artifact_id)
+                n = await asyncio.to_thread(
+                    _reindex_artifact,
                     artifact_id,
                     content,
                     raw_meta,
@@ -294,7 +300,8 @@ async def _reconcile_index_inner(
     # ── Phase 2: Orphan scan ──────────────────────────────────────────────────
     own_prefix = settings.write_prefix + "/"
     try:
-        all_s3_keys = s3.list_objects(settings.write_prefix)
+        # M-8: off the event loop — blocking boto3 calls.
+        all_s3_keys = await asyncio.to_thread(s3.list_objects, settings.write_prefix)
         own_keys = [
             k
             for k in all_s3_keys
@@ -302,8 +309,8 @@ async def _reconcile_index_inner(
             and "_cairn_health_probe" not in k
             and "_cairn_mcp_startup_probe" not in k
         ]
-        indexed_keys_raw = vectors.list_vectors_by_metadata(
-            {"scope": {"$eq": settings.write_prefix}}
+        indexed_keys_raw = await asyncio.to_thread(
+            vectors.list_vectors_by_metadata, {"scope": {"$eq": settings.write_prefix}}
         )
     except CredentialError as exc:
         return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
@@ -322,9 +329,11 @@ async def _reconcile_index_inner(
 
     for orphan_key in orphans:
         try:
-            content = s3.get_object(orphan_key)
-            raw_meta = s3.head_object(orphan_key)
-            n = _reindex_artifact(
+            # M-8: off the event loop — see the equivalent failure-log-replay comment above.
+            content = await asyncio.to_thread(s3.get_object, orphan_key)
+            raw_meta = await asyncio.to_thread(s3.head_object, orphan_key)
+            n = await asyncio.to_thread(
+                _reindex_artifact,
                 orphan_key,
                 content,
                 raw_meta,
@@ -364,8 +373,9 @@ async def _reconcile_index_inner(
             # listing above would otherwise be misclassified dangling here and have
             # its brand-new vectors pruned. Re-confirm S3 absence immediately before
             # deleting — only prune when the object is actually gone right now.
+            # M-8: off the event loop — blocking boto3 call.
             try:
-                s3.head_object(dangling_id)
+                await asyncio.to_thread(s3.head_object, dangling_id)
             except KeyError:
                 pass  # confirmed absent at prune time — safe to prune
             else:
@@ -373,7 +383,8 @@ async def _reconcile_index_inner(
                 # all. Leave its vectors untouched.
                 continue
 
-            vectors.delete_vectors(keys_to_delete)
+            # M-8: off the event loop — blocking boto3 call.
+            await asyncio.to_thread(vectors.delete_vectors, keys_to_delete)
             dangling_artifacts.append(dangling_id)
             dangling_artifacts_found += 1
             dangling_vectors_pruned += len(keys_to_delete)

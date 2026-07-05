@@ -14,8 +14,8 @@ authored:
   by: "architect"
   date: "2026-05-29"
 revised:
-  by: ""
-  date: ""
+  by: "developer"
+  date: "2026-07-05"
 ---
 
 # T5 — Startup Validation Sequence
@@ -25,8 +25,22 @@ revised:
 > **Note (later evolution):** this spec defines the original **five** checks (1–5). A **sixth**
 > check — text-model accessibility (`BEDROCK_TEXT_MODEL` reachable via an `invoke_text_model`
 > probe, skipped when the var is unset) — was added later by **p9-t30** and is specified there.
-> The running sequence is six checks; log messages and the success line below now read `/6`
-> accordingly. See `p9-t30-write-artifacts.md` for the sixth check's full specification.
+> The running sequence was six checks; log messages and the success line below read `/6`
+> accordingly at that time. See `p9-t30-write-artifacts.md` for that check's full specification.
+
+> **Note (M-9, Phase 12 review, 2026-07-05):** a **seventh** check — an embedding-model probe —
+> was inserted as the new check 6, pushing the former check 6 (text-model accessibility) to
+> position 7. Check 5 (`_check_model_dimension`) only ever compares two *configured* numbers
+> (`BEDROCK_EMBEDDING_DIMENSIONS` vs. the index dimension reported by `describe_index`) and never
+> calls Bedrock — so a wrong or unentitled embedding model previously passed every startup check
+> and only failed on the first real write/search. The new check embeds a short probe string via
+> `bedrock.embed` and asserts the returned vector's dimension matches, reusing the M-7 credential
+> classification for entitlement/credential failures. The running sequence is now **seven checks**;
+> log messages and the success line read `/7`. See `src/cairn_mcp/startup.py` (`_check_embedding_probe`)
+> for the implementation and `docs/specs/review-2026-07-02-major-fixes.md` (Cluster B, M-9) for the
+> originating finding. The PRD (FR-07) and `SERVER-REFERENCE.md` check-count references still say
+> five/six and need a corresponding update — flagged to the PM and tech-writer (out of scope for
+> this spec, which documents code-adjacent drift only).
 
 ## Problem Statement
 
