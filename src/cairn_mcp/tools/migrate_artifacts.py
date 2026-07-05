@@ -16,6 +16,13 @@ candidate's generated key is checked for existence; any candidate that already e
 is skipped (no write, no error) and reported in the ``"skipped_existing"`` list, so
 re-running a migration over an already-imported corpus is idempotent and non-destructive.
 
+M-12 (Phase 12 review): a descriptor whose Nova Lite description generation fails is
+never written with an empty ``description`` — it is skipped (mirroring the A-1
+``skipped_existing`` shape) and reported in the top-level ``"generation_failed"`` list,
+in both ``dry_run`` modes. The artifact content interpolated into the generation prompt
+is bounded to ``_PROMPT_CONTENT_MAX_CHARS`` — full untruncated content is never sent to
+Nova Lite for a task that only needs a single-sentence summary.
+
 Note: A compound artifact_concurrency × section_concurrency ≤ ceiling validation
 is intentionally absent from this task; it is noted here as a future concern.
 """
@@ -55,6 +62,13 @@ _MAX_DESCRIPTION_LENGTH = 280
 _ARTIFACT_CONCURRENCY_DEFAULT: int = 3
 _ARTIFACT_CONCURRENCY_MAX: int = 15
 
+# M-12: bound the artifact content interpolated into the Nova Lite prompt. A
+# single-sentence summary never needs the full body of a multi-thousand-line spec
+# or log dump — sending it unbounded risks exceeding the text model's input limit
+# and wastes tokens well beyond what the task requires. The prompt only needs
+# enough context to summarise; truncating to the leading portion is sufficient.
+_PROMPT_CONTENT_MAX_CHARS = 8000
+
 
 def _clip_description(description: str, title: str) -> str:
     """Clip description to _MAX_DESCRIPTION_LENGTH and log at DEBUG if clipped."""
@@ -68,6 +82,28 @@ def _clip_description(description: str, title: str) -> str:
         )
         return clipped
     return description
+
+
+def _truncate_prompt_content(content: str) -> str:
+    """Bound the artifact content interpolated into the description-generation prompt.
+
+    M-12: the prompt previously interpolated the full, untruncated artifact content.
+    Truncate to ``_PROMPT_CONTENT_MAX_CHARS`` with a trailing marker so the prompt
+    size is bounded regardless of the source artifact's length.
+    """
+    if len(content) <= _PROMPT_CONTENT_MAX_CHARS:
+        return content
+    return content[:_PROMPT_CONTENT_MAX_CHARS] + "\n\n[content truncated for prompt]"
+
+
+def _generation_failed_report(
+    descriptors: list[dict[str, Any]], failures: dict[int, str]
+) -> list[dict[str, Any]]:
+    """Build the top-level ``generation_failed`` report list, one entry per failed index."""
+    return [
+        {"index": idx, "title": descriptors[idx].get("title", ""), "message": message}
+        for idx, message in sorted(failures.items())
+    ]
 
 
 async def migrate_artifacts(
@@ -108,6 +144,12 @@ async def migrate_artifacts(
             migration over an already-imported corpus is therefore idempotent and
             non-destructive: every already-present artifact is skipped and nothing is
             overwritten or deleted.
+        M-12: a descriptor whose Nova Lite description generation fails is never
+            written with an empty ``description``. In ``dry_run=False`` its result
+            entry is ``{"written": False, "skipped": True,
+            "reason": "description_generation_failed", "message": ...}``; in either
+            ``dry_run`` mode a top-level ``"generation_failed"`` list is included,
+            one entry per failure (``index``, ``title``, ``message``).
         When ``artifact_concurrency`` is out of range, a top-level ``"warning"`` key
         is included in the response.
     """
@@ -183,6 +225,9 @@ async def _migrate_artifacts_inner(
         }
 
     # ── Step 2: generate missing descriptions concurrently ────────────────────
+    # M-12: track which indices failed generation so Step 3/5/6 can skip them
+    # instead of letting an empty "description" fall through to a written artifact.
+    generation_failures: dict[int, str] = {}
     if missing_indices:
         semaphore = asyncio.Semaphore(effective)
 
@@ -190,7 +235,7 @@ async def _migrate_artifacts_inner(
             descriptor = descriptors[idx]
             prompt = _DESCRIPTION_PROMPT.format(
                 title=descriptor.get("title", ""),
-                content=descriptor.get("content", ""),
+                content=_truncate_prompt_content(descriptor.get("content", "")),
             )
             async with semaphore:
                 text = await asyncio.to_thread(
@@ -209,20 +254,32 @@ async def _migrate_artifacts_inner(
                 logger.warning(
                     "Description generation failed for descriptor at index %d: %s", i, result
                 )
+                generation_failures[i] = str(result)
                 continue
             _, text = result
             descriptors[i] = {**descriptors[i], "description": text}
 
     # ── Step 3: clip all descriptions to _MAX_DESCRIPTION_LENGTH ──────────────
+    # M-12: a generation-failed descriptor is carried through unchanged (its
+    # "description" stays absent/empty) rather than clipped — it is excluded from
+    # writing in Step 5/6 below, so clipping it here would be misleading busywork.
     enriched: list[dict[str, Any]] = []
-    for descriptor in descriptors:
+    for idx, descriptor in enumerate(descriptors):
+        if idx in generation_failures:
+            enriched.append(descriptor)
+            continue
         raw_desc: str = descriptor.get("description", "")
         clipped = _clip_description(raw_desc, descriptor.get("title", ""))
         enriched.append({**descriptor, "description": clipped})
 
     # ── Step 4: dry_run → return enriched list without writing ────────────────
     if dry_run:
-        return _with_warning({"descriptors": enriched})
+        dry_run_response: dict[str, Any] = {"descriptors": enriched}
+        if generation_failures:
+            dry_run_response["generation_failed"] = _generation_failed_report(
+                descriptors, generation_failures
+            )
+        return _with_warning(dry_run_response)
 
     # ── Step 5: skip-existing filter (A-1) ─────────────────────────────────────
     # Bulk migration is commonly re-run over the same corpus (resuming an interrupted
@@ -236,6 +293,17 @@ async def _migrate_artifacts_inner(
     combined_results: list[dict[str, Any] | None] = [None] * len(enriched)
 
     for idx, descriptor in enumerate(enriched):
+        # M-12: a generation-failed descriptor is never written with an empty
+        # description — skip it before any key computation or existence check,
+        # and report it distinctly from the A-1 "already exists" skip reason.
+        if idx in generation_failures:
+            combined_results[idx] = {
+                "written": False,
+                "skipped": True,
+                "reason": "description_generation_failed",
+                "message": generation_failures[idx],
+            }
+            continue
         try:
             slug = generate_artifact_id(
                 tier=int(descriptor["tier"]),
@@ -289,4 +357,6 @@ async def _migrate_artifacts_inner(
     response: dict[str, Any] = {"results": combined_results}
     if skipped_existing:
         response["skipped_existing"] = skipped_existing
+    if generation_failures:
+        response["generation_failed"] = _generation_failed_report(descriptors, generation_failures)
     return _with_warning(response)

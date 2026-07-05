@@ -159,7 +159,11 @@ def register_tools(
         commit_refs: list[str] | None = None,
         references: list[str] | None = None,
     ) -> dict[str, Any]:
-        """List artifacts by metadata filters without a semantic query."""
+        """List artifacts by metadata filters without a semantic query.
+
+        status defaults to "active"; pass status="all" (M-11d) to return
+        artifacts regardless of status.
+        """
         return await _list_artifacts(
             settings=settings,
             s3=None,
@@ -270,11 +274,18 @@ def register_tools(
     async def write_artifacts(
         artifacts: list[dict[str, Any]],
         overwrite: bool = False,
+        artifact_concurrency: int = 3,
     ) -> dict[str, Any]:
         """Write a list of artifact descriptors concurrently.
 
         overwrite is a batch-level default for the collision guard; each
         descriptor may include its own "overwrite" key to override it.
+
+        artifact_concurrency bounds how many artifacts are written concurrently
+        (p10-t39). Must be in [1, 15]; values above 15 are capped to 15 and values
+        below 1 are substituted with the default 3 — both cases add a top-level
+        "warning" field to the response rather than rejecting the call. Defaults
+        to 3 when omitted.
         """
         return await _write_artifacts(
             settings=settings,
@@ -283,6 +294,7 @@ def register_tools(
             bedrock=bedrock,
             artifacts=artifacts,
             overwrite=overwrite,
+            artifact_concurrency=artifact_concurrency,
         )
 
     @_app.tool()

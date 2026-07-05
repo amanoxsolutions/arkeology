@@ -70,6 +70,41 @@ async def test_cairn_studio_non_supporting_host_returns_structured_content(
 
 
 @pytest.mark.asyncio
+async def test_cairn_studio_non_supporting_host_credential_error_is_propagated(
+    settings: Settings,
+    mocker: MockerFixture,
+) -> None:
+    """M-11(a): a credential-error dict from the inner list call must surface as a
+    structured error, not be coerced into a successful empty listing — otherwise
+    expired credentials read as "the store is empty" (PRD FR-12)."""
+    from cairn_mcp.tools import studio
+
+    mocker.patch.object(
+        studio,
+        "_list_artifacts_inner",
+        return_value={
+            "error": "credential_error",
+            "message": "AWS credentials are invalid or expired.",
+        },
+    )
+
+    ctx = MagicMock()
+    ctx.client_supports_extension.return_value = False
+    vectors = MagicMock()
+
+    result = await studio.cairn_studio(settings=settings, vectors=vectors, ctx=ctx)
+
+    assert isinstance(result, ToolResult)
+    assert result.is_error, "A credential-error listing must not report success"
+    text = result.content[0].text  # type: ignore[attr-defined]
+    assert "credentials" in text.lower() or "credential_error" in text.lower()
+    assert result.structured_content is not None
+    assert result.structured_content.get("error") == "credential_error"
+    # The error must never be silently rewritten as an empty artifact listing.
+    assert "artifacts" not in result.structured_content
+
+
+@pytest.mark.asyncio
 async def test_cairn_studio_supporting_host_omits_structured_content(
     settings: Settings,
 ) -> None:

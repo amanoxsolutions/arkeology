@@ -928,6 +928,165 @@ def test_m20_server_migrate_artifacts_exposes_artifact_concurrency() -> None:
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# M-12 — a failed description generation must not write an empty description
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_m12_failed_generation_skipped_not_written_with_empty_description(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """M-12: dry_run=False — a descriptor whose Nova Lite generation fails is never
+    written with an empty description. It is skipped and reported under
+    "generation_failed"; the other, successfully-generated descriptor still writes.
+    """
+    try:
+        from cairn_mcp.tools.migrate_artifacts import migrate_artifacts
+    except ImportError:
+        pytest.fail("cairn_mcp.tools.migrate_artifacts is not yet implemented")
+
+    settings = _make_settings(monkeypatch, BEDROCK_TEXT_MODEL="amazon.nova-lite-v1:0")
+    bedrock = FakeBedrockClient(dimension=1024)
+
+    def invoke_side_effect(model: str, prompt: str) -> str:
+        if "Title: FAIL_ME" in prompt:
+            raise RuntimeError("simulated Nova Lite failure")
+        return _FAKE_DESCRIPTION
+
+    mocker.patch.object(bedrock, "invoke_text_model", create=True, side_effect=invoke_side_effect)
+
+    failing = _make_descriptor(0, with_description=False, title="FAIL_ME")
+    ok = _make_descriptor(1, with_description=False)
+
+    result = await migrate_artifacts(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        descriptors=[failing, ok],
+        dry_run=False,
+    )
+
+    results = result.get("results", [])
+    assert len(results) == 2
+
+    assert results[0].get("written") is not True, (
+        f"A descriptor whose description generation failed must not be written: {results[0]}"
+    )
+    assert results[0].get("skipped") is True
+    assert results[0].get("reason") == "description_generation_failed"
+    assert "error" not in results[0], "A generation failure is a skip, not an error entry"
+
+    assert results[1].get("written") is True, (
+        f"The unaffected descriptor should write: {results[1]}"
+    )
+
+    generation_failed = result.get("generation_failed", [])
+    assert len(generation_failed) == 1
+    assert generation_failed[0]["index"] == 0
+    assert generation_failed[0]["title"] == "FAIL_ME"
+
+    # No S3 object exists for the failed descriptor — only the successful one was written.
+    all_objects = s3_client.list_objects("")
+    assert len(all_objects) == 1, (
+        f"Expected exactly 1 S3 object (the successful write only), found {len(all_objects)}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_m12_dry_run_reports_generation_failed_without_empty_description_write(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """M-12: dry_run=True — a failed generation is reported under "generation_failed";
+    the enriched descriptor list still contains an entry per input (existing contract),
+    but the failure is explicitly surfaced rather than silently left as an empty string.
+    """
+    try:
+        from cairn_mcp.tools.migrate_artifacts import migrate_artifacts
+    except ImportError:
+        pytest.fail("cairn_mcp.tools.migrate_artifacts is not yet implemented")
+
+    settings = _make_settings(monkeypatch, BEDROCK_TEXT_MODEL="amazon.nova-lite-v1:0")
+    bedrock = FakeBedrockClient(dimension=1024)
+
+    def invoke_side_effect(model: str, prompt: str) -> str:
+        raise RuntimeError("simulated Nova Lite failure")
+
+    mocker.patch.object(bedrock, "invoke_text_model", create=True, side_effect=invoke_side_effect)
+
+    descriptors = [_make_descriptor(0, with_description=False, title="FAIL_ME")]
+
+    result = await migrate_artifacts(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        descriptors=descriptors,
+        dry_run=True,
+    )
+
+    enriched = result.get("descriptors", [])
+    assert len(enriched) == 1
+
+    generation_failed = result.get("generation_failed", [])
+    assert len(generation_failed) == 1
+    assert generation_failed[0]["index"] == 0
+    assert generation_failed[0]["title"] == "FAIL_ME"
+    assert "simulated Nova Lite failure" in generation_failed[0]["message"]
+
+
+@pytest.mark.asyncio
+async def test_m12_generation_prompt_content_is_bounded(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """M-12: the artifact content interpolated into the Nova Lite prompt is bounded —
+    a very large content body is truncated rather than sent to Nova Lite unbounded.
+    """
+    try:
+        from cairn_mcp.tools.migrate_artifacts import (
+            _PROMPT_CONTENT_MAX_CHARS,
+            migrate_artifacts,
+        )
+    except ImportError:
+        pytest.fail("cairn_mcp.tools.migrate_artifacts is not yet implemented")
+
+    settings = _make_settings(monkeypatch, BEDROCK_TEXT_MODEL="amazon.nova-lite-v1:0")
+    bedrock = FakeBedrockClient(dimension=1024)
+    mock_invoke = mocker.patch.object(
+        bedrock, "invoke_text_model", create=True, return_value=_FAKE_DESCRIPTION
+    )
+
+    huge_content = "x" * (_PROMPT_CONTENT_MAX_CHARS * 3)
+    descriptors = [_make_descriptor(0, with_description=False, content=huge_content)]
+
+    await migrate_artifacts(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        descriptors=descriptors,
+        dry_run=True,
+    )
+
+    assert mock_invoke.call_count == 1
+    prompt = mock_invoke.call_args_list[0].args[1]
+    assert huge_content not in prompt, "The full untruncated content must not reach the prompt"
+    assert len(prompt) < len(huge_content), "The prompt must be materially shorter than the content"
+    assert "x" * _PROMPT_CONTENT_MAX_CHARS in prompt, (
+        "The bounded prefix of the content should still be present"
+    )
+
+
 @pytest.mark.asyncio
 async def test_migrate_artifacts_dry_run_false_threads_references_to_vector_metadata(
     monkeypatch: pytest.MonkeyPatch,

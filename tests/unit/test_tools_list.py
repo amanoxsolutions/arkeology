@@ -237,6 +237,25 @@ async def test_status_inactive_override_returns_only_inactive(
         assert artifact["status"] == "inactive"
 
 
+async def test_status_all_returns_active_and_inactive(
+    monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
+) -> None:
+    """status='all' (M-11d) → both active and inactive own-scope artifacts returned;
+    previously the browser Studio's "All" filter was unreachable because omitting the
+    status arg fell back to the "active" default."""
+    settings = _make_settings(monkeypatch)
+    _seed_vectors(vectors_client_8)
+
+    result = await list_artifacts(
+        settings=settings, vectors=vectors_client_8, s3=None, bedrock=None, status="all"
+    )
+
+    ids = [a["artifact_id"] for a in result["artifacts"]]
+    assert "artifacts/t2-active-review" in ids
+    assert "artifacts/t2-inactive-review" in ids
+
+
 # ---------------------------------------------------------------------------
 # Filter combinations
 # ---------------------------------------------------------------------------

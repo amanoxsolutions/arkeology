@@ -22,8 +22,8 @@ authored:
   by: "architect"
   date: "2026-06-24"
 revised:
-  by: "pm"
-  date: "2026-06-29"
+  by: "developer"
+  date: "2026-07-05"
 ---
 
 # T44 — Browser UI (HTML/JS)
@@ -160,3 +160,44 @@ revealed that the iframe rendering environment in supporting hosts (Claude Deskt
 is too small for the view-switching interface to be practical. The primary value delivered by
 `cairn_studio` is the non-supporting host path (structured artifact listing in
 `structured_content`), which is the interface used by the team via Claude Code.
+
+## Revised (2026-07-05, Phase 12 review M-11)
+
+Four defects were found and fixed in the non-supporting-host and iframe paths:
+
+- **(a) `studio.py` error masking.** `_cairn_studio_inner` previously did
+  `listing.get("artifacts", [])` on the inner `list_artifacts` call's result, so a
+  credential-error dict was silently coerced into a successful empty listing — expired
+  credentials read as "the store is empty" instead of "the store could not be reached" (PRD
+  FR-12 violation). It now detects `"error"` in the inner result and returns a structured
+  `ToolResult(is_error=True, structured_content={"error": ..., "message": ...})` instead.
+- **(b) Browser JS swallowed server error messages.** `loadList` rendered `data.artifacts ||
+  []` and `doSearch` rendered a generic `"Search failed."`, both discarding the server's
+  actual error message on failure. Both now check `data.error` first and render
+  `data.message || data.error` in the empty-state `<p>`.
+- **(c) `app.ontoolresult` crashed on every render.** This iframe only ever runs in a
+  *supporting* host, so every plain-text confirmation it receives — including
+  `cairn_studio`'s own "Cairn Studio opened…" text — carries no `structuredContent`. The
+  handler unconditionally did `JSON.parse(content?.find(...)?.text ?? "{}")`, which threw on
+  that plain text every time. It also read `data.write_prefix` into a `#scope-label` element,
+  but `write_prefix` is sent only to non-supporting hosts (see (a) above) and can never reach
+  this iframe — dead code. The handler now guards on `structuredContent.artifacts` being an
+  array before doing anything, and the `#scope-label` element, its DOM ref, and its CSS rule
+  were removed entirely (no plausible correct source exists for it in this code path).
+- **(d) The "All" status filter was unreachable.** `#sel-status`'s "All" option sent
+  `value=""`; `loadList` only included `args.status` when `filterStatus` was truthy, so "All"
+  silently fell through to the server's `status="active"` default. `list_artifacts` (see
+  `p3-t10-list-artifacts.md`, revised) now recognises `status="all"` as an explicit
+  all-inclusive sentinel; the browser's default `filterStatus` and the "All" option's value
+  both changed from `""` to `"all"`, which is always sent (never omitted).
+
+Verification: (a) has unit test coverage
+(`tests/unit/test_tools_studio.py::test_cairn_studio_non_supporting_host_credential_error_is_propagated`).
+(b)/(c)/(d)'s client-side JS have no unit test harness in this project (mirroring the C-2
+precedent in `.docs/implementation/implementation-2026-07-02-critical-fixes-c1-c2-c3-c5.md`) —
+verified with a throwaway Node + jsdom script that extracts the actual shipped `loadList`,
+`doSearch`, and `app.ontoolresult` function bodies from `cairn-studio.html` via string slicing
+(not retyped) and exercises them against mocked `app.callServerTool` responses and a jsdom DOM;
+all branches (error-message rendering, no-throw on plain-text confirmation, no accidental
+list-wipe on unrelated tool results, `status="all"` sent by default) passed. The script is not
+part of the repo.

@@ -237,6 +237,83 @@ async def test_write_artifacts_mcp_layer_forwards_overwrite(
 
 
 # ---------------------------------------------------------------------------
+# MCP tool layer — M-10: write_artifacts exposes artifact_concurrency
+# ---------------------------------------------------------------------------
+
+
+async def test_write_artifacts_mcp_layer_forwards_artifact_concurrency(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """write_artifacts MCP tool forwards a caller-supplied artifact_concurrency to
+    the underlying _write_artifacts (M-10 — closes the doc-vs-code contradiction
+    with PRD FR-25 / p10-t39, which document it as caller-controllable)."""
+    settings = _make_settings(monkeypatch)
+    mock_write_batch = AsyncMock(return_value={"results": []})
+    monkeypatch.setattr("cairn_mcp.server._write_artifacts", mock_write_batch)
+
+    register_tools(
+        settings=settings,
+        s3=MagicMock(),
+        vectors=MagicMock(),
+        bedrock=MagicMock(),
+    )
+    tool = await _app.get_tool("write_artifacts")
+    await tool.fn(artifacts=[], artifact_concurrency=10)
+
+    mock_write_batch.assert_awaited_once()
+    _, call_kwargs = mock_write_batch.call_args
+    assert call_kwargs["artifact_concurrency"] == 10
+
+
+async def test_write_artifacts_mcp_layer_artifact_concurrency_defaults_to_three(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """write_artifacts MCP tool defaults artifact_concurrency to 3 when the caller
+    omits it, matching the inner function's default (M-10)."""
+    settings = _make_settings(monkeypatch)
+    mock_write_batch = AsyncMock(return_value={"results": []})
+    monkeypatch.setattr("cairn_mcp.server._write_artifacts", mock_write_batch)
+
+    register_tools(
+        settings=settings,
+        s3=MagicMock(),
+        vectors=MagicMock(),
+        bedrock=MagicMock(),
+    )
+    tool = await _app.get_tool("write_artifacts")
+    await tool.fn(artifacts=[])
+
+    mock_write_batch.assert_awaited_once()
+    _, call_kwargs = mock_write_batch.call_args
+    assert call_kwargs["artifact_concurrency"] == 3
+
+
+async def test_write_artifacts_mcp_layer_out_of_range_artifact_concurrency_forwarded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An out-of-range artifact_concurrency is forwarded as-is (not pre-validated at
+    the MCP layer) — the inner function owns clamping + warning behaviour, so the
+    MCP layer must not silently reinterpret or reject it (M-10)."""
+    settings = _make_settings(monkeypatch)
+    mock_write_batch = AsyncMock(return_value={"results": [], "warning": "capped"})
+    monkeypatch.setattr("cairn_mcp.server._write_artifacts", mock_write_batch)
+
+    register_tools(
+        settings=settings,
+        s3=MagicMock(),
+        vectors=MagicMock(),
+        bedrock=MagicMock(),
+    )
+    tool = await _app.get_tool("write_artifacts")
+    result = await tool.fn(artifacts=[], artifact_concurrency=20)
+
+    mock_write_batch.assert_awaited_once()
+    _, call_kwargs = mock_write_batch.call_args
+    assert call_kwargs["artifact_concurrency"] == 20
+    assert result.get("warning") == "capped"
+
+
+# ---------------------------------------------------------------------------
 # MCP tool layer — CRITICAL-2: list_artifacts forwards commit_refs
 # ---------------------------------------------------------------------------
 

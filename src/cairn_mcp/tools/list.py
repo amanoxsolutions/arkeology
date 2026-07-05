@@ -58,7 +58,10 @@ async def list_artifacts(
             team: Optional team filter.
         project: Optional project filter.
         tier: Optional tier filter.
-        status: Status filter (default "active").
+        status: Status filter (default "active"). Pass "all" (M-11d) to return
+            artifacts regardless of status — this is the only sentinel value
+            recognised; any other string is matched literally against the
+            stored status.
 
     Returns:
         On success: ``{"artifacts": [...]}``
@@ -105,7 +108,13 @@ async def _list_artifacts_inner(
     _ = bedrock
 
     # ── Step 1: Build metadata filter ────────────────────────────────────────
-    clauses: list[dict[str, Any]] = [{"status": {"$eq": status}}]
+    # M-11(d): status="all" is an explicit all-inclusive sentinel — omit the status
+    # clause entirely rather than filtering on the literal string "all" (which would
+    # never match a stored status and always return zero results). Any other value,
+    # including the "active" default, filters normally.
+    clauses: list[dict[str, Any]] = []
+    if status != "all":
+        clauses.append({"status": {"$eq": status}})
     clauses.extend(build_user_filters(type=type, team=team, project=project, tier=tier, tags=tags))
     if commit_refs:
         for ref in commit_refs:
