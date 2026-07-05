@@ -11,8 +11,8 @@ authored:
   by: architect
   date: "2026-06-02"
 revised:
-  by: ""
-  date: ""
+  by: tech-writer
+  date: "2026-07-05"
 ---
 
 # Async Semaphore-Bounded Concurrent Embedding
@@ -100,3 +100,21 @@ than 1 cause a hard startup failure.
   loop and was therefore always slower than calling the server. It was deleted in Phase 9
   (Z1) and replaced by the server-side `migrate_artifacts` tool, which inherits section-level
   and artifact-level concurrency automatically.
+
+> **Revised (2026-07-05, Phase 12 review M-14).** Every reference above to a server-wide
+> `ARTIFACT_CONCURRENCY` environment variable, and the statement that it "is validated at
+> startup" with values below 1 causing "a hard startup failure," is superseded. Artifact-level
+> concurrency for `write_artifacts` and `migrate_artifacts` is now a **per-call caller
+> parameter** — `artifact_concurrency` on the `write_artifacts` MCP tool signature (exposed
+> per Phase 12 review M-10), default `3` — not a server-wide env var. The inner function
+> **clamps** the supplied value to `[1, 15]` rather than rejecting it: values above 15 are
+> capped to 15, values below 1 are substituted with the default 3, and an out-of-range value
+> produces a `"warning"` field in the response instead of a startup failure. There is no
+> startup-time validation or rejection path for this parameter at all — the old
+> `ARTIFACT_CONCURRENCY=0` startup-rejection scenario described above no longer exists because
+> the setting is no longer server-wide configuration. `SECTION_CONCURRENCY` is unaffected by
+> this change: it remains a server-wide env var, still validated at startup exactly as
+> described above. The `artifact_concurrency × SECTION_CONCURRENCY ≤ ~15` quota guideline still
+> applies conceptually, but the first factor is now chosen per call rather than fixed for the
+> whole server. See `src/cairn_mcp/tools/write_artifacts.py` and `SERVER-REFERENCE.md`
+> ("Per-call tool parameters") for the current behaviour.

@@ -246,8 +246,8 @@ names, paths, CLI, permission strings):
 - "feature tags" persists throughout — rename to `tags` (T41 rename).
 - AC-47 still tests the removed skill (FR-36 superseded) — remove/replace AC-47.
 - AC-25 references "the migration script" deleted in Phase 9 — remove/replace.
-- FR-07 enumerates five checks; server runs six today and **seven after M-9** — state the final
-  number (confirm with the delivered startup code).
+- FR-07 enumerates five checks; the delivered startup sequence now runs **SEVEN** checks (M-9
+  shipped, commit `a10c5fe`, verified live `7/7`). State **7** in FR-07.
 - FR-26 says "default: Amazon Nova Lite" and names the text-model env var (a what/how violation)
   while the code has no default (returns a configuration error when unset) — correct to "no
   default; text model must be configured" and strip the env var name.
@@ -281,6 +281,11 @@ names, paths, CLI, permission strings):
   base dependency in `pyproject.toml` — reconcile the docs to "required base dependency."
 - Coordinate the M-13 FR-07 check count and the M-10 `artifact_concurrency` wording so all
   documents agree on the final delivered behaviour.
+- **Startup check count = 7** (delivered by M-9). Update every stale count: SERVER-REFERENCE,
+  `docs/architecture-decisions/overview.md` (~L156 "six checks" + the Mermaid diagram showing
+  C1–C6 — the embedding probe is the new C6, text-model becomes C7), and
+  `docs/specs/phase-1-overview.md` (~L103 comment "5 checks"). `p1-t5` already updated by the
+  developer.
 
 ---
 

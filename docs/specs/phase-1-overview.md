@@ -100,7 +100,7 @@ cairn-mcp/
 │       ├── __main__.py          # Entry point — calls server.run()
 │       ├── server.py            # FastMCP app — transport setup, signal handling
 │       ├── config.py            # Settings dataclass, env var parsing + validation
-│       ├── startup.py           # Startup validation sequence (5 checks)
+│       ├── startup.py           # Startup validation sequence (7 checks)
 │       ├── errors.py            # All structured error types used by the server
 │       └── clients/
 │           ├── __init__.py

@@ -51,7 +51,7 @@ graph TD
     subgraph Entry["Entry point — __main__.py"]
         CFG["① Parse Settings\npydantic-settings"]
         CLI["② Construct clients\nS3 · S3 Vectors · Bedrock"]
-        SV["③ Startup validation\n6 sequential checks"]
+        SV["③ Startup validation\n7 sequential checks"]
         REG["④ Register MCP tools"]
         RUN["⑤ server.run — stdio loop"]
         CFG --> CLI --> SV --> REG --> RUN
@@ -115,7 +115,7 @@ graph TD
 | Entry point | `__main__.py` | Logging, config parsing, client construction, startup validation, tool registration, server start |
 | Server | `server.py` | FastMCP app instance; tool registration closures that bind injected clients |
 | Configuration | `config.py` | All env-var parsing and validation (pydantic-settings); computed properties |
-| Startup validation | `startup.py` | Six sequential checks; hard `sys.exit(1)` on any failure |
+| Startup validation | `startup.py` | Seven sequential checks; hard `sys.exit(1)` on any failure |
 | Domain | `artifact.py` | `Artifact` model, deterministic ID generation, section parsing — zero AWS dependencies |
 | Tools | `tools/*.py` | MCP tool implementations; receive `settings`, `s3`, `vectors`, `bedrock` as injected dependencies |
 | Search helper | `tools/_search_helper.py` | Shared re-fetch loop used by both `search_artifacts` and `synthesise_artifacts` |
@@ -153,7 +153,7 @@ index and embedding model.
 
 ## Startup Validation Sequence
 
-The server performs six checks in order before entering the MCP event loop. Any failure is a
+The server performs seven checks in order before entering the MCP event loop. Any failure is a
 hard stop — the server never starts in a partially functional state.
 
 ```mermaid
@@ -163,10 +163,11 @@ graph LR
     C3["Check 3\nEach READ_PREFIX\nlistable"]
     C4["Check 4\nVector index exists\ndescribe_index"]
     C5["Check 5\nEmbedding model dimension\nmatches index dimension"]
-    C6["Check 6\nBEDROCK_TEXT_MODEL\naccessible (when configured)"]
+    C6["Check 6\nEmbedding model probe\nembeds a probe string, asserts dimension"]
+    C7["Check 7\nBEDROCK_TEXT_MODEL\naccessible (when configured)"]
     READY["Server ready\nMCP event loop"]
 
-    C1 --> C2 --> C3 --> C4 --> C5 --> C6 --> READY
+    C1 --> C2 --> C3 --> C4 --> C5 --> C6 --> C7 --> READY
 ```
 
 ---

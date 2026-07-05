@@ -59,8 +59,9 @@ until the requested number of *artifacts* is reached.
 
 We embed each `##` (H2) section of the artifact as an independent vector. Section bodies are
 embedded with context: `title + type + tags + section_content`. The section vector key
-is `{artifact_id}#{section_slug}`. The `artifact_id` is stored as filterable metadata on every
-section vector so the re-fetch loop can group and deduplicate.
+is `{s3_key}#{section_slug}` (matching ADR-005's key format — see the Revision note below).
+The `artifact_id` is stored as filterable metadata on every section vector so the re-fetch
+loop can group and deduplicate.
 
 If the artifact contains no `##` sections, a single document-level vector is generated from
 `title + description + type + tags` (the "fallback" path).
@@ -108,3 +109,11 @@ Three configurable guards bound the embedding cost per artifact:
 > cap, and `EMBED_MAX_SECTION_LENGTH` truncation entirely; a section truncated at write time
 > was resubmitted full-length on every reconcile replay and failed Titan's input limit
 > forever. Both tools now apply identical filtering/capping/truncation by construction.
+
+> **Revised (2026-07-05, Phase 12 review M-14).** The Decision section above previously stated
+> the section vector key as `{artifact_id}#{section_slug}`. This was incorrect — the shipped
+> code (`write.py`, `reconcile.py::_reindex_artifact`) and ADR-005 both use `{s3_key}#{section_slug}`,
+> where `s3_key` is the full S3 object key (`{WRITE_PREFIX}/{artifact_id}{file_extension}`), not
+> the bare `artifact_id`. The Decision text above is corrected to match. This is purely a
+> documentation fix — no behavioural change; the `artifact_id`-as-filterable-metadata mechanism
+> described in the same paragraph is unaffected and remains accurate.
