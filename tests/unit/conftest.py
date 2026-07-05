@@ -28,6 +28,17 @@ from cairn_mcp.config import Settings
 
 # ---------------------------------------------------------------------------
 # moto query_vectors extension — applied once at module load
+#
+# M-16 (Phase 12 review, Cluster E): this extension filters using the exact
+# same production `matches_filter` that VectorsClientImpl.query_vectors hands
+# to boto3 as the real `filter` request parameter — so it is circular for
+# anything QueryVectors evaluates server-side (if matches_filter's assumptions
+# about AWS's real semantics were wrong, this simulation could never catch
+# it). It is kept as-is for unit speed; its fidelity to real AWS server-side
+# filter semantics ($eq list-membership, the plain-equality shorthand, $gte on
+# a String operand, and behaviour at/over the Top-K and filter-size caps) is
+# now backed by the real-AWS integration assertions in
+# tests/integration/clients/test_vectors_filter_semantics.py instead.
 # ---------------------------------------------------------------------------
 
 
