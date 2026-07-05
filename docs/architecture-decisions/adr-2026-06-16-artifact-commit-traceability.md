@@ -5,7 +5,7 @@ description: "Records the three coupled design decisions that close the artifact
 tags: []
 timestamp: 2026-06-16T00:00:00Z
 okf_version: "0.1"
-status: Superseded by adr-2026-07-03-annotation-backed-link-storage.md
+status: Partially superseded by adr-2026-07-03-annotation-backed-link-storage.md
 references:
   - docs/brainstorming/brainstorming-2026-06-06-artifact-commit-refs.md
   - docs/specs/p10-t36-commit-refs-metadata-fields.md

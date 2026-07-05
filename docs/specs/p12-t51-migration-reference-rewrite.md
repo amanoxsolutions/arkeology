@@ -19,8 +19,8 @@ authored:
   by: "architect"
   date: "2026-07-03"
 revised:
-  by: ""
-  date: ""
+  by: "tech-writer"
+  date: "2026-07-04"
 ---
 
 # T51 — Migration Frontmatter Reference Rewriting + `cairn://` Content Rewrite
@@ -37,6 +37,15 @@ frontmatter `references:` path entries into the `references` field (T46), rewrit
 references in stored content to `cairn://artifact/{id}`, apply **bounded** path normalization, and
 leave `http(s)://` URLs and any unresolved/excluded target **untouched** and reported. In-body
 markdown links are out of scope. (FR-52, AC-58.)
+
+> **Revised 2026-07-04 (tech-writer, Phase 12 review C6).** A well-formed relative reference
+> (`./` or `../`) is **first joined against the referencing file's own directory**
+> (`join_reference_path`, POSIX semantics) *before* the D6 bounded-normalization lookup below — this
+> is what makes `../decisions/B.md` written inside `notes/A.md` resolve against `decisions/B.md` in
+> the map (see Story 1's example). This is resolution of a well-formed relative path, not the
+> "repair" of a genuinely broken reference that D6 deliberately excludes; a `../` that escapes above
+> the repo root still normalizes to a path absent from the map and falls through to unresolved. See
+> the Requirements/Boundaries additions below.
 
 ## Problem Statement
 
@@ -74,8 +83,16 @@ the primary risk (ADR-012 D1/D5/D6).
 - Given a backslash Windows-style path in `references:`, when resolving then backslashes are
   converted to forward slashes and the lookup is attempted stripping only `./`, a single leading
   `/`, or none.
-- Given a path that does not match after that bounded normalization, then it is left completely
-  untouched and falls through to the general (unresolved) handling — no further repair is attempted.
+- Given a well-formed relative path (`./` or `../`) in `references:`, when resolving then it is
+  first joined against the referencing file's own directory (POSIX semantics), and the joined
+  result is then passed through the bounded normalization above before the map lookup — this is
+  what makes Story 1's `../decisions/B.md` example resolve. (Phase 12 review C6)
+- Given a `../` that, once joined, escapes above the repo root, then the joined path is absent from
+  the map and falls through to the unresolved handling exactly like any other non-matching path — no
+  error, no special-casing.
+- Given a path that does not match after the join (if applicable) and bounded normalization, then it
+  is left completely untouched and falls through to the general (unresolved) handling — no further
+  repair is attempted.
 
 ### Story 4 — First-write only; no retroactive content patch (P1)
 
@@ -90,9 +107,14 @@ the primary risk (ADR-012 D1/D5/D6).
   FULL `CAIRN_IMPORT.yaml` manifest (every entry, any status, across sessions) before any writes,
   computing each identifier via the pure `generate_artifact_id` rules (type slug, date for tier 2,
   title slug, deterministic hash suffix).
-- WHEN normalizing a `references:` path THE SYSTEM SHALL convert backslashes to forward slashes and
-  attempt lookup against the map under a small set of leading-prefix variants (`./`, single leading
-  `/`, none) — and no further transformation.
+- WHEN a `references:` path is well-formed relative (starts with `./` or `../`, after backslash
+  normalization) THE SYSTEM SHALL first join it against the referencing file's own directory
+  (`join_reference_path`, POSIX join + normpath) before attempting the map lookup (Phase 12 review
+  C6) — a path that does not start with `./` or `../`, or that is a URL, passes through this step
+  unchanged.
+- WHEN normalizing a `references:` path (after the join step above, when applicable) THE SYSTEM
+  SHALL convert backslashes to forward slashes and attempt lookup against the map under a small set
+  of leading-prefix variants (`./`, single leading `/`, none) — and no further transformation.
 - WHEN a `references:` entry is an `http://` / `https://` URL THE SYSTEM SHALL leave it untouched and
   never treat it as a path.
 - WHEN a `references:` path resolves THE SYSTEM SHALL add the resolved full S3 key (the operative
@@ -114,6 +136,9 @@ the primary risk (ADR-012 D1/D5/D6).
 - `references` holds resolved full S3 keys (the operative `artifact_id`, review finding C1);
   content links use `cairn://artifact/{id}` (D2/D3), where `{id}` is that same full key.
 - The map is built from the FULL manifest, not the retry subset (D4 — multi-session safety).
+- A well-formed relative path (`./`/`../`) is joined against the referencing file's directory before
+  the D6 normalization ceiling — this is resolution, not repair (Phase 12 review C6): an escaping
+  `../` still falls through to unresolved, it does not raise or get special-cased.
 - Mixed addressing (`cairn://…` next to raw `/docs/…`) is the correct permanent steady state (D3).
 
 **Ask First:**
@@ -134,7 +159,7 @@ the primary risk (ADR-012 D1/D5/D6).
 | File | Action | Notes |
 |------|--------|-------|
 | `tests/unit/test_references_resolution.py` | Create | Pure-helper tests: map build, normalization ceiling, URL passthrough, forward reference, unresolved fall-through — Red first |
-| `src/cairn_mcp/references.py` | Create | Pure helpers: `normalize_reference_path(path)`, `build_path_to_id_map(manifest_entries)` (uses `generate_artifact_id`), `resolve_reference(path, path_to_id_map)` → id or `None` |
+| `src/cairn_mcp/references.py` | Create | Pure helpers: `normalize_reference_path(path)`, `build_path_to_id_map(manifest_entries)` (uses `generate_artifact_id`), `join_reference_path(referencing_file_path, reference_path)` (C6 relative-path join), `resolve_reference(path, path_to_id_map, referencing_file_path=None)` → id or `None` |
 | `skills/migrating-to-cairn/SKILL.md` | Modify | Add the build-map → resolve-frontmatter → populate `references` → rewrite content to `cairn://artifact/{id}` → report-unresolved flow to Steps 3.A/3.B; document the normalization ceiling and URL/unresolved passthrough; in-body links explicitly out of scope |
 
 ## Testing Approach
@@ -151,6 +176,9 @@ Pure-helper unit tests (no AWS, no moto):
   other transformation.
 - `resolve_reference` — resolves a normalized path against the map; returns `None` for URLs, for
   paths absent from the map, and for paths that only match beyond the normalization ceiling.
+- `join_reference_path` — joins a well-formed `./`/`../` path against the referencing file's
+  directory (POSIX semantics); passes URLs and non-relative paths through unchanged; an escaping
+  `../` normalizes to a path that is simply absent from the map (Phase 12 review C6).
 - URL passthrough — `http(s)://` entries return `None` (never treated as paths).
 - Forward-reference resolution — a path whose target is later in the manifest still resolves.
 - Unresolved fall-through — a path with no match returns `None` (caller leaves it untouched + reports).

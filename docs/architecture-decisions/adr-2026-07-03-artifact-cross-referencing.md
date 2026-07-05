@@ -219,10 +219,17 @@ the new `references` field, for artifacts of any type. It is **warn-but-don't-bl
 
 Two hard constraints hold: the check is **strictly own-scope only** (the existing non-negotiable
 rule — never reveal foreign-scope identifiers; else it re-opens the cross-scope leakage closed
-below), and it uses **server-side `$eq` list-membership filtering** (`{"references": {"$eq":
-target}}`) rather than fetch-all-then-filter-in-process. ADR-011 mentions this reverse-lookup only
-"for completeness" because it queries vector metadata and is independent of the storage-type
-decision; the **design decision itself is recorded here**.
+below), and it is resolved by a **field-appropriate, filterable query, never an unbounded
+fetch-all-then-filter-in-process scan**. The two reference fields are not equally filterable, so the
+mechanism branches by field (Phase 12 review T50, refined against the shipped implementation): the
+**filterable** `references` field is resolved with a single server-side `$eq` list-membership query
+(`{"references": {"$eq": target}}`); the **non-filterable** `source_artifacts` field — which S3
+Vectors rejects a server-side `$eq` on — is resolved via a bounded, filterable `type = synthesis`
+prefilter (own-scope, active) fetched server-side, followed by an in-process membership check of the
+target identifier in each candidate's `source_artifacts` value. A server-side `$eq` is never issued
+on `source_artifacts`. ADR-011 mentions this reverse-lookup only "for completeness" because it
+queries vector metadata and is independent of the storage-type decision; the **design decision
+itself is recorded here**.
 
 ### Failure handling — unresolved, excluded, never-migrated, missing targets (cluster E)
 

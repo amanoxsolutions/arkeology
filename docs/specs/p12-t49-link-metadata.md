@@ -19,8 +19,8 @@ authored:
   by: "architect"
   date: "2026-07-03"
 revised:
-  by: ""
-  date: ""
+  by: "tech-writer"
+  date: "2026-07-04"
 ---
 
 # T49 — `link_metadata` Tool (generalizes and supersedes `link_commit`)
@@ -31,11 +31,20 @@ revised:
 
 Add a `link_metadata` MCP tool that backfills the structured link fields (`commit_refs` and/or
 `references`) onto existing own-scope artifacts without re-embedding: fetch current vectors +
-embeddings → merge and deduplicate the supplied values → **dual-write** (durable S3 annotations
-first, vector metadata second) with the same embeddings. No Bedrock call, no content mutation, no
-change to `last_edited_ulid`. Idempotent on re-run; foreign-scope identifiers are skipped and
-counted. This **supersedes `link_commit`** (p10-t38); `propose_commit_links` is retained unchanged.
+embeddings → read the existing state as the **union of both durable stores** → merge and deduplicate
+the supplied values into that union → **dual-write** (durable S3 annotations first, vector metadata
+second) with the same embeddings. No Bedrock call, no content mutation, no change to
+`last_edited_ulid`. Idempotent on re-run; foreign-scope identifiers are skipped and counted. This
+**supersedes `link_commit`** (p10-t38); `propose_commit_links` is retained unchanged.
 (FR-53, AC-59; supersedes FR-32.)
+
+> **Revised 2026-07-04 (tech-writer, Phase 12 review C3/C5).** The original scope below read the
+> "existing" value from vector metadata alone and rewrote both annotation fields unconditionally
+> from the merge result. The shipped implementation reads existing state as the union of both stores
+> (`annotations.read_current_link_fields`) and merges the supplied values into that union per field
+> — so a field the caller did **not** supply in this call is re-written with its existing (unioned)
+> value, unchanged, rather than being wiped to `[]` because the read missed a value that lived only
+> in the annotation. See the corrected Requirements/Boundaries below.
 
 ## Problem Statement
 
@@ -100,9 +109,12 @@ second so a failed vector write self-heals on the next reconcile.
 - WHEN processing an own-scope `artifact_id` THE SYSTEM SHALL call
   `list_vectors_by_metadata({"artifact_id": {"$eq": artifact_id}})`; when no keys are found it SHALL
   skip and count, not error.
-- WHEN keys are found THE SYSTEM SHALL call `get_vectors(keys)`, merge the supplied values into the
-  existing `commit_refs` / `references` per section (`list(dict.fromkeys(existing + supplied))`),
-  and dual-write: first `apply_link_annotations(s3, artifact_id, ...)` with the merged values, then
+- WHEN keys are found THE SYSTEM SHALL call `get_vectors(keys)`, read the existing `commit_refs` /
+  `references` as the union of both durable stores (`annotations.read_current_link_fields(s3,
+  vectors, artifact_id)` — Phase 12 review C3/C5, never vector metadata alone), merge the supplied
+  values into that union per field (`list(dict.fromkeys(existing + supplied))`), and dual-write:
+  first `apply_link_annotations(s3, artifact_id, ...)` with the merged values for BOTH fields (a
+  field with no supplied values re-writes its existing unioned value unchanged, never `[]`), then
   `put_vectors_batch` reusing each vector's `data["float32"]` with updated metadata.
 - WHEN writing THE SYSTEM SHALL make no Bedrock call and SHALL NOT alter `last_edited_ulid`.
 - WHEN all artifacts are processed THE SYSTEM SHALL generate `next_since_ulid` once and return
@@ -120,7 +132,9 @@ second so a failed vector write self-heals on the next reconcile.
   (AGENTS.md non-negotiable).
 - Scope gate uses `startswith(settings.write_prefix + "/")` — never bare `startswith`.
 - Dual-write ordering: annotations first (durable), vectors second (recoverable-state, ADR-011).
-- Reuse the shared `annotations.py` helpers (T47) — do not re-implement encode/apply.
+- Reuse the shared `annotations.py` helpers (T47) — `read_current_link_fields` for the existing-state
+  read (union of both stores, C5) and `apply_link_annotations` for the write; do not re-implement
+  either.
 - `next_since_ulid` generated once after the loop (as `link_commit` did).
 
 **Ask First:**
@@ -131,6 +145,9 @@ second so a failed vector write self-heals on the next reconcile.
 - Do not mutate content or `last_edited_ulid`.
 - Do not include foreign-scope artifacts in `linked`.
 - Do not abort the whole batch when one artifact has no vectors — skip and continue.
+- Do not read the existing `commit_refs` / `references` state from vector metadata alone (Phase 12
+  review C3) — always via `read_current_link_fields`, or a field the caller did not supply in this
+  call can be wiped instead of preserved.
 
 <!-- IMPLEMENTATION BLOCK — agent-owned -->
 

@@ -19,8 +19,8 @@ authored:
   by: "architect"
   date: "2026-07-03"
 revised:
-  by: "architect"
-  date: "2026-07-03"
+  by: "tech-writer"
+  date: "2026-07-04"
 ---
 
 # T47 — Annotation Dual-Write in the Write Path + Tier-3 Overwrite Preservation
@@ -43,6 +43,16 @@ recoverable-state ordering). On an overwriting tier-3 write, read-forward the ar
 because `PutObject` clears annotations. No content re-embed is triggered by the annotation write.
 `last_edited_ulid` stays in user-defined metadata, set atomically at `PutObject`. (FR-54, FR-55,
 AC-60.)
+
+> **Revised 2026-07-04 (tech-writer, Phase 12 review C4/C5/M6).** Two corrections to the shipped
+> behaviour vs. the original scope below: (1) the overwrite read-forward reads the **union of both
+> durable stores** — the S3 annotation copy AND the current vector-metadata copy (helper
+> `annotations.read_current_link_fields`) — not the vector metadata alone, so a value that lives
+> only in the annotation (e.g. after a partial `link_metadata` dual-write) is never dropped; (2) the
+> T55 metadata budget check (Step 3c) **re-runs a second time** after this read-forward merge
+> enlarges `vector_metadata`, before any `put_object` / `put_vectors_batch`, because the merge can
+> push the vector filterable/total budgets over their limit even when the supplied values alone did
+> not. Both corrections are reflected in the Requirements/Boundaries sections below.
 
 ## Problem Statement
 
@@ -97,9 +107,15 @@ An artifact was written, then had `commit_refs` backfilled. A later tier-3 conte
 - WHEN a write succeeds at `PutObject` THE SYSTEM SHALL write the `commit_refs` and `references`
   annotations (non-empty only) **after** `PutObject` and **before** `put_vectors_batch`.
 - WHEN an artifact is being overwritten (`is_existing and overwrite`) THE SYSTEM SHALL read-forward
-  the existing `commit_refs` and `references` from the current vector metadata (via
-  `list_vectors_by_metadata` + `get_vectors`, which `PutObject` does not touch) and merge them
-  (union, dedup, order-preserving) with the values supplied to this write.
+  the existing `commit_refs` and `references` as the **union of both durable stores** — the S3
+  annotation copy and the current vector metadata (via `annotations.read_current_link_fields`,
+  Phase 12 review C5/M6: neither store is sole authority) — and merge them (union, dedup,
+  order-preserving) with the values supplied to this write.
+- WHEN the read-forward merge above enlarges `vector_metadata` THE SYSTEM SHALL re-run the T55
+  metadata budget check (`check_metadata_budgets`) a second time, after the merge and before any
+  `put_object` / `put_vectors_batch`, because the union can push the vector filterable/total budgets
+  over their limit even when the values originally supplied to this write did not (Phase 12 review
+  C4).
 - WHEN the merged link values are known THE SYSTEM SHALL use them for BOTH the vector metadata
   (`list[str]`, omitted when empty) and the annotations (comma-joined payload, annotation deleted
   when empty).
@@ -117,8 +133,11 @@ An artifact was written, then had `commit_refs` backfilled. A later tier-3 conte
 **Always:**
 - Ordering is durable-first: `PutObject` → write annotations → `put_vectors_batch`. This mirrors
   `delete_artifact`'s recoverable-state reasoning (ADR-011 decision 1/2).
-- Read-forward source is the **vector metadata** (`get_vectors`) — it is not touched by `PutObject`
-  and is the simpler of the two equally-valid durable stores (ADR-011 decision 4 / D14).
+- Read-forward source is the **union of both durable stores** — the S3 annotation copy and the
+  vector metadata (`get_vectors`, which `PutObject` does not touch) — via
+  `annotations.read_current_link_fields` (Phase 12 review C5/M6). Neither store is sole authority:
+  an annotation-unavailable deployment can hold values in vector metadata only, and a partial
+  dual-write can leave the annotation copy ahead of the vector copy.
 - Merge semantics: `list(dict.fromkeys(read_forward + supplied))` — order-preserving dedup, same as
   `commit_refs` merge in `link_commit`.
 - Annotation encoding is comma-joined UTF-8 payload, one annotation per field

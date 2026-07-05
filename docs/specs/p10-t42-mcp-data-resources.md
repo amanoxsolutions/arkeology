@@ -14,8 +14,8 @@ authored:
   by: "architect"
   date: "2026-06-23"
 revised:
-  by: ""
-  date: ""
+  by: "tech-writer"
+  date: "2026-07-04"
 ---
 
 # T42 — MCP Data Resources
@@ -25,6 +25,13 @@ revised:
 ## TL;DR
 
 Add two MCP data resources to cairn-mcp: `cairn://artifact/{id}` (URI template, returns full markdown content of a named artifact) and `cairn://artifacts` (static, returns a markdown index of all active own-scope artifacts). Both carry `audience: ["user"]` annotations and delegate to the existing `read_artifact` and `list_artifacts` tool logic.
+
+> **Revised 2026-07-04 (tech-writer, Phase 12 review C1).** The canonical `references`/`artifact_id`
+> identifier is the full S3 key `{write_prefix}/{id}{ext}`, which contains `/` characters. FastMCP's
+> plain `{id}` RFC 6570 template parameter does not match a path segment containing `/`, so the
+> resource is registered with the **wildcard-path** form `cairn://artifact/{id*}` (note the trailing
+> `*`), which does. Every reference to `cairn://artifact/{id}` below and in the PRD/ADR-012 is
+> conceptually the same resource; the registered URI template literal is `cairn://artifact/{id*}`.
 
 ## Problem Statement
 
