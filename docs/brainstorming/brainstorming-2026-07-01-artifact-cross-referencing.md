@@ -54,6 +54,7 @@ decisions_locked:
   - "D13 (2026-07-02) — OQ3 CONFIRMED: generalize `delete_artifact`'s synthesis-reference check into a single unified own-scope 'referenced_by' warning covering BOTH `source_artifacts` (synthesis, existing) and the new `references` field (any type). Warn-but-don't-block. Applied to `delete_artifact` (permanent → stronger warning) and `archive_artifact` (reversible → informational). Own-scope only per the existing non-negotiable rule (never reveal foreign-scope identifiers); use server-side `$eq` list-membership filtering rather than fetch-all-then-filter-in-process."
   - "D14 (2026-07-02) — Overwrite preservation CONFIRMED (analyst default; Architect finalizes mechanics): on an overwriting `write_artifact` (tier-3 update-in-place, the only case that re-PUTs the same key), the write path must read-forward the artifact's existing `commit_refs` (and any backfilled `references`) and re-apply them, because `write_artifact` can restore `references` from its inputs but does NOT know `commit_refs` (added post-hoc by `link_commit`). Read-forward SOURCE is a free choice between two equally-valid stores, since these fields are dual-stored (D11): (a) the S3 annotations via `GetObjectAnnotation` before the `PutObject` wipes them, or (b) the existing VECTOR metadata via `get_vectors` — which is NOT touched by the S3 `PutObject` and still holds the old `commit_refs` until the write re-puts the vectors. Option (b) is likely simpler since the write path already touches vectors. Either way the merged value must be written back to BOTH stores. CopyObject's COPY-directive does not apply (it cannot carry a new body). Chosen 'Preserve' over 'Accept clearing' because silent loss of an append-only trail is exactly what cairn exists to prevent."
   - "D15 (2026-07-02) — Annotation availability/IAM validation placement CONFIRMED: NOT a hard server-startup gate. Rationale: annotations back only the feature-level `commit_refs`/`references`, not the core store (S3 content + vectors + embeddings all work without them), so refusing to boot the whole memory server over an annotation problem would be disproportionate. Instead: (1) add a one-time availability + IAM-permission check to the `setting-up-cairn` skill, alongside its existing resource-reachability checks (Checks 4–7), for a friendly early failure with operator guidance; (2) handle the annotation-unavailable / AccessDenied error gracefully at runtime in `link_metadata`/write to cover post-setup DRIFT (IAM edit, bucket/region change) that a one-time setup check cannot catch. Concrete findings (verified 2026-07-02): (i) AWS CLI support for annotation operations is VERSION-GATED — absent in aws-cli 2.34.44 (`aws s3api put-object-annotation` → 'invalid choice') but present from 2.35.14 (all four ops). So the setup-skill probe CAN stay CLI-native like the other checks, provided it guards on a minimum aws-cli version (≥ 2.35.14); otherwise fall back to a boto3 snippet via `uv run` (the repo's botocore 1.43.36 supports the APIs regardless). (ii) The four IAM actions the deployment policy must grant are `s3:PutObjectAnnotation`, `s3:GetObjectAnnotation`, `s3:ListObjectAnnotations`, `s3:DeleteObjectAnnotation` (confirmed from the CLI operation help)."
+  - "D16 (2026-07-06) — Extend the migration content rewrite (D1/D3) so an already-resolved frontmatter `references:` path is rewritten to `cairn://artifact/{id}` everywhere it occurs in stored content — frontmatter AND body — executed as deterministic server-side code inside `migrate_artifacts` (reversing, for this bounded case only, the prior 'no server-side rewrite' ownership call in cluster F / ADR-012). Does NOT reopen D1's exclusion of in-body link *discovery*: only occurrences of paths already resolved from frontmatter are rewritten; no scanning for undeclared body-only links is added."
 decisions_pending:
   - "OQ1-cleanup — Remaining detail of the D10/D11 cleanup skill beyond the confirmed shape: discovery scan specifics and per-artifact vs batch approval nuance. Architect/PM territory, not blocking."
   - "Sweep — one-time re-link of `commit_refs` already backfilled by the current vector-only `link_commit`, so they land in annotations and survive future reconciles. Migration/ops detail, not blocking the design."
@@ -332,3 +333,52 @@ permanent) and `archive` (informational — reversible).
   data loss.
 - **OQ3 — CONFIRMED (D13):** unified own-scope `referenced_by` warn-only check across delete
   (permanent, stronger) and archive (reversible, informational), server-side `$eq` filtered.
+
+## Session 2026-07-06
+
+_Recorded by the architect while scoping task T56, at the operator's request; the two calls in
+D16 below were made by the operator before any design work began — this entry documents them,
+it does not re-open the analysis._
+
+### Focus
+
+A follow-up, bounded extension to the migration content rewrite (T51/FR-52): the SAME path
+already resolved from a file's frontmatter `references:` list frequently reappears, verbatim, as
+an in-body markdown link pointing at the identical target — a common documentation pattern this
+project's own house style uses. Today those body occurrences are left as dead raw paths even
+though the target is fully known and resolved. Separately, the *mechanism* by which the
+frontmatter rewrite itself happens today — an agent hand-editing text in-context, per the skill's
+current instructions — is not deterministic (an LLM find/replace has no byte-exact guarantee, and
+the skill runs no local scripts to make it one).
+
+### D16 (2026-07-06) — Deterministic, server-side, frontmatter+body content rewrite of already-resolved references (FR-52 extension)
+
+Two operator calls, both frozen before design work started:
+
+1. **Scope stays narrow — no in-body link *discovery*.** This does NOT reopen D1's exclusion of
+   in-body markdown links from *discovery*. The only references ever rewritten are those already
+   resolved from a file's frontmatter `references:` list — the same narrow set D1/T51 already
+   resolves. No new scanning for undeclared body-only links is added, and D1's core
+   risk-management intent (avoid fragile regex over inconsistent free-form prose) is preserved:
+   the body rewrite only fires on structured, unambiguous occurrences of an
+   ALREADY-known-resolved path — markdown link targets (`](path)`) and the frontmatter YAML list
+   item itself — never bare prose mentions with no link syntax.
+2. **Ownership moves server-side and unifies frontmatter+body into one step.** "Deterministic"
+   rules out the current agent-in-context find/replace — so the rewrite must execute as tested
+   server-side code. This REVERSES ADR-012's "no server-side rewrite in `migrate_artifacts` beyond
+   threading the `references` descriptor key" for this one bounded, resolved-path-only case (see
+   the ADR-012 Revision, 2026-07-06). The agent still runs the `references.py` resolution
+   algorithm in-context to BUILD the `{original_text -> artifact_id}` map per file — unchanged
+   from T51 — but now passes that map into the `migrate_artifacts` descriptor instead of
+   hand-editing the file's content; the server applies the rewrite once, uniformly, to both the
+   frontmatter block and the body, before the artifact is ever written or embedded.
+
+This closes the fragility the original ownership analysis (cluster F, 2026-07-01 session) already
+flagged in the "agent does it ad-hoc in-context" row — "fine for the small-batch path; harder for
+the large-batch path" — by removing the in-context rewrite from BOTH paths, not just the
+large-batch one, and doing so without reopening undeclared-link discovery.
+
+Mechanics (the helper's contract, the descriptor shape, anchor handling, and the
+markdown-awareness rules) are recorded in the ADR-012 Revision and in
+`docs/specs/p12-t56-deterministic-content-reference-rewrite.md` — this entry records only the
+decision, not the implementation.

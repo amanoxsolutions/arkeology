@@ -17,8 +17,8 @@ authored:
   by: architect
   date: "2026-07-03"
 revised:
-  by: ""
-  date: ""
+  by: "architect"
+  date: "2026-07-06"
 ---
 
 # Artifact Cross-Referencing — First-Class references Field, Migration Rewrite, and referenced_by Warning
@@ -348,3 +348,119 @@ graph TD
   where the durable copy lives, how the dual-write is ordered, how reconcile rebuilds it, or how
   overwrite is preserved — all of that is ADR-011. Future revisions must keep the storage mechanism
   in ADR-011 and the cross-referencing design here, and cross-reference rather than duplicate.
+
+## Revision (2026-07-06)
+
+**This section reverses one narrow, previously-frozen call and layers new mechanics on top of it.
+The Decision/Alternatives text above is preserved unchanged as the historical record; this section
+records what changes and why.** Source: brainstorming D16 (`brainstorming-2026-07-01-artifact-
+cross-referencing.md`, Session 2026-07-06), operator-frozen. Full mechanics and testable contract:
+`docs/specs/p12-t56-deterministic-content-reference-rewrite.md` (T56).
+
+### What is reversed, and what is not
+
+The **"Ownership" alternatives table** (cluster F, above) chose "manifest-driven rewrite in the
+migration skill... `references` accepted by the ordinary server write path" over "server-side
+rewrite inside `migrate_artifacts`," reasoning that a server-side rewrite "bakes a one-time
+operational concern into the server." **That call is reversed, for one bounded case only:**
+rewriting, in stored content, an occurrence of a path that has *already been resolved* from a
+file's frontmatter `references:` list (the exact set D1/T51 already resolves — nothing new is
+discovered). The rewrite now executes as tested, deterministic server-side code inside
+`migrate_artifacts`, not as agent-in-context text editing orchestrated by the skill.
+
+**D1's discovery boundary is explicitly NOT reversed.** In-body markdown links that were never
+declared in a file's frontmatter `references:` list are still never discovered, resolved, or
+rewritten — D1's core risk-management intent (no fragile regex over inconsistent free-form prose,
+no scanning for undeclared links, no repair of broken references) holds exactly as before. What
+changes is narrower than it sounds: the SAME already-known-resolved path, if it also happens to
+appear as a markdown link target elsewhere in the same file's body, is now swept up by the same
+deterministic rewrite pass that already touches the frontmatter — it is a by-product of rewriting a
+known string everywhere it occurs, not a new discovery capability.
+
+**Why this doesn't reopen the original ownership reasoning.** The original objection to
+server-side rewrite was that it "bakes a one-time operational concern into the server" and is
+"more invasive" than skill-only orchestration. That objection was correct for a *general* content-
+mutation capability, but does not hold for this bounded case: "deterministic" is a hard requirement
+the current agent-in-context mechanism cannot satisfy (an LLM performing find/replace over
+arbitrary markdown text has no byte-exact, idempotent guarantee, and the skill runs no local
+scripts), so *some* code must own the transformation. Placing that code as a tested pure helper in
+`references.py` plus a single, narrow application point in `migrate_artifacts` (never in
+`write_artifact`/`write_artifacts`) is a smaller server footprint than the alternative of teaching
+the skill to shell out to an ad-hoc script per migration run — and it reuses `references.py`'s
+existing, already-tested `normalize_reference_path` rather than inventing new normalization logic.
+
+### New mechanics (frontmatter + body, resolved-paths-only)
+
+1. **A new pure helper**, `rewrite_content_references(content, resolved_map)` in
+   `src/cairn_mcp/references.py`, alongside the existing T51 resolution helpers. `resolved_map` is
+   `{original_reference_text: artifact_id}` — the exact literal text of each frontmatter
+   `references:` entry that already resolved for *this* file, built by the agent using the
+   unchanged T51 resolution algorithm.
+2. **Frontmatter matching is exact, byte-for-byte**, against the unquoted value of each
+   `references:` YAML list item, preserving the item's original quote style (unquoted / single /
+   double) and list position on rewrite. The frontmatter block is never parsed and re-serialized
+   as YAML (which would reformat unrelated content and break determinism) — only the matching list
+   item's text is replaced in place.
+3. **Body matching is scoped to markdown-link-target syntax only** — `[text](target)`, optionally
+   with a `#anchor` — never bare prose mentions of a path with no link syntax. This is the
+   deliberate narrowing that keeps the rewrite "structured, unambiguous occurrence" rather than
+   "fragile regex over prose," matching D1's original reasoning for excluding in-body links from
+   *discovery*; here the target is already known, so only the *matching* needs to be conservative.
+   The target's path portion is compared to each `resolved_map` key using the existing, bounded
+   `normalize_reference_path` (backslash-to-forward-slash, common leading-prefix strip) applied to
+   *both* sides — never `join_reference_path`'s directory-join, which requires per-occurrence
+   file-context a body-found candidate cannot safely be assumed to share with the frontmatter entry
+   it was resolved from.
+4. **Anchor handling: `#anchor` is dropped from the URI but preserved as a human-readable note**
+   (operator-frozen 2026-07-06). A matched body link `[text](path#anchor)` is rewritten to
+   `[text](cairn://artifact/{id}) ("anchor" section)` — the anchor is removed from the URI itself
+   and re-surfaced verbatim (un-de-slugified) as a trailing note immediately after the link.
+   Rationale for dropping it *from the URI*: the `cairn://artifact/{id*}` template (`resources.py`)
+   matches the id verbatim with no fragment-aware resolution, and URI fragments are commonly
+   stripped client-side before a resource read reaches the server — so keeping `#anchor` in the URI
+   risks silently breaking the id match on hosts that do *not* strip fragments, for no compensating
+   benefit today. Rationale for *preserving it as a note* rather than discarding it entirely: the
+   anchor carried real human pointing precision (which section of the target was meant), and the
+   note retains that for a human reader without endangering machine resolution. Idempotency holds
+   without special-casing: after rewrite the target is `cairn://artifact/{id}` with no `#`, and
+   `cairn://…` is never a key in the resolved map, so a second pass matches nothing and never
+   re-appends the note. A body link with no anchor is rewritten with no note.
+5. **Fenced code blocks (```` ``` ````) are never scanned** — content inside an open/close fence
+   pair is left byte-for-byte untouched, protecting documented examples that happen to contain
+   matching text.
+6. **Collision safety is exact-match, not substring-containment.** A candidate (frontmatter value
+   or body link target) must equal a `resolved_map` key exactly (after the applicable normalization
+   above) — `docs/a.md` never matches inside `docs/a.md.bak` or any other longer token, because the
+   comparison is whole-value equality, not `str.replace`-style substring search.
+7. **`http(s)://` entries are never rewrite candidates**, matching D5, checked before any
+   normalization or comparison.
+8. **Deterministic and idempotent**: pure function of its two arguments; re-running on
+   already-rewritten content (or with an empty/absent map) is a no-op.
+
+### Descriptor threading and placement in `migrate_artifacts`
+
+The agent threads a new, transient descriptor key — `resolved_references_map` — built exactly
+where T51 already builds `references:` frontmatter resolution (3.A1b / 3.B5 in the
+`migrating-to-cairn` skill), containing that file's `{original_reference_text: artifact_id}` pairs.
+`migrate_artifacts` applies `rewrite_content_references` to each descriptor's `content` **after
+description generation/clipping and before the skip-existing check and the delegation to
+`write_artifacts`** — uniformly in both `dry_run` modes — then discards the
+`resolved_references_map` key so it never reaches `write_artifacts`, any stored metadata, the
+`Artifact` model, or any tool response.
+
+Because the rewrite happens exactly once, before the artifact's content is ever parsed into
+sections or embedded, the content stored in S3 and the content embedded are always the same
+(already-rewritten) text — there is no separate embed-then-rewrite-then-re-embed sequence, and no
+new re-embedding cost or `last_edited_ulid` disturbance is introduced. This capability is
+`migrate_artifacts`-only; `write_artifact`/`write_artifacts` gain no new content-rewrite behaviour
+(ongoing sessions remain covered by D9's "proactive `cairn://` referencing" guidance instead).
+
+### Carryover constraints (unchanged from T51/D8)
+
+- **First-write-only.** `migrate_artifacts` never overwrites an existing key (A-1 skip-existing),
+  so this rewrite is inherently first-write-only — it never retroactively patches already-written
+  content, exactly as D8 requires.
+- **Own-scope only.** Every id appearing in `resolved_references_map` is resolved from this
+  deployment's own migration manifest and `write_prefix` (T51/D4) — inherently own-scope; no new
+  cross-scope validation is introduced, consistent with the leakage question this ADR already
+  closed as not applicable.
