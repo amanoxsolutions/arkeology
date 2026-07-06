@@ -92,12 +92,20 @@ that file's own frontmatter.
   is written, then both occurrences are rewritten, not just the first.
 - Given a body link `[other](../decisions/B.md.bak)` — NOT an exact match to the resolved path
   after normalization — then it is left completely untouched (collision safety).
-- Given a body link written with a different but D6-normalization-equivalent spelling of the same
-  resolved path (e.g. body has `./decisions/B.md`, the frontmatter entry that resolved was
-  `../decisions/B.md` and the map key, once joined, is `decisions/B.md`), when both sides are
-  passed through the existing bounded `normalize_reference_path`, then the body link is rewritten.
-  A spelling that would only match via the *join* step (not available inside the pure content
-  helper, which has no per-occurrence file context) is left untouched — see Open Questions.
+- Given a body link written with a different but `normalize_reference_path`-equivalent spelling of
+  the same resolved-map key (e.g. the map key is `decisions/B.md` and the body link is
+  `./decisions/B.md` — both normalize to `decisions/B.md`, since `normalize_reference_path` strips
+  a leading `./`), when both sides are passed through the existing bounded
+  `normalize_reference_path`, then the body link is rewritten.
+  A spelling that would only match via the *join* step is left completely untouched, with no
+  report — e.g. the map key is `../decisions/B.md` (which `normalize_reference_path` leaves
+  unchanged, because a leading `../` is **not** stripped) while the body link is `./decisions/B.md`
+  (normalizes to `decisions/B.md`): the two do not compare equal, so the body link is not rewritten.
+  Join is deliberately not available inside the pure content helper, which has no per-occurrence
+  file context — see OQ-T56-e. *(Spec-consistency correction, PM 2026-07-06: the earlier example
+  paired `../decisions/B.md` with `./decisions/B.md` and wrongly implied a match; the frozen
+  normalize-only rule does not match that pair. The implemented behaviour + its regression test are
+  correct; only this illustrative example was fixed.)*
 
 ### Story 3 — Undeclared body-only links are never discovered or rewritten (P1)
 
