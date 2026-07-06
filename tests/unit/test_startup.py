@@ -1,6 +1,6 @@
 """Unit tests for the startup validation sequence.
 
-All five checks are tested via moto-backed clients — no real AWS calls are made.
+All seven checks are tested via moto-backed clients — no real AWS calls are made.
 Tests verify the correct StartupValidationError check field and that failing
 checks prevent subsequent checks from running.
 """
@@ -215,17 +215,24 @@ def test_check5_passes_when_dimensions_match(
     validate_startup(settings=settings, s3=s3_client, vectors=vectors_client, bedrock=bedrock)
 
 
-def test_check5_no_bedrock_embed_call_ever(
+def test_check5_dimension_comparison_itself_never_calls_embed(
     settings: Settings,
     s3_client: S3ClientImpl,
     vectors_client: VectorsClientImpl,
     mocker: pytest.MonkeyPatch,
 ) -> None:
-    """Check 5 never calls bedrock.embed — dimension comes from settings."""
+    """Check 5 (the configuration-only dimension comparison) never calls bedrock.embed
+    itself — dimension comes from settings vs. describe_index. M-9 adds a *separate*
+    check 6 that does call embed once (see test_check6_embedding_probe_calls_embed_once);
+    this test still isolates check 5's own behaviour by asserting exactly one call
+    total (attributable to check 6, not check 5)."""
     bedrock = FakeBedrockClient(dimension=1024)
     spy = mocker.spy(bedrock, "embed")
     validate_startup(settings=settings, s3=s3_client, vectors=vectors_client, bedrock=bedrock)
-    assert spy.call_count == 0, "bedrock.embed must never be called during startup"
+    assert spy.call_count == 1, (
+        "bedrock.embed must be called exactly once during startup (by check 6's "
+        "embedding probe, M-9) — not by check 5's dimension comparison"
+    )
 
 
 # ── Credential error mid-startup propagates ────────────────────────────────────
@@ -266,7 +273,9 @@ def test_check5_explicit_dimensions_override_skips_registry_and_probe(
     vectors_client: VectorsClientImpl,
     mocker: pytest.MonkeyPatch,
 ) -> None:
-    """BEDROCK_EMBEDDING_DIMENSIONS=2048 with index reporting 2048 → passes; no embed call."""
+    """BEDROCK_EMBEDDING_DIMENSIONS=2048 with index reporting 2048 → passes; check 6's
+    embedding probe still calls embed exactly once (M-9) even though check 5 itself
+    (the configuration-only comparison) does not."""
     monkeypatch.setenv("BEDROCK_EMBEDDING_DIMENSIONS", "2048")
     settings_custom = Settings()
     mocker.patch.object(vectors_client, "describe_index", return_value={"dimension": 2048})
@@ -276,7 +285,7 @@ def test_check5_explicit_dimensions_override_skips_registry_and_probe(
     validate_startup(
         settings=settings_custom, s3=s3_client, vectors=vectors_client, bedrock=bedrock
     )
-    assert spy.call_count == 0, "bedrock.embed must never be called during startup"
+    assert spy.call_count == 1, "bedrock.embed must be called once, by check 6's embedding probe"
 
 
 def test_check5_explicit_dimensions_override_mismatch_raises(
@@ -302,7 +311,114 @@ def test_check5_explicit_dimensions_override_mismatch_raises(
     assert "2048" in exc_info.value.message
 
 
-# ── Check 6: BEDROCK_TEXT_MODEL startup probe ──────────────────────────────────
+# ── Check 6: Embedding probe (M-9) ─────────────────────────────────────────────
+
+
+def test_check6_embedding_probe_calls_embed_once(
+    settings: Settings,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """Healthy embedding model → bedrock.embed is called exactly once during startup.
+
+    Red: validate_startup has no embedding-probe check yet; spy.call_count stays 0 → FAILED.
+    """
+    bedrock = FakeBedrockClient(dimension=1024)
+    spy = mocker.spy(bedrock, "embed")
+
+    validate_startup(settings=settings, s3=s3_client, vectors=vectors_client, bedrock=bedrock)
+
+    assert spy.call_count == 1, "Check 6 must call bedrock.embed exactly once — not yet implemented"
+
+
+def test_check6_embedding_probe_wrong_dimension_raises_startup_error(
+    settings: Settings,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """embed() returns a vector whose length does not match BEDROCK_EMBEDDING_DIMENSIONS
+    → StartupValidationError identifying the embedding_probe check.
+
+    Simulates a misconfigured/wrong embedding model that nonetheless returns *some*
+    vector — check 5's configuration-only comparison cannot catch this; only an actual
+    probe call can.
+    """
+    bedrock = FakeBedrockClient(dimension=1024)
+    mocker.patch.object(bedrock, "embed", return_value=[0.1] * 999)
+
+    with pytest.raises(StartupValidationError) as exc_info:
+        validate_startup(settings=settings, s3=s3_client, vectors=vectors_client, bedrock=bedrock)
+
+    assert exc_info.value.check == "embedding_probe"
+    assert "1024" in exc_info.value.message
+
+
+def test_check6_embedding_probe_credential_error_propagates(
+    settings: Settings,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """embed() raises CredentialError (e.g. unentitled model) → propagates as-is,
+    not wrapped in StartupValidationError (reuses the M-7 classification)."""
+    bedrock = FakeBedrockClient(dimension=1024)
+    mocker.patch.object(
+        bedrock,
+        "embed",
+        side_effect=CredentialError(
+            message="simulated entitlement failure",
+            service="bedrock",
+            original=Exception("simulated"),
+        ),
+    )
+
+    with pytest.raises(CredentialError):
+        validate_startup(settings=settings, s3=s3_client, vectors=vectors_client, bedrock=bedrock)
+
+
+def test_check6_embedding_probe_other_error_raises_startup_error(
+    settings: Settings,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """embed() raises a non-credential exception → StartupValidationError, not a raw
+    traceback."""
+    bedrock = FakeBedrockClient(dimension=1024)
+    mocker.patch.object(bedrock, "embed", side_effect=RuntimeError("model unreachable"))
+
+    with pytest.raises(StartupValidationError) as exc_info:
+        validate_startup(settings=settings, s3=s3_client, vectors=vectors_client, bedrock=bedrock)
+
+    assert exc_info.value.check == "embedding_probe"
+
+
+def test_check6_embedding_probe_failure_prevents_check7_text_model_probe(
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    monkeypatch: pytest.MonkeyPatch,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """A failing embedding probe (check 6) stops startup before the text-model check
+    (check 7) runs — even when BEDROCK_TEXT_MODEL is configured."""
+    monkeypatch.setenv("BEDROCK_TEXT_MODEL", "amazon.nova-lite-v1:0")
+    settings_with_model = Settings()
+    bedrock = FakeBedrockClient(dimension=1024)
+    mocker.patch.object(bedrock, "embed", side_effect=RuntimeError("model unreachable"))
+    spy = mocker.spy(bedrock, "invoke_text_model")
+
+    with pytest.raises(StartupValidationError) as exc_info:
+        validate_startup(
+            settings=settings_with_model, s3=s3_client, vectors=vectors_client, bedrock=bedrock
+        )
+
+    assert exc_info.value.check == "embedding_probe"
+    assert spy.call_count == 0
+
+
+# ── Check 7: BEDROCK_TEXT_MODEL startup probe ──────────────────────────────────
 
 
 def test_check6_text_model_configured_invoke_called(

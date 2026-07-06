@@ -17,8 +17,8 @@ authored:
   by: "analyst"
   date: "2026-06-06"
 revised:
-  by: ""
-  date: ""
+  by: "tech-writer"
+  date: "2026-07-04"
 ---
 
 # T37 — `propose_commit_links` Tool
@@ -31,7 +31,7 @@ Add a read-only MCP tool `propose_commit_links` that discovers own-scope artifac
 have no `commit_refs` yet, optionally bounded to those written since a given session-start
 ULID. It presents the candidate list to the agent for confirmation before any write occurs —
 it has no side effects. This tool is the discovery half of the post-commit linking workflow
-(T38 is the write half).
+(`link_metadata`, T49, is the write half — superseding the original T38 `link_commit`).
 
 ## Problem Statement
 
@@ -40,7 +40,8 @@ and have not yet been associated with a commit SHA. Without a discovery tool, th
 would have to reconstruct this list manually by inspecting all artifacts — expensive and
 error-prone. `propose_commit_links` provides that discovery in a single call: it returns a
 ranked candidate list with human-readable timestamps so the operator can confirm, trim, or
-augment the set before calling `link_commit`.
+augment the set before calling `link_metadata` (the write half — `link_commit` (T38) was
+superseded by `link_metadata` (T49), ADR-011; `propose_commit_links` itself is unchanged).
 
 ## User Stories
 

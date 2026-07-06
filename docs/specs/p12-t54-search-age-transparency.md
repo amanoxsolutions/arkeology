@@ -5,13 +5,13 @@ description: Add the last-edited timestamp to each search_artifacts result so ag
 tags: [retrieval, search, staleness, review-fix]
 timestamp: 2026-07-03T00:00:00Z
 okf_version: "0.1"
-feature: "Phase 12 · T55 — CA-4 Option A: search age transparency"
+feature: "Phase 12 · T54 — CA-4 Option A: search age transparency"
 status: ready
 references:
   - "../../.docs/reviews/review-2026-07-02-full-project-review.md (CA-4)"
   - "docs/planning-artifacts/backlog.md (B-6 — recency-weighted ranking, Option B)"
   - "docs/planning-artifacts/prd.md (FR-03, AC-66)"
-  - "docs/planning-artifacts/plan.md (Phase 12, T55)"
+  - "docs/planning-artifacts/plan.md (Phase 12, T54)"
 authored:
   by: "pm"
   date: "2026-07-03"

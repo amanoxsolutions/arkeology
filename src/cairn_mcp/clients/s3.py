@@ -5,39 +5,40 @@ Non-credential errors propagate unchanged.
 """
 
 import logging
-import unicodedata
 from typing import Any
 
 import boto3
 import botocore.exceptions
 
+from cairn_mcp.artifact import encode_metadata_value
 from cairn_mcp.clients.credentials import (
+    _ANNOTATION_UNAVAILABLE_MESSAGE,
     _CREDENTIAL_ERROR_MESSAGE,
+    is_annotation_unavailable_error,
     wrap_credential_errors,
 )
 from cairn_mcp.clients.interfaces import S3ClientInterface  # noqa: F401 (structural only)
-from cairn_mcp.errors import ArtifactCollisionError, CredentialError
+from cairn_mcp.errors import AnnotationUnavailableError, ArtifactCollisionError, CredentialError
 
 logger = logging.getLogger(__name__)
 
 
-def _ascii_safe_metadata(metadata: dict[str, str]) -> dict[str, str]:
-    """Return a copy of metadata with all values sanitized to ASCII.
+def _transport_safe_metadata(metadata: dict[str, str]) -> dict[str, str]:
+    """Return a copy of metadata with all values percent-encoded for safe HTTP transport.
 
-    S3 object metadata is transmitted as HTTP headers, which only support ASCII.
-    NFKD normalization decomposes accented characters to their ASCII base
-    (e.g. é → e); remaining non-ASCII characters (e.g. em dash) are dropped.
+    S3 object metadata is transmitted as HTTP headers, which only support ASCII and
+    reject raw control characters. Every value is percent-encoded via
+    :func:`cairn_mcp.artifact.encode_metadata_value` (T55) — fully reversible via
+    :func:`cairn_mcp.artifact.decode_metadata_value`, unlike the previous NFKD-ASCII-strip
+    which silently discarded non-Latin content (e.g. an em dash or "café" losing its é).
 
     Args:
         metadata: Original metadata dict with potentially non-ASCII string values.
 
     Returns:
-        New dict with all values sanitized to ASCII.
+        New dict with all values percent-encoded to ASCII.
     """
-    return {
-        k: unicodedata.normalize("NFKD", v).encode("ascii", errors="ignore").decode("ascii")
-        for k, v in metadata.items()
-    }
+    return {k: encode_metadata_value(v) for k, v in metadata.items()}
 
 
 class S3ClientImpl:
@@ -70,7 +71,7 @@ class S3ClientImpl:
             "Bucket": self._bucket,
             "Key": key,
             "Body": body.encode("utf-8"),
-            "Metadata": _ascii_safe_metadata(metadata),
+            "Metadata": _transport_safe_metadata(metadata),
         }
         if if_none_match:
             # Atomic conditional-create (A-2): "*" matches any existing object, so the
@@ -138,3 +139,83 @@ class S3ClientImpl:
         logger.debug("S3 delete_object key=%s", key)
         with wrap_credential_errors("s3"):
             self._s3.delete_object(Bucket=self._bucket, Key=key)
+
+    def put_object_annotation(self, key: str, annotation_name: str, payload: str) -> None:
+        logger.debug("S3 put_object_annotation key=%s annotation_name=%s", key, annotation_name)
+        with wrap_credential_errors("s3"):
+            try:
+                self._s3.put_object_annotation(
+                    Bucket=self._bucket,
+                    Key=key,
+                    AnnotationName=annotation_name,
+                    AnnotationPayload=payload.encode("utf-8"),
+                )
+            except botocore.exceptions.ClientError as exc:
+                if is_annotation_unavailable_error(exc):
+                    raise AnnotationUnavailableError(
+                        _ANNOTATION_UNAVAILABLE_MESSAGE, "s3", exc
+                    ) from exc
+                raise
+
+    def get_object_annotation(self, key: str, annotation_name: str) -> str:
+        logger.debug("S3 get_object_annotation key=%s annotation_name=%s", key, annotation_name)
+        with wrap_credential_errors("s3"):
+            try:
+                response = self._s3.get_object_annotation(
+                    Bucket=self._bucket, Key=key, AnnotationName=annotation_name
+                )
+                return response["AnnotationPayload"].read().decode("utf-8")
+            except botocore.exceptions.ClientError as exc:
+                if is_annotation_unavailable_error(exc):
+                    raise AnnotationUnavailableError(
+                        _ANNOTATION_UNAVAILABLE_MESSAGE, "s3", exc
+                    ) from exc
+                code = exc.response.get("Error", {}).get("Code", "")
+                if code in ("NoSuchKey", "NoSuchAnnotation", "404"):
+                    raise KeyError(key) from exc
+                raise
+
+    def list_object_annotations(self, key: str) -> list[str]:
+        logger.debug("S3 list_object_annotations key=%s", key)
+        with wrap_credential_errors("s3"):
+            names: list[str] = []
+            continuation_token: str | None = None
+            while True:
+                kwargs: dict[str, Any] = {"Bucket": self._bucket, "Key": key}
+                if continuation_token:
+                    kwargs["ContinuationToken"] = continuation_token
+                try:
+                    response = self._s3.list_object_annotations(**kwargs)
+                except botocore.exceptions.ClientError as exc:
+                    if is_annotation_unavailable_error(exc):
+                        raise AnnotationUnavailableError(
+                            _ANNOTATION_UNAVAILABLE_MESSAGE, "s3", exc
+                        ) from exc
+                    code = exc.response.get("Error", {}).get("Code", "")
+                    if code in ("NoSuchKey", "404"):
+                        raise KeyError(key) from exc
+                    raise
+                names.extend(
+                    annotation["AnnotationName"] for annotation in response.get("Annotations", [])
+                )
+                continuation_token = response.get("NextContinuationToken")
+                if not continuation_token:
+                    break
+            return names
+
+    def delete_object_annotation(self, key: str, annotation_name: str) -> None:
+        logger.debug("S3 delete_object_annotation key=%s annotation_name=%s", key, annotation_name)
+        with wrap_credential_errors("s3"):
+            try:
+                self._s3.delete_object_annotation(
+                    Bucket=self._bucket, Key=key, AnnotationName=annotation_name
+                )
+            except botocore.exceptions.ClientError as exc:
+                if is_annotation_unavailable_error(exc):
+                    raise AnnotationUnavailableError(
+                        _ANNOTATION_UNAVAILABLE_MESSAGE, "s3", exc
+                    ) from exc
+                code = exc.response.get("Error", {}).get("Code", "")
+                if code in ("NoSuchKey", "NoSuchAnnotation", "404"):
+                    return
+                raise

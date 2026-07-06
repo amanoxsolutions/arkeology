@@ -54,9 +54,9 @@ def check_skill_file(path: Path) -> list[str]:
 
 
 def main() -> int:
-    skills_dir = Path(__file__).parent.parent / "skills"
+    skills_dir = Path(__file__).parent.parent / "plugins" / "cairn-mcp" / "skills"
     if not skills_dir.exists():
-        print("No skills/ directory found — nothing to validate.")
+        print("No plugins/cairn-mcp/skills/ directory found — nothing to validate.")
         return 0
 
     all_errors: list[str] = []

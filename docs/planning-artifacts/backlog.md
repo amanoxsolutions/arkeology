@@ -37,7 +37,7 @@ Items that were promoted to a phase are **not** listed here — see the phase hi
   misbehaves on negative scores and needs normalization; (3) **default-on vs opt-in per query**,
   and the caveat that post-hoc reranking only reorders the fetched candidate pool, not the whole
   index. CA-4 Option A (age transparency, no ranking change) shipped separately — see
-  [`p12-t55-search-age-transparency.md`](../specs/p12-t55-search-age-transparency.md).
+  [`p12-t54-search-age-transparency.md`](../specs/p12-t54-search-age-transparency.md).
   Source: full-project review CA-4 (2026-07-02).
 
 ## Cross-scope security

@@ -4,9 +4,11 @@ Retrieves a single artifact from S3, applying scope and access-control gates
 before fetching content.
 """
 
+import asyncio
 import logging
 from typing import Any
 
+from cairn_mcp.artifact import decode_metadata_value
 from cairn_mcp.clients.interfaces import (
     BedrockClientInterface,
     S3ClientInterface,
@@ -40,7 +42,7 @@ async def read_artifact(
     Args:
         settings: Server configuration.
         s3: S3 client for content and metadata retrieval.
-        vectors: S3 Vectors client for reading commit_refs from vector metadata.
+        vectors: S3 Vectors client for reading commit_refs/references from vector metadata.
         bedrock: Bedrock client (unused; injected for interface consistency).
         artifact_id: Full S3 key of the artifact to retrieve.
 
@@ -86,9 +88,9 @@ async def _read_artifact_inner(
             "message": f"Artifact '{artifact_id}' is not in any accessible scope.",
         }
 
-    # ── Step 2: Fetch metadata and apply gate ─────────────────────────────────
+    # ── Step 2: Fetch metadata and apply gate (M-8: off the event loop) ──────
     try:
-        meta = s3.head_object(artifact_id)
+        meta = await asyncio.to_thread(s3.head_object, artifact_id)
     except CredentialError as exc:
         return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
     except KeyError:
@@ -96,6 +98,14 @@ async def _read_artifact_inner(
             "error": ErrorCode.NOT_FOUND,
             "message": f"Artifact '{artifact_id}' not found.",
         }
+
+    # T55 (M-5, Story 4): S3 user-metadata values are transport-encoded (percent-encoded)
+    # on write to preserve non-ASCII content losslessly (see cairn_mcp.artifact and
+    # cairn_mcp.clients.s3). Decode every value here so this is the single symmetric
+    # decode point — plain ASCII values decode to themselves unchanged — ensuring
+    # read_artifact and search_artifacts (which sources title from the raw, never-encoded
+    # vector metadata) always agree on the title.
+    meta = {key: decode_metadata_value(value) for key, value in meta.items()}
 
     # Foreign scope: gate on tier == 3 and visibility == "shared".
     # Own scope: no gate — existence is already confirmed above.
@@ -109,33 +119,43 @@ async def _read_artifact_inner(
                 ),
             }
 
-    # ── Step 3: Fetch content ─────────────────────────────────────────────────
+    # ── Step 3: Fetch content (M-8: off the event loop) ───────────────────────
     try:
-        content = s3.get_object(artifact_id)
+        content = await asyncio.to_thread(s3.get_object, artifact_id)
     except CredentialError as exc:
         return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
 
-    # ── Step 4: Read commit_refs from vector metadata ─────────────────────────
-    # commit_refs are stored in vector metadata only — link_commit appends SHAs
-    # there without touching S3 object metadata.  Reading from vectors ensures
-    # post-link_commit SHAs are surfaced.
+    # ── Step 4: Read commit_refs / references from vector metadata ───────────
+    # commit_refs and references are durably stored as S3 object annotations
+    # (ADR-011) and dual-written to vector metadata by link_metadata and the
+    # write path. This read still sources from vector metadata rather than the
+    # annotations, so it surfaces both link_metadata-backfilled SHAs and
+    # write-time-supplied references.
     commit_refs: list[str] = []
+    references: list[str] = []
     if vectors is not None:
         try:
-            keys = vectors.list_vectors_by_metadata({"artifact_id": {"$eq": artifact_id}})
+            # M-8: off the event loop — blocking boto3 calls.
+            keys = await asyncio.to_thread(
+                vectors.list_vectors_by_metadata, {"artifact_id": {"$eq": artifact_id}}
+            )
             if keys:
-                entries = vectors.get_vectors([keys[0]])
+                entries = await asyncio.to_thread(vectors.get_vectors, [keys[0]])
                 if entries:
-                    raw = entries[0].get("metadata", {}).get("commit_refs", [])
-                    if isinstance(raw, list):
-                        commit_refs = raw
+                    entry_metadata = entries[0].get("metadata", {})
+                    raw_commit_refs = entry_metadata.get("commit_refs", [])
+                    if isinstance(raw_commit_refs, list):
+                        commit_refs = raw_commit_refs
+                    raw_references = entry_metadata.get("references", [])
+                    if isinstance(raw_references, list):
+                        references = raw_references
         except CredentialError as exc:
             return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
         except Exception:
-            # commit_refs are supplementary — degrade to [] rather than aborting
-            # an otherwise-successful read on a transient vector error.
+            # commit_refs / references are supplementary — degrade to [] rather than
+            # aborting an otherwise-successful read on a transient vector error.
             logger.warning(
-                "Failed to read commit_refs for %s from vector metadata; returning []",
+                "Failed to read commit_refs/references for %s from vector metadata; returning []",
                 artifact_id,
                 exc_info=True,
             )
@@ -162,5 +182,6 @@ async def _read_artifact_inner(
         "description": meta.get("description"),
         "source_artifacts": source_artifacts,
         "commit_refs": commit_refs,
+        "references": references,
         "last_edited_ulid": last_edited_ulid,
     }

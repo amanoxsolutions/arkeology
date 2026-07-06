@@ -14,8 +14,8 @@ authored:
   by: architect
   date: "2026-06-24"
 revised:
-  by: "pm"
-  date: "2026-06-29"
+  by: "tech-writer"
+  date: "2026-07-05"
 ---
 
 # MCP Apps as the Visual Reading Interface
@@ -145,3 +145,14 @@ implemented that fits the iframe constraints.
 
 The ADR decision remains correct: no new AWS infrastructure was needed, and the graceful
 degradation path delivers the primary use case. Direction 4's retirement stands.
+
+> **Revised (2026-07-05, Phase 12 review M-15).** Every reference above to `fastmcp[apps]` as an
+> "optional extra" or "optional dependency" describes it as a **pip packaging extra** (a named
+> group of additional dependencies a package can declare) — it does not mean installation is
+> optional for cairn-mcp. In `pyproject.toml`, `fastmcp[apps]~=3.4` is listed directly in the
+> base `dependencies` array, not under `[project.optional-dependencies]`: every `uv sync` /
+> `pip install cairn-mcp` always installs it, and the server cannot start without it (`server.py`
+> imports `fastmcp.apps` unconditionally for `cairn_studio` and the UI resource). Read every
+> "optional" in this ADR as "an optional extra of the `fastmcp` package," not "optional for
+> cairn-mcp to function." (The PRD's FR-47 wording carries the same ambiguity and is flagged
+> separately to the PM.)

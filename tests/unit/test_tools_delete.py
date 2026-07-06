@@ -12,12 +12,39 @@ from cairn_mcp.clients.s3 import S3ClientImpl
 from cairn_mcp.clients.vectors import VectorsClientImpl
 from cairn_mcp.config import Settings
 from cairn_mcp.errors import CredentialError
+from cairn_mcp.tools.archive import archive_artifact
 from cairn_mcp.tools.delete import delete_artifact
 from tests.unit.conftest import _make_settings as _make_settings_base
 
 
 def _make_settings(monkeypatch: pytest.MonkeyPatch, **overrides: str) -> Settings:
     return _make_settings_base(monkeypatch, READ_PREFIXES="other-team", **overrides)
+
+
+def _find_eq_clauses(expr: Any, field: str) -> list[Any]:
+    """Recursively collect every ``{field: {"$eq": value}}`` clause's value in ``expr``.
+
+    Walks ``$and``/``$or`` lists and nested dicts so assertions can be made against
+    the exact filter shapes built by ``find_referrers`` without over-specifying
+    clause ordering.
+    """
+    found: list[Any] = []
+
+    def _walk(node: Any) -> None:
+        if not isinstance(node, dict):
+            return
+        clause = node.get(field)
+        if isinstance(clause, dict) and "$eq" in clause:
+            found.append(clause["$eq"])
+        for value in node.values():
+            if isinstance(value, list):
+                for item in value:
+                    _walk(item)
+            elif isinstance(value, dict):
+                _walk(value)
+
+    _walk(expr)
+    return found
 
 
 # ---------------------------------------------------------------------------
@@ -326,6 +353,241 @@ async def test_delete_with_two_synthesis_references_warns_both(
     warnings = result.get("warnings", [])
     assert "artifacts/synthesis-one" in warnings
     assert "artifacts/synthesis-two" in warnings
+
+
+# ---------------------------------------------------------------------------
+# T50 — unified own-scope referenced_by check (references + source_artifacts)
+# ---------------------------------------------------------------------------
+
+
+async def test_delete_referenced_via_references_field_warns_via_server_side_eq(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """T referenced by another own-scope artifact's `references` field → warned,
+    resolved via a server-side $eq list-membership filter (spied)."""
+    settings = _make_settings(monkeypatch)
+    _seed_all(s3_client, vectors_client_2)
+    # Own-scope referrer whose `references` field points at the delete target.
+    s3_client.put_object(
+        "artifacts/referrer-via-refs",
+        _CONTENT,
+        {**_BASE_S3_META, "type": "adr"},
+    )
+    vectors_client_2.put_vector(
+        "artifacts/referrer-via-refs#summary",
+        [0.5, 0.5],
+        {
+            **_BASE_VECTOR_META,
+            "artifact_id": "artifacts/referrer-via-refs",
+            "type": "adr",
+            "references": ["artifacts/t2-active"],
+        },
+    )
+    spy_list = mocker.spy(vectors_client_2, "list_vectors_by_metadata")
+
+    result = await delete_artifact(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=None,
+        artifact_id="artifacts/t2-active",
+        confirm=True,
+    )
+
+    assert result.get("deleted") is True
+    warnings = result.get("warnings", [])
+    assert "artifacts/referrer-via-refs" in warnings
+
+    # At least one list_vectors_by_metadata call carried a server-side $eq on
+    # "references" for the target artifact_id.
+    eq_values = [
+        value
+        for call in spy_list.call_args_list
+        for value in _find_eq_clauses(
+            call.args[0] if call.args else call.kwargs["filter_expr"], "references"
+        )
+    ]
+    assert "artifacts/t2-active" in eq_values
+
+
+async def test_delete_never_issues_server_side_eq_on_source_artifacts(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """The non-filterable `source_artifacts` field is NEVER used in a server-side
+    $eq clause — resolved only via the type=synthesis prefilter + in-process check."""
+    settings = _make_settings(monkeypatch)
+    _seed_all(s3_client, vectors_client_2)
+    spy_list = mocker.spy(vectors_client_2, "list_vectors_by_metadata")
+
+    result = await delete_artifact(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=None,
+        artifact_id="artifacts/t2-active",
+        confirm=True,
+    )
+
+    # Sanity: the synthesis referrers are still found (existing behaviour preserved).
+    warnings = result.get("warnings", [])
+    assert "artifacts/synthesis-one" in warnings
+    assert "artifacts/synthesis-two" in warnings
+
+    for call in spy_list.call_args_list:
+        filter_expr = call.args[0] if call.args else call.kwargs["filter_expr"]
+        assert _find_eq_clauses(filter_expr, "source_artifacts") == []
+
+
+async def test_delete_unions_and_dedupes_referrers_from_both_mechanisms(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+) -> None:
+    """T referenced via both `references` and `source_artifacts` (different
+    referrers) → all referrers appear, deduplicated."""
+    settings = _make_settings(monkeypatch)
+    _seed_all(s3_client, vectors_client_2)
+    s3_client.put_object(
+        "artifacts/referrer-via-refs-2",
+        _CONTENT,
+        {**_BASE_S3_META, "type": "adr"},
+    )
+    vectors_client_2.put_vector(
+        "artifacts/referrer-via-refs-2#summary",
+        [0.4, 0.6],
+        {
+            **_BASE_VECTOR_META,
+            "artifact_id": "artifacts/referrer-via-refs-2",
+            "type": "adr",
+            "references": ["artifacts/t2-active"],
+        },
+    )
+
+    result = await delete_artifact(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=None,
+        artifact_id="artifacts/t2-active",
+        confirm=True,
+    )
+
+    warnings = result.get("warnings", [])
+    assert "artifacts/synthesis-one" in warnings
+    assert "artifacts/synthesis-two" in warnings
+    assert "artifacts/referrer-via-refs-2" in warnings
+    # Deduplicated — each referrer appears exactly once even though it may have
+    # multiple section vectors.
+    assert len(warnings) == len(set(warnings))
+
+
+async def test_delete_foreign_scope_referrer_never_listed(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+) -> None:
+    """A foreign-scope artifact referencing T via `references` is NEVER listed as a
+    referrer — the own-scope filter clause excludes it."""
+    settings = _make_settings(monkeypatch)
+    _seed_all(s3_client, vectors_client_2)
+    s3_client.put_object(
+        "other-team/foreign-referrer",
+        _CONTENT,
+        {**_BASE_S3_META, "team": "network"},
+    )
+    vectors_client_2.put_vector(
+        "other-team/foreign-referrer#summary",
+        [0.3, 0.7],
+        {
+            **_BASE_VECTOR_META,
+            "artifact_id": "other-team/foreign-referrer",
+            "scope": "other-team",
+            "references": ["artifacts/t2-active"],
+        },
+    )
+
+    result = await delete_artifact(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=None,
+        artifact_id="artifacts/t2-active",
+        confirm=True,
+    )
+
+    warnings = result.get("warnings", [])
+    assert "other-team/foreign-referrer" not in warnings
+
+
+async def test_delete_warning_message_stronger_than_archive(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+) -> None:
+    """The delete warning is phrased as a stronger, permanent-action warning while
+    the archive warning is phrased as informational/reversible for the same
+    referenced-artifact scenario."""
+    settings = _make_settings(monkeypatch)
+    _seed_all(s3_client, vectors_client_2)
+
+    delete_result = await delete_artifact(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=None,
+        artifact_id="artifacts/t2-active",
+        confirm=True,
+    )
+
+    # Re-seed an equivalent scenario for archive (delete already removed t2-active).
+    s3_client.put_object("artifacts/t2-active-2", _CONTENT, {**_BASE_S3_META, "tier": "2"})
+    vectors_client_2.put_vector(
+        "artifacts/t2-active-2#summary",
+        [1.0, 0.0],
+        {**_BASE_VECTOR_META, "artifact_id": "artifacts/t2-active-2", "tier": 2},
+    )
+    s3_client.put_object(
+        "artifacts/synthesis-three",
+        _CONTENT,
+        {
+            **_BASE_S3_META,
+            "type": "synthesis",
+            "source_artifacts": "artifacts/t2-active-2",
+            "status": "active",
+        },
+    )
+    vectors_client_2.put_vector(
+        "artifacts/synthesis-three#summary",
+        [0.7, 0.3],
+        {
+            **_BASE_VECTOR_META,
+            "artifact_id": "artifacts/synthesis-three",
+            "type": "synthesis",
+            "source_artifacts": ["artifacts/t2-active-2"],
+            "status": "active",
+        },
+    )
+
+    archive_result = await archive_artifact(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=None,
+        artifact_id="artifacts/t2-active-2",
+    )
+
+    delete_message = delete_result.get("warning_message", "").lower()
+    archive_message = archive_result.get("warning_message", "").lower()
+    assert delete_message and archive_message
+    assert "revers" not in delete_message
+    assert "revers" in archive_message
+    assert "permanent" in delete_message or "cannot be undone" in delete_message
 
 
 # ---------------------------------------------------------------------------

@@ -5,12 +5,14 @@ re-indexing any artifacts that are present in S3 but absent from the vector
 index.
 """
 
+import asyncio
 import json
 import logging
 from pathlib import Path
 from typing import Any
 
-from cairn_mcp.artifact import parse_sections, section_slug
+from cairn_mcp.annotations import read_current_link_fields
+from cairn_mcp.artifact import decode_metadata_value, section_slug
 from cairn_mcp.clients.interfaces import (
     BedrockClientInterface,
     S3ClientInterface,
@@ -20,9 +22,9 @@ from cairn_mcp.config import Settings
 from cairn_mcp.constants import ArtifactStatus, ErrorCode
 from cairn_mcp.errors import CredentialError
 from cairn_mcp.tools._search_helper import coerce_list_field
-from cairn_mcp.tools.write import (
-    _build_document_embedding_text,
-    _build_section_embedding_text,
+from cairn_mcp.tools._section_pipeline import (
+    build_document_embedding_text,
+    prepare_sections_for_embedding,
 )
 
 logger = logging.getLogger(__name__)
@@ -33,6 +35,7 @@ def _reindex_artifact(
     content: str,
     raw_s3_meta: dict[str, Any],
     settings: Settings,
+    s3: S3ClientInterface,
     vectors: VectorsClientInterface,
     bedrock: BedrockClientInterface,
 ) -> int:
@@ -48,19 +51,36 @@ def _reindex_artifact(
         content: Artifact body text.
         raw_s3_meta: Metadata dict returned by ``head_object`` (string values).
         settings: Server configuration.
-        vectors: Vectors client for upsert.
+        s3: S3 client, used to read the durable commit_refs/references annotations
+            (ADR-011 / T48).
+        vectors: Vectors client, used both for upsert and (per Phase 12 review C5) to
+            read the existing indexed vector-metadata copy of commit_refs/references
+            before it is overwritten, so the union-of-both-stores authority model
+            (``read_current_link_fields``) never loses a value that lives only in the
+            vector copy (e.g. an annotation-unavailable deployment).
         bedrock: Bedrock client for embedding.
 
     Returns:
         Number of vectors written (one per section, or 1 for the fallback).
+
+    Raises:
+        CredentialError: If reading the durable link fields fails due to expired or
+            invalid credentials (Phase 12 review M6) — propagated to the caller rather
+            than swallowed, aborting the reconcile run with a structured credential
+            error instead of silently continuing without link fields.
     """
+    # T55 (M-5, Story 4): decode transport-encoded S3 user-metadata values (see
+    # cairn_mcp.artifact.encode_metadata_value) so a non-ASCII title (and any other
+    # metadata value) is rebuilt into vector metadata as the original Unicode text, not
+    # the percent-encoded transport form. Plain ASCII values decode to themselves.
+    raw_s3_meta = {key: decode_metadata_value(value) for key, value in raw_s3_meta.items()}
     title = raw_s3_meta.get("title", "")
     artifact_type = raw_s3_meta.get("type", "")
     tier_raw = raw_s3_meta.get("tier", "2")
     tier = int(tier_raw)
     tags = coerce_list_field(raw_s3_meta, "tags")
     source_artifacts_list = coerce_list_field(raw_s3_meta, "source_artifacts")
-    commit_refs_list = coerce_list_field(raw_s3_meta, "commit_refs")
+    commit_refs_list, references_list = read_current_link_fields(s3, vectors, artifact_id)
 
     vector_metadata: dict[str, Any] = {
         "artifact_id": artifact_id,
@@ -85,29 +105,36 @@ def _reindex_artifact(
         vector_metadata["source_artifacts"] = source_artifacts_list
     if commit_refs_list:
         vector_metadata["commit_refs"] = commit_refs_list
+    if references_list:
+        vector_metadata["references"] = references_list
 
-    sections = parse_sections(content)
+    # M-3: use the same shared pipeline write_artifact uses — min-length filtering,
+    # max-sections capping, and per-section truncation — so a section that write-time
+    # truncates (or drops, or caps) is truncated (or dropped, or capped) identically on
+    # reconcile. Before this shared helper existed, reconcile embedded every parsed
+    # section verbatim, so a section truncated at write time was resubmitted
+    # full-length on every reconcile replay and failed Titan's input limit forever.
+    prepared_sections = prepare_sections_for_embedding(
+        content,
+        title=title,
+        artifact_type=artifact_type,
+        tags=tags,
+        settings=settings,
+    )
     new_keys: set[str] = set()
 
-    if sections:
-        for sec in sections:
-            embed_text = _build_section_embedding_text(
-                title=title,
-                artifact_type=artifact_type,
-                tags=tags,
-                section_heading=sec.heading,
-                section_body=sec.body,
-            )
+    if prepared_sections:
+        for prepared in prepared_sections:
             embedding = bedrock.embed(
-                embed_text,
+                prepared.embed_text,
                 settings.bedrock_embedding_model,
                 settings.bedrock_embedding_dimensions,
             )
-            vec_key = f"{artifact_id}#{section_slug(sec.heading)}"
+            vec_key = f"{artifact_id}#{section_slug(prepared.heading)}"
             vectors.put_vector(vec_key, embedding, vector_metadata)
             new_keys.add(vec_key)
     else:
-        embed_text = _build_document_embedding_text(
+        embed_text = build_document_embedding_text(
             title=title,
             artifact_type=artifact_type,
             tags=tags,
@@ -215,7 +242,8 @@ async def _reconcile_index_inner(
                 logger.warning("Skipping out-of-scope failure log entry: %s", artifact_id)
                 continue
             try:
-                raw_meta = s3.head_object(artifact_id)
+                # M-8: off the event loop — blocking boto3 call.
+                raw_meta = await asyncio.to_thread(s3.head_object, artifact_id)
             except CredentialError as exc:
                 return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
             except KeyError:
@@ -228,19 +256,24 @@ async def _reconcile_index_inner(
                 continue
 
             try:
-                content = s3.get_object(artifact_id)
-                n = _reindex_artifact(
+                # M-8: off the event loop — both the S3 read and _reindex_artifact
+                # (which embeds via bedrock.embed, including its blocking retry sleep,
+                # and writes vectors) are blocking; run each via asyncio.to_thread.
+                content = await asyncio.to_thread(s3.get_object, artifact_id)
+                n = await asyncio.to_thread(
+                    _reindex_artifact,
                     artifact_id,
                     content,
                     raw_meta,
                     settings,
+                    s3,
                     vectors,
                     bedrock,
                 )
                 reconciled.append(
                     {
                         "artifact_id": artifact_id,
-                        "title": raw_meta.get("title", ""),
+                        "title": decode_metadata_value(raw_meta.get("title", "")),
                         "sections_indexed": n,
                         "source": "failure_log",
                     }
@@ -267,7 +300,8 @@ async def _reconcile_index_inner(
     # ── Phase 2: Orphan scan ──────────────────────────────────────────────────
     own_prefix = settings.write_prefix + "/"
     try:
-        all_s3_keys = s3.list_objects(settings.write_prefix)
+        # M-8: off the event loop — blocking boto3 calls.
+        all_s3_keys = await asyncio.to_thread(s3.list_objects, settings.write_prefix)
         own_keys = [
             k
             for k in all_s3_keys
@@ -275,8 +309,8 @@ async def _reconcile_index_inner(
             and "_cairn_health_probe" not in k
             and "_cairn_mcp_startup_probe" not in k
         ]
-        indexed_keys_raw = vectors.list_vectors_by_metadata(
-            {"scope": {"$eq": settings.write_prefix}}
+        indexed_keys_raw = await asyncio.to_thread(
+            vectors.list_vectors_by_metadata, {"scope": {"$eq": settings.write_prefix}}
         )
     except CredentialError as exc:
         return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
@@ -295,20 +329,23 @@ async def _reconcile_index_inner(
 
     for orphan_key in orphans:
         try:
-            content = s3.get_object(orphan_key)
-            raw_meta = s3.head_object(orphan_key)
-            n = _reindex_artifact(
+            # M-8: off the event loop — see the equivalent failure-log-replay comment above.
+            content = await asyncio.to_thread(s3.get_object, orphan_key)
+            raw_meta = await asyncio.to_thread(s3.head_object, orphan_key)
+            n = await asyncio.to_thread(
+                _reindex_artifact,
                 orphan_key,
                 content,
                 raw_meta,
                 settings,
+                s3,
                 vectors,
                 bedrock,
             )
             reconciled.append(
                 {
                     "artifact_id": orphan_key,
-                    "title": raw_meta.get("title", ""),
+                    "title": decode_metadata_value(raw_meta.get("title", "")),
                     "sections_indexed": n,
                     "source": "orphan_scan",
                 }
@@ -332,7 +369,22 @@ async def _reconcile_index_inner(
     for dangling_id in dangling_artifact_ids:
         keys_to_delete = vectors_by_artifact[dangling_id]
         try:
-            vectors.delete_vectors(keys_to_delete)
+            # M-2: an artifact fully written between the S3 listing and the vector
+            # listing above would otherwise be misclassified dangling here and have
+            # its brand-new vectors pruned. Re-confirm S3 absence immediately before
+            # deleting — only prune when the object is actually gone right now.
+            # M-8: off the event loop — blocking boto3 call.
+            try:
+                await asyncio.to_thread(s3.head_object, dangling_id)
+            except KeyError:
+                pass  # confirmed absent at prune time — safe to prune
+            else:
+                # A concurrent write raced the initial listings; not dangling after
+                # all. Leave its vectors untouched.
+                continue
+
+            # M-8: off the event loop — blocking boto3 call.
+            await asyncio.to_thread(vectors.delete_vectors, keys_to_delete)
             dangling_artifacts.append(dangling_id)
             dangling_artifacts_found += 1
             dangling_vectors_pruned += len(keys_to_delete)

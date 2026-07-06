@@ -14,6 +14,10 @@ on mount — ``structured_content`` is omitted to keep the tool result lean.
 When the host does NOT support the UI extension ``structured_content`` is populated
 with ``{"write_prefix": …, "artifacts": […]}`` so non-supporting clients receive the
 artifact listing without requiring a separate ``list_artifacts`` call.
+
+If the inner ``list_artifacts`` call itself fails (e.g. expired credentials), the
+result is a structured error (``is_error=True``, ``structured_content={"error": ...,
+"message": ...}``) — never a coerced empty listing (Phase 12 review M-11a).
 """
 
 import logging
@@ -55,6 +59,30 @@ async def _cairn_studio_inner(
 
     # Non-supporting host: include the artifact listing so the client has the data.
     listing = await _list_artifacts_inner(settings=settings, vectors=vectors)
+    if "error" in listing:
+        # M-11(a): an error dict from the inner list call (e.g. expired credentials)
+        # must never be coerced into a successful empty listing — that would read as
+        # "the store is empty" instead of "the store could not be reached" (PRD FR-12).
+        # Propagate it as a structured error so the caller can distinguish the two.
+        logger.warning(
+            "cairn_studio: inner list_artifacts call failed (%s); propagating a "
+            "structured error instead of an empty listing",
+            listing.get("error"),
+        )
+        return ToolResult(
+            content=[
+                TextContent(
+                    type="text",
+                    text=f"Failed to list artifacts: {listing.get('message', listing['error'])}",
+                )
+            ],
+            structured_content={
+                "error": listing["error"],
+                "message": listing.get("message", ""),
+            },
+            is_error=True,
+        )
+
     return ToolResult(
         content=[
             TextContent(
@@ -85,7 +113,9 @@ async def cairn_studio(
     * ``content`` — a one-line confirmation for the LLM.
     * ``structured_content`` — only present when the host does not support the UI
       extension; contains ``{"write_prefix": …, "artifacts": […]}`` so the client
-      has the full listing without a separate tool call.
+      has the full listing without a separate tool call. If the inner listing call
+      fails, ``is_error=True`` and ``structured_content`` instead carries
+      ``{"error": ..., "message": ...}`` (M-11a) — never a coerced empty listing.
 
     Args:
         settings: Validated server configuration.

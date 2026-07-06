@@ -107,6 +107,44 @@ async def test_write_artifact_mcp_layer_forwards_commit_refs(
 
 
 # ---------------------------------------------------------------------------
+# MCP tool layer — T46: write_artifact / list_artifacts forward references
+# ---------------------------------------------------------------------------
+
+
+async def test_write_artifact_mcp_layer_forwards_references(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """write_artifact MCP tool forwards references to the underlying _write_artifact."""
+    settings = _make_settings(monkeypatch)
+    mock_write = AsyncMock(return_value={"artifact_id": "artifacts/test"})
+    monkeypatch.setattr("cairn_mcp.server._write_artifact", mock_write)
+
+    register_tools(
+        settings=settings,
+        s3=MagicMock(),
+        vectors=MagicMock(),
+        bedrock=MagicMock(),
+    )
+    tool = await _app.get_tool("write_artifact")
+    await tool.fn(
+        type="code_review",
+        team="platform",
+        project="cairn",
+        tier=2,
+        date="2026-06-12",
+        title="Test",
+        description="A test.",
+        content="## Summary\n\nOK.",
+        visibility="shared",
+        references=["a-1"],
+    )
+
+    mock_write.assert_awaited_once()
+    _, call_kwargs = mock_write.call_args
+    assert call_kwargs["references"] == ["a-1"]
+
+
+# ---------------------------------------------------------------------------
 # MCP tool layer — C-3: overwrite flag is reachable by MCP callers
 # ---------------------------------------------------------------------------
 
@@ -199,6 +237,83 @@ async def test_write_artifacts_mcp_layer_forwards_overwrite(
 
 
 # ---------------------------------------------------------------------------
+# MCP tool layer — M-10: write_artifacts exposes artifact_concurrency
+# ---------------------------------------------------------------------------
+
+
+async def test_write_artifacts_mcp_layer_forwards_artifact_concurrency(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """write_artifacts MCP tool forwards a caller-supplied artifact_concurrency to
+    the underlying _write_artifacts (M-10 — closes the doc-vs-code contradiction
+    with PRD FR-25 / p10-t39, which document it as caller-controllable)."""
+    settings = _make_settings(monkeypatch)
+    mock_write_batch = AsyncMock(return_value={"results": []})
+    monkeypatch.setattr("cairn_mcp.server._write_artifacts", mock_write_batch)
+
+    register_tools(
+        settings=settings,
+        s3=MagicMock(),
+        vectors=MagicMock(),
+        bedrock=MagicMock(),
+    )
+    tool = await _app.get_tool("write_artifacts")
+    await tool.fn(artifacts=[], artifact_concurrency=10)
+
+    mock_write_batch.assert_awaited_once()
+    _, call_kwargs = mock_write_batch.call_args
+    assert call_kwargs["artifact_concurrency"] == 10
+
+
+async def test_write_artifacts_mcp_layer_artifact_concurrency_defaults_to_three(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """write_artifacts MCP tool defaults artifact_concurrency to 3 when the caller
+    omits it, matching the inner function's default (M-10)."""
+    settings = _make_settings(monkeypatch)
+    mock_write_batch = AsyncMock(return_value={"results": []})
+    monkeypatch.setattr("cairn_mcp.server._write_artifacts", mock_write_batch)
+
+    register_tools(
+        settings=settings,
+        s3=MagicMock(),
+        vectors=MagicMock(),
+        bedrock=MagicMock(),
+    )
+    tool = await _app.get_tool("write_artifacts")
+    await tool.fn(artifacts=[])
+
+    mock_write_batch.assert_awaited_once()
+    _, call_kwargs = mock_write_batch.call_args
+    assert call_kwargs["artifact_concurrency"] == 3
+
+
+async def test_write_artifacts_mcp_layer_out_of_range_artifact_concurrency_forwarded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An out-of-range artifact_concurrency is forwarded as-is (not pre-validated at
+    the MCP layer) — the inner function owns clamping + warning behaviour, so the
+    MCP layer must not silently reinterpret or reject it (M-10)."""
+    settings = _make_settings(monkeypatch)
+    mock_write_batch = AsyncMock(return_value={"results": [], "warning": "capped"})
+    monkeypatch.setattr("cairn_mcp.server._write_artifacts", mock_write_batch)
+
+    register_tools(
+        settings=settings,
+        s3=MagicMock(),
+        vectors=MagicMock(),
+        bedrock=MagicMock(),
+    )
+    tool = await _app.get_tool("write_artifacts")
+    result = await tool.fn(artifacts=[], artifact_concurrency=20)
+
+    mock_write_batch.assert_awaited_once()
+    _, call_kwargs = mock_write_batch.call_args
+    assert call_kwargs["artifact_concurrency"] == 20
+    assert result.get("warning") == "capped"
+
+
+# ---------------------------------------------------------------------------
 # MCP tool layer — CRITICAL-2: list_artifacts forwards commit_refs
 # ---------------------------------------------------------------------------
 
@@ -223,3 +338,100 @@ async def test_list_artifacts_mcp_layer_forwards_commit_refs(
     mock_list.assert_awaited_once()
     _, call_kwargs = mock_list.call_args
     assert call_kwargs["commit_refs"] == ["abc1234"]
+
+
+async def test_list_artifacts_mcp_layer_forwards_references(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """list_artifacts MCP tool forwards references to the underlying _list_artifacts."""
+    settings = _make_settings(monkeypatch)
+    mock_list: AsyncMock = AsyncMock(return_value={"artifacts": []})
+    monkeypatch.setattr("cairn_mcp.server._list_artifacts", mock_list)
+
+    register_tools(
+        settings=settings,
+        s3=MagicMock(),
+        vectors=MagicMock(),
+        bedrock=MagicMock(),
+    )
+    tool = await _app.get_tool("list_artifacts")
+    await tool.fn(references=["a-1"])
+
+    mock_list.assert_awaited_once()
+    _, call_kwargs = mock_list.call_args
+    assert call_kwargs["references"] == ["a-1"]
+
+
+# ---------------------------------------------------------------------------
+# T49 — link_commit superseded by link_metadata
+# ---------------------------------------------------------------------------
+
+
+async def test_link_commit_no_longer_registered(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """link_commit (p10-t38) is retired — it must not be registered on the app
+    once link_metadata (T49) supersedes it."""
+    settings = _make_settings(monkeypatch)
+
+    register_tools(
+        settings=settings,
+        s3=MagicMock(),
+        vectors=MagicMock(),
+        bedrock=MagicMock(),
+    )
+    tool = await _app.get_tool("link_commit")
+    assert tool is None
+
+
+async def test_link_metadata_registered_and_forwards_arguments(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """link_metadata is registered and forwards artifact_ids/commit_refs/references
+    to the underlying _link_metadata implementation."""
+    settings = _make_settings(monkeypatch)
+    mock_link: AsyncMock = AsyncMock(
+        return_value={"linked": 1, "skipped": 0, "next_since_ulid": "01ABC"}
+    )
+    monkeypatch.setattr("cairn_mcp.server._link_metadata", mock_link)
+
+    register_tools(
+        settings=settings,
+        s3=MagicMock(),
+        vectors=MagicMock(),
+        bedrock=MagicMock(),
+    )
+    tool = await _app.get_tool("link_metadata")
+    assert tool is not None
+    await tool.fn(artifact_ids=["artifacts/a1"], commit_refs=["abc1234"], references=["a-1"])
+
+    mock_link.assert_awaited_once()
+    _, call_kwargs = mock_link.call_args
+    assert call_kwargs["artifact_ids"] == ["artifacts/a1"]
+    assert call_kwargs["commit_refs"] == ["abc1234"]
+    assert call_kwargs["references"] == ["a-1"]
+
+
+async def test_propose_commit_links_still_registered_and_functional(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """propose_commit_links (FR-31) is retained unchanged by T49 — still registered
+    and still forwards its arguments to the underlying implementation."""
+    settings = _make_settings(monkeypatch)
+    mock_propose: AsyncMock = AsyncMock(return_value={"proposed": []})
+    monkeypatch.setattr("cairn_mcp.server._propose_commit_links", mock_propose)
+
+    register_tools(
+        settings=settings,
+        s3=MagicMock(),
+        vectors=MagicMock(),
+        bedrock=MagicMock(),
+    )
+    tool = await _app.get_tool("propose_commit_links")
+    assert tool is not None
+    await tool.fn(commit_sha="abc1234", since_ulid="01ABC")
+
+    mock_propose.assert_awaited_once()
+    _, call_kwargs = mock_propose.call_args
+    assert call_kwargs["commit_sha"] == "abc1234"
+    assert call_kwargs["since_ulid"] == "01ABC"

@@ -17,7 +17,7 @@ serve browsable artifact content to humans — see [Resources](#resources) below
 | `migrate_artifacts` | Migration-specific bulk write; generates descriptions server-side via Bedrock when omitted; `dry_run=True` previews enriched descriptors without writing | list of artifact descriptors, `dry_run`; optional `artifact_concurrency` (default `3`, max `15`) | enriched descriptor list (dry run) or per-artifact write results; top-level `warning` if `artifact_concurrency` was out of range |
 | `search_artifacts` | Semantic search over the vector index with optional metadata filters | `query`, optional: `type`, `tags`, `team`, `project`, `tier`, `status`, `top_k` | List of artifact metadata (no content) |
 | `read_artifact` | Fetch the full content of an artifact by ID | `artifact_id` | Full artifact dict including `content` |
-| `list_artifacts` | List artifact metadata with optional filters; defaults to active artifacts | optional: `type`, `team`, `project`, `tier`, `status`, `tags` | List of artifact metadata records |
+| `list_artifacts` | List artifact metadata with optional filters; defaults to active artifacts | optional: `type`, `team`, `project`, `tier`, `status` (pass `"all"` to return artifacts regardless of status), `tags`, `commit_refs`, `references` | List of artifact metadata records |
 | `archive_artifact` | Set an artifact's status to inactive (own scope only) | `artifact_id` | Confirmation with updated `artifact_id` |
 | `delete_artifact` | Hard-delete an artifact from S3 and S3 Vectors; warns if referenced by a synthesis | `artifact_id`, `confirm=True` | Deletion confirmation |
 | `purge_archived` | Bulk-delete all inactive artifacts in own scope; cascade-deletes orphaned syntheses | `confirm=True` | Count of deleted artifacts and syntheses |
@@ -26,14 +26,14 @@ serve browsable artifact content to humans — see [Resources](#resources) below
 | `reconcile_index` | Replay the failure log and scan for orphaned S3 objects, re-indexing any artifacts present in S3 but absent from the vector index | — | `reconciled` (list of re-indexed IDs with section counts), `failed` (list of IDs that failed again), `orphans_found`, `total_reconciled`, `failure_log_entries_before` / `after` |
 | `check_synthesis_freshness` | Audit every synthesis in own scope against its declared source artifacts; report stale (source newer), archived sources, missing sources (deleted), and malformed syntheses (no sources declared); optionally hard-delete malformed ones | `confirm` (bool, default `false` — set `true` to hard-delete malformed syntheses) | `stale`, `archived_sources`, `missing_sources`, `malformed`, `deleted_malformed`, `total_checked`, `all_fresh` (bool) |
 | `propose_commit_links` | Discover own-scope artifacts with no `commit_refs`, optionally bounded to those written since a session ULID — read-only, no writes | `commit_sha`, optional `since_ulid` | `proposed` (list of candidates with `artifact_id`, `title`, `type`, `last_edited_at`), `commit_sha` |
-| `link_commit` | Append a commit SHA to the `commit_refs` vector metadata of confirmed own-scope artifacts — no re-embedding | `artifact_ids`, `commit_sha` | `linked`, `skipped`, `commit_sha`, `next_since_ulid` |
+| `link_metadata` | Backfill `commit_refs` and/or `references` onto confirmed own-scope artifacts — dual-writes the durable S3 annotation copy first, then vector metadata, no re-embedding | `artifact_ids`, optional `commit_refs`, optional `references` | `linked`, `skipped`, `next_since_ulid` |
 | `cairn_studio` | Opens the visual artifact browser — renders an inline HTML application on hosts that support [MCP Apps](https://modelcontextprotocol.io/extensions/apps/overview); returns the full artifact listing as structured data on non-supporting hosts | — | Browser UI on supporting hosts; structured artifact listing on others |
 
 ## Resources
 
 The server exposes seven MCP resources split into two categories by audience.
 
-### Schema resources — agent-readable documentation (`audience: ["assistant"]`)
+### Schema resources — agent-readable documentation
 
 These five resources are pure documentation: they make no AWS calls, never fail at
 runtime, and are always available regardless of credential or connectivity state. They
@@ -84,13 +84,23 @@ from the iframe over the same MCP connection.
 
 The browser application loads external assets from the following CDN origins, declared
 in the server's `ResourceCSP` so the host can enforce a strict Content Security Policy:
-`unpkg.com`, `cdn.jsdelivr.net`, `fonts.googleapis.com`, `fonts.gstatic.com`.
+`unpkg.com`, `cdn.jsdelivr.net`. Google Fonts origins (`fonts.googleapis.com`,
+`fonts.gstatic.com`) are deliberately not declared — loading web fonts from a third-party CDN
+leaks the caller's IP address and was rejected on GDPR grounds; the browser uses the
+`system-ui` font stack instead.
 
 **Parameters:** none required.
 
 **Return value:**
-- **Supporting hosts** (UI extension present): structured JSON dict `{ "write_prefix": string, "artifacts": [...] }` consumed by the browser iframe on load.
-- **Non-supporting hosts** (e.g. MCP Inspector, headless agents): plain-text listing of active artifacts, equivalent to calling `list_artifacts` with `status="active"`.
+- **Supporting hosts** (UI extension present): a short one-line text confirmation only — no
+  `structured_content`. The iframe loads the artifact list itself on mount, over the same MCP
+  connection.
+- **Non-supporting hosts** (e.g. MCP Inspector, headless agents): a one-line text confirmation
+  plus `structured_content` carrying `{ "write_prefix": string, "artifacts": [...] }` —
+  equivalent to calling `list_artifacts` with `status="active"`.
+- **On failure** (non-supporting hosts only — e.g. the inner `list_artifacts` call fails
+  because of expired credentials): `is_error=True` with `structured_content` carrying
+  `{ "error": string, "message": string }` instead of being coerced into an empty listing.
 
 **Usage example:**
 
@@ -175,6 +185,17 @@ Attach the following policy to the IAM user or role that runs cairn-mcp. Replace
       ]
     },
     {
+      "Sid": "S3ObjectAnnotations",
+      "Effect": "Allow",
+      "Action": [
+        "s3:PutObjectAnnotation",
+        "s3:GetObjectAnnotation",
+        "s3:ListObjectAnnotations",
+        "s3:DeleteObjectAnnotation"
+      ],
+      "Resource": "arn:aws:s3:::YOUR-ARTIFACT-BUCKET/*"
+    },
+    {
       "Sid": "S3VectorsIndex",
       "Effect": "Allow",
       "Action": [
@@ -195,7 +216,6 @@ Attach the following policy to the IAM user or role that runs cairn-mcp. Replace
     },
     {
       "Sid": "BedrockTextModel",
-      "Comment": "Required only if using migrate_artifacts. In us-east-1 use the foundation-model ARN below. In all other regions replace with the cross-region inference profile ARN, e.g. arn:aws:bedrock:eu-west-1::inference-profile/eu.amazon.nova-lite-v1:0",
       "Effect": "Allow",
       "Action": "bedrock:InvokeModel",
       "Resource": "arn:aws:bedrock:YOUR-REGION::foundation-model/amazon.nova-lite-v1:0"
@@ -203,6 +223,17 @@ Attach the following policy to the IAM user or role that runs cairn-mcp. Replace
   ]
 }
 ```
+
+Two statements above are conditional on which features you use:
+- `S3ObjectAnnotations` backs the `commit_refs` / `references` link-tracking feature
+  (`link_metadata` and the write path's dual-write). It is optional — the server degrades this
+  one feature gracefully, rather than failing startup, when these actions are absent. This
+  statement is unavailable in the UAE and Bahrain regions and on S3 Express One Zone, Outposts,
+  and directory buckets — see [Prerequisites](README.md#prerequisites) for the operational
+  impact and the `setting-up-cairn` skill's availability probe.
+- `BedrockTextModel` is required only if you use `migrate_artifacts`. In `us-east-1`, use the
+  foundation-model ARN shown above; in all other regions, replace it with the cross-region
+  inference profile ARN, e.g. `arn:aws:bedrock:eu-west-1::inference-profile/eu.amazon.nova-lite-v1:0`.
 
 ## Configuration
 

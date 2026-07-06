@@ -14,8 +14,8 @@ authored:
   by: "architect"
   date: "2026-06-03"
 revised:
-  by: ""
-  date: ""
+  by: "developer"
+  date: "2026-07-05"
 ---
 
 # Write Performance Z1 — write_artifacts + migrate_artifacts + P4 Section Truncation
@@ -304,3 +304,19 @@ All open questions resolved during implementation:
   consistent with `write_artifact` behaviour.
 - [x] Nova Lite prompt template — hardcoded constant in `migrate_artifacts.py`; visible and
   documented, not in config.
+
+> **Revised (2026-07-05, Phase 12 review M-12).** Two gaps closed in `migrate_artifacts`'s Nova
+> Lite description generation:
+>
+> 1. A failed generation previously fell through Step 3's clip logic to
+>    `description: ""`, which passed validation and wrote a degraded, near-unsearchable
+>    artifact. A failed-generation descriptor is now **skipped, never written** — its result
+>    entry is `{"written": False, "skipped": True, "reason": "description_generation_failed",
+>    "message": ...}` (mirroring the A-1 `skipped_existing` shape), and a top-level
+>    `"generation_failed"` list (`index`, `title`, `message`) is included in the response in
+>    both `dry_run` modes.
+> 2. The generation prompt interpolated the full, untruncated artifact content. It is now
+>    bounded to `_PROMPT_CONTENT_MAX_CHARS` (8000 chars) via `_truncate_prompt_content` before
+>    being sent to Nova Lite.
+>
+> See `tests/unit/test_tools_migrate_artifacts.py` (`test_m12_*`).

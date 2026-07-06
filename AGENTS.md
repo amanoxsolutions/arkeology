@@ -50,31 +50,39 @@ browser UI handles rendering; Claude's role ends after the initial `cairn_studio
 | `src/cairn_mcp/`                  | MCP server source                                          |
 | `src/cairn_mcp/__init__.py`       | Package marker (empty)                                     |
 | `src/cairn_mcp/__main__.py`       | Entry point: logging, config, clients, startup, server     |
+| `src/cairn_mcp/annotations.py`    | Shared helpers for the annotation-backed durable copy of `commit_refs`/`references` |
 | `src/cairn_mcp/artifact.py`       | Artifact model, key generation, section parsing            |
 | `src/cairn_mcp/config.py`         | Settings (pydantic-settings, all env vars)                 |
+| `src/cairn_mcp/constants.py`      | Centralised string-literal constants: error codes, artifact status values |
 | `src/cairn_mcp/errors.py`         | Typed exceptions: CairnError, CredentialError, etc.        |
 | `src/cairn_mcp/failure_log.py`    | Failure log helper: append_failure_entry, JSONL format     |
+| `src/cairn_mcp/references.py`     | Pure migration reference-resolution helpers (AWS-free, I/O-free) |
 | `src/cairn_mcp/resources.py`      | FastMCP resource registrations                             |
 | `src/cairn_mcp/server.py`         | FastMCP app, tool registration                             |
-| `src/cairn_mcp/startup.py`        | Six-check startup validation sequence                      |
+| `src/cairn_mcp/startup.py`        | Seven-check startup validation sequence                    |
 | `src/cairn_mcp/tools/`            | MCP tool implementations (write, search, read, and more)   |
 | `src/cairn_mcp/tools/_search_helper.py` | Shared vector re-fetch loop used by search + synthesise |
+| `src/cairn_mcp/tools/_section_pipeline.py` | Shared write-path section embedding pipeline (min-length filter, max-sections cap, truncation) — used by `write.py` and `reconcile.py` |
 | `src/cairn_mcp/tools/archive.py`  | archive_artifact MCP tool                                  |
 | `src/cairn_mcp/tools/studio.py`   | cairn_studio MCP tool — UI extension + plain-text fallback |
 | `src/cairn_mcp/tools/delete.py`   | delete_artifact MCP tool                                   |
 | `src/cairn_mcp/tools/freshness.py`| check_synthesis_freshness MCP tool                         |
 | `src/cairn_mcp/tools/health.py`   | health_check MCP tool                                      |
+| `src/cairn_mcp/tools/link_metadata.py` | link_metadata MCP tool — backfills `commit_refs`/`references` without re-embedding (was `link_commit.py`) |
 | `src/cairn_mcp/tools/list.py`     | list_artifacts MCP tool                                    |
+| `src/cairn_mcp/tools/migrate_artifacts.py` | migrate_artifacts MCP tool — bulk migration write with Nova Lite description enrichment |
+| `src/cairn_mcp/tools/propose_commit_links.py` | propose_commit_links MCP tool — read-only discovery of unlinked own-scope artifacts |
 | `src/cairn_mcp/tools/purge.py`    | purge_archived MCP tool                                    |
 | `src/cairn_mcp/tools/read.py`     | read_artifact MCP tool                                     |
 | `src/cairn_mcp/tools/reconcile.py`| reconcile_index MCP tool                                   |
 | `src/cairn_mcp/tools/search.py`   | search_artifacts MCP tool                                  |
 | `src/cairn_mcp/tools/synthesise.py` | synthesise_artifacts MCP tool                            |
 | `src/cairn_mcp/tools/write.py`    | write_artifact MCP tool                                    |
-| `src/cairn_mcp/static/cairn-studio.html` | Self-contained HTML/JS MCP App: two-pane browser (272 px pinned left list + flex right reader) with faceted filter, artifact list, markdown + mermaid rendering, semantic search |
+| `src/cairn_mcp/tools/write_artifacts.py` | write_artifacts MCP tool — bulk concurrent write bounded by caller-supplied `artifact_concurrency` |
+| `src/cairn_mcp/static/cairn-studio.html` | Self-contained HTML/JS MCP App: single-pane, view-switching browser (list view ↔ detail view) with faceted filter, artifact list, markdown + mermaid rendering, semantic search |
 | `src/cairn_mcp/clients/`          | AWS client interfaces, implementations, fakes, filter      |
 | `src/cairn_mcp/clients/interfaces.py` | Protocol interfaces for S3, S3 Vectors, Bedrock        |
-| `src/cairn_mcp/clients/s3.py`     | Concrete boto3 S3 client                                   |
+| `src/cairn_mcp/clients/s3.py`     | Concrete boto3 S3 client, incl. object-annotation put/get/list/delete |
 | `src/cairn_mcp/clients/vectors.py`| Concrete boto3 S3 Vectors client                           |
 | `src/cairn_mcp/clients/bedrock.py`| Concrete boto3 Bedrock embeddings client                   |
 | `src/cairn_mcp/clients/credentials.py` | Credential error code detection helper                |
@@ -84,6 +92,7 @@ browser UI handles rendering; Claude's role ends after the initial `cairn_studio
 | `tests/unit/`                     | Unit tests (moto + `FakeBedrockClient`, no real AWS)       |
 | `tests/unit/conftest.py`          | moto `query_vectors` extension + shared fixtures (settings, aws_mock, s3_client, vectors_client_*) |
 | `tests/unit/clients/test_moto_query_vectors_extension.py` | Verifies the cosine-similarity moto extension |
+| `tests/unit/clients/test_s3_annotations.py` | Verifies the S3 object-annotation client methods + moto self-mock extension |
 | `tests/integration/`              | Integration tests (real AWS, @pytest.mark.integration)     |
 | `docs/planning-artifacts/`        | PRD and plan                                               |
 | `docs/specs/`                     | Per-task feature specs                                     |
@@ -122,6 +131,13 @@ one makes all persisted memory inaccessible:
   module load and is active for all unit tests. Do not reimplement it per-test. The extension
   returns `score = 1.0 − cosine_distance` (cosine similarity, range [−1, 1]), matching
   `VectorsClientImpl` exactly.
+- **S3 object annotations are not implemented in moto** — the four annotation operations
+  (`put_object_annotation` / `get_object_annotation` / `list_object_annotations` /
+  `delete_object_annotation`) are self-mocked in `tests/unit/conftest.py` by intercepting
+  `S3Response`'s key-level GET/PUT/DELETE dispatch for the `?annotation` subresource and
+  backing it with an in-memory store, plus a `S3Backend.put_object` wrapper that clears a
+  key's annotations on overwrite (matching real S3 semantics). This patch is applied once
+  at module load and is active for all unit tests. Do not reimplement it per-test.
 - **`FakeBedrockClient` is kept intentionally** — moto's `invoke_model` returns a generic
   stub, not deterministic per-text embedding vectors. `FakeBedrockClient` generates
   hash-derived unit vectors (SHA-256) so the same text always produces the same vector,

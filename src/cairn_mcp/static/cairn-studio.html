@@ -135,11 +135,14 @@ let currentArtifacts = [];
 let selectedId = null;
 let filterType = "";
 let filterTier = "";
-let filterStatus = "";
+// M-11(d): "all" is an explicit all-inclusive sentinel recognised server-side by
+// list_artifacts (status="all" omits the status clause entirely). It is always sent
+// — never omitted — so the "All" option in #sel-status is actually reachable instead
+// of silently falling back to the server's "active" default.
+let filterStatus = "all";
 
 // ── DOM refs ───────────────────────────────────────────────────────────────
 const appEl        = document.getElementById("app");
-const scopeLabel   = document.getElementById("scope-label");
 const themeToggle  = document.getElementById("theme-toggle");
 const searchInput  = document.getElementById("search-input");
 const searchForm   = document.getElementById("search-form");
@@ -243,6 +246,12 @@ async function loadList() {
   try {
     const result = await app.callServerTool({ name: "list_artifacts", arguments: args });
     const data = result.structuredContent ?? JSON.parse(result.content?.find(c => c.type === "text")?.text ?? "{}");
+    // M-11(b): a server error dict must render its own message, not be treated as an
+    // empty successful listing (a credential failure must never read as "no artifacts").
+    if (data.error) {
+      artifactList.innerHTML = `<p class="empty-msg">${escHtml(data.message || data.error)}</p>`;
+      return;
+    }
     renderList(data.artifacts || []);
     if (selectedId && !(data.artifacts || []).find(a => a.artifact_id === selectedId)) {
       openList();
@@ -324,6 +333,12 @@ async function doSearch(query) {
   try {
     const result = await app.callServerTool({ name: "search_artifacts", arguments: { query } });
     const data = result.structuredContent ?? JSON.parse(result.content?.find(c => c.type === "text")?.text ?? "{}");
+    // M-11(b): render the server-provided error message instead of a generic
+    // "Search failed." — the catch block below still covers transport-level failures.
+    if (data.error) {
+      artifactList.innerHTML = `<p class="empty-msg">${escHtml(data.message || data.error)}</p>`;
+      return;
+    }
     renderList(data.artifacts || data || []);
   } catch {
     artifactList.innerHTML = '<p class="empty-msg">Search failed.</p>';
@@ -359,11 +374,18 @@ selStatus.addEventListener("change", async () => { filterStatus = selStatus.valu
 // ── App init ───────────────────────────────────────────────────────────────
 app = new App({ name: "cairn studio", version: "1.0.0" });
 
-app.ontoolresult = ({ content, structuredContent }) => {
-  const data = structuredContent ?? JSON.parse(content?.find(c => c.type === "text")?.text ?? "{}");
-  const prefix = data.write_prefix || "";
-  if (prefix) { scopeLabel.textContent = prefix; scopeLabel.style.display = ""; }
-  renderList(data.artifacts || []);
+// M-11(c): this iframe only ever runs in a *supporting* host (a non-supporting host
+// never loads the UI extension at all), so every plain-text confirmation this app
+// receives — including cairn_studio's own "Cairn Studio opened…" text — carries no
+// structuredContent. JSON.parse-ing that plain text unconditionally threw on every
+// render. The { write_prefix, artifacts } shape is sent only to non-supporting hosts
+// (see studio.py) and can never appear here, so it is not a value this callback can
+// correctly source — guard on structuredContent.artifacts instead of attempting to
+// parse or read fields that do not apply to this path.
+app.ontoolresult = ({ structuredContent }) => {
+  if (structuredContent && Array.isArray(structuredContent.artifacts)) {
+    renderList(structuredContent.artifacts);
+  }
 };
 
 await app.connect();
@@ -670,18 +692,6 @@ html {
 #theme-toggle .tt-label-light { display: none; }
 [data-theme="dark"]  #theme-toggle .tt-label-dark  { display: inline; }
 [data-theme="light"] #theme-toggle .tt-label-light { display: inline; }
-
-#scope-label {
-  font-size: var(--text-label);
-  color: var(--t2);
-  background: var(--base);
-  border: 1px solid var(--bd-faint);
-  border-radius: var(--r-sm);
-  padding: 4px 10px;
-  flex-shrink: 0;
-  display: none;
-  white-space: nowrap;
-}
 
 /* ── Views ──────────────────────────────────────────────────────────────── */
 
@@ -1067,7 +1077,6 @@ html {
       <span class="tt-label-dark">Dark</span>
       <span class="tt-label-light">Light</span>
     </button>
-    <div id="scope-label" aria-label="Write scope"></div>
   </header>
 
   <!-- ── List view ───────────────────────────────────────────────────── -->
@@ -1097,7 +1106,7 @@ html {
         <option value="3">Tier 3</option>
       </select>
       <select id="sel-status" aria-label="Filter by status">
-        <option value="" selected>All</option>
+        <option value="all" selected>All</option>
         <option value="active">Active</option>
         <option value="inactive">Inactive</option>
       </select>

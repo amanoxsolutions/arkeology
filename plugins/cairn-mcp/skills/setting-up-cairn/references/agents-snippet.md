@@ -111,6 +111,19 @@ write_artifact(
 )
 ```
 
+### Referencing other artifacts
+
+- **Proactive `cairn://` referencing** — when writing an artifact that references a
+  target you already know is a cairn artifact (e.g. an ADR it implements, a spec it
+  fulfils, a prior session summary it follows up on), link to it with its
+  `cairn://artifact/{id}` URI rather than a raw file path. This keeps the reference
+  resolvable and navigable from any MCP-aware host.
+- **Reference healing** — if you encounter a broken or unresolved reference during
+  normal work (a `cairn://artifact/{id}` that no longer resolves, or a raw path that
+  looks like it should be a cairn artifact), search for the likely target with
+  `search_artifacts` or `list_artifacts` and **propose the fix to the operator — never
+  silently rewrite the reference yourself**.
+
 ### Runtime schema precision
 
 For always-current field definitions, valid values, and query guidance, read the MCP
@@ -134,11 +147,17 @@ Store this value as `since_ulid`.
 2. Call `propose_commit_links(commit_sha=<sha>, since_ulid=<since_ulid>)`
    — omit `since_ulid` if this is the very first commit of a brand-new project.
 3. Present the proposed list to the operator. They may confirm, remove, or add artifact IDs.
-4. If the operator confirms: call `link_commit(artifact_ids=[...], commit_sha=<sha>)`
-5. Replace `since_ulid` with the `next_since_ulid` value returned by `link_commit`.
+4. If the operator confirms: call `link_metadata(artifact_ids=[...], commit_refs=[<sha>])`
+5. Replace `since_ulid` with the `next_since_ulid` value returned by `link_metadata`.
 6. Skip silently if `propose_commit_links` returns an empty `proposed` list.
 
-**Known limitation:** `reconcile_index` rebuilds vector metadata from S3 only. Because
-`commit_refs` is stored in vector metadata only (V1), a reconcile run will drop all commit
-links. Re-run the post-commit protocol after any reconcile to restore them.
+`link_metadata` also backfills the `references` field (pass `references=[...]`) using the
+same merge-and-deduplicate mechanism — use it any time a resolved reference needs to be
+added to an artifact after it was originally written.
+
+**On annotation-unavailable:** if `link_metadata` returns an `annotation_unavailable`
+error, the durable link record could not be written (unsupported region/bucket type, or
+missing IAM permission) — see the `setting-up-cairn` skill's Check 8 for diagnosis. This
+does not affect content, search, or embeddings; retry later once the operator has
+resolved the underlying cause.
 ````

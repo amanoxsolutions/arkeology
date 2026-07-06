@@ -108,6 +108,68 @@ class S3ClientInterface(Protocol):
         """
         ...
 
+    def put_object_annotation(self, key: str, annotation_name: str, payload: str) -> None:
+        """Write (or overwrite) a named annotation on an object.
+
+        Annotations are mutable in place and do not disturb the object body, its
+        write-time timestamp, or its embeddings (ADR-011).
+
+        Args:
+            key: S3 object key.
+            annotation_name: Name of the annotation (e.g. "commit_refs").
+            payload: Annotation payload as a UTF-8 string.
+
+        Raises:
+            CredentialError: If credentials are invalid or expired.
+        """
+        ...
+
+    def get_object_annotation(self, key: str, annotation_name: str) -> str:
+        """Retrieve a named annotation's payload.
+
+        Args:
+            key: S3 object key.
+            annotation_name: Name of the annotation to retrieve.
+
+        Returns:
+            Annotation payload decoded as a UTF-8 string.
+
+        Raises:
+            KeyError: If the object or the named annotation does not exist.
+            CredentialError: If credentials are invalid or expired.
+        """
+        ...
+
+    def list_object_annotations(self, key: str) -> list[str]:
+        """List the names of all annotations present on an object.
+
+        Args:
+            key: S3 object key.
+
+        Returns:
+            List of annotation names present on the object.
+
+        Raises:
+            KeyError: If the object does not exist.
+            CredentialError: If credentials are invalid or expired.
+        """
+        ...
+
+    def delete_object_annotation(self, key: str, annotation_name: str) -> None:
+        """Delete a named annotation from an object.
+
+        Silently ignores an absent object or an already-absent annotation
+        (mirrors ``delete_object``).
+
+        Args:
+            key: S3 object key.
+            annotation_name: Name of the annotation to delete.
+
+        Raises:
+            CredentialError: If credentials are invalid or expired.
+        """
+        ...
+
 
 class VectorsClientInterface(Protocol):
     """Protocol interface for S3 Vectors index operations."""

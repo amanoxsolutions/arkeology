@@ -1,12 +1,15 @@
 """Startup validation sequence for cairn-mcp.
 
-Performs six checks in order before the server enters its MCP event loop:
+Performs seven checks in order before the server enters its MCP event loop:
   1. Credential check (via head_bucket on ARTIFACT_BUCKET)
   2. Write prefix access (read + write round-trip using a probe object)
   3. Read prefix access (list_objects on each entry in READ_PREFIXES)
   4. Vector index existence (describe_index)
   5. Embedding model dimension vs. index dimension (from BEDROCK_EMBEDDING_DIMENSIONS)
-  6. Text model accessibility (invoke_text_model probe, only when BEDROCK_TEXT_MODEL is set)
+  6. Embedding model probe (embeds a short string via bedrock.embed and asserts the
+     returned vector's dimension matches — catches a wrong/unentitled embedding model
+     that check 5's configuration-only comparison cannot detect; Phase 12 review M-9)
+  7. Text model accessibility (invoke_text_model probe, only when BEDROCK_TEXT_MODEL is set)
 
 All checks use the client interfaces — no direct boto3 calls.
 Failures raise StartupValidationError; credential errors propagate as CredentialError.
@@ -28,6 +31,10 @@ logger = logging.getLogger(__name__)
 # Key suffix for the write probe object. Starts with underscore to distinguish from real artifacts.
 _PROBE_KEY_SUFFIX = "_cairn_mcp_startup_probe"
 
+# Short probe string embedded during check 6 (M-9). Content is irrelevant — only the
+# returned vector's dimension and the absence of a credential/entitlement failure matter.
+_EMBED_PROBE_TEXT = "cairn-mcp startup embedding probe"
+
 
 def validate_startup(
     settings: Settings,
@@ -35,13 +42,13 @@ def validate_startup(
     vectors: VectorsClientInterface,
     bedrock: BedrockClientInterface,
 ) -> None:
-    """Run all six startup checks in order.
+    """Run all seven startup checks in order.
 
     Args:
         settings: Validated server configuration.
         s3: S3 client instance.
         vectors: S3 Vectors client instance.
-        bedrock: Bedrock client instance (used for check 6 when BEDROCK_TEXT_MODEL is set).
+        bedrock: Bedrock client instance (used for checks 6 and 7).
 
     Returns:
         None on success.
@@ -55,8 +62,9 @@ def validate_startup(
     _check_read_prefixes(settings, s3)
     index_info = _check_vector_index(settings, vectors)
     _check_model_dimension(settings, index_info)
+    _check_embedding_probe(settings, bedrock)
     _check_text_model(settings, bedrock)
-    logger.info("Startup validation passed (6/6 checks). cairn-mcp is ready.")
+    logger.info("Startup validation passed (7/7 checks). cairn-mcp is ready.")
 
 
 # ── Individual checks ──────────────────────────────────────────────────────────
@@ -66,7 +74,7 @@ def _check_credentials(settings: Settings, s3: S3ClientInterface) -> None:
     """Check 1: Verify credentials are valid via head_bucket on ARTIFACT_BUCKET."""
     try:
         s3.head_bucket(settings.artifact_bucket)
-        logger.debug("Check 1/6 passed: credentials valid")
+        logger.debug("Check 1/7 passed: credentials valid")
     except CredentialError as exc:
         raise StartupValidationError(
             check="credentials",
@@ -106,6 +114,12 @@ def _check_write_prefix(settings: Settings, s3: S3ClientInterface) -> None:
 
     try:
         s3.get_object(probe_key)
+    except CredentialError:
+        # M-7: previously uncaught here — a real GetObject AccessDenied propagated as a
+        # raw ClientError past this function (only KeyError was handled), crashing the
+        # process with an unstructured traceback instead of the structured credential
+        # error __main__.py already knows how to report.
+        raise
     except KeyError as exc:
         raise StartupValidationError(
             check="write_prefix",
@@ -124,7 +138,7 @@ def _check_write_prefix(settings: Settings, s3: S3ClientInterface) -> None:
         except Exception as cleanup_exc:
             logger.warning("Failed to clean up write probe '%s': %s", probe_key, cleanup_exc)
 
-    logger.debug("Check 2/6 passed: write prefix '%s' is readable and writable", write_prefix)
+    logger.debug("Check 2/7 passed: write prefix '%s' is readable and writable", write_prefix)
 
 
 def _check_read_prefixes(settings: Settings, s3: S3ClientInterface) -> None:
@@ -132,7 +146,7 @@ def _check_read_prefixes(settings: Settings, s3: S3ClientInterface) -> None:
     read_prefixes = settings.read_prefixes_list
 
     if not read_prefixes:
-        logger.debug("Check 3/6 skipped: no foreign read prefixes configured")
+        logger.debug("Check 3/7 skipped: no foreign read prefixes configured")
         return
 
     for prefix in read_prefixes:
@@ -150,7 +164,7 @@ def _check_read_prefixes(settings: Settings, s3: S3ClientInterface) -> None:
                 ),
             ) from exc
 
-    logger.debug("Check 3/6 passed: %d foreign read prefix(es) accessible", len(read_prefixes))
+    logger.debug("Check 3/7 passed: %d foreign read prefix(es) accessible", len(read_prefixes))
 
 
 def _check_vector_index(settings: Settings, vectors: VectorsClientInterface) -> dict[str, Any]:
@@ -183,7 +197,7 @@ def _check_vector_index(settings: Settings, vectors: VectorsClientInterface) -> 
         ) from exc
     dim = index_info.get("dimension")
     logger.debug(
-        "Check 4/6 passed: vector index '%s' found with dimension %s",
+        "Check 4/7 passed: vector index '%s' found with dimension %s",
         settings.vectors_index,
         dim,
     )
@@ -229,25 +243,69 @@ def _check_model_dimension(
         )
 
     logger.debug(
-        "Check 5/6 passed: BEDROCK_EMBEDDING_DIMENSIONS=%d matches index dimension %d",
+        "Check 5/7 passed: BEDROCK_EMBEDDING_DIMENSIONS=%d matches index dimension %d",
         model_dim,
         index_dim,
     )
 
 
+def _check_embedding_probe(settings: Settings, bedrock: BedrockClientInterface) -> None:
+    """Check 6: Embed a short probe string and confirm the model is actually usable.
+
+    Check 5 only compares two *configured* numbers (``BEDROCK_EMBEDDING_DIMENSIONS`` vs.
+    the index dimension) — it never calls Bedrock, so a wrong or unentitled embedding
+    model still passes it, and every subsequent write/search then fails (Phase 12 review
+    M-9). This check makes one real ``bedrock.embed`` call and asserts the returned
+    vector's length matches ``BEDROCK_EMBEDDING_DIMENSIONS`` (already confirmed equal to
+    the index dimension by check 5).
+    """
+    try:
+        vector = bedrock.embed(
+            _EMBED_PROBE_TEXT,
+            settings.bedrock_embedding_model,
+            settings.bedrock_embedding_dimensions,
+        )
+    except CredentialError:
+        raise
+    except Exception as exc:
+        raise StartupValidationError(
+            check="embedding_probe",
+            message=(
+                f"Embedding probe failed: BEDROCK_EMBEDDING_MODEL "
+                f"'{settings.bedrock_embedding_model}' could not be invoked. "
+                "Verify the model ID is correct, the IAM policy includes "
+                "bedrock:InvokeModel for this model, and the account/region is entitled "
+                f"to use it. Error: {exc}"
+            ),
+        ) from exc
+
+    if len(vector) != settings.bedrock_embedding_dimensions:
+        raise StartupValidationError(
+            check="embedding_probe",
+            message=(
+                f"Embedding probe returned a vector of dimension {len(vector)}, but "
+                f"BEDROCK_EMBEDDING_DIMENSIONS is {settings.bedrock_embedding_dimensions}. "
+                f"Verify that model '{settings.bedrock_embedding_model}' actually supports "
+                "this dimension."
+            ),
+        )
+
+    logger.debug("Check 6/7 passed: embedding probe returned dimension %d", len(vector))
+
+
 def _check_text_model(settings: Settings, bedrock: BedrockClientInterface) -> None:
-    """Check 6: When BEDROCK_TEXT_MODEL is configured, probe it with a minimal call.
+    """Check 7: When BEDROCK_TEXT_MODEL is configured, probe it with a minimal call.
 
     When settings.bedrock_text_model is None, this check is skipped entirely.
     """
     if settings.bedrock_text_model is None:
-        logger.debug("Check 6/6 skipped: BEDROCK_TEXT_MODEL not configured")
+        logger.debug("Check 7/7 skipped: BEDROCK_TEXT_MODEL not configured")
         return
 
     try:
         bedrock.invoke_text_model(settings.bedrock_text_model, "ping")
         logger.debug(
-            "Check 6/6 passed: BEDROCK_TEXT_MODEL '%s' is reachable",
+            "Check 7/7 passed: BEDROCK_TEXT_MODEL '%s' is reachable",
             settings.bedrock_text_model,
         )
     except CredentialError:

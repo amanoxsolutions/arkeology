@@ -8,6 +8,8 @@ import logging
 import os
 import sys
 
+import botocore.exceptions
+
 from cairn_mcp import server
 from cairn_mcp.clients.bedrock import BedrockClientImpl
 from cairn_mcp.clients.s3 import S3ClientImpl
@@ -84,21 +86,36 @@ def main() -> None:
     configure_logging(settings.log_level)
 
     # ── Step 2: Construct AWS clients ─────────────────────────────────────────
-    s3_client = S3ClientImpl(
-        region=settings.aws_region,
-        profile=settings.aws_profile,
-        bucket=settings.artifact_bucket,
-    )
-    vectors_client = VectorsClientImpl(
-        region=settings.aws_region,
-        profile=settings.aws_profile,
-        bucket=settings.vectors_bucket,
-        index=settings.vectors_index,
-    )
-    bedrock_client = BedrockClientImpl(
-        region=settings.aws_region,
-        profile=settings.aws_profile,
-    )
+    # M-7 (Phase 12 review): boto3.Session(profile_name=...) raises ProfileNotFound
+    # synchronously, before any AWS call is made, when AWS_PROFILE names a profile
+    # absent from the credentials/config files. Previously uncaught here, this crashed
+    # the process with a raw traceback instead of the same structured, actionable exit
+    # path already used for every other startup failure.
+    try:
+        s3_client = S3ClientImpl(
+            region=settings.aws_region,
+            profile=settings.aws_profile,
+            bucket=settings.artifact_bucket,
+        )
+        vectors_client = VectorsClientImpl(
+            region=settings.aws_region,
+            profile=settings.aws_profile,
+            bucket=settings.vectors_bucket,
+            index=settings.vectors_index,
+        )
+        bedrock_client = BedrockClientImpl(
+            region=settings.aws_region,
+            profile=settings.aws_profile,
+        )
+    except botocore.exceptions.ProfileNotFound as exc:
+        logger.critical(
+            "Failed to initialise AWS clients: AWS profile '%s' was not found. "
+            "Verify AWS_PROFILE matches a profile defined in your AWS credentials/config "
+            "files, or unset AWS_PROFILE to use the default credential chain. (%s)",
+            settings.aws_profile,
+            exc,
+        )
+        sys.exit(1)
 
     # ── Step 3: Run startup validation ───────────────────────────────────────
     try:

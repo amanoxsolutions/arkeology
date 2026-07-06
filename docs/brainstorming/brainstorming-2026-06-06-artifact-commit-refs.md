@@ -1,19 +1,20 @@
 ---
 type: brainstorming
 title: Artifact Commit References
-description: How to add git commit references to artifact metadata in cairn-mcp, solving the association problem where the commit SHA is unknown at write time, covering the metadata model, timestamp precision, trigger mechanism, and migration skill implications.
+description: How to add git commit references to artifact metadata in cairn-mcp, solving the association problem where the commit SHA is unknown at write time, covering the metadata model, timestamp precision, trigger mechanism, and migration skill implications. NOTE (revised 2026-07-03) — several decisions here (D6, D13, and KL1/OQ2) were later SUPERSEDED by the 2026-07-02 session in brainstorming-2026-07-01-artifact-cross-referencing.md; see the "Superseded decisions (updated 2026-07-03)" section below.
 tags: []
 timestamp: 2026-06-06T00:00:00Z
 okf_version: "0.1"
 status: ready
 references:
   - docs/brainstorming/brainstorming-2026-06-01-adr-git-cairn-relationship.md
+  - docs/brainstorming/brainstorming-2026-07-01-artifact-cross-referencing.md  # supersedes D6, D13, KL1 (link_metadata dual-write + S3 annotations)
 authored:
   by: "analyst"
   date: "2026-06-06"
 revised:
   by: "analyst"
-  date: "2026-06-06"
+  date: "2026-07-03"
 techniques_used:
   - perspective-shift
   - constraint-removal
@@ -76,6 +77,40 @@ solve the association problem: artifacts are written during a session before a c
 so the commit SHA is unknown at write time. The session explored the metadata model, timestamp
 precision requirements, the trigger mechanism for linking artifacts to commits after the fact,
 and the migration skill implications.
+
+---
+
+## Superseded decisions (updated 2026-07-03)
+
+> This section was added on 2026-07-03 as a documentation-alignment pass. It does **not**
+> rewrite the original 2026-06-06 reasoning below — that record stands as-is. It records
+> which of this session's locked decisions have since been superseded by the later session
+> in
+> [`brainstorming-2026-07-01-artifact-cross-referencing.md`](brainstorming-2026-07-01-artifact-cross-referencing.md)
+> (decisions D11–D15 and the resolution of that session's OQ2, locked 2026-07-02), and by the
+> corresponding PRD functional requirements.
+
+The 2026-06-06 session locked `commit_refs` storage as **vector-metadata-only in V1**. That
+mechanism has been superseded by an **annotation-backed dual-write** decided in the 2026-07-02
+session. Four decisions from this document are affected:
+
+| This doc | Status | Superseded by | PRD |
+|---|---|---|---|
+| **D6** — `link_commit` updates vector metadata only in V1; `reconcile_index` will not restore `commit_refs` | **Superseded** | `commit_refs` is now dual-written to durable S3 object annotations **and** vector metadata (2026-07-01 doc D11/D12); reconcile now rebuilds `commit_refs` from the durable annotations | FR-53, FR-54, FR-17 |
+| **D13** — S3 object metadata update for `commit_refs` (`copy_object`) is out of scope | **Superseded** | The durable copy is now stored as an **S3 object annotation** (`PutObjectAnnotation`, mutable in place) — not a `copy_object` of user-defined metadata, and no longer out of scope (2026-07-01 doc D12) | FR-54 |
+| **KL1** — `reconcile_index` drops `commit_refs` (V1 known limitation) | **Superseded / Resolved** | This was the 2026-07-01 doc's OQ2, now resolved: reconcile rebuilds **both** `commit_refs` and `references` from durable annotations, so link data survives reconcile | FR-17, FR-54 |
+| **`link_commit` tool** (D5 write half, D4 tool section) | **Generalized** | `link_commit` is generalized into **`link_metadata`** (2026-07-01 doc D11), which backfills **both** `commit_refs` and `references` via the same fetch → merge+dedup → re-put (no re-embed) mechanism, now as a dual-write | FR-53 |
+
+**D12 (migration backfill) — tool name only.** The three migration-backfill *options* recorded
+here (do-not-backfill / link-to-current-HEAD / per-file from git history) still stand. Only the
+underlying tool they route through changes: the backfill now calls `link_metadata` (FR-53) in
+place of `link_commit`.
+
+**Still valid — NOT superseded:** the ULID `last_edited_ulid` decision (D2), the `$gte`/`$lte`
+range operators (D4 prerequisite), the `propose_commit_links` read-only discovery tool (D5
+discovery half), the append+deduplicate merge semantics (D7), and the agent-driven AGENTS.md
+post-commit protocol (D8). These remain the current design; only the write/durable-storage
+mechanism beneath them changed.
 
 ---
 
@@ -224,6 +259,13 @@ session to review (Path 3b).
 
 #### On the reconcile_index known limitation
 
+> **Superseded 2026-07-03** — the reasoning below leads to D6 (vector-only storage) and its
+> reconcile limitation. Both are superseded: `commit_refs` is now dual-written to durable S3
+> object annotations and vector metadata, and `reconcile_index` rebuilds it from the durable
+> annotations. See the "Superseded decisions (updated 2026-07-03)" section and
+> [`brainstorming-2026-07-01-artifact-cross-referencing.md`](brainstorming-2026-07-01-artifact-cross-referencing.md)
+> (D11/D12), PRD FR-17/FR-54.
+
 `reconcile_index` rebuilds vector metadata entirely from S3 object metadata via
 `_reindex_artifact`. It reads every field that is stored in S3 — `feature_tags`,
 `source_artifacts`, `title`, `type`, etc. If `link_commit` writes `commit_refs` only to vector
@@ -253,6 +295,13 @@ the `write_artifact` response so agents and tools have immediate visibility into
 value.
 
 **Cluster C — Post-write linking mechanics**
+
+> **Superseded 2026-07-03** — "V1 updates vector metadata only; S3 metadata update via
+> `copy_object` is a future milestone" (D13) is superseded. The durable copy is now stored as
+> an S3 object annotation (`PutObjectAnnotation`, mutable in place — not `copy_object`), and
+> `link_commit` is generalized into `link_metadata` performing a dual-write. See the "Superseded
+> decisions (updated 2026-07-03)" section, PRD FR-53/FR-54.
+
 The update requires no Bedrock re-embedding: `get_vectors` returns float32 data, allowing
 `put_vectors_batch` with the same vectors and enriched metadata. The `link_commit` tool appends
 to existing `commit_refs` (merge + deduplicate, not replace) — an artifact can accumulate
@@ -331,6 +380,15 @@ Implementation:
 No writes. No side effects. Returns an empty `proposed` list if no candidates found.
 
 #### D4 — `link_commit` MCP tool (vector metadata update, returns cursor)
+
+> **Superseded 2026-07-03** — the vector-metadata-only mechanism described here is superseded.
+> `link_commit` is generalized into `link_metadata`, which backfills both `commit_refs` and
+> `references` and performs a dual-write (durable S3 object annotation first, then vector
+> metadata). The "Known limitation (V1)" paragraph below no longer applies — reconcile now
+> restores `commit_refs` from the durable annotation. See the "Superseded decisions
+> (updated 2026-07-03)" section and
+> [`brainstorming-2026-07-01-artifact-cross-referencing.md`](brainstorming-2026-07-01-artifact-cross-referencing.md)
+> (D11/D12), PRD FR-53/FR-54/FR-17.
 
 ```
 link_commit(
@@ -432,6 +490,15 @@ adoption), which is expected.
 ### Known Limitations and Deferred Features
 
 #### KL1 — `reconcile_index` drops `commit_refs` (V1 known limitation)
+
+> **Superseded / Resolved 2026-07-03** — this known limitation was carried forward as the
+> 2026-07-01 session's OQ2 and has since been resolved. `commit_refs` (and the new `references`
+> field) are dual-written to durable S3 object annotations, and `reconcile_index` now rebuilds
+> both fields from those annotations, so link data survives reconcile. The `copy_object`
+> out-of-scope stance (D13) referenced below is likewise superseded — the durable copy is an S3
+> object annotation. See the "Superseded decisions (updated 2026-07-03)" section and
+> [`brainstorming-2026-07-01-artifact-cross-referencing.md`](brainstorming-2026-07-01-artifact-cross-referencing.md)
+> (OQ2 resolution, D11/D12), PRD FR-17/FR-54.
 
 `reconcile_index` rebuilds vector metadata entirely from S3 object metadata. Because
 `link_commit` writes `commit_refs` to **vector metadata only** (D6), a reconcile run

@@ -6,12 +6,13 @@ Uses the `s3_client` / `vectors_client` fixtures from conftest (moto-backed).
 import botocore.exceptions
 import pytest
 
+from cairn_mcp.artifact import decode_metadata_value
 from cairn_mcp.clients.s3 import S3ClientImpl
 from cairn_mcp.clients.vectors import VectorsClientImpl
 from cairn_mcp.errors import ArtifactCollisionError, CredentialError
 
 # ---------------------------------------------------------------------------
-# S3ClientImpl — metadata ASCII sanitization
+# S3ClientImpl — metadata transport encoding (T55: lossless, not lossy ASCII-strip)
 # ---------------------------------------------------------------------------
 
 
@@ -24,22 +25,37 @@ def test_put_object_ascii_metadata_unchanged(s3_client: S3ClientImpl) -> None:
     assert stored["artifact_type"] == "adr"
 
 
-def test_put_object_unicode_em_dash_sanitized(s3_client: S3ClientImpl) -> None:
-    """Metadata with an em dash (U+2014) succeeds; stored title drops the em dash."""
+def test_put_object_unicode_em_dash_percent_encoded_lossless(s3_client: S3ClientImpl) -> None:
+    """Metadata with an em dash (U+2014) succeeds; the stored (transport-encoded) value is
+    ASCII-only but decodes back to the original em dash \u2014, which is preserved rather
+    than dropped (T55 replaces the old NFKD-ASCII-strip, which silently destroyed non-Latin
+    content)."""
     metadata = {"title": "A title \u2014 with em dash", "artifact_type": "adr"}
     # Must not raise ParamValidationError
     s3_client.put_object(key="test/emdash.md", body="content", metadata=metadata)
     stored = s3_client.head_object("test/emdash.md")
-    assert "\u2014" not in stored["title"]
-    assert "title" in stored["title"].lower() or "A title" in stored["title"]
+    stored["title"].encode("ascii")  # raises UnicodeEncodeError if non-ASCII leaked through
+    assert decode_metadata_value(stored["title"]) == "A title \u2014 with em dash"
 
 
-def test_put_object_accented_letters_normalized(s3_client: S3ClientImpl) -> None:
-    """Metadata with accented letters (café) succeeds; é is normalized to e."""
+def test_put_object_accented_letters_percent_encoded_lossless(s3_client: S3ClientImpl) -> None:
+    """Metadata with accented letters (caf\u00e9) round-trips losslessly: transport-encoded
+    to ASCII on the wire, but decode_metadata_value recovers the original \u00e9, not a
+    stripped 'e'."""
     metadata = {"title": "caf\u00e9", "artifact_type": "note"}
     s3_client.put_object(key="test/accented.md", body="content", metadata=metadata)
     stored = s3_client.head_object("test/accented.md")
-    assert stored["title"] == "cafe"
+    stored["title"].encode("ascii")  # raises UnicodeEncodeError if non-ASCII leaked through
+    assert decode_metadata_value(stored["title"]) == "caf\u00e9"
+
+
+def test_put_object_literal_percent_sign_round_trips(s3_client: S3ClientImpl) -> None:
+    """A literal '%' in a metadata value (which collides with the escape character used for
+    transport encoding) round-trips losslessly."""
+    metadata = {"title": "100% done", "artifact_type": "adr"}
+    s3_client.put_object(key="test/percent.md", body="content", metadata=metadata)
+    stored = s3_client.head_object("test/percent.md")
+    assert decode_metadata_value(stored["title"]) == "100% done"
 
 
 # ---------------------------------------------------------------------------

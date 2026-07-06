@@ -3,7 +3,9 @@
 Hard-deletes a single artifact (S3 object + all section vectors) from the
 deployment's own scope. Requires explicit confirm=True. Deletion ordering is
 vectors-first, S3-second to ensure worst-case partial failure leaves a
-recoverable S3 orphan rather than orphaned vectors.
+recoverable S3 orphan rather than orphaned vectors. Before deleting, performs
+a unified own-scope referenced_by check (T50, ADR-012 D13) covering both
+source_artifacts and references — warn-but-don't-block, permanent-action phrasing.
 """
 
 import logging
@@ -15,8 +17,9 @@ from cairn_mcp.clients.interfaces import (
     VectorsClientInterface,
 )
 from cairn_mcp.config import Settings
-from cairn_mcp.constants import ArtifactStatus, ErrorCode
+from cairn_mcp.constants import ErrorCode
 from cairn_mcp.errors import CredentialError
+from cairn_mcp.tools._search_helper import find_referrers
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +45,8 @@ async def delete_artifact(
 
     Returns:
         On success: ``{"artifact_id": str, "deleted": True}`` plus optional
-            ``"warnings"`` list if synthesis references were found.
+            ``"warnings"`` (list of referring artifact ids) and ``"warning_message"``
+            (stronger, permanent-action phrasing) if own-scope referrers were found.
         On error: ``{"error": str, "message": str}``
     """
     try:
@@ -102,31 +106,9 @@ async def _delete_artifact_inner(
             "message": f"Artifact '{artifact_id}' not found.",
         }
 
-    # ── Step 4: Synthesis reference check (own scope only) ───────────────────
-    warnings: list[str] = []
+    # ── Step 4: Unified own-scope referenced_by check (T50, ADR-012 D13) ──────
     try:
-        synthesis_keys = vectors.list_vectors_by_metadata(
-            {
-                "$and": [
-                    {"type": {"$eq": "synthesis"}},
-                    {"status": {"$eq": ArtifactStatus.ACTIVE}},
-                    {"scope": {"$eq": settings.write_prefix}},
-                ]
-            }
-        )
-        if synthesis_keys:
-            synthesis_items = vectors.get_vectors(synthesis_keys)
-
-            seen_synth: set[str] = set()
-            for item in synthesis_items:
-                meta = item["metadata"]
-                synth_id: str = str(meta.get("artifact_id", ""))
-                if synth_id in seen_synth:
-                    continue
-                source_arts = meta.get("source_artifacts", [])
-                if isinstance(source_arts, list) and artifact_id in source_arts:
-                    warnings.append(synth_id)
-                    seen_synth.add(synth_id)
+        referrers = find_referrers(vectors=vectors, settings=settings, artifact_id=artifact_id)
     except CredentialError as exc:
         return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
 
@@ -163,6 +145,11 @@ async def _delete_artifact_inner(
 
     logger.info("Artifact deleted: key=%s", artifact_id)
     result: dict[str, Any] = {"artifact_id": artifact_id, "deleted": True}
-    if warnings:
-        result["warnings"] = warnings
+    if referrers:
+        result["warnings"] = referrers
+        result["warning_message"] = (
+            f"'{artifact_id}' was permanently deleted, but it is still referenced by "
+            f"{len(referrers)} other artifact(s): {', '.join(referrers)}. This action cannot be "
+            "undone — those references now point to a deleted artifact."
+        )
     return result

@@ -5,6 +5,7 @@ for the top-k matching artifacts in a single call. The synthesis itself is the
 caller's responsibility — this tool assembles source material only.
 """
 
+import asyncio
 import logging
 from typing import Any
 
@@ -93,9 +94,10 @@ async def _synthesise_artifacts_inner(
     effective_top_k = min(top_k, 100)
     clamped = effective_top_k < top_k
 
-    # ── Step 2: Embed the query ───────────────────────────────────────────────
+    # ── Step 2: Embed the query (M-8: off the event loop — blocking boto3 call) ──
     try:
-        query_vector = bedrock.embed(
+        query_vector = await asyncio.to_thread(
+            bedrock.embed,
             query,
             settings.bedrock_embedding_model,
             settings.bedrock_embedding_dimensions,
@@ -110,7 +112,7 @@ async def _synthesise_artifacts_inner(
     status_filter: dict[str, Any] = {"status": {"$eq": ArtifactStatus.ACTIVE}}
 
     # ── Step 5: Run shared re-fetch loop (no tier filter for synthesise) ──────
-    loop_result = run_search_loop(
+    loop_result = await run_search_loop(
         settings=settings,
         vectors=vectors,
         query_vector=query_vector,
@@ -135,7 +137,7 @@ async def _synthesise_artifacts_inner(
         meta: dict[str, Any] = entry["meta"]
 
         try:
-            content = s3.get_object(artifact_id)
+            content = await asyncio.to_thread(s3.get_object, artifact_id)
         except CredentialError as exc:
             return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
         except Exception:

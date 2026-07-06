@@ -1,4 +1,4 @@
-"""Unit tests for __main__.configure_logging.
+"""Unit tests for __main__.configure_logging and __main__.main.
 
 Verifies that:
 - The root logger is set to the requested level.
@@ -7,14 +7,19 @@ Verifies that:
   AWS temporary credentials and HTTP bodies from appearing in the log.
 - An invalid level silently falls back to INFO.
 - Repeated calls do not accumulate duplicate handlers.
+- main() surfaces a structured, actionable error (not a raw traceback) when
+  AWS_PROFILE names a profile the credential chain cannot find (M-7).
 """
 
 import logging
 from collections.abc import Iterator
 
+import botocore.exceptions
 import pytest
+from pytest_mock import MockerFixture
 
-from cairn_mcp.__main__ import configure_logging
+from cairn_mcp.__main__ import configure_logging, main
+from cairn_mcp.config import Settings
 
 _NOISY_LOGGERS: tuple[str, ...] = ("botocore", "boto3", "urllib3", "s3transfer")
 
@@ -114,3 +119,69 @@ def test_repeated_calls_do_not_accumulate_handlers() -> None:
     root = logging.getLogger()
     stream_handlers = [h for h in root.handlers if isinstance(h, logging.StreamHandler)]
     assert len(stream_handlers) == 1
+
+
+# ── main(): bad AWS_PROFILE surfaces a structured error (M-7) ──────────────────
+
+
+def _settings_with_bad_profile() -> Settings:
+    return Settings(
+        AWS_REGION="us-east-1",
+        ARTIFACT_BUCKET="my-bucket",
+        VECTORS_BUCKET="my-vectors",
+        VECTORS_INDEX="my-index",
+        AWS_PROFILE="does-not-exist-profile",
+    )
+
+
+def test_main_bad_profile_exits_cleanly_not_raw_traceback(
+    mocker: MockerFixture,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A boto3.Session ProfileNotFound during client construction is caught and exits
+    with sys.exit(1) plus a structured, actionable critical log — not an uncaught
+    ProfileNotFound propagating out of main() as a raw traceback.
+
+    Uses capsys rather than caplog: main() calls configure_logging(), which replaces
+    the root logger's handlers (including caplog's) with its own stderr StreamHandler.
+
+    Red: before the M-7 fix, ProfileNotFound propagates uncaught — pytest.raises(SystemExit)
+    fails because a different exception type escapes instead.
+    """
+    mocker.patch(
+        "cairn_mcp.__main__.load_settings",
+        return_value=_settings_with_bad_profile(),
+    )
+    mocker.patch(
+        "boto3.Session",
+        side_effect=botocore.exceptions.ProfileNotFound(profile="does-not-exist-profile"),
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+
+    assert exc_info.value.code == 1
+    stderr = capsys.readouterr().err
+    assert "does-not-exist-profile" in stderr
+    assert "Traceback" not in stderr
+
+
+def test_main_bad_profile_does_not_reach_startup_validation(
+    mocker: MockerFixture,
+) -> None:
+    """A ProfileNotFound during client construction must prevent startup validation
+    (and therefore any AWS call) from ever running."""
+    mocker.patch(
+        "cairn_mcp.__main__.load_settings",
+        return_value=_settings_with_bad_profile(),
+    )
+    mocker.patch(
+        "boto3.Session",
+        side_effect=botocore.exceptions.ProfileNotFound(profile="does-not-exist-profile"),
+    )
+    spy = mocker.patch("cairn_mcp.__main__.validate_startup")
+
+    with pytest.raises(SystemExit):
+        main()
+
+    assert spy.call_count == 0

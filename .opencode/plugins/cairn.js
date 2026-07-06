@@ -1,18 +1,20 @@
 import { fileURLToPath } from 'url';
 import path from 'path';
 
-// Resolve the skills/ directory relative to this plugin file so the path is
-// correct regardless of where Bun caches the package on the engineer's machine.
-// This file lives at .opencode/plugins/cairn.js, so ../../skills resolves to
-// the repo root skills/ directory.
+// Resolve the plugins/cairn-mcp/skills/ directory relative to this plugin file
+// so the path is correct regardless of where Bun caches the package on the
+// engineer's machine. This file lives at .opencode/plugins/cairn.js, so
+// ../../plugins/cairn-mcp/skills resolves to the repo root's canonical skills
+// directory (the same directory the Claude Code plugin reads from).
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
-const skillsDir = path.resolve(__dirname, '../../skills');
+const skillsDir = path.resolve(__dirname, '../../plugins/cairn-mcp/skills');
 
 /**
  * cairn-mcp — OpenCode plugin.
  *
- * Registers the cairn-mcp skills (setting-up-cairn, migrating-to-cairn, sync-cairn-plugin) with
- * OpenCode by pushing the skills/ directory into config.skills.paths via the
+ * Registers the cairn-mcp skills (setting-up-cairn, migrating-to-cairn,
+ * sync-cairn-plugin, backfilling-references) with OpenCode by pushing the
+ * plugins/cairn-mcp/skills/ directory into config.skills.paths via the
  * config hook. Engineers install this plugin by adding one line to
  * ~/.config/opencode/opencode.jsonc:
  *

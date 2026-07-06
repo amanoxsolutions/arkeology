@@ -6,12 +6,32 @@ tools call _run_search_loop with their respective parameters; tool-specific
 logic (content fetching, response shape) is handled by each tool independently.
 """
 
+import asyncio
+import json
+import logging
 from typing import Any
 
+from cairn_mcp.artifact import NON_FILTERABLE_METADATA_KEYS, REFERENCE_FIELDS
 from cairn_mcp.clients.interfaces import VectorsClientInterface
 from cairn_mcp.config import Settings
-from cairn_mcp.constants import ErrorCode
+from cairn_mcp.constants import ArtifactStatus, ErrorCode
 from cairn_mcp.errors import CredentialError
+
+logger = logging.getLogger(__name__)
+
+# Conservative half of the ~2 KB S3 Vectors metadata-filter expression size limit
+# (mirrors the order of magnitude of VECTOR_FILTERABLE_METADATA_MAX_BYTES in
+# artifact.py), leaving headroom in the same $and for the user/status/scope filter
+# clauses. Once the $nin exclusion list would grow past this budget, the re-fetch
+# loop (M-6, Phase 12 review) stops issuing further queries and returns whatever has
+# already been collected rather than risking a ValidationException from an oversized
+# filter expression.
+_NIN_EXCLUSION_BYTE_BUDGET = 1024
+
+
+def _nin_list_byte_size(seen_ids: set[str]) -> int:
+    """Return the UTF-8 byte size of ``seen_ids`` as it would appear in a $nin clause."""
+    return len(json.dumps(list(seen_ids)).encode("utf-8"))
 
 
 def build_scope_filter(settings: Settings) -> dict[str, Any]:
@@ -106,7 +126,7 @@ def build_user_filters(
     return clauses
 
 
-def run_search_loop(
+async def run_search_loop(
     *,
     settings: Settings,
     vectors: VectorsClientInterface,
@@ -121,6 +141,19 @@ def run_search_loop(
     distinct artifacts until ``effective_top_k`` is reached or the index
     is exhausted. Already-seen artifact IDs are excluded via ``$nin`` filter.
 
+    M-6 (Phase 12 review): the ``$nin`` exclusion list is bounded by
+    ``_NIN_EXCLUSION_BYTE_BUDGET`` — once it would grow past that budget the loop
+    stops gracefully and returns whatever has been collected, rather than risking a
+    filter-size error from S3 Vectors. Similarly, a **non-credential** failure from
+    ``query_vectors`` mid-loop no longer discards already-collected results: it stops
+    the loop and returns the partial result set. Credential-error handling is
+    unchanged — it still returns the structured ``credential_error`` response
+    immediately, even if some results were already collected.
+
+    M-8 (Phase 12 review): ``query_vectors`` is a blocking boto3 call, so each
+    iteration routes it through ``asyncio.to_thread`` — this coroutine must be
+    awaited by every caller.
+
     Args:
         settings: Server configuration.
         vectors: S3 Vectors client.
@@ -130,8 +163,9 @@ def run_search_loop(
         effective_top_k: Maximum number of distinct artifacts to collect.
 
     Returns:
-        On success: ``list[dict]`` — each dict has keys ``artifact_id``, ``score``,
-            and ``meta`` (the raw vector metadata dict).
+        On success (including a partial, non-credential-failure-truncated result):
+            ``list[dict]`` — each dict has keys ``artifact_id``, ``score``, and
+            ``meta`` (the raw vector metadata dict).
         On credential error: ``{"error": "credential_error", "message": str}``
     """
     scope_filter = build_scope_filter(settings)
@@ -142,6 +176,16 @@ def run_search_loop(
         and_clauses: list[dict[str, Any]] = [*user_filters, status_filter, scope_filter]
 
         if seen_ids:
+            nin_bytes = _nin_list_byte_size(seen_ids)
+            if nin_bytes > _NIN_EXCLUSION_BYTE_BUDGET:
+                logger.debug(
+                    "Search re-fetch loop stopping: $nin exclusion list reached %d bytes "
+                    "(budget %d) with %d result(s) already collected",
+                    nin_bytes,
+                    _NIN_EXCLUSION_BYTE_BUDGET,
+                    len(results),
+                )
+                break
             and_clauses.append({"artifact_id": {"$nin": list(seen_ids)}})
 
         combined_filter: dict[str, Any] = (
@@ -149,9 +193,19 @@ def run_search_loop(
         )
 
         try:
-            raw = vectors.query_vectors(query_vector, settings.search_fetch_top_k, combined_filter)
+            raw = await asyncio.to_thread(
+                vectors.query_vectors, query_vector, settings.search_fetch_top_k, combined_filter
+            )
         except CredentialError as exc:
             return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
+        except Exception:
+            logger.warning(
+                "Non-credential error in search re-fetch loop after collecting %d "
+                "result(s); returning partial results",
+                len(results),
+                exc_info=True,
+            )
+            break
 
         # Keep highest-scoring section per artifact
         best_by_id: dict[str, tuple[float, dict[str, Any]]] = {}
@@ -176,3 +230,90 @@ def run_search_loop(
 
     results.sort(key=lambda r: float(r["score"]), reverse=True)
     return results[:effective_top_k]
+
+
+def find_referrers(
+    *,
+    vectors: VectorsClientInterface,
+    settings: Settings,
+    artifact_id: str,
+) -> list[str]:
+    """Reverse-look-up own-scope, active artifacts that reference ``artifact_id``.
+
+    Generalizes ``delete_artifact``'s former synthesis-only check (ADR-012 D13, T50)
+    into a single unified own-scope ``referenced_by`` lookup covering every field in
+    :data:`cairn_mcp.artifact.REFERENCE_FIELDS`, reused by both ``delete_artifact`` and
+    ``archive_artifact``. The lookup branches by each field's filterability, driven by
+    :data:`cairn_mcp.artifact.NON_FILTERABLE_METADATA_KEYS` — never hardcoded per tool:
+
+    - **Filterable** fields (currently ``references``) are resolved with a single
+      ``list_vectors_by_metadata`` query ANDing the own-scope filter, the active-status
+      filter, and an ``$or`` of one ``{field: {"$eq": artifact_id}}`` clause per
+      filterable field.
+    - **Non-filterable** ``source_artifacts`` — which S3 Vectors rejects a server-side
+      ``$eq`` on — is resolved via a bounded, filterable ``type = synthesis`` prefilter
+      (own-scope, active) fetched via ``list_vectors_by_metadata``, followed by an
+      in-process membership check of ``artifact_id`` in each candidate's
+      ``source_artifacts`` value. A server-side ``$eq`` is never issued on
+      ``source_artifacts``.
+
+    Results from both branches are unioned and deduplicated by ``artifact_id``; the
+    target itself is always excluded.
+
+    Args:
+        vectors: S3 Vectors client.
+        settings: Server configuration (supplies the own-scope filter clause).
+        artifact_id: The artifact about to be deleted or archived.
+
+    Returns:
+        Sorted list of distinct own-scope referrer ``artifact_id`` strings. Empty if
+        no referrers are found.
+
+    Raises:
+        CredentialError: Propagated from the underlying vector client calls; callers
+            are expected to catch it and return a structured credential error.
+    """
+    filterable_fields = [f for f in REFERENCE_FIELDS if f not in NON_FILTERABLE_METADATA_KEYS]
+    non_filterable_fields = [f for f in REFERENCE_FIELDS if f in NON_FILTERABLE_METADATA_KEYS]
+
+    referrers: set[str] = set()
+
+    # ── Filterable branch: single server-side $eq/$or query ──────────────────────
+    if filterable_fields:
+        filter_expr: dict[str, Any] = {
+            "$and": [
+                {"scope": {"$eq": settings.write_prefix}},
+                {"status": {"$eq": ArtifactStatus.ACTIVE}},
+                {"$or": [{field: {"$eq": artifact_id}} for field in filterable_fields]},
+            ]
+        }
+        keys = vectors.list_vectors_by_metadata(filter_expr)
+        if keys:
+            for item in vectors.get_vectors(keys):
+                referrer_id = str(item["metadata"].get("artifact_id", ""))
+                if referrer_id and referrer_id != artifact_id:
+                    referrers.add(referrer_id)
+
+    # ── Non-filterable branch: type=synthesis prefilter + in-process check ───────
+    # source_artifacts only ever appears on synthesis artifacts (bounded prefilter,
+    # not an unbounded fetch-all-then-filter). No other non-filterable reference field
+    # is currently defined; a future one requires its own field-appropriate prefilter.
+    if "source_artifacts" in non_filterable_fields:
+        prefilter: dict[str, Any] = {
+            "$and": [
+                {"type": {"$eq": "synthesis"}},
+                {"status": {"$eq": ArtifactStatus.ACTIVE}},
+                {"scope": {"$eq": settings.write_prefix}},
+            ]
+        }
+        keys = vectors.list_vectors_by_metadata(prefilter)
+        if keys:
+            for item in vectors.get_vectors(keys):
+                meta = item["metadata"]
+                referrer_id = str(meta.get("artifact_id", ""))
+                if referrer_id == artifact_id:
+                    continue
+                if artifact_id in coerce_list_field(meta, "source_artifacts"):
+                    referrers.add(referrer_id)
+
+    return sorted(referrers)

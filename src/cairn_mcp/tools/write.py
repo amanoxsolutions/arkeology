@@ -14,10 +14,12 @@ from typing import Any
 from pydantic import ValidationError
 from ulid import ULID
 
+from cairn_mcp.annotations import apply_link_annotations, read_current_link_fields
 from cairn_mcp.artifact import (
     Artifact,
+    check_metadata_budgets,
+    encode_metadata_value,
     generate_artifact_id,
-    parse_sections,
     section_slug,
 )
 from cairn_mcp.clients.interfaces import (
@@ -27,8 +29,17 @@ from cairn_mcp.clients.interfaces import (
 )
 from cairn_mcp.config import Settings
 from cairn_mcp.constants import ErrorCode
-from cairn_mcp.errors import ArtifactCollisionError, CredentialError
+from cairn_mcp.errors import (
+    AnnotationUnavailableError,
+    ArtifactCollisionError,
+    CredentialError,
+    MetadataTooLargeError,
+)
 from cairn_mcp.failure_log import append_failure_entry
+from cairn_mcp.tools._section_pipeline import (
+    build_document_embedding_text,
+    prepare_sections_for_embedding,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -47,74 +58,54 @@ _EMBED_EXECUTOR: ThreadPoolExecutor = ThreadPoolExecutor(
 )
 
 
-def _build_section_embedding_text(
+def _log_partial_write_failure(
+    settings: Settings,
     *,
+    artifact_id: str,
     title: str,
     artifact_type: str,
-    tags: list[str],
-    section_heading: str,
-    section_body: str,
-) -> str:
-    """Build the embedding input text for a single section vector.
+    tier: int,
+    date: str,
+    failure_step: str,
+    reason: str,
+) -> None:
+    """Append a failure-log entry recording a partial write (S3 succeeded, a
+    downstream step failed).
 
-    Format::
-
-        Title: {title}
-        Type: {type}
-        Tags: {tag1}, {tag2}    ← omitted when tags is empty
-
-        ## {section_heading}
-        {section_body}
-
-    Args:
-        title: Artifact title.
-        artifact_type: Artifact type string.
-        tags: List of tag strings (may be empty).
-        section_heading: Heading text of this section.
-        section_body: Body text of this section.
-
-    Returns:
-        Formatted embedding input string.
-    """
-    lines = [f"Title: {title}", f"Type: {artifact_type}"]
-    if tags:
-        lines.append(f"Tags: {', '.join(tags)}")
-    lines.append("")
-    lines.append(f"## {section_heading}")
-    lines.append(section_body)
-    return "\n".join(lines)
-
-
-def _build_document_embedding_text(
-    *,
-    title: str,
-    artifact_type: str,
-    tags: list[str],
-    description: str,
-) -> str:
-    """Build the embedding input text for a document-level fallback vector.
-
-    Format::
-
-        Title: {title}
-        Type: {type}
-        Tags: {tag1}, {tag2}    ← omitted when tags is empty
-        Description: {description}
+    Shared by the ``partial_write`` response path (:func:`_record_partial_write`)
+    and the credential-error branches that occur after the S3 put has already
+    succeeded (Phase 12 review M-4): a credential failure is no less a partial
+    write than any other kind of failure — the S3 object is durably written but
+    the index does not yet reflect it (or, for an ``overwrite=True`` rewrite,
+    still reflects the pre-overwrite version) — and only a failure-log entry lets
+    ``reconcile_index`` find and repair it. Without this, a retried credential
+    failure after S3 success left no trace, so the stale or missing index state
+    was never picked up by reconciliation.
 
     Args:
+        settings: Server configuration (for ``failure_log_path``).
+        artifact_id: S3 key of the partially written artifact.
         title: Artifact title.
         artifact_type: Artifact type string.
-        tags: List of tag strings (may be empty).
-        description: Short artifact description.
-
-    Returns:
-        Formatted embedding input string.
+        tier: Artifact tier.
+        date: ISO-8601 date string.
+        failure_step: Stage that failed (e.g. ``"bedrock_embed"``, ``"put_vector"``,
+            ``"annotation_write"``).
+        reason: Human-readable failure reason.
     """
-    lines = [f"Title: {title}", f"Type: {artifact_type}"]
-    if tags:
-        lines.append(f"Tags: {', '.join(tags)}")
-    lines.append(f"Description: {description}")
-    return "\n".join(lines)
+    append_failure_entry(
+        settings.failure_log_path,
+        {
+            "artifact_id": artifact_id,
+            "title": title,
+            "type": artifact_type,
+            "tier": tier,
+            "date": date,
+            "failure_step": failure_step,
+            "reason": reason,
+            "timestamp": datetime.now(UTC).isoformat(),
+        },
+    )
 
 
 def _record_partial_write(
@@ -147,18 +138,15 @@ def _record_partial_write(
     Returns:
         The ``partial_write`` error response dict (includes ``artifact_id``).
     """
-    append_failure_entry(
-        settings.failure_log_path,
-        {
-            "artifact_id": artifact_id,
-            "title": title,
-            "type": artifact_type,
-            "tier": tier,
-            "date": date,
-            "failure_step": failure_step,
-            "reason": reason,
-            "timestamp": datetime.now(UTC).isoformat(),
-        },
+    _log_partial_write_failure(
+        settings,
+        artifact_id=artifact_id,
+        title=title,
+        artifact_type=artifact_type,
+        tier=tier,
+        date=date,
+        failure_step=failure_step,
+        reason=reason,
     )
     return {
         "error": ErrorCode.PARTIAL_WRITE,
@@ -186,6 +174,7 @@ async def write_artifact(
     author_role: str | None = None,
     source_artifacts: list[str] | None = None,
     commit_refs: list[str] | None = None,
+    references: list[str] | None = None,
     status: str = "active",
     file_extension: str = ".md",
     overwrite: bool = False,
@@ -210,6 +199,12 @@ async def write_artifact(
         author_role: Optional author role.
         source_artifacts: Optional list of source artifact IDs.
         commit_refs: Optional list of git commit SHAs to pre-link this artifact.
+            Stored as ``list[str]`` in vector metadata and as a comma-joined S3
+            object annotation (ADR-011) — never in S3 user-defined object metadata.
+        references: Optional list of resolved bare artifact IDs this artifact points
+            at (ADR-012 D2). Stored as ``list[str]`` in vector metadata and as a
+            comma-joined S3 object annotation (ADR-011) — never in S3 user-defined
+            object metadata.
         status: ``"active"`` (default) or ``"inactive"``.
         file_extension: File extension for the S3 key, including the leading dot
             (e.g. ``".md"``, ``".txt"``). Defaults to ``".md"``. Must start with
@@ -231,6 +226,7 @@ async def write_artifact(
     normalized_tags: list[str] = tags if tags is not None else []
     sources: list[str] = source_artifacts if source_artifacts is not None else []
     refs: list[str] = commit_refs if commit_refs is not None else []
+    refs2: list[str] = references if references is not None else []
 
     try:
         return await _write_artifact_inner(
@@ -251,6 +247,7 @@ async def write_artifact(
             author_role=author_role,
             sources=sources,
             refs=refs,
+            references=refs2,
             status=status,
             file_extension=file_extension,
             overwrite=overwrite,
@@ -279,6 +276,7 @@ async def _write_artifact_inner(  # noqa: PLR0913
     author_role: str | None,
     sources: list[str],
     refs: list[str],
+    references: list[str],
     status: str,
     file_extension: str = ".md",
     overwrite: bool = False,
@@ -314,6 +312,7 @@ async def _write_artifact_inner(  # noqa: PLR0913
             author_role=author_role,
             source_artifacts=sources,
             commit_refs=refs,
+            references=references,
         )
     except ValidationError as exc:
         return {"error": ErrorCode.VALIDATION_ERROR, "message": str(exc)}
@@ -337,9 +336,50 @@ async def _write_artifact_inner(  # noqa: PLR0913
         "author_role": author_role or "",
         "description": description,
         "source_artifacts": ",".join(sources),
-        "commit_refs": ",".join(refs),
         "last_edited_ulid": last_edited_ulid,
     }
+
+    # ── Step 3b: Build vector metadata (types match filter requirements) ─────
+    # Built here — before the collision check and any write — so the T55 budget check
+    # below can validate the actual representations about to be written before any
+    # head_object/put_object/put_vectors_batch call.
+    vector_metadata: dict[str, Any] = {
+        "artifact_id": s3_key,
+        "scope": settings.write_prefix,
+        "type": artifact.type,
+        "team": artifact.team,
+        "project": artifact.project,
+        "tier": artifact.tier,  # stored as int for filter compatibility
+        "date": artifact.date,
+        "status": artifact.status,
+        "title": artifact.title,
+        "visibility": artifact.visibility,
+        "author_role": author_role or "",
+        "description": description,
+        "last_edited_ulid": last_edited_ulid,
+    }
+    # S3 Vectors rejects empty arrays in metadata — omit list fields when empty.
+    # Non-empty lists are stored as list[str] so $eq filters can match individual elements.
+    if tags:
+        vector_metadata["tags"] = tags
+    if sources:
+        vector_metadata["source_artifacts"] = sources
+    if refs:
+        vector_metadata["commit_refs"] = refs
+    if references:
+        vector_metadata["references"] = references
+
+    # ── Step 3c: Metadata size budgets (M-5) — fail fast, before any write ───
+    # Measures the actual assembled representations: the S3 aggregate against the
+    # transport-encoded s3_metadata dict, and the vector filterable/total budgets against
+    # vector_metadata. A breach here means NO head_object, NO put_object, NO
+    # put_vectors_batch, and NO failure-log append — an oversize write must never produce
+    # a partial write that reconcile_index replays forever.
+    encoded_s3_metadata = {key: encode_metadata_value(value) for key, value in s3_metadata.items()}
+    try:
+        check_metadata_budgets(encoded_s3_metadata, vector_metadata)
+    except MetadataTooLargeError as exc:
+        return {"error": ErrorCode.VALIDATION_ERROR, "message": str(exc)}
 
     # ── Step 4: Check existing before writing (collision guard + orphan detection) ──
     # C-3: a write whose generated key already exists is rejected by default — silent
@@ -375,6 +415,54 @@ async def _write_artifact_inner(  # noqa: PLR0913
     if is_existing and not overwrite:
         return _collision_response()
 
+    # ── Step 4a: Read-forward + merge link fields on an overwriting write (ADR-011 D4) ──
+    # PutObject clears S3 annotations, so an in-place re-PUT (a tier-3 living-document
+    # update, or an explicit tier-2 replacement) would otherwise silently lose the
+    # accumulated commit_refs/references trail. Read the current values forward as the
+    # union of both durable stores (Phase 12 review C5/M6 — neither the annotation copy
+    # nor the vector-metadata copy is sole authority; see
+    # ``annotations.read_current_link_fields``) and merge them with the values supplied
+    # to this write (union, dedup, order-preserving) before either store is touched. A
+    # fresh write (is_existing is False) or a rejected overwrite has nothing to merge.
+    final_commit_refs = refs
+    final_references = references
+    if is_existing and overwrite:
+        try:
+            existing_commit_refs, existing_references = read_current_link_fields(
+                s3, vectors, s3_key
+            )
+        except CredentialError as exc:
+            return {
+                "error": ErrorCode.CREDENTIAL_ERROR,
+                "message": str(exc),
+                "artifact_id": s3_key,
+            }
+        final_commit_refs = list(dict.fromkeys(existing_commit_refs + refs))
+        final_references = list(dict.fromkeys(existing_references + references))
+
+        if final_commit_refs:
+            vector_metadata["commit_refs"] = final_commit_refs
+        else:
+            vector_metadata.pop("commit_refs", None)
+        if final_references:
+            vector_metadata["references"] = final_references
+        else:
+            vector_metadata.pop("references", None)
+
+        # ── Step 4a (cont.): re-check budgets after the merge enlarges vector_metadata ──
+        # Step 3c only measured the *supplied* commit_refs/references. The read-forward
+        # merge above can union them with values already indexed in vector metadata and
+        # push the vector filterable/total budgets over their limits even though the
+        # s3_metadata side is unaffected (commit_refs/references live in annotations, not
+        # S3 user metadata, post-T47). Re-check here — before any put_object or
+        # put_vectors_batch — so a breach is rejected with NO write and NO failure-log
+        # entry, matching the Step 3c guard exactly rather than reintroducing the
+        # deterministic partial-write / reconcile-replay loop T55 exists to prevent.
+        try:
+            check_metadata_budgets(encoded_s3_metadata, vector_metadata)
+        except MetadataTooLargeError as exc:
+            return {"error": ErrorCode.VALIDATION_ERROR, "message": str(exc)}
+
     try:
         s3.put_object(s3_key, content, s3_metadata, if_none_match=not overwrite)
     except ArtifactCollisionError:
@@ -385,83 +473,77 @@ async def _write_artifact_inner(  # noqa: PLR0913
     except CredentialError as exc:
         return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
 
-    # ── Step 5: Parse sections ────────────────────────────────────────────────
-    sections = parse_sections(content)
+    # ── Step 4b: Durable annotation write (ADR-011) ──────────────────────────
+    # Written after PutObject (annotations cannot be set during PutObject — they are
+    # set only after upload) and before put_vectors_batch, so that if the vector write
+    # fails below, the durable annotation side is already correct and a later
+    # reconcile_index run rebuilds vectors from it (T48). Metadata-only: never
+    # triggers a re-embed.
+    #
+    # T52 / ADR-011 decision 5: annotation availability is a feature-level concern,
+    # not a hard failure. When annotations are unavailable (unsupported region/bucket
+    # type) or access is denied, the content and vectors already written (or about to
+    # be written below) must never be lost — record a warning and keep going, rather
+    # than aborting like the CredentialError branch below (a real credential failure
+    # is very likely to also break the upcoming Bedrock/vector calls, so aborting
+    # there remains correct).
+    annotation_warning: str | None = None
+    try:
+        apply_link_annotations(
+            s3, s3_key, commit_refs=final_commit_refs, references=final_references
+        )
+    except AnnotationUnavailableError as exc:
+        logger.warning(
+            "Annotation write unavailable for key=%s; content and vectors will still "
+            "be persisted without a durable commit_refs/references copy: %s",
+            s3_key,
+            exc,
+        )
+        annotation_warning = str(exc)
+    except CredentialError as exc:
+        # M-4: the S3 put above has already succeeded — this is a partial write,
+        # not a clean failure. Without a failure-log entry here, a retried
+        # credential failure after S3 success left no repairable trace, and for
+        # an overwrite=True rewrite the pre-overwrite vectors would silently
+        # survive forever (reconcile never sees a reason to touch this artifact).
+        _log_partial_write_failure(
+            settings,
+            artifact_id=s3_key,
+            title=title,
+            artifact_type=type,
+            tier=tier,
+            date=date,
+            failure_step="annotation_write",
+            reason=str(exc),
+        )
+        return {
+            "error": ErrorCode.CREDENTIAL_ERROR,
+            "message": str(exc),
+            "artifact_id": s3_key,
+        }
 
-    # ── Step 5a: Length filter ────────────────────────────────────────────────
-    if settings.embed_min_section_length > 0:
-        dropped = [s for s in sections if len(s.body.strip()) < settings.embed_min_section_length]
-        if dropped:
-            logger.debug(
-                "Dropping %d sections below min length %d",
-                len(dropped),
-                settings.embed_min_section_length,
-            )
-        sections = [s for s in sections if len(s.body.strip()) >= settings.embed_min_section_length]
-
-    # ── Step 5b: Cap sections ─────────────────────────────────────────────────
-    if len(sections) > settings.embed_max_sections:
-        logger.debug("Capping sections from %d to %d", len(sections), settings.embed_max_sections)
-        sections = sections[: settings.embed_max_sections]
-
-    # ── Step 6: Build vector metadata (types match filter requirements) ───────
-    vector_metadata: dict[str, Any] = {
-        "artifact_id": s3_key,
-        "scope": settings.write_prefix,
-        "type": artifact.type,
-        "team": artifact.team,
-        "project": artifact.project,
-        "tier": artifact.tier,  # stored as int for filter compatibility
-        "date": artifact.date,
-        "status": artifact.status,
-        "title": artifact.title,
-        "visibility": artifact.visibility,
-        "author_role": author_role or "",
-        "description": description,
-        "last_edited_ulid": last_edited_ulid,
-    }
-    # S3 Vectors rejects empty arrays in metadata — omit list fields when empty.
-    # Non-empty lists are stored as list[str] so $eq filters can match individual elements.
-    if tags:
-        vector_metadata["tags"] = tags
-    if sources:
-        vector_metadata["source_artifacts"] = sources
-    if refs:
-        vector_metadata["commit_refs"] = refs
+    # ── Step 5: Parse, filter, cap, and truncate sections (M-3 shared pipeline) ──
+    # Delegates to the same helper reconcile_index uses, so a section that write-time
+    # drops (min-length), caps (max-sections), or truncates (max-section-length) is
+    # dropped/capped/truncated identically on a later reconcile replay.
+    prepared_sections = prepare_sections_for_embedding(
+        content,
+        title=title,
+        artifact_type=type,
+        tags=tags,
+        settings=settings,
+    )
 
     # ── Step 7: Embed and index ───────────────────────────────────────────────
     new_keys: set[str] = set()
 
-    if sections:
+    if prepared_sections:
         # Concurrent embedding with bounded semaphore
         semaphore = asyncio.Semaphore(settings.section_concurrency)
 
-        sections_to_embed: list[tuple[str, str]] = []
-        limit = settings.embed_max_section_length
-        for sec in sections:
-            vec_key = f"{s3_key}#{section_slug(sec.heading)}"
-            if limit > 0 and len(sec.body) > limit:
-                logger.debug(
-                    "Section '%s' body truncated from %d to %d chars for embedding",
-                    sec.heading,
-                    len(sec.body),
-                    limit,
-                )
-                embed_body = sec.body[:limit]
-            else:
-                embed_body = sec.body
-            sections_to_embed.append(
-                (
-                    vec_key,
-                    _build_section_embedding_text(
-                        title=title,
-                        artifact_type=type,
-                        tags=tags,
-                        section_heading=sec.heading,
-                        section_body=embed_body,
-                    ),
-                )
-            )
+        sections_to_embed: list[tuple[str, str]] = [
+            (f"{s3_key}#{section_slug(p.heading)}", p.embed_text) for p in prepared_sections
+        ]
 
         async def embed_section(vec_key: str, text: str) -> tuple[str, list[float]]:
             async with semaphore:
@@ -490,6 +572,16 @@ async def _write_artifact_inner(  # noqa: PLR0913
                 first_other_error = r
 
         if first_cred_error is not None:
+            _log_partial_write_failure(
+                settings,
+                artifact_id=s3_key,
+                title=title,
+                artifact_type=type,
+                tier=tier,
+                date=date,
+                failure_step="bedrock_embed",
+                reason=str(first_cred_error),
+            )
             return {
                 "error": ErrorCode.CREDENTIAL_ERROR,
                 "message": str(first_cred_error),
@@ -519,6 +611,16 @@ async def _write_artifact_inner(  # noqa: PLR0913
         try:
             vectors.put_vectors_batch(items)
         except CredentialError as exc:
+            _log_partial_write_failure(
+                settings,
+                artifact_id=s3_key,
+                title=title,
+                artifact_type=type,
+                tier=tier,
+                date=date,
+                failure_step="put_vector",
+                reason=str(exc),
+            )
             return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc), "artifact_id": s3_key}
         except Exception as exc:
             return _record_partial_write(
@@ -534,7 +636,7 @@ async def _write_artifact_inner(  # noqa: PLR0913
 
         new_keys = {vec_key for vec_key, _ in successful}
     else:
-        embed_text = _build_document_embedding_text(
+        embed_text = build_document_embedding_text(
             title=title,
             artifact_type=type,
             tags=tags,
@@ -549,6 +651,16 @@ async def _write_artifact_inner(  # noqa: PLR0913
                 settings.bedrock_embedding_dimensions,
             )
         except CredentialError as exc:
+            _log_partial_write_failure(
+                settings,
+                artifact_id=s3_key,
+                title=title,
+                artifact_type=type,
+                tier=tier,
+                date=date,
+                failure_step="bedrock_embed",
+                reason=str(exc),
+            )
             return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc), "artifact_id": s3_key}
         except Exception as exc:
             return _record_partial_write(
@@ -566,6 +678,16 @@ async def _write_artifact_inner(  # noqa: PLR0913
         try:
             vectors.put_vectors_batch(doc_item)
         except CredentialError as exc:
+            _log_partial_write_failure(
+                settings,
+                artifact_id=s3_key,
+                title=title,
+                artifact_type=type,
+                tier=tier,
+                date=date,
+                failure_step="put_vector",
+                reason=str(exc),
+            )
             return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc), "artifact_id": s3_key}
         except Exception as exc:
             return _record_partial_write(
@@ -605,8 +727,11 @@ async def _write_artifact_inner(  # noqa: PLR0913
             )
 
     logger.info("Artifact written: key=%s sections=%d tier=%d", s3_key, len(new_keys), tier)
-    return {
+    result: dict[str, Any] = {
         "artifact_id": s3_key,
         "sections_indexed": len(new_keys),
         "last_edited_ulid": last_edited_ulid,
     }
+    if annotation_warning is not None:
+        result["warning"] = annotation_warning
+    return result

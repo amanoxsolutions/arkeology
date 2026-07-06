@@ -10,15 +10,13 @@ import logging
 import botocore.exceptions
 import pytest
 
+from cairn_mcp.artifact import S3_USER_METADATA_MAX_BYTES, VECTOR_FILTERABLE_METADATA_MAX_BYTES
 from cairn_mcp.clients.fakes.fake_bedrock import FakeBedrockClient
 from cairn_mcp.clients.s3 import S3ClientImpl
 from cairn_mcp.clients.vectors import VectorsClientImpl
-from cairn_mcp.errors import CredentialError
-from cairn_mcp.tools.write import (
-    _build_document_embedding_text,
-    _build_section_embedding_text,
-    write_artifact,
-)
+from cairn_mcp.errors import AnnotationUnavailableError, CredentialError
+from cairn_mcp.tools.reconcile import reconcile_index
+from cairn_mcp.tools.write import write_artifact
 from tests.unit.conftest import _make_settings
 
 # Base write kwargs
@@ -46,137 +44,14 @@ _ONE_SECTION_KWARGS: dict = {
 
 
 # ---------------------------------------------------------------------------
-# _build_section_embedding_text
-# ---------------------------------------------------------------------------
-
-
-def test_section_embed_starts_with_title() -> None:
-    """_build_section_embedding_text output starts with 'Title: {title}'."""
-    text = _build_section_embedding_text(
-        title="Fix auth bug",
-        artifact_type="code_review",
-        tags=[],
-        section_heading="Summary",
-        section_body="All looks good.",
-    )
-    assert text.startswith("Title: Fix auth bug")
-
-
-def test_section_embed_contains_type() -> None:
-    """_build_section_embedding_text output contains 'Type: {type}'."""
-    text = _build_section_embedding_text(
-        title="Fix auth bug",
-        artifact_type="code_review",
-        tags=[],
-        section_heading="Summary",
-        section_body="All looks good.",
-    )
-    assert "Type: code_review" in text
-
-
-def test_section_embed_contains_tags_when_present() -> None:
-    """_build_section_embedding_text output contains tags when tags non-empty."""
-    text = _build_section_embedding_text(
-        title="Fix auth bug",
-        artifact_type="code_review",
-        tags=["auth", "security"],
-        section_heading="Summary",
-        section_body="All looks good.",
-    )
-    assert "Tags:" in text
-    assert "auth" in text
-    assert "security" in text
-
-
-def test_section_embed_omits_tags_when_empty() -> None:
-    """_build_section_embedding_text omits the Tags line when tags is empty."""
-    text = _build_section_embedding_text(
-        title="Fix auth bug",
-        artifact_type="code_review",
-        tags=[],
-        section_heading="Summary",
-        section_body="All looks good.",
-    )
-    assert "Tags:" not in text
-
-
-def test_section_embed_contains_heading_and_body() -> None:
-    """_build_section_embedding_text contains the section heading and body."""
-    text = _build_section_embedding_text(
-        title="Fix auth bug",
-        artifact_type="code_review",
-        tags=[],
-        section_heading="Summary",
-        section_body="All looks good.",
-    )
-    assert "Summary" in text
-    assert "All looks good." in text
-
-
-# ---------------------------------------------------------------------------
-# _build_document_embedding_text
-# ---------------------------------------------------------------------------
-
-
-def test_document_embed_starts_with_title() -> None:
-    """_build_document_embedding_text output starts with 'Title: {title}'."""
-    text = _build_document_embedding_text(
-        title="Fix auth bug",
-        artifact_type="code_review",
-        tags=[],
-        description="Review of the auth module.",
-    )
-    assert text.startswith("Title: Fix auth bug")
-
-
-def test_document_embed_contains_type() -> None:
-    """_build_document_embedding_text output contains 'Type: {type}'."""
-    text = _build_document_embedding_text(
-        title="Fix auth bug",
-        artifact_type="code_review",
-        tags=[],
-        description="Review of the auth module.",
-    )
-    assert "Type: code_review" in text
-
-
-def test_document_embed_contains_description() -> None:
-    """_build_document_embedding_text output contains 'Description: {description}'."""
-    text = _build_document_embedding_text(
-        title="Fix auth bug",
-        artifact_type="code_review",
-        tags=[],
-        description="Review of the auth module.",
-    )
-    assert "Description: Review of the auth module." in text
-
-
-def test_document_embed_omits_tags_when_empty() -> None:
-    """_build_document_embedding_text omits the Tags line when tags is empty."""
-    text = _build_document_embedding_text(
-        title="Fix auth bug",
-        artifact_type="code_review",
-        tags=[],
-        description="A description.",
-    )
-    assert "Tags:" not in text
-
-
-def test_document_embed_contains_tags_when_present() -> None:
-    """_build_document_embedding_text contains tags when tags non-empty."""
-    text = _build_document_embedding_text(
-        title="Fix auth bug",
-        artifact_type="code_review",
-        tags=["payments"],
-        description="A description.",
-    )
-    assert "Tags:" in text
-    assert "payments" in text
-
-
-# ---------------------------------------------------------------------------
 # write_artifact — happy path
 # ---------------------------------------------------------------------------
+#
+# Note: unit tests for the section-embedding-text helpers and the section
+# filter/cap/truncate pipeline (formerly private to this module) now live in
+# tests/unit/test_tools_section_pipeline.py — they moved to
+# cairn_mcp.tools._section_pipeline as a shared helper used by both
+# write_artifact and reconcile_index (Phase 12 review M-3).
 
 
 async def test_three_section_content_indexes_three_sections(
@@ -941,9 +816,12 @@ async def test_bedrock_credential_failure_returns_error(
     monkeypatch: pytest.MonkeyPatch,
     s3_client: S3ClientImpl,
     vectors_client: VectorsClientImpl,
+    tmp_path: pytest.TempPathFactory,
 ) -> None:
-    """Bedrock credential failure → error in response (S3 may already have been written)."""
-    settings = _make_settings(monkeypatch)
+    """Bedrock credential failure → error in response (S3 already written by this
+    point — a failure-log entry is written per M-4, hence the tmp-path-scoped log)."""
+    log_path = tmp_path / "failures.jsonl"
+    settings = _make_settings(monkeypatch, FAILURE_LOG_PATH=str(log_path))
     bedrock = FakeBedrockClient(dimension=1024)
     bedrock.set_credential_failure(True)
 
@@ -1296,13 +1174,16 @@ async def test_failure_log_appends_across_multiple_failures(
         assert entry["failure_step"] == "put_vector"
 
 
-async def test_bedrock_credential_error_no_failure_log(
+async def test_bedrock_credential_error_writes_failure_log(
     monkeypatch: pytest.MonkeyPatch,
     s3_client: S3ClientImpl,
     vectors_client: VectorsClientImpl,
     tmp_path: pytest.TempPathFactory,
 ) -> None:
-    """Bedrock CredentialError → credential_error response; no failure log entry written."""
+    """Bedrock CredentialError (doc-level fallback path) → credential_error response;
+    a failure-log entry IS written (M-4) since the S3 put has already succeeded by
+    this point — without it, reconcile_index has no way to discover and repair the
+    artifact's missing vector index entry."""
     log_path = tmp_path / "failures.jsonl"
     settings = _make_settings(monkeypatch, FAILURE_LOG_PATH=str(log_path))
     bedrock = FakeBedrockClient(dimension=1024)
@@ -1317,17 +1198,22 @@ async def test_bedrock_credential_error_no_failure_log(
     )
 
     assert result.get("error") == "credential_error"
-    assert not log_path.exists()
+    assert log_path.exists()
+    entries = [json.loads(line) for line in log_path.read_text().splitlines()]
+    assert len(entries) == 1
+    assert entries[0]["failure_step"] == "bedrock_embed"
+    assert entries[0]["artifact_id"] == result["artifact_id"]
 
 
-async def test_put_vector_credential_error_no_failure_log(
+async def test_put_vector_credential_error_writes_failure_log(
     monkeypatch: pytest.MonkeyPatch,
     s3_client: S3ClientImpl,
     vectors_client: VectorsClientImpl,
     tmp_path: pytest.TempPathFactory,
     mocker: pytest.MonkeyPatch,
 ) -> None:
-    """put_vectors_batch CredentialError → credential_error response; no failure log written."""
+    """put_vectors_batch CredentialError (doc-level fallback path) → credential_error
+    response; a failure-log entry IS written (M-4)."""
     log_path = tmp_path / "failures.jsonl"
     settings = _make_settings(monkeypatch, FAILURE_LOG_PATH=str(log_path))
     bedrock = FakeBedrockClient(dimension=1024)
@@ -1350,7 +1236,11 @@ async def test_put_vector_credential_error_no_failure_log(
     )
 
     assert result.get("error") == "credential_error"
-    assert not log_path.exists()
+    assert log_path.exists()
+    entries = [json.loads(line) for line in log_path.read_text().splitlines()]
+    assert len(entries) == 1
+    assert entries[0]["failure_step"] == "put_vector"
+    assert entries[0]["artifact_id"] == result["artifact_id"]
 
 
 # ---------------------------------------------------------------------------
@@ -1439,9 +1329,23 @@ async def test_orphan_cleanup_list_failure_does_not_fail_write(
         **_BASE_WRITE_KWARGS,
     )
 
-    # Orphan cleanup (only reached on the re-write) hits a non-credential error.
+    # list_vectors_by_metadata is now called twice on an overwriting write: once for
+    # the T47 read-forward (Step 4a, must succeed so link fields are not lost) and once
+    # for orphan cleanup (Step 8, best-effort). Let the first (read-forward) call
+    # through and only fail from the second call onward, isolating this test to the
+    # orphan-cleanup failure it is meant to exercise.
+    original_list = vectors_client.list_vectors_by_metadata
+    call_count = 0
+
+    def _list_fails_after_first(*args: object, **kwargs: object) -> list[str]:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return original_list(*args, **kwargs)  # type: ignore[arg-type]
+        raise RuntimeError("boom")
+
     mocker.patch.object(
-        vectors_client, "list_vectors_by_metadata", side_effect=RuntimeError("boom")
+        vectors_client, "list_vectors_by_metadata", side_effect=_list_fails_after_first
     )
 
     result = await write_artifact(
@@ -1519,14 +1423,26 @@ async def test_orphan_cleanup_credential_failure_does_not_fail_write(
         **_BASE_WRITE_KWARGS,
     )
 
-    mocker.patch.object(
-        vectors_client,
-        "list_vectors_by_metadata",
-        side_effect=CredentialError(
+    # See test_orphan_cleanup_list_failure_does_not_fail_write: list_vectors_by_metadata
+    # is now also used by the T47 read-forward (Step 4a), which must succeed. Only fail
+    # from the second call onward so this test still isolates the orphan-cleanup
+    # (Step 8) credential failure it is meant to exercise.
+    original_list = vectors_client.list_vectors_by_metadata
+    call_count = 0
+
+    def _list_fails_after_first(*args: object, **kwargs: object) -> list[str]:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return original_list(*args, **kwargs)  # type: ignore[arg-type]
+        raise CredentialError(
             message="AWS credentials are invalid or expired (simulated).",
             service="s3vectors",
             original=Exception("simulated"),
-        ),
+        )
+
+    mocker.patch.object(
+        vectors_client, "list_vectors_by_metadata", side_effect=_list_fails_after_first
     )
 
     result = await write_artifact(
@@ -1703,9 +1619,12 @@ async def test_write_embed_credential_error_aborts(
     s3_client: S3ClientImpl,
     vectors_client: VectorsClientImpl,
     mocker: pytest.MonkeyPatch,
+    tmp_path: pytest.TempPathFactory,
 ) -> None:
-    """CredentialError on any embed → response error == 'credential_error'; no vectors written."""
-    settings = _make_settings(monkeypatch)
+    """CredentialError on any embed → response error == 'credential_error'; no vectors
+    written; a failure-log entry IS written (M-4) since S3 already succeeded."""
+    log_path = tmp_path / "failures.jsonl"
+    settings = _make_settings(monkeypatch, FAILURE_LOG_PATH=str(log_path))
     bedrock = FakeBedrockClient(dimension=1024)
     bedrock.set_credential_failure(True)
     batch_spy = mocker.spy(vectors_client, "put_vectors_batch")
@@ -1719,6 +1638,10 @@ async def test_write_embed_credential_error_aborts(
 
     assert result.get("error") == "credential_error"
     assert batch_spy.call_count == 0
+    assert log_path.exists()
+    entries = [json.loads(line) for line in log_path.read_text().splitlines()]
+    assert len(entries) == 1
+    assert entries[0]["failure_step"] == "bedrock_embed"
 
 
 @pytest.mark.asyncio
@@ -2160,7 +2083,12 @@ async def test_section_truncation_logged_at_debug(
     vectors_client: VectorsClientImpl,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """When a section body is truncated, the event is logged at DEBUG level."""
+    """When a section body is truncated, the event is logged at DEBUG level.
+
+    The truncation now happens inside the shared ``cairn_mcp.tools._section_pipeline``
+    helper (M-3), not in ``cairn_mcp.tools.write`` directly, so the log is emitted
+    under that module's logger.
+    """
     settings = _make_settings(monkeypatch, EMBED_MAX_SECTION_LENGTH="50")
     bedrock = FakeBedrockClient(dimension=1024)
 
@@ -2168,7 +2096,7 @@ async def test_section_truncation_logged_at_debug(
     content = f"## Long Section\n\n{body}"
     kwargs = {**_BASE_WRITE_KWARGS, "content": content}
 
-    with caplog.at_level(logging.DEBUG, logger="cairn_mcp.tools.write"):
+    with caplog.at_level(logging.DEBUG, logger="cairn_mcp.tools._section_pipeline"):
         await write_artifact(
             s3=s3_client,
             vectors=vectors_client,
@@ -2293,19 +2221,20 @@ async def test_write_last_edited_ulid_in_vector_metadata(
 
 
 @pytest.mark.asyncio
-async def test_write_commit_refs_stored_in_s3_and_vector_metadata(
+async def test_write_commit_refs_stored_in_annotation_and_vector_metadata(
     monkeypatch: pytest.MonkeyPatch,
     s3_client: S3ClientImpl,
     vectors_client: VectorsClientImpl,
     mocker: pytest.MonkeyPatch,
 ) -> None:
-    """commit_refs=['abc1234'] stored as comma-joined string in S3 and list[str] in vectors."""
+    """commit_refs=['abc1234'] stored as a comma-joined S3 annotation (T47/ADR-011,
+    NOT S3 user-defined metadata) and as list[str] in vector metadata."""
     settings = _make_settings(monkeypatch)
     bedrock = FakeBedrockClient(dimension=1024)
     s3_spy = mocker.spy(s3_client, "put_object")
     vec_spy = mocker.spy(vectors_client, "put_vectors_batch")
 
-    await write_artifact(
+    result = await write_artifact(
         s3=s3_client,
         vectors=vectors_client,
         bedrock=bedrock,
@@ -2314,7 +2243,9 @@ async def test_write_commit_refs_stored_in_s3_and_vector_metadata(
     )
 
     _, _, s3_meta = s3_spy.call_args.args
-    assert s3_meta["commit_refs"] == "abc1234"
+    assert "commit_refs" not in s3_meta
+
+    assert s3_client.get_object_annotation(result["artifact_id"], "commit_refs") == "abc1234"
 
     vec_items = vec_spy.call_args.args[0]
     for item in vec_items:
@@ -2322,16 +2253,78 @@ async def test_write_commit_refs_stored_in_s3_and_vector_metadata(
 
 
 @pytest.mark.asyncio
-async def test_write_empty_commit_refs_stored_as_empty_string_in_s3(
+async def test_write_empty_commit_refs_annotation_absent(
     monkeypatch: pytest.MonkeyPatch,
     s3_client: S3ClientImpl,
     vectors_client: VectorsClientImpl,
     mocker: pytest.MonkeyPatch,
 ) -> None:
-    """commit_refs=[] stored as '' in S3 metadata and omitted from vector metadata."""
+    """commit_refs=[] → no commit_refs annotation is written, no S3 metadata key, and
+    the field is omitted from vector metadata."""
     settings = _make_settings(monkeypatch)
     bedrock = FakeBedrockClient(dimension=1024)
     s3_spy = mocker.spy(s3_client, "put_object")
+    vec_spy = mocker.spy(vectors_client, "put_vectors_batch")
+
+    result = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        **_BASE_WRITE_KWARGS,
+    )
+
+    _, _, s3_meta = s3_spy.call_args.args
+    assert "commit_refs" not in s3_meta
+
+    with pytest.raises(KeyError):
+        s3_client.get_object_annotation(result["artifact_id"], "commit_refs")
+
+    vec_items = vec_spy.call_args.args[0]
+    for item in vec_items:
+        assert "commit_refs" not in item["metadata"]
+
+
+# ---------------------------------------------------------------------------
+# T46 — references field
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_write_references_stored_as_list_in_vector_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """references=['a-1', 'b-2'] stored as list[str] in vector metadata."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+    vec_spy = mocker.spy(vectors_client, "put_vectors_batch")
+
+    await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        **{**_BASE_WRITE_KWARGS, "references": ["a-1", "b-2"]},
+    )
+
+    vec_items = vec_spy.call_args.args[0]
+    for item in vec_items:
+        assert item["metadata"]["references"] == ["a-1", "b-2"]
+
+
+@pytest.mark.asyncio
+async def test_write_empty_references_omitted_from_vector_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """references=[] (or omitted) omits the 'references' key from vector metadata."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
     vec_spy = mocker.spy(vectors_client, "put_vectors_batch")
 
     await write_artifact(
@@ -2342,12 +2335,375 @@ async def test_write_empty_commit_refs_stored_as_empty_string_in_s3(
         **_BASE_WRITE_KWARGS,
     )
 
-    _, _, s3_meta = s3_spy.call_args.args
-    assert s3_meta["commit_refs"] == ""
-
     vec_items = vec_spy.call_args.args[0]
     for item in vec_items:
-        assert "commit_refs" not in item["metadata"]
+        assert "references" not in item["metadata"]
+
+
+@pytest.mark.asyncio
+async def test_write_references_not_stored_in_s3_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """references is never written to S3 user-defined object metadata (durable copy is T47's job).
+
+    Preserves the dual-encoding split: S3 object metadata carries only
+    write-time-set identity fields; the annotation-backed durable copy is added
+    in T47 (ADR-011). This spec only covers vector metadata + read/list surfacing.
+    """
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+    s3_spy = mocker.spy(s3_client, "put_object")
+
+    await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        **{**_BASE_WRITE_KWARGS, "references": ["a-1"]},
+    )
+
+    _, _, s3_meta = s3_spy.call_args.args
+    assert "references" not in s3_meta
+
+
+# ---------------------------------------------------------------------------
+# T47 — annotation dual-write in the write path + overwrite preservation (AC-60)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_write_references_stored_in_annotation_and_vector_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """references=['a-1', 'b-2'] is written as a comma-joined S3 annotation and as
+    list[str] in vector metadata."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+    vec_spy = mocker.spy(vectors_client, "put_vectors_batch")
+
+    result = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        **{**_BASE_WRITE_KWARGS, "references": ["a-1", "b-2"]},
+    )
+
+    assert s3_client.get_object_annotation(result["artifact_id"], "references") == "a-1,b-2"
+    vec_items = vec_spy.call_args.args[0]
+    for item in vec_items:
+        assert item["metadata"]["references"] == ["a-1", "b-2"]
+
+
+@pytest.mark.asyncio
+async def test_write_empty_references_annotation_absent(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+) -> None:
+    """references=[] → no references annotation is written."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+
+    result = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        **_BASE_WRITE_KWARGS,
+    )
+
+    with pytest.raises(KeyError):
+        s3_client.get_object_annotation(result["artifact_id"], "references")
+
+
+@pytest.mark.asyncio
+async def test_write_annotations_written_after_put_object_before_put_vectors_batch(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """Durable-first ordering (ADR-011, Story 3): PutObject → annotation write →
+    put_vectors_batch, so a failed vector write can self-heal from the durable side
+    via a later reconcile_index (T48)."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+
+    call_order: list[str] = []
+
+    original_put_object = s3_client.put_object
+
+    def _put_object(*args: object, **kwargs: object) -> None:
+        call_order.append("put_object")
+        return original_put_object(*args, **kwargs)  # type: ignore[arg-type]
+
+    original_put_annotation = s3_client.put_object_annotation
+
+    def _put_annotation(*args: object, **kwargs: object) -> None:
+        call_order.append("put_object_annotation")
+        return original_put_annotation(*args, **kwargs)  # type: ignore[arg-type]
+
+    original_batch = vectors_client.put_vectors_batch
+
+    def _put_batch(*args: object, **kwargs: object) -> None:
+        call_order.append("put_vectors_batch")
+        return original_batch(*args, **kwargs)  # type: ignore[arg-type]
+
+    mocker.patch.object(s3_client, "put_object", side_effect=_put_object)
+    mocker.patch.object(s3_client, "put_object_annotation", side_effect=_put_annotation)
+    mocker.patch.object(vectors_client, "put_vectors_batch", side_effect=_put_batch)
+
+    result = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        **{**_BASE_WRITE_KWARGS, "commit_refs": ["abc1234"]},
+    )
+
+    assert "error" not in result
+    assert call_order == ["put_object", "put_object_annotation", "put_vectors_batch"]
+
+
+@pytest.mark.asyncio
+async def test_write_with_link_fields_triggers_no_extra_embed_call(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """Supplying commit_refs/references triggers no additional Bedrock embed call — the
+    annotation write is metadata-only and never re-embeds (Story 1 AC)."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+    embed_spy = mocker.spy(bedrock, "embed")
+
+    await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        **{**_BASE_WRITE_KWARGS, "commit_refs": ["abc1234"], "references": ["a-1"]},
+    )
+
+    # _BASE_WRITE_KWARGS content has exactly 3 sections (Summary, Details, Action Items) —
+    # one embed call per section, and none extra for the annotation write.
+    assert embed_spy.call_count == 3
+
+
+@pytest.mark.asyncio
+async def test_tier3_overwrite_preserves_commit_refs_and_merges_references(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+) -> None:
+    """AC-60 (core test): a tier-3 overwrite must not lose commit_refs/references that
+    were accumulated on the artifact, even though the underlying PutObject clears S3
+    annotations. The overwrite here supplies only a new reference (no new commit_refs);
+    the prior commit_refs must be read forward and re-applied unchanged, and the
+    supplied reference must be unioned with the prior references."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+    tier3_kwargs = {**_BASE_WRITE_KWARGS, "tier": 3}
+
+    first = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        **{**tier3_kwargs, "commit_refs": ["abc1234"], "references": ["a-1"]},
+    )
+    artifact_id = first["artifact_id"]
+
+    # Sanity: the durable annotation copy exists after the first write.
+    assert s3_client.get_object_annotation(artifact_id, "commit_refs") == "abc1234"
+
+    result = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        overwrite=True,
+        **{
+            **tier3_kwargs,
+            "content": "## Summary\n\nUpdated content.",
+            "references": ["b-2"],
+        },
+    )
+
+    assert "error" not in result
+    assert result["artifact_id"] == artifact_id
+
+    # PutObject cleared the annotations; the write path must have read the prior values
+    # forward from vector metadata and re-applied them to both durable stores.
+    assert s3_client.get_object_annotation(artifact_id, "commit_refs") == "abc1234"
+    assert s3_client.get_object_annotation(artifact_id, "references") == "a-1,b-2"
+
+    keys = vectors_client.list_vectors_by_metadata({"artifact_id": {"$eq": artifact_id}})
+    entries = vectors_client.get_vectors(keys)
+    assert entries, "expected at least one vector for the overwritten artifact"
+    for entry in entries:
+        assert entry["metadata"]["commit_refs"] == ["abc1234"]
+        assert entry["metadata"]["references"] == ["a-1", "b-2"]
+
+
+@pytest.mark.asyncio
+async def test_tier2_explicit_overwrite_preserves_prior_link_fields(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+) -> None:
+    """The tier-2 explicit-replacement overwrite path (ADR-011 decision 4) also
+    preserves prior commit_refs/references — the same read-forward + merge applies
+    regardless of tier."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+
+    first = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        **{**_BASE_WRITE_KWARGS, "commit_refs": ["abc1234"]},
+    )
+    artifact_id = first["artifact_id"]
+
+    result = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        overwrite=True,
+        **{**_BASE_WRITE_KWARGS, "content": "## Summary\n\nUpdated content."},
+    )
+
+    assert "error" not in result
+    assert s3_client.get_object_annotation(artifact_id, "commit_refs") == "abc1234"
+
+    keys = vectors_client.list_vectors_by_metadata({"artifact_id": {"$eq": artifact_id}})
+    entries = vectors_client.get_vectors(keys)
+    for entry in entries:
+        assert entry["metadata"]["commit_refs"] == ["abc1234"]
+
+
+@pytest.mark.asyncio
+async def test_write_credential_error_from_annotation_write_is_structured(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+    tmp_path: pytest.TempPathFactory,
+) -> None:
+    """A CredentialError raised by put_object_annotation surfaces as a structured
+    credential_error including artifact_id — never a raw exception — and no vector
+    write is attempted. A failure-log entry IS written (M-4) since the S3 put has
+    already succeeded by this point — the annotation write happens after PutObject."""
+    log_path = tmp_path / "failures.jsonl"
+    settings = _make_settings(monkeypatch, FAILURE_LOG_PATH=str(log_path))
+    bedrock = FakeBedrockClient(dimension=1024)
+    mocker.patch.object(
+        s3_client,
+        "put_object_annotation",
+        side_effect=CredentialError("expired", "s3", Exception("boom")),
+    )
+    batch_spy = mocker.spy(vectors_client, "put_vectors_batch")
+
+    result = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        **{**_BASE_WRITE_KWARGS, "commit_refs": ["abc1234"]},
+    )
+
+    assert result["error"] == "credential_error"
+    assert "artifact_id" in result
+    assert batch_spy.call_count == 0
+    assert log_path.exists()
+    entries = [json.loads(line) for line in log_path.read_text().splitlines()]
+    assert len(entries) == 1
+    assert entries[0]["failure_step"] == "annotation_write"
+    assert entries[0]["artifact_id"] == result["artifact_id"]
+
+
+# ---------------------------------------------------------------------------
+# T52 — annotation availability graceful degrade (write path)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_write_annotation_unavailable_still_succeeds_with_warning(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """An AnnotationUnavailableError raised by the durable annotation write must never
+    lose the artifact (ADR-011 decision 5): content and vectors are still persisted and
+    the response carries a non-empty top-level 'warning' instead of an 'error'."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+    mocker.patch.object(
+        s3_client,
+        "put_object_annotation",
+        side_effect=AnnotationUnavailableError(
+            "S3 object annotations are unavailable for this bucket.", "s3", Exception("boom")
+        ),
+    )
+
+    result = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        **{**_BASE_WRITE_KWARGS, "commit_refs": ["abc1234"]},
+    )
+
+    assert "error" not in result
+    assert result["artifact_id"]
+    assert result["sections_indexed"] == 3
+    assert result.get("warning")
+
+    # Content is durably stored despite the annotation failure.
+    stored_content = s3_client.get_object(result["artifact_id"])
+    assert stored_content == _BASE_WRITE_KWARGS["content"]
+
+    # Vectors carry the supplied commit_refs even though the durable annotation
+    # copy could not be written.
+    keys = vectors_client.list_vectors_by_metadata({"artifact_id": {"$eq": result["artifact_id"]}})
+    entries = vectors_client.get_vectors(keys)
+    assert entries
+    for entry in entries:
+        assert entry["metadata"]["commit_refs"] == ["abc1234"]
+
+
+@pytest.mark.asyncio
+async def test_write_without_link_fields_no_warning_when_annotations_available(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+) -> None:
+    """A normal write with annotations available carries no 'warning' field."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+
+    result = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        **_BASE_WRITE_KWARGS,
+    )
+
+    assert "error" not in result
+    assert "warning" not in result
 
 
 # ---------------------------------------------------------------------------
@@ -2562,3 +2918,338 @@ async def test_doc_fallback_embed_uses_dedicated_executor(
     assert "error" not in result
     # 1 document-level embed → exactly 1 submit call
     assert submit_spy.call_count == 1
+
+
+# ---------------------------------------------------------------------------
+# T55 (M-5) — write-path metadata size + charset validation, fail-fast pre-write
+# ---------------------------------------------------------------------------
+
+
+async def test_oversize_s3_metadata_rejected_before_any_write(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    tmp_path: pytest.TempPathFactory,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """An oversize source_artifacts value pushes the S3 user-metadata aggregate past its
+    2 KB budget. This value is non-filterable in vector metadata (excluded from the 2 KB
+    filterable budget) and small relative to the 40 KB total budget, so it isolates the S3
+    budget specifically. The write must be rejected with validation_error and must perform
+    NO head_object/put_object/put_vectors_batch call and append NO failure-log entry —
+    the M-5 defect being closed is exactly the case where S3 succeeds first and only the
+    vector write fails later, leaving a partial write that reconcile replays forever.
+    """
+    log_path = tmp_path / "failures.jsonl"
+    settings = _make_settings(monkeypatch, FAILURE_LOG_PATH=str(log_path))
+    bedrock = FakeBedrockClient(dimension=1024)
+    head_spy = mocker.spy(s3_client, "head_object")
+    put_spy = mocker.spy(s3_client, "put_object")
+    batch_spy = mocker.spy(vectors_client, "put_vectors_batch")
+
+    oversize_source = "a" * (S3_USER_METADATA_MAX_BYTES + 200)
+    kwargs = {**_BASE_WRITE_KWARGS, "source_artifacts": [oversize_source]}
+
+    result = await write_artifact(
+        s3=s3_client, vectors=vectors_client, bedrock=bedrock, settings=settings, **kwargs
+    )
+
+    assert result.get("error") == "validation_error"
+    assert head_spy.call_count == 0
+    assert put_spy.call_count == 0
+    assert batch_spy.call_count == 0
+    assert not log_path.exists()
+    assert len(s3_client.list_objects("")) == 0
+    assert len(vectors_client.list_vectors_by_metadata({})) == 0
+
+
+async def test_oversize_tags_rejected_before_any_write(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    tmp_path: pytest.TempPathFactory,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """A very large tags list breaches the vector filterable-metadata budget (tags is a
+    filterable field). Today it also breaches the S3 aggregate budget because tags is
+    mirrored into S3 user-metadata pre-T47 — either guard rejects the write before any
+    storage operation, which is what this test verifies: validation_error, zero
+    head_object/put_object/put_vectors_batch calls, no failure-log entry.
+    """
+    log_path = tmp_path / "failures.jsonl"
+    settings = _make_settings(monkeypatch, FAILURE_LOG_PATH=str(log_path))
+    bedrock = FakeBedrockClient(dimension=1024)
+    head_spy = mocker.spy(s3_client, "head_object")
+    put_spy = mocker.spy(s3_client, "put_object")
+    batch_spy = mocker.spy(vectors_client, "put_vectors_batch")
+
+    huge_tag = "t" * (S3_USER_METADATA_MAX_BYTES + 200)
+    kwargs = {**_BASE_WRITE_KWARGS, "tags": [huge_tag]}
+
+    result = await write_artifact(
+        s3=s3_client, vectors=vectors_client, bedrock=bedrock, settings=settings, **kwargs
+    )
+
+    assert result.get("error") == "validation_error"
+    assert head_spy.call_count == 0
+    assert put_spy.call_count == 0
+    assert batch_spy.call_count == 0
+    assert not log_path.exists()
+
+
+async def test_oversize_metadata_leaves_nothing_for_reconcile_to_replay(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    tmp_path: pytest.TempPathFactory,
+) -> None:
+    """After a rejected oversize write, reconcile_index finds nothing to replay: no S3
+    object was created and no failure-log entry exists, so the failure never becomes a
+    self-perpetuating reconcile-replay loop.
+    """
+    log_path = tmp_path / "failures.jsonl"
+    settings = _make_settings(monkeypatch, FAILURE_LOG_PATH=str(log_path))
+    bedrock = FakeBedrockClient(dimension=1024)
+
+    oversize_source = "a" * (S3_USER_METADATA_MAX_BYTES + 200)
+    kwargs = {**_BASE_WRITE_KWARGS, "source_artifacts": [oversize_source]}
+
+    write_result = await write_artifact(
+        s3=s3_client, vectors=vectors_client, bedrock=bedrock, settings=settings, **kwargs
+    )
+    assert write_result.get("error") == "validation_error"
+
+    reconcile_result = await reconcile_index(
+        settings=settings, s3=s3_client, vectors=vectors_client, bedrock=bedrock
+    )
+
+    assert reconcile_result["reconciled"] == []
+    assert reconcile_result["failed"] == []
+    assert reconcile_result["failure_log_entries_before"] == 0
+    assert reconcile_result["orphans_found"] == 0
+
+
+async def test_control_char_in_title_rejected_as_validation_error(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """A control character (e.g. newline) in title must surface as a structured
+    validation_error — never a raw exception (previously this reached urllib3 as a bare
+    ValueError once the value hit S3's HTTP-header transport)."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+    put_spy = mocker.spy(s3_client, "put_object")
+
+    kwargs = {**_BASE_WRITE_KWARGS, "title": "Bad\ntitle"}
+
+    result = await write_artifact(
+        s3=s3_client, vectors=vectors_client, bedrock=bedrock, settings=settings, **kwargs
+    )
+
+    assert result.get("error") == "validation_error"
+    assert "message" in result
+    assert put_spy.call_count == 0
+
+
+async def test_non_ascii_title_written_and_read_back_via_vector_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+) -> None:
+    """A non-Latin title writes successfully; the vector metadata (search's title source)
+    holds the raw, undamaged UTF-8 title — never a percent-encoded or stripped copy."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+
+    kwargs = {**_ONE_SECTION_KWARGS, "title": "日本語のタイトル"}
+    result = await write_artifact(
+        s3=s3_client, vectors=vectors_client, bedrock=bedrock, settings=settings, **kwargs
+    )
+
+    assert "error" not in result
+    artifact_id = result["artifact_id"]
+    keys = vectors_client.list_vectors_by_metadata({"artifact_id": {"$eq": artifact_id}})
+    entries = vectors_client.get_vectors(keys)
+    assert entries[0]["metadata"]["title"] == "日本語のタイトル"
+
+
+# ---------------------------------------------------------------------------
+# C4 (Phase 12 review) — T55 budget re-check must cover the T47 read-forward
+# merge on an overwrite. Step 3c only measures the *supplied* commit_refs/
+# references; the Step 4a merge unions them with the values already indexed
+# in vector metadata and can push the enlarged list past the 2 KB filterable
+# budget with no re-check in between — reintroducing the exact deterministic
+# partial-write / failure-log-replay loop T55 exists to prevent.
+# ---------------------------------------------------------------------------
+
+# Each list is comfortably under VECTOR_FILTERABLE_METADATA_MAX_BYTES (2048) on
+# its own once combined with the artifact's other filterable fields, but their
+# union is not — this isolates the missing post-merge re-check rather than
+# re-testing the pre-merge Step 3c guard already covered above.
+_LINK_FIELD_ITEM_LEN = 40
+_LINK_FIELD_ITEM_COUNT = 22
+
+
+def _make_link_field_batch(prefix: str) -> list[str]:
+    """Build a list of unique commit-ref-shaped strings for budget-breach tests."""
+    return [f"{prefix}{i:04d}" + "x" * _LINK_FIELD_ITEM_LEN for i in range(_LINK_FIELD_ITEM_COUNT)]
+
+
+@pytest.mark.asyncio
+async def test_overwrite_merged_commit_refs_exceeding_filterable_budget_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    tmp_path: pytest.TempPathFactory,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """C4: a tier-3 overwrite whose *supplied* commit_refs pass the pre-merge Step 3c
+    check, but whose union with the *already-indexed* commit_refs (read forward by
+    Step 4a) breaches the vector filterable-metadata budget, must be rejected with
+    validation_error — with NO put_object, NO put_vectors_batch, and NO failure-log
+    entry on the overwrite attempt. The original artifact and vectors must be left
+    completely untouched.
+    """
+    log_path = tmp_path / "failures.jsonl"
+    settings = _make_settings(monkeypatch, FAILURE_LOG_PATH=str(log_path))
+    bedrock = FakeBedrockClient(dimension=1024)
+    tier3_kwargs = {**_BASE_WRITE_KWARGS, "tier": 3}
+
+    existing_refs = _make_link_field_batch("a")
+    new_refs = _make_link_field_batch("b")
+    # Sanity: each batch alone is under budget — the breach only appears after the union.
+    assert len(json.dumps(existing_refs).encode("utf-8")) < VECTOR_FILTERABLE_METADATA_MAX_BYTES
+    assert len(json.dumps(new_refs).encode("utf-8")) < VECTOR_FILTERABLE_METADATA_MAX_BYTES
+
+    first = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        **{**tier3_kwargs, "commit_refs": existing_refs},
+    )
+    assert "error" not in first
+    artifact_id = first["artifact_id"]
+
+    put_spy = mocker.spy(s3_client, "put_object")
+    batch_spy = mocker.spy(vectors_client, "put_vectors_batch")
+
+    result = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        overwrite=True,
+        **{**tier3_kwargs, "content": "## Summary\n\nUpdated content.", "commit_refs": new_refs},
+    )
+
+    assert result.get("error") == "validation_error"
+    assert put_spy.call_count == 0
+    assert batch_spy.call_count == 0
+    assert not log_path.exists()
+
+    # The original artifact and its vector metadata are untouched by the rejected overwrite.
+    stored_content = s3_client.get_object(artifact_id)
+    assert "Updated content" not in stored_content
+    keys = vectors_client.list_vectors_by_metadata({"artifact_id": {"$eq": artifact_id}})
+    entries = vectors_client.get_vectors(keys)
+    assert entries, "expected the original vectors to remain indexed"
+    for entry in entries:
+        assert entry["metadata"]["commit_refs"] == existing_refs
+
+
+@pytest.mark.asyncio
+async def test_overwrite_merged_commit_refs_under_budget_still_succeeds(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+) -> None:
+    """C4 positive case: an overwrite whose merged (existing + supplied) commit_refs
+    stay under the filterable budget must still succeed — the post-merge re-check
+    must not reject writes that were always going to fit.
+    """
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+    tier3_kwargs = {**_BASE_WRITE_KWARGS, "tier": 3}
+
+    first = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        **{**tier3_kwargs, "commit_refs": ["abc1234"]},
+    )
+    assert "error" not in first
+    artifact_id = first["artifact_id"]
+
+    result = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        overwrite=True,
+        **{**tier3_kwargs, "content": "## Summary\n\nUpdated content.", "commit_refs": ["def5678"]},
+    )
+
+    assert "error" not in result
+    keys = vectors_client.list_vectors_by_metadata({"artifact_id": {"$eq": artifact_id}})
+    entries = vectors_client.get_vectors(keys)
+    for entry in entries:
+        assert entry["metadata"]["commit_refs"] == ["abc1234", "def5678"]
+
+
+# ---------------------------------------------------------------------------
+# C5(b) (Phase 12 review) — union-of-both-stores authority model
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_overwrite_read_forward_preserves_annotation_only_value(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+) -> None:
+    """C5(b) RED: after a partial dual-write (e.g. an out-of-band ``link_metadata`` call)
+    leaves the annotation copy ahead of the vector copy — the annotation holds a value
+    vector metadata lacks — a tier-3 overwrite's Step 4a read-forward must preserve the
+    union of both stores. Before the fix, Step 4a sourced the existing link fields from
+    vector metadata only, so the annotation-only value was silently dropped: PutObject
+    wipes the S3 annotation, and the read-forward never saw the value to re-apply it.
+    """
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+    tier3_kwargs = {**_BASE_WRITE_KWARGS, "tier": 3}
+
+    first = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        **{**tier3_kwargs, "commit_refs": ["abc1234"]},
+    )
+    assert "error" not in first
+    artifact_id = first["artifact_id"]
+
+    # Simulate a partial dual-write: an out-of-band annotation update succeeded, but the
+    # paired vector-metadata update did not — the annotation copy now holds a value
+    # ("def5678") the vector copy lacks.
+    s3_client.put_object_annotation(artifact_id, "commit_refs", "abc1234,def5678")
+
+    result = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        overwrite=True,
+        **{**tier3_kwargs, "content": "## Summary\n\nUpdated content."},
+    )
+
+    assert "error" not in result
+    keys = vectors_client.list_vectors_by_metadata({"artifact_id": {"$eq": artifact_id}})
+    entries = vectors_client.get_vectors(keys)
+    assert entries, "expected at least one vector for the overwritten artifact"
+    for entry in entries:
+        assert entry["metadata"]["commit_refs"] == ["abc1234", "def5678"]
+    assert s3_client.get_object_annotation(artifact_id, "commit_refs") == "abc1234,def5678"

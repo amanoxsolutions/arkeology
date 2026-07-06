@@ -5,6 +5,7 @@ All tests run without real AWS calls.
 """
 
 import json
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +13,7 @@ import boto3
 import pytest
 from pytest_mock import MockerFixture
 
+from cairn_mcp.annotations import apply_link_annotations
 from cairn_mcp.clients.fakes.fake_bedrock import FakeBedrockClient
 from cairn_mcp.clients.s3 import S3ClientImpl
 from cairn_mcp.clients.vectors import VectorsClientImpl
@@ -477,17 +479,21 @@ async def test_reindex_preserves_commit_refs_and_last_edited_ulid(
     vectors_reconcile: VectorsClientImpl,
 ) -> None:
     """Reconcile must reconstruct vector metadata mirroring write_artifact (T21), including
-    commit_refs (as list[str]) and last_edited_ulid — otherwise commit-ref filtering silently
-    stops matching and last_edited_ulid is lost for the rebuilt artifact.
+    commit_refs (as list[str], sourced from the durable annotation per ADR-011/T48 — S3
+    user-defined metadata no longer carries this field post-T47) and last_edited_ulid —
+    otherwise commit-ref filtering silently stops matching and last_edited_ulid is lost
+    for the rebuilt artifact.
     """
     artifact_id = "artifacts/implementation-note-2026-01-01-with-refs"
     ulid = "01HZZZ0000000000000000000A"
     meta = {
         **_BASE_S3_META,
-        "commit_refs": "abc123,def456",
         "last_edited_ulid": ulid,
     }
     s3_reconcile.put_object(artifact_id, _CONTENT_TWO_SECTIONS, meta)
+    apply_link_annotations(
+        s3_reconcile, artifact_id, commit_refs=["abc123", "def456"], references=[]
+    )
     bedrock = FakeBedrockClient(dimension=DIMENSION)
 
     result = await reconcile_index(
@@ -504,6 +510,251 @@ async def test_reindex_preserves_commit_refs_and_last_edited_ulid(
     vmeta = items[0]["metadata"]
     assert vmeta.get("commit_refs") == ["abc123", "def456"]
     assert vmeta.get("last_edited_ulid") == ulid
+
+
+# ---------------------------------------------------------------------------
+# T48 — reconcile rebuilds commit_refs / references from durable annotations
+# ---------------------------------------------------------------------------
+
+
+async def test_reindex_restores_link_fields_from_annotations(
+    reconcile_settings: Settings,
+    s3_reconcile: S3ClientImpl,
+    vectors_reconcile: VectorsClientImpl,
+) -> None:
+    """RED proof (ADR-011 / T48, Story 2): an object whose S3 user-defined metadata has
+    NO commit_refs/references keys at all (the post-T47 reality) but whose durable
+    annotations carry both fields — reconcile must source the rebuilt vector metadata
+    from the annotations, not from S3 metadata. Fails before the fix because the
+    current implementation only ever reads commit_refs from S3 metadata (which is
+    absent here) and never reads references at all.
+    """
+    artifact_id = "artifacts/implementation-note-2026-01-01-from-annotations"
+    s3_reconcile.put_object(artifact_id, _CONTENT_TWO_SECTIONS, {**_BASE_S3_META})
+    apply_link_annotations(
+        s3_reconcile,
+        artifact_id,
+        commit_refs=["abc123", "def456"],
+        references=["implementation-note-2026-01-01-other"],
+    )
+    bedrock = FakeBedrockClient(dimension=DIMENSION)
+
+    result = await reconcile_index(
+        settings=reconcile_settings,
+        s3=s3_reconcile,
+        vectors=vectors_reconcile,
+        bedrock=bedrock,
+    )
+
+    assert "error" not in result
+    keys = vectors_reconcile.list_vectors_by_metadata({"artifact_id": {"$eq": artifact_id}})
+    items = vectors_reconcile.get_vectors(keys)
+    assert items, "reconcile should have indexed vectors for the artifact"
+    vmeta = items[0]["metadata"]
+    assert vmeta.get("commit_refs") == ["abc123", "def456"]
+    assert vmeta.get("references") == ["implementation-note-2026-01-01-other"]
+
+
+async def test_reindex_clean_state_omits_empty_link_fields(
+    reconcile_settings: Settings,
+    s3_reconcile: S3ClientImpl,
+    vectors_reconcile: VectorsClientImpl,
+) -> None:
+    """An object with no link annotations at all reconciles to rebuilt vector metadata
+    that simply omits commit_refs and references — no error, no empty-list keys (S3
+    Vectors rejects empty arrays)."""
+    artifact_id = "artifacts/implementation-note-2026-01-01-clean-state"
+    s3_reconcile.put_object(artifact_id, _CONTENT_NO_SECTIONS, {**_BASE_S3_META})
+    bedrock = FakeBedrockClient(dimension=DIMENSION)
+
+    result = await reconcile_index(
+        settings=reconcile_settings,
+        s3=s3_reconcile,
+        vectors=vectors_reconcile,
+        bedrock=bedrock,
+    )
+
+    assert "error" not in result
+    keys = vectors_reconcile.list_vectors_by_metadata({"artifact_id": {"$eq": artifact_id}})
+    items = vectors_reconcile.get_vectors(keys)
+    assert items, "reconcile should have indexed vectors for the artifact"
+    vmeta = items[0]["metadata"]
+    assert "commit_refs" not in vmeta
+    assert "references" not in vmeta
+
+
+async def test_reindex_annotations_unavailable_degrades(
+    reconcile_settings: Settings,
+    s3_reconcile: S3ClientImpl,
+    vectors_reconcile: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """When reading annotations fails for reasons other than absence (feature
+    unavailable in this region/bucket type, AccessDenied, or any other exception),
+    reconcile logs the failure and treats both link fields as empty for that
+    artifact — the run must still complete (ADR-011 decision 5), not abort."""
+    artifact_id = "artifacts/implementation-note-2026-01-01-annotations-unavailable"
+    s3_reconcile.put_object(artifact_id, _CONTENT_NO_SECTIONS, {**_BASE_S3_META})
+    mocker.patch.object(
+        s3_reconcile,
+        "get_object_annotation",
+        side_effect=RuntimeError("simulated annotation feature unavailable"),
+    )
+    bedrock = FakeBedrockClient(dimension=DIMENSION)
+
+    result = await reconcile_index(
+        settings=reconcile_settings,
+        s3=s3_reconcile,
+        vectors=vectors_reconcile,
+        bedrock=bedrock,
+    )
+
+    assert "error" not in result
+    reconciled_ids = [e["artifact_id"] for e in result["reconciled"]]
+    assert artifact_id in reconciled_ids
+    keys = vectors_reconcile.list_vectors_by_metadata({"artifact_id": {"$eq": artifact_id}})
+    items = vectors_reconcile.get_vectors(keys)
+    assert items, "reconcile should still have indexed vectors for the artifact"
+    vmeta = items[0]["metadata"]
+    assert "commit_refs" not in vmeta
+    assert "references" not in vmeta
+
+
+async def test_failure_log_replay_and_orphan_scan_both_restore(
+    reconcile_settings: Settings,
+    s3_reconcile: S3ClientImpl,
+    vectors_reconcile: VectorsClientImpl,
+) -> None:
+    """Both _reindex_artifact call sites — Phase 1 failure-log replay and Phase 2
+    orphan scan — pass s3 through and restore link fields identically from
+    annotations."""
+    replay_id = "artifacts/implementation-note-2026-01-01-replay-restores"
+    orphan_id = "artifacts/implementation-note-2026-01-01-orphan-restores"
+
+    s3_reconcile.put_object(replay_id, _CONTENT_NO_SECTIONS, {**_BASE_S3_META})
+    apply_link_annotations(s3_reconcile, replay_id, commit_refs=["aaa1111"], references=[])
+    _write_failure_log(
+        reconcile_settings.failure_log_path,
+        [{**_BASE_LOG_ENTRY, "artifact_id": replay_id}],
+    )
+
+    s3_reconcile.put_object(orphan_id, _CONTENT_NO_SECTIONS, {**_BASE_S3_META})
+    apply_link_annotations(s3_reconcile, orphan_id, commit_refs=["bbb2222"], references=[])
+
+    bedrock = FakeBedrockClient(dimension=DIMENSION)
+
+    result = await reconcile_index(
+        settings=reconcile_settings,
+        s3=s3_reconcile,
+        vectors=vectors_reconcile,
+        bedrock=bedrock,
+    )
+
+    assert "error" not in result
+
+    replay_keys = vectors_reconcile.list_vectors_by_metadata({"artifact_id": {"$eq": replay_id}})
+    replay_items = vectors_reconcile.get_vectors(replay_keys)
+    assert replay_items, "failure-log replay should have indexed vectors"
+    assert replay_items[0]["metadata"].get("commit_refs") == ["aaa1111"]
+
+    orphan_keys = vectors_reconcile.list_vectors_by_metadata({"artifact_id": {"$eq": orphan_id}})
+    orphan_items = vectors_reconcile.get_vectors(orphan_keys)
+    assert orphan_items, "orphan scan should have indexed vectors"
+    assert orphan_items[0]["metadata"].get("commit_refs") == ["bbb2222"]
+
+    reconciled_by_source = {e["artifact_id"]: e["source"] for e in result["reconciled"]}
+    assert reconciled_by_source[replay_id] == "failure_log"
+    assert reconciled_by_source[orphan_id] == "orphan_scan"
+
+
+# ---------------------------------------------------------------------------
+# C5(a) / M6 (Phase 12 review) — union-of-both-stores authority model
+# ---------------------------------------------------------------------------
+
+
+async def test_reindex_from_failure_log_preserves_vector_only_link_fields(
+    reconcile_settings: Settings,
+    s3_reconcile: S3ClientImpl,
+    vectors_reconcile: VectorsClientImpl,
+) -> None:
+    """C5(a) RED: an artifact whose commit_refs/references live ONLY in vector metadata
+    (e.g. a T52 annotation-unavailable deployment, where the annotation write degraded
+    but the vector write still carried the fields) must survive a reconcile re-index
+    with those fields intact. Re-index is forced here via a failure-log entry so
+    ``_reindex_artifact`` runs even though a vector is already indexed. Before the fix,
+    reconcile read annotations only (empty, since none were ever written), and
+    overwrote vector metadata from that — erasing the only durable copy of the fields.
+    """
+    artifact_id = "artifacts/implementation-note-2026-01-01-vector-only-links"
+    s3_reconcile.put_object(artifact_id, _CONTENT_NO_SECTIONS, {**_BASE_S3_META})
+    # No apply_link_annotations call — simulates an annotation-unavailable deployment.
+    vectors_reconcile.put_vector(
+        artifact_id,
+        [0.1] * DIMENSION,
+        {
+            "artifact_id": artifact_id,
+            "scope": reconcile_settings.write_prefix,
+            "type": "implementation_note",
+            "commit_refs": ["abc123"],
+            "references": ["implementation-note-2026-01-01-other"],
+        },
+    )
+    _write_failure_log(
+        reconcile_settings.failure_log_path,
+        [{**_BASE_LOG_ENTRY, "artifact_id": artifact_id}],
+    )
+    bedrock = FakeBedrockClient(dimension=DIMENSION)
+
+    result = await reconcile_index(
+        settings=reconcile_settings,
+        s3=s3_reconcile,
+        vectors=vectors_reconcile,
+        bedrock=bedrock,
+    )
+
+    assert "error" not in result
+    keys = vectors_reconcile.list_vectors_by_metadata({"artifact_id": {"$eq": artifact_id}})
+    items = vectors_reconcile.get_vectors(keys)
+    assert items, "reconcile should have re-indexed vectors for the artifact"
+    vmeta = items[0]["metadata"]
+    assert vmeta.get("commit_refs") == ["abc123"]
+    assert vmeta.get("references") == ["implementation-note-2026-01-01-other"]
+
+
+async def test_reindex_credential_error_from_annotation_read_propagates(
+    reconcile_settings: Settings,
+    s3_reconcile: S3ClientImpl,
+    vectors_reconcile: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """M6 RED: a CredentialError raised while reading link annotations during reconcile
+    must propagate as a structured credential_error and abort the run — not be silently
+    swallowed by a bare ``except Exception``, which would otherwise re-index every
+    remaining artifact without its commit_refs/references and report success."""
+    artifact_id = "artifacts/implementation-note-2026-01-01-cred-error"
+    s3_reconcile.put_object(artifact_id, _CONTENT_NO_SECTIONS, {**_BASE_S3_META})
+    _write_failure_log(
+        reconcile_settings.failure_log_path,
+        [{**_BASE_LOG_ENTRY, "artifact_id": artifact_id}],
+    )
+    mocker.patch.object(
+        s3_reconcile,
+        "get_object_annotation",
+        side_effect=CredentialError("expired", "s3", Exception("boom")),
+    )
+    bedrock = FakeBedrockClient(dimension=DIMENSION)
+
+    result = await reconcile_index(
+        settings=reconcile_settings,
+        s3=s3_reconcile,
+        vectors=vectors_reconcile,
+        bedrock=bedrock,
+    )
+
+    assert result.get("error") == "credential_error"
+    # The artifact must not have been silently re-indexed without its link fields.
+    keys = vectors_reconcile.list_vectors_by_metadata({"artifact_id": {"$eq": artifact_id}})
+    assert keys == []
 
 
 # ---------------------------------------------------------------------------
@@ -1032,6 +1283,57 @@ async def test_phase2_and_phase3_both_run(
     assert dangling_id in result["dangling_artifacts"]
 
 
+async def test_phase3_race_written_after_vector_listing_not_pruned(
+    reconcile_settings: Settings,
+    s3_reconcile: S3ClientImpl,
+    vectors_reconcile: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """M-2 RED proof: an artifact whose S3 object exists at prune time, but was excluded
+    from the S3 listing snapshot Phase 2/3 took (simulating a write that completed
+    between the S3 listing and the vector listing), must NOT have its vectors pruned.
+    A re-``head_object`` check immediately before deletion must confirm the object is
+    actually absent before treating the vector entry as dangling. Before the fix, the
+    listing snapshot alone decided dangling-ness, so this concurrently-written
+    artifact's fresh vectors would be deleted."""
+    artifact_id = "artifacts/implementation-note-2026-01-01-race-written"
+    vec_key = f"{artifact_id}#section"
+
+    # The artifact is actually present in S3 (simulating: it was written between the
+    # S3 listing and the vector listing) and its vector is indexed.
+    s3_reconcile.put_object(artifact_id, _CONTENT_NO_SECTIONS, {**_BASE_S3_META})
+    vectors_reconcile.put_vector(
+        vec_key,
+        [1.0] + [0.0] * (DIMENSION - 1),
+        {"artifact_id": artifact_id, "scope": "artifacts"},
+    )
+
+    # Simulate the race: the S3 listing snapshot taken by Phase 2/3 did NOT include
+    # this key, as if it had not yet been written when list_objects ran — even though
+    # the object exists in S3 by the time Phase 3 prunes.
+    real_list_objects = s3_reconcile.list_objects
+
+    def _stale_listing(prefix: str) -> list[str]:
+        return [k for k in real_list_objects(prefix) if k != artifact_id]
+
+    mocker.patch.object(s3_reconcile, "list_objects", side_effect=_stale_listing)
+    spy_delete = mocker.spy(vectors_reconcile, "delete_vectors")
+
+    result = await reconcile_index(
+        settings=reconcile_settings,
+        s3=s3_reconcile,
+        vectors=vectors_reconcile,
+        bedrock=FakeBedrockClient(dimension=DIMENSION),
+    )
+
+    assert "error" not in result
+    assert artifact_id not in result["dangling_artifacts"]
+    assert spy_delete.call_count == 0
+    # The vector must still be present — not pruned.
+    keys = vectors_reconcile.list_vectors_by_metadata({"artifact_id": {"$eq": artifact_id}})
+    assert vec_key in keys
+
+
 async def test_phase3_foreign_scope_not_pruned(
     reconcile_settings: Settings,
     s3_reconcile: S3ClientImpl,
@@ -1227,4 +1529,159 @@ async def test_m15_phase1_failure_not_duplicated_as_phase2_orphan(
     assert count == 1, (
         f"M15: artifact_id should appear in failed exactly once, but found {count} times. "
         f"failed list: {result['failed']}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# T55 (M-5, Story 4) — reconcile rebuild preserves non-ASCII titles losslessly
+# ---------------------------------------------------------------------------
+
+
+async def test_reindex_preserves_non_ascii_title(
+    reconcile_settings: Settings,
+    s3_reconcile: S3ClientImpl,
+    vectors_reconcile: VectorsClientImpl,
+) -> None:
+    """An artifact seeded with a non-Latin title (transport-encoded on S3 by put_object,
+    exactly as write_artifact would produce) is rebuilt by reconcile_index with the
+    original title in vector metadata — not the percent-encoded transport form and not a
+    stripped/empty string.
+    """
+    artifact_id = "artifacts/implementation-note-2026-01-01-non-ascii-title"
+    non_ascii_title = "日本語のタイトル"
+    s3_reconcile.put_object(
+        artifact_id, _CONTENT_NO_SECTIONS, {**_BASE_S3_META, "title": non_ascii_title}
+    )
+    bedrock = FakeBedrockClient(dimension=DIMENSION)
+
+    result = await reconcile_index(
+        settings=reconcile_settings,
+        s3=s3_reconcile,
+        vectors=vectors_reconcile,
+        bedrock=bedrock,
+    )
+    assert "error" not in result
+
+    keys = vectors_reconcile.list_vectors_by_metadata({"artifact_id": {"$eq": artifact_id}})
+    items = vectors_reconcile.get_vectors(keys)
+    assert items, "reconcile should have indexed vectors for the artifact"
+    assert items[0]["metadata"]["title"] == non_ascii_title
+
+    reconciled_entry = next(e for e in result["reconciled"] if e["artifact_id"] == artifact_id)
+    assert reconciled_entry["title"] == non_ascii_title
+
+
+# ---------------------------------------------------------------------------
+# M-8 — reconcile_index's blocking client calls are offloaded off the event loop
+# ---------------------------------------------------------------------------
+
+
+async def test_reconcile_orphan_scan_calls_run_off_event_loop(
+    reconcile_settings: Settings,
+    s3_reconcile: S3ClientImpl,
+    vectors_reconcile: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """During the orphan scan, s3.list_objects/get_object/head_object and
+    bedrock.embed (invoked inside _reindex_artifact) all execute on a worker thread,
+    never on the calling event-loop thread — proves the calls are routed through
+    asyncio.to_thread."""
+    artifact_id = "artifacts/implementation-note-2026-01-01-off-loop-orphan"
+    s3_reconcile.put_object(artifact_id, _CONTENT_NO_SECTIONS, {**_BASE_S3_META})
+    bedrock = FakeBedrockClient(dimension=DIMENSION)
+    main_thread = threading.current_thread()
+    seen_threads: list[threading.Thread] = []
+
+    original_list_objects = s3_reconcile.list_objects
+    original_get_object = s3_reconcile.get_object
+    original_head_object = s3_reconcile.head_object
+    original_embed = bedrock.embed
+
+    def spy_list_objects(*args: Any, **kwargs: Any) -> Any:
+        seen_threads.append(threading.current_thread())
+        return original_list_objects(*args, **kwargs)
+
+    def spy_get_object(*args: Any, **kwargs: Any) -> Any:
+        seen_threads.append(threading.current_thread())
+        return original_get_object(*args, **kwargs)
+
+    def spy_head_object(*args: Any, **kwargs: Any) -> Any:
+        seen_threads.append(threading.current_thread())
+        return original_head_object(*args, **kwargs)
+
+    def spy_embed(*args: Any, **kwargs: Any) -> Any:
+        seen_threads.append(threading.current_thread())
+        return original_embed(*args, **kwargs)
+
+    mocker.patch.object(s3_reconcile, "list_objects", side_effect=spy_list_objects)
+    mocker.patch.object(s3_reconcile, "get_object", side_effect=spy_get_object)
+    mocker.patch.object(s3_reconcile, "head_object", side_effect=spy_head_object)
+    mocker.patch.object(bedrock, "embed", side_effect=spy_embed)
+
+    result = await reconcile_index(
+        settings=reconcile_settings,
+        s3=s3_reconcile,
+        vectors=vectors_reconcile,
+        bedrock=bedrock,
+    )
+
+    assert "error" not in result
+    assert result["orphans_found"] == 1
+    assert seen_threads, "s3/bedrock calls were never made"
+    assert all(t is not main_thread for t in seen_threads), (
+        "s3/bedrock calls ran on the event-loop thread — they must be offloaded"
+    )
+
+
+async def test_reconcile_dangling_prune_calls_run_off_event_loop(
+    reconcile_settings: Settings,
+    s3_reconcile: S3ClientImpl,
+    vectors_reconcile: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """During dangling-vector pruning, vectors.list_vectors_by_metadata,
+    s3.head_object (re-confirmation), and vectors.delete_vectors all execute on a
+    worker thread, never on the calling event-loop thread."""
+    dangling_id = "artifacts/implementation-note-2026-01-01-off-loop-dangling"
+    vectors_reconcile.put_vector(
+        f"{dangling_id}#section",
+        [0.1] * DIMENSION,
+        {"artifact_id": dangling_id, "scope": "artifacts"},
+    )
+    bedrock = FakeBedrockClient(dimension=DIMENSION)
+    main_thread = threading.current_thread()
+    seen_threads: list[threading.Thread] = []
+
+    original_list_by_meta = vectors_reconcile.list_vectors_by_metadata
+    original_head_object = s3_reconcile.head_object
+    original_delete_vectors = vectors_reconcile.delete_vectors
+
+    def spy_list_by_meta(*args: Any, **kwargs: Any) -> Any:
+        seen_threads.append(threading.current_thread())
+        return original_list_by_meta(*args, **kwargs)
+
+    def spy_head_object(*args: Any, **kwargs: Any) -> Any:
+        seen_threads.append(threading.current_thread())
+        return original_head_object(*args, **kwargs)
+
+    def spy_delete_vectors(*args: Any, **kwargs: Any) -> Any:
+        seen_threads.append(threading.current_thread())
+        return original_delete_vectors(*args, **kwargs)
+
+    mocker.patch.object(vectors_reconcile, "list_vectors_by_metadata", side_effect=spy_list_by_meta)
+    mocker.patch.object(s3_reconcile, "head_object", side_effect=spy_head_object)
+    mocker.patch.object(vectors_reconcile, "delete_vectors", side_effect=spy_delete_vectors)
+
+    result = await reconcile_index(
+        settings=reconcile_settings,
+        s3=s3_reconcile,
+        vectors=vectors_reconcile,
+        bedrock=bedrock,
+    )
+
+    assert "error" not in result
+    assert result["dangling_artifacts_found"] == 1
+    assert seen_threads, "vector/s3 calls were never made"
+    assert all(t is not main_thread for t in seen_threads), (
+        "Dangling-prune calls ran on the event-loop thread — they must be offloaded"
     )

@@ -59,6 +59,34 @@ class ConfigurationError(CairnError):
         self.fields = fields or []
 
 
+class AnnotationUnavailableError(CairnError):
+    """Raised when an S3 object annotation call fails because annotations are
+    unavailable (unsupported region or bucket type) or the caller lacks the
+    required IAM permission.
+
+    Distinct from :class:`CredentialError`: this signals an annotation-specific
+    limitation, not a general credential/authentication failure. Annotations
+    back only the mutable ``commit_refs`` / ``references`` link fields
+    (ADR-011) — core content, vector, and embedding operations are unaffected
+    and must keep functioning when this error is raised. Per ADR-011
+    decision 5, callers degrade gracefully (a warning on the write path, a
+    structured error from ``link_metadata``) rather than treating this as a
+    hard failure, and it is never used as a startup gate.
+
+    Attributes:
+        message: Human-readable, actionable explanation (required IAM actions,
+            unsupported regions/bucket types).
+        service: Which AWS service triggered the error (always ``"s3"``).
+        original: The original botocore exception, preserved for logging.
+    """
+
+    def __init__(self, message: str, service: str, original: Exception) -> None:
+        super().__init__(message)
+        self.message = message
+        self.service = service
+        self.original = original
+
+
 class VectorIndexNotFoundError(CairnError):
     """Raised when the configured S3 Vectors index does not exist.
 
@@ -91,6 +119,26 @@ class ArtifactCollisionError(CairnError):
     def __init__(self, key: str) -> None:
         super().__init__(f"Conditional create rejected: an object already exists at key '{key}'")
         self.key = key
+
+
+class MetadataTooLargeError(CairnError):
+    """Raised when assembled write-path metadata breaches one of the three byte budgets
+    checked before any S3 or vector write — see ``cairn_mcp.artifact.check_metadata_budgets``.
+
+    Attributes:
+        budget: Which budget was breached: ``"s3_user_metadata"``,
+            ``"vector_filterable_metadata"``, or ``"vector_total_metadata"``.
+        actual_bytes: The measured size of the offending representation, in bytes.
+        max_bytes: The budget's maximum allowed size, in bytes.
+    """
+
+    def __init__(self, budget: str, actual_bytes: int, max_bytes: int) -> None:
+        super().__init__(
+            f"Metadata exceeds the {budget} budget: {actual_bytes} bytes > {max_bytes} bytes"
+        )
+        self.budget = budget
+        self.actual_bytes = actual_bytes
+        self.max_bytes = max_bytes
 
 
 class VectorDistanceMissingError(CairnError):

@@ -12,16 +12,25 @@ task: 40
 references:
   - docs/brainstorming/brainstorming-2026-06-06-artifact-commit-refs.md
   - docs/architecture-decisions/adr-2026-06-16-artifact-commit-traceability.md
+  - docs/architecture-decisions/adr-2026-07-03-annotation-backed-link-storage.md
   - docs/planning-artifacts/prd.md
 authored:
   by: architect
   date: "2026-06-16"
 revised:
   by: architect
-  date: "2026-06-16"
+  date: "2026-07-03"
 ---
 
 # T40 — Migration Skill `commit_refs` Backfill Options
+
+> **Alignment note (2026-07-03, ADR-011).** Everywhere this spec says `link_commit`, read
+> **`link_metadata`** — `link_commit` is generalized and superseded by `link_metadata`
+> (`p12-t49-link-metadata`). All three backfill options (skip / bulk HEAD link / per-file git
+> history) stand unchanged; only the tool name changes. Backfilled `commit_refs` now land in the
+> **durable S3 object annotation** (dual-written with vector metadata), so they **survive
+> `reconcile_index`** — the earlier "vector-metadata-only, reconcile drops `commit_refs`" caveat no
+> longer applies. This remains a skill-only change with no server code impact.
 
 <!-- SCOPE BLOCK — frozen after approval -->
 

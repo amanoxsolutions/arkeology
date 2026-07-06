@@ -4,6 +4,7 @@ Tests list_artifacts() using moto-backed VectorsClientImpl — no S3 or Bedrock 
 """
 
 import math
+import threading
 from typing import Any
 
 import pytest
@@ -236,6 +237,25 @@ async def test_status_inactive_override_returns_only_inactive(
         assert artifact["status"] == "inactive"
 
 
+async def test_status_all_returns_active_and_inactive(
+    monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
+) -> None:
+    """status='all' (M-11d) → both active and inactive own-scope artifacts returned;
+    previously the browser Studio's "All" filter was unreachable because omitting the
+    status arg fell back to the "active" default."""
+    settings = _make_settings(monkeypatch)
+    _seed_vectors(vectors_client_8)
+
+    result = await list_artifacts(
+        settings=settings, vectors=vectors_client_8, s3=None, bedrock=None, status="all"
+    )
+
+    ids = [a["artifact_id"] for a in result["artifacts"]]
+    assert "artifacts/t2-active-review" in ids
+    assert "artifacts/t2-inactive-review" in ids
+
+
 # ---------------------------------------------------------------------------
 # Filter combinations
 # ---------------------------------------------------------------------------
@@ -412,6 +432,7 @@ async def test_result_has_required_fields(
         "author_role",
         "description",
         "commit_refs",
+        "references",
         "last_edited_ulid",
     ]
     for artifact in result["artifacts"]:
@@ -739,6 +760,184 @@ async def test_list_result_commit_refs_empty_when_absent(
     assert no_ref[0]["commit_refs"] == []
 
 
+# ---------------------------------------------------------------------------
+# T46 — references filter (AND semantics) and references field in list response
+# ---------------------------------------------------------------------------
+
+
+async def test_list_references_filter_returns_matching_artifacts(
+    monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
+) -> None:
+    """list_artifacts with references=['a-1'] returns only matching artifacts."""
+    settings = _make_settings(monkeypatch)
+    vectors_client_8.put_vector(
+        "artifacts/with-ref-field#summary",
+        _unit_vec(4.0),
+        {
+            **_BASE_VECTOR_META,
+            "artifact_id": "artifacts/with-ref-field",
+            "references": ["a-1"],
+        },
+    )
+    vectors_client_8.put_vector(
+        "artifacts/no-ref-field#summary",
+        _unit_vec(4.1),
+        {
+            **_BASE_VECTOR_META,
+            "artifact_id": "artifacts/no-ref-field",
+        },
+    )
+
+    result = await list_artifacts(
+        settings=settings,
+        vectors=vectors_client_8,
+        s3=None,
+        bedrock=None,
+        references=["a-1"],
+    )
+
+    artifacts = result.get("artifacts", [])
+    ids = [a["artifact_id"] for a in artifacts]
+    assert "artifacts/with-ref-field" in ids
+    assert "artifacts/no-ref-field" not in ids
+
+
+async def test_list_references_filter_two_identifiers_is_and_semantics(
+    monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
+) -> None:
+    """references=['a-1', 'b-2'] requires BOTH identifiers to be present (AND semantics)."""
+    settings = _make_settings(monkeypatch)
+    # matches both
+    vectors_client_8.put_vector(
+        "artifacts/both-refs#summary",
+        _unit_vec(4.2),
+        {
+            **_BASE_VECTOR_META,
+            "artifact_id": "artifacts/both-refs",
+            "references": ["a-1", "b-2"],
+        },
+    )
+    # matches only one
+    vectors_client_8.put_vector(
+        "artifacts/one-ref#summary",
+        _unit_vec(4.3),
+        {
+            **_BASE_VECTOR_META,
+            "artifact_id": "artifacts/one-ref",
+            "references": ["a-1"],
+        },
+    )
+
+    result = await list_artifacts(
+        settings=settings,
+        vectors=vectors_client_8,
+        s3=None,
+        bedrock=None,
+        references=["a-1", "b-2"],
+    )
+
+    artifacts = result.get("artifacts", [])
+    ids = [a["artifact_id"] for a in artifacts]
+    assert "artifacts/both-refs" in ids
+    assert "artifacts/one-ref" not in ids
+
+
+async def test_list_no_references_filter_returns_all(
+    monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
+) -> None:
+    """list_artifacts without a references filter returns artifacts with and without references."""
+    settings = _make_settings(monkeypatch)
+    vectors_client_8.put_vector(
+        "artifacts/with-ref-field2#summary",
+        _unit_vec(4.4),
+        {
+            **_BASE_VECTOR_META,
+            "artifact_id": "artifacts/with-ref-field2",
+            "references": ["c-3"],
+        },
+    )
+    vectors_client_8.put_vector(
+        "artifacts/no-ref-field2#summary",
+        _unit_vec(4.5),
+        {
+            **_BASE_VECTOR_META,
+            "artifact_id": "artifacts/no-ref-field2",
+        },
+    )
+
+    result = await list_artifacts(
+        settings=settings,
+        vectors=vectors_client_8,
+        s3=None,
+        bedrock=None,
+    )
+
+    artifacts = result.get("artifacts", [])
+    ids = [a["artifact_id"] for a in artifacts]
+    assert "artifacts/with-ref-field2" in ids
+    assert "artifacts/no-ref-field2" in ids
+
+
+async def test_list_result_includes_references_field(
+    monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
+) -> None:
+    """Each artifact entry includes 'references' list."""
+    settings = _make_settings(monkeypatch)
+    vectors_client_8.put_vector(
+        "artifacts/with-ref-field3#summary",
+        _unit_vec(4.6),
+        {
+            **_BASE_VECTOR_META,
+            "artifact_id": "artifacts/with-ref-field3",
+            "references": ["a-1"],
+        },
+    )
+
+    result = await list_artifacts(
+        settings=settings,
+        vectors=vectors_client_8,
+        s3=None,
+        bedrock=None,
+    )
+
+    artifacts = result.get("artifacts", [])
+    with_ref = [a for a in artifacts if a.get("artifact_id") == "artifacts/with-ref-field3"]
+    assert len(with_ref) == 1
+    assert with_ref[0]["references"] == ["a-1"]
+
+
+async def test_list_result_references_empty_when_absent(
+    monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
+) -> None:
+    """Artifact without references in vector metadata → references=[] in response."""
+    settings = _make_settings(monkeypatch)
+    vectors_client_8.put_vector(
+        "artifacts/no-ref-field3#summary",
+        _unit_vec(4.7),
+        {
+            **_BASE_VECTOR_META,
+            "artifact_id": "artifacts/no-ref-field3",
+        },
+    )
+
+    result = await list_artifacts(
+        settings=settings,
+        vectors=vectors_client_8,
+        s3=None,
+        bedrock=None,
+    )
+
+    artifacts = result.get("artifacts", [])
+    no_ref = [a for a in artifacts if a.get("artifact_id") == "artifacts/no-ref-field3"]
+    assert len(no_ref) == 1
+    assert no_ref[0]["references"] == []
+
+
 async def test_list_result_includes_last_edited_ulid(
     monkeypatch: pytest.MonkeyPatch,
     vectors_client_8: VectorsClientImpl,
@@ -885,4 +1084,47 @@ async def test_m17_vector_missing_tier_key_does_not_raise(
     returned_ids = {a["artifact_id"] for a in result.get("artifacts", [])}
     assert "artifacts/legacy-no-tier" in returned_ids, (
         "M17: Legacy artifact without 'tier' key should appear in list results, not raise KeyError"
+    )
+
+
+# ---------------------------------------------------------------------------
+# M-8 — list_artifacts's blocking client calls are offloaded off the event loop
+# ---------------------------------------------------------------------------
+
+
+async def test_list_vector_calls_run_off_event_loop(
+    monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """list_vectors_by_metadata and get_vectors execute on a worker thread, never on
+    the calling event-loop thread — proves the calls are routed through
+    asyncio.to_thread."""
+    settings = _make_settings(monkeypatch)
+    _seed_vectors(vectors_client_8)
+    main_thread = threading.current_thread()
+    seen_threads: list[threading.Thread] = []
+
+    original_list = vectors_client_8.list_vectors_by_metadata
+    original_get_vectors = vectors_client_8.get_vectors
+
+    def spy_list(*args: Any, **kwargs: Any) -> Any:
+        seen_threads.append(threading.current_thread())
+        return original_list(*args, **kwargs)
+
+    def spy_get_vectors(*args: Any, **kwargs: Any) -> Any:
+        seen_threads.append(threading.current_thread())
+        return original_get_vectors(*args, **kwargs)
+
+    mocker.patch.object(vectors_client_8, "list_vectors_by_metadata", side_effect=spy_list)
+    mocker.patch.object(vectors_client_8, "get_vectors", side_effect=spy_get_vectors)
+
+    result = await list_artifacts(
+        settings=settings, vectors=vectors_client_8, s3=None, bedrock=None
+    )
+
+    assert "error" not in result
+    assert seen_threads, "list_vectors_by_metadata/get_vectors were never called"
+    assert all(t is not main_thread for t in seen_threads), (
+        "Vector calls ran on the event-loop thread — they must be offloaded"
     )

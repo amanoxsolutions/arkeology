@@ -3,6 +3,8 @@
 Tests archive_artifact() using moto-backed S3ClientImpl + VectorsClientImpl.
 """
 
+import json
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -11,13 +13,17 @@ from pytest_mock import MockerFixture
 from cairn_mcp.clients.s3 import S3ClientImpl
 from cairn_mcp.clients.vectors import VectorsClientImpl
 from cairn_mcp.config import Settings
-from cairn_mcp.errors import CredentialError
+from cairn_mcp.errors import AnnotationUnavailableError, CredentialError
 from cairn_mcp.tools.archive import archive_artifact
 from tests.unit.conftest import _make_settings as _make_settings_base
 
 
-def _make_settings(monkeypatch: pytest.MonkeyPatch, **overrides: str) -> Settings:
-    return _make_settings_base(monkeypatch, READ_PREFIXES="other-team", **overrides)
+def _make_settings(
+    monkeypatch: pytest.MonkeyPatch, *, tmp_path: Path | None = None, **overrides: str
+) -> Settings:
+    return _make_settings_base(
+        monkeypatch, tmp_path=tmp_path, READ_PREFIXES="other-team", **overrides
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -239,6 +245,186 @@ async def test_archive_doc_level_vector_updated(
 
 
 # ---------------------------------------------------------------------------
+# T50 — unified own-scope referenced_by check (references + source_artifacts)
+# ---------------------------------------------------------------------------
+
+
+async def test_archive_referenced_via_references_field_warns_informationally(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+) -> None:
+    """Archiving an artifact referenced via another own-scope artifact's `references`
+    field → archived AND response includes an informational warning listing it."""
+    settings = _make_settings(monkeypatch)
+    _seed_all(s3_client, vectors_client_2)
+    s3_client.put_object(
+        "artifacts/referrer-via-refs",
+        _CONTENT,
+        {**_BASE_S3_META, "type": "adr", "status": "active"},
+    )
+    vectors_client_2.put_vector(
+        "artifacts/referrer-via-refs#summary",
+        [0.5, 0.5],
+        {
+            **_BASE_VECTOR_META,
+            "artifact_id": "artifacts/referrer-via-refs",
+            "type": "adr",
+            "status": "active",
+            "references": ["artifacts/active-review"],
+        },
+    )
+
+    result = await archive_artifact(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=None,
+        artifact_id="artifacts/active-review",
+    )
+
+    assert result["status"] == "inactive"
+    warning = result.get("warning", [])
+    assert "artifacts/referrer-via-refs" in warning
+    message = result.get("warning_message", "").lower()
+    assert "revers" in message
+
+
+async def test_archive_referenced_via_source_artifacts_warns(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+) -> None:
+    """Archiving an artifact that is a `source_artifacts` entry of an active own-scope
+    synthesis → warned via the type=synthesis prefilter + in-process check."""
+    settings = _make_settings(monkeypatch)
+    _seed_all(s3_client, vectors_client_2)
+    s3_client.put_object(
+        "artifacts/synthesis-archived-src",
+        _CONTENT,
+        {
+            **_BASE_S3_META,
+            "type": "synthesis",
+            "source_artifacts": "artifacts/active-review",
+            "status": "active",
+        },
+    )
+    vectors_client_2.put_vector(
+        "artifacts/synthesis-archived-src#summary",
+        [0.6, 0.4],
+        {
+            **_BASE_VECTOR_META,
+            "artifact_id": "artifacts/synthesis-archived-src",
+            "type": "synthesis",
+            "source_artifacts": ["artifacts/active-review"],
+            "status": "active",
+        },
+    )
+
+    result = await archive_artifact(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=None,
+        artifact_id="artifacts/active-review",
+    )
+
+    assert result["status"] == "inactive"
+    warning = result.get("warning", [])
+    assert "artifacts/synthesis-archived-src" in warning
+
+
+async def test_archive_foreign_scope_referrer_never_listed(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+) -> None:
+    """A foreign-scope artifact referencing the archive target is NEVER listed."""
+    settings = _make_settings(monkeypatch)
+    _seed_all(s3_client, vectors_client_2)
+    s3_client.put_object(
+        "other-team/foreign-referrer",
+        _CONTENT,
+        {**_BASE_S3_META, "team": "network"},
+    )
+    vectors_client_2.put_vector(
+        "other-team/foreign-referrer#summary",
+        [0.3, 0.7],
+        {
+            **_BASE_VECTOR_META,
+            "artifact_id": "other-team/foreign-referrer",
+            "scope": "other-team",
+            "references": ["artifacts/active-review"],
+        },
+    )
+
+    result = await archive_artifact(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=None,
+        artifact_id="artifacts/active-review",
+    )
+
+    assert result["status"] == "inactive"
+    warning = result.get("warning", [])
+    assert "other-team/foreign-referrer" not in warning
+
+
+async def test_archive_no_referrers_no_warning_field(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+) -> None:
+    """Archiving an unreferenced artifact → no "warning" field in the response."""
+    settings = _make_settings(monkeypatch)
+    _seed_all(s3_client, vectors_client_2)
+
+    result = await archive_artifact(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=None,
+        artifact_id="artifacts/doc-level-only",
+    )
+
+    assert result["status"] == "inactive"
+    assert "warning" not in result
+
+
+async def test_archive_referenced_by_lookup_credential_error(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """CredentialError during the referenced_by reverse-lookup → structured
+    credential error; no S3 write is performed."""
+    settings = _make_settings(monkeypatch)
+    _seed_all(s3_client, vectors_client_2)
+    spy_put = mocker.spy(s3_client, "put_object")
+    initial_put_count = spy_put.call_count
+    mocker.patch.object(
+        vectors_client_2,
+        "list_vectors_by_metadata",
+        side_effect=CredentialError(
+            message="Simulated.", service="s3vectors", original=Exception("sim")
+        ),
+    )
+
+    result = await archive_artifact(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=None,
+        artifact_id="artifacts/active-review",
+    )
+
+    assert result.get("error") == "credential_error"
+    assert spy_put.call_count == initial_put_count
+
+
+# ---------------------------------------------------------------------------
 # Access control
 # ---------------------------------------------------------------------------
 
@@ -383,9 +569,17 @@ async def test_archive_list_vectors_credential_error(
     s3_client: S3ClientImpl,
     vectors_client_2: VectorsClientImpl,
     mocker: MockerFixture,
+    tmp_path: Path,
 ) -> None:
-    """list_vectors_by_metadata raises CredentialError → structured error."""
-    settings = _make_settings(monkeypatch)
+    """list_vectors_by_metadata raises CredentialError → structured error.
+
+    This fails during the Step 3 own-scope referrer check (``find_referrers`` calls
+    ``list_vectors_by_metadata`` too, and it runs before the S3 status flip) — no
+    failure-log entry is expected here since nothing has been written yet (M-1 only
+    requires logging *after* the S3 flip has succeeded; see
+    ``test_archive_put_vector_credential_error`` and
+    ``test_archive_annotation_credential_error_aborts`` for the post-flip case)."""
+    settings = _make_settings(monkeypatch, tmp_path=tmp_path)
     s3_client.put_object("artifacts/active-review", _CONTENT, {**_BASE_S3_META, "status": "active"})
     mocker.patch.object(
         vectors_client_2,
@@ -404,6 +598,7 @@ async def test_archive_list_vectors_credential_error(
     )
 
     assert "error" in result or result.get("error_type") is not None
+    assert not settings.failure_log_path.exists()
 
 
 async def test_archive_get_vectors_credential_error(
@@ -411,9 +606,14 @@ async def test_archive_get_vectors_credential_error(
     s3_client: S3ClientImpl,
     vectors_client_2: VectorsClientImpl,
     mocker: MockerFixture,
+    tmp_path: Path,
 ) -> None:
-    """get_vectors raises CredentialError → structured error."""
-    settings = _make_settings(monkeypatch)
+    """get_vectors raises CredentialError → structured error.
+
+    This fails during the Step 3 own-scope referrer check (``find_referrers`` also
+    calls ``get_vectors``, and it runs before the S3 status flip) — no failure-log
+    entry is expected since nothing has been written yet."""
+    settings = _make_settings(monkeypatch, tmp_path=tmp_path)
     s3_client.put_object("artifacts/active-review", _CONTENT, {**_BASE_S3_META, "status": "active"})
     vectors_client_2.put_vector(
         "artifacts/active-review#summary",
@@ -437,6 +637,7 @@ async def test_archive_get_vectors_credential_error(
     )
 
     assert "error" in result or result.get("error_type") is not None
+    assert not settings.failure_log_path.exists()
 
 
 async def test_archive_put_vector_credential_error(
@@ -444,9 +645,11 @@ async def test_archive_put_vector_credential_error(
     s3_client: S3ClientImpl,
     vectors_client_2: VectorsClientImpl,
     mocker: MockerFixture,
+    tmp_path: Path,
 ) -> None:
-    """put_vector raises CredentialError on first section → structured error."""
-    settings = _make_settings(monkeypatch)
+    """put_vector raises CredentialError on first section → structured error;
+    failure-log entry written (M-1)."""
+    settings = _make_settings(monkeypatch, tmp_path=tmp_path)
     s3_client.put_object("artifacts/active-review", _CONTENT, {**_BASE_S3_META, "status": "active"})
     vectors_client_2.put_vector(
         "artifacts/active-review#summary",
@@ -470,6 +673,7 @@ async def test_archive_put_vector_credential_error(
     )
 
     assert "error" in result or result.get("error_type") is not None
+    assert settings.failure_log_path.exists()
 
 
 # ---------------------------------------------------------------------------
@@ -543,3 +747,310 @@ async def test_archive_already_inactive_makes_no_writes(
     assert spy_put_vec.call_count == 0
     assert len(s3_client.list_objects("")) == count_before_s3
     assert len(vectors_client_2.list_vectors_by_metadata({})) == count_before_vec
+
+
+# ---------------------------------------------------------------------------
+# M-1 — Half-archived retry must complete the vector flip, not early-return
+# ---------------------------------------------------------------------------
+
+
+async def test_archive_half_archived_retry_completes_vector_flip(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+) -> None:
+    """S3 status already inactive but a vector is still status=active (simulating a
+    prior partial archive) → retrying archive_artifact must NOT early-return
+    already_archived; it must complete the vector-side flip instead (M-1)."""
+    settings = _make_settings(monkeypatch)
+    s3_client.put_object(
+        "artifacts/half-archived",
+        _CONTENT,
+        {**_BASE_S3_META, "status": "inactive"},
+    )
+    # Vector was never flipped by the prior (interrupted) archive attempt.
+    vectors_client_2.put_vector(
+        "artifacts/half-archived#summary",
+        [1.0, 0.0],
+        {**_BASE_VECTOR_META, "artifact_id": "artifacts/half-archived", "status": "active"},
+    )
+
+    result = await archive_artifact(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=None,
+        artifact_id="artifacts/half-archived",
+    )
+
+    assert "error" not in result
+    assert result["status"] == "inactive"
+    assert result.get("already_archived") is not True
+
+    vec_results = vectors_client_2.get_vectors(["artifacts/half-archived#summary"])
+    assert vec_results[0]["metadata"]["status"] == "inactive"
+
+
+async def test_archive_half_archived_multiple_vectors_all_flipped(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+) -> None:
+    """S3 inactive, one vector already inactive and one still active (a partial flip
+    interrupted mid-loop) → retry flips the remaining active vector too."""
+    settings = _make_settings(monkeypatch)
+    s3_client.put_object(
+        "artifacts/half-archived-mixed",
+        _CONTENT,
+        {**_BASE_S3_META, "status": "inactive"},
+    )
+    vectors_client_2.put_vector(
+        "artifacts/half-archived-mixed#summary",
+        [1.0, 0.0],
+        {**_BASE_VECTOR_META, "artifact_id": "artifacts/half-archived-mixed", "status": "inactive"},
+    )
+    vectors_client_2.put_vector(
+        "artifacts/half-archived-mixed#details",
+        [0.9, 0.1],
+        {**_BASE_VECTOR_META, "artifact_id": "artifacts/half-archived-mixed", "status": "active"},
+    )
+
+    result = await archive_artifact(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=None,
+        artifact_id="artifacts/half-archived-mixed",
+    )
+
+    assert "error" not in result
+    assert result["status"] == "inactive"
+    for key in [
+        "artifacts/half-archived-mixed#summary",
+        "artifacts/half-archived-mixed#details",
+    ]:
+        vec_results = vectors_client_2.get_vectors([key])
+        assert vec_results[0]["metadata"]["status"] == "inactive"
+
+
+async def test_archive_fully_archived_no_vectors_still_idempotent(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """S3 inactive and no vectors at all (nothing to flip) → still short-circuits as
+    already_archived; no writes performed."""
+    settings = _make_settings(monkeypatch)
+    s3_client.put_object(
+        "artifacts/inactive-no-vectors",
+        _CONTENT,
+        {**_BASE_S3_META, "status": "inactive"},
+    )
+    spy_put_obj = mocker.spy(s3_client, "put_object")
+
+    result = await archive_artifact(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=None,
+        artifact_id="artifacts/inactive-no-vectors",
+    )
+
+    assert result.get("already_archived") is True
+    assert spy_put_obj.call_count == 0
+
+
+async def test_archive_partial_archive_credential_error_writes_failure_log(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+    mocker: MockerFixture,
+    tmp_path: Path,
+) -> None:
+    """A vector-side failure mid-archive (S3 already flipped) appends a failure-log
+    entry so the partial archive is repairable (M-1) — this is the RED proof: before
+    the fix, no failure-log entry was written for any credential error in this path."""
+    settings = _make_settings(monkeypatch, tmp_path=tmp_path)
+    _seed_all(s3_client, vectors_client_2)
+    mocker.patch.object(
+        vectors_client_2,
+        "put_vector",
+        side_effect=CredentialError(
+            message="Simulated.", service="s3vectors", original=Exception("sim")
+        ),
+    )
+
+    result = await archive_artifact(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=None,
+        artifact_id="artifacts/active-review",
+    )
+
+    assert result.get("error") == "credential_error"
+    assert settings.failure_log_path.exists()
+    entries = [json.loads(line) for line in settings.failure_log_path.read_text().splitlines()]
+    assert len(entries) == 1
+    entry = entries[0]
+    assert entry["artifact_id"] == "artifacts/active-review"
+    assert entry["failure_step"] == "archive_vector_flip"
+    assert "reason" in entry
+    assert "timestamp" in entry
+
+    # The S3 side has already flipped to inactive even though the vector side failed.
+    meta = s3_client.head_object("artifacts/active-review")
+    assert meta["status"] == "inactive"
+
+
+# ---------------------------------------------------------------------------
+# Phase 12 review C2 — annotation preservation across the archive status re-PUT
+# ---------------------------------------------------------------------------
+#
+# archive_artifact flips status by re-PUTting the S3 object. PutObject clears an
+# object's S3 annotations, so without a read-forward / re-apply step the durable
+# commit_refs/references annotation trail (ADR-011) is silently destroyed. These
+# tests assert the read-forward + re-apply invariant holds, mirroring write.py's
+# Step 4a/4b pattern and its AnnotationUnavailableError graceful degrade.
+
+
+async def test_archive_preserves_commit_refs_and_references_annotations(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+) -> None:
+    """Archiving an artifact that has durable commit_refs/references annotations
+    must preserve both annotations intact — the status re-PUT must not silently
+    wipe the annotation trail (Phase 12 review C2)."""
+    settings = _make_settings(monkeypatch)
+    _seed_all(s3_client, vectors_client_2)
+    s3_client.put_object_annotation("artifacts/active-review", "commit_refs", "abc1234,def5678")
+    s3_client.put_object_annotation("artifacts/active-review", "references", "artifacts/some-adr")
+
+    result = await archive_artifact(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=None,
+        artifact_id="artifacts/active-review",
+    )
+
+    assert "error" not in result
+    assert result["status"] == "inactive"
+    assert (
+        s3_client.get_object_annotation("artifacts/active-review", "commit_refs")
+        == "abc1234,def5678"
+    )
+    assert (
+        s3_client.get_object_annotation("artifacts/active-review", "references")
+        == "artifacts/some-adr"
+    )
+
+
+async def test_archive_preserves_link_fields_sourced_from_vector_metadata_only(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+) -> None:
+    """When commit_refs/references exist only in vector metadata (no annotation —
+    e.g. an annotation-unavailable deployment per T52), archiving must still
+    re-apply them as the durable annotation copy, per the union-of-both-stores
+    authority model (read_current_link_fields, C5)."""
+    settings = _make_settings(monkeypatch)
+    _seed_all(s3_client, vectors_client_2)
+    vectors_client_2.put_vector(
+        "artifacts/active-review#summary",
+        [1.0, 0.0],
+        {
+            **_BASE_VECTOR_META,
+            "artifact_id": "artifacts/active-review",
+            "status": "active",
+            "commit_refs": ["abc1234"],
+        },
+    )
+
+    result = await archive_artifact(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=None,
+        artifact_id="artifacts/active-review",
+    )
+
+    assert "error" not in result
+    assert result["status"] == "inactive"
+    assert s3_client.get_object_annotation("artifacts/active-review", "commit_refs") == "abc1234"
+
+
+async def test_archive_annotation_unavailable_still_succeeds_with_warning(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """An AnnotationUnavailableError raised while re-applying link annotations after
+    the status re-PUT must never fail the archive (ADR-011 decision 5, mirroring the
+    write path's graceful degrade): the artifact is still archived and the response
+    carries a warning instead of an error."""
+    settings = _make_settings(monkeypatch)
+    _seed_all(s3_client, vectors_client_2)
+    s3_client.put_object_annotation("artifacts/active-review", "commit_refs", "abc1234")
+    mocker.patch.object(
+        s3_client,
+        "put_object_annotation",
+        side_effect=AnnotationUnavailableError(
+            "S3 object annotations are unavailable for this bucket.", "s3", Exception("boom")
+        ),
+    )
+
+    result = await archive_artifact(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=None,
+        artifact_id="artifacts/active-review",
+    )
+
+    assert "error" not in result
+    assert result["status"] == "inactive"
+    assert result.get("annotation_warning")
+
+
+async def test_archive_annotation_credential_error_aborts(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+    mocker: MockerFixture,
+    tmp_path: Path,
+) -> None:
+    """A CredentialError raised while re-applying link annotations after the status
+    re-PUT still aborts the archive with a structured credential error, unlike the
+    AnnotationUnavailableError graceful degrade. The S3 status flip has already
+    succeeded by this point, so a failure-log entry must be written (M-1) — otherwise
+    the partial archive (S3 inactive, vectors still active) leaves no repairable trace."""
+    settings = _make_settings(monkeypatch, tmp_path=tmp_path)
+    _seed_all(s3_client, vectors_client_2)
+    s3_client.put_object_annotation("artifacts/active-review", "commit_refs", "abc1234")
+    spy_put_vec = mocker.spy(vectors_client_2, "put_vector")
+    mocker.patch.object(
+        s3_client,
+        "put_object_annotation",
+        side_effect=CredentialError(message="Simulated.", service="s3", original=Exception("sim")),
+    )
+
+    result = await archive_artifact(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=None,
+        artifact_id="artifacts/active-review",
+    )
+
+    assert result.get("error") == "credential_error"
+    assert spy_put_vec.call_count == 0
+    assert settings.failure_log_path.exists()
+    entries = [json.loads(line) for line in settings.failure_log_path.read_text().splitlines()]
+    assert len(entries) == 1
+    assert entries[0]["artifact_id"] == "artifacts/active-review"
+    assert entries[0]["failure_step"] == "archive_vector_flip"

@@ -96,7 +96,7 @@ if command -v copilot &>/dev/null; then
   else
     WIRED_COPILOT=true
     echo "  Installing skills via gh skill install..."
-    for skill_dir in "$REPO_DIR/skills"/*/; do
+    for skill_dir in "$REPO_DIR/plugins/cairn-mcp/skills"/*/; do
       skill_name="$(basename "$skill_dir")"
       echo "    Installing skill: $skill_name"
       gh skill install "$REPO_DIR" "$skill_name" --from-local --agent github-copilot --scope user --force || {

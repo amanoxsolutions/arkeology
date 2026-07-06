@@ -14,8 +14,8 @@ authored:
   by: "architect"
   date: "2026-05-30"
 revised:
-  by: ""
-  date: ""
+  by: "developer"
+  date: "2026-07-05"
 ---
 
 # T10 — List Artifacts Tool
@@ -85,6 +85,14 @@ their listing.
   deployment.
 - WHEN no `status` filter is provided THE SYSTEM SHALL default to `status="active"` (exclude
   archived artifacts).
+
+> **Revised (2026-07-05, Phase 12 review M-11d).** `status="all"` is now recognised as an
+> explicit all-inclusive sentinel: the status clause is omitted entirely, so both active and
+> inactive own-scope (and eligible foreign-scope) artifacts are returned. This closed a bug in
+> `cairn_studio`'s browser UI, where the "All" status filter option sent `value=""`, which
+> `loadList` then omitted from the call arguments — falling through to the server's
+> `status="active"` default and making "All" unreachable. Any other literal value (including
+> the default `"active"`) still filters normally; `"all"` is the only recognised sentinel.
 - WHEN filters are applied THE SYSTEM SHALL evaluate them server-side using the metadata
   stored in the vector index; no S3 reads are required for the list operation.
 - WHEN cross-scope results are assembled THE SYSTEM SHALL include foreign-scope artifacts

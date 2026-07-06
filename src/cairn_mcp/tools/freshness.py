@@ -6,6 +6,7 @@ archived sources, missing sources, and structurally malformed syntheses
 called with confirm=True.
 """
 
+import asyncio
 import logging
 from typing import Any
 
@@ -78,7 +79,8 @@ async def _check_synthesis_freshness_inner(
         ]
     }
     try:
-        synth_keys = vectors.list_vectors_by_metadata(synth_filter)
+        # M-8: off the event loop — blocking boto3 call.
+        synth_keys = await asyncio.to_thread(vectors.list_vectors_by_metadata, synth_filter)
 
         if not synth_keys:
             return {
@@ -92,8 +94,8 @@ async def _check_synthesis_freshness_inner(
                 "all_fresh": True,
             }
 
-        # ── Step 2: Fetch vector metadata for all synthesis keys ──────────────
-        synth_items = vectors.get_vectors(synth_keys)
+        # ── Step 2: Fetch vector metadata for all synthesis keys (M-8: off loop) ──
+        synth_items = await asyncio.to_thread(vectors.get_vectors, synth_keys)
     except CredentialError as exc:
         return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
 
@@ -131,7 +133,10 @@ async def _check_synthesis_freshness_inner(
     source_meta: dict[str, dict[str, Any] | None] = {}
     for source_id in all_source_ids:
         try:
-            src_keys = vectors.list_vectors_by_metadata({"artifact_id": {"$eq": source_id}})
+            # M-8: off the event loop — blocking boto3 call.
+            src_keys = await asyncio.to_thread(
+                vectors.list_vectors_by_metadata, {"artifact_id": {"$eq": source_id}}
+            )
         except CredentialError as exc:
             return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
 
@@ -143,7 +148,8 @@ async def _check_synthesis_freshness_inner(
             continue
 
         try:
-            src_items = vectors.get_vectors(src_keys[:1])
+            # M-8: off the event loop — blocking boto3 call.
+            src_items = await asyncio.to_thread(vectors.get_vectors, src_keys[:1])
         except CredentialError as exc:
             return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
 
@@ -225,7 +231,10 @@ async def _check_synthesis_freshness_inner(
             # Non-credential errors at any step → report in delete_failed and continue
             # (T22 Boundary: a partial delete leaves a recoverable S3 orphan).
             try:
-                vec_keys = vectors.list_vectors_by_metadata({"artifact_id": {"$eq": aid}})
+                # M-8: off the event loop — blocking boto3 call.
+                vec_keys = await asyncio.to_thread(
+                    vectors.list_vectors_by_metadata, {"artifact_id": {"$eq": aid}}
+                )
             except CredentialError as exc:
                 return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
             except Exception:
@@ -239,7 +248,8 @@ async def _check_synthesis_freshness_inner(
                 continue
             if vec_keys:
                 try:
-                    vectors.delete_vectors(vec_keys)
+                    # M-8: off the event loop — blocking boto3 call.
+                    await asyncio.to_thread(vectors.delete_vectors, vec_keys)
                 except CredentialError as exc:
                     return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
                 except Exception:
@@ -252,7 +262,8 @@ async def _check_synthesis_freshness_inner(
                     delete_failed.append(aid)
                     continue
             try:
-                s3.head_object(aid)
+                # M-8: off the event loop — blocking boto3 call.
+                await asyncio.to_thread(s3.head_object, aid)
             except KeyError:
                 logger.warning(
                     "Malformed synthesis S3 object not found, skipping S3 delete: %s", aid
@@ -263,7 +274,8 @@ async def _check_synthesis_freshness_inner(
             except CredentialError as exc:
                 return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
             try:
-                s3.delete_object(aid)
+                # M-8: off the event loop — blocking boto3 call.
+                await asyncio.to_thread(s3.delete_object, aid)
             except CredentialError as exc:
                 return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
             except Exception:

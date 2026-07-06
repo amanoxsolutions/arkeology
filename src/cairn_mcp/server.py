@@ -20,7 +20,7 @@ from cairn_mcp.tools.archive import archive_artifact as _archive_artifact
 from cairn_mcp.tools.delete import delete_artifact as _delete_artifact
 from cairn_mcp.tools.freshness import check_synthesis_freshness as _check_synthesis_freshness
 from cairn_mcp.tools.health import health_check as _health_check
-from cairn_mcp.tools.link_commit import link_commit as _link_commit
+from cairn_mcp.tools.link_metadata import link_metadata as _link_metadata
 from cairn_mcp.tools.list import list_artifacts as _list_artifacts
 from cairn_mcp.tools.migrate_artifacts import migrate_artifacts as _migrate_artifacts
 from cairn_mcp.tools.propose_commit_links import propose_commit_links as _propose_commit_links
@@ -78,6 +78,7 @@ def register_tools(
         author_role: str | None = None,
         source_artifacts: list[str] | None = None,
         commit_refs: list[str] | None = None,
+        references: list[str] | None = None,
         status: str = "active",
         overwrite: bool = False,
     ) -> dict[str, Any]:
@@ -104,6 +105,7 @@ def register_tools(
             author_role=author_role,
             source_artifacts=source_artifacts,
             commit_refs=commit_refs,
+            references=references,
             status=status,
             overwrite=overwrite,
         )
@@ -155,8 +157,13 @@ def register_tools(
         tags: list[str] | None = None,
         tier: int | None = None,
         commit_refs: list[str] | None = None,
+        references: list[str] | None = None,
     ) -> dict[str, Any]:
-        """List artifacts by metadata filters without a semantic query."""
+        """List artifacts by metadata filters without a semantic query.
+
+        status defaults to "active"; pass status="all" (M-11d) to return
+        artifacts regardless of status.
+        """
         return await _list_artifacts(
             settings=settings,
             s3=None,
@@ -169,6 +176,7 @@ def register_tools(
             tags=tags,
             tier=tier,
             commit_refs=commit_refs,
+            references=references,
         )
 
     @_app.tool()
@@ -266,11 +274,18 @@ def register_tools(
     async def write_artifacts(
         artifacts: list[dict[str, Any]],
         overwrite: bool = False,
+        artifact_concurrency: int = 3,
     ) -> dict[str, Any]:
         """Write a list of artifact descriptors concurrently.
 
         overwrite is a batch-level default for the collision guard; each
         descriptor may include its own "overwrite" key to override it.
+
+        artifact_concurrency bounds how many artifacts are written concurrently
+        (p10-t39). Must be in [1, 15]; values above 15 are capped to 15 and values
+        below 1 are substituted with the default 3 — both cases add a top-level
+        "warning" field to the response rather than rejecting the call. Defaults
+        to 3 when omitted.
         """
         return await _write_artifacts(
             settings=settings,
@@ -279,6 +294,7 @@ def register_tools(
             bedrock=bedrock,
             artifacts=artifacts,
             overwrite=overwrite,
+            artifact_concurrency=artifact_concurrency,
         )
 
     @_app.tool()
@@ -319,18 +335,25 @@ def register_tools(
         )
 
     @_app.tool()
-    async def link_commit(
+    async def link_metadata(
         artifact_ids: list[str],
-        commit_sha: str,
+        commit_refs: list[str] | None = None,
+        references: list[str] | None = None,
     ) -> dict[str, Any]:
-        """Append a commit SHA to the commit_refs vector metadata of own-scope artifacts."""
-        return await _link_commit(
+        """Backfill commit_refs and/or references onto existing own-scope artifacts.
+
+        Dual-writes the merged, deduplicated values to durable S3 annotations
+        (first) and vector metadata (second), reusing existing embeddings — no
+        Bedrock call, no content mutation, no last_edited_ulid change.
+        """
+        return await _link_metadata(
             settings=settings,
             s3=s3,
             vectors=vectors,
             bedrock=bedrock,
             artifact_ids=artifact_ids,
-            commit_sha=commit_sha,
+            commit_refs=commit_refs,
+            references=references,
         )
 
     @_app.tool(app=AppConfig(resource_uri="ui://cairn-studio/index.html"))
