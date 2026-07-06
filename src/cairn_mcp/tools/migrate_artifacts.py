@@ -23,6 +23,18 @@ in both ``dry_run`` modes. The artifact content interpolated into the generation
 is bounded to ``_PROMPT_CONTENT_MAX_CHARS`` — full untruncated content is never sent to
 Nova Lite for a task that only needs a single-sentence summary.
 
+T56/FR-52 extension (ADR-012 Revision 2026-07-06): a descriptor may carry a transient
+``resolved_references_map`` key (``{original_reference_text: artifact_id}``, built by
+the caller reusing the unchanged T51 resolution algorithm in ``references.py``). When
+present, its ``content`` is rewritten via ``rewrite_content_references`` — every
+already-resolved reference path, in the frontmatter ``references:`` list AND in
+matching markdown body link targets, is replaced with ``cairn://artifact/{id}`` — before
+the skip-existing check and the ``write_artifacts`` delegation, in both ``dry_run``
+modes, so the content stored in S3 and the content embedded are always the same
+(already-rewritten) text. The key is popped before the descriptor is returned or
+written; it never reaches ``write_artifacts``, stored metadata, the ``Artifact`` model,
+or any response. This capability is ``migrate_artifacts``-only.
+
 Note: A compound artifact_concurrency × section_concurrency ≤ ceiling validation
 is intentionally absent from this task; it is noted here as a future concern.
 """
@@ -40,6 +52,7 @@ from cairn_mcp.clients.interfaces import (
 from cairn_mcp.config import Settings
 from cairn_mcp.constants import ErrorCode
 from cairn_mcp.errors import CredentialError
+from cairn_mcp.references import rewrite_content_references
 from cairn_mcp.tools.write_artifacts import write_artifacts as _write_artifacts
 
 logger = logging.getLogger(__name__)
@@ -271,6 +284,30 @@ async def _migrate_artifacts_inner(
         raw_desc: str = descriptor.get("description", "")
         clipped = _clip_description(raw_desc, descriptor.get("title", ""))
         enriched.append({**descriptor, "description": clipped})
+
+    # ── Step 3.5 (T56/FR-52 extension): deterministic content reference rewrite ──
+    # For each descriptor carrying a resolved_references_map ({original_reference_text:
+    # artifact_id}), rewrite its content so every already-resolved reference path — the
+    # frontmatter references: list item AND any matching markdown body link target — is
+    # replaced with cairn://artifact/{id} (ADR-012 Revision 2026-07-06). Applied
+    # identically in BOTH dry_run modes, and before the skip-existing check / the
+    # write_artifacts delegation below, so the content stored in S3 and the content
+    # parsed into sections and embedded are always the same (already-rewritten) text —
+    # no separate re-embed step is introduced. The transient key is popped here so it
+    # never reaches write_artifacts, any stored metadata, the Artifact model, or any
+    # response — this capability is migrate_artifacts-only.
+    rewritten: list[dict[str, Any]] = []
+    for descriptor in enriched:
+        if "resolved_references_map" not in descriptor:
+            rewritten.append(descriptor)
+            continue
+        descriptor = dict(descriptor)
+        resolved_references_map = descriptor.pop("resolved_references_map")
+        descriptor["content"] = rewrite_content_references(
+            descriptor.get("content", ""), resolved_references_map
+        )
+        rewritten.append(descriptor)
+    enriched = rewritten
 
     # ── Step 4: dry_run → return enriched list without writing ────────────────
     if dry_run:

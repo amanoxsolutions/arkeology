@@ -20,12 +20,15 @@ classification steps, the file count determines which path to follow:
   review server-generated descriptions before committing, then executes with `dry_run=False`.
 
 Both paths additionally resolve frontmatter `references:` entries against a
-single, full-manifest path→full-key map before any file is written, and
-rewrite resolved entries in stored content to `cairn://artifact/{id}` — see
+single, full-manifest path→full-key map before any file is written — see
 "Building the path→full-key map" under Step 3. The map's values are the full S3
 key (`{write_prefix}/{bare_id}{extension}`), not the bare id alone — this is the
-operative `artifact_id` used everywhere else in cairn-mcp (review finding C1).
-This is orthogonal to the ≤ 10 / > 10 file-count branch.
+operative `artifact_id` used everywhere else in cairn-mcp (review finding C1). The
+agent resolves each entry and passes the result as `resolved_references_map` in the
+descriptor; `migrate_artifacts` deterministically rewrites both the frontmatter
+list item and any matching body link target to `cairn://artifact/{id}`
+server-side (T56/FR-52 extension) — the agent no longer hand-rewrites content. This
+is orthogonal to the ≤ 10 / > 10 file-count branch.
 
 ## Workflow
 
@@ -308,28 +311,38 @@ file being processed this run:
    - Then strip exactly one of: a leading `./`, a single leading `/`, or neither
      (whichever applies).
 4. **Match found** → add the resolved full S3 key (the operative `artifact_id`, C1)
-   to the artifact's `references` field (T46) and rewrite that entry, in the stored
-   content's frontmatter `references:` list only, to `cairn://artifact/{id}` (`{id}`
-   here is that same full key — it contains `/` from `write_prefix`, which the
-   `cairn://artifact/{id*}` resource template on the server is registered to accept).
+   to the artifact's `references` field (T46) AND add an entry to this file's
+   `resolved_references_map` (`{original_reference_text: artifact_id}`, keyed by the
+   entry's *exact literal text as written in frontmatter* — before any join or
+   normalization). Do **not** hand-rewrite the content yourself: pass
+   `resolved_references_map` in the `migrate_artifacts` descriptor (see 3.A1b / 3.B5
+   below) and the server performs the deterministic content rewrite (T56/FR-52
+   extension) before writing.
 5. **No match** (absent from the map, excluded/never-migrated target, or a path
    that escapes the repo root, or that would only match after further repair
    beyond the join + bounded normalization above) → leave the entry's original
    path text completely untouched in content, omit it from the `references`
-   field, and record it (file + entry text) for the migration report. Never
-   drop it silently, and never attempt further repair. Well-formed relative
-   paths (`./`, `../`) are resolved by step 2 above — they are no longer a
-   canonical example of an unresolvable reference; only genuinely broken or
-   out-of-tree paths fall through here.
+   field and from `resolved_references_map`, and record it (file + entry text) for
+   the migration report. Never drop it silently, and never attempt further repair.
+   Well-formed relative paths (`./`, `../`) are resolved by step 2 above — they are
+   no longer a canonical example of an unresolvable reference; only genuinely
+   broken or out-of-tree paths fall through here.
 
-**Only the frontmatter `references:` YAML list is touched.** In-body Markdown
-links anywhere else in the file are explicitly out of scope for this rewrite —
-matching them would require fragile regex over inconsistent free-form prose, and
-ADR-012 (D1) deliberately excludes them. Content is rewritten only once, at
-first-write time (when this file is actually passed to `migrate_artifacts` with
-`dry_run=False`) — an already-written tier 2 artifact's content is never
-retroactively patched on a later run. Mixed addressing across the corpus
-(`cairn://…` links next to raw `/docs/…` paths) is the expected, permanent
+**The server rewrites both the frontmatter `references:` list AND matching markdown
+body link targets — but never discovers a new one.** `migrate_artifacts` applies a
+deterministic, tested rewrite (T56/FR-52 extension, ADR-012 Revision 2026-07-06) to
+every path already resolved above: it replaces the frontmatter `references:` list
+item, AND any markdown link elsewhere in the body pointing at that identical path,
+with `cairn://artifact/{id}` (dropping any `#anchor` from the link and preserving it
+as a `("anchor" section)` note). **In-body Markdown link *discovery* remains
+explicitly out of scope** — a link to a path never declared in *this* file's own
+frontmatter `references:` list is never discovered, resolved, or rewritten, even if
+that path is itself a real, resolvable migrated artifact elsewhere (ADR-012 D1). Bare
+prose mentions with no markdown link syntax are also never touched. Content is
+rewritten only once, at first-write time (when this file is actually passed to
+`migrate_artifacts` with `dry_run=False`) — an already-written tier 2 artifact's
+content is never retroactively patched on a later run. Mixed addressing across the
+corpus (`cairn://…` links next to raw `/docs/…` paths) is the expected, permanent
 steady state, not a defect to clean up.
 
 ---
@@ -356,6 +369,7 @@ For each file, read its full content and build a descriptor:
 | `tags` | from frontmatter only; omit if not present |
 | `description` | OKF frontmatter `description:` (if ≤ 280 chars use as-is; if > 280 chars truncate or rewrite to fit) → **write in-context, ≤ 280 chars** — be specific, mention decision/outcome/scope; avoid "This document describes…" preamble |
 | `references` | resolved full S3 keys (the operative `artifact_id`s, C1) only — see "Resolving `references:` entries" below; omit or leave empty if none resolve |
+| `resolved_references_map` | `{original_reference_text: artifact_id}` for every entry that resolved — see "Resolving `references:` entries" below and 3.A1b; omit or leave empty if none resolve. The server uses this to rewrite `content` before writing — do not rewrite `content` yourself. |
 | `file_extension` | source file extension including the dot (e.g. `.md`); default `.md` if the file has no extension |
 
 Git date commands:
@@ -376,9 +390,12 @@ path→full-key map" (Step 3), then, for each file, extract its frontmatter
 `references:` list (already present in the `content` read above — no re-read
 needed) and resolve each entry per "Resolving a `references:` entry against the
 map" (Step 3): populate that file's descriptor `references` field with the
-resolved full S3 keys, and rewrite resolved entries in that file's `content` string
-(the frontmatter `references:` list only) to `cairn://artifact/{id}`. Keep a running
-list of unresolved entries (file + entry text) for the migration report in
+resolved full S3 keys, and populate that file's descriptor
+`resolved_references_map` field with `{original_reference_text: artifact_id}` for
+every entry that resolved. Do **not** rewrite the `content` string yourself — pass
+`resolved_references_map` in the descriptor and the server rewrites both the
+frontmatter list item and any matching body link target before writing. Keep a
+running list of unresolved entries (file + entry text) for the migration report in
 Step 4.
 
 ### 3.A2 — Operator confirmation
@@ -563,12 +580,14 @@ file, extract its frontmatter `references:` list from the now-fully-read content
 and resolve each entry per "Resolving a `references:` entry against the map"
 (Step 3), using the map built in 3.B1b: populate the descriptor's `references`
 field with the resolved full S3 keys (the operative `artifact_id`s, C1), and
-rewrite resolved entries in the file's full `content` (the frontmatter
-`references:` list only) to `cairn://artifact/{id}`. Keep a running list of
-unresolved entries (path + entry text) for the migration report in Step 4. If a
-file was already written in an earlier session (`status: written`), do not
-re-process it — content is rewritten only once, at first-write time, never
-retroactively.
+populate the descriptor's `resolved_references_map` field with
+`{original_reference_text: artifact_id}` for every entry that resolved. Do **not**
+rewrite the file's `content` yourself — the server rewrites both the frontmatter
+list item and any matching body link target (T56/FR-52 extension) before writing.
+Keep a running list of unresolved entries (path + entry text) for the migration
+report in Step 4. If a file was already written in an earlier session (`status:
+written`), do not re-process it — content is rewritten only once, at first-write
+time, never retroactively.
 
 Compute `artifact_concurrency = min(file_count, 15)`. Explain to the operator: in the
 write phase each concurrent artifact also runs up to `SECTION_CONCURRENCY` (default 5)

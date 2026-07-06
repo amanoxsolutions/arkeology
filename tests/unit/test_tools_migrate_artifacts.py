@@ -1124,3 +1124,246 @@ async def test_migrate_artifacts_dry_run_false_threads_references_to_vector_meta
     entries = vectors_client.get_vectors(keys)
     for entry in entries:
         assert entry["metadata"]["references"] == ["a-1"]
+
+
+# ---------------------------------------------------------------------------
+# T56 / FR-52 extension — resolved_references_map content rewrite threading
+# ---------------------------------------------------------------------------
+
+_T56_ORIGINAL_PATH = "../decisions/B.md"
+_T56_B_ID = "platform/cairn/adr-b-decision-abcd1234.md"
+
+_T56_CONTENT = (
+    "---\n"
+    "references:\n"
+    f"  - {_T56_ORIGINAL_PATH}\n"
+    "---\n\n"
+    "## Context\n\n"
+    f"See [the decision]({_T56_ORIGINAL_PATH}) for details. This context section has "
+    "enough body text to survive the min-length embedding filter threshold.\n"
+)
+
+
+@pytest.mark.asyncio
+async def test_t56_dry_run_false_rewrites_content_before_write_and_embed(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """dry_run=False: a descriptor carrying resolved_references_map has its content
+    rewritten (frontmatter + body link) BEFORE s3.put_object and BEFORE bedrock.embed
+    are called — the content stored in S3 and the text embedded are both the
+    already-rewritten version (no re-embed, no S3/embedding divergence).
+    """
+    try:
+        from cairn_mcp.tools.migrate_artifacts import migrate_artifacts
+    except ImportError:
+        pytest.fail("cairn_mcp.tools.migrate_artifacts is not yet implemented")
+
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+    embed_spy = mocker.spy(bedrock, "embed")
+    put_spy = mocker.spy(s3_client, "put_object")
+
+    descriptor = _make_descriptor(
+        0,
+        content=_T56_CONTENT,
+        resolved_references_map={_T56_ORIGINAL_PATH: _T56_B_ID},
+    )
+
+    result = await migrate_artifacts(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        descriptors=[descriptor],
+        dry_run=False,
+    )
+
+    results = result.get("results", [])
+    assert len(results) == 1
+    assert results[0].get("written") is True
+    artifact_id = results[0]["artifact_id"]
+
+    # S3 content is rewritten: original path gone, cairn:// URI present in both the
+    # frontmatter list item and the body link target.
+    stored_content = s3_client.get_object(artifact_id)
+    assert _T56_ORIGINAL_PATH not in stored_content
+    assert f"cairn://artifact/{_T56_B_ID}" in stored_content
+    assert f"  - cairn://artifact/{_T56_B_ID}" in stored_content
+    assert f"[the decision](cairn://artifact/{_T56_B_ID})" in stored_content
+
+    # put_object was called with exactly this rewritten body — proving the rewrite
+    # happened before the write, not as some out-of-band patch.
+    assert put_spy.call_count >= 1
+    put_bodies = [
+        c.args[1] if len(c.args) > 1 else c.kwargs.get("body") for c in put_spy.call_args_list
+    ]
+    assert any(
+        body is not None and _T56_ORIGINAL_PATH not in body and _T56_B_ID in body
+        for body in put_bodies
+    )
+
+    # bedrock.embed received the rewritten text (not the original path) for the
+    # section containing the link — proving no re-embed / no divergence.
+    embed_texts = [c.args[0] if c.args else c.kwargs.get("text") for c in embed_spy.call_args_list]
+    assert any(text is not None and f"cairn://artifact/{_T56_B_ID}" in text for text in embed_texts)
+    assert all(text is None or _T56_ORIGINAL_PATH not in text for text in embed_texts)
+
+
+@pytest.mark.asyncio
+async def test_t56_resolved_references_map_never_leaks_into_write_result(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+) -> None:
+    """dry_run=False: resolved_references_map never appears in the results list, and
+    the S3 object metadata / vector metadata carry no trace of it either.
+    """
+    try:
+        from cairn_mcp.tools.migrate_artifacts import migrate_artifacts
+    except ImportError:
+        pytest.fail("cairn_mcp.tools.migrate_artifacts is not yet implemented")
+
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+    descriptor = _make_descriptor(
+        0,
+        content=_T56_CONTENT,
+        resolved_references_map={_T56_ORIGINAL_PATH: _T56_B_ID},
+    )
+
+    result = await migrate_artifacts(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        descriptors=[descriptor],
+        dry_run=False,
+    )
+
+    assert "resolved_references_map" not in result
+    for entry in result.get("results", []):
+        assert "resolved_references_map" not in entry
+
+    artifact_id = result["results"][0]["artifact_id"]
+    head = s3_client.head_object(artifact_id)
+    assert "resolved_references_map" not in str(head)
+
+    keys = vectors_client.list_vectors_by_metadata({"artifact_id": {"$eq": artifact_id}})
+    entries = vectors_client.get_vectors(keys)
+    for entry in entries:
+        assert "resolved_references_map" not in entry["metadata"]
+
+
+@pytest.mark.asyncio
+async def test_t56_dry_run_true_descriptor_echo_already_rewritten_and_key_absent(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+) -> None:
+    """dry_run=True: the returned descriptor's content already reflects the rewrite (the
+    preview shows the true final content), and resolved_references_map is absent from
+    the returned descriptor.
+    """
+    try:
+        from cairn_mcp.tools.migrate_artifacts import migrate_artifacts
+    except ImportError:
+        pytest.fail("cairn_mcp.tools.migrate_artifacts is not yet implemented")
+
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+    descriptor = _make_descriptor(
+        0,
+        content=_T56_CONTENT,
+        resolved_references_map={_T56_ORIGINAL_PATH: _T56_B_ID},
+    )
+
+    result = await migrate_artifacts(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        descriptors=[descriptor],
+        dry_run=True,
+    )
+
+    enriched = result.get("descriptors", [])
+    assert len(enriched) == 1
+    assert "resolved_references_map" not in enriched[0]
+    content = enriched[0]["content"]
+    assert _T56_ORIGINAL_PATH not in content
+    assert f"cairn://artifact/{_T56_B_ID}" in content
+
+
+@pytest.mark.asyncio
+async def test_t56_descriptor_without_map_is_unaffected(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+) -> None:
+    """A descriptor without resolved_references_map is behaviourally identical to
+    pre-T56 migrate_artifacts — content passes through untouched in both dry_run modes.
+    """
+    try:
+        from cairn_mcp.tools.migrate_artifacts import migrate_artifacts
+    except ImportError:
+        pytest.fail("cairn_mcp.tools.migrate_artifacts is not yet implemented")
+
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+    descriptor = _make_descriptor(0, content=_T56_CONTENT)
+
+    result = await migrate_artifacts(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        descriptors=[descriptor],
+        dry_run=True,
+    )
+
+    enriched = result.get("descriptors", [])
+    assert len(enriched) == 1
+    assert enriched[0]["content"] == _T56_CONTENT
+    assert "resolved_references_map" not in enriched[0]
+
+
+@pytest.mark.asyncio
+async def test_t56_write_artifacts_direct_call_ignores_resolved_references_map(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+) -> None:
+    """Calling write_artifacts directly (outside migrate_artifacts) with an
+    unrecognised resolved_references_map-shaped key has no effect — the capability is
+    migrate_artifacts-only and is never wired into the general write path.
+    """
+    from cairn_mcp.tools.write_artifacts import write_artifacts
+
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+    descriptor = _make_descriptor(
+        0,
+        content=_T56_CONTENT,
+        resolved_references_map={_T56_ORIGINAL_PATH: _T56_B_ID},
+    )
+
+    result = await write_artifacts(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        artifacts=[descriptor],
+    )
+
+    results = result.get("results", [])
+    assert len(results) == 1
+    assert results[0].get("written") is True
+    artifact_id = results[0]["artifact_id"]
+
+    stored_content = s3_client.get_object(artifact_id)
+    assert stored_content == _T56_CONTENT
+    assert _T56_ORIGINAL_PATH in stored_content
+    assert "cairn://artifact/" not in stored_content
