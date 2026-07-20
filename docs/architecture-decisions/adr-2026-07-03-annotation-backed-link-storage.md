@@ -16,8 +16,8 @@ authored:
   by: architect
   date: "2026-07-03"
 revised:
-  by: ""
-  date: ""
+  by: "architect"
+  date: "2026-07-06"
 ---
 
 # Annotation-Backed Durable Storage for Mutable Link Fields (commit_refs + references)
@@ -100,7 +100,7 @@ own-scope only.
 
 ## Decision
 
-The five decisions below are coupled: they only make sense together.
+The six decisions below are coupled: they only make sense together.
 
 ### 1. Annotation-backed durable storage for `commit_refs` and `references` (FR-54)
 
@@ -140,17 +140,36 @@ rebuilt vector metadata by reading the object's **durable annotations**
 are durably present on the object, a reconcile run no longer drops them. This directly resolves the
 ADR-009 "reconcile drops commit links" limitation and OQ2.
 
-### 4. Overwrite preservation on re-writing writes (FR-55)
+### 4. Overwrite preservation for `commit_refs`; replace semantics for `references` (FR-55)
 
 Overwriting an S3 object **clears its annotations**. cairn's only in-place re-PUT path is a tier-3
 living-document update (tier 2 is overwritten only via the explicit opt-in replacement flag). On such
-a write, the write path must **read forward** the artifact's existing `commit_refs` and `references`
-and **re-apply** them to both stores after the `PutObject`. Read-forward may source from either
-durable store since both hold the value — the existing vector metadata (via `get_vectors`, which the
-`PutObject` does not touch) is the simpler source because the write path already touches vectors; the
-annotation copy is the equally-valid alternative. Either way, the merged value is written back to
-**both** stores. "Preserve" was chosen over "accept clearing" because the silent loss of an
-append-only link trail is precisely what cairn exists to prevent.
+a write, `commit_refs` and `references` are treated differently, because they are not the same
+*kind* of field:
+
+- **`commit_refs`** is a durable, backfill-only audit trail with no frontmatter counterpart. On an
+  overwriting write, the write path **reads forward** its existing value — the union of both durable
+  stores (see the authority model in Consequences) — and **merges** it with any value supplied to
+  this write, writing the merged result back to both stores. "Preserve" was chosen over "accept
+  clearing" because the silent loss of an append-only link trail is precisely what cairn exists to
+  prevent.
+- **`references`** mirrors the artifact's frontmatter `references:` list — a claim about the
+  artifact's *current* outbound links, not an audit trail. On an overwriting write, it is
+  **replaced** outright: set to exactly the (resolved) list supplied with that call, with no
+  read-forward and no merge against the prior stored value. A call supplying no `references`
+  clears the field (operator-confirmed intended) — additions, removals, and swaps in the
+  frontmatter are all mirrored one-for-one, and a stale or typo'd reference is shed by editing the
+  frontmatter and rewriting; no separate removal primitive is needed on `link_metadata` or
+  elsewhere.
+
+Both fields' durable copies still live in the same S3 object annotation mechanism (decision 1) and
+are still guarded by the optimistic-concurrency compare-and-swap cycle (decision 6) — only the value
+each write computes before handing it to that unchanged mechanism differs per field. `link_metadata`
+(decision 2) remains the post-hoc, accretive backfill primitive for **both** fields regardless of
+this split: a `references` value it adds to a tier 3 artifact is not durable against a *later*
+overwriting write whose supplied `references` does not also carry that value, because that write
+replaces the field outright — a natural consequence of `references` being a claim about current
+state, not a defect.
 
 ### 5. Annotation availability / IAM is not a hard startup gate (FR-57)
 
@@ -176,6 +195,62 @@ help) are:
 
 Annotations are **unavailable** in the UAE and Bahrain regions and on **S3 Express One Zone**,
 **Outposts**, and **directory** buckets. These are documented in the README, not enforced at startup.
+
+### 6. Optimistic concurrency (ETag compare-and-swap) for durable read-modify-write cycles
+
+Every read-modify-write cycle on an artifact's durable link-field state — `write.py`'s overwrite
+read-forward (decision 4), `link_metadata`'s fetch-merge-reput (decision 2), and
+`archive_artifact`'s status re-PUT + link re-apply (which mirrors the same read-forward/re-apply
+pattern for its own status-changing re-PUT) — is guarded by ETag-based optimistic concurrency
+control, so that two callers racing on the same artifact cannot silently drop each other's
+contribution: whichever call's read happens first would otherwise compute a merge against a state
+the other caller has since changed, and an unconditional write would clobber the newer state with a
+stale merge.
+
+The object's current ETag is captured on read (`head_object`); the subsequent `PutObject` is
+conditional (`IfMatch=ETag₀`), so a concurrent writer that already changed the object between the
+read and this write is detected as an HTTP 412 `PreconditionFailed` rather than silently
+overwritten. The annotation writes that follow a successful conditional `PutObject` use that
+`PutObject`'s *new* ETag (`ETag₁`) as `ObjectIfMatch` on `PutObjectAnnotation` /
+`DeleteObjectAnnotation`, so a concurrent object-changing operation landing between this call's own
+`PutObject` and its annotation write is also detected. On a `412` from either conditional call, the
+caller performs a bounded compare-and-swap retry — re-read (fresh ETag, fresh link-field state) →
+re-merge this call's own supplied values into that fresh state → re-write conditionally again — for
+roughly three attempts, after which it returns a structured `conflict` error rather than retrying
+indefinitely or silently dropping the write. This applies to `write.py`'s overwrite path,
+`link_metadata`, and `archive_artifact`'s status re-PUT; a fresh (non-overwriting) `write_artifact`
+call has nothing to race against and is unaffected (its `IfNoneMatch="*"` guard addresses a
+different race — the create-collision guard).
+
+**Vector writes stay unconditional — by design, not oversight.** No S3 Vectors CAS surface exists:
+`PutVectors` has no conditional / If-Match parameter. This is acceptable because vector metadata is
+the *derived, recoverable* copy — decision 3 already makes `reconcile_index` rebuild it from the
+CAS-guarded annotations, so any transient vector-side inconsistency from two racing writers
+self-heals on the next reconcile run. On a content-change path (an ordinary `write_artifact`
+overwrite), the vector write for that call is already serialized behind its own object's successful
+CAS — there is exactly one path to the vector write per successful conditional `PutObject`, so no
+additional guard is needed there.
+
+Research basis (verified 2026-07-06): AWS's "Building multi-writer applications on S3 using native
+controls" guidance (If-Match/ETag optimistic locking, Scenario 3) and botocore 1.43.36, which
+confirms both `PutObject.IfMatch` and `PutObjectAnnotation` / `DeleteObjectAnnotation`'s
+`ObjectIfMatch` parameter exist as documented API surface; `S3VectorsClient.PutVectors` has no
+equivalent parameter.
+
+**Accepted residual: two simultaneous `link_metadata` calls on the same field of the same
+artifact.** `ObjectIfMatch` guards the *object's* ETag, but decision 1 explicitly chose annotations
+*because* they are ETag-stable — writing an annotation does not change the object's ETag. Two
+simultaneous `link_metadata` calls that both modify the *same field* (e.g. both appending different
+`commit_refs` values) each read the same starting ETag, each pass their `ObjectIfMatch` check
+(neither call's own annotation write changes it, and neither touches the object body), and whichever
+write lands second silently overwrites the first's contribution — the exact lost update this
+decision otherwise closes. This residual is deliberately **narrow and accepted, not further
+mitigated**: it affects only two writers touching the *same field* of the *same artifact* at
+effectively the same instant. Different-field concurrent calls (one touching `commit_refs`, another
+touching `references`) are already safe — they write to different annotations and never interfere.
+A heavier mechanism (e.g. per-field versioning, a lock) is not justified against the server's
+current low-concurrency deployment profile; this residual is documented here rather than engineered
+away.
 
 ### Dual-write and reconcile flow
 
@@ -219,7 +294,7 @@ graph TD
 
 | Option | Pros | Cons |
 |--------|------|------|
-| **Chosen** — annotations for **both** `commit_refs` and `references` | One mechanism for two very similar fields; uniform reconcile, overwrite-preservation, and IAM story; less code and fewer test surfaces | Both fields inherit the annotation caveats (overwrite wipe, moto gap, availability) |
+| **Chosen** — annotations for **both** `commit_refs` and `references` | One storage mechanism for two very similar fields; uniform reconcile and IAM story; less code and fewer test surfaces than a split (the write-time merge-vs-replace policy differs per field per decision 4, but the storage mechanism, dual-write ordering, and reconcile path do not) | Both fields inherit the annotation caveats (overwrite wipe, moto gap, availability) |
 | Split — `references` → user-defined metadata, `commit_refs` → annotations | `references` is bounded and write-settable, so it could ride in identity metadata set atomically at `PutObject`, avoiding the overwrite-wipe for that field | Two divergent mechanisms for two near-identical fields (double the reconcile, overwrite, and test logic); `references` would still hit the 2 KB cap and immutability for backfill. **Operator explicitly rejected the split** ("let's not use 2 different mechanisms for 2 things very similar") |
 
 ### Extending annotations to `source_artifacts` (considered, rejected)
@@ -242,8 +317,8 @@ The line is drawn by **mutability, not by whether a field is "a reference"**: an
 
 | Option | Pros | Cons |
 |--------|------|------|
-| **Chosen** — read-forward and re-apply on overwriting writes | Preserves the append-only link trail across tier-3 living-document updates; consistent with cairn's core purpose (never silently lose recalled context) | Adds a read-forward step to the overwrite path; the merged value must be written to both stores |
-| Accept clearing on overwrite | Simplest write path | Silently drops accumulated `commit_refs` / `references` on the next content update — exactly the data loss cairn exists to prevent. Rejected |
+| **Chosen** — read-forward and re-apply for `commit_refs`; replace-from-supplied-value for `references`, on overwriting writes | Preserves the append-only `commit_refs` trail across tier-3 living-document updates while keeping `references` an accurate, current mirror of the artifact's frontmatter; consistent with cairn's core purpose (never silently lose recalled context, and never claim a reference is current when it is not) | Adds a read-forward step to the `commit_refs` overwrite path; the two fields require separate write-time logic |
+| Accept clearing on overwrite for both fields | Simplest write path | Silently drops accumulated `commit_refs` on the next content update — exactly the data loss cairn exists to prevent. Rejected for `commit_refs`; the chosen design does clear `references` on a write that omits it, but only as a deliberate mirror of the frontmatter (decision 4), not as unintentional loss |
 
 ### Accepted caveats (recorded, not mitigated away)
 
@@ -259,23 +334,32 @@ The line is drawn by **mutability, not by whether a field is "a reference"**: an
 
 ## Consequences
 
-- **Authority model: union-of-both stores (revised 2026-07-04, operator-approved).** The durable link
-  state is the **union (order-preserving dedup) of the annotation copy and the vector-metadata copy**,
-  applied on every read-forward AND on `reconcile_index` restore — neither store is sole authority and
-  no path ever *reduces* the fields. This revises the original "annotations are authoritative;
-  reconcile rebuilds from annotations only" framing, which the Phase 12 review (C5) found erased
-  vector-only fields: an annotation-unavailable deployment (T52 graceful degrade) writes link fields to
-  vectors only, and an annotations-only reconcile would drop them; a partial `link_metadata` dual-write
-  (annotation newer than vector) would be clobbered by a vector-only read-forward. Under the union rule,
-  `reconcile_index` restores `union(annotations, existing vector metadata)` and the write-path
-  read-forward reads the union of both stores, so single-store loss self-heals rather than propagating.
-  OQ2 (reconcile no longer drops link data) remains resolved, under this stronger rule.
+- **Authority model: union-of-both stores for `commit_refs`; replace-on-write for `references`.** For
+  `commit_refs`, the durable link state is the **union (order-preserving dedup) of the annotation copy
+  and the vector-metadata copy**, applied on every read-forward AND on `reconcile_index` restore —
+  neither store is sole authority and no path ever *reduces* this field. An annotation-unavailable
+  deployment (graceful degrade) writes it to vector metadata only, and an annotations-only reconcile
+  would otherwise drop it; a partial `link_metadata` dual-write (annotation newer than vector) would
+  otherwise be clobbered by a vector-only read-forward. Under the union rule, `reconcile_index`
+  restores `union(annotations, existing vector metadata)` and the write-path read-forward reads the
+  union of both stores, so single-store loss self-heals rather than propagating — this is how OQ2
+  (reconcile no longer drops link data) stays resolved. **`references` does not carry this same
+  non-reducing guarantee**: `reconcile_index` and `link_metadata` still restore/backfill it as the
+  union of both stores, so a value is never silently dropped by *those* two operations, but an
+  ordinary overwriting write replaces it outright to match the artifact's current frontmatter
+  (decision 4) — it is expected to shrink or clear when the frontmatter no longer lists a
+  previously-stored value.
   **Residual accepted window:** a process crash *between* `put_object` (which clears annotations) and
   the subsequent `apply_link_annotations`, occurring before the vector write, can lose that single
-  write's incremental link additions — there is no distributed transaction across the two AWS stores.
-  This narrow mid-write-crash window is accepted and not further mitigated; it never affects
-  already-persisted link data, which the union rule preserves. (The PRD Known Limitations / FR-54
-  "lossless" wording should be reconciled to this union framing in the docs pass — review M11.)
+  write's incremental `commit_refs` additions — there is no distributed transaction across the two AWS
+  stores. This narrow mid-write-crash window is accepted and not further mitigated; it never affects
+  already-persisted link data, which the union rule preserves for `commit_refs`.
+
+- **Concurrent writers of the same artifact are detected, not silently merged past each other.** The
+  compare-and-swap cycle (decision 6) means a lost update on `commit_refs`/`references` surfaces as a
+  bounded retry-then-`conflict` error rather than a silent stale overwrite. The one accepted residual —
+  two simultaneous `link_metadata` calls on the same field of the same artifact — is documented in
+  decision 6 and is not further mitigated.
 
 - **`link_metadata` remains embedding-free and timestamp-neutral.** The dual-write adds an S3
   annotation operation but still makes zero Bedrock calls, does not mutate content, and does not shift
@@ -292,15 +376,18 @@ The line is drawn by **mutability, not by whether a field is "a reference"**: an
   embeddings (Bedrock) all function when annotations are unavailable; only the `commit_refs` /
   `references` feature degrades, with structured errors and setup-time guidance.
 
-- **Write path gains an overwrite-preservation obligation.** Every in-place re-PUT (tier-3 living
-  documents; tier-2 explicit replacement) must read-forward and re-apply link data to both stores.
-  This is a new invariant to uphold and test whenever the write path changes.
+- **Write path gains a per-field overwrite obligation.** Every in-place re-PUT (tier-3 living
+  documents; tier-2 explicit replacement) must read-forward and re-apply `commit_refs` to both
+  stores, and must replace `references` outright with the value supplied to that write. Both
+  obligations, plus the compare-and-swap retry cycle (decision 6), are new invariants to uphold and
+  test whenever the write path changes.
 
 - **New IAM surface for deployments.** The deployment policy must grant the four annotation actions.
   Existing deployments that do not will see the feature degrade gracefully, not a boot failure.
 
 - **Testing cost.** A moto annotation extension must be built and maintained alongside the existing
-  `query_vectors` extension, and the overwrite-preservation and reconcile-from-annotation paths need
+  `query_vectors` extension — including the `ObjectIfMatch` compare-and-swap check decision 6
+  requires — and the overwrite-preservation, reconcile-from-annotation, and conflict-retry paths need
   dedicated coverage. This is the accepted price of the uniform-annotations choice.
 
 - **ADR-009 is partially superseded, not retired.** Its ULID and AGENTS.md-protocol decisions stay in
