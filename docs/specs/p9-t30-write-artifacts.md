@@ -196,6 +196,16 @@ migration complete.
   `_write_artifact_inner` shared logic; it never generates descriptions.
 - `migrate_artifacts` delegates to `write_artifacts` internally for the write phase — it never
   calls `_write_artifact_inner` directly.
+
+> **Forward-pointer note (2026-07-06, not yet shipped).** Because every entry ultimately delegates
+> to `_write_artifact_inner`, both `write_artifacts` and `migrate_artifacts` inherit, without any
+> change of their own: (a) the optimistic-concurrency compare-and-swap guard on an overwriting
+> write (ETag `IfMatch`, bounded retry, structured `conflict` error on exhaustion — vector writes
+> stay unconditional/recoverable), and (b) the `references`-replace / `commit_refs`-accrete
+> asymmetry on that same overwriting write. Neither tool needs its own logic for either — both are
+> properties of the shared inner write path. Full requirements:
+> `docs/specs/review-followup-2026-07-06-design-fixes.md` ("Optimistic-Concurrency Writes" and
+> "Reference-Field Value Semantics" sections) and ADR-011 decisions 4 and 6.
 - Section body truncation (`EMBED_MAX_SECTION_LENGTH`) applies to the embedding input only.
   Content stored in S3 is always the original, untruncated body.
 - The `ARTIFACT_CONCURRENCY` semaphore governs both `write_artifacts` (document-level parallelism)
@@ -305,7 +315,7 @@ All open questions resolved during implementation:
 - [x] Nova Lite prompt template — hardcoded constant in `migrate_artifacts.py`; visible and
   documented, not in config.
 
-> **Revised (2026-07-05, Phase 12 review M-12).** Two gaps closed in `migrate_artifacts`'s Nova
+> **Revised (2026-07-05).** Two gaps closed in `migrate_artifacts`'s Nova
 > Lite description generation:
 >
 > 1. A failed generation previously fell through Step 3's clip logic to

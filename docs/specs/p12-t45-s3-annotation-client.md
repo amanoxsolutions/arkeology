@@ -90,6 +90,20 @@ annotations — this is what T47's overwrite-preservation tests depend on.
   annotation and SHALL NOT raise if it is already absent (mirrors `delete_object`).
 - WHEN any annotation call encounters a credential error THE SYSTEM SHALL raise `CredentialError`
   via `wrap_credential_errors("s3")`.
+
+> **Forward-pointer requirement (2026-07-06, not yet shipped) — optimistic-concurrency support.**
+> `put_object_annotation` and `delete_object_annotation` gain an optional `if_match` parameter that
+> is sent as the boto3 `ObjectIfMatch` parameter. WHEN `ObjectIfMatch` is supplied and does not
+> match the object's current ETag THE SYSTEM SHALL translate the resulting HTTP 412
+> `PreconditionFailed` into a structured conflict-signalling error (never a raw exception) — the
+> caller (the write path, `link_metadata`, `archive_artifact`) is responsible for the bounded
+> retry/re-merge cycle that consumes this signal; this client task's contract is only to expose the
+> parameter and translate the precondition failure. This requires extending the moto self-mock
+> annotation extension to honour `ObjectIfMatch` — determining first whether boto3 serialises it as
+> a header or a query-string parameter for `PutObjectAnnotation`/`DeleteObjectAnnotation` (do not
+> guess; inspect the installed botocore S3 service model). Full requirements and the error-type
+> name: `docs/specs/review-followup-2026-07-06-design-fixes.md` ("Optimistic-Concurrency Writes"
+> section, "Test infrastructure" subsection) and ADR-011 decision 6.
 - WHEN the four methods are added to `S3ClientImpl` THE SYSTEM SHALL also add their signatures to
   the `S3ClientInterface` `typing.Protocol` — structural conformance only, no `ABC`.
 - WHEN a unit test needs annotation behaviour THE SYSTEM SHALL exercise it through the moto

@@ -10,7 +10,6 @@ status: ready
 phase: 12
 task: 55
 references:
-  - .docs/reviews/review-2026-07-02-full-project-review.md
   - docs/planning-artifacts/prd.md
   - docs/planning-artifacts/plan.md
   - docs/architecture-decisions/adr-2026-07-03-annotation-backed-link-storage.md
@@ -30,13 +29,13 @@ revised:
 
 ## TL;DR
 
-Close review finding M-5: before any S3 or vector write, the write path validates the artifact's
+Before any S3 or vector write, the write path validates the artifact's
 metadata against three byte budgets (S3 user-metadata aggregate; vector filterable; vector total)
 and rejects control characters, failing fast with a structured `validation_error` so no partial
 write and no self-perpetuating failure-log replay is ever created. It also bounds `title` length in
 the `Artifact` model and stores non-ASCII titles losslessly so `read_artifact` and `search_artifacts`
 report the identical title. Serves every agent that writes artifacts; nothing durable can be trusted
-until oversize/malformed writes fail cleanly. (FR-59, AC-67; review M-5.)
+until oversize/malformed writes fail cleanly. (FR-59, AC-67.)
 
 ## Problem Statement
 
@@ -70,8 +69,8 @@ user-metadata to annotations) because those tasks enlarge exactly the payload th
 
 ### Story 5 — Budget re-check after the T47 overwrite read-forward merge (P1)
 
-**Added 2026-07-04 (tech-writer, Phase 12 review C4).** T47 (`write_artifact`) read-forwards a
-tier-3 overwrite's existing `commit_refs` / `references` (union of both durable stores, C5) and
+**Added 2026-07-04 (tech-writer).** T47 (`write_artifact`) read-forwards a
+tier-3 overwrite's existing `commit_refs` / `references` (union of both durable stores) and
 merges them into `vector_metadata` **after** this task's pre-write budget check has already run
 against the values supplied to the current call. That merge can enlarge `vector_metadata` beyond
 what Story 1's check measured.
@@ -84,6 +83,17 @@ what Story 1's check measured.
   with a `validation_error`, with no write and no failure-log entry, identical to a Story 1 rejection.
 - Given a merge that stays within all three budgets, then the second check passes silently and the
   write proceeds normally.
+
+> **Note (2026-07-06, not yet shipped).** A later decision makes `references` **replace** rather
+> than merge on an overwriting write (see
+> `docs/specs/review-followup-2026-07-06-design-fixes.md`, "Reference-Field Value Semantics"); only
+> `commit_refs` still read-forwards and unions. This narrows, but does not remove, the reason for
+> the second check above: `references`'s contribution to `vector_metadata` after the write-path's
+> "merge" step is now exactly the value already measured by Story 1's check (a replace cannot grow
+> it further), so `commit_refs`'s union-growth is the only remaining way the enlarged
+> `vector_metadata` can newly breach a budget between the two checks. The second check must still
+> run — re-running it against the full `vector_metadata` (both fields) after the write path computes
+> the final value for each is simpler and no less correct than special-casing which field changed.
 
 ### Story 2 — Control characters neutralised (P1)
 
@@ -124,11 +134,14 @@ what Story 1's check measured.
   failure-log entry, THE SYSTEM SHALL validate all three budgets against the **actual serialized
   representations about to be written** and, on any breach, return a structured `validation_error`
   (via the standard `_inner` try/except) and issue no storage write and no failure-log append.
-- WHEN a tier-3 overwriting write's T47 read-forward merges the union-of-both-stores `commit_refs` /
-  `references` into `vector_metadata` (Phase 12 review C4), enlarging it beyond what was measured
+- WHEN a tier-3 overwriting write's T47 read-forward merges the union-of-both-stores `commit_refs`
+  (and, historically, `references`) into `vector_metadata`, enlarging it beyond what was measured
   above, THE SYSTEM SHALL re-run this same budget check against the enlarged `vector_metadata`
   **after the merge and before** any `put_object` / `put_vectors_batch`, and reject on breach with
-  the same `validation_error` behaviour — no write, no failure-log entry.
+  the same `validation_error` behaviour — no write, no failure-log entry. (`references` no longer
+  read-forwards or merges as of the 2026-07-06 replace-semantics decision — see the note under
+  Story 5 above — so only `commit_refs` can enlarge `vector_metadata` beyond the initial
+  measurement; the re-check still runs against the full dict for both fields.)
 - WHEN computing the S3 aggregate size THE SYSTEM SHALL sum, over the actual s3_metadata dict, the
   UTF-8 byte length of each key plus each (transport-encoded) value, and reject if it exceeds
   `S3_USER_METADATA_MAX_BYTES`.
@@ -157,7 +170,7 @@ what Story 1's check measured.
   call (Story 1, before `head_object`), and again against the enlarged `vector_metadata` after the
   T47 read-forward union-merge (Story 5, before `put_object`/`put_vectors_batch`) — because the merge
   can independently push the vector budgets over their limit even when the supplied values alone did
-  not (Phase 12 review C4).
+  not.
 - The check is **representation-driven**, not field-list-driven: it measures the actual assembled
   s3_metadata and vector_metadata dicts. This makes it automatically correct across T46/T47 landing in
   any order — once T47 removes `commit_refs`/`references` from s3_metadata (ADR-011), they simply stop
@@ -175,7 +188,8 @@ what Story 1's check measured.
 - Nothing — budgets and policy are fixed by this spec.
 
 **Never:**
-- Do not fix M-6 (search `$nin` growth) or any other review finding.
+- Do not fix the search `$nin` exclusion-list growth issue or any other unrelated finding — out of
+  scope for this task.
 - Do not change `generate_artifact_id` / the ADR-005 hash-slug scheme; this is a metadata-copy fix,
   orthogonal to AC-64 identifier disambiguation.
 - Do not move `commit_refs`/`references` storage (that is T47/ADR-011) — only measure them where they
@@ -214,7 +228,7 @@ from the JSON/byte approximation.
 | `src/cairn_mcp/artifact.py` | Modify | Add `TITLE_MAX_LENGTH`, the three byte-budget constants, `NON_FILTERABLE_METADATA_KEYS` (single source of truth); add title max-length + control-char field validators; add a pure `check_metadata_budgets(s3_metadata, vector_metadata) -> None` helper raising a typed error |
 | `src/cairn_mcp/errors.py` | Modify | Add `MetadataTooLargeError(CairnError)` (and reuse for charset if desired) so `write._inner` maps it to `validation_error` |
 | `tests/unit/test_tools_write.py` | Modify | Oversize S3 / oversize filterable / oversize total each rejected before any `put_object`/`put_vectors_batch`/failure-log append (spy asserts zero calls); control char → `validation_error` not raw exception — Red first |
-| `src/cairn_mcp/tools/write.py` | Modify | Build the filterable+total vector_metadata dict *before* the collision/put step; call `check_metadata_budgets` before `head_object`; ensure the branch returns `validation_error` and skips all writes and the failure-log append; call `check_metadata_budgets` a second time after the T47 overwrite read-forward union-merge enlarges `vector_metadata`, before `put_object`/`put_vectors_batch` (Phase 12 review C4) |
+| `src/cairn_mcp/tools/write.py` | Modify | Build the filterable+total vector_metadata dict *before* the collision/put step; call `check_metadata_budgets` before `head_object`; ensure the branch returns `validation_error` and skips all writes and the failure-log append; call `check_metadata_budgets` a second time after the T47 overwrite read-forward union-merge enlarges `vector_metadata`, before `put_object`/`put_vectors_batch` |
 | `tests/unit/test_clients_s3.py` | Modify | Lossless round-trip of a non-ASCII value through encode→decode; header-safe output — Red first |
 | `src/cairn_mcp/clients/s3.py` | Modify | Replace NFKD-ASCII-strip in `_ascii_safe_metadata` with lossless reversible transport encoding; add the symmetric decoder |
 | `tests/unit/test_tools_read.py` | Modify | `read_artifact` returns the true non-ASCII title (decoded / vector-sourced) — Red first |
@@ -235,8 +249,8 @@ from the JSON/byte approximation.
 3. **`test_tools_write.py` → `write.py`** — oversize-S3, oversize-filterable, oversize-total each
    rejected with `validation_error` and **zero** `put_object`/`put_vectors_batch`/failure-log calls
    (`mocker.spy`); control char → `validation_error` (no raw exception); a normal write still
-   succeeds unchanged; a tier-3 overwrite whose read-forward union-merge (T47/C5) pushes the vector
-   budget over its limit is rejected by the post-merge re-check (Story 5/C4) with the same
+   succeeds unchanged; a tier-3 overwrite whose read-forward union-merge (T47) pushes the vector
+   budget over its limit is rejected by the post-merge re-check (Story 5) with the same
    zero-writes assertion.
 4. **`test_tools_read.py` → `read.py`** (and reconcile) — non-ASCII title returned identically by
    read and search; reconcile rebuild preserves it.

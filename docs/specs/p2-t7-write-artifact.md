@@ -252,7 +252,7 @@ Implement a private helper `_build_section_embedding_text` and
 (pass strings in, assert the formatted output) — these helpers are the most fragile part of
 the write pipeline.
 
-> **Revised (2026-07-05, Phase 12 review M-3).** These two helpers, plus the min-length
+> **Revised (2026-07-05).** These two helpers, plus the min-length
 > filter / `EMBED_MAX_SECTIONS` cap / per-section truncation steps that sit around them,
 > have moved out of `tools/write.py` into a shared module,
 > `tools/_section_pipeline.py` (`build_section_embedding_text`,
@@ -285,6 +285,23 @@ Sequence for tier 3 re-write:
 3. PutVector for all new section keys (upsert — existing keys are overwritten in place).
 4. `list_vectors_by_metadata({"artifact_id": {"$eq": artifact_id}})` → get all current keys.
 5. Delete any key in the returned set that is not in the newly written key set.
+
+> **Forward-pointer note (2026-07-06).** This sequence has since been extended in two ways not
+> reflected above — this spec predates both the `commit_refs`/`references` link fields and the
+> concurrency hardening below (implementation tracked in
+> `docs/specs/review-followup-2026-07-06-design-fixes.md`, not yet shipped):
+>
+> 1. **Optimistic-concurrency writes.** Step 1's `PutObject` becomes a conditional write guarded by
+>    an ETag compare-and-swap (`IfMatch`); on a detected concurrent change it performs a bounded
+>    retry (re-read, re-merge, re-write) before returning a structured `conflict` error. Vector
+>    writes (steps 2–3) stay unconditional — they are the recoverable, derived copy healed by
+>    `reconcile_index` if needed. See ADR-011 decision 6 and the design-fixes spec's
+>    "Optimistic-Concurrency Writes" section.
+> 2. **Reference-field value semantics.** On this same overwriting write, `commit_refs` is read
+>    forward and merged (accretive — union with the value supplied to the call), while `references`
+>    is replaced outright with exactly the value supplied to the call (a call supplying no
+>    `references` clears it). See ADR-011 decision 4 and the design-fixes spec's "Reference-Field
+>    Value Semantics" section.
 
 ## Open Questions
 

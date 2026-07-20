@@ -38,7 +38,7 @@ references in stored content to `cairn://artifact/{id}`, apply **bounded** path 
 leave `http(s)://` URLs and any unresolved/excluded target **untouched** and reported. In-body
 markdown links are out of scope. (FR-52, AC-58.)
 
-> **Revised 2026-07-04 (tech-writer, Phase 12 review C6).** A well-formed relative reference
+> **Revised 2026-07-04 (tech-writer).** A well-formed relative reference
 > (`./` or `../`) is **first joined against the referencing file's own directory**
 > (`join_reference_path`, POSIX semantics) *before* the D6 bounded-normalization lookup below — this
 > is what makes `../decisions/B.md` written inside `notes/A.md` resolve against `decisions/B.md` in
@@ -86,7 +86,7 @@ the primary risk (ADR-012 D1/D5/D6).
 - Given a well-formed relative path (`./` or `../`) in `references:`, when resolving then it is
   first joined against the referencing file's own directory (POSIX semantics), and the joined
   result is then passed through the bounded normalization above before the map lookup — this is
-  what makes Story 1's `../decisions/B.md` example resolve. (Phase 12 review C6)
+  what makes Story 1's `../decisions/B.md` example resolve.
 - Given a `../` that, once joined, escapes above the repo root, then the joined path is absent from
   the map and falls through to the unresolved handling exactly like any other non-matching path — no
   error, no special-casing.
@@ -109,8 +109,8 @@ the primary risk (ADR-012 D1/D5/D6).
   title slug, deterministic hash suffix).
 - WHEN a `references:` path is well-formed relative (starts with `./` or `../`, after backslash
   normalization) THE SYSTEM SHALL first join it against the referencing file's own directory
-  (`join_reference_path`, POSIX join + normpath) before attempting the map lookup (Phase 12 review
-  C6) — a path that does not start with `./` or `../`, or that is a URL, passes through this step
+  (`join_reference_path`, POSIX join + normpath) before attempting the map lookup — a path that
+  does not start with `./` or `../`, or that is a URL, passes through this step
   unchanged.
 - WHEN normalizing a `references:` path (after the join step above, when applicable) THE SYSTEM
   SHALL convert backslashes to forward slashes and attempt lookup against the map under a small set
@@ -118,7 +118,7 @@ the primary risk (ADR-012 D1/D5/D6).
 - WHEN a `references:` entry is an `http://` / `https://` URL THE SYSTEM SHALL leave it untouched and
   never treat it as a path.
 - WHEN a `references:` path resolves THE SYSTEM SHALL add the resolved full S3 key (the operative
-  `artifact_id` — review finding C1) to the migrated artifact's `references` field (threaded into
+  `artifact_id`) to the migrated artifact's `references` field (threaded into
   the `migrate_artifacts` descriptor, T46) and rewrite that path in the stored content to
   `cairn://artifact/{id}`.
 - WHEN a `references:` path does not resolve (unresolved / excluded / never-migrated) THE SYSTEM
@@ -133,11 +133,11 @@ the primary risk (ADR-012 D1/D5/D6).
 
 **Always:**
 - Only the frontmatter `references:` YAML list is mechanically rewritten (ADR-012 D1).
-- `references` holds resolved full S3 keys (the operative `artifact_id`, review finding C1);
+- `references` holds resolved full S3 keys (the operative `artifact_id`);
   content links use `cairn://artifact/{id}` (D2/D3), where `{id}` is that same full key.
 - The map is built from the FULL manifest, not the retry subset (D4 — multi-session safety).
 - A well-formed relative path (`./`/`../`) is joined against the referencing file's directory before
-  the D6 normalization ceiling — this is resolution, not repair (Phase 12 review C6): an escaping
+  the D6 normalization ceiling — this is resolution, not repair: an escaping
   `../` still falls through to unresolved, it does not raise or get special-cased.
 - Mixed addressing (`cairn://…` next to raw `/docs/…`) is the correct permanent steady state (D3).
 
@@ -159,7 +159,7 @@ the primary risk (ADR-012 D1/D5/D6).
 | File | Action | Notes |
 |------|--------|-------|
 | `tests/unit/test_references_resolution.py` | Create | Pure-helper tests: map build, normalization ceiling, URL passthrough, forward reference, unresolved fall-through — Red first |
-| `src/cairn_mcp/references.py` | Create | Pure helpers: `normalize_reference_path(path)`, `build_path_to_id_map(manifest_entries)` (uses `generate_artifact_id`), `join_reference_path(referencing_file_path, reference_path)` (C6 relative-path join), `resolve_reference(path, path_to_id_map, referencing_file_path=None)` → id or `None` |
+| `src/cairn_mcp/references.py` | Create | Pure helpers: `normalize_reference_path(path)`, `build_path_to_id_map(manifest_entries)` (uses `generate_artifact_id`), `join_reference_path(referencing_file_path, reference_path)` (relative-path join), `resolve_reference(path, path_to_id_map, referencing_file_path=None)` → id or `None` |
 | `skills/migrating-to-cairn/SKILL.md` | Modify | Add the build-map → resolve-frontmatter → populate `references` → rewrite content to `cairn://artifact/{id}` → report-unresolved flow to Steps 3.A/3.B; document the normalization ceiling and URL/unresolved passthrough; in-body links explicitly out of scope |
 
 ## Testing Approach
@@ -178,13 +178,22 @@ Pure-helper unit tests (no AWS, no moto):
   paths absent from the map, and for paths that only match beyond the normalization ceiling.
 - `join_reference_path` — joins a well-formed `./`/`../` path against the referencing file's
   directory (POSIX semantics); passes URLs and non-relative paths through unchanged; an escaping
-  `../` normalizes to a path that is simply absent from the map (Phase 12 review C6).
+  `../` normalizes to a path that is simply absent from the map.
 - URL passthrough — `http(s)://` entries return `None` (never treated as paths).
 - Forward-reference resolution — a path whose target is later in the manifest still resolves.
 - Unresolved fall-through — a path with no match returns `None` (caller leaves it untouched + reports).
 
 Skill-level behaviour (AC-58) is validated by the migration integration/manual flow, not unit tests,
 since the rewrite orchestration is skill prose driving `migrate_artifacts`.
+
+> **Consistency note (2026-07-06).** A later decision makes an ordinary overwriting write **replace**
+> `references` outright rather than merging it with any prior stored value (see
+> `docs/specs/review-followup-2026-07-06-design-fixes.md`, "Reference-Field Value Semantics"). This
+> task is already consistent with that decision and needs no behavioural change: it only ever
+> populates `references` on a **first write** (migration never overwrites an existing key), where
+> there is no prior stored value to merge against in the first place — the resolved frontmatter
+> list this task produces simply *becomes* the field's initial value, which is what "replace" means
+> for a first write by definition.
 
 ## Open Questions
 

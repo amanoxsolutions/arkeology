@@ -34,18 +34,26 @@ metadata it restores `commit_refs` and `references` by reading the **union of bo
 — the object's S3 annotations (via the T45 client) AND the existing vector metadata, via
 `annotations.read_current_link_fields` — instead of the annotations alone or standard object
 metadata. Because the write path (T47) and `link_metadata` (T49) now store these fields as
-annotations, and because neither store is sole authority (Phase 12 review C5/M6 — see ADR-011's
-revised authority model), a reconcile run no longer drops them. This resolves OQ2 and the ADR-009
+annotations, and because neither store is sole authority (see ADR-011's
+authority model), a reconcile run no longer drops them. This resolves OQ2 and the ADR-009
 "reconcile drops commit links" limitation. (FR-17, FR-54, AC-59.)
 
-> **Revised 2026-07-04 (tech-writer, Phase 12 review C5/M6).** The original scope below specified
+> **Revised 2026-07-04 (tech-writer).** The original scope below specified
 > reading `commit_refs` / `references` from annotations only. The shipped implementation reads the
 > **union of the annotation copy and the existing vector-metadata copy** — a naive annotations-only
 > read would erase a value that survives only in vector metadata (e.g. under an annotation-unavailable
 > deployment, T52), which is exactly the loss this task exists to prevent. `reconcile.py` also
-> re-raises `CredentialError` from that read rather than degrading it (M6) — a credential failure is
+> re-raises `CredentialError` from that read rather than degrading it — a credential failure is
 > very likely to break the surrounding reconcile call too and must not be silently treated as "no
 > link fields". See the corrected Requirements/Boundaries below.
+>
+> **Note (2026-07-06).** The write path's `commit_refs`/`references` handling has since diverged
+> per field (`references` replaces on an overwriting write; `commit_refs` still accretes — see
+> `docs/specs/review-followup-2026-07-06-design-fixes.md`, "Reference-Field Value Semantics").
+> **This task is unaffected**: reconcile is a repair operation, not a write-time policy — it
+> continues to restore *both* fields as the union of the annotation copy and the existing
+> vector-metadata copy regardless of how each field's stored value came to be written, exactly as
+> specified below.
 
 ## Problem Statement
 
@@ -81,7 +89,7 @@ them, restoring `commit_refs` and `references` from the object's annotations.
 - Given an artifact whose annotations are absent (e.g. annotation-unavailable deployment) but whose
   *existing* vector metadata already carries `commit_refs` / `references`, when `reconcile_index`
   rebuilds its vectors then those fields are still present — proving the vector-metadata side of the
-  union is not discarded either (Phase 12 review C5/M6).
+  union is not discarded either.
 
 ### Story 3 — Clean state and scope unaffected (P1)
 
@@ -98,7 +106,7 @@ them, restoring `commit_refs` and `references` from the object's annotations.
 - WHEN `_reindex_artifact` builds vector metadata THE SYSTEM SHALL read `commit_refs` and
   `references` via `annotations.read_current_link_fields(s3, vectors, artifact_id)` — the
   order-preserving dedup union of the S3 annotation copy AND the artifact's existing indexed
-  vector-metadata copy (Phase 12 review C5/M6) — rather than `coerce_list_field(raw_s3_meta, ...)`
+  vector-metadata copy — rather than `coerce_list_field(raw_s3_meta, ...)`
   or the annotation copy alone.
 - WHEN either field is non-empty THE SYSTEM SHALL add it to the rebuilt vector metadata as `list[str]`
   (omitting the key when empty — the existing S3-Vectors empty-array rule).
@@ -106,8 +114,8 @@ them, restoring `commit_refs` and `references` from the object's annotations.
   not today) so it can read annotations; all call sites (Phase 1 replay, Phase 2 orphan scan) pass it.
 - WHEN the annotation side of the union read is unavailable / access is denied THE SYSTEM SHALL log
   and fall back to the vector-metadata side of the union only — the reconcile SHALL NOT abort.
-- WHEN the union read raises `CredentialError` THE SYSTEM SHALL propagate it to the caller (Phase 12
-  review M6) — a credential failure signals a general authentication problem likely to also break
+- WHEN the union read raises `CredentialError` THE SYSTEM SHALL propagate it to the caller — a
+  credential failure signals a general authentication problem likely to also break
   the surrounding reconcile call, and must never be silently treated as "no link fields".
 - WHEN reconcile completes THE SYSTEM SHALL preserve its existing response schema unchanged (this is
   an internal source-of-truth change, not a new field).
@@ -116,11 +124,12 @@ them, restoring `commit_refs` and `references` from the object's annotations.
 
 **Always:**
 - Source of truth for `commit_refs` / `references` during re-index is the **union of both durable
-  stores** — S3 annotations and existing vector metadata (Phase 12 review C5/M6, ADR-011's revised
-  authority model) — never annotations alone and never S3 user-defined metadata. `source_artifacts`
+  stores** — S3 annotations and existing vector metadata (ADR-011's authority model) — never
+  annotations alone and never S3 user-defined metadata. `source_artifacts`
   and identity fields continue to be read from S3 user-defined metadata (they are not
-  annotation-backed).
-- Reuse the `annotations.read_current_link_fields` helper (T47/C5) — do not re-implement the union
+  annotation-backed). This union-restore applies to **both** fields — see the note above the
+  Problem Statement: reconcile is unaffected by the write path's per-field replace-vs-accrete split.
+- Reuse the `annotations.read_current_link_fields` helper (T47) — do not re-implement the union
   read or the decode logic.
 - The own-scope gate and Phase 1/2/3 structure are unchanged (this is a metadata-source swap inside
   `_reindex_artifact`).
@@ -134,7 +143,7 @@ them, restoring `commit_refs` and `references` from the object's annotations.
 - Do not treat the annotation copy as sole authority — a vector-only value must survive re-index.
 - Do not change the reconcile response schema.
 - Do not let an annotation-read *availability* failure (non-credential) abort an otherwise-successful
-  reconcile; DO let a `CredentialError` propagate and abort (M6).
+  reconcile; DO let a `CredentialError` propagate and abort.
 
 <!-- IMPLEMENTATION BLOCK — agent-owned -->
 
@@ -143,7 +152,7 @@ them, restoring `commit_refs` and `references` from the object's annotations.
 | File | Action | Notes |
 |------|--------|-------|
 | `tests/unit/test_tools_reconcile.py` | Modify | Add the "reads annotations not S3 metadata" regression test (Red) + clean-state + unavailable-degrade tests |
-| `src/cairn_mcp/tools/reconcile.py` | Modify | Add `s3` param to `_reindex_artifact`; read link fields via `annotations.read_current_link_fields` (union of both stores, C5); drop the `coerce_list_field(..., "commit_refs")` source; pass `s3` at both call sites; propagate `CredentialError` (M6) |
+| `src/cairn_mcp/tools/reconcile.py` | Modify | Add `s3` param to `_reindex_artifact`; read link fields via `annotations.read_current_link_fields` (union of both stores); drop the `coerce_list_field(..., "commit_refs")` source; pass `s3` at both call sites; propagate `CredentialError` |
 | `tests/integration/test_tools_reconcile.py` | Modify | Real-AWS: write + backfill via `link_metadata` → drop vectors → reconcile → assert both fields restored — Red for integration |
 
 ## Testing Approach

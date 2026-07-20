@@ -38,13 +38,26 @@ second) with the same embeddings. No Bedrock call, no content mutation, no chang
 **supersedes `link_commit`** (p10-t38); `propose_commit_links` is retained unchanged.
 (FR-53, AC-59; supersedes FR-32.)
 
-> **Revised 2026-07-04 (tech-writer, Phase 12 review C3/C5).** The original scope below read the
+> **Revised 2026-07-04 (tech-writer).** The original scope below read the
 > "existing" value from vector metadata alone and rewrote both annotation fields unconditionally
 > from the merge result. The shipped implementation reads existing state as the union of both stores
 > (`annotations.read_current_link_fields`) and merges the supplied values into that union per field
 > — so a field the caller did **not** supply in this call is re-written with its existing (unioned)
 > value, unchanged, rather than being wiped to `[]` because the read missed a value that lived only
 > in the annotation. See the corrected Requirements/Boundaries below.
+>
+> **Note (2026-07-06, not yet shipped elsewhere).** The write path's ordinary overwriting write now
+> treats `references` differently from `commit_refs` — replacing `references` outright instead of
+> merging it (see `docs/specs/review-followup-2026-07-06-design-fixes.md`, "Reference-Field Value
+> Semantics"). **This tool's own merge mechanic below is unaffected and unchanged**: `link_metadata`
+> remains the post-hoc, accretive backfill primitive for *both* `commit_refs` and `references`. One
+> real interaction worth flagging: because an ordinary overwriting write now replaces `references`
+> from the frontmatter, a `references` value backfilled here can later be superseded by a subsequent
+> overwriting write whose supplied `references` does not also carry it — this is expected, not a
+> defect in either tool. Also, this task's fetch-merge-reput cycle becomes guarded by an
+> optimistic-concurrency compare-and-swap (ETag `IfMatch` on the object, `ObjectIfMatch` on the
+> annotation writes; bounded retry → structured `conflict` error on exhaustion) — see the
+> design-fixes spec's "Optimistic-Concurrency Writes" section and ADR-011 decision 6.
 
 ## Problem Statement
 
@@ -111,7 +124,7 @@ second so a failed vector write self-heals on the next reconcile.
   skip and count, not error.
 - WHEN keys are found THE SYSTEM SHALL call `get_vectors(keys)`, read the existing `commit_refs` /
   `references` as the union of both durable stores (`annotations.read_current_link_fields(s3,
-  vectors, artifact_id)` — Phase 12 review C3/C5, never vector metadata alone), merge the supplied
+  vectors, artifact_id)` — never vector metadata alone), merge the supplied
   values into that union per field (`list(dict.fromkeys(existing + supplied))`), and dual-write:
   first `apply_link_annotations(s3, artifact_id, ...)` with the merged values for BOTH fields (a
   field with no supplied values re-writes its existing unioned value unchanged, never `[]`), then
@@ -133,7 +146,7 @@ second so a failed vector write self-heals on the next reconcile.
 - Scope gate uses `startswith(settings.write_prefix + "/")` — never bare `startswith`.
 - Dual-write ordering: annotations first (durable), vectors second (recoverable-state, ADR-011).
 - Reuse the shared `annotations.py` helpers (T47) — `read_current_link_fields` for the existing-state
-  read (union of both stores, C5) and `apply_link_annotations` for the write; do not re-implement
+  read (union of both stores) and `apply_link_annotations` for the write; do not re-implement
   either.
 - `next_since_ulid` generated once after the loop (as `link_commit` did).
 
@@ -145,8 +158,8 @@ second so a failed vector write self-heals on the next reconcile.
 - Do not mutate content or `last_edited_ulid`.
 - Do not include foreign-scope artifacts in `linked`.
 - Do not abort the whole batch when one artifact has no vectors — skip and continue.
-- Do not read the existing `commit_refs` / `references` state from vector metadata alone (Phase 12
-  review C3) — always via `read_current_link_fields`, or a field the caller did not supply in this
+- Do not read the existing `commit_refs` / `references` state from vector metadata alone —
+  always via `read_current_link_fields`, or a field the caller did not supply in this
   call can be wiped instead of preserved.
 
 <!-- IMPLEMENTATION BLOCK — agent-owned -->

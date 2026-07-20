@@ -44,7 +44,7 @@ because `PutObject` clears annotations. No content re-embed is triggered by the 
 `last_edited_ulid` stays in user-defined metadata, set atomically at `PutObject`. (FR-54, FR-55,
 AC-60.)
 
-> **Revised 2026-07-04 (tech-writer, Phase 12 review C4/C5/M6).** Two corrections to the shipped
+> **Revised 2026-07-04 (tech-writer).** Two corrections to the shipped
 > behaviour vs. the original scope below: (1) the overwrite read-forward reads the **union of both
 > durable stores** — the S3 annotation copy AND the current vector-metadata copy (helper
 > `annotations.read_current_link_fields`) — not the vector metadata alone, so a value that lives
@@ -53,6 +53,16 @@ AC-60.)
 > enlarges `vector_metadata`, before any `put_object` / `put_vectors_batch`, because the merge can
 > push the vector filterable/total budgets over their limit even when the supplied values alone did
 > not. Both corrections are reflected in the Requirements/Boundaries sections below.
+>
+> **Revised 2026-07-06 (architect, not yet shipped).** A third correction, layered on top of the
+> two above: the read-forward-and-union behaviour described throughout this spec — here and in the
+> Requirements/Boundaries sections below — now applies to **`commit_refs` only**. `references` is
+> no longer read forward or merged on an overwriting write; it is **replaced** outright with exactly
+> the value supplied to that call (a call supplying no `references` clears it). This supersedes
+> Story 2's "resulting `references` is the union" acceptance criterion below and the corresponding
+> Requirements/Boundaries wording — see the notes at each affected location. Full requirements:
+> `docs/specs/review-followup-2026-07-06-design-fixes.md` ("Reference-Field Value Semantics"
+> section) and ADR-011 decision 4.
 
 ## Problem Statement
 
@@ -90,6 +100,9 @@ An artifact was written, then had `commit_refs` backfilled. A later tier-3 conte
   even though the underlying `PutObject` cleared the annotations. (AC-60)
 - Given the overwriting write also supplies `references=["b-2"]`, then the resulting `references` is
   the union `["a-1", "b-2"]` (input merged with read-forward, deduplicated, order-preserving).
+  **Superseded 2026-07-06 (not yet shipped) — see the note above:** the resulting `references` is
+  now exactly `["b-2"]` (replace, not union); `commit_refs` is unaffected by this change and still
+  unions to `["abc1234"]` unchanged, or accretes normally if also supplied on this call.
 - Given the overwriting write, then no error is returned and the object body reflects the new content.
 
 ### Story 3 — Durable-first ordering enables self-heal (P1)
@@ -108,14 +121,18 @@ An artifact was written, then had `commit_refs` backfilled. A later tier-3 conte
   annotations (non-empty only) **after** `PutObject` and **before** `put_vectors_batch`.
 - WHEN an artifact is being overwritten (`is_existing and overwrite`) THE SYSTEM SHALL read-forward
   the existing `commit_refs` and `references` as the **union of both durable stores** — the S3
-  annotation copy and the current vector metadata (via `annotations.read_current_link_fields`,
-  Phase 12 review C5/M6: neither store is sole authority) — and merge them (union, dedup,
+  annotation copy and the current vector metadata (via `annotations.read_current_link_fields`:
+  neither store is sole authority) — and merge them (union, dedup,
   order-preserving) with the values supplied to this write.
+
+  > **Not yet shipped (2026-07-06):** this union read-forward applies to **`commit_refs` only**.
+  > `references` is not read forward and not merged — it is replaced outright with exactly the
+  > value supplied to this call (which may be empty, clearing the field). See
+  > `docs/specs/review-followup-2026-07-06-design-fixes.md` ("Reference-Field Value Semantics").
 - WHEN the read-forward merge above enlarges `vector_metadata` THE SYSTEM SHALL re-run the T55
   metadata budget check (`check_metadata_budgets`) a second time, after the merge and before any
   `put_object` / `put_vectors_batch`, because the union can push the vector filterable/total budgets
-  over their limit even when the values originally supplied to this write did not (Phase 12 review
-  C4).
+  over their limit even when the values originally supplied to this write did not.
 - WHEN the merged link values are known THE SYSTEM SHALL use them for BOTH the vector metadata
   (`list[str]`, omitted when empty) and the annotations (comma-joined payload, annotation deleted
   when empty).
@@ -133,13 +150,27 @@ An artifact was written, then had `commit_refs` backfilled. A later tier-3 conte
 **Always:**
 - Ordering is durable-first: `PutObject` → write annotations → `put_vectors_batch`. This mirrors
   `delete_artifact`'s recoverable-state reasoning (ADR-011 decision 1/2).
+
+> **Forward-pointer note (2026-07-06, not yet shipped).** The `PutObject` above becomes a
+> conditional write guarded by an ETag compare-and-swap (`IfMatch`); the annotation writes that
+> follow it use the object's new ETag as `ObjectIfMatch`. A detected concurrent change (HTTP 412)
+> triggers a bounded retry — re-read, re-merge, re-write — before returning a structured `conflict`
+> error, rather than silently letting a stale read-forward clobber a newer merge. `put_vectors_batch`
+> stays unconditional (no S3 Vectors CAS surface exists) — it is the recoverable, derived copy,
+> healed by `reconcile_index` if needed. Full requirements:
+> `docs/specs/review-followup-2026-07-06-design-fixes.md` ("Optimistic-Concurrency Writes" section)
+> and ADR-011 decision 6.
+
 - Read-forward source is the **union of both durable stores** — the S3 annotation copy and the
   vector metadata (`get_vectors`, which `PutObject` does not touch) — via
-  `annotations.read_current_link_fields` (Phase 12 review C5/M6). Neither store is sole authority:
+  `annotations.read_current_link_fields`. Neither store is sole authority:
   an annotation-unavailable deployment can hold values in vector metadata only, and a partial
   dual-write can leave the annotation copy ahead of the vector copy.
+  **Not yet shipped (2026-07-06):** this union read-forward now applies to `commit_refs` only —
+  `references` is replaced outright from the supplied value instead (see the Requirements section
+  above and `docs/specs/review-followup-2026-07-06-design-fixes.md`).
 - Merge semantics: `list(dict.fromkeys(read_forward + supplied))` — order-preserving dedup, same as
-  `commit_refs` merge in `link_commit`.
+  `commit_refs` merge in `link_commit`. (Applies to `commit_refs` only as of 2026-07-06 — see above.)
 - Annotation encoding is comma-joined UTF-8 payload, one annotation per field
   (`AnnotationName="commit_refs"`, `AnnotationName="references"`); empty list → delete the annotation.
   Centralise the constants + encode/decode/apply/read helpers in a new `src/cairn_mcp/annotations.py`.

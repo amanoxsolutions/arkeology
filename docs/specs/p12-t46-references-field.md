@@ -35,7 +35,7 @@ revised:
 ## TL;DR
 
 Add `references: list[str]` as a first-class `Artifact` field holding resolved full S3 keys (the
-operative `artifact_id` — see review finding C1), following the exact `commit_refs` /
+operative `artifact_id`), following the exact `commit_refs` /
 `source_artifacts` plumbing. It is accepted at
 write time, stored as `list[str]` in vector metadata (durable annotation storage is added in T47),
 surfaced in `write_artifact`, `read_artifact`, and `list_artifacts` responses, and queryable via a
@@ -116,13 +116,26 @@ An agent writes an artifact with `references=["adr-use-postgres-abc12345"]`; rea
 ## Boundaries
 
 **Always:**
-- `references` holds **only resolved full S3 keys (the operative `artifact_id`, review finding
-  C1)** — no `cairn://` prefix, no path text (ADR-012 D2). Validation of resolvability is out of
-  scope (a `references` entry can only ever be a real cairn artifact — no cross-scope validation,
-  ADR-012 "closed as not applicable").
+- `references` holds **only resolved full S3 keys (the operative `artifact_id`)** — no `cairn://`
+  prefix, no path text (ADR-012 D2). Validation of resolvability is out of scope (a `references`
+  entry can only ever be a real cairn artifact — no write-time cross-scope validation, ADR-012
+  "Cross-scope reference visibility"; a *separate*, later decision filters what a foreign-scope
+  reader is shown, see the forward-pointer note below).
 - Encoding mirrors `commit_refs` exactly: `list[str]` in vector metadata, key omitted when empty.
 - `references` is read from **vector metadata** in `read_artifact` / `list_artifacts` (consistent
   with how `commit_refs` is surfaced today) — NOT from S3 user-defined metadata.
+
+> **Forward-pointer note (2026-07-06, not yet shipped).** Two behaviours layer on top of this
+> field's plumbing without changing anything above: (a) on an ordinary overwriting write,
+> `references` is **replaced** outright with exactly the value supplied to that call — no
+> read-forward, no merge against the prior stored value, and a call supplying no `references`
+> clears it — asymmetric with `commit_refs`, which stays accretive; and (b) when `references` is
+> returned to a **foreign-scope** reader (via `read_artifact` / `list_artifacts`), any entry the
+> reader could not independently read is dropped from the response first. Neither behaviour changes
+> the field's write-time acceptance or vector-metadata encoding described above. Full requirements:
+> `docs/specs/review-followup-2026-07-06-design-fixes.md` ("Reference-Field Value Semantics" and
+> "Cross-Scope Reference Filtering" sections); ADR-011 decision 4; ADR-012's "Cross-scope reference
+> visibility" section; PRD FR-51/FR-54/FR-55/FR-10.
 
 **Ask First:**
 - Nothing — all constraints are defined.

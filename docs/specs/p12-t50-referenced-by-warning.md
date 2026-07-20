@@ -139,6 +139,15 @@ in-process membership check `delete_artifact` already performs.
 **Always:**
 - The reverse-lookup is **strictly own-scope** (non-negotiable rule — never reveal foreign-scope
   identifiers).
+
+> **Forward-pointer note (2026-07-06).** This own-scope-only reverse-lookup is a distinct concern
+> from a separate, later decision that filters the `references` *field itself* when it is returned
+> to a foreign-scope reader over `read_artifact` / `list_artifacts` (dropping entries the reader
+> could not independently read). That decision does not change this task's mechanism — this
+> reverse-lookup never returns a foreign-scope referrer regardless — but both narrow the same
+> general leakage surface (what a `references` value can reveal to a reader) from different angles.
+> See `docs/specs/review-followup-2026-07-06-design-fixes.md` ("Cross-Scope Reference Filtering"
+> section) and ADR-012's "Cross-scope reference visibility" section.
 - **Filterable** reference fields (`references`) use a **server-side `$eq`** list-membership filter —
   never fetch-all-then-filter (ADR-012 D13).
 - The **non-filterable** `source_artifacts` cannot be `$eq`-filtered by S3 Vectors, so it is resolved
