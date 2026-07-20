@@ -146,7 +146,7 @@ implemented that fits the iframe constraints.
 The ADR decision remains correct: no new AWS infrastructure was needed, and the graceful
 degradation path delivers the primary use case. Direction 4's retirement stands.
 
-> **Revised (2026-07-05, Phase 12 review M-15).** Every reference above to `fastmcp[apps]` as an
+> **Revised (2026-07-05).** Every reference above to `fastmcp[apps]` as an
 > "optional extra" or "optional dependency" describes it as a **pip packaging extra** (a named
 > group of additional dependencies a package can declare) — it does not mean installation is
 > optional for cairn-mcp. In `pyproject.toml`, `fastmcp[apps]~=3.4` is listed directly in the

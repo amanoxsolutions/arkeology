@@ -101,16 +101,16 @@ Three configurable guards bound the embedding cost per artifact:
 - Cost at Titan Text Embeddings v2 pricing (on-demand) is negligible even at the 20-section
   ceiling — documented in NFR-14.
 
-> **Revised (2026-07-05, Phase 12 review M-3).** The three guards in this decision, and the
+> **Revised (2026-07-05).** The three guards in this decision, and the
 > embedding-text construction described above, are implemented in a single shared module
 > (`tools/_section_pipeline.py`) called from both `write_artifact` and `reconcile_index` —
-> not duplicated per tool. This was tightened after a review finding that `reconcile_index`
+> not duplicated per tool. This was tightened because `reconcile_index`
 > re-embedded sections directly, bypassing the min-length filter, the `EMBED_MAX_SECTIONS`
 > cap, and `EMBED_MAX_SECTION_LENGTH` truncation entirely; a section truncated at write time
 > was resubmitted full-length on every reconcile replay and failed Titan's input limit
 > forever. Both tools now apply identical filtering/capping/truncation by construction.
 
-> **Revised (2026-07-05, Phase 12 review M-14).** The Decision section above previously stated
+> **Revised (2026-07-05).** The Decision section above previously stated
 > the section vector key as `{artifact_id}#{section_slug}`. This was incorrect — the shipped
 > code (`write.py`, `reconcile.py::_reindex_artifact`) and ADR-005 both use `{s3_key}#{section_slug}`,
 > where `s3_key` is the full S3 object key (`{WRITE_PREFIX}/{artifact_id}{file_extension}`), not

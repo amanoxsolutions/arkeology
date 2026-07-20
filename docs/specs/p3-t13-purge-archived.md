@@ -9,8 +9,7 @@ feature: p3-t13-purge-archived
 status: ready
 phase: 3
 task: 13
-references:
-  - ".docs/reviews/review-2026-06-29-simplification.md"
+references: []
 authored:
   by: "architect"
   date: "2026-05-30"

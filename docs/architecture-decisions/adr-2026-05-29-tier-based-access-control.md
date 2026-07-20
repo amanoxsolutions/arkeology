@@ -124,9 +124,8 @@ cannot perform cross-scope semantic search (documented in deployment prerequisit
 ## Revision — 2026-07-02
 
 The original Decision text claimed "operators who want a hard boundary must configure IAM
-to restrict cross-bucket or cross-prefix access accordingly." A full-project review (finding
-CA-1) established that no IAM configuration can provide a tier-aware boundary *within* a
-shared vector index — verified against the
+to restrict cross-bucket or cross-prefix access accordingly." No IAM configuration can
+provide a tier-aware boundary *within* a shared vector index — verified against the
 [Service Authorization Reference for Amazon S3 Vectors](https://docs.aws.amazon.com/service-authorization/latest/reference/list_amazons3vectors.html):
 all condition keys applicable to the query/read actions evaluate at the index/bucket
 resource level (resource tags), never at the vector or metadata level. The Decision text

@@ -22,7 +22,7 @@ revised:
 
 <!-- SCOPE BLOCK — frozen after approval -->
 
-> **Revised (2026-07-05, Phase 12 review M-2).** The "zero additional API cost" design
+> **Revised (2026-07-05).** The "zero additional API cost" design
 > below has a race: an artifact fully written between the Scenario 2 S3 listing and the
 > vector listing was misclassified dangling and its brand-new vectors were pruned.
 > `reconcile_index` now re-confirms S3 absence with one `head_object` call per dangling

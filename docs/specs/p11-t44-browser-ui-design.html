@@ -5,7 +5,7 @@
   /* ============================================================
      DESIGN TOKENS — :root = DARK (default). [data-theme="light"]
      overrides below. Kept in sync with the implementation
-     (src/cairn_mcp/static/cairn-studio.html) per Review 2026-06-29.
+     (src/cairn_mcp/static/cairn-studio.html).
      ============================================================ */
   :root {
     --base:          #09091a;
@@ -17,7 +17,7 @@
     --bd-strong:     rgba(148,158,220,0.22);
     --t1:            #e2eaff;
     --t2:            #8390bc;
-    --t3:            #757fb0;   /* brightened from #404870 (~2.2:1, AA-fail) to ~5.09:1 on base — C2 */
+    --t3:            #757fb0;   /* brightened from #404870 (~2.2:1, AA-fail) to ~5.09:1 on base */
     --mono:          "SF Mono","Cascadia Code","Fira Code",ui-monospace,monospace;
 
     --g:   linear-gradient(135deg, #00d4b8, #0088ff 33%, #8844ee 66%, #e800b0);
@@ -40,7 +40,7 @@
     --c-synth:       #f00077;
     --c-bug:         #f50060;
 
-    /* Badge/eyebrow TEXT colours (M8) — lightened so each clears ≥4.5:1 as text
+    /* Badge/eyebrow TEXT colours — lightened so each clears ≥4.5:1 as text
        on its own 16% tint over the dark base. */
     --bt-adr:        #00d4b8;
     --bt-prd:        #00bccc;
@@ -60,7 +60,7 @@
 
     --focus: #0088ff;
 
-    /* Type scale (1rem = 16px base; 14px reading floor) (M3/M7) */
+    /* Type scale (1rem = 16px base; 14px reading floor) */
     --text-h1:   1.375rem;  /* 22px */
     --text-h2:   1.1875rem; /* 19px */
     --text-h3:   1.0625rem; /* 17px */
@@ -71,19 +71,19 @@
     --text-badge:0.75rem;   /* 12px — type badge chips */
     --text-th:   0.6875rem; /* 11px — table headers, eyebrow */
 
-    /* Spacing scale (4px base) (M7) */
+    /* Spacing scale (4px base) */
     --sp-1: 4px;  --sp-2: 8px;  --sp-3: 12px; --sp-4: 16px;
     --sp-5: 24px; --sp-6: 32px; --sp-7: 48px; --sp-8: 64px;
 
-    /* Radius (M7) */
+    /* Radius */
     --r-sm: 6px; --r-md: 8px; --r-lg: 10px; --r-xl: 16px; --r-pill: 999px;
 
-    /* Elevation (M7) */
+    /* Elevation */
     --shadow-1: 0 1px 2px rgba(0,0,0,0.40);
     --shadow-2: 0 6px 18px rgba(0,0,0,0.50);
     --shadow-3: 0 24px 60px -16px rgba(0,0,0,0.70);
 
-    /* Motion (M7) */
+    /* Motion */
     --dur-fast: 0.15s; --dur-base: 0.25s; --ease: cubic-bezier(.4,0,.2,1);
   }
 
@@ -131,7 +131,7 @@
     background: var(--base);
     color: var(--t1);
     font-family: system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI","Helvetica Neue",sans-serif;
-    font-size: 16px;   /* M3: 16px base */
+    font-size: 16px;   /* 16px base */
     line-height: 1.6;
     -webkit-font-smoothing: antialiased;
     transition: background var(--dur-base) var(--ease), color var(--dur-base) var(--ease);
@@ -229,7 +229,7 @@
 
   .g-note { font-size: var(--text-label); color: var(--t2); line-height: 1.65; margin-top: var(--sp-1); }
 
-  /* ── Token scales (M7) ── */
+  /* ── Token scales ── */
   .scale-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-7); }
   .sp-row { display: flex; align-items: center; gap: var(--sp-4); margin-bottom: var(--sp-2); }
   .sp-bar { height: 14px; background: var(--g90); border-radius: 3px; }
@@ -383,7 +383,7 @@
   }
 
   .li.active { background: var(--surface-hi); border-color: var(--bd); }
-  /* M4: no opacity dimming — selection signalled by --surface-hi bg + --bd border only;
+  /* No opacity dimming — selection signalled by --surface-hi bg + --bd border only;
      unselected rows render at full opacity. */
 
   .li-badge {
@@ -398,7 +398,7 @@
     margin-bottom: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
 
-  .li-meta { font-size: var(--text-label); color: var(--t3); }  /* C2: brightened --t3 — one rule */
+  .li-meta { font-size: var(--text-label); color: var(--t3); }  /* brightened --t3 — one rule */
 
   /* Right panel */
   .rp { flex:1; overflow-y: auto; padding: var(--sp-6); background: var(--base); }
@@ -529,7 +529,7 @@
       <p class="g-note" style="margin-top:var(--sp-3);">
         <b style="color:var(--t1);">--t3 was brightened</b> from #404870 (~2.2:1, AA-fail) to
         #757fb0 (~5.09:1 on the dark base). It now carries <code style="font-family:var(--mono)">.li-meta</code>
-        (date + tier), the detail empty-state, and small labels — one rule, AA in both themes (C2/m12).
+        (date + tier), the detail empty-state, and small labels — one rule, AA in both themes.
       </p>
     </div>
 
@@ -552,9 +552,9 @@
 
 <div class="divider"></div>
 
-<!-- ── Token scales (M7) ── -->
+<!-- ── Token scales ── -->
 <section style="margin-bottom:var(--sp-7);">
-  <p class="sec-head">Token scales — spacing, radius, type, elevation, motion (M7)</p>
+  <p class="sec-head">Token scales — spacing, radius, type, elevation, motion</p>
   <div class="scale-grid">
     <div>
       <p style="font-size:var(--text-th);font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--t3);margin-bottom:16px;">Spacing (4px base) · --sp-1..8</p>
@@ -579,7 +579,7 @@
     </div>
 
     <div>
-      <p style="font-size:var(--text-th);font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--t3);margin-bottom:16px;">Type scale · 16px base, 14px reading floor (M3)</p>
+      <p style="font-size:var(--text-th);font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--t3);margin-bottom:16px;">Type scale · 16px base, 14px reading floor</p>
       <div class="text-row"><div class="text-meta"><b>h1</b> · 22px · 700</div><div style="font-size:var(--text-h1);font-weight:700;letter-spacing:-.02em">Artifact title</div></div>
       <div class="text-row"><div class="text-meta"><b>h2</b> · 19px · 600</div><div style="font-size:var(--text-h2);font-weight:600">Section heading</div></div>
       <div class="text-row"><div class="text-meta"><b>h3</b> · 17px · 600</div><div style="font-size:var(--text-h3);font-weight:600">Sub heading</div></div>
@@ -622,7 +622,7 @@
     <div class="tc"><div class="tc-pip" style="background:var(--c-bug)"></div><span class="tc-slug">bug_report</span></div>
   </div>
   <p class="g-note" style="margin-top:var(--sp-4)">
-    <b style="color:var(--t1);">Badge contrast (M8):</b> the 4px stripe / pip uses the identity
+    <b style="color:var(--t1);">Badge contrast:</b> the 4px stripe / pip uses the identity
     <code style="font-family:var(--mono)">--c-*</code> token. Badge and eyebrow <em>text</em> uses a
     dedicated <code style="font-family:var(--mono)">--bt-*</code> token (a lightened stop on dark, a
     deepened stop on light) so every one of the 15 types clears ≥4.5:1 as text on its own tint.
@@ -664,7 +664,7 @@
 <section>
   <p class="sec-head">Browser UI — list &amp; detail</p>
   <div class="note-box">
-    <b>Illustrative layout note (m12):</b> the production layout is
+    <b>Illustrative layout note:</b> the production layout is
     <b>single-pane with view switching</b> — a list view (<code style="font-family:var(--mono)">#list-view</code>)
     and a detail view (<code style="font-family:var(--mono)">#detail-view</code>) toggled by the
     <code style="font-family:var(--mono)">showing-detail</code> class, with an "All artifacts" back
@@ -674,11 +674,11 @@
   <div class="note-box" style="border-left-color:var(--c-spec)">
     <b>List sort order:</b> type ascending (A→Z), then date descending (newest first) within each type.
     <b>List items:</b> <code style="font-family:var(--mono)">flex-shrink: 0</code> — items render at
-    natural height; the list scrolls. <b>Selection (M4):</b> the active row uses
+    natural height; the list scrolls. <b>Selection:</b> the active row uses
     <code style="font-family:var(--mono)">--surface-hi</code> background + <code style="font-family:var(--mono)">--bd</code>
-    border; unselected rows are at full opacity (no dimming). <b>Focus (M5):</b> every control shows a
+    border; unselected rows are at full opacity (no dimming). <b>Focus:</b> every control shows a
     <code style="font-family:var(--mono)">2px solid var(--focus)</code> ring; rows are real
-    <code style="font-family:var(--mono)">&lt;button&gt;</code>s with Up/Down + Enter/Space (M6).
+    <code style="font-family:var(--mono)">&lt;button&gt;</code>s with Up/Down + Enter/Space.
   </div>
   <div class="mockup">
 

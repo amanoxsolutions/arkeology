@@ -1,14 +1,13 @@
 ---
 type: spec
-title: Surface artifact last-edited age in search results (CA-4 Option A)
+title: Surface artifact last-edited age in search results (Option A)
 description: Add the last-edited timestamp to each search_artifacts result so agents can judge and discount stale artifacts; no ranking change.
 tags: [retrieval, search, staleness, review-fix]
 timestamp: 2026-07-03T00:00:00Z
 okf_version: "0.1"
-feature: "Phase 12 · T54 — CA-4 Option A: search age transparency"
+feature: "Phase 12 · T54 — Option A: search age transparency"
 status: ready
 references:
-  - "../../.docs/reviews/review-2026-07-02-full-project-review.md (CA-4)"
   - "docs/planning-artifacts/backlog.md (B-6 — recency-weighted ranking, Option B)"
   - "docs/planning-artifacts/prd.md (FR-03, AC-66)"
   - "docs/planning-artifacts/plan.md (Phase 12, T54)"
@@ -20,7 +19,7 @@ revised:
   date: "2026-07-03"
 ---
 
-# Surface artifact last-edited age in search results (CA-4 Option A)
+# Surface artifact last-edited age in search results (Option A)
 
 <!-- SCOPE BLOCK — frozen after approval -->
 
@@ -28,7 +27,7 @@ revised:
 `search_artifacts` returns semantically ranked artifacts but exposes no last-edited time, so an agent cannot tell a fresh note from a six-month-old superseded one — the "quietly wrong" failure the PRD's own Product Value Failure section names. This feature adds the last-edited timestamp to every search result so agents can discount stale hits themselves. Ranking behaviour is deliberately unchanged (recency-weighted ranking is Option B, deferred to backlog B-6).
 
 ## Problem Statement
-Review finding CA-4 flags that staleness is named as a fatal risk in the PRD, yet retrieval carries no recency signal. Search results already include `date` (the nominal artifact date), but not the actual last-write time. `last_edited_ulid` — a monotonic, time-sortable ULID — is already stored in every artifact's vector metadata and is already surfaced by `read_artifact` and `list_artifacts`; `search_artifacts` is the one retrieval surface that omits it. Adding it is a near-free transparency win that directly addresses the "agent retrieves an artifact, trusts it, and acts on superseded information" failure mode, without touching ranking or requiring any re-index.
+Staleness is named as a fatal risk in the PRD, yet retrieval carries no recency signal. Search results already include `date` (the nominal artifact date), but not the actual last-write time. `last_edited_ulid` — a monotonic, time-sortable ULID — is already stored in every artifact's vector metadata and is already surfaced by `read_artifact` and `list_artifacts`; `search_artifacts` is the one retrieval surface that omits it. Adding it is a near-free transparency win that directly addresses the "agent retrieves an artifact, trusts it, and acts on superseded information" failure mode, without touching ranking or requiring any re-index.
 
 ## User Stories
 

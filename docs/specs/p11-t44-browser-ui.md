@@ -161,7 +161,7 @@ is too small for the view-switching interface to be practical. The primary value
 `cairn_studio` is the non-supporting host path (structured artifact listing in
 `structured_content`), which is the interface used by the team via Claude Code.
 
-## Revised (2026-07-05, Phase 12 review M-11)
+## Revised (2026-07-05)
 
 Four defects were found and fixed in the non-supporting-host and iframe paths:
 
@@ -193,8 +193,8 @@ Four defects were found and fixed in the non-supporting-host and iframe paths:
 
 Verification: (a) has unit test coverage
 (`tests/unit/test_tools_studio.py::test_cairn_studio_non_supporting_host_credential_error_is_propagated`).
-(b)/(c)/(d)'s client-side JS have no unit test harness in this project (mirroring the C-2
-precedent in `.docs/implementation/implementation-2026-07-02-critical-fixes-c1-c2-c3-c5.md`) —
+(b)/(c)/(d)'s client-side JS have no unit test harness in this project (matching prior
+precedent for untested client-side JS fixes in this codebase) —
 verified with a throwaway Node + jsdom script that extracts the actual shipped `loadList`,
 `doSearch`, and `app.ontoolresult` function bodies from `cairn-studio.html` via string slicing
 (not retyped) and exercises them against mocked `app.callServerTool` responses and a jsdom DOM;

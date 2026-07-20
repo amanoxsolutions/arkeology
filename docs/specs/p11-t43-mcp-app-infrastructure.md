@@ -138,7 +138,7 @@ An MCP host fetches the `ui://cairn-studio/index.html` resource to render the br
   `https://fonts.gstatic.com`) MUST NOT be declared** — loading fonts from Google's CDN is
   disallowed on GDPR grounds (it exposes the user's IP to a third party). Typography uses the
   `system-ui` stack or a font self-hosted under `src/cairn_mcp/static/`; no external font origin
-  is ever permitted in the CSP. (Review 2026-06-29, finding C1.)
+  is ever permitted in the CSP.
 - The HTML file is read using `importlib.resources.files("cairn_mcp").joinpath("static/cairn-studio.html")` (Python 3.9+ API), not via `__file__`-relative path manipulation.
 - `src/cairn_mcp/static/cairn-studio.html` is created as a minimal placeholder
   (`<!doctype html><html><body><p>cairn studio placeholder</p></body></html>`) so the

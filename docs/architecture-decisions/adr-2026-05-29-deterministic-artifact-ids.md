@@ -95,8 +95,8 @@ section slug: `{s3_key}#{section_slug}` (e.g. `team/project/code-review-2026-05-
 
 ## Revision — 2026-07-02
 
-A full-project review (finding C-3) established that the "intentional deduplication" framing
-above did not hold for three collision classes the original design did not consider:
+The "intentional deduplication" framing above does not hold for three collision classes the
+original design did not consider:
 
 1. **Empty-slug collapse.** Any title with no Latin/digit content (CJK, Cyrillic, Arabic,
    emoji) normalises to an empty string and falls back to the constant slug `"artifact"`. All

@@ -101,7 +101,7 @@ tier-based access-control model (ADR-007); every reverse-lookup gate here remain
 ### D2 — `references` promoted to a first-class `Artifact` field (FR-51)
 
 `references: list[str]` becomes a first-class field on the `Artifact` model, storing **only
-resolved full S3 keys** — the operative `artifact_id` (e.g. `{write_prefix}/{id}{ext}`), not a bare id (**revised 2026-07-04, review C1**: the canonical form is the full S3 key, matching what the read gate, `referenced_by` `$eq`, and vector metadata use) — no `cairn://` prefix, no raw path text. It is **dual-stored
+resolved full S3 keys** — the operative `artifact_id` (e.g. `{write_prefix}/{id}{ext}`), not a bare id (**revised 2026-07-04**: the canonical form is the full S3 key, matching what the read gate, `referenced_by` `$eq`, and vector metadata use) — no `cairn://` prefix, no raw path text. It is **dual-stored
 following the same pattern as `source_artifacts`** — a durable copy on the S3 object (location and
 encoding recorded in ADR-011) and a `list[str]` in S3 Vectors metadata — and it is queryable via
 the existing generic `$eq` list-membership filter with AND semantics (all supplied identifiers must
@@ -326,7 +326,7 @@ rule — never reveal foreign-scope identifiers; see the cross-scope reference v
 for the related, but distinct, question of filtering the `references` field itself on a cross-scope
 read), and it is resolved by a **field-appropriate, filterable query, never an unbounded
 fetch-all-then-filter-in-process scan**. The two reference fields are not equally filterable, so the
-mechanism branches by field (Phase 12 review T50, refined against the shipped implementation): the
+mechanism branches by field (see T50, refined against the shipped implementation): the
 **filterable** `references` field is resolved with a single server-side `$eq` list-membership query
 (`{"references": {"$eq": target}}`); the **non-filterable** `source_artifacts` field — which S3
 Vectors rejects a server-side `$eq` on — is resolved via a bounded, filterable `type = synthesis`
