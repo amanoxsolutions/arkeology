@@ -57,8 +57,6 @@ Goal: the server starts, validates all configuration, and fails clearly on any m
 5. ✅ **Startup validation sequence** — credentials, `WRITE_PREFIX` read/write, each `READ_PREFIXES` entry read, vector index existence, embedding model ↔ index dimension match; any failure is a hard stop with a distinct actionable error (FR-07, NFR-03)
    - Done when: each of the 5 failure conditions produces a distinct, actionable error message with a clear remediation hint; tests cover every failure path
 
-🔁 **Phase 1 retrospective** — review structure, fakes, and configuration model before building tools on top
-
 ---
 
 ## Phase 2 — Core value loop: write, search, read
@@ -78,8 +76,6 @@ Goal: an agent writes an artifact and immediately finds it via semantic search. 
 
 9. ✅ **Read artifact tool** — S3 GetObject by identifier; cross-scope gate enforced (FR-02, FR-10)
    - Done when: known artifact returns full content; tier 2 artifact from foreign scope is rejected with a clear error; tier 3 shared artifact from foreign scope is accessible
-
-🔁 **Phase 2 retrospective** — validate the write → search → read round-trip end-to-end with a real AWS deployment before proceeding
 
 ---
 
@@ -108,8 +104,6 @@ Goal: the server is operationally complete. Agents can list, archive, and delete
 
 16. ✅ **Synthesise artifacts tool** — semantic search + batch `read_artifact` for top-k results; returns bundled full content (identifier, metadata, description, content) per source artifact; agent performs synthesis in-context; agent writes back via `write_artifact` with `type=synthesis`, `tier=3`, `source_artifacts=[...]` (FR-19)
     - Done when: single tool call returns full content from multiple matching artifacts; result includes all required fields; content is bounded by the `top_k` ceiling (100); cross-scope gate applied (same as `search_artifacts`); credential errors return structured responses
-
-🔁 **Phase 3 retrospective** — end-to-end smoke test of all 9 tools before proceeding to documentation *(captured as T17 — run full integration test suite)*
 
 ---
 
