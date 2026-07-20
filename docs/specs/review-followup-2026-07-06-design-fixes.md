@@ -374,8 +374,8 @@ adding any result that would push the response past the budget, then signal `tru
 the count actually included. Keep the count ceiling as a cheap secondary guard, not the primary
 bound. Default budget generous enough that a normal ~10-artifact synthesis never trips it.
 
-**Proposed default: 1,000,000 bytes (1 MB, measured as UTF-8-encoded response content) — flag for
-operator confirmation before implementation.** Reasoning:
+**Default: 1,000,000 bytes (1 MB), measured as the UTF-8-encoded byte length of each result's
+`content` field (operator-confirmed 2026-07-06; overridable via config).** Reasoning:
 
 - This repository's own artifact corpus (ADRs, specs, code reviews, session summaries) runs
   roughly 2–20 KB of markdown per document; long specs/ADRs can reach 30–50 KB.
@@ -390,8 +390,8 @@ operator confirmation before implementation.** Reasoning:
   the query, tool-call overhead, and the agent's own synthesis output, without assuming a specific
   model or provider.
 - It is a round, easily-overridden number.
-- **This is an estimate, not a measurement against the real corpus size distribution** — confirm
-  before implementation; raise it if real deployments consistently carry much larger documents.
+- The value was an estimate rather than a measurement against a real corpus; operator-confirmed as
+  the default (2026-07-06), overridable per deployment if documents are consistently larger.
 
 ### Required changes (files/symbols)
 
@@ -406,14 +406,12 @@ operator confirmation before implementation.** Reasoning:
   the response; otherwise fetch, append, and continue. The existing `clamped`/`effective_top_k`
   fields (from the count-ceiling clamp) are unaffected and may co-occur with the new fields if both
   conditions triggered independently.
-- Response shape: propose `{"artifacts": [...], "truncated": true, "included": N}` (only present
-  when truncation actually occurred), mirroring the existing optional-field pattern used by
-  `clamped`/`effective_top_k`. Field names are a proposal, not frozen — confirm before
-  implementation (see Open Questions).
-- Measurement method: recommend measuring the UTF-8 byte length of each result's `content` field as
-  the dominant, budget-driving contributor (metadata per entry is small and roughly fixed
-  overhead); document whichever method is chosen in a code comment so a future maintainer does not
-  need to re-derive it.
+- Response shape (operator-confirmed 2026-07-06): `{"artifacts": [...], "truncated": true,
+  "included": N}` — the `truncated` and `included` fields present only when truncation actually
+  occurred, mirroring the existing optional-field pattern used by `clamped`/`effective_top_k`.
+- Measurement method (operator-confirmed 2026-07-06): the UTF-8 byte length of each result's
+  `content` field only — the dominant, budget-driving contributor (per-entry metadata is small
+  fixed overhead); document it in a code comment.
 - `docs/specs/p3-t16-synthesise-artifacts.md` — flag for a tech-writer `revised` entry noting the
   new byte-budget behaviour (its Story 3 currently describes only the count ceiling); not this
   cluster's job to edit.
@@ -433,8 +431,8 @@ operator confirmation before implementation.** Reasoning:
   unaffected by the new budget logic (the budget check runs only on already-successfully-fetched
   content).
 - The single-oversized-first-result edge case (the very first ranked candidate alone exceeds the
-  budget) behaves per whichever resolution the operator confirms (see Open Questions) — a
-  deterministic, tested behaviour either way, not an unspecified corner case.
+  budget): the one result is **included anyway** (never return zero results for a single relevant
+  oversized hit), with `truncated: true` set — operator-confirmed 2026-07-06.
 
 ### Testing approach (TDD)
 
@@ -448,10 +446,10 @@ operator confirmation before implementation.** Reasoning:
    fields are absent/present as expected; real oversized content is not required for integration
    coverage.
 
-### Open Questions (confirm with operator before implementation)
+### Resolved decisions (operator-confirmed 2026-07-06)
 
-- Exact response field names (`truncated` / `included` vs. alternatives) — proposed, not frozen.
-- Whether the byte count should measure `content` only or the full assembled per-result dict.
-- Behaviour when the very first ranked candidate alone exceeds the budget: always include it anyway
-  (never return zero results for a single oversized artifact) vs. return zero results + `truncated`.
-- The proposed 1,000,000-byte default itself — confirm or override with real corpus data.
+All four previously-open CA-5 questions are now frozen:
+- **Default budget:** 1,000,000 bytes (1 MB), overridable via config.
+- **Response field names:** `truncated: true` + `included: N` (present only when truncation occurred).
+- **Byte measurement:** the `content` field only (UTF-8 byte length).
+- **Oversized-first-result:** include the single result anyway, with `truncated: true` set.
