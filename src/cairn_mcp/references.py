@@ -152,7 +152,11 @@ def build_path_to_id_map(
             title=entry["title"],
         )
         extension = posixpath.splitext(entry["path"])[1] or ".md"
-        path_to_id[entry["path"]] = f"{write_prefix}/{bare_id}{extension}"
+        # M13: key on the normalized path, not the raw manifest path — a manifest
+        # entry spelled with a leading "./" or a backslash must still be found by
+        # resolve_reference's normalize_reference_path(candidate) lookup, otherwise
+        # the reference silently never resolves.
+        path_to_id[normalize_reference_path(entry["path"])] = f"{write_prefix}/{bare_id}{extension}"
     return path_to_id
 
 

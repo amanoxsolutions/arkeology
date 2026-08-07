@@ -1174,3 +1174,114 @@ async def test_link_metadata_same_field_concurrent_residual_not_detected(
     assert result1.get("error") is None
     assert result2.get("error") is None
     assert s3_client.get_object_annotation(ID_A, "commit_refs") == "writer-1-sha,writer-2-sha"
+
+
+# ---------------------------------------------------------------------------
+# review-followup-2026-07-06 M9 — per-value validation on supplied commit_refs /
+# references: empty, whitespace-only, and comma-bearing values must be rejected
+# (consistent with the Artifact model's comma rejection, M2) rather than silently
+# passing through and diverging the two durable stores.
+# ---------------------------------------------------------------------------
+
+
+async def test_link_metadata_empty_string_commit_ref_returns_validation_error(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+) -> None:
+    """An empty-string element in commit_refs → validation_error, no artifact touched."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient()
+    _seed_all(s3_client, vectors_client_2)
+
+    result = await link_metadata(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=bedrock,
+        artifact_ids=[ID_A],
+        commit_refs=[""],
+    )
+
+    assert result.get("error") == "validation_error"
+
+
+async def test_link_metadata_whitespace_only_reference_returns_validation_error(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+) -> None:
+    """A whitespace-only element in references → validation_error."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient()
+    _seed_all(s3_client, vectors_client_2)
+
+    result = await link_metadata(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=bedrock,
+        artifact_ids=[ID_A],
+        references=["   "],
+    )
+
+    assert result.get("error") == "validation_error"
+
+
+async def test_link_metadata_comma_bearing_commit_ref_returns_validation_error(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+) -> None:
+    """A comma inside a supplied commit_refs value → validation_error (consistent with
+    the Artifact model's M2 comma rejection — the S3 annotation payload comma-joins
+    list elements, so a comma inside one would diverge the two stores)."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient()
+    _seed_all(s3_client, vectors_client_2)
+
+    result = await link_metadata(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=bedrock,
+        artifact_ids=[ID_A],
+        commit_refs=["abc,1234"],
+    )
+
+    assert result.get("error") == "validation_error"
+
+
+# ---------------------------------------------------------------------------
+# review-followup-2026-07-06 M10 — an orphaned vector (indexed in S3 Vectors but its
+# underlying S3 object already deleted) must be skipped-and-counted for its own
+# artifact_id, not abort the whole batch's linked/skipped accounting.
+# ---------------------------------------------------------------------------
+
+
+async def test_link_metadata_orphaned_vector_missing_s3_object_skipped_not_aborted(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+) -> None:
+    """artifact-own-A's vectors remain indexed but its S3 object is deleted (orphan) —
+    head_object inside the CAS helper raises KeyError. This must be skipped-and-
+    counted for ID_A alone; ID_B in the same call must still be linked normally."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient()
+    _seed_all(s3_client, vectors_client_2)
+
+    s3_client.delete_object(ID_A)
+
+    result = await link_metadata(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=bedrock,
+        artifact_ids=[ID_A, ID_B],
+        commit_refs=["abc1234"],
+    )
+
+    assert result.get("error") is None
+    assert result.get("linked") == 1
+    assert result.get("skipped") == 1

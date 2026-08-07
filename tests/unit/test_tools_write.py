@@ -3738,3 +3738,105 @@ async def test_overwrite_vector_writes_remain_unconditional_despite_cas_retry(
     for item in items:
         assert "if_match" not in item
         assert set(item.keys()) == {"key", "vector", "metadata"}
+
+
+# ---------------------------------------------------------------------------
+# review-followup-2026-07-06 M1 — an unknown/transient annotation ClientError
+# (e.g. SlowDown) must degrade to a structured partial_write response with a
+# failure-log entry, not escape uncaught to the blanket internal_error handler.
+# ---------------------------------------------------------------------------
+
+
+def _unknown_annotation_client_error() -> botocore.exceptions.ClientError:
+    """A transient S3 error that is neither credential-related, annotation-
+    unavailable, nor a conflict — e.g. SlowDown/RequestTimeout."""
+    return botocore.exceptions.ClientError(
+        {"Error": {"Code": "SlowDown", "Message": "Please reduce your request rate."}},
+        "PutObjectAnnotation",
+    )
+
+
+async def test_create_annotation_write_unknown_error_returns_partial_write(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    tmp_path: pytest.TempPathFactory,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """Fresh-create path: an unknown ClientError (e.g. SlowDown, not credential, not
+    annotation-unavailable, not a conflict) from the annotation write must degrade to
+    partial_write with a failure-log entry — the S3 object and vectors are already
+    durably written by this point and must not be lost."""
+    log_path = tmp_path / "failures.jsonl"
+    settings = _make_settings(monkeypatch, FAILURE_LOG_PATH=str(log_path))
+    bedrock = FakeBedrockClient(dimension=1024)
+    mocker.patch.object(
+        s3_client, "put_object_annotation", side_effect=_unknown_annotation_client_error()
+    )
+
+    kwargs = {**_BASE_WRITE_KWARGS, "commit_refs": ["sha1"]}
+    result = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        **kwargs,
+    )
+
+    assert result.get("error") == "partial_write"
+    assert "artifact_id" in result
+    assert s3_client.get_object(result["artifact_id"]) == kwargs["content"]
+    assert log_path.exists()
+    entries = [json.loads(line) for line in log_path.read_text().splitlines()]
+    assert entries[-1]["failure_step"] == "annotation_write"
+    assert entries[-1]["artifact_id"] == result["artifact_id"]
+
+
+async def test_overwrite_annotation_write_unknown_error_returns_partial_write(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    tmp_path: pytest.TempPathFactory,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """Overwrite/CAS path: same unknown-ClientError scenario, on a re-write of an
+    already-existing artifact — the new content is already durably written by the
+    time the annotation write fails, so this must also degrade to partial_write with
+    a failure-log entry rather than an uncaught exception."""
+    log_path = tmp_path / "failures.jsonl"
+    settings = _make_settings(monkeypatch, FAILURE_LOG_PATH=str(log_path))
+    bedrock = FakeBedrockClient(dimension=1024)
+
+    first = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        **_BASE_WRITE_KWARGS,
+    )
+
+    mocker.patch.object(
+        s3_client, "put_object_annotation", side_effect=_unknown_annotation_client_error()
+    )
+
+    changed_kwargs = {
+        **_BASE_WRITE_KWARGS,
+        "content": "## Summary\n\nUpdated content.",
+        "commit_refs": ["sha1"],
+    }
+    result = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        overwrite=True,
+        **changed_kwargs,
+    )
+
+    assert result.get("error") == "partial_write"
+    assert result.get("artifact_id") == first["artifact_id"]
+    assert "Updated content." in s3_client.get_object(result["artifact_id"])
+    assert log_path.exists()
+    entries = [json.loads(line) for line in log_path.read_text().splitlines()]
+    assert entries[-1]["failure_step"] == "annotation_write"
+    assert entries[-1]["artifact_id"] == result["artifact_id"]

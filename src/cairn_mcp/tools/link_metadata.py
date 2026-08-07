@@ -109,6 +109,29 @@ def _apply_link_metadata_with_cas(
     raise ArtifactConflictError(artifact_id)
 
 
+def _validate_supplied_link_values(values: list[str], field: str) -> str | None:
+    """Reject empty/whitespace-only/comma-bearing elements in a supplied link-field
+    list (M9), matching the same per-element constraints ``Artifact.validate_commit_refs``
+    / ``validate_references`` enforce on write (M2) — a value link_metadata accepted here
+    but the Artifact model would later reject would desync the annotation and vector
+    stores or silently corrupt the comma-joined annotation payload.
+
+    Args:
+        values: The supplied ``commit_refs`` or ``references`` list for this call.
+        field: The field name, used only for the returned message.
+
+    Returns:
+        A validation-error message if any element is empty, whitespace-only, or
+        contains a comma; ``None`` when every element is acceptable.
+    """
+    for item in values:
+        if not item.strip():
+            return f"{field} elements must not be empty or whitespace-only, found {item!r}"
+        if "," in item:
+            return f"{field} elements must not contain a comma, found {item!r}"
+    return None
+
+
 def _merge_link_field(existing: list[str], supplied: list[str]) -> list[str]:
     """Merge ``supplied`` values into ``existing``, deduplicating and order-preserving.
 
@@ -202,6 +225,17 @@ async def _link_metadata_inner(
             "message": "At least one of commit_refs or references must be non-empty",
         }
 
+    # M9: reject empty/whitespace/comma-bearing values up front, before any artifact
+    # is touched — mirrors the per-element constraints Artifact.validate_commit_refs /
+    # validate_references enforce on write (M2).
+    for values, field in (
+        (supplied_commit_refs, "commit_refs"),
+        (supplied_references, "references"),
+    ):
+        message = _validate_supplied_link_values(values, field)
+        if message is not None:
+            return {"error": ErrorCode.VALIDATION_ERROR, "message": message}
+
     write_prefix = settings.write_prefix
     linked = 0
     skipped = 0
@@ -270,6 +304,19 @@ async def _link_metadata_inner(
                 )
 
             vectors.put_vectors_batch(batch)
+        except KeyError:
+            # M10: the vector index still carries this artifact_id (an orphaned
+            # vector — e.g. a prior write's S3 put succeeded but a later delete or a
+            # failed reconcile left the S3 object gone) but head_object/put_object_annotation
+            # inside _apply_link_metadata_with_cas found no matching S3 object. This is
+            # skip-and-continue, not an aborting internal_error: the rest of this call's
+            # artifact_ids must still be processed.
+            logger.debug(
+                "link_metadata skipped orphaned-vector artifact_id=%s (S3 object missing)",
+                artifact_id,
+            )
+            skipped += 1
+            continue
         except AnnotationUnavailableError as exc:
             # T52 / ADR-011 decision 5: the durable annotation write is link_metadata's
             # contract (it exists precisely to make commit_refs/references durable), so

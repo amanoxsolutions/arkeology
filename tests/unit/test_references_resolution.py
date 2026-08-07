@@ -161,6 +161,30 @@ def test_build_path_to_id_map_empty_manifest_returns_empty_map() -> None:
     assert result == {}
 
 
+def test_build_path_to_id_map_normalizes_dot_slash_prefixed_manifest_path() -> None:
+    """M13: a manifest entry whose own path is spelled with a leading './' must be
+    keyed on its NORMALIZED form — the same form resolve_reference always normalizes
+    its lookup candidate to — or the raw, unnormalized key never matches any lookup
+    and the migration rewrite silently becomes a no-op."""
+    entries = [_entry("./docs/adr/001-use-s3.md", "adr", 3, "Use S3", "2026-01-01")]
+
+    result = build_path_to_id_map(entries, write_prefix=_WRITE_PREFIX)
+
+    assert "docs/adr/001-use-s3.md" in result
+    assert "./docs/adr/001-use-s3.md" not in result
+
+
+def test_build_path_to_id_map_normalizes_backslash_manifest_path() -> None:
+    """A manifest entry spelled with backslash separators is keyed on its
+    forward-slash-normalized form."""
+    entries = [_entry("docs\\adr\\001-use-s3.md", "adr", 3, "Use S3", "2026-01-01")]
+
+    result = build_path_to_id_map(entries, write_prefix=_WRITE_PREFIX)
+
+    assert "docs/adr/001-use-s3.md" in result
+    assert "docs\\adr\\001-use-s3.md" not in result
+
+
 # ---------------------------------------------------------------------------
 # resolve_reference
 # ---------------------------------------------------------------------------
@@ -199,6 +223,20 @@ def test_resolve_reference_returns_none_for_urls(url: str) -> None:
     result = resolve_reference(url, path_to_id_map)
 
     assert result is None
+
+
+def test_resolve_reference_resolves_when_manifest_path_had_leading_dot_slash() -> None:
+    """M13 end-to-end: a manifest whose path used a leading './' still resolves
+    through resolve_reference (which always normalizes its own lookup candidate) once
+    build_path_to_id_map normalizes its keys the same way — before the fix, the raw
+    unnormalized map key never matched."""
+    entries = [_entry("./docs/adr/001-use-s3.md", "adr", 3, "Use S3", "2026-01-01")]
+    path_to_id_map = build_path_to_id_map(entries, write_prefix=_WRITE_PREFIX)
+
+    result = resolve_reference("docs/adr/001-use-s3.md", path_to_id_map)
+
+    assert result is not None
+    assert result == path_to_id_map["docs/adr/001-use-s3.md"]
 
 
 def test_resolve_reference_returns_none_for_unresolved_path() -> None:

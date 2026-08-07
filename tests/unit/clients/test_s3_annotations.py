@@ -68,6 +68,17 @@ def test_get_annotation_on_missing_object_raises_key_error(s3_client: S3ClientIm
         s3_client.get_object_annotation("artifacts/does-not-exist.md", "commit_refs")
 
 
+def test_put_annotation_on_missing_object_raises_key_error(s3_client: S3ClientImpl) -> None:
+    """put_object_annotation against a key that does not exist at all raises KeyError
+    (M10) — mirrors get_object_annotation's / list_object_annotations's / delete_-
+    object_annotation's NoSuchKey mapping, which put_object_annotation lacked. This is
+    what lets link_metadata's per-artifact loop skip an orphaned-vector artifact
+    (vector indexed, S3 object already deleted) instead of aborting the whole batch
+    on an unmapped ClientError."""
+    with pytest.raises(KeyError):
+        s3_client.put_object_annotation("artifacts/does-not-exist.md", "commit_refs", "abc1234")
+
+
 def test_delete_missing_annotation_does_not_raise(s3_client: S3ClientImpl) -> None:
     """delete_object_annotation on an absent annotation is a silent no-op (mirrors delete)."""
     s3_client.put_object(key="artifacts/a5.md", body="content", metadata={"title": "A5"})

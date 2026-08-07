@@ -205,13 +205,20 @@ def _read_vector_link_fields(
 ) -> tuple[list[str], list[str]]:
     """Read the ``commit_refs`` / ``references`` currently indexed in vector metadata.
 
+    Unions across ALL of the artifact's section vectors (M9), not just the first key
+    returned by ``list_vectors_by_metadata`` — a multi-section artifact indexes one
+    vector per section, and a link field written by an earlier ``link_metadata`` call
+    (or backfilled by ``reconcile_index``) may live on any one of them, not
+    necessarily whichever key happens to sort first.
+
     Args:
         vectors: S3 Vectors client.
         artifact_id: The artifact's vector-metadata ``artifact_id`` (== S3 key).
 
     Returns:
-        ``(commit_refs, references)`` — each ``[]`` when no vectors are indexed for
-        this artifact yet, or when the field is absent from the fetched metadata.
+        ``(commit_refs, references)`` — the order-preserving dedup union across every
+        section vector's metadata. Each is ``[]`` when no vectors are indexed for this
+        artifact yet, or when the field is absent from every fetched vector's metadata.
 
     Raises:
         CredentialError: If credentials are invalid or expired.
@@ -219,12 +226,15 @@ def _read_vector_link_fields(
     keys = vectors.list_vectors_by_metadata({"artifact_id": {"$eq": artifact_id}})
     if not keys:
         return [], []
-    entries = vectors.get_vectors([keys[0]])
-    if not entries:
-        return [], []
-    metadata = entries[0].get("metadata", {})
-    raw_commit_refs = metadata.get("commit_refs", [])
-    raw_references = metadata.get("references", [])
-    commit_refs = [str(r) for r in raw_commit_refs] if isinstance(raw_commit_refs, list) else []
-    references = [str(r) for r in raw_references] if isinstance(raw_references, list) else []
-    return commit_refs, references
+    entries = vectors.get_vectors(keys)
+    commit_refs: list[str] = []
+    references: list[str] = []
+    for entry in entries:
+        metadata = entry.get("metadata", {})
+        raw_commit_refs = metadata.get("commit_refs", [])
+        raw_references = metadata.get("references", [])
+        if isinstance(raw_commit_refs, list):
+            commit_refs.extend(str(r) for r in raw_commit_refs)
+        if isinstance(raw_references, list):
+            references.extend(str(r) for r in raw_references)
+    return list(dict.fromkeys(commit_refs)), list(dict.fromkeys(references))

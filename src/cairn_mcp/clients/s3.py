@@ -198,6 +198,8 @@ class S3ClientImpl:
                 code = exc.response.get("Error", {}).get("Code", "")
                 if if_match is not None and code == "PreconditionFailed":
                     raise ArtifactConflictError(key) from exc
+                if code in ("NoSuchKey", "404"):
+                    raise KeyError(key) from exc
                 raise
 
     def get_object_annotation(self, key: str, annotation_name: str) -> str:

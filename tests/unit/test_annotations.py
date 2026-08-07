@@ -14,9 +14,11 @@ from cairn_mcp.annotations import (
     apply_link_annotations,
     decode_link_list,
     encode_link_list,
+    read_current_link_fields,
     read_link_annotations,
 )
 from cairn_mcp.clients.s3 import S3ClientImpl
+from cairn_mcp.clients.vectors import VectorsClientImpl
 from cairn_mcp.errors import ArtifactConflictError, CredentialError
 
 # ---------------------------------------------------------------------------
@@ -214,3 +216,35 @@ def test_read_link_annotations_credential_error_propagates(
 
     with pytest.raises(CredentialError):
         read_link_annotations(s3_client, "artifacts/a7.md")
+
+
+# ---------------------------------------------------------------------------
+# read_current_link_fields — vector-metadata side must union across ALL section
+# vectors, not just the first (M9)
+# ---------------------------------------------------------------------------
+
+
+def test_read_current_link_fields_unions_vector_metadata_across_all_section_vectors(
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+) -> None:
+    """An artifact with multiple section vectors, where a link field is only set on a
+    NON-first section vector (in list_vectors_by_metadata's return order), must still
+    have that value included in the union — sampling only the first vector's metadata
+    silently drops link-field state living on any other section vector."""
+    s3_client.put_object(key="artifacts/multi.md", body="content", metadata={"title": "Multi"})
+
+    base_meta = {"artifact_id": "artifacts/multi.md", "scope": "artifacts"}
+    vectors_client_2.put_vector("artifacts/multi.md#alpha", [0.1, 0.2], dict(base_meta))
+    vectors_client_2.put_vector(
+        "artifacts/multi.md#beta",
+        [0.3, 0.4],
+        {**base_meta, "commit_refs": ["abc1234"], "references": ["ref-1"]},
+    )
+
+    commit_refs, references = read_current_link_fields(
+        s3_client, vectors_client_2, "artifacts/multi.md"
+    )
+
+    assert commit_refs == ["abc1234"]
+    assert references == ["ref-1"]

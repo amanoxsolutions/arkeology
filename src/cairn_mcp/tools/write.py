@@ -568,6 +568,24 @@ async def _write_artifact_inner(  # noqa: PLR0913
                     "message": str(exc),
                     "artifact_id": s3_key,
                 }
+            except Exception as exc:
+                # M1: an unknown/transient annotation failure (e.g. SlowDown,
+                # RequestTimeout — not a conflict, not annotation-unavailable, not a
+                # credential failure) must not escape uncaught to the blanket
+                # internal_error handler: the content is already durably written on
+                # this attempt (last_attempt_object_written), so this is a partial
+                # write, and a failure-log entry is what lets reconcile_index repair
+                # the link-field state later.
+                return _record_partial_write(
+                    settings,
+                    artifact_id=s3_key,
+                    title=title,
+                    artifact_type=type,
+                    tier=tier,
+                    date=date,
+                    failure_step="annotation_write",
+                    reason=str(exc),
+                )
             else:
                 break
         else:
@@ -655,6 +673,21 @@ async def _write_artifact_inner(  # noqa: PLR0913
                 "message": str(exc),
                 "artifact_id": s3_key,
             }
+        except Exception as exc:
+            # M1: same unknown/transient-failure gap as the overwrite/CAS path above
+            # — the S3 put has already succeeded by this point, so this is a partial
+            # write, not a clean failure; record it so reconcile_index can repair the
+            # link-field state later instead of letting it escape as internal_error.
+            return _record_partial_write(
+                settings,
+                artifact_id=s3_key,
+                title=title,
+                artifact_type=type,
+                tier=tier,
+                date=date,
+                failure_step="annotation_write",
+                reason=str(exc),
+            )
 
     # ── Step 5: Parse, filter, cap, and truncate sections (M-3 shared pipeline) ──
     # Delegates to the same helper reconcile_index uses, so a section that write-time

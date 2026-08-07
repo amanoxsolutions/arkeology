@@ -733,6 +733,16 @@ def test_commit_refs_element_with_control_char_rejected() -> None:
         Artifact(**kwargs)
 
 
+def test_commit_refs_element_with_comma_rejected() -> None:
+    """M2: a literal comma in a commit_refs element diverges the two link-field
+    stores — the S3 annotation payload comma-joins list elements (encode_link_list),
+    so a comma inside an element would decode back into extra elements. Rejected at
+    validation time rather than switching the encoding."""
+    kwargs = {**VALID_ARTIFACT_KWARGS, "commit_refs": ["abc,1234"]}
+    with pytest.raises(ValidationError, match="commit_refs"):
+        Artifact(**kwargs)
+
+
 # ---------------------------------------------------------------------------
 # T46 — references field
 # ---------------------------------------------------------------------------
@@ -753,6 +763,14 @@ def test_artifact_references_defaults_to_empty_list() -> None:
 def test_references_element_with_control_char_rejected() -> None:
     """A control character in a references element → ValidationError naming the field."""
     kwargs = {**VALID_ARTIFACT_KWARGS, "references": ["adr-one\t"]}
+    with pytest.raises(ValidationError, match="references"):
+        Artifact(**kwargs)
+
+
+def test_references_element_with_comma_rejected() -> None:
+    """M2: a literal comma in a references element diverges the two link-field
+    stores — mirrors the commit_refs comma rejection."""
+    kwargs = {**VALID_ARTIFACT_KWARGS, "references": ["adr-one,adr-two"]}
     with pytest.raises(ValidationError, match="references"):
         Artifact(**kwargs)
 

@@ -151,6 +151,28 @@ def _require_no_control_chars(field: str, value: str) -> None:
             )
 
 
+def _require_no_comma(field: str, value: str) -> None:
+    """Raise ``ValueError`` if ``value`` contains a literal comma (M2).
+
+    ``commit_refs``/``references`` are comma-joined into a single string for their
+    S3 annotation payload (:func:`cairn_mcp.annotations.encode_link_list`), while
+    vector metadata stores each as a native ``list[str]``. A literal comma inside one
+    element would decode back into extra elements on the annotation side
+    (:func:`cairn_mcp.annotations.decode_link_list`) while the vector-metadata side
+    keeps it as a single element, silently diverging the two stores. Reject rather
+    than escape/encode — the comma-join encoding itself stays untouched.
+
+    Args:
+        field: Name of the field being validated (used in the error message).
+        value: The string to check.
+
+    Raises:
+        ValueError: naming the field and the offending value.
+    """
+    if "," in value:
+        raise ValueError(f"{field} must not contain a comma, found {value!r}")
+
+
 def check_metadata_budgets(
     s3_metadata: dict[str, str],
     vector_metadata: dict[str, Any],
@@ -523,6 +545,7 @@ class Artifact(BaseModel):
     def validate_commit_refs(cls, v: list[str]) -> list[str]:
         for item in v:
             _require_no_control_chars("commit_refs", item)
+            _require_no_comma("commit_refs", item)
         return v
 
     @field_validator("references")
@@ -530,4 +553,5 @@ class Artifact(BaseModel):
     def validate_references(cls, v: list[str]) -> list[str]:
         for item in v:
             _require_no_control_chars("references", item)
+            _require_no_comma("references", item)
         return v
