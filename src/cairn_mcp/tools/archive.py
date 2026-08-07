@@ -19,7 +19,11 @@ import logging
 from datetime import UTC, datetime
 from typing import Any
 
-from cairn_mcp.annotations import apply_link_annotations, read_current_link_fields
+from cairn_mcp.annotations import (
+    CAS_MAX_ATTEMPTS,
+    apply_link_annotations,
+    read_current_link_fields,
+)
 from cairn_mcp.clients.interfaces import (
     BedrockClientInterface,
     S3ClientInterface,
@@ -27,7 +31,7 @@ from cairn_mcp.clients.interfaces import (
 )
 from cairn_mcp.config import Settings
 from cairn_mcp.constants import ArtifactStatus, ErrorCode
-from cairn_mcp.errors import AnnotationUnavailableError, CredentialError
+from cairn_mcp.errors import AnnotationUnavailableError, ArtifactConflictError, CredentialError
 from cairn_mcp.failure_log import append_failure_entry
 from cairn_mcp.tools._search_helper import find_referrers
 
@@ -188,48 +192,98 @@ async def _archive_artifact_inner(
     except CredentialError as exc:
         return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
 
-    # ── Step 3b: Read-forward link fields before the status re-PUT (ADR-011, C2) ──
-    # PutObject clears S3 annotations, so the in-place status re-PUT below would
-    # otherwise silently destroy the durable commit_refs/references annotation trail.
-    # Read the current values forward as the union of both durable stores (Phase 12
-    # review C5/M6 — neither the annotation copy nor the vector-metadata copy is sole
+    def _conflict_response() -> dict[str, Any]:
+        return {
+            "error": ErrorCode.CONFLICT,
+            "message": (
+                f"Could not archive '{artifact_id}': a concurrent writer changed the "
+                f"artifact {CAS_MAX_ATTEMPTS} times in a row while this call attempted "
+                "its compare-and-swap retry cycle. Retry the archive."
+            ),
+            "artifact_id": artifact_id,
+        }
+
+    # ── Step 4: Fetch content, read-forward link fields, and flip S3 status —
+    # guarded by an ETag compare-and-swap (ADR-011 decision 6) ────────────────
+    # PutObject clears S3 annotations, so the in-place status re-PUT would otherwise
+    # silently destroy the durable commit_refs/references annotation trail. Read the
+    # current values forward as the union of both durable stores (Phase 12 review
+    # C5/M6 — neither the annotation copy nor the vector-metadata copy is sole
     # authority; see ``annotations.read_current_link_fields``) so they can be
-    # re-applied after the re-PUT.
-    try:
-        current_commit_refs, current_references = read_current_link_fields(s3, vectors, artifact_id)
-    except CredentialError as exc:
-        return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
-
-    # ── Step 4: Fetch content and flip S3 status ──────────────────────────────
-    # Kept as its own try/except, separate from the vector-side flip below: a
-    # failure here means the S3 object was never durably changed, so there is no
-    # partial archive to record (M-1) — nothing has been written yet.
-    updated_s3_meta: dict[str, str] = {**s3_meta, "status": ArtifactStatus.INACTIVE}
-    try:
-        content = s3.get_object(artifact_id)
-    except CredentialError as exc:
-        return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
-
-    try:
-        s3.put_object(artifact_id, content, updated_s3_meta)
-    except CredentialError as exc:
-        return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
-
-    # ── Steps 4b–6: Re-apply link annotations and flip all vector statuses ────
-    # M-1: the S3 status flip above has already succeeded — any failure from this
-    # point on (annotation re-apply or the per-vector status update loop) is a
-    # *partial archive* (S3 inactive, vectors not yet fully flipped) and must
-    # leave a repairable failure-log trace, credential error or otherwise, so
-    # reconcile_index can find and repair it and a retried archive_artifact call
-    # is not blocked by the Step 2b idempotency check.
+    # re-applied after the re-PUT. Archive has no caller-supplied references to
+    # replace *from* — unlike write.py's overwrite path (review-followup-2026-07-06),
+    # it must continue to read-forward and re-apply BOTH commit_refs and references
+    # unconditionally; letting the write-path's replace semantics leak in here would
+    # silently wipe references on every archive operation.
+    #
+    # This whole fetch-status-flip-reannotate cycle races every other read-modify-write
+    # cycle on the same artifact's durable link-field state, so it is guarded by a
+    # bounded ETag compare-and-swap retry, mirroring write.py's Step 4a/4b: the
+    # object's ETag is captured on read (from the head_object already performed at
+    # Step 2 for the first attempt) and the status re-PUT is conditional
+    # (if_match=ETag0); the object's *new* ETag (ETag1) is used as if_match on the
+    # following apply_link_annotations call. On ArtifactConflictError from either
+    # call: re-read (fresh ETag, fresh metadata, fresh content, fresh link-field
+    # state) and retry the whole cycle — for CAS_MAX_ATTEMPTS attempts, after which a
+    # structured conflict error is returned.
+    current_s3_meta: dict[str, Any] = s3_meta
+    current_etag = s3_meta.get("ETag")
     annotation_warning: str | None = None
-    try:
-        # T52 / ADR-011 decision 5: annotation availability is a feature-level
-        # concern, not a hard failure — the archive itself must still succeed.
+    updated_s3_meta: dict[str, str] = {}
+    last_attempt_object_written = False
+
+    for attempt in range(CAS_MAX_ATTEMPTS):
+        last_attempt_object_written = False
+        if attempt > 0:
+            try:
+                current_s3_meta = s3.head_object(artifact_id)
+            except CredentialError as exc:
+                return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
+            current_etag = current_s3_meta.get("ETag")
+
         try:
-            apply_link_annotations(
-                s3, artifact_id, commit_refs=current_commit_refs, references=current_references
+            current_commit_refs, current_references = read_current_link_fields(
+                s3, vectors, artifact_id
             )
+        except CredentialError as exc:
+            return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
+
+        # Strip the reserved "ETag" sentinel key (added by head_object for the CAS
+        # token) before reusing this dict as the literal metadata for put_object —
+        # it is not a real user-defined metadata field and must never be written as
+        # one (which would also corrupt future ETag-capture calls).
+        updated_s3_meta = {k: v for k, v in current_s3_meta.items() if k != "ETag"}
+        updated_s3_meta["status"] = ArtifactStatus.INACTIVE
+
+        try:
+            content = s3.get_object(artifact_id)
+        except CredentialError as exc:
+            return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
+
+        try:
+            new_etag = s3.put_object(artifact_id, content, updated_s3_meta, if_match=current_etag)
+        except ArtifactConflictError:
+            # Someone else changed the object since we read its ETag — retry the
+            # whole cycle (re-read, re-merge, re-write).
+            continue
+        except CredentialError as exc:
+            return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
+        last_attempt_object_written = True
+
+        try:
+            # T52 / ADR-011 decision 5: annotation availability is a feature-level
+            # concern, not a hard failure — the archive itself must still succeed.
+            apply_link_annotations(
+                s3,
+                artifact_id,
+                commit_refs=current_commit_refs,
+                references=current_references,
+                if_match=new_etag,
+            )
+        except ArtifactConflictError:
+            # Someone changed the object between our put_object and this annotation
+            # write — retry the whole cycle, including a fresh status re-PUT.
+            continue
         except AnnotationUnavailableError as exc:
             logger.warning(
                 "Annotation re-apply unavailable for key=%s after archive status update; "
@@ -239,7 +293,44 @@ async def _archive_artifact_inner(
                 exc,
             )
             annotation_warning = str(exc)
+            break
+        except CredentialError as exc:
+            # M-1: the S3 status flip above has already succeeded — this is a
+            # partial archive, not a clean failure.
+            _record_partial_archive_failure(
+                settings, artifact_id=artifact_id, s3_meta=updated_s3_meta, reason=str(exc)
+            )
+            return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
+        else:
+            break
+    else:
+        # Retries exhausted — never a raw exception, never a silent partial archive.
+        # If the status flip was durably written on the final attempt (only the
+        # trailing annotation apply kept conflicting), record a failure-log entry so
+        # reconcile_index can repair the link-field state later; a persistent
+        # conflict on the status re-PUT itself never wrote anything durable, so no
+        # entry is produced in that case.
+        if last_attempt_object_written:
+            _record_partial_archive_failure(
+                settings,
+                artifact_id=artifact_id,
+                s3_meta=updated_s3_meta,
+                reason=(
+                    "Compare-and-swap retries exhausted while re-applying "
+                    "commit_refs/references annotations after a durable status flip."
+                ),
+            )
+        return _conflict_response()
 
+    # ── Steps 5–6: Flip all vector statuses ───────────────────────────────────
+    # Vector writes stay unconditional (no S3 Vectors CAS surface exists; ADR-011
+    # decision 6) — vector metadata is the recoverable/derived copy. M-1: the S3
+    # status flip above has already succeeded — any failure from this point on is a
+    # *partial archive* (S3 inactive, vectors not yet fully flipped) and must leave a
+    # repairable failure-log trace, credential error or otherwise, so reconcile_index
+    # can find and repair it and a retried archive_artifact call is not blocked by
+    # the Step 2b idempotency check.
+    try:
         vec_keys = vectors.list_vectors_by_metadata({"artifact_id": {"$eq": artifact_id}})
         if vec_keys:
             vec_items = vectors.get_vectors(vec_keys)

@@ -14,7 +14,7 @@ import boto3
 import pytest
 from moto import mock_aws
 from moto.core.responses import ActionResult
-from moto.s3.exceptions import MissingKey, S3ClientError
+from moto.s3.exceptions import MissingKey, PreconditionFailed, S3ClientError
 from moto.s3.models import S3Backend
 from moto.s3.responses import S3Response
 from moto.s3vectors.models import S3VectorsBackend
@@ -134,6 +134,17 @@ url_paths["{0}/QueryVectors$"] = S3VectorsResponse.dispatch
 # / "?acl" — and backs them with a module-level in-memory store keyed by
 # (bucket, key). It also wraps S3Backend.put_object so that writing a new object
 # version clears that key's annotations, matching real S3 overwrite-wipe semantics.
+#
+# ADR-011 decision 6 / review-followup-2026-07-06: PutObjectAnnotation and
+# DeleteObjectAnnotation also accept an optional ``ObjectIfMatch`` compare-and-swap
+# parameter. Inspecting the installed botocore S3 service model
+# (botocore/data/s3/2006-03-01/service-2.json.gz, PutObjectAnnotationRequest /
+# DeleteObjectAnnotationRequest shapes) confirms ``ObjectIfMatch`` is a *header*
+# (`location: header`, `locationName: x-amz-object-if-match`) — unlike
+# `annotationName`, which is a query-string parameter — so it must be read from
+# ``self.headers``, not ``query``. This mirrors moto's own native ``If-Match``
+# handling on the object body (moto/s3/responses.py), which also reads from
+# ``self.headers``.
 # ---------------------------------------------------------------------------
 
 _ANNOTATION_STORE: dict[tuple[str, str], dict[str, bytes]] = {}
@@ -175,8 +186,24 @@ def _annotation_get_or_list(self: Any, query: dict[str, Any], key_name: str) -> 
     )
 
 
+def _check_object_if_match(self: Any, bucket_name: str, key_name: str) -> None:
+    """Honour ``ObjectIfMatch`` (sent as the ``x-amz-object-if-match`` header) on
+    PutObjectAnnotation / DeleteObjectAnnotation — the compare-and-swap guard added
+    for ADR-011 decision 6. Absent header → no check (unconditional call, today's
+    behaviour). Present and mismatched → raise moto's own ``PreconditionFailed``
+    (HTTP 412), exactly like moto's native ``If-Match`` handling on the object body.
+    """
+    if_match = self.headers.get("x-amz-object-if-match")
+    if if_match is None:
+        return
+    obj = self.backend.get_object(bucket_name, key_name)
+    if obj is None or obj.etag != if_match:
+        raise PreconditionFailed("ObjectIfMatch")
+
+
 def _annotation_put(self: Any, query: dict[str, Any], key_name: str) -> Any:
     _require_object(self, self.bucket_name, key_name)
+    _check_object_if_match(self, self.bucket_name, key_name)
     name = query["annotationName"][0]
     payload = self.body.encode("utf-8") if isinstance(self.body, str) else (self.body or b"")
     _ANNOTATION_STORE.setdefault((self.bucket_name, key_name), {})[name] = payload
@@ -186,6 +213,7 @@ def _annotation_put(self: Any, query: dict[str, Any], key_name: str) -> Any:
 
 def _annotation_delete(self: Any, bucket_name: str, key_name: str, query: dict[str, Any]) -> Any:
     _require_object(self, bucket_name, key_name)
+    _check_object_if_match(self, bucket_name, key_name)
     name = query["annotationName"][0]
     store = _ANNOTATION_STORE.get((bucket_name, key_name), {})
     if name not in store:

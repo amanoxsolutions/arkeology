@@ -14,7 +14,11 @@ from typing import Any
 from pydantic import ValidationError
 from ulid import ULID
 
-from cairn_mcp.annotations import apply_link_annotations, read_current_link_fields
+from cairn_mcp.annotations import (
+    CAS_MAX_ATTEMPTS,
+    apply_link_annotations,
+    read_current_link_fields,
+)
 from cairn_mcp.artifact import (
     Artifact,
     check_metadata_budgets,
@@ -32,6 +36,7 @@ from cairn_mcp.constants import ErrorCode
 from cairn_mcp.errors import (
     AnnotationUnavailableError,
     ArtifactCollisionError,
+    ArtifactConflictError,
     CredentialError,
     MetadataTooLargeError,
 )
@@ -403,10 +408,23 @@ async def _write_artifact_inner(  # noqa: PLR0913
             "artifact_id": s3_key,
         }
 
+    def _conflict_response() -> dict[str, Any]:
+        return {
+            "error": ErrorCode.CONFLICT,
+            "message": (
+                f"Could not write '{s3_key}': a concurrent writer changed the artifact "
+                f"{CAS_MAX_ATTEMPTS} times in a row while this write attempted its "
+                "compare-and-swap retry cycle. Retry the write."
+            ),
+            "artifact_id": s3_key,
+        }
+
     is_existing = False
+    initial_etag: str | None = None
     try:
-        s3.head_object(s3_key)
+        head_meta = s3.head_object(s3_key)
         is_existing = True
+        initial_etag = head_meta.get("ETag")
     except KeyError:
         pass
     except CredentialError as exc:
@@ -415,112 +433,228 @@ async def _write_artifact_inner(  # noqa: PLR0913
     if is_existing and not overwrite:
         return _collision_response()
 
-    # ── Step 4a: Read-forward + merge link fields on an overwriting write (ADR-011 D4) ──
+    # ── Step 4a/4b: Read-forward + merge commit_refs; replace references (ADR-011 D4);
+    # optimistic-concurrency compare-and-swap around both writes (ADR-011 decision 6) ──
+    #
     # PutObject clears S3 annotations, so an in-place re-PUT (a tier-3 living-document
     # update, or an explicit tier-2 replacement) would otherwise silently lose the
-    # accumulated commit_refs/references trail. Read the current values forward as the
-    # union of both durable stores (Phase 12 review C5/M6 — neither the annotation copy
-    # nor the vector-metadata copy is sole authority; see
-    # ``annotations.read_current_link_fields``) and merge them with the values supplied
-    # to this write (union, dedup, order-preserving) before either store is touched. A
-    # fresh write (is_existing is False) or a rejected overwrite has nothing to merge.
+    # accumulated commit_refs trail. commit_refs is a durable, backfill-only audit trail
+    # with no frontmatter counterpart: read its current value forward as the union of
+    # both durable stores (Phase 12 review C5/M6 — neither the annotation copy nor the
+    # vector-metadata copy is sole authority; see ``annotations.read_current_link_fields``)
+    # and merge it with the value supplied to this write (union, dedup, order-preserving)
+    # before either store is touched.
+    #
+    # references mirrors the artifact's frontmatter ``references:`` list — a claim about
+    # the artifact's *current* outbound links, not an audit trail (review-followup
+    # 2026-07-06, "Reference-Field Value Semantics"). It is REPLACED outright on every
+    # write: final_references is exactly the value supplied to this call (including
+    # ``[]``), with no read-forward and no merge against the prior stored value — a write
+    # supplying no references clears the field (operator-confirmed intended). vector_metadata's
+    # "references" key was already set/omitted from the supplied value at Step 3b, and
+    # ``apply_link_annotations`` already deletes the annotation when its input list is
+    # empty, so no further adjustment to either store is needed here for this field.
+    #
+    # An overwriting write on an existing artifact races every other read-modify-write
+    # cycle on the same artifact's durable link-field state, so it is guarded by a
+    # bounded ETag compare-and-swap retry (ADR-011 decision 6): the object's ETag is
+    # captured on read (above, from the head_object already performed for the existence
+    # check) and the subsequent put_object is conditional (if_match=ETag0); the object's
+    # *new* ETag (ETag1, from that put_object's response) is used as if_match on the
+    # apply_link_annotations call that follows. On ArtifactConflictError from either
+    # call: re-read (fresh ETag, fresh link-field state) and retry the WHOLE cycle,
+    # re-merging the caller's *original* supplied refs/references (never a previous
+    # attempt's already-merged output, to avoid compounding) — for CAS_MAX_ATTEMPTS
+    # attempts, after which a structured conflict error is returned. A fresh write
+    # (is_existing is False) has nothing to race against and is unaffected — its
+    # if_none_match="*" guard addresses a different race (the create-collision guard).
     final_commit_refs = refs
     final_references = references
+    annotation_warning: str | None = None
+
     if is_existing and overwrite:
+        current_etag = initial_etag
+        last_attempt_object_written = False
+        for attempt in range(CAS_MAX_ATTEMPTS):
+            last_attempt_object_written = False
+            if attempt > 0:
+                try:
+                    current_etag = s3.head_object(s3_key).get("ETag")
+                except CredentialError as exc:
+                    return {
+                        "error": ErrorCode.CREDENTIAL_ERROR,
+                        "message": str(exc),
+                        "artifact_id": s3_key,
+                    }
+
+            try:
+                existing_commit_refs, _existing_references = read_current_link_fields(
+                    s3, vectors, s3_key
+                )
+            except CredentialError as exc:
+                return {
+                    "error": ErrorCode.CREDENTIAL_ERROR,
+                    "message": str(exc),
+                    "artifact_id": s3_key,
+                }
+            final_commit_refs = list(dict.fromkeys(existing_commit_refs + refs))
+
+            if final_commit_refs:
+                vector_metadata["commit_refs"] = final_commit_refs
+            else:
+                vector_metadata.pop("commit_refs", None)
+
+            # Re-check budgets after the merge enlarges vector_metadata: Step 3c only
+            # measured the *supplied* commit_refs. This read-forward merge can union it
+            # with the value already indexed in vector metadata and push the vector
+            # filterable/total budgets over their limits even though references and the
+            # s3_metadata side are unaffected (commit_refs lives in annotations, not S3
+            # user metadata, post-T47). Re-check here — before any put_object or
+            # put_vectors_batch — so a breach is rejected with NO write and NO
+            # failure-log entry, matching the Step 3c guard exactly rather than
+            # reintroducing the deterministic partial-write / reconcile-replay loop
+            # T55 exists to prevent.
+            try:
+                check_metadata_budgets(encoded_s3_metadata, vector_metadata)
+            except MetadataTooLargeError as exc:
+                return {"error": ErrorCode.VALIDATION_ERROR, "message": str(exc)}
+
+            try:
+                new_etag = s3.put_object(s3_key, content, s3_metadata, if_match=current_etag)
+            except ArtifactConflictError:
+                # Someone else changed the object since we read its ETag — retry the
+                # whole cycle (re-read, re-merge, re-write).
+                continue
+            except CredentialError as exc:
+                return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
+            last_attempt_object_written = True
+
+            try:
+                apply_link_annotations(
+                    s3,
+                    s3_key,
+                    commit_refs=final_commit_refs,
+                    references=final_references,
+                    if_match=new_etag,
+                )
+            except ArtifactConflictError:
+                # Someone changed the object between our put_object and this annotation
+                # write — retry the whole cycle, including a fresh put_object.
+                continue
+            except AnnotationUnavailableError as exc:
+                logger.warning(
+                    "Annotation write unavailable for key=%s; content and vectors will "
+                    "still be persisted without a durable commit_refs/references copy: %s",
+                    s3_key,
+                    exc,
+                )
+                annotation_warning = str(exc)
+                break
+            except CredentialError as exc:
+                # M-4: the S3 put above has already succeeded — this is a partial
+                # write, not a clean failure.
+                _log_partial_write_failure(
+                    settings,
+                    artifact_id=s3_key,
+                    title=title,
+                    artifact_type=type,
+                    tier=tier,
+                    date=date,
+                    failure_step="annotation_write",
+                    reason=str(exc),
+                )
+                return {
+                    "error": ErrorCode.CREDENTIAL_ERROR,
+                    "message": str(exc),
+                    "artifact_id": s3_key,
+                }
+            else:
+                break
+        else:
+            # Retries exhausted — never a raw exception, never a silent partial write.
+            # If the object body was durably written on the final attempt (only the
+            # trailing annotation apply kept conflicting), record a failure-log entry
+            # so reconcile_index can repair the link-field state later; a persistent
+            # conflict on put_object itself never wrote anything durable, so no entry
+            # is produced in that case.
+            if last_attempt_object_written:
+                _log_partial_write_failure(
+                    settings,
+                    artifact_id=s3_key,
+                    title=title,
+                    artifact_type=type,
+                    tier=tier,
+                    date=date,
+                    failure_step="annotation_write",
+                    reason=(
+                        "Compare-and-swap retries exhausted while re-applying "
+                        "commit_refs/references annotations after a durable content "
+                        "write."
+                    ),
+                )
+            return _conflict_response()
+    else:
+        # Fresh create (or overwrite=True on a not-yet-existing key) — nothing to race
+        # against (ADR-011 decision 6): the create-collision guard below is the only
+        # concurrency concern, and it is already atomic via if_none_match.
         try:
-            existing_commit_refs, existing_references = read_current_link_fields(
-                s3, vectors, s3_key
-            )
+            new_etag = s3.put_object(s3_key, content, s3_metadata, if_none_match=not overwrite)
+        except ArtifactCollisionError:
+            # The fast-path check above missed a concurrent writer that created the key
+            # between the head_object call and this put_object call — the atomic
+            # conditional put is what actually caught the collision.
+            return _collision_response()
         except CredentialError as exc:
+            return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
+
+        # ── Durable annotation write (ADR-011) ────────────────────────────────
+        # Written after PutObject (annotations cannot be set during PutObject — they
+        # are set only after upload) and before put_vectors_batch, so that if the
+        # vector write fails below, the durable annotation side is already correct
+        # and a later reconcile_index run rebuilds vectors from it (T48).
+        # Metadata-only: never triggers a re-embed.
+        #
+        # T52 / ADR-011 decision 5: annotation availability is a feature-level
+        # concern, not a hard failure. When annotations are unavailable (unsupported
+        # region/bucket type) or access is denied, the content and vectors already
+        # written (or about to be written below) must never be lost — record a
+        # warning and keep going, rather than aborting like the CredentialError
+        # branch below (a real credential failure is very likely to also break the
+        # upcoming Bedrock/vector calls, so aborting there remains correct).
+        _ = new_etag  # no CAS token needed — nothing preceded this write to race
+        try:
+            apply_link_annotations(
+                s3, s3_key, commit_refs=final_commit_refs, references=final_references
+            )
+        except AnnotationUnavailableError as exc:
+            logger.warning(
+                "Annotation write unavailable for key=%s; content and vectors will still "
+                "be persisted without a durable commit_refs/references copy: %s",
+                s3_key,
+                exc,
+            )
+            annotation_warning = str(exc)
+        except CredentialError as exc:
+            # M-4: the S3 put above has already succeeded — this is a partial write,
+            # not a clean failure. Without a failure-log entry here, a retried
+            # credential failure after S3 success left no repairable trace, and for
+            # an overwrite=True rewrite the pre-overwrite vectors would silently
+            # survive forever (reconcile never sees a reason to touch this artifact).
+            _log_partial_write_failure(
+                settings,
+                artifact_id=s3_key,
+                title=title,
+                artifact_type=type,
+                tier=tier,
+                date=date,
+                failure_step="annotation_write",
+                reason=str(exc),
+            )
             return {
                 "error": ErrorCode.CREDENTIAL_ERROR,
                 "message": str(exc),
                 "artifact_id": s3_key,
             }
-        final_commit_refs = list(dict.fromkeys(existing_commit_refs + refs))
-        final_references = list(dict.fromkeys(existing_references + references))
-
-        if final_commit_refs:
-            vector_metadata["commit_refs"] = final_commit_refs
-        else:
-            vector_metadata.pop("commit_refs", None)
-        if final_references:
-            vector_metadata["references"] = final_references
-        else:
-            vector_metadata.pop("references", None)
-
-        # ── Step 4a (cont.): re-check budgets after the merge enlarges vector_metadata ──
-        # Step 3c only measured the *supplied* commit_refs/references. The read-forward
-        # merge above can union them with values already indexed in vector metadata and
-        # push the vector filterable/total budgets over their limits even though the
-        # s3_metadata side is unaffected (commit_refs/references live in annotations, not
-        # S3 user metadata, post-T47). Re-check here — before any put_object or
-        # put_vectors_batch — so a breach is rejected with NO write and NO failure-log
-        # entry, matching the Step 3c guard exactly rather than reintroducing the
-        # deterministic partial-write / reconcile-replay loop T55 exists to prevent.
-        try:
-            check_metadata_budgets(encoded_s3_metadata, vector_metadata)
-        except MetadataTooLargeError as exc:
-            return {"error": ErrorCode.VALIDATION_ERROR, "message": str(exc)}
-
-    try:
-        s3.put_object(s3_key, content, s3_metadata, if_none_match=not overwrite)
-    except ArtifactCollisionError:
-        # The fast-path check above missed a concurrent writer that created the key
-        # between the head_object call and this put_object call — the atomic
-        # conditional put is what actually caught the collision.
-        return _collision_response()
-    except CredentialError as exc:
-        return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
-
-    # ── Step 4b: Durable annotation write (ADR-011) ──────────────────────────
-    # Written after PutObject (annotations cannot be set during PutObject — they are
-    # set only after upload) and before put_vectors_batch, so that if the vector write
-    # fails below, the durable annotation side is already correct and a later
-    # reconcile_index run rebuilds vectors from it (T48). Metadata-only: never
-    # triggers a re-embed.
-    #
-    # T52 / ADR-011 decision 5: annotation availability is a feature-level concern,
-    # not a hard failure. When annotations are unavailable (unsupported region/bucket
-    # type) or access is denied, the content and vectors already written (or about to
-    # be written below) must never be lost — record a warning and keep going, rather
-    # than aborting like the CredentialError branch below (a real credential failure
-    # is very likely to also break the upcoming Bedrock/vector calls, so aborting
-    # there remains correct).
-    annotation_warning: str | None = None
-    try:
-        apply_link_annotations(
-            s3, s3_key, commit_refs=final_commit_refs, references=final_references
-        )
-    except AnnotationUnavailableError as exc:
-        logger.warning(
-            "Annotation write unavailable for key=%s; content and vectors will still "
-            "be persisted without a durable commit_refs/references copy: %s",
-            s3_key,
-            exc,
-        )
-        annotation_warning = str(exc)
-    except CredentialError as exc:
-        # M-4: the S3 put above has already succeeded — this is a partial write,
-        # not a clean failure. Without a failure-log entry here, a retried
-        # credential failure after S3 success left no repairable trace, and for
-        # an overwrite=True rewrite the pre-overwrite vectors would silently
-        # survive forever (reconcile never sees a reason to touch this artifact).
-        _log_partial_write_failure(
-            settings,
-            artifact_id=s3_key,
-            title=title,
-            artifact_type=type,
-            tier=tier,
-            date=date,
-            failure_step="annotation_write",
-            reason=str(exc),
-        )
-        return {
-            "error": ErrorCode.CREDENTIAL_ERROR,
-            "message": str(exc),
-            "artifact_id": s3_key,
-        }
 
     # ── Step 5: Parse, filter, cap, and truncate sections (M-3 shared pipeline) ──
     # Delegates to the same helper reconcile_index uses, so a section that write-time

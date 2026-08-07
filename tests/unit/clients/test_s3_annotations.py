@@ -4,13 +4,19 @@ Exercises put_object_annotation / get_object_annotation / list_object_annotation
 delete_object_annotation through the moto self-mock extension registered in
 tests/unit/conftest.py (moto 5.2.2 has no native annotation support — see
 docs/architecture-decisions/adr-2026-07-03-annotation-backed-link-storage.md).
+
+Also exercises the optimistic-concurrency (ETag compare-and-swap) surface added for
+ADR-011 decision 6 / the review-followup-2026-07-06 design fixes: ``head_object``'s
+reserved ``"ETag"`` key, ``put_object``'s ``if_match`` parameter and ETag return value,
+and ``put_object_annotation`` / ``delete_object_annotation``'s ``if_match`` parameter
+(sent as boto3's ``ObjectIfMatch``).
 """
 
 import botocore.exceptions
 import pytest
 
 from cairn_mcp.clients.s3 import S3ClientImpl
-from cairn_mcp.errors import AnnotationUnavailableError, CredentialError
+from cairn_mcp.errors import AnnotationUnavailableError, ArtifactConflictError, CredentialError
 
 # ---------------------------------------------------------------------------
 # Story 1 — annotation round-trip through the client
@@ -264,3 +270,105 @@ def test_delete_object_annotation_not_implemented_raises_annotation_unavailable(
 
     with pytest.raises(AnnotationUnavailableError):
         s3_client.delete_object_annotation("artifacts/a8.md", "commit_refs")
+
+
+# ---------------------------------------------------------------------------
+# Optimistic-concurrency (ETag compare-and-swap) surface — ADR-011 decision 6
+# ---------------------------------------------------------------------------
+
+
+def test_head_object_includes_etag_key(s3_client: S3ClientImpl) -> None:
+    """head_object's returned dict includes a capitalised 'ETag' key alongside the
+    (lowercase) user-defined metadata, distinguishable from any real metadata key."""
+    s3_client.put_object(key="artifacts/e1.md", body="content", metadata={"title": "E1"})
+
+    meta = s3_client.head_object("artifacts/e1.md")
+
+    assert "ETag" in meta
+    assert isinstance(meta["ETag"], str)
+    assert meta["ETag"]
+    assert meta["title"] == "E1"
+
+
+def test_put_object_returns_new_etag(s3_client: S3ClientImpl) -> None:
+    """put_object returns the object's new ETag."""
+    etag = s3_client.put_object(key="artifacts/e2.md", body="content", metadata={"title": "E2"})
+
+    assert isinstance(etag, str)
+    assert etag
+    assert etag == s3_client.head_object("artifacts/e2.md")["ETag"]
+
+
+def test_put_object_if_match_matching_etag_succeeds(s3_client: S3ClientImpl) -> None:
+    """put_object(if_match=<current ETag>) succeeds and updates the content."""
+    etag = s3_client.put_object(key="artifacts/e3.md", body="v1", metadata={"title": "E3"})
+
+    s3_client.put_object(key="artifacts/e3.md", body="v2", metadata={"title": "E3"}, if_match=etag)
+
+    assert s3_client.get_object("artifacts/e3.md") == "v2"
+
+
+def test_put_object_if_match_stale_etag_raises_conflict(s3_client: S3ClientImpl) -> None:
+    """put_object(if_match=<stale ETag>) raises ArtifactConflictError and leaves the
+    object's content untouched — distinct from ArtifactCollisionError (create-collision)."""
+    s3_client.put_object(key="artifacts/e4.md", body="v1", metadata={"title": "E4"})
+    stale_etag = '"0000000000000000000000000000000"'
+
+    with pytest.raises(ArtifactConflictError):
+        s3_client.put_object(
+            key="artifacts/e4.md", body="v2", metadata={"title": "E4"}, if_match=stale_etag
+        )
+
+    assert s3_client.get_object("artifacts/e4.md") == "v1"
+
+
+def test_put_object_annotation_if_match_matching_etag_succeeds(s3_client: S3ClientImpl) -> None:
+    """put_object_annotation(if_match=<current object ETag>) succeeds."""
+    etag = s3_client.put_object(key="artifacts/e5.md", body="content", metadata={"title": "E5"})
+
+    s3_client.put_object_annotation("artifacts/e5.md", "commit_refs", "abc", if_match=etag)
+
+    assert s3_client.get_object_annotation("artifacts/e5.md", "commit_refs") == "abc"
+
+
+def test_put_object_annotation_if_match_stale_etag_raises_conflict(
+    s3_client: S3ClientImpl,
+) -> None:
+    """put_object_annotation(if_match=<stale ETag>) raises ArtifactConflictError and
+    does not write the annotation."""
+    s3_client.put_object(key="artifacts/e6.md", body="content", metadata={"title": "E6"})
+    stale_etag = '"0000000000000000000000000000000"'
+
+    with pytest.raises(ArtifactConflictError):
+        s3_client.put_object_annotation(
+            "artifacts/e6.md", "commit_refs", "abc", if_match=stale_etag
+        )
+
+    with pytest.raises(KeyError):
+        s3_client.get_object_annotation("artifacts/e6.md", "commit_refs")
+
+
+def test_delete_object_annotation_if_match_matching_etag_succeeds(s3_client: S3ClientImpl) -> None:
+    """delete_object_annotation(if_match=<current object ETag>) succeeds."""
+    etag = s3_client.put_object(key="artifacts/e7.md", body="content", metadata={"title": "E7"})
+    s3_client.put_object_annotation("artifacts/e7.md", "commit_refs", "abc")
+
+    s3_client.delete_object_annotation("artifacts/e7.md", "commit_refs", if_match=etag)
+
+    with pytest.raises(KeyError):
+        s3_client.get_object_annotation("artifacts/e7.md", "commit_refs")
+
+
+def test_delete_object_annotation_if_match_stale_etag_raises_conflict(
+    s3_client: S3ClientImpl,
+) -> None:
+    """delete_object_annotation(if_match=<stale ETag>) raises ArtifactConflictError and
+    does not delete the annotation."""
+    s3_client.put_object(key="artifacts/e8.md", body="content", metadata={"title": "E8"})
+    s3_client.put_object_annotation("artifacts/e8.md", "commit_refs", "abc")
+    stale_etag = '"0000000000000000000000000000000"'
+
+    with pytest.raises(ArtifactConflictError):
+        s3_client.delete_object_annotation("artifacts/e8.md", "commit_refs", if_match=stale_etag)
+
+    assert s3_client.get_object_annotation("artifacts/e8.md", "commit_refs") == "abc"

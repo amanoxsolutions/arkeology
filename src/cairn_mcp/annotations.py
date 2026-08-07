@@ -31,6 +31,13 @@ logger = logging.getLogger(__name__)
 COMMIT_REFS_ANNOTATION = "commit_refs"
 REFERENCES_ANNOTATION = "references"
 
+# Bounded compare-and-swap retry count for every read-modify-write cycle on the durable
+# link-field state (ADR-011 decision 6): write.py's overwrite path, link_metadata's
+# per-artifact fetch-merge-reput, and archive_artifact's status re-PUT. "Roughly three
+# attempts" per the frozen decision; shared here so the three call sites do not each
+# define their own magic number.
+CAS_MAX_ATTEMPTS = 3
+
 
 def encode_link_list(values: list[str]) -> str:
     """Encode a link-field list as its comma-joined annotation payload.
@@ -64,6 +71,7 @@ def apply_link_annotations(
     *,
     commit_refs: list[str],
     references: list[str],
+    if_match: str | None = None,
 ) -> None:
     """Write (or clear) the ``commit_refs`` / ``references`` annotations on an object.
 
@@ -77,8 +85,15 @@ def apply_link_annotations(
         key: S3 object key.
         commit_refs: Final (already merged, where applicable) commit_refs list.
         references: Final (already merged, where applicable) references list.
+        if_match: When set, threaded through to both the put- and delete-annotation
+            calls as their ``if_match`` parameter (sent as boto3's ``ObjectIfMatch``)
+            — the optimistic-concurrency compare-and-swap token captured from the
+            preceding conditional object write (ADR-011 decision 6). ``None`` (the
+            default) preserves today's unconditional behaviour.
 
     Raises:
+        ArtifactConflictError: If ``if_match`` is set and does not match the
+            object's current ETag (HTTP 412 PreconditionFailed) on either call.
         CredentialError: If credentials are invalid or expired.
     """
     for name, values in (
@@ -86,9 +101,9 @@ def apply_link_annotations(
         (REFERENCES_ANNOTATION, references),
     ):
         if values:
-            s3.put_object_annotation(key, name, encode_link_list(values))
+            s3.put_object_annotation(key, name, encode_link_list(values), if_match=if_match)
         else:
-            s3.delete_object_annotation(key, name)
+            s3.delete_object_annotation(key, name, if_match=if_match)
 
 
 def read_link_annotations(s3: S3ClientInterface, key: str) -> tuple[list[str], list[str]]:

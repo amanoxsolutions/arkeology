@@ -417,10 +417,20 @@ class Artifact(BaseModel):
         tags: Optional list of tag strings.
         author_role: Optional role identifier of the author.
         source_artifacts: Optional list of artifact IDs that this synthesises.
-        commit_refs: Optional list of git commit SHAs linked to this artifact.
+        commit_refs: Optional list of git commit SHAs linked to this artifact. A
+            durable, backfill-only audit trail with no frontmatter counterpart: on an
+            overwriting write, the supplied value is MERGED (union, dedup) with the
+            artifact's existing commit_refs rather than replacing it — accretive by
+            design, since the append-only link trail must never be silently dropped
+            (ADR-011 decision 4).
         references: Optional list of resolved bare artifact IDs this artifact points
             at (ADR-012 D2). Holds only resolved identifiers — no ``cairn://`` prefix,
-            no path text.
+            no path text. Mirrors the artifact's frontmatter ``references:`` list — a
+            claim about the artifact's *current* outbound links, not an audit trail.
+            On an overwriting write, the supplied value REPLACES the artifact's
+            existing references outright (no merge, no read-forward): additions,
+            removals, and swaps in the frontmatter are all reflected one-for-one, and
+            a write supplying no references clears the field (ADR-011 decision 4).
     """
 
     type: str  # noqa: A003

@@ -17,7 +17,7 @@ from cairn_mcp.annotations import (
     read_link_annotations,
 )
 from cairn_mcp.clients.s3 import S3ClientImpl
-from cairn_mcp.errors import CredentialError
+from cairn_mcp.errors import ArtifactConflictError, CredentialError
 
 # ---------------------------------------------------------------------------
 # encode_link_list / decode_link_list
@@ -94,15 +94,62 @@ def test_apply_link_annotations_calls_put_for_non_empty_and_delete_for_empty(
     mocker: pytest.MonkeyPatch,
 ) -> None:
     """apply_link_annotations puts the non-empty field and deletes the empty one —
-    verified by spying on the underlying client calls (not just the end state)."""
+    verified by spying on the underlying client calls (not just the end state).
+    Extended (review-followup-2026-07-06) to also assert if_match defaults to None
+    (unconditional) when the caller does not supply a compare-and-swap token."""
     s3_client.put_object(key="artifacts/a3.md", body="content", metadata={"title": "A3"})
     put_spy = mocker.spy(s3_client, "put_object_annotation")
     delete_spy = mocker.spy(s3_client, "delete_object_annotation")
 
     apply_link_annotations(s3_client, "artifacts/a3.md", commit_refs=["abc1234"], references=[])
 
-    put_spy.assert_called_once_with("artifacts/a3.md", COMMIT_REFS_ANNOTATION, "abc1234")
-    delete_spy.assert_called_once_with("artifacts/a3.md", REFERENCES_ANNOTATION)
+    put_spy.assert_called_once_with(
+        "artifacts/a3.md", COMMIT_REFS_ANNOTATION, "abc1234", if_match=None
+    )
+    delete_spy.assert_called_once_with("artifacts/a3.md", REFERENCES_ANNOTATION, if_match=None)
+
+
+def test_apply_link_annotations_threads_if_match_to_both_calls(
+    s3_client: S3ClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """apply_link_annotations(if_match=...) passes the same token through to both
+    the put- and delete-annotation calls it makes internally (ADR-011 decision 6)."""
+    s3_client.put_object(key="artifacts/a3b.md", body="content", metadata={"title": "A3b"})
+    token = s3_client.head_object("artifacts/a3b.md")["ETag"]
+    put_spy = mocker.spy(s3_client, "put_object_annotation")
+    delete_spy = mocker.spy(s3_client, "delete_object_annotation")
+
+    apply_link_annotations(
+        s3_client,
+        "artifacts/a3b.md",
+        commit_refs=["abc1234"],
+        references=[],
+        if_match=token,
+    )
+
+    put_spy.assert_called_once_with(
+        "artifacts/a3b.md", COMMIT_REFS_ANNOTATION, "abc1234", if_match=token
+    )
+    delete_spy.assert_called_once_with("artifacts/a3b.md", REFERENCES_ANNOTATION, if_match=token)
+
+
+def test_apply_link_annotations_stale_if_match_raises_conflict(
+    s3_client: S3ClientImpl,
+) -> None:
+    """apply_link_annotations(if_match=<stale ETag>) raises ArtifactConflictError,
+    propagated unchanged from the underlying client call."""
+    s3_client.put_object(key="artifacts/a3c.md", body="content", metadata={"title": "A3c"})
+    stale_etag = '"0000000000000000000000000000000"'
+
+    with pytest.raises(ArtifactConflictError):
+        apply_link_annotations(
+            s3_client,
+            "artifacts/a3c.md",
+            commit_refs=["abc1234"],
+            references=[],
+            if_match=stale_etag,
+        )
 
 
 def test_apply_link_annotations_credential_error_propagates(

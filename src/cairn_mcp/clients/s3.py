@@ -18,7 +18,12 @@ from cairn_mcp.clients.credentials import (
     wrap_credential_errors,
 )
 from cairn_mcp.clients.interfaces import S3ClientInterface  # noqa: F401 (structural only)
-from cairn_mcp.errors import AnnotationUnavailableError, ArtifactCollisionError, CredentialError
+from cairn_mcp.errors import (
+    AnnotationUnavailableError,
+    ArtifactCollisionError,
+    ArtifactConflictError,
+    CredentialError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -65,8 +70,11 @@ class S3ClientImpl:
         metadata: dict[str, str],
         *,
         if_none_match: bool = False,
-    ) -> None:
-        logger.debug("S3 put_object key=%s if_none_match=%s", key, if_none_match)
+        if_match: str | None = None,
+    ) -> str:
+        logger.debug(
+            "S3 put_object key=%s if_none_match=%s if_match=%s", key, if_none_match, if_match
+        )
         kwargs: dict[str, Any] = {
             "Bucket": self._bucket,
             "Key": key,
@@ -79,14 +87,25 @@ class S3ClientImpl:
             # exists. This closes the head_object-then-put_object TOCTOU race — the
             # existence check and the write happen as a single S3-side atomic operation.
             kwargs["IfNoneMatch"] = "*"
+        if if_match is not None:
+            # Optimistic-concurrency compare-and-swap (ADR-011 decision 6): the request
+            # is rejected with HTTP 412 PreconditionFailed if the object's current ETag
+            # no longer matches the value the caller captured on read — a concurrent
+            # writer has changed the object since.
+            kwargs["IfMatch"] = if_match
         with wrap_credential_errors("s3"):
             try:
-                self._s3.put_object(**kwargs)
+                response = self._s3.put_object(**kwargs)
             except botocore.exceptions.ClientError as exc:
                 code = exc.response.get("Error", {}).get("Code", "")
-                if if_none_match and code == "PreconditionFailed":
-                    raise ArtifactCollisionError(key) from exc
+                if code == "PreconditionFailed":
+                    if if_none_match:
+                        raise ArtifactCollisionError(key) from exc
+                    if if_match is not None:
+                        raise ArtifactConflictError(key) from exc
                 raise
+        new_etag: str = response["ETag"]
+        return new_etag
 
     def get_object(self, key: str) -> str:
         logger.debug("S3 get_object key=%s", key)
@@ -105,7 +124,13 @@ class S3ClientImpl:
         with wrap_credential_errors("s3"):
             try:
                 response = self._s3.head_object(Bucket=self._bucket, Key=key)
-                return dict(response.get("Metadata", {}))
+                metadata = dict(response.get("Metadata", {}))
+                # Reserved capitalised key (ADR-011 decision 6) — every real
+                # user-defined metadata key is lowercase, so this cannot collide.
+                # Lets a single head_object round trip capture both the metadata
+                # and the compare-and-swap token for a subsequent conditional write.
+                metadata["ETag"] = response["ETag"]
+                return metadata
             except botocore.exceptions.ClientError as exc:
                 code = exc.response.get("Error", {}).get("Code", "")
                 if code == "403":
@@ -140,21 +165,39 @@ class S3ClientImpl:
         with wrap_credential_errors("s3"):
             self._s3.delete_object(Bucket=self._bucket, Key=key)
 
-    def put_object_annotation(self, key: str, annotation_name: str, payload: str) -> None:
-        logger.debug("S3 put_object_annotation key=%s annotation_name=%s", key, annotation_name)
+    def put_object_annotation(
+        self,
+        key: str,
+        annotation_name: str,
+        payload: str,
+        *,
+        if_match: str | None = None,
+    ) -> None:
+        logger.debug(
+            "S3 put_object_annotation key=%s annotation_name=%s if_match=%s",
+            key,
+            annotation_name,
+            if_match,
+        )
+        kwargs: dict[str, Any] = {
+            "Bucket": self._bucket,
+            "Key": key,
+            "AnnotationName": annotation_name,
+            "AnnotationPayload": payload.encode("utf-8"),
+        }
+        if if_match is not None:
+            kwargs["ObjectIfMatch"] = if_match
         with wrap_credential_errors("s3"):
             try:
-                self._s3.put_object_annotation(
-                    Bucket=self._bucket,
-                    Key=key,
-                    AnnotationName=annotation_name,
-                    AnnotationPayload=payload.encode("utf-8"),
-                )
+                self._s3.put_object_annotation(**kwargs)
             except botocore.exceptions.ClientError as exc:
                 if is_annotation_unavailable_error(exc):
                     raise AnnotationUnavailableError(
                         _ANNOTATION_UNAVAILABLE_MESSAGE, "s3", exc
                     ) from exc
+                code = exc.response.get("Error", {}).get("Code", "")
+                if if_match is not None and code == "PreconditionFailed":
+                    raise ArtifactConflictError(key) from exc
                 raise
 
     def get_object_annotation(self, key: str, annotation_name: str) -> str:
@@ -203,19 +246,37 @@ class S3ClientImpl:
                     break
             return names
 
-    def delete_object_annotation(self, key: str, annotation_name: str) -> None:
-        logger.debug("S3 delete_object_annotation key=%s annotation_name=%s", key, annotation_name)
+    def delete_object_annotation(
+        self,
+        key: str,
+        annotation_name: str,
+        *,
+        if_match: str | None = None,
+    ) -> None:
+        logger.debug(
+            "S3 delete_object_annotation key=%s annotation_name=%s if_match=%s",
+            key,
+            annotation_name,
+            if_match,
+        )
+        kwargs: dict[str, Any] = {
+            "Bucket": self._bucket,
+            "Key": key,
+            "AnnotationName": annotation_name,
+        }
+        if if_match is not None:
+            kwargs["ObjectIfMatch"] = if_match
         with wrap_credential_errors("s3"):
             try:
-                self._s3.delete_object_annotation(
-                    Bucket=self._bucket, Key=key, AnnotationName=annotation_name
-                )
+                self._s3.delete_object_annotation(**kwargs)
             except botocore.exceptions.ClientError as exc:
                 if is_annotation_unavailable_error(exc):
                     raise AnnotationUnavailableError(
                         _ANNOTATION_UNAVAILABLE_MESSAGE, "s3", exc
                     ) from exc
                 code = exc.response.get("Error", {}).get("Code", "")
+                if if_match is not None and code == "PreconditionFailed":
+                    raise ArtifactConflictError(key) from exc
                 if code in ("NoSuchKey", "NoSuchAnnotation", "404"):
                     return
                 raise

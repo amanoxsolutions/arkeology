@@ -22,7 +22,8 @@ class S3ClientInterface(Protocol):
         metadata: dict[str, str],
         *,
         if_none_match: bool = False,
-    ) -> None:
+        if_match: str | None = None,
+    ) -> str:
         """Store an object under the given key with optional metadata.
 
         Args:
@@ -33,10 +34,21 @@ class S3ClientInterface(Protocol):
                 (``IfNoneMatch: "*"``) instead of an unconditional put. Use this to
                 close the check-then-act race of a separate ``head_object`` existence
                 check followed by an unconditional ``put_object``.
+            if_match: When set, perform an atomic conditional-update (``IfMatch``)
+                that only succeeds if the object's current ETag equals this value —
+                the optimistic-concurrency compare-and-swap guard for a
+                read-modify-write cycle on an existing object (ADR-011 decision 6).
+
+        Returns:
+            The object's new ETag (as returned by the underlying ``PutObject`` call),
+            for use as ``if_match``/``ObjectIfMatch`` on a subsequent conditional
+            write that must not race a concurrent change to this object.
 
         Raises:
             ArtifactCollisionError: If ``if_none_match=True`` and an object already
                 exists at ``key`` (HTTP 412 PreconditionFailed).
+            ArtifactConflictError: If ``if_match`` is set and does not match the
+                object's current ETag (HTTP 412 PreconditionFailed).
             CredentialError: If credentials are invalid or expired.
         """
         ...
@@ -63,7 +75,13 @@ class S3ClientInterface(Protocol):
             key: S3 object key.
 
         Returns:
-            Dict containing the object's metadata.
+            Dict containing the object's metadata, plus a reserved capitalised
+            ``"ETag"`` key holding the object's current ETag (quoted, as returned by
+            S3). Every real user-defined metadata key is lowercase, so ``"ETag"``
+            cannot collide with one — this lets a single ``head_object`` round trip
+            capture both the metadata and the compare-and-swap token needed for a
+            subsequent conditional write (ADR-011 decision 6), avoiding a second
+            round trip.
 
         Raises:
             KeyError: If the key does not exist.
@@ -108,7 +126,14 @@ class S3ClientInterface(Protocol):
         """
         ...
 
-    def put_object_annotation(self, key: str, annotation_name: str, payload: str) -> None:
+    def put_object_annotation(
+        self,
+        key: str,
+        annotation_name: str,
+        payload: str,
+        *,
+        if_match: str | None = None,
+    ) -> None:
         """Write (or overwrite) a named annotation on an object.
 
         Annotations are mutable in place and do not disturb the object body, its
@@ -118,8 +143,15 @@ class S3ClientInterface(Protocol):
             key: S3 object key.
             annotation_name: Name of the annotation (e.g. "commit_refs").
             payload: Annotation payload as a UTF-8 string.
+            if_match: When set, sent as the boto3 ``ObjectIfMatch`` parameter — the
+                write only succeeds if the object's current ETag equals this value
+                (ADR-011 decision 6). Annotations do not change the object's ETag, so
+                this guards against a concurrent change to the object body between a
+                caller's read and this write, not against another annotation write.
 
         Raises:
+            ArtifactConflictError: If ``if_match`` is set and does not match the
+                object's current ETag (HTTP 412 PreconditionFailed).
             CredentialError: If credentials are invalid or expired.
         """
         ...
@@ -155,7 +187,13 @@ class S3ClientInterface(Protocol):
         """
         ...
 
-    def delete_object_annotation(self, key: str, annotation_name: str) -> None:
+    def delete_object_annotation(
+        self,
+        key: str,
+        annotation_name: str,
+        *,
+        if_match: str | None = None,
+    ) -> None:
         """Delete a named annotation from an object.
 
         Silently ignores an absent object or an already-absent annotation
@@ -164,8 +202,14 @@ class S3ClientInterface(Protocol):
         Args:
             key: S3 object key.
             annotation_name: Name of the annotation to delete.
+            if_match: When set, sent as the boto3 ``ObjectIfMatch`` parameter — the
+                delete only succeeds if the object's current ETag equals this value
+                (ADR-011 decision 6). See :meth:`put_object_annotation` for the same
+                caveat regarding annotation ETag-stability.
 
         Raises:
+            ArtifactConflictError: If ``if_match`` is set and does not match the
+                object's current ETag (HTTP 412 PreconditionFailed).
             CredentialError: If credentials are invalid or expired.
         """
         ...

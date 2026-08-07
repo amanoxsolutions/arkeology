@@ -14,7 +14,8 @@ from cairn_mcp.artifact import S3_USER_METADATA_MAX_BYTES, VECTOR_FILTERABLE_MET
 from cairn_mcp.clients.fakes.fake_bedrock import FakeBedrockClient
 from cairn_mcp.clients.s3 import S3ClientImpl
 from cairn_mcp.clients.vectors import VectorsClientImpl
-from cairn_mcp.errors import AnnotationUnavailableError, CredentialError
+from cairn_mcp.errors import AnnotationUnavailableError, ArtifactConflictError, CredentialError
+from cairn_mcp.tools.link_metadata import link_metadata
 from cairn_mcp.tools.reconcile import reconcile_index
 from cairn_mcp.tools.write import write_artifact
 from tests.unit.conftest import _make_settings
@@ -443,17 +444,22 @@ async def test_overwrite_true_put_object_called_without_if_none_match(
     vectors_client: VectorsClientImpl,
     mocker: pytest.MonkeyPatch,
 ) -> None:
-    """overwrite=True → the s3.put_object call is unconditional (if_none_match=False)."""
+    """overwrite=True on an existing key → the s3.put_object call is not a
+    conditional-create (no if_none_match=True): it goes through the CAS retry loop
+    instead, whose conditional-update guard is if_match (not if_none_match) —
+    extended for the review-followup-2026-07-06 optimistic-concurrency fix to also
+    assert the if_match token equals the object's pre-write ETag."""
     settings = _make_settings(monkeypatch)
     bedrock = FakeBedrockClient(dimension=1024)
 
-    await write_artifact(
+    first = await write_artifact(
         s3=s3_client,
         vectors=vectors_client,
         bedrock=bedrock,
         settings=settings,
         **_BASE_WRITE_KWARGS,
     )
+    pre_write_etag = s3_client.head_object(first["artifact_id"])["ETag"]
 
     spy = mocker.spy(s3_client, "put_object")
     result = await write_artifact(
@@ -467,7 +473,8 @@ async def test_overwrite_true_put_object_called_without_if_none_match(
 
     assert "error" not in result
     assert spy.call_count == 1
-    assert spy.call_args.kwargs.get("if_none_match") is False
+    assert not spy.call_args.kwargs.get("if_none_match")
+    assert spy.call_args.kwargs.get("if_match") == pre_write_etag
 
 
 # ---------------------------------------------------------------------------
@@ -2499,16 +2506,18 @@ async def test_write_with_link_fields_triggers_no_extra_embed_call(
 
 
 @pytest.mark.asyncio
-async def test_tier3_overwrite_preserves_commit_refs_and_merges_references(
+async def test_tier3_overwrite_preserves_commit_refs_and_replaces_references(
     monkeypatch: pytest.MonkeyPatch,
     s3_client: S3ClientImpl,
     vectors_client: VectorsClientImpl,
 ) -> None:
-    """AC-60 (core test): a tier-3 overwrite must not lose commit_refs/references that
-    were accumulated on the artifact, even though the underlying PutObject clears S3
-    annotations. The overwrite here supplies only a new reference (no new commit_refs);
-    the prior commit_refs must be read forward and re-applied unchanged, and the
-    supplied reference must be unioned with the prior references."""
+    """AC-60 (core test), updated for the review-followup-2026-07-06 reference-field
+    semantics fix: a tier-3 overwrite must not lose commit_refs that were accumulated on
+    the artifact, even though the underlying PutObject clears S3 annotations — the prior
+    commit_refs must be read forward and merged (union) with any newly supplied value.
+    references, by contrast, is REPLACED outright: the overwrite here supplies only a new
+    reference (no new commit_refs), and the post-write references must be exactly the
+    supplied list — not unioned with the prior stored value (ADR-011 decision 4)."""
     settings = _make_settings(monkeypatch)
     bedrock = FakeBedrockClient(dimension=1024)
     tier3_kwargs = {**_BASE_WRITE_KWARGS, "tier": 3}
@@ -2541,17 +2550,116 @@ async def test_tier3_overwrite_preserves_commit_refs_and_merges_references(
     assert "error" not in result
     assert result["artifact_id"] == artifact_id
 
-    # PutObject cleared the annotations; the write path must have read the prior values
-    # forward from vector metadata and re-applied them to both durable stores.
+    # PutObject cleared the annotations; the write path must have read commit_refs
+    # forward from the durable stores and re-applied it (union), while references is
+    # replaced outright with exactly the value supplied to this call.
     assert s3_client.get_object_annotation(artifact_id, "commit_refs") == "abc1234"
-    assert s3_client.get_object_annotation(artifact_id, "references") == "a-1,b-2"
+    assert s3_client.get_object_annotation(artifact_id, "references") == "b-2"
 
     keys = vectors_client.list_vectors_by_metadata({"artifact_id": {"$eq": artifact_id}})
     entries = vectors_client.get_vectors(keys)
     assert entries, "expected at least one vector for the overwritten artifact"
     for entry in entries:
         assert entry["metadata"]["commit_refs"] == ["abc1234"]
-        assert entry["metadata"]["references"] == ["a-1", "b-2"]
+        assert entry["metadata"]["references"] == ["b-2"]
+
+
+@pytest.mark.asyncio
+async def test_tier3_overwrite_omitted_references_clears_field(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+) -> None:
+    """A tier-3 overwrite that omits references (normalised to [] by the public
+    wrapper) clears the field entirely: the annotation is deleted and the vector
+    metadata key is absent — references mirrors the artifact's current frontmatter,
+    so a write that no longer lists it must shed it (ADR-011 decision 4,
+    operator-confirmed intended)."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+    tier3_kwargs = {**_BASE_WRITE_KWARGS, "tier": 3}
+
+    first = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        **{**tier3_kwargs, "references": ["a-1"]},
+    )
+    artifact_id = first["artifact_id"]
+    assert s3_client.get_object_annotation(artifact_id, "references") == "a-1"
+
+    result = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        overwrite=True,
+        **{**tier3_kwargs, "content": "## Summary\n\nUpdated content."},
+    )
+
+    assert "error" not in result
+    with pytest.raises(KeyError):
+        s3_client.get_object_annotation(artifact_id, "references")
+
+    keys = vectors_client.list_vectors_by_metadata({"artifact_id": {"$eq": artifact_id}})
+    entries = vectors_client.get_vectors(keys)
+    assert entries
+    for entry in entries:
+        assert "references" not in entry["metadata"]
+
+
+@pytest.mark.asyncio
+async def test_link_metadata_backfilled_reference_dropped_by_subsequent_overwrite(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+) -> None:
+    """Documents the frozen link_metadata/overwrite interaction (ADR-011 decision 4):
+    link_metadata backfills references=["z-9"] onto an artifact whose references is
+    ["a-1"] (union, link_metadata's own merge is unchanged) — but a subsequent ordinary
+    overwrite supplying only references=["a-1"] then replaces the field back down to
+    ["a-1"], dropping "z-9". This is the expected, intentional consequence of
+    references being a claim about current state, not a defect."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+    tier3_kwargs = {**_BASE_WRITE_KWARGS, "tier": 3}
+
+    first = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        **{**tier3_kwargs, "references": ["a-1"]},
+    )
+    artifact_id = first["artifact_id"]
+
+    link_result = await link_metadata(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client,
+        artifact_ids=[artifact_id],
+        references=["z-9"],
+    )
+    assert link_result.get("linked") == 1
+    assert s3_client.get_object_annotation(artifact_id, "references") == "a-1,z-9"
+
+    result = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        overwrite=True,
+        **{**tier3_kwargs, "content": "## Summary\n\nUpdated content.", "references": ["a-1"]},
+    )
+
+    assert "error" not in result
+    assert s3_client.get_object_annotation(artifact_id, "references") == "a-1"
+    keys = vectors_client.list_vectors_by_metadata({"artifact_id": {"$eq": artifact_id}})
+    entries = vectors_client.get_vectors(keys)
+    assert entries
+    for entry in entries:
+        assert entry["metadata"]["references"] == ["a-1"]
 
 
 @pytest.mark.asyncio
@@ -3253,3 +3361,380 @@ async def test_overwrite_read_forward_preserves_annotation_only_value(
     for entry in entries:
         assert entry["metadata"]["commit_refs"] == ["abc1234", "def5678"]
     assert s3_client.get_object_annotation(artifact_id, "commit_refs") == "abc1234,def5678"
+
+
+# ---------------------------------------------------------------------------
+# Optimistic-concurrency (ETag compare-and-swap) writes — ADR-011 decision 6 /
+# review-followup-2026-07-06 "Optimistic-Concurrency Writes"
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_overwrite_put_object_called_with_if_match_from_captured_etag(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """An overwriting write's put_object call is conditional on the object's ETag
+    captured by the existence check (if_match), not merely if_none_match=False."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+    tier3_kwargs = {**_BASE_WRITE_KWARGS, "tier": 3}
+
+    first = await write_artifact(
+        s3=s3_client, vectors=vectors_client, bedrock=bedrock, settings=settings, **tier3_kwargs
+    )
+    artifact_id = first["artifact_id"]
+    current_etag = s3_client.head_object(artifact_id)["ETag"]
+
+    spy = mocker.spy(s3_client, "put_object")
+    result = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        overwrite=True,
+        **{**tier3_kwargs, "content": "## Summary\n\nUpdated content."},
+    )
+
+    assert "error" not in result
+    assert spy.call_count == 1
+    assert spy.call_args.kwargs.get("if_match") == current_etag
+
+
+@pytest.mark.asyncio
+async def test_overwrite_annotation_apply_uses_new_etag_from_put_object(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """The annotation re-apply following an overwriting write's put_object uses that
+    put_object call's NEW ETag (ETag1) as if_match, not the pre-write ETag (ETag0)."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+    tier3_kwargs = {**_BASE_WRITE_KWARGS, "tier": 3}
+
+    first = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        **{**tier3_kwargs, "commit_refs": ["abc1234"]},
+    )
+    artifact_id = first["artifact_id"]
+    old_etag = s3_client.head_object(artifact_id)["ETag"]
+
+    annotation_spy = mocker.spy(s3_client, "put_object_annotation")
+    result = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        overwrite=True,
+        **{**tier3_kwargs, "content": "## Summary\n\nUpdated content.", "commit_refs": ["abc1234"]},
+    )
+
+    assert "error" not in result
+    new_etag = s3_client.head_object(artifact_id)["ETag"]
+    assert new_etag != old_etag
+    assert annotation_spy.call_count == 1
+    assert annotation_spy.call_args.kwargs.get("if_match") == new_etag
+
+
+@pytest.mark.asyncio
+async def test_fresh_write_annotation_apply_has_no_if_match(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """A fresh (non-overwriting) write has nothing to race against (ADR-011 decision 6)
+    — its annotation apply is unconditional (if_match=None)."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+    annotation_spy = mocker.spy(s3_client, "put_object_annotation")
+
+    result = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        **{**_BASE_WRITE_KWARGS, "commit_refs": ["abc1234"]},
+    )
+
+    assert "error" not in result
+    assert annotation_spy.call_count == 1
+    assert annotation_spy.call_args.kwargs.get("if_match") is None
+
+
+@pytest.mark.asyncio
+async def test_overwrite_cas_conflict_then_retry_succeeds_with_both_contributions(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """A conflict on the first CAS attempt's put_object (simulating a concurrent
+    writer's own successful conditional write landing first) causes a retry that
+    re-reads and re-merges, eventually succeeding with a state that includes BOTH
+    the concurrent writer's contribution and this call's own supplied value — not
+    one silently dropped."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+    tier3_kwargs = {**_BASE_WRITE_KWARGS, "tier": 3}
+
+    first = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        **{**tier3_kwargs, "commit_refs": ["existing-sha"]},
+    )
+    artifact_id = first["artifact_id"]
+
+    original_put_object = s3_client.put_object
+    call_count = 0
+
+    def _simulate_conflict_then_succeed(*args: object, **kwargs: object) -> str:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            # A concurrent writer's own change lands between our read and our write.
+            s3_client.put_object_annotation(
+                artifact_id, "commit_refs", "existing-sha,concurrent-sha"
+            )
+            raise ArtifactConflictError(artifact_id)
+        return original_put_object(*args, **kwargs)  # type: ignore[arg-type]
+
+    mocker.patch.object(s3_client, "put_object", side_effect=_simulate_conflict_then_succeed)
+
+    result = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        overwrite=True,
+        **{**tier3_kwargs, "content": "## Summary\n\nUpdated content.", "commit_refs": ["new-sha"]},
+    )
+
+    assert "error" not in result
+    assert call_count == 2
+    assert (
+        s3_client.get_object_annotation(artifact_id, "commit_refs")
+        == "existing-sha,concurrent-sha,new-sha"
+    )
+    keys = vectors_client.list_vectors_by_metadata({"artifact_id": {"$eq": artifact_id}})
+    entries = vectors_client.get_vectors(keys)
+    for entry in entries:
+        assert entry["metadata"]["commit_refs"] == ["existing-sha", "concurrent-sha", "new-sha"]
+
+
+@pytest.mark.asyncio
+async def test_overwrite_annotation_conflict_retries_whole_cycle(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """A conflict on the annotation-apply call (simulating a concurrent object change
+    landing between this call's own put_object and its annotation write) retries the
+    WHOLE cycle — including a fresh put_object — not just the annotation call."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+    tier3_kwargs = {**_BASE_WRITE_KWARGS, "tier": 3}
+
+    first = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        **{**tier3_kwargs, "commit_refs": ["existing-sha"]},
+    )
+    artifact_id = first["artifact_id"]
+
+    put_object_spy = mocker.spy(s3_client, "put_object")
+    original_put_annotation = s3_client.put_object_annotation
+    call_count = 0
+
+    def _fail_once(*args: object, **kwargs: object) -> None:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise ArtifactConflictError(artifact_id)
+        return original_put_annotation(*args, **kwargs)  # type: ignore[arg-type]
+
+    mocker.patch.object(s3_client, "put_object_annotation", side_effect=_fail_once)
+
+    result = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        overwrite=True,
+        **{**tier3_kwargs, "content": "## Summary\n\nUpdated content.", "commit_refs": ["new-sha"]},
+    )
+
+    assert "error" not in result
+    assert put_object_spy.call_count == 2, "whole cycle must be retried, not just the annotation"
+    assert s3_client.get_object_annotation(artifact_id, "commit_refs") == "existing-sha,new-sha"
+
+
+@pytest.mark.asyncio
+async def test_overwrite_persistent_cas_conflict_returns_conflict_error(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+    tmp_path: pytest.TempPathFactory,
+) -> None:
+    """A persistent conflict (every CAS attempt's put_object fails) returns a
+    structured 'conflict' error after the bounded attempt count — never a raw
+    exception. Nothing was ever durably written by this call, so no failure-log
+    entry is produced, and the original artifact/annotation are untouched."""
+    log_path = tmp_path / "failures.jsonl"
+    settings = _make_settings(monkeypatch, FAILURE_LOG_PATH=str(log_path))
+    bedrock = FakeBedrockClient(dimension=1024)
+    tier3_kwargs = {**_BASE_WRITE_KWARGS, "tier": 3}
+
+    first = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        **{**tier3_kwargs, "commit_refs": ["existing-sha"]},
+    )
+    artifact_id = first["artifact_id"]
+
+    put_spy = mocker.patch.object(
+        s3_client, "put_object", side_effect=ArtifactConflictError(artifact_id)
+    )
+    batch_spy = mocker.spy(vectors_client, "put_vectors_batch")
+
+    result = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        overwrite=True,
+        **{**tier3_kwargs, "content": "## Summary\n\nUpdated content.", "commit_refs": ["new-sha"]},
+    )
+
+    assert result.get("error") == "conflict"
+    assert result.get("artifact_id") == artifact_id
+    assert put_spy.call_count == 3
+    assert batch_spy.call_count == 0
+    assert not log_path.exists()
+    assert s3_client.get_object_annotation(artifact_id, "commit_refs") == "existing-sha"
+    assert "Updated content" not in s3_client.get_object(artifact_id)
+
+
+@pytest.mark.asyncio
+async def test_overwrite_persistent_annotation_conflict_after_durable_write_logs_partial(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+    tmp_path: pytest.TempPathFactory,
+) -> None:
+    """When the object body IS durably written (put_object always succeeds) but the
+    annotation apply persistently conflicts, exhausting retries must still record a
+    failure-log entry — the object/annotation side was already durably written before
+    the conflict was hit, so the entry must not be falsely omitted (mirrors the
+    existing partial-write discipline)."""
+    log_path = tmp_path / "failures.jsonl"
+    settings = _make_settings(monkeypatch, FAILURE_LOG_PATH=str(log_path))
+    bedrock = FakeBedrockClient(dimension=1024)
+    tier3_kwargs = {**_BASE_WRITE_KWARGS, "tier": 3}
+
+    first = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        **{**tier3_kwargs, "commit_refs": ["existing-sha"]},
+    )
+    artifact_id = first["artifact_id"]
+
+    mocker.patch.object(
+        s3_client,
+        "put_object_annotation",
+        side_effect=ArtifactConflictError(artifact_id),
+    )
+
+    result = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        overwrite=True,
+        **{
+            **tier3_kwargs,
+            "content": "## Summary\n\nUpdated content again.",
+            "commit_refs": ["new-sha"],
+        },
+    )
+
+    assert result.get("error") == "conflict"
+    assert log_path.exists()
+    entries = [json.loads(line) for line in log_path.read_text().splitlines()]
+    assert len(entries) == 1
+    assert entries[0]["failure_step"] == "annotation_write"
+    assert entries[0]["artifact_id"] == artifact_id
+    # Content WAS durably updated on the final attempt even though we report conflict.
+    assert "Updated content again" in s3_client.get_object(artifact_id)
+
+
+@pytest.mark.asyncio
+async def test_overwrite_vector_writes_remain_unconditional_despite_cas_retry(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """Vector writes stay unconditional in every scenario — put_vectors_batch is
+    called with no conditional parameter, regardless of CAS retry outcome on the
+    object side (no S3 Vectors CAS surface exists; ADR-011 decision 6)."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+    tier3_kwargs = {**_BASE_WRITE_KWARGS, "tier": 3}
+
+    first = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        **{**tier3_kwargs, "commit_refs": ["existing-sha"]},
+    )
+    artifact_id = first["artifact_id"]
+
+    original_put_object = s3_client.put_object
+    call_count = 0
+
+    def _conflict_once(*args: object, **kwargs: object) -> str:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise ArtifactConflictError(artifact_id)
+        return original_put_object(*args, **kwargs)  # type: ignore[arg-type]
+
+    mocker.patch.object(s3_client, "put_object", side_effect=_conflict_once)
+    batch_spy = mocker.spy(vectors_client, "put_vectors_batch")
+
+    result = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        overwrite=True,
+        **{**tier3_kwargs, "content": "## Summary\n\nUpdated content.", "commit_refs": ["new-sha"]},
+    )
+
+    assert "error" not in result
+    assert batch_spy.call_count == 1
+    assert batch_spy.call_args.kwargs == {}
+    items = batch_spy.call_args.args[0]
+    for item in items:
+        assert "if_match" not in item
+        assert set(item.keys()) == {"key", "vector", "metadata"}

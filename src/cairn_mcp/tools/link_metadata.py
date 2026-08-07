@@ -28,7 +28,11 @@ from typing import Any
 
 from ulid import ULID
 
-from cairn_mcp.annotations import apply_link_annotations, read_current_link_fields
+from cairn_mcp.annotations import (
+    CAS_MAX_ATTEMPTS,
+    apply_link_annotations,
+    read_current_link_fields,
+)
 from cairn_mcp.clients.interfaces import (
     BedrockClientInterface,
     S3ClientInterface,
@@ -36,9 +40,73 @@ from cairn_mcp.clients.interfaces import (
 )
 from cairn_mcp.config import Settings
 from cairn_mcp.constants import ErrorCode
-from cairn_mcp.errors import AnnotationUnavailableError, CredentialError
+from cairn_mcp.errors import AnnotationUnavailableError, ArtifactConflictError, CredentialError
 
 logger = logging.getLogger(__name__)
+
+
+def _apply_link_metadata_with_cas(
+    s3: S3ClientInterface,
+    vectors: VectorsClientInterface,
+    artifact_id: str,
+    supplied_commit_refs: list[str],
+    supplied_references: list[str],
+) -> tuple[list[str], list[str]]:
+    """Apply the CAS-guarded annotation dual-write for one artifact_id (ADR-011
+    decision 6): capture the object's current ETag, read-forward + merge the current
+    link-field state (union of both durable stores), and write the merged annotations
+    conditionally on that ETag. On a detected concurrent change (``ArtifactConflictError``
+    from the annotation write — a content-changing operation, e.g. an overwriting
+    ``write_artifact`` call, changed the object between this call's read and its
+    annotation write), re-read and retry the whole cycle for up to ``CAS_MAX_ATTEMPTS``
+    attempts, re-merging this call's *original* supplied values into the fresh state each
+    time (never a previous attempt's already-merged output).
+
+    Accepted residual (ADR-011 decision 6): two concurrent calls touching the *same*
+    field are not detected, because annotation writes are deliberately ETag-stable
+    (decision 1) — this guard only detects a race against a content-changing write.
+
+    Args:
+        s3: S3 client.
+        vectors: S3 Vectors client.
+        artifact_id: The artifact's S3 key.
+        supplied_commit_refs: This call's supplied commit_refs values (merged in).
+        supplied_references: This call's supplied references values (merged in).
+
+    Returns:
+        The merged ``(commit_refs, references)`` actually written to the durable
+        annotation store, for the caller to mirror into vector metadata.
+
+    Raises:
+        ArtifactConflictError: If retries are exhausted without a successful
+            conditional write.
+        AnnotationUnavailableError: As raised by the underlying annotation write.
+        CredentialError: If credentials are invalid or expired.
+    """
+    current_etag = s3.head_object(artifact_id).get("ETag")
+    for attempt in range(CAS_MAX_ATTEMPTS):
+        if attempt > 0:
+            current_etag = s3.head_object(artifact_id).get("ETag")
+
+        existing_commit_refs, existing_references = read_current_link_fields(
+            s3, vectors, artifact_id
+        )
+        merged_commit_refs = _merge_link_field(existing_commit_refs, supplied_commit_refs)
+        merged_references = _merge_link_field(existing_references, supplied_references)
+
+        try:
+            apply_link_annotations(
+                s3,
+                artifact_id,
+                commit_refs=merged_commit_refs,
+                references=merged_references,
+                if_match=current_etag,
+            )
+        except ArtifactConflictError:
+            continue
+        return merged_commit_refs, merged_references
+
+    raise ArtifactConflictError(artifact_id)
 
 
 def _merge_link_field(existing: list[str], supplied: list[str]) -> list[str]:
@@ -160,25 +228,24 @@ async def _link_metadata_inner(
                 skipped += 1
                 continue
 
-            # ── Read-forward the current state as the union of BOTH durable stores
+            # ── Read-forward + merge, guarded by an ETag compare-and-swap (ADR-011
+            # decision 6) ─────────────────────────────────────────────────────────
+            # Read-forward the current state as the union of BOTH durable stores
             # (Phase 12 review C3/C5) — never vector metadata alone. A vector-only
             # read misses a value that lives only in the S3 annotation (e.g. a prior
             # link_metadata call whose annotation write succeeded but whose vector
             # write failed), and merging supplied=[] against that missing value would
-            # make the apply_link_annotations call below delete the annotation instead
-            # of healing it. See ``annotations.read_current_link_fields``. ──────────
-            existing_commit_refs, existing_references = read_current_link_fields(
-                s3, vectors, artifact_id
-            )
-            merged_commit_refs = _merge_link_field(existing_commit_refs, supplied_commit_refs)
-            merged_references = _merge_link_field(existing_references, supplied_references)
-
-            # ── Durable annotation write FIRST (ADR-011) ──────────────────────
-            apply_link_annotations(
-                s3,
-                artifact_id,
-                commit_refs=merged_commit_refs,
-                references=merged_references,
+            # make the annotation write delete the annotation instead of healing it.
+            # See ``annotations.read_current_link_fields``. The whole fetch-merge-reput
+            # cycle races every other read-modify-write cycle on the same artifact's
+            # durable link-field state, so it is guarded by a bounded ETag
+            # compare-and-swap retry (``_apply_link_metadata_with_cas``): on a detected
+            # concurrent change (a content-changing write altered the object between
+            # this call's read and its annotation write), re-read and retry the whole
+            # cycle, re-merging this call's *original* supplied values into the fresh
+            # state — never a previous attempt's already-merged output.
+            merged_commit_refs, merged_references = _apply_link_metadata_with_cas(
+                s3, vectors, artifact_id, supplied_commit_refs, supplied_references
             )
 
             # ── Vector metadata write SECOND, reusing existing embeddings ─────
@@ -210,6 +277,19 @@ async def _link_metadata_inner(
             # it is reported as a structured, actionable error and this artifact_id is
             # never counted as linked.
             return {"error": ErrorCode.ANNOTATION_UNAVAILABLE, "message": str(exc)}
+        except ArtifactConflictError as exc:
+            # ADR-011 decision 6: the bounded CAS retry cycle in
+            # _apply_link_metadata_with_cas was exhausted without a successful
+            # conditional write — never a raw exception, never a silent partial write.
+            return {
+                "error": ErrorCode.CONFLICT,
+                "message": (
+                    f"Could not link '{exc.key}': a concurrent writer changed the "
+                    f"artifact {CAS_MAX_ATTEMPTS} times in a row while this call "
+                    "attempted its compare-and-swap retry cycle. Retry the call."
+                ),
+                "artifact_id": exc.key,
+            }
         except CredentialError as exc:
             return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
 

@@ -81,6 +81,12 @@ def artifact_schema_content() -> str:
 | `commit_refs` | list[string] | Git commit SHAs linked to this artifact via `link_metadata` |
 | `references` | list[string] | Full S3 keys (the operative `artifact_id`) this artifact points at |
 
+`commit_refs` is accretive: an overwriting write MERGES the supplied value with the artifact's
+existing `commit_refs` (never dropped) — it is a durable audit trail with no frontmatter
+counterpart. `references` mirrors the artifact's current state: an overwriting write REPLACES
+the existing value outright with exactly what is supplied — omitting `references` on a write
+CLEARS it, so re-supply the full intended list rather than relying on a prior value surviving.
+
 ## System-generated fields
 
 These fields are set by the server and returned in tool responses. They cannot be supplied

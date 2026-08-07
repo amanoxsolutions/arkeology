@@ -13,7 +13,7 @@ from pytest_mock import MockerFixture
 from cairn_mcp.clients.s3 import S3ClientImpl
 from cairn_mcp.clients.vectors import VectorsClientImpl
 from cairn_mcp.config import Settings
-from cairn_mcp.errors import AnnotationUnavailableError, CredentialError
+from cairn_mcp.errors import AnnotationUnavailableError, ArtifactConflictError, CredentialError
 from cairn_mcp.tools.archive import archive_artifact
 from tests.unit.conftest import _make_settings as _make_settings_base
 
@@ -1054,3 +1054,308 @@ async def test_archive_annotation_credential_error_aborts(
     assert len(entries) == 1
     assert entries[0]["artifact_id"] == "artifacts/active-review"
     assert entries[0]["failure_step"] == "archive_vector_flip"
+
+
+# ---------------------------------------------------------------------------
+# Optimistic-concurrency (ETag compare-and-swap) writes — ADR-011 decision 6 /
+# review-followup-2026-07-06 "Optimistic-Concurrency Writes"
+# ---------------------------------------------------------------------------
+
+
+async def test_archive_put_object_called_with_if_match_from_captured_etag(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """The status-flip put_object call is conditional on the object's pre-flip ETag
+    (if_match), guarding the read-modify-write cycle."""
+    settings = _make_settings(monkeypatch)
+    _seed_all(s3_client, vectors_client_2)
+    pre_flip_etag = s3_client.head_object("artifacts/active-review")["ETag"]
+
+    spy = mocker.spy(s3_client, "put_object")
+    result = await archive_artifact(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=None,
+        artifact_id="artifacts/active-review",
+    )
+
+    assert "error" not in result
+    assert spy.call_count == 1
+    assert spy.call_args.kwargs.get("if_match") == pre_flip_etag
+
+
+async def test_archive_status_flip_metadata_never_includes_etag_sentinel_key(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+) -> None:
+    """The reserved 'ETag' sentinel key from head_object's return value must never
+    leak into the metadata dict passed to the status-flip put_object — it is not a
+    real user-defined metadata field, and writing it as one would corrupt future
+    ETag-capture calls (a real 'ETag' key colliding with the sentinel)."""
+    settings = _make_settings(monkeypatch)
+    _seed_all(s3_client, vectors_client_2)
+
+    result = await archive_artifact(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=None,
+        artifact_id="artifacts/active-review",
+    )
+
+    assert "error" not in result
+    meta = s3_client.head_object("artifacts/active-review")
+    # The only "ETag" key present is the client's own reserved sentinel (a valid,
+    # well-formed quoted ETag) — not a stale literal string leaked from a prior
+    # re-PUT's metadata dict.
+    assert meta["ETag"] == s3_client.head_object("artifacts/active-review")["ETag"]
+    assert meta["status"] == "inactive"
+    assert meta["title"] == "Fix auth bug"
+
+
+async def test_archive_annotation_apply_uses_new_etag_from_put_object(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """The annotation re-apply following the status-flip put_object uses that
+    put_object call's returned ETag as if_match (not some other stale value) — note
+    the ETag is content-hash-based, so a metadata-only status flip does not change
+    it here; the assertion is that the *source* of the token is put_object's return
+    value, verified by comparing it against the object's ETag immediately after."""
+    settings = _make_settings(monkeypatch)
+    _seed_all(s3_client, vectors_client_2)
+    s3_client.put_object_annotation("artifacts/active-review", "commit_refs", "abc1234")
+
+    annotation_spy = mocker.spy(s3_client, "put_object_annotation")
+    result = await archive_artifact(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=None,
+        artifact_id="artifacts/active-review",
+    )
+
+    assert "error" not in result
+    post_flip_etag = s3_client.head_object("artifacts/active-review")["ETag"]
+    assert annotation_spy.call_count == 1
+    assert annotation_spy.call_args.kwargs.get("if_match") == post_flip_etag
+
+
+async def test_archive_cas_conflict_then_retry_completes_successfully(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """A conflict on the first CAS attempt's put_object causes a retry that re-reads
+    fresh content/metadata/link-fields and re-writes conditionally again, eventually
+    completing the archive successfully."""
+    settings = _make_settings(monkeypatch)
+    _seed_all(s3_client, vectors_client_2)
+
+    original_put_object = s3_client.put_object
+    call_count = 0
+
+    def _conflict_once(*args: object, **kwargs: object) -> str:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise ArtifactConflictError("artifacts/active-review")
+        return original_put_object(*args, **kwargs)  # type: ignore[arg-type]
+
+    mocker.patch.object(s3_client, "put_object", side_effect=_conflict_once)
+
+    result = await archive_artifact(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=None,
+        artifact_id="artifacts/active-review",
+    )
+
+    assert "error" not in result
+    assert result["status"] == "inactive"
+    assert call_count == 2
+    meta = s3_client.head_object("artifacts/active-review")
+    assert meta["status"] == "inactive"
+
+
+async def test_archive_persistent_cas_conflict_returns_conflict_error(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+    mocker: MockerFixture,
+    tmp_path: Path,
+) -> None:
+    """A persistent conflict (every CAS attempt's put_object fails) returns a
+    structured 'conflict' error after the bounded attempt count — never a raw
+    exception. Nothing was durably written by this call, so no failure-log entry
+    is produced, and the artifact's status remains 'active'."""
+    settings = _make_settings(monkeypatch, tmp_path=tmp_path)
+    _seed_all(s3_client, vectors_client_2)
+
+    put_spy = mocker.patch.object(
+        s3_client, "put_object", side_effect=ArtifactConflictError("artifacts/active-review")
+    )
+    put_vec_spy = mocker.spy(vectors_client_2, "put_vector")
+
+    result = await archive_artifact(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=None,
+        artifact_id="artifacts/active-review",
+    )
+
+    assert result.get("error") == "conflict"
+    assert result.get("artifact_id") == "artifacts/active-review"
+    assert put_spy.call_count == 3
+    assert put_vec_spy.call_count == 0
+    assert not settings.failure_log_path.exists()
+    meta = s3_client.head_object("artifacts/active-review")
+    assert meta["status"] == "active"
+
+
+async def test_archive_persistent_annotation_conflict_after_durable_flip_logs_partial(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+    mocker: MockerFixture,
+    tmp_path: Path,
+) -> None:
+    """When the status flip IS durably written (put_object always succeeds) but the
+    annotation re-apply persistently conflicts, exhausting retries must still record
+    a failure-log entry — the object side was already durably written before the
+    conflict was hit, so the entry must not be falsely omitted.
+
+    commit_refs is seeded into BOTH durable stores (annotation AND vector metadata)
+    so the union-of-both-stores read-forward stays non-empty across every retry
+    attempt, even though each attempt's own status-flip put_object wipes the
+    annotation copy (PutObject clears annotations) before the (persistently
+    failing) annotation re-apply would otherwise restore it — isolating the
+    conflict-then-exhaustion behaviour from the (separately accepted, ADR-011)
+    residual of a value that exists only in the annotation."""
+    settings = _make_settings(monkeypatch, tmp_path=tmp_path)
+    _seed_all(s3_client, vectors_client_2)
+    s3_client.put_object_annotation("artifacts/active-review", "commit_refs", "abc1234")
+    for key in ("artifacts/active-review#summary", "artifacts/active-review#details"):
+        item = vectors_client_2.get_vectors([key])[0]
+        vectors_client_2.put_vector(
+            key, item["data"]["float32"], {**item["metadata"], "commit_refs": ["abc1234"]}
+        )
+
+    mocker.patch.object(
+        s3_client,
+        "put_object_annotation",
+        side_effect=ArtifactConflictError("artifacts/active-review"),
+    )
+
+    result = await archive_artifact(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=None,
+        artifact_id="artifacts/active-review",
+    )
+
+    assert result.get("error") == "conflict"
+    assert settings.failure_log_path.exists()
+    entries = [json.loads(line) for line in settings.failure_log_path.read_text().splitlines()]
+    assert len(entries) == 1
+    assert entries[0]["artifact_id"] == "artifacts/active-review"
+    assert entries[0]["failure_step"] == "archive_vector_flip"
+    # The status flip WAS durably applied on the final attempt even though we report
+    # a conflict error.
+    meta = s3_client.head_object("artifacts/active-review")
+    assert meta["status"] == "inactive"
+
+
+async def test_archive_vector_writes_remain_unconditional_despite_cas_retry(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """Vector writes stay unconditional in every scenario — put_vector is called
+    with no conditional parameter, regardless of CAS retry outcome on the object
+    side (no S3 Vectors CAS surface exists; ADR-011 decision 6)."""
+    settings = _make_settings(monkeypatch)
+    _seed_all(s3_client, vectors_client_2)
+
+    original_put_object = s3_client.put_object
+    call_count = 0
+
+    def _conflict_once(*args: object, **kwargs: object) -> str:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise ArtifactConflictError("artifacts/active-review")
+        return original_put_object(*args, **kwargs)  # type: ignore[arg-type]
+
+    mocker.patch.object(s3_client, "put_object", side_effect=_conflict_once)
+    put_vec_spy = mocker.spy(vectors_client_2, "put_vector")
+
+    result = await archive_artifact(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=None,
+        artifact_id="artifacts/active-review",
+    )
+
+    assert "error" not in result
+    assert put_vec_spy.call_count >= 1
+    for call in put_vec_spy.call_args_list:
+        assert "if_match" not in call.kwargs
+        assert len(call.args) == 3  # key, vector, metadata — no conditional parameter
+
+
+# ---------------------------------------------------------------------------
+# Regression guard: write-path replace-semantics for `references` must NOT leak
+# into archive (review-followup-2026-07-06, "Reference-Field Value Semantics")
+# ---------------------------------------------------------------------------
+
+
+async def test_archive_preserves_references_even_with_no_commit_refs(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+) -> None:
+    """Archive's status-flip re-PUT has no caller-supplied 'references' to replace
+    from — unlike write.py's overwrite path (which now REPLACES references outright
+    per the review-followup-2026-07-06 fix), archive must continue to read-forward
+    and re-apply 'references' unconditionally. This isolates the references field
+    (no commit_refs present) to guard against an implementer mistakenly propagating
+    the write-path's replace semantics into archive, which would silently wipe
+    references on every archive operation."""
+    settings = _make_settings(monkeypatch)
+    _seed_all(s3_client, vectors_client_2)
+    s3_client.put_object_annotation("artifacts/active-review", "references", "artifacts/some-adr")
+
+    result = await archive_artifact(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=None,
+        artifact_id="artifacts/active-review",
+    )
+
+    assert "error" not in result
+    assert result["status"] == "inactive"
+    # The annotation must survive the status re-PUT intact — not wiped and not
+    # replaced by an (absent) caller-supplied value, unlike write.py's overwrite path.
+    assert (
+        s3_client.get_object_annotation("artifacts/active-review", "references")
+        == "artifacts/some-adr"
+    )
+    # No commit_refs annotation was ever set — confirms this isolates the references
+    # field rather than piggybacking on a commit_refs value.
+    with pytest.raises(KeyError):
+        s3_client.get_object_annotation("artifacts/active-review", "commit_refs")

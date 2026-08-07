@@ -121,6 +121,30 @@ class ArtifactCollisionError(CairnError):
         self.key = key
 
 
+class ArtifactConflictError(CairnError):
+    """Raised when a conditional-update ``PutObject`` / ``PutObjectAnnotation`` /
+    ``DeleteObjectAnnotation`` (``IfMatch`` / ``ObjectIfMatch``) is rejected because the
+    object's current ETag no longer matches the value captured on read (HTTP 412
+    PreconditionFailed).
+
+    Distinct from :class:`ArtifactCollisionError`, which signals a conditional *create*
+    rejected because an object already exists (the ``if_none_match`` case).
+    ``ArtifactConflictError`` signals a conditional *update* rejected because someone else
+    already changed the object (or, for an annotation write, changed the object body) since
+    it was last read — the optimistic-concurrency compare-and-swap guard for durable
+    read-modify-write cycles on ``commit_refs`` / ``references`` (ADR-011 decision 6). The
+    caller (``write.py``'s overwrite path, ``link_metadata``, ``archive_artifact``) is
+    responsible for the bounded re-read/re-merge/re-write retry cycle this error signals.
+
+    Attributes:
+        key: The S3 key whose conditional update was rejected.
+    """
+
+    def __init__(self, key: str) -> None:
+        super().__init__(f"Conditional update rejected: key '{key}' was modified concurrently")
+        self.key = key
+
+
 class MetadataTooLargeError(CairnError):
     """Raised when assembled write-path metadata breaches one of the three byte budgets
     checked before any S3 or vector write — see ``cairn_mcp.artifact.check_metadata_budgets``.
