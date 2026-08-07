@@ -98,6 +98,10 @@ async def test_synthesise_top_k_limits_results_with_content(
             assert "content" in artifact
             assert artifact["content"] is not None
             assert len(artifact["content"]) > 0
+        # CA-5: small integration-test content stays well under the default 1 MB
+        # response-size budget, so the optional truncated/included fields are absent.
+        assert "truncated" not in result
+        assert "included" not in result
     finally:
         for aid in written_ids:
             await delete_artifact(

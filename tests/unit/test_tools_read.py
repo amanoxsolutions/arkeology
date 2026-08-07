@@ -870,3 +870,205 @@ async def test_read_vector_calls_run_off_event_loop(
     assert all(t is not main_thread for t in seen_threads), (
         "Vector calls ran on the event-loop thread — they must be offloaded"
     )
+
+
+# ---------------------------------------------------------------------------
+# M5 — cross-scope reference filtering (ADR-012)
+# ---------------------------------------------------------------------------
+
+
+async def test_read_cross_scope_reference_filtering_drops_unreadable_target(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+) -> None:
+    """Foreign tier-3-shared artifact referencing a foreign tier-2 target → target
+    dropped from the returned references list."""
+    settings = _make_settings(monkeypatch)
+    s3_client.put_object(
+        "other-team/t3-with-refs",
+        "Content.",
+        {**_BASE_METADATA, "tier": "3", "visibility": "shared", "team": "network"},
+    )
+    vectors_client_2.put_vector(
+        key="other-team/t3-with-refs#section-0",
+        vector=[1.0, 0.0],
+        metadata={
+            "artifact_id": "other-team/t3-with-refs",
+            "references": ["other-team/hidden-target"],
+        },
+    )
+    vectors_client_2.put_vector(
+        key="other-team/hidden-target#section-0",
+        vector=[0.0, 1.0],
+        metadata={"artifact_id": "other-team/hidden-target", "tier": 2, "visibility": "shared"},
+    )
+
+    result = await read_artifact(
+        s3=s3_client,
+        vectors=vectors_client_2,
+        settings=settings,
+        artifact_id="other-team/t3-with-refs",
+    )
+
+    assert result["references"] == []
+
+
+async def test_read_cross_scope_reference_filtering_keeps_readable_target(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+) -> None:
+    """Foreign tier-3-shared artifact referencing a foreign tier-3-shared target →
+    target kept in the returned references list."""
+    settings = _make_settings(monkeypatch)
+    s3_client.put_object(
+        "other-team/t3-with-refs2",
+        "Content.",
+        {**_BASE_METADATA, "tier": "3", "visibility": "shared", "team": "network"},
+    )
+    vectors_client_2.put_vector(
+        key="other-team/t3-with-refs2#section-0",
+        vector=[1.0, 0.0],
+        metadata={
+            "artifact_id": "other-team/t3-with-refs2",
+            "references": ["other-team/shared-target"],
+        },
+    )
+    vectors_client_2.put_vector(
+        key="other-team/shared-target#section-0",
+        vector=[0.0, 1.0],
+        metadata={"artifact_id": "other-team/shared-target", "tier": 3, "visibility": "shared"},
+    )
+
+    result = await read_artifact(
+        s3=s3_client,
+        vectors=vectors_client_2,
+        settings=settings,
+        artifact_id="other-team/t3-with-refs2",
+    )
+
+    assert result["references"] == ["other-team/shared-target"]
+
+
+async def test_read_own_scope_references_unfiltered(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+) -> None:
+    """Own-scope artifact referencing an otherwise-unreadable target → never filtered;
+    the reference is returned as-is regardless of the target's own accessibility."""
+    settings = _make_settings(monkeypatch)
+    s3_client.put_object("artifacts/own-with-refs", "Content.", {**_BASE_METADATA})
+    vectors_client_2.put_vector(
+        key="artifacts/own-with-refs#section-0",
+        vector=[1.0, 0.0],
+        metadata={
+            "artifact_id": "artifacts/own-with-refs",
+            "references": ["other-team/hidden-target-x"],
+        },
+    )
+
+    result = await read_artifact(
+        s3=s3_client,
+        vectors=vectors_client_2,
+        settings=settings,
+        artifact_id="artifacts/own-with-refs",
+    )
+
+    assert result["references"] == ["other-team/hidden-target-x"]
+
+
+async def test_read_cross_scope_reference_missing_target_stripped(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+) -> None:
+    """Foreign tier-3-shared artifact referencing a target with no matching vector
+    entry (deleted or never existed) → target stripped, fail safe."""
+    settings = _make_settings(monkeypatch)
+    s3_client.put_object(
+        "other-team/t3-with-refs3",
+        "Content.",
+        {**_BASE_METADATA, "tier": "3", "visibility": "shared", "team": "network"},
+    )
+    vectors_client_2.put_vector(
+        key="other-team/t3-with-refs3#section-0",
+        vector=[1.0, 0.0],
+        metadata={
+            "artifact_id": "other-team/t3-with-refs3",
+            "references": ["other-team/does-not-exist"],
+        },
+    )
+
+    result = await read_artifact(
+        s3=s3_client,
+        vectors=vectors_client_2,
+        settings=settings,
+        artifact_id="other-team/t3-with-refs3",
+    )
+
+    assert result["references"] == []
+
+
+async def test_read_cross_scope_reference_resolving_into_own_scope_kept(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+) -> None:
+    """Foreign tier-3-shared artifact referencing a target in the reader's own scope →
+    kept, even though no vector entry exists for that own-scope target."""
+    settings = _make_settings(monkeypatch)
+    s3_client.put_object(
+        "other-team/t3-with-refs4",
+        "Content.",
+        {**_BASE_METADATA, "tier": "3", "visibility": "shared", "team": "network"},
+    )
+    vectors_client_2.put_vector(
+        key="other-team/t3-with-refs4#section-0",
+        vector=[1.0, 0.0],
+        metadata={
+            "artifact_id": "other-team/t3-with-refs4",
+            "references": ["artifacts/own-hidden-target"],
+        },
+    )
+
+    result = await read_artifact(
+        s3=s3_client,
+        vectors=vectors_client_2,
+        settings=settings,
+        artifact_id="other-team/t3-with-refs4",
+    )
+
+    assert result["references"] == ["artifacts/own-hidden-target"]
+
+
+async def test_read_own_scope_reference_filtering_issues_no_extra_vector_query(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """Own-scope read → reference filtering is skipped entirely; list_vectors_by_metadata
+    is called exactly once (the pre-existing Step 4 commit_refs/references lookup)."""
+    settings = _make_settings(monkeypatch)
+    s3_client.put_object("artifacts/own-with-refs-spy", "Content.", {**_BASE_METADATA})
+    vectors_client_2.put_vector(
+        key="artifacts/own-with-refs-spy#section-0",
+        vector=[1.0, 0.0],
+        metadata={
+            "artifact_id": "artifacts/own-with-refs-spy",
+            "references": ["other-team/some-target"],
+        },
+    )
+    spy = mocker.spy(vectors_client_2, "list_vectors_by_metadata")
+
+    result = await read_artifact(
+        s3=s3_client,
+        vectors=vectors_client_2,
+        settings=settings,
+        artifact_id="artifacts/own-with-refs-spy",
+    )
+
+    assert result["references"] == ["other-team/some-target"]
+    assert spy.call_count == 1

@@ -210,6 +210,22 @@ class Settings(BaseSettings):
         ),
     ]
 
+    SYNTHESISE_MAX_RESPONSE_BYTES: Annotated[
+        int,
+        Field(
+            default=1_000_000,
+            ge=1,
+            description=(
+                "Maximum total UTF-8-encoded byte size of assembled result 'content' fields "
+                "in a single synthesise_artifacts response (default 1,000,000 = 1 MB). "
+                "Results are assembled in rank order and assembly stops before adding a "
+                "result that would exceed this budget; the response then sets "
+                "truncated=true and included=<count>. A single oversized top-ranked "
+                "result is always included regardless of this budget."
+            ),
+        ),
+    ]
+
     # ── Validators ────────────────────────────────────────────────────────────
     # Numeric range constraints (ge/le) are declared on the fields above; only
     # validators with bespoke logic or messages live here.
@@ -387,6 +403,11 @@ class Settings(BaseSettings):
     def embed_max_section_length(self) -> int:
         """Maximum section body length passed to embed (0 disables truncation)."""
         return self.EMBED_MAX_SECTION_LENGTH
+
+    @property
+    def synthesise_max_response_bytes(self) -> int:
+        """Maximum total UTF-8 byte size of assembled 'content' fields in a synthesise response."""
+        return self.SYNTHESISE_MAX_RESPONSE_BYTES
 
     @property
     def read_prefixes_list(self) -> list[str]:

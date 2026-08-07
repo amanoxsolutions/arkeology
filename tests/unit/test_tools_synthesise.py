@@ -5,6 +5,7 @@ Tests synthesise_artifacts() using moto-backed S3 + Vectors clients and FakeBedr
 
 import math
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 from pytest_mock import MockerFixture
@@ -610,3 +611,152 @@ async def test_synthesise_top_k_within_limit_not_clamped(
     )
 
     assert result.get("clamped") is not True
+
+
+# ---------------------------------------------------------------------------
+# CA-5: Response-size (byte) budget
+# ---------------------------------------------------------------------------
+#
+# These tests patch run_search_loop (as imported into synthesise.py) with a
+# fixed, already rank-ordered candidate list rather than relying on the real
+# embedding-based search: FakeBedrockClient's hash-derived vectors make the
+# relative ranking of the manually-seeded section vectors used elsewhere in
+# this file non-deterministic across artifacts, and CA-5's budget logic
+# depends on processing candidates in a known rank order.
+
+
+def _content_of_size(n: int) -> str:
+    """A deterministic ASCII string of exactly n UTF-8 bytes."""
+    return "x" * n
+
+
+def _entry(artifact_id: str, score: float) -> dict[str, Any]:
+    return {
+        "artifact_id": artifact_id,
+        "score": score,
+        "meta": {**_BASE_VECTOR_META, "artifact_id": artifact_id},
+    }
+
+
+def _mock_search_loop(mocker: MockerFixture, entries: list[dict[str, Any]]) -> None:
+    mocker.patch(
+        "cairn_mcp.tools.synthesise.run_search_loop",
+        new=AsyncMock(return_value=entries),
+    )
+
+
+async def test_synthesise_response_size_budget_default_unaffected(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """Normal-sized artifacts well under the default 1 MB budget → response
+    unaffected: no truncated/included fields, all matching results included."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=8)
+    for i in range(3):
+        aid = f"artifacts/normal-{i}"
+        s3_client.put_object(aid, _content_of_size(1000), {**_BASE_S3_META})
+    _mock_search_loop(mocker, [_entry(f"artifacts/normal-{i}", 1.0 - i * 0.01) for i in range(3)])
+
+    result = await synthesise_artifacts(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_8,
+        bedrock=bedrock,
+        query="review",
+        top_k=10,
+    )
+
+    assert len(result["artifacts"]) == 3
+    assert "truncated" not in result
+    assert "included" not in result
+
+
+async def test_synthesise_byte_budget_stops_assembly(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """A budget too small to fit all rank-ordered candidates stops assembly before
+    exceeding it; response sets truncated=True and included matches the actual
+    number of results returned."""
+    settings = _make_settings(monkeypatch, SYNTHESISE_MAX_RESPONSE_BYTES="1500")
+    bedrock = FakeBedrockClient(dimension=8)
+    for i in range(3):
+        aid = f"artifacts/big-{i}"
+        s3_client.put_object(aid, _content_of_size(1000), {**_BASE_S3_META})
+    _mock_search_loop(mocker, [_entry(f"artifacts/big-{i}", 1.0 - i * 0.01) for i in range(3)])
+
+    result = await synthesise_artifacts(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_8,
+        bedrock=bedrock,
+        query="review",
+        top_k=10,
+    )
+
+    assert [a["artifact_id"] for a in result["artifacts"]] == ["artifacts/big-0"]
+    assert result.get("truncated") is True
+    assert result.get("included") == 1
+
+
+async def test_synthesise_count_ceiling_and_byte_budget_both_active(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """top_k over the 100 ceiling AND an unusually small byte budget → both guards
+    apply simultaneously; clamped/effective_top_k and truncated/included co-occur."""
+    settings = _make_settings(monkeypatch, SYNTHESISE_MAX_RESPONSE_BYTES="1000")
+    bedrock = FakeBedrockClient(dimension=8)
+    for i in range(3):
+        aid = f"artifacts/ceiling-{i}"
+        s3_client.put_object(aid, _content_of_size(800), {**_BASE_S3_META})
+    _mock_search_loop(mocker, [_entry(f"artifacts/ceiling-{i}", 1.0 - i * 0.01) for i in range(3)])
+
+    result = await synthesise_artifacts(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_8,
+        bedrock=bedrock,
+        query="review",
+        top_k=200,
+    )
+
+    assert result.get("clamped") is True
+    assert result.get("effective_top_k") == 100
+    assert result.get("truncated") is True
+    assert result.get("included") == 1
+
+
+async def test_synthesise_single_oversized_first_result_included_anyway(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """The single top-ranked candidate alone exceeds the budget → included anyway
+    (never zero results for a single relevant oversized hit), with truncated=True."""
+    settings = _make_settings(monkeypatch, SYNTHESISE_MAX_RESPONSE_BYTES="500")
+    bedrock = FakeBedrockClient(dimension=8)
+    aid = "artifacts/oversized-solo"
+    s3_client.put_object(aid, _content_of_size(1000), {**_BASE_S3_META})
+    _mock_search_loop(mocker, [_entry(aid, 1.0)])
+
+    result = await synthesise_artifacts(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_8,
+        bedrock=bedrock,
+        query="review",
+        top_k=10,
+    )
+
+    assert [a["artifact_id"] for a in result["artifacts"]] == [aid]
+    assert result.get("truncated") is True
+    assert result.get("included") == 1

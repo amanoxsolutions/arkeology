@@ -17,6 +17,7 @@ from cairn_mcp.clients.interfaces import (
 from cairn_mcp.config import Settings
 from cairn_mcp.constants import ErrorCode
 from cairn_mcp.errors import CredentialError
+from cairn_mcp.tools._reference_filter import resolve_readable_targets
 from cairn_mcp.tools._search_helper import coerce_list_field
 
 logger = logging.getLogger(__name__)
@@ -159,6 +160,16 @@ async def _read_artifact_inner(
                 artifact_id,
                 exc_info=True,
             )
+
+    # ── Step 4b: Cross-scope reference filtering (ADR-012) ────────────────────
+    # Only foreign-scope reads need filtering: own-scope reads/entries are never
+    # filtered (and thus never pay for the extra vector-client query).
+    if foreign_prefix is not None and not own_scope and references and vectors is not None:
+        try:
+            readable_targets = await resolve_readable_targets(vectors, settings, set(references))
+        except CredentialError as exc:
+            return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
+        references = [r for r in references if r in readable_targets]
 
     # ── Step 5: Deserialise remaining S3 metadata ─────────────────────────────
     tags = coerce_list_field(meta, "tags")

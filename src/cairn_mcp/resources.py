@@ -332,8 +332,10 @@ artifacts — for example, summarising all code reviews after a feature ships, o
 consolidating session notes for a sprint.
 
 `synthesise_artifacts` runs a semantic search and returns **full content** for the top-k
-results in a single call. After synthesising in-context, write the result back using
-`write_artifact` with:
+results in a single call, up to a response-size budget (1 MB of content by default,
+configurable) — if the budget is reached first, the response sets `truncated: true` and
+`included: N`; a single oversized top-ranked result is still returned rather than dropped.
+After synthesising in-context, write the result back using `write_artifact` with:
 
 - `type="synthesis"`
 - `tier=3`

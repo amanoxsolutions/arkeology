@@ -16,6 +16,7 @@ from cairn_mcp.clients.interfaces import (
 from cairn_mcp.config import Settings
 from cairn_mcp.constants import ErrorCode
 from cairn_mcp.errors import CredentialError
+from cairn_mcp.tools._reference_filter import resolve_readable_targets
 from cairn_mcp.tools._search_helper import (
     build_scope_filter,
     build_user_filters,
@@ -144,11 +145,12 @@ async def _list_artifacts_inner(
     except CredentialError as exc:
         return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
 
-    # ── Step 4: Deduplicate by artifact_id (first occurrence wins) ────────────
+    # ── Step 4: Deduplicate by artifact_id (first occurrence wins) and apply the
+    # cross-scope gate ──────────────────────────────────────────────────────────
     own_scope = settings.write_prefix
     read_prefixes = settings.read_prefixes_list
     seen_ids: set[str] = set()
-    artifacts: list[dict[str, Any]] = []
+    gated_entries: list[tuple[str, bool, dict[str, Any]]] = []
 
     for item in items:
         meta = item["metadata"]
@@ -158,8 +160,8 @@ async def _list_artifacts_inner(
             continue
         seen_ids.add(artifact_id)
 
-        # ── Step 5: Cross-scope gate ──────────────────────────────────────────
-        if artifact_id.startswith(own_scope + "/"):
+        is_own_scope = artifact_id.startswith(own_scope + "/")
+        if is_own_scope:
             pass  # own scope — always allowed
         else:
             is_foreign = any(artifact_id.startswith(p + "/") for p in read_prefixes)
@@ -168,11 +170,33 @@ async def _list_artifacts_inner(
             if not (is_foreign and item_tier == 3 and item_visibility == "shared"):
                 continue
 
-        # ── Step 6: Build result dict ─────────────────────────────────────────
+        gated_entries.append((artifact_id, is_own_scope, meta))
+
+    # ── Step 5: Cross-scope reference filtering (ADR-012) ─────────────────────
+    # Own-scope entries are never filtered. Foreign entries' references are
+    # resolved with a single batched query covering the whole page, regardless
+    # of how many distinct foreign entries or reference ids are involved.
+    candidate_ids: set[str] = set()
+    for artifact_id, is_own_scope, meta in gated_entries:
+        if not is_own_scope:
+            candidate_ids.update(coerce_list_field(meta, "references"))
+
+    readable_targets: set[str] = set()
+    if candidate_ids:
+        try:
+            readable_targets = await resolve_readable_targets(vectors, settings, candidate_ids)
+        except CredentialError as exc:
+            return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
+
+    # ── Step 6: Build result dicts ──────────────────────────────────────────
+    artifacts: list[dict[str, Any]] = []
+    for artifact_id, is_own_scope, meta in gated_entries:
         tags_val = coerce_list_field(meta, "tags")
         source_artifacts_val = coerce_list_field(meta, "source_artifacts")
         commit_refs_val = coerce_list_field(meta, "commit_refs")
         references_val = coerce_list_field(meta, "references")
+        if not is_own_scope:
+            references_val = [r for r in references_val if r in readable_targets]
         last_edited_ulid_val: str | None = meta.get("last_edited_ulid") or None
 
         artifacts.append(

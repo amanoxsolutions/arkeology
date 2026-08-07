@@ -32,6 +32,7 @@ def clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
         "ARTIFACT_CONCURRENCY",
         "BEDROCK_TEXT_MODEL",
         "EMBED_MAX_SECTION_LENGTH",
+        "SYNTHESISE_MAX_RESPONSE_BYTES",
     ]:
         monkeypatch.delenv(var, raising=False)
 
@@ -655,3 +656,37 @@ def test_load_settings_configuration_error_reports_failing_fields(
     except ConfigurationError as exc:
         assert exc.fields, "fields must be non-empty"
         assert any("AWS_REGION" in f for f in exc.fields)
+
+
+# --- SYNTHESISE_MAX_RESPONSE_BYTES validation (CA-5) ---
+
+
+def test_synthesise_max_response_bytes_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    """SYNTHESISE_MAX_RESPONSE_BYTES absent → defaults to 1,000,000 (1 MB)."""
+    _required_env(monkeypatch)
+    settings = Settings()
+    assert settings.synthesise_max_response_bytes == 1_000_000
+
+
+def test_synthesise_max_response_bytes_valid(monkeypatch: pytest.MonkeyPatch) -> None:
+    """SYNTHESISE_MAX_RESPONSE_BYTES=500000 → accepted."""
+    _required_env(monkeypatch)
+    monkeypatch.setenv("SYNTHESISE_MAX_RESPONSE_BYTES", "500000")
+    settings = Settings()
+    assert settings.synthesise_max_response_bytes == 500000
+
+
+def test_synthesise_max_response_bytes_zero_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    """SYNTHESISE_MAX_RESPONSE_BYTES=0 → validation error (must be ≥1)."""
+    _required_env(monkeypatch)
+    monkeypatch.setenv("SYNTHESISE_MAX_RESPONSE_BYTES", "0")
+    with pytest.raises(Exception):
+        Settings()
+
+
+def test_synthesise_max_response_bytes_negative_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    """SYNTHESISE_MAX_RESPONSE_BYTES=-1 → validation error (must be ≥1)."""
+    _required_env(monkeypatch)
+    monkeypatch.setenv("SYNTHESISE_MAX_RESPONSE_BYTES", "-1")
+    with pytest.raises(Exception):
+        Settings()

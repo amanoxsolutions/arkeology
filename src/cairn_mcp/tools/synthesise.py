@@ -130,8 +130,19 @@ async def _synthesise_artifacts_inner(
     if not search_results:
         return {"artifacts": []}
 
-    # ── Step 6: Fetch content for each result ─────────────────────────────────
+    # ── Step 6: Fetch content for each result, budget-aware (CA-5) ─────────────
+    # Track a running total of assembled response bytes — measured as the
+    # UTF-8-encoded byte length of each result's `content` field only, per the
+    # frozen decision (per-entry metadata is small, fixed overhead and is not
+    # counted). Candidates arrive already rank-ordered by the search loop, so
+    # stopping as soon as the next candidate would exceed the budget preserves
+    # the highest-ranked results. The single-oversized-first-result edge case
+    # (no results assembled yet) is always included regardless of its size, so
+    # a single relevant oversized hit is never dropped entirely.
+    max_response_bytes = settings.synthesise_max_response_bytes
     artifacts: list[dict[str, Any]] = []
+    total_content_bytes = 0
+    truncated = False
     for entry in search_results:
         artifact_id: str = entry["artifact_id"]
         meta: dict[str, Any] = entry["meta"]
@@ -143,6 +154,11 @@ async def _synthesise_artifacts_inner(
         except Exception:
             logger.warning("Skipping artifact '%s': S3 read failed", artifact_id)
             continue
+
+        content_bytes = len(content.encode("utf-8"))
+        if artifacts and total_content_bytes + content_bytes > max_response_bytes:
+            truncated = True
+            break
 
         tags_val = coerce_list_field(meta, "tags")
 
@@ -163,6 +179,13 @@ async def _synthesise_artifacts_inner(
                 "description": meta.get("description"),
             }
         )
+        total_content_bytes += content_bytes
+        if total_content_bytes > max_response_bytes:
+            # The single oversized-first-result edge case: this one result already
+            # exceeds the budget alone, but it is included anyway — mark truncated
+            # and stop rather than fetching any further candidates.
+            truncated = True
+            break
 
     logger.info(
         "synthesise_artifacts returned %d artifacts for query=%r",
@@ -173,4 +196,7 @@ async def _synthesise_artifacts_inner(
     if clamped:
         response["clamped"] = True
         response["effective_top_k"] = effective_top_k
+    if truncated:
+        response["truncated"] = True
+        response["included"] = len(artifacts)
     return response

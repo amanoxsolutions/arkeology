@@ -1128,3 +1128,163 @@ async def test_list_vector_calls_run_off_event_loop(
     assert all(t is not main_thread for t in seen_threads), (
         "Vector calls ran on the event-loop thread — they must be offloaded"
     )
+
+
+# ---------------------------------------------------------------------------
+# M5 — cross-scope reference filtering (ADR-012)
+# ---------------------------------------------------------------------------
+
+
+async def test_list_cross_scope_reference_filtering_batched_across_page(
+    monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """Multiple foreign tier-3-shared entries on the same page, each referencing a
+    distinct target → unreadable targets dropped, readable targets kept, and the
+    whole page's reference resolution costs exactly one additional
+    list_vectors_by_metadata call (batched, not per-entry)."""
+    settings = _make_settings(monkeypatch)
+    # Foreign entry A references a foreign tier-2 target (unreadable).
+    vectors_client_8.put_vector(
+        "other-team/t3-with-refs-a#summary",
+        _unit_vec(2.1),
+        {
+            **_BASE_VECTOR_META,
+            "artifact_id": "other-team/t3-with-refs-a",
+            "scope": "other-team",
+            "tier": 3,
+            "visibility": "shared",
+            "references": ["other-team/t2-target"],
+        },
+    )
+    vectors_client_8.put_vector(
+        "other-team/t2-target#summary",
+        _unit_vec(2.2),
+        {
+            **_BASE_VECTOR_META,
+            "artifact_id": "other-team/t2-target",
+            "scope": "other-team",
+            "tier": 2,
+        },
+    )
+    # Foreign entry B references a foreign tier-3-shared target (readable).
+    vectors_client_8.put_vector(
+        "other-team/t3-with-refs-b#summary",
+        _unit_vec(2.3),
+        {
+            **_BASE_VECTOR_META,
+            "artifact_id": "other-team/t3-with-refs-b",
+            "scope": "other-team",
+            "tier": 3,
+            "visibility": "shared",
+            "references": ["other-team/t3-target"],
+        },
+    )
+    vectors_client_8.put_vector(
+        "other-team/t3-target#summary",
+        _unit_vec(2.4),
+        {
+            **_BASE_VECTOR_META,
+            "artifact_id": "other-team/t3-target",
+            "scope": "other-team",
+            "tier": 3,
+            "visibility": "shared",
+        },
+    )
+    spy = mocker.spy(vectors_client_8, "list_vectors_by_metadata")
+
+    result = await list_artifacts(
+        settings=settings, vectors=vectors_client_8, s3=None, bedrock=None
+    )
+
+    artifacts = {a["artifact_id"]: a for a in result.get("artifacts", [])}
+    assert artifacts["other-team/t3-with-refs-a"]["references"] == []
+    assert artifacts["other-team/t3-with-refs-b"]["references"] == ["other-team/t3-target"]
+    # One call for the main page query + one batched call for reference resolution.
+    assert spy.call_count == 2
+
+
+async def test_list_own_scope_reference_filtering_issues_no_extra_vector_query(
+    monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """A page containing only own-scope entries never triggers reference filtering —
+    references are returned unfiltered and no additional vector-client query is
+    issued beyond the main page query."""
+    settings = _make_settings(monkeypatch)
+    vectors_client_8.put_vector(
+        "artifacts/own-with-refs-spy#summary",
+        _unit_vec(2.5),
+        {
+            **_BASE_VECTOR_META,
+            "artifact_id": "artifacts/own-with-refs-spy",
+            "references": ["other-team/does-not-exist"],
+        },
+    )
+    spy = mocker.spy(vectors_client_8, "list_vectors_by_metadata")
+
+    result = await list_artifacts(
+        settings=settings, vectors=vectors_client_8, s3=None, bedrock=None
+    )
+
+    artifacts = {a["artifact_id"]: a for a in result.get("artifacts", [])}
+    assert artifacts["artifacts/own-with-refs-spy"]["references"] == ["other-team/does-not-exist"]
+    assert spy.call_count == 1
+
+
+async def test_list_cross_scope_reference_missing_target_stripped(
+    monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
+) -> None:
+    """Foreign tier-3-shared entry referencing a target with no matching vector entry
+    (deleted or never existed) → target stripped, fail safe."""
+    settings = _make_settings(monkeypatch)
+    vectors_client_8.put_vector(
+        "other-team/t3-with-missing-ref#summary",
+        _unit_vec(2.6),
+        {
+            **_BASE_VECTOR_META,
+            "artifact_id": "other-team/t3-with-missing-ref",
+            "scope": "other-team",
+            "tier": 3,
+            "visibility": "shared",
+            "references": ["other-team/does-not-exist"],
+        },
+    )
+
+    result = await list_artifacts(
+        settings=settings, vectors=vectors_client_8, s3=None, bedrock=None
+    )
+
+    artifacts = {a["artifact_id"]: a for a in result.get("artifacts", [])}
+    assert artifacts["other-team/t3-with-missing-ref"]["references"] == []
+
+
+async def test_list_cross_scope_reference_resolving_into_own_scope_kept(
+    monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
+) -> None:
+    """Foreign tier-3-shared entry referencing a target in the reader's own scope →
+    kept, even though no vector entry exists for that own-scope target."""
+    settings = _make_settings(monkeypatch)
+    vectors_client_8.put_vector(
+        "other-team/t3-with-own-ref#summary",
+        _unit_vec(2.7),
+        {
+            **_BASE_VECTOR_META,
+            "artifact_id": "other-team/t3-with-own-ref",
+            "scope": "other-team",
+            "tier": 3,
+            "visibility": "shared",
+            "references": ["artifacts/own-hidden-target"],
+        },
+    )
+
+    result = await list_artifacts(
+        settings=settings, vectors=vectors_client_8, s3=None, bedrock=None
+    )
+
+    artifacts = {a["artifact_id"]: a for a in result.get("artifacts", [])}
+    assert artifacts["other-team/t3-with-own-ref"]["references"] == ["artifacts/own-hidden-target"]
