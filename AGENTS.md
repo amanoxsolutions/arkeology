@@ -32,6 +32,7 @@ browser UI handles rendering; Claude's role ends after the initial `cairn_studio
 
 ## Conventions
 - **Testing approach:** test driven development
+- **Source-control branching model:** trunk-based (main branch)
 - **Versioning:** semver
 - **Changelog format:** keep-a-changelog
 - **Python:**
