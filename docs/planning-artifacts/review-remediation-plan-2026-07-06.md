@@ -17,15 +17,19 @@ findings were **re-verified against merged `main` (`a4cf881`) on 2026-07-06** by
 agents; only the confirmed-still-valid items are listed here.
 
 - **Verification: complete.** **Fixes: in progress** — all four design-gated findings (M3, M4, M5,
-  CA-5) and FC-1 are landed; FC-2/FC-3/FC-4/FC-5/FC-6 remain. Per-finding status is tracked in the
+  CA-5), FC-1, and FC-2 are landed; FC-3/FC-4/FC-5/FC-6 remain. Per-finding status is tracked in the
   `Status` column of each cluster table below, and per-cluster status in each section's `Status` line.
-- A dedicated branch **`review-followup-2026-07-06`** was cut off `main` for this work. It carries the
-  docs commits plus three reviewed code commits (unpushed as of 2026-08-07):
+- Work now lands directly on `main` (trunk-based, per AGENTS.md), commit-per-cluster — the earlier
+  `review-followup-2026-07-06` branch noted below was merged and deleted:
   - `7a697dd` — M3 (ETag compare-and-swap) + M4 (`references` replace / `commit_refs` union).
   - `63e5665` — FC-1 link-storage integrity (M1, M2, M9, M10, M13).
   - `2aa1633` — M5 (cross-scope reference filtering) + CA-5 (synthesise response-size budget).
-  Each passed the full quality gate and an independent code review with no defects (1081 unit tests
-  green at `2aa1633`). The one other attempted fix — minor #38 — was found not applicable (see below).
+  - `1d554c2` — FC-2 search/write validation correctness (07-02 #2/#3/#4/#5/#7/#13).
+  Each passed the full quality gate and an independent code review with no defects left open (1101
+  unit tests green at `1d554c2`). The one other attempted fix — minor #38 — was found not applicable
+  (see below). The standalone design-decision spec these four items were implemented against
+  (`review-followup-2026-07-06-design-fixes.md`) has since been folded into the per-task specs that
+  reference it and retired.
 - Working method when resumed: **TDD**, full quality gate before each commit
   (`uv run pytest tests/unit/ -q -m 'not integration'`, `ruff check`, `ruff format --check`,
   `mypy src/`), **commit-per-cluster**, no push until asked. Prior cycles used developer =
@@ -119,16 +123,17 @@ applicable). Update both the per-finding `Status` cell and the cluster `Status` 
 
 ### FC-2 — Search / write validation correctness  *(developer; small, high-confidence)*
 
-**Status: ⬜ todo** — 0/6 findings fixed. Unblocked (shares `write.py`/`search.py`/`synthesise.py`/`list.py` with landed clusters).
+**Status: ✅ done** — 6/6 findings fixed in `1d554c2`; full quality gate green (1101 unit tests),
+independent review clean after one Major fix (see below).
 
 | Finding | Location | Fix | Status |
 |---------|----------|-----|--------|
-| 07-02 **#3** | `tools/write.py` / `write_artifacts.py`; `generate_artifact_id::_require_valid_tier` | String `tier:"2"` → uncaught `ValueError` → `internal_error`. Return `validation_error`. | ⬜ todo |
-| 07-02 **#4** | `search.py`, `synthesise.py`, `server.py` params | `top_k <= 0` unvalidated → negative slices. Add `ge=1` guard. | ⬜ todo |
-| 07-02 **#5** | `_search_helper.build_user_filters`, `list.py` | Filter enum values (type/status/tier) unvalidated → typos silently return empty. Validate against `ARTIFACT_TYPES`/status/tier enums → `validation_error`. | ⬜ todo |
-| 07-02 **#7** | `search.py` (`SEARCH_FETCH_TOP_K` × `SEARCH_MAX_ITERATIONS` = 75) | Advertised `top_k=100` unreachable at defaults, no truncation signal. Signal when the loop exhausts below the requested count, or correct the docstring. | ⬜ todo |
-| 07-02 **#13** | `search.py`, `synthesise.py` (`int(meta["tier"])`) | Hard `KeyError` on a vector missing `tier` while `list.py` is defensive (`meta.get("tier", 0)`). Make search/synthesise defensive. | ⬜ todo |
-| 07-02 **#2** | `write.py` vector key `{s3_key}#{section_slug}`; `_section_pipeline.py` | Duplicate H2 headings collapse to one vector key → `sections_indexed` under-reports. Disambiguate duplicate slugs or count pre-dedup. | ⬜ todo |
+| 07-02 **#3** | `tools/write.py` / `write_artifacts.py`; `generate_artifact_id::_require_valid_tier` | String `tier:"2"` → uncaught `ValueError` → `internal_error`. Return `validation_error`. | ✅ done (`1d554c2`) — `Artifact.tier` now `Field(strict=True)`, rejecting non-int (incl. numeric-string and bool) tier values as `validation_error` in both single and batch write paths |
+| 07-02 **#4** | `search.py`, `synthesise.py`, `server.py` params | `top_k <= 0` unvalidated → negative slices. Add `ge=1` guard. | ✅ done (`1d554c2`) — explicit floor check on `top_k`/`requested_top_k` before the `min(..., 100)` clamp in both tools, returning `validation_error` |
+| 07-02 **#5** | `_search_helper.build_user_filters`, `list.py` | Filter enum values (type/status/tier) unvalidated → typos silently return empty. Validate against `ARTIFACT_TYPES`/status/tier enums → `validation_error`. | ✅ done (`1d554c2`) — new `InvalidFilterValueError` + `VALID_TIERS` constant; `build_user_filters` validates `type`/`tier`, `search.py`/`list.py` validate `status` via `ArtifactStatus(status)` (preserving `list.py`'s `status="all"` sentinel) |
+| 07-02 **#7** | `search.py` (`SEARCH_FETCH_TOP_K` × `SEARCH_MAX_ITERATIONS` = 75) | Advertised `top_k=100` unreachable at defaults, no truncation signal. Signal when the loop exhausts below the requested count, or correct the docstring. | ✅ done (`1d554c2`) — `run_search_loop` now returns `(results, fetch_exhausted)`; `search.py` surfaces `fetch_exhausted: True` when the fetch budget (iteration cap, `$nin` cap, or a non-credential mid-loop failure) truncates results before `top_k` is reached, mirroring the `clamped` field convention |
+| 07-02 **#13** | `search.py`, `synthesise.py` (`int(meta["tier"])`) | Hard `KeyError` on a vector missing `tier` while `list.py` is defensive (`meta.get("tier", 0)`). Make search/synthesise defensive. | ✅ done (`1d554c2`) — both now use `int(meta.get("tier", 0))`, matching `list.py` |
+| 07-02 **#2** | `write.py` vector key `{s3_key}#{section_slug}`; `_section_pipeline.py` | Duplicate H2 headings collapse to one vector key → `sections_indexed` under-reports. Disambiguate duplicate slugs or count pre-dedup. | ✅ done (`1d554c2`) — new `disambiguate_section_slugs()` shared helper in `_section_pipeline.py`, applied in both `write.py` and `reconcile.py` to keep the two vector-key constructions in sync |
 
 ### FC-3 — Client / config / robustness minors  *(developer)*
 
@@ -221,12 +226,13 @@ commits (`7a697dd`, `63e5665`, `2aa1633`), which deliberately left `CHANGELOG.md
 1. ✅ **done** — Settle the **design decisions** (M3, M4, M5, CA-5) — architect memo → operator sign-off.
    Implemented in `7a697dd` (M3, M4) and `2aa1633` (M5, CA-5).
 2. ✅ **done** — **FC-1** (link-storage integrity), highest value; M4 outcome folded in. `63e5665`.
-3. ⬜ **next** — **FC-2** (search/write validation).
-4. 🚧 **FC-5** (tests) — the 7 unit-level items can run now; the two SA-3 integration round-trips need a
+3. ✅ **done** — **FC-2** (search/write validation). `1d554c2`.
+4. ⬜ **next** — **FC-3** (robustness minors) — the M5 and CA-5 fold-in is already done, so no longer
+   gated.
+5. 🚧 **FC-5** (tests) — the 7 unit-level items can run now; the two SA-3 integration round-trips need a
    live-AWS run (`aws sso login` first — the session was expired on 2026-08-07).
-5. ⬜ **FC-3** (robustness minors) — the M5 and CA-5 fold-in is already done, so no longer gated.
 6. ⬜ **FC-4** (studio) and **FC-6** (docs) — parallelisable, lower risk. FC-6 now also owns the CHANGELOG
-   entries for the three landed code commits.
+   entries for the four landed code commits (M3/M4, FC-1, M5/CA-5, FC-2).
 
 ## Cross-references
 

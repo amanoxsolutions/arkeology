@@ -7,6 +7,72 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Breaking:** `references` now has plain replace semantics on write, mirroring the
+  supplied frontmatter exactly — an ordinary overwrite sets `references` to the value
+  supplied and omitting it clears the field. Previously an overwrite union-merged the
+  new value with whatever was already stored, which silently accumulated stale
+  reference targets over repeated writes. `commit_refs` is unaffected: it remains a
+  union-merge accretive field, since it is a git-derived audit trail rather than a
+  claim about current state. Callers relying on the old union-merge behaviour for
+  `references` must now resend the full desired list on every write.
+- `link_metadata` tool replaces the retired `link_commit` tool — appends both
+  `commit_refs` and `references` to an artifact's vector metadata (and durable S3
+  annotation copy) without re-embedding, where `link_commit` only handled
+  `commit_refs`
+- Durable read-modify-write cycles (`write_artifact` overwrite, `link_metadata`,
+  `archive_artifact` status re-PUT) are now guarded by ETag compare-and-swap:
+  `PutObject` / `PutObjectAnnotation` / `DeleteObjectAnnotation` calls are made
+  conditional on the ETag captured at read time, with a bounded retry (~3 attempts)
+  on detected concurrent modification before returning a structured `conflict` error,
+  instead of silently racing another writer
+- `references` returned to a **foreign-scope** reader via `read_artifact` or
+  `list_artifacts` is now filtered to targets the reader is actually permitted to
+  read (own-scope, or an independently readable tier-3 shared artifact); own-scope
+  reads are unaffected and continue to return `references` exactly as stored.
+  `list_artifacts` now issues one additional batched query page for this filtering
+- Invalid or wrong-type `tier` values on `write_artifact` now return
+  `validation_error` instead of `internal_error` (`Artifact.tier` is now
+  strict-typed)
+- `top_k <= 0` on `search_artifacts` / `synthesise_artifacts` now returns
+  `validation_error` instead of being silently accepted
+- Typo'd or invalid `type` / `tier` / `status` filter values on `search_artifacts`
+  now return `validation_error` instead of silently matching zero results
+- Duplicate H2-heading slugs within a single artifact are now disambiguated at write
+  time, so `sections_indexed` is accurate and no section's vector silently overwrites
+  another's; the same disambiguation is shared between `write_artifact` and
+  `reconcile_index`
+
+### Added
+- `synthesise_artifacts` gained a configurable response-size budget — new
+  `SYNTHESISE_MAX_RESPONSE_BYTES` setting (default 1,000,000 bytes / 1 MB), measured
+  as the UTF-8 byte length of the result's `content` field. Results assemble in rank
+  order and stop before the next result would exceed the budget, adding
+  `truncated: true` and `included: N` to the response (both omitted when not
+  triggered); a single oversized top result is still included rather than returning
+  zero results. The existing 100-result count ceiling remains a secondary guard
+- `search_artifacts` response now includes `fetch_exhausted: true` when the
+  re-fetch loop's own fetch budget — not the true number of matching artifacts — is
+  what limited the result count below `top_k`
+
+### Fixed
+- Unknown/transient `ClientError`s during annotation writes on `write_artifact` no
+  longer escape as `internal_error`; the S3 content is already durable, so the
+  failure is now logged and surfaced as `partial_write`, matching existing
+  `CredentialError` handling
+- `commit_refs` / `references` values containing a literal comma are now
+  rejected up front on write and on `link_metadata`, instead of silently diverging
+  between the comma-joined S3 annotation encoding and the native `list[str]` vector
+  metadata encoding
+- `put_object_annotation` now maps `NoSuchKey` / 404 the same way its sibling S3
+  methods do; `link_metadata`'s batch loop now skips and counts orphaned-vector
+  artifacts (vector index entries whose underlying S3 object no longer exists)
+  instead of aborting the whole batch with `internal_error`
+- Migration reference-rewrite path now normalises manifest path keys before
+  matching, fixing a silent no-op on `./`- or backslash-spelled paths
+- `search_artifacts` / `synthesise_artifacts` now default missing vector `tier`
+  metadata to `0` instead of raising `KeyError`
+
 ## [0.5.0] - 2026-06-29
 
 ### Added
