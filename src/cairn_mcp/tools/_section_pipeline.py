@@ -19,7 +19,7 @@ failure-log entry that reconcile could never actually clear.
 import logging
 from dataclasses import dataclass
 
-from cairn_mcp.artifact import ArtifactSection, parse_sections
+from cairn_mcp.artifact import ArtifactSection, parse_sections, section_slug
 from cairn_mcp.config import Settings
 
 logger = logging.getLogger(__name__)
@@ -190,3 +190,36 @@ def prepare_sections_for_embedding(
             )
         )
     return prepared
+
+
+def disambiguate_section_slugs(sections: list[PreparedSection]) -> list[str]:
+    """Return one vector-key-safe slug per section, disambiguating slug collisions.
+
+    ``section_slug`` normalises heading text (case-folds, strips punctuation), so
+    distinct headings can legitimately collapse to the same base slug (e.g.
+    ``"Notes"`` and ``"Notes!"`` both normalise to ``"notes"``). Using the bare
+    slug as a vector key suffix (``f"{s3_key}#{slug}"``) would then collide: the
+    second section's vector would silently overwrite the first's, and the write
+    path's ``sections_indexed`` count would under-report the true section count
+    (07-02 #2). Repeat occurrences of the same base slug within one artifact get
+    a numeric suffix (``-2``, ``-3``, ...) appended, in document order, so every
+    section is guaranteed a distinct vector key.
+
+    Shared by ``write.py`` and ``reconcile.py`` (Phase 12 review M-3 convention)
+    so a collision is disambiguated identically on both the initial write and any
+    later ``reconcile_index`` replay of the same artifact.
+
+    Args:
+        sections: Prepared sections in document order.
+
+    Returns:
+        One disambiguated slug per section, same order and length as ``sections``.
+    """
+    occurrence_counts: dict[str, int] = {}
+    slugs: list[str] = []
+    for sec in sections:
+        base_slug = section_slug(sec.heading)
+        occurrence_counts[base_slug] = occurrence_counts.get(base_slug, 0) + 1
+        occurrence = occurrence_counts[base_slug]
+        slugs.append(base_slug if occurrence == 1 else f"{base_slug}-{occurrence}")
+    return slugs

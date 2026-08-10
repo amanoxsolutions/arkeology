@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from cairn_mcp.annotations import read_current_link_fields
-from cairn_mcp.artifact import decode_metadata_value, section_slug
+from cairn_mcp.artifact import decode_metadata_value
 from cairn_mcp.clients.interfaces import (
     BedrockClientInterface,
     S3ClientInterface,
@@ -24,6 +24,7 @@ from cairn_mcp.errors import CredentialError
 from cairn_mcp.tools._search_helper import coerce_list_field
 from cairn_mcp.tools._section_pipeline import (
     build_document_embedding_text,
+    disambiguate_section_slugs,
     prepare_sections_for_embedding,
 )
 
@@ -124,13 +125,14 @@ def _reindex_artifact(
     new_keys: set[str] = set()
 
     if prepared_sections:
-        for prepared in prepared_sections:
+        section_slugs = disambiguate_section_slugs(prepared_sections)
+        for prepared, slug in zip(prepared_sections, section_slugs, strict=True):
             embedding = bedrock.embed(
                 prepared.embed_text,
                 settings.bedrock_embedding_model,
                 settings.bedrock_embedding_dimensions,
             )
-            vec_key = f"{artifact_id}#{section_slug(prepared.heading)}"
+            vec_key = f"{artifact_id}#{slug}"
             vectors.put_vector(vec_key, embedding, vector_metadata)
             new_keys.add(vec_key)
     else:

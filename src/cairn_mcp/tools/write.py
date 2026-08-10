@@ -24,7 +24,6 @@ from cairn_mcp.artifact import (
     check_metadata_budgets,
     encode_metadata_value,
     generate_artifact_id,
-    section_slug,
 )
 from cairn_mcp.clients.interfaces import (
     BedrockClientInterface,
@@ -43,6 +42,7 @@ from cairn_mcp.errors import (
 from cairn_mcp.failure_log import append_failure_entry
 from cairn_mcp.tools._section_pipeline import (
     build_document_embedding_text,
+    disambiguate_section_slugs,
     prepare_sections_for_embedding,
 )
 
@@ -708,8 +708,10 @@ async def _write_artifact_inner(  # noqa: PLR0913
         # Concurrent embedding with bounded semaphore
         semaphore = asyncio.Semaphore(settings.section_concurrency)
 
+        section_slugs = disambiguate_section_slugs(prepared_sections)
         sections_to_embed: list[tuple[str, str]] = [
-            (f"{s3_key}#{section_slug(p.heading)}", p.embed_text) for p in prepared_sections
+            (f"{s3_key}#{slug}", p.embed_text)
+            for p, slug in zip(prepared_sections, section_slugs, strict=True)
         ]
 
         async def embed_section(vec_key: str, text: str) -> tuple[str, list[float]]:

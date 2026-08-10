@@ -379,6 +379,56 @@ async def test_write_artifacts_invalid_file_extension_validation_error(
 
 
 # ---------------------------------------------------------------------------
+# Invalid tier type/value → validation_error, not internal_error (07-02 #3)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_write_artifacts_wrong_type_tier_is_validation_error_not_internal(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+) -> None:
+    """A descriptor with tier="2" (string, not int) must return
+    error='validation_error', not 'internal_error' — a caller input mistake
+    should never surface as an internal server error. Other entries in the
+    batch must still succeed (isolated failure).
+    """
+    try:
+        from cairn_mcp.tools.write_artifacts import write_artifacts
+    except ImportError:
+        pytest.fail("cairn_mcp.tools.write_artifacts is not yet implemented")
+
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+
+    descriptors = [
+        _make_descriptor(0),
+        _make_descriptor(1, tier="2"),
+        _make_descriptor(2),
+    ]
+
+    result = await write_artifacts(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        artifacts=descriptors,
+    )
+
+    results = result.get("results", [])
+    assert len(results) == 3, f"Expected 3 results, got {len(results)}"
+
+    failed = results[1]
+    assert failed.get("error") == "validation_error", (
+        f"Expected error='validation_error' for wrong-type tier, got: {failed}"
+    )
+
+    assert results[0].get("written") is True, f"Entry 0 should succeed: {results[0]}"
+    assert results[2].get("written") is True, f"Entry 2 should succeed: {results[2]}"
+
+
+# ---------------------------------------------------------------------------
 # C7 — artifact_concurrency=15 (in-range) → all written, no warning
 # ---------------------------------------------------------------------------
 

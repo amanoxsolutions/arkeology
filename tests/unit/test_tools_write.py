@@ -79,6 +79,51 @@ async def test_three_section_content_indexes_three_sections(
     assert len(matching_keys) == 3
 
 
+async def test_h2_heading_slug_collision_indexes_both_sections_distinctly(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+) -> None:
+    """07-02 #2: two H2 headings that normalise to the same section_slug (e.g.
+    'Notes' and 'Notes!' both collapse to 'notes' — punctuation is stripped and
+    case is folded by section_slug) currently collide on the same vector key
+    (``f"{s3_key}#{section_slug(heading)}"``). ``new_keys: set[str]`` silently
+    collapses the duplicate key, so ``sections_indexed`` under-reports the true
+    section count and the second section's vector overwrites the first's in
+    the batch put — real content loss. Both sections must be embedded as
+    distinct vectors (e.g. via a numeric disambiguation suffix on repeat
+    slugs) once fixed.
+    """
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+
+    content = (
+        "## Notes\n\n"
+        "This is the first notes section with enough body content to pass the "
+        "fifty character minimum length filter easily.\n\n"
+        "## Notes!\n\n"
+        "This is the second notes section with deliberately different content, "
+        "also long enough to pass the same minimum length filter.\n"
+    )
+    kwargs = {**_BASE_WRITE_KWARGS, "title": "Heading collision test", "content": content}
+
+    result = await write_artifact(
+        s3=s3_client, vectors=vectors_client, bedrock=bedrock, settings=settings, **kwargs
+    )
+
+    assert result.get("sections_indexed") == 2, (
+        f"Expected 2 distinct sections indexed despite the colliding slug "
+        f"('Notes' and 'Notes!' both normalise to 'notes'), got: {result}"
+    )
+
+    artifact_id = result["artifact_id"]
+    all_keys = vectors_client.list_vectors_by_metadata({})
+    matching_keys = [k for k in all_keys if k == artifact_id or k.startswith(artifact_id + "#")]
+    assert len(matching_keys) == 2, (
+        f"Expected 2 distinct vector keys for the colliding-slug sections, got: {matching_keys}"
+    )
+
+
 async def test_no_section_content_indexes_one_document_fallback(
     monkeypatch: pytest.MonkeyPatch,
     s3_client: S3ClientImpl,
@@ -759,6 +804,36 @@ async def test_validation_invalid_tier_no_s3_call(
     )
 
     assert result.get("error") == "validation_error"
+    assert "message" in result
+    assert len(s3_client.list_objects("")) == 0
+
+
+async def test_validation_wrong_type_tier_string_returns_validation_error(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+) -> None:
+    """tier="2" (string, not int) must return validation_error, not internal_error.
+
+    Pydantic's lax coercion accepts the string "2" for the ``Artifact`` model's
+    ``tier: int`` field (coercing it to the valid int 2), so the model
+    construction itself does not raise. The bug (07-02 #3) is that
+    ``generate_artifact_id`` downstream is called with the original,
+    un-coerced string parameter rather than the validated ``artifact.tier``,
+    so ``_require_valid_tier`` raises a plain ``ValueError`` — caught only by
+    the outer blanket ``except Exception`` and surfaced as internal_error.
+    """
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+
+    kwargs = {**_BASE_WRITE_KWARGS, "tier": "2"}
+    result = await write_artifact(
+        s3=s3_client, vectors=vectors_client, bedrock=bedrock, settings=settings, **kwargs
+    )
+
+    assert result.get("error") == "validation_error", (
+        f"Expected error='validation_error' for wrong-type tier, got: {result}"
+    )
     assert "message" in result
     assert len(s3_client.list_objects("")) == 0
 

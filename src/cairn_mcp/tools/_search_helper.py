@@ -11,11 +11,16 @@ import json
 import logging
 from typing import Any
 
-from cairn_mcp.artifact import NON_FILTERABLE_METADATA_KEYS, REFERENCE_FIELDS
+from cairn_mcp.artifact import (
+    ARTIFACT_TYPES,
+    NON_FILTERABLE_METADATA_KEYS,
+    REFERENCE_FIELDS,
+    VALID_TIERS,
+)
 from cairn_mcp.clients.interfaces import VectorsClientInterface
 from cairn_mcp.config import Settings
 from cairn_mcp.constants import ArtifactStatus, ErrorCode
-from cairn_mcp.errors import CredentialError
+from cairn_mcp.errors import CredentialError, InvalidFilterValueError
 
 logger = logging.getLogger(__name__)
 
@@ -102,23 +107,35 @@ def build_user_filters(
     Each argument is omitted from the result when ``None`` (or empty for tags).
 
     Args:
-        type: Optional artifact type filter.
+        type: Optional artifact type filter. Must be one of ``ARTIFACT_TYPES``.
         team: Optional team filter.
         project: Optional project filter.
-        tier: Optional tier filter.
+        tier: Optional tier filter. Must be one of ``VALID_TIERS`` (2 or 3).
         tags: Optional list of tags; all must match (AND semantics).
 
     Returns:
         A list of metadata filter clause dicts.
+
+    Raises:
+        InvalidFilterValueError: ``type`` is not a recognised artifact type, or
+            ``tier`` is not 2 or 3 (07-02 #5) — a typo'd/out-of-range filter
+            value must never silently fall through to a filter clause that
+            legitimately matches nothing, which is indistinguishable from a
+            real zero-result query. Callers translate this to
+            ``ErrorCode.VALIDATION_ERROR``.
     """
     clauses: list[dict[str, Any]] = []
     if type is not None:
+        if type not in ARTIFACT_TYPES:
+            raise InvalidFilterValueError("type", type)
         clauses.append({"type": {"$eq": type}})
     if team is not None:
         clauses.append({"team": {"$eq": team}})
     if project is not None:
         clauses.append({"project": {"$eq": project}})
     if tier is not None:
+        if tier not in VALID_TIERS:
+            raise InvalidFilterValueError("tier", tier)
         clauses.append({"tier": {"$eq": tier}})
     if tags:
         for tag in tags:
@@ -134,7 +151,7 @@ async def run_search_loop(
     user_filters: list[dict[str, Any]],
     status_filter: dict[str, Any],
     effective_top_k: int,
-) -> list[dict[str, Any]] | dict[str, Any]:
+) -> tuple[list[dict[str, Any]], bool] | dict[str, Any]:
     """Execute the deduplicating re-fetch loop over the vector index.
 
     Iterates up to ``settings.search_max_iterations`` times, accumulating
@@ -154,6 +171,15 @@ async def run_search_loop(
     iteration routes it through ``asyncio.to_thread`` — this coroutine must be
     awaited by every caller.
 
+    07-02 #7: the fetch budget (``search_fetch_top_k × search_max_iterations``)
+    can be smaller than the true number of distinct matching artifacts, so the
+    loop may stop with fewer than ``effective_top_k`` results collected purely
+    because it ran out of iterations or ``$nin`` budget — not because the index
+    is actually exhausted. ``fetch_exhausted`` distinguishes that case (more
+    matches may exist beyond what was fetched) from a genuine, natural
+    exhaustion (a ``query_vectors`` call returned no new, not-yet-seen
+    artifacts — i.e. there is nothing left to find).
+
     Args:
         settings: Server configuration.
         vectors: S3 Vectors client.
@@ -164,13 +190,19 @@ async def run_search_loop(
 
     Returns:
         On success (including a partial, non-credential-failure-truncated result):
-            ``list[dict]`` — each dict has keys ``artifact_id``, ``score``, and
-            ``meta`` (the raw vector metadata dict).
+            ``(list[dict], bool)`` — the result list (each dict has keys
+            ``artifact_id``, ``score``, and ``meta``, the raw vector metadata
+            dict) and a ``fetch_exhausted`` flag: ``True`` when the loop
+            stopped due to its own iteration/``$nin`` budget while still
+            finding new, unseen matches (more may exist beyond what was
+            fetched); ``False`` when it stopped because ``effective_top_k``
+            was reached or the index was naturally exhausted.
         On credential error: ``{"error": "credential_error", "message": str}``
     """
     scope_filter = build_scope_filter(settings)
     seen_ids: set[str] = set()
     results: list[dict[str, Any]] = []
+    fetch_exhausted = False
 
     for _ in range(settings.search_max_iterations):
         and_clauses: list[dict[str, Any]] = [*user_filters, status_filter, scope_filter]
@@ -185,6 +217,7 @@ async def run_search_loop(
                     _NIN_EXCLUSION_BYTE_BUDGET,
                     len(results),
                 )
+                fetch_exhausted = len(results) < effective_top_k
                 break
             and_clauses.append({"artifact_id": {"$nin": list(seen_ids)}})
 
@@ -205,6 +238,7 @@ async def run_search_loop(
                 len(results),
                 exc_info=True,
             )
+            fetch_exhausted = len(results) < effective_top_k
             break
 
         # Keep highest-scoring section per artifact
@@ -219,6 +253,8 @@ async def run_search_loop(
         new_entries = [(aid, data) for aid, data in best_by_id.items() if aid not in seen_ids]
 
         if not new_entries:
+            # Natural exhaustion: the index genuinely has nothing left to offer —
+            # not a budget-truncation case.
             break
 
         for aid, (score, meta) in new_entries:
@@ -227,9 +263,15 @@ async def run_search_loop(
 
         if len(results) >= effective_top_k:
             break
+    else:
+        # The for loop ran to completion (search_max_iterations reached) without
+        # ever hitting one of the natural-stop breaks above, and each iteration up
+        # to the last kept finding new, unseen matches — the iteration budget, not
+        # the true match count, is what ended the loop.
+        fetch_exhausted = len(results) < effective_top_k
 
     results.sort(key=lambda r: float(r["score"]), reverse=True)
-    return results[:effective_top_k]
+    return results[:effective_top_k], fetch_exhausted
 
 
 def find_referrers(

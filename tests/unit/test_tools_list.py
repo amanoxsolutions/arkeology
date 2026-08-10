@@ -384,6 +384,65 @@ async def test_no_matching_artifacts_returns_empty_list(
 
 
 # ---------------------------------------------------------------------------
+# Filter enum validation (07-02 #5) — typos must error, not silently return []
+# ---------------------------------------------------------------------------
+
+
+async def test_filter_type_typo_returns_validation_error(
+    monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
+) -> None:
+    """type='cod_review' (typo, not a real artifact type) must return
+    validation_error — distinguishable from the legitimate zero-match case
+    covered by test_no_matching_artifacts_returns_empty_list.
+    """
+    settings = _make_settings(monkeypatch)
+    _seed_vectors(vectors_client_8)
+
+    result = await list_artifacts(
+        settings=settings, vectors=vectors_client_8, s3=None, bedrock=None, type="cod_review"
+    )
+
+    assert result.get("error") == "validation_error", (
+        f"Expected error='validation_error' for invalid type, got: {result}"
+    )
+
+
+async def test_filter_tier_out_of_range_returns_validation_error(
+    monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
+) -> None:
+    """tier=99 (not 2 or 3) must return validation_error, not a silent empty list."""
+    settings = _make_settings(monkeypatch)
+    _seed_vectors(vectors_client_8)
+
+    result = await list_artifacts(
+        settings=settings, vectors=vectors_client_8, s3=None, bedrock=None, tier=99
+    )
+
+    assert result.get("error") == "validation_error", (
+        f"Expected error='validation_error' for out-of-range tier, got: {result}"
+    )
+
+
+async def test_filter_status_typo_returns_validation_error(
+    monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
+) -> None:
+    """status='actve' (typo) must return validation_error, not a silent empty list."""
+    settings = _make_settings(monkeypatch)
+    _seed_vectors(vectors_client_8)
+
+    result = await list_artifacts(
+        settings=settings, vectors=vectors_client_8, s3=None, bedrock=None, status="actve"
+    )
+
+    assert result.get("error") == "validation_error", (
+        f"Expected error='validation_error' for invalid status, got: {result}"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Deduplication
 # ---------------------------------------------------------------------------
 

@@ -219,6 +219,50 @@ async def test_synthesise_result_has_all_required_fields(
             assert field in artifact, f"Missing field '{field}' in result: {artifact}"
 
 
+async def test_synthesise_result_missing_tier_metadata_defaults_gracefully(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
+) -> None:
+    """07-02 #13: a vector whose metadata lacks 'tier' must not hard-crash the
+    whole synthesise call. synthesise.py currently does ``int(meta["tier"])``
+    (a plain dict subscript) instead of the ``.get("tier", 0)`` pattern
+    already used by list.py — this raises a bare KeyError, caught only by
+    the outer blanket except-Exception and surfaced as an unhelpful
+    internal_error for the whole response, not just the malformed artifact.
+    """
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=8)
+
+    s3_client.put_object("artifacts/no-tier-artifact", _CONTENT, {**_BASE_S3_META})
+    vectors_client_8.put_vector(
+        "artifacts/no-tier-artifact#s1",
+        _unit_vec(1.0),
+        {
+            **{k: v for k, v in _BASE_VECTOR_META.items() if k != "tier"},
+            "artifact_id": "artifacts/no-tier-artifact",
+            # "tier" deliberately omitted
+        },
+    )
+
+    result = await synthesise_artifacts(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_8,
+        bedrock=bedrock,
+        query="review",
+        top_k=10,
+    )
+
+    assert "error" not in result, (
+        f"A missing 'tier' field must not surface as an error, got: {result}"
+    )
+    assert result["artifacts"][0]["tier"] == 0, (
+        f"Expected tier to default to 0 (mirroring list.py's .get('tier', 0) "
+        f"convention), got: {result}"
+    )
+
+
 async def test_synthesise_tags_is_list(
     monkeypatch: pytest.MonkeyPatch,
     s3_client: S3ClientImpl,
@@ -331,6 +375,84 @@ async def test_synthesise_top_k_above_ceiling_clamped(
 
     assert len(result["artifacts"]) <= 100
     assert isinstance(result["artifacts"], list)
+
+
+async def test_synthesise_top_k_zero_returns_validation_error(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
+) -> None:
+    """top_k=0 has no floor guard (07-02 #4) — must return validation_error,
+    not a silent empty artifacts list indistinguishable from a legitimate
+    no-match query.
+    """
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=8)
+    _seed_all(s3_client, vectors_client_8)
+
+    result = await synthesise_artifacts(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_8,
+        bedrock=bedrock,
+        query="review",
+        top_k=0,
+    )
+
+    assert result.get("error") == "validation_error", (
+        f"Expected error='validation_error' for top_k=0, got: {result}"
+    )
+
+
+async def test_synthesise_top_k_negative_returns_validation_error(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
+) -> None:
+    """top_k=-5 has no floor guard (07-02 #4) — must return validation_error."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=8)
+    _seed_all(s3_client, vectors_client_8)
+
+    result = await synthesise_artifacts(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_8,
+        bedrock=bedrock,
+        query="review",
+        top_k=-5,
+    )
+
+    assert result.get("error") == "validation_error", (
+        f"Expected error='validation_error' for top_k=-5, got: {result}"
+    )
+
+
+async def test_synthesise_filter_type_typo_returns_validation_error(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
+) -> None:
+    """type='cod_review' (typo) must return validation_error (07-02 #5) — not a
+    silent, misleadingly-empty result set that looks identical to a legitimate
+    zero-match query.
+    """
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=8)
+    _seed_all(s3_client, vectors_client_8)
+
+    result = await synthesise_artifacts(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_8,
+        bedrock=bedrock,
+        query="review",
+        type="cod_review",
+    )
+
+    assert result.get("error") == "validation_error", (
+        f"Expected error='validation_error' for invalid type, got: {result}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -639,9 +761,10 @@ def _entry(artifact_id: str, score: float) -> dict[str, Any]:
 
 
 def _mock_search_loop(mocker: MockerFixture, entries: list[dict[str, Any]]) -> None:
+    # run_search_loop returns (results, fetch_exhausted) on success (07-02 #7).
     mocker.patch(
         "cairn_mcp.tools.synthesise.run_search_loop",
-        new=AsyncMock(return_value=entries),
+        new=AsyncMock(return_value=(entries, False)),
     )
 
 

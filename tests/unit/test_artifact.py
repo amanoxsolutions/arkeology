@@ -533,6 +533,42 @@ def test_artifact_tier_3_valid() -> None:
     assert artifact.tier == 3
 
 
+def test_artifact_tier_bool_invalid() -> None:
+    """tier=True (bool, not int) → ValidationError.
+
+    07-02 #3: ``tier`` uses ``Field(strict=True)`` so non-int types are rejected
+    outright rather than silently coerced. ``bool`` is a subclass of ``int`` in
+    Python, so this specifically exercises that pydantic's strict-int mode still
+    rejects it (bools are excluded from strict-int coercion).
+    """
+    kwargs = {**VALID_ARTIFACT_KWARGS, "tier": True}
+    with pytest.raises(ValidationError):
+        Artifact(**kwargs)
+
+
+def test_artifact_tier_float_invalid() -> None:
+    """tier=2.0 (float, not int) → ValidationError.
+
+    07-02 #3: ``Field(strict=True)`` on ``tier`` rejects a float even when its
+    value would otherwise be a valid tier — the type itself must be int.
+    """
+    kwargs = {**VALID_ARTIFACT_KWARGS, "tier": 2.0}
+    with pytest.raises(ValidationError):
+        Artifact(**kwargs)
+
+
+def test_artifact_tier_numeric_string_invalid() -> None:
+    """tier="2" (numeric string, not int) → ValidationError.
+
+    07-02 #3 root cause: pydantic's default lax mode would silently coerce this
+    to the valid int 2, masking a caller's type mistake. ``Field(strict=True)``
+    rejects it instead.
+    """
+    kwargs = {**VALID_ARTIFACT_KWARGS, "tier": "2"}
+    with pytest.raises(ValidationError):
+        Artifact(**kwargs)
+
+
 def test_artifact_visibility_public_invalid() -> None:
     """visibility='public' → ValidationError."""
     kwargs = {**VALID_ARTIFACT_KWARGS, "visibility": "public"}

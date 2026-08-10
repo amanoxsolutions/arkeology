@@ -17,7 +17,7 @@ from cairn_mcp.clients.interfaces import (
 )
 from cairn_mcp.config import Settings
 from cairn_mcp.constants import ArtifactStatus, ErrorCode
-from cairn_mcp.errors import CredentialError
+from cairn_mcp.errors import CredentialError, InvalidFilterValueError
 from cairn_mcp.tools._search_helper import (
     build_user_filters,
     coerce_list_field,
@@ -66,6 +66,11 @@ async def search_artifacts(
     Returns:
         On success: ``{"artifacts": [...]}`` or
         ``{"artifacts": [], "zero_results": True}`` when nothing matches.
+        ``"clamped": True`` and ``"effective_top_k": int`` are also included when
+        the requested ``top_k`` was capped at the 100 ceiling. ``"fetch_exhausted":
+        True`` is included when the re-fetch loop's own fetch budget (not the true
+        number of matching artifacts) is what limited the result count below
+        ``top_k`` — more matches may exist beyond what was returned.
         On error: ``{"error": str, "message": str}``
     """
     try:
@@ -108,6 +113,11 @@ async def _search_artifacts_inner(  # noqa: PLR0913
 
     # ── Step 1: Resolve top_k ─────────────────────────────────────────────────
     requested_top_k = top_k if top_k is not None else settings.search_default_top_k
+    if requested_top_k <= 0:
+        return {
+            "error": ErrorCode.VALIDATION_ERROR,
+            "message": f"top_k must be a positive integer, got {requested_top_k}",
+        }
     effective_top_k = min(requested_top_k, 100)
     clamped = effective_top_k < requested_top_k
 
@@ -123,9 +133,22 @@ async def _search_artifacts_inner(  # noqa: PLR0913
         return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
 
     # ── Step 3: Build user filters ────────────────────────────────────────────
-    user_filters = build_user_filters(type=type, team=team, project=project, tier=tier, tags=tags)
+    try:
+        user_filters = build_user_filters(
+            type=type, team=team, project=project, tier=tier, tags=tags
+        )
+    except InvalidFilterValueError as exc:
+        return {"error": ErrorCode.VALIDATION_ERROR, "message": str(exc)}
 
     # ── Step 4: Status gate ───────────────────────────────────────────────────
+    if status is not None:
+        try:
+            ArtifactStatus(status)
+        except ValueError:
+            return {
+                "error": ErrorCode.VALIDATION_ERROR,
+                "message": f"invalid status filter value: {status!r}",
+            }
     status_filter: dict[str, Any] = {
         "status": {"$eq": status if status is not None else ArtifactStatus.ACTIVE}
     }
@@ -144,7 +167,7 @@ async def _search_artifacts_inner(  # noqa: PLR0913
     if isinstance(loop_result, dict):
         return loop_result
 
-    raw_results: list[dict[str, Any]] = loop_result
+    raw_results, fetch_exhausted = loop_result
 
     # ── Step 6: Build response entries ───────────────────────────────────────
     results: list[dict[str, Any]] = []
@@ -177,7 +200,7 @@ async def _search_artifacts_inner(  # noqa: PLR0913
                 "type": meta.get("type"),
                 "team": meta.get("team"),
                 "project": meta.get("project"),
-                "tier": int(meta["tier"]),
+                "tier": int(meta.get("tier", 0)),
                 "date": meta.get("date"),
                 "status": meta.get("status"),
                 "title": meta.get("title"),
@@ -199,4 +222,6 @@ async def _search_artifacts_inner(  # noqa: PLR0913
     if clamped:
         response["clamped"] = True
         response["effective_top_k"] = effective_top_k
+    if fetch_exhausted:
+        response["fetch_exhausted"] = True
     return response

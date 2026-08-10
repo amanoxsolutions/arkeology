@@ -16,7 +16,7 @@ from cairn_mcp.clients.interfaces import (
 )
 from cairn_mcp.config import Settings
 from cairn_mcp.constants import ArtifactStatus, ErrorCode
-from cairn_mcp.errors import CredentialError
+from cairn_mcp.errors import CredentialError, InvalidFilterValueError
 from cairn_mcp.tools._search_helper import (
     build_user_filters,
     coerce_list_field,
@@ -91,6 +91,11 @@ async def _synthesise_artifacts_inner(
 ) -> dict[str, Any]:
     """Inner implementation of synthesise_artifacts (separated to enable top-level catch-all)."""
     # ── Step 1: Clamp top_k ───────────────────────────────────────────────────
+    if top_k <= 0:
+        return {
+            "error": ErrorCode.VALIDATION_ERROR,
+            "message": f"top_k must be a positive integer, got {top_k}",
+        }
     effective_top_k = min(top_k, 100)
     clamped = effective_top_k < top_k
 
@@ -106,7 +111,10 @@ async def _synthesise_artifacts_inner(
         return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
 
     # ── Step 3: Build user filters (no tier filter for synthesise) ────────────
-    user_filters = build_user_filters(type=type, team=team, project=project, tags=tags)
+    try:
+        user_filters = build_user_filters(type=type, team=team, project=project, tags=tags)
+    except InvalidFilterValueError as exc:
+        return {"error": ErrorCode.VALIDATION_ERROR, "message": str(exc)}
 
     # ── Step 4: Status gate — always "active" for synthesis ───────────────────
     status_filter: dict[str, Any] = {"status": {"$eq": ArtifactStatus.ACTIVE}}
@@ -125,7 +133,9 @@ async def _synthesise_artifacts_inner(
     if isinstance(loop_result, dict):
         return loop_result
 
-    search_results: list[dict[str, Any]] = loop_result
+    # fetch_exhausted (07-02 #7) is currently only surfaced by search_artifacts;
+    # synthesise_artifacts does not expose it (no test/spec currently requires it).
+    search_results, _fetch_exhausted = loop_result
 
     if not search_results:
         return {"artifacts": []}
@@ -169,7 +179,7 @@ async def _synthesise_artifacts_inner(
                 "type": meta.get("type"),
                 "team": meta.get("team"),
                 "project": meta.get("project"),
-                "tier": int(meta["tier"]),
+                "tier": int(meta.get("tier", 0)),
                 "date": meta.get("date"),
                 "status": meta.get("status"),
                 "title": meta.get("title"),

@@ -299,6 +299,51 @@ async def test_search_each_result_has_artifact_id(
         assert "artifact_id" in artifact
 
 
+async def test_result_missing_tier_metadata_defaults_gracefully(
+    monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
+) -> None:
+    """07-02 #13: a vector whose metadata lacks 'tier' must not hard-crash the
+    whole search. search.py currently does ``int(meta["tier"])`` (a plain
+    dict subscript) instead of the ``.get("tier", 0)`` pattern already used
+    by list.py — this raises a bare KeyError, caught only by the outer
+    blanket except-Exception and surfaced as an unhelpful internal_error for
+    every result in the response, not just the malformed one.
+    """
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=8)
+
+    raw = [1.0] * 8
+    vectors_client_8.put_vector(
+        "artifacts/no-tier-artifact#s1",
+        _unit_vec(raw),
+        {
+            "artifact_id": "artifacts/no-tier-artifact",
+            "scope": "artifacts",
+            "type": "adr",
+            "visibility": "shared",
+            "status": "active",
+            "team": "platform",
+            "project": "cairn",
+            "tags": [],
+            "title": "No tier",
+            # "tier" deliberately omitted
+        },
+    )
+
+    result = await search_artifacts(
+        vectors=vectors_client_8, bedrock=bedrock, settings=settings, query="review", top_k=10
+    )
+
+    assert "error" not in result, (
+        f"A missing 'tier' field must not surface as an error, got: {result}"
+    )
+    assert result["artifacts"][0]["tier"] == 0, (
+        f"Expected tier to default to 0 (mirroring list.py's .get('tier', 0) "
+        f"convention), got: {result}"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Metadata filters
 # ---------------------------------------------------------------------------
@@ -412,6 +457,83 @@ async def test_filter_tier_restricts_results(
 
     for artifact in result["artifacts"]:
         assert artifact["tier"] == 3
+
+
+# ---------------------------------------------------------------------------
+# Filter enum validation (07-02 #5) — typos must error, not silently return []
+# ---------------------------------------------------------------------------
+
+
+async def test_filter_type_typo_returns_validation_error(
+    monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
+) -> None:
+    """type='cod_review' (typo, not a real artifact type) must return
+    validation_error — not a silent, misleadingly-empty result set that looks
+    identical to a legitimate zero-match query.
+    """
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=8)
+    _seed_vectors(vectors_client_8)
+
+    result = await search_artifacts(
+        vectors=vectors_client_8,
+        bedrock=bedrock,
+        settings=settings,
+        query="review",
+        top_k=10,
+        type="cod_review",
+    )
+
+    assert result.get("error") == "validation_error", (
+        f"Expected error='validation_error' for invalid type, got: {result}"
+    )
+
+
+async def test_filter_tier_out_of_range_returns_validation_error(
+    monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
+) -> None:
+    """tier=99 (not 2 or 3) must return validation_error, not a silent empty result."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=8)
+    _seed_vectors(vectors_client_8)
+
+    result = await search_artifacts(
+        vectors=vectors_client_8,
+        bedrock=bedrock,
+        settings=settings,
+        query="review",
+        top_k=10,
+        tier=99,
+    )
+
+    assert result.get("error") == "validation_error", (
+        f"Expected error='validation_error' for out-of-range tier, got: {result}"
+    )
+
+
+async def test_filter_status_typo_returns_validation_error(
+    monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
+) -> None:
+    """status='actve' (typo) must return validation_error, not a silent empty result."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=8)
+    _seed_vectors(vectors_client_8)
+
+    result = await search_artifacts(
+        vectors=vectors_client_8,
+        bedrock=bedrock,
+        settings=settings,
+        query="review",
+        top_k=10,
+        status="actve",
+    )
+
+    assert result.get("error") == "validation_error", (
+        f"Expected error='validation_error' for invalid status, got: {result}"
+    )
 
 
 async def test_inactive_artifacts_excluded_by_default(
@@ -543,6 +665,67 @@ async def test_search_max_iterations_limits_query_calls(
     assert spy.call_count <= 1
 
 
+async def test_top_k_above_fetch_budget_signals_truncation(
+    monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
+) -> None:
+    """07-02 #7: search_artifacts advertises top_k up to 100, but the re-fetch
+    loop is bounded by SEARCH_FETCH_TOP_K x SEARCH_MAX_ITERATIONS. When that
+    fetch budget is smaller than the number of distinct matching artifacts
+    actually available, the loop exhausts its iteration budget before
+    collecting top_k distinct artifacts, and currently returns a short list
+    with no signal distinguishing "fetch budget exhausted" from "fewer
+    matching artifacts exist than top_k".
+
+    Uses a deliberately small budget (SEARCH_FETCH_TOP_K=5 x
+    SEARCH_MAX_ITERATIONS=2 = 10 max fetchable) and seeds 15 distinct
+    own-scope artifacts, so the loop must stop at (at most) 10 results while
+    15 actually exist.
+
+    Field-name choice: this pins a new boolean `"fetch_exhausted"` signal,
+    mirroring the existing `"clamped"` boolean-flag convention already used
+    in this same response for the top_k>100 cap (see Step 1 above). Any
+    consistently-named boolean truncation signal satisfies the underlying
+    requirement; this test asserts the specific field name chosen here.
+    """
+    settings = _make_settings(monkeypatch, SEARCH_FETCH_TOP_K="5", SEARCH_MAX_ITERATIONS="2")
+    bedrock = FakeBedrockClient(dimension=8)
+
+    def _vec(seed: float) -> list[float]:
+        raw = [seed + i * 0.1 for i in range(8)]
+        return _unit_vec(raw)
+
+    for i in range(15):
+        vectors_client_8.put_vector(
+            f"artifacts/budget-artifact-{i}#summary",
+            _vec(i * 0.05),
+            {
+                "artifact_id": f"artifacts/budget-artifact-{i}",
+                "scope": "artifacts",
+                "type": "code_review",
+                "team": "platform",
+                "project": "cairn",
+                "tier": 2,
+                "visibility": "shared",
+                "status": "active",
+                "tags": [],
+                "title": f"Budget artifact {i}",
+            },
+        )
+
+    result = await search_artifacts(
+        vectors=vectors_client_8, bedrock=bedrock, settings=settings, query="review", top_k=100
+    )
+
+    assert len(result["artifacts"]) <= 10, (
+        f"Fetch budget is 5x2=10; expected at most 10 results, got {len(result['artifacts'])}"
+    )
+    assert result.get("fetch_exhausted") is True, (
+        f"Expected a fetch_exhausted=True truncation signal when the fetch budget "
+        f"(not the true match count) limits results below top_k, got: {result}"
+    )
+
+
 async def test_early_exit_when_no_new_artifact_ids(
     monkeypatch: pytest.MonkeyPatch,
     vectors_client_8: VectorsClientImpl,
@@ -630,6 +813,49 @@ async def test_top_k_capped_at_100(
     assert len(result["artifacts"]) <= 100
 
 
+async def test_top_k_zero_returns_validation_error(
+    monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
+) -> None:
+    """top_k=0 has no floor guard (07-02 #4) — must return validation_error,
+    not a silent empty/zero-results response indistinguishable from a
+    legitimate no-match query.
+    """
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=8)
+    _seed_vectors(vectors_client_8)
+
+    result = await search_artifacts(
+        vectors=vectors_client_8, bedrock=bedrock, settings=settings, query="review", top_k=0
+    )
+
+    assert result.get("error") == "validation_error", (
+        f"Expected error='validation_error' for top_k=0, got: {result}"
+    )
+
+
+async def test_top_k_negative_returns_validation_error(
+    monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
+) -> None:
+    """top_k=-5 has no floor guard (07-02 #4) — with the current unclamped
+    ``min(requested_top_k, 100)`` implementation this silently produces a
+    negative-slice artifact list instead of erroring; must return
+    validation_error instead.
+    """
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=8)
+    _seed_vectors(vectors_client_8)
+
+    result = await search_artifacts(
+        vectors=vectors_client_8, bedrock=bedrock, settings=settings, query="review", top_k=-5
+    )
+
+    assert result.get("error") == "validation_error", (
+        f"Expected error='validation_error' for top_k=-5, got: {result}"
+    )
+
+
 # ---------------------------------------------------------------------------
 # M-6 — $nin exclusion list is byte-bounded; non-credential mid-loop failures
 # return partial results instead of internal_error
@@ -715,7 +941,12 @@ async def test_non_credential_failure_mid_loop_returns_partial_results(
     mocker: MockerFixture,
 ) -> None:
     """A non-credential exception raised by query_vectors after the first iteration
-    already collected results → those results are returned (not internal_error)."""
+    already collected results → those results are returned (not internal_error).
+
+    07-02 #7 follow-up: this early break is a fetch-budget-style truncation (fewer
+    results than top_k, more may exist) exactly like the iteration-budget and $nin-
+    budget cases — fetch_exhausted must be True here too, not silently left False.
+    """
     settings = _make_settings(monkeypatch, SEARCH_MAX_ITERATIONS="5", SEARCH_FETCH_TOP_K="1")
     bedrock = FakeBedrockClient(dimension=8)
     _seed_vectors(vectors_client_8)
@@ -739,6 +970,10 @@ async def test_non_credential_failure_mid_loop_returns_partial_results(
     assert "error" not in result, f"Expected partial success, got error response: {result}"
     assert len(result["artifacts"]) == 1
     assert call_count == 2
+    assert result.get("fetch_exhausted") is True, (
+        f"Expected fetch_exhausted=True for a mid-loop failure returning fewer than "
+        f"top_k results, got: {result}"
+    )
 
 
 async def test_credential_failure_mid_loop_still_returns_credential_error(

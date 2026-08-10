@@ -14,8 +14,8 @@ from cairn_mcp.clients.interfaces import (
     VectorsClientInterface,
 )
 from cairn_mcp.config import Settings
-from cairn_mcp.constants import ErrorCode
-from cairn_mcp.errors import CredentialError
+from cairn_mcp.constants import ArtifactStatus, ErrorCode
+from cairn_mcp.errors import CredentialError, InvalidFilterValueError
 from cairn_mcp.tools._reference_filter import resolve_readable_targets
 from cairn_mcp.tools._search_helper import (
     build_scope_filter,
@@ -112,11 +112,24 @@ async def _list_artifacts_inner(
     # M-11(d): status="all" is an explicit all-inclusive sentinel — omit the status
     # clause entirely rather than filtering on the literal string "all" (which would
     # never match a stored status and always return zero results). Any other value,
-    # including the "active" default, filters normally.
+    # including the "active" default, filters normally — but (07-02 #5) it must be a
+    # recognised status value, not a silently-empty-matching typo.
     clauses: list[dict[str, Any]] = []
     if status != "all":
+        try:
+            ArtifactStatus(status)
+        except ValueError:
+            return {
+                "error": ErrorCode.VALIDATION_ERROR,
+                "message": f"invalid status filter value: {status!r}",
+            }
         clauses.append({"status": {"$eq": status}})
-    clauses.extend(build_user_filters(type=type, team=team, project=project, tier=tier, tags=tags))
+    try:
+        clauses.extend(
+            build_user_filters(type=type, team=team, project=project, tier=tier, tags=tags)
+        )
+    except InvalidFilterValueError as exc:
+        return {"error": ErrorCode.VALIDATION_ERROR, "message": str(exc)}
     if commit_refs:
         for ref in commit_refs:
             clauses.append({"commit_refs": {"$eq": ref}})

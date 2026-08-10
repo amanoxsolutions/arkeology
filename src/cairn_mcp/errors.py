@@ -165,6 +165,27 @@ class MetadataTooLargeError(CairnError):
         self.max_bytes = max_bytes
 
 
+class InvalidFilterValueError(CairnError):
+    """Raised when a caller-supplied metadata filter value is not one of the
+    recognised values for that field.
+
+    Distinct from a legitimate zero-match query: a typo'd or out-of-range filter
+    value (e.g. ``type="cod_review"``, ``tier=99``, ``status="actve"``) must
+    surface as an explicit ``validation_error`` rather than silently returning
+    an empty result set that looks identical to a query that legitimately
+    matched nothing (07-02 #5).
+
+    Attributes:
+        field: The filter field name (e.g. ``"type"``, ``"tier"``, ``"status"``).
+        value: The invalid value supplied by the caller.
+    """
+
+    def __init__(self, field: str, value: object) -> None:
+        super().__init__(f"invalid {field} filter value: {value!r}")
+        self.field = field
+        self.value = value
+
+
 class VectorDistanceMissingError(CairnError):
     """Raised when a ``query_vectors`` result is missing the ``distance`` field.
 

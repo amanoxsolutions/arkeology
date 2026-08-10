@@ -53,6 +53,10 @@ ARTIFACT_TYPES: frozenset[str] = frozenset(
     }
 )
 
+# Single source of truth for valid tier values, mirroring ARTIFACT_TYPES: never
+# duplicate {2, 3} elsewhere.
+VALID_TIERS: frozenset[int] = frozenset({2, 3})
+
 # T55 (M-5) — write-path metadata size + charset validation constants. Single source of
 # truth, mirroring ARTIFACT_TYPES: never duplicate these elsewhere.
 #
@@ -263,7 +267,7 @@ def _require_valid_date(value: str) -> None:
 
 def _require_valid_tier(value: int) -> None:
     """Raise ``ValueError`` unless ``value`` is tier 2 or 3."""
-    if value not in {2, 3}:
+    if value not in VALID_TIERS:
         raise ValueError(f"tier must be 2 or 3, got {value}")
 
 
@@ -458,7 +462,13 @@ class Artifact(BaseModel):
     type: str  # noqa: A003
     team: str
     project: str
-    tier: int
+    # strict=True: tier must be a real int, not a numeric string. Pydantic's default
+    # lax coercion would silently accept "2" and convert it to 2 *before* the
+    # validate_tier field_validator below ever runs — masking a caller's type mistake
+    # instead of rejecting it, and (07-02 #3) leaving the raw, un-coerced string to
+    # blow up downstream in generate_artifact_id's _require_valid_tier as an
+    # unhandled ValueError.
+    tier: int = Field(strict=True)
     date: str
     status: str
     title: str
