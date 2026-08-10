@@ -35,7 +35,7 @@ consolidated and independently verified.
 
 - `AGENTS.md` / `CLAUDE.md` — conventions, Non-Negotiable Rules, High-Friction Areas
 - `pyproject.toml` — `requires-python = ">=3.14"`, ruff/mypy config
-- Prior review logs in `.docs/reviews/` (e.g. `review-2026-06-25-full-codebase.md`,
+- Prior review logs in `docs/reviews/` (e.g. `review-2026-06-25-full-codebase.md`,
   `review-2026-05-31-fix-11-search-synthesise-shared-helper.md`) for context on
   decisions already made
 - No feature spec — this is a maintainability review of existing code, not a feature change.

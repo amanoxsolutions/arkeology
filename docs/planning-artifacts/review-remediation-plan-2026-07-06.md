@@ -33,9 +33,9 @@ agents; only the confirmed-still-valid items are listed here.
 
 ## Source reviews
 
-- `.docs/reviews/review-2026-07-02-full-project-review.md` — Critical + 16 Major all resolved; **~37 Minor still open** + CA-5.
-- `.docs/reviews/review-2026-07-04-phase-12-full-review.md` — **master** for Phase 12; C1–C6 + M6/M11 resolved; **majors + minors still open** below.
-- `.docs/reviews/review-2026-07-04-t46-t47-t55-write-path.md`, `…-t49-t50-link-metadata-referenced-by.md`, `…-p12-t48-t51-t53-t54-cluster.md` — cluster inputs, fully subsumed by the master (each carries a 2026-07-06 mapping note).
+- `docs/reviews/review-2026-07-02-full-project-review.md` — Critical + 16 Major all resolved; **~37 Minor still open** + CA-5.
+- `docs/reviews/review-2026-07-04-phase-12-full-review.md` — **master** for Phase 12; C1–C6 + M6/M11 resolved; **majors + minors still open** below.
+- `docs/reviews/review-2026-07-04-t46-t47-t55-write-path.md`, `…-t49-t50-link-metadata-referenced-by.md`, `…-p12-t48-t51-t53-t54-cluster.md` — cluster inputs, fully subsumed by the master (each carries a 2026-07-06 mapping note).
 
 ## Already closed since the reviews (for the record — do NOT re-open)
 

@@ -21,9 +21,9 @@ references:
   - docs/specs/p12-t53-reference-backfill-skill.md
   - docs/specs/p12-t54-search-age-transparency.md
   - docs/specs/p12-t55-metadata-validation.md
-  - .docs/reviews/review-2026-07-04-t46-t47-t55-write-path.md
-  - .docs/reviews/review-2026-07-04-t49-t50-link-metadata-referenced-by.md
-  - .docs/reviews/review-2026-07-04-p12-t48-t51-t54-cluster.md
+  - docs/reviews/review-2026-07-04-t46-t47-t55-write-path.md
+  - docs/reviews/review-2026-07-04-t49-t50-link-metadata-referenced-by.md
+  - docs/reviews/review-2026-07-04-p12-t48-t51-t54-cluster.md
 authored:
   by: "architect"
   date: "2026-07-04"
@@ -63,7 +63,7 @@ constants.py, clients/{s3,interfaces,credentials}.py, tools/{write,write_artifac
 delete,archive,read,list,reconcile,_search_helper}.py, server.py, resources.py), all new/changed
 unit + integration tests, `plugins/cairn-mcp/skills/` (setting-up-cairn, migrating-to-cairn,
 backfilling-references), AGENTS.md, README.md, SERVER-REFERENCE.md, CONTRIBUTING.md, and the
-Phase 12 documentation set. Detailed per-cluster logs are in `.docs/reviews/` (referenced above).
+Phase 12 documentation set. Detailed per-cluster logs are in `docs/reviews/` (referenced above).
 
 ## Findings
 
