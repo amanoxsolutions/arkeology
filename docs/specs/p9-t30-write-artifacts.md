@@ -197,15 +197,15 @@ migration complete.
 - `migrate_artifacts` delegates to `write_artifacts` internally for the write phase — it never
   calls `_write_artifact_inner` directly.
 
-> **Forward-pointer note (2026-07-06, not yet shipped).** Because every entry ultimately delegates
-> to `_write_artifact_inner`, both `write_artifacts` and `migrate_artifacts` inherit, without any
-> change of their own: (a) the optimistic-concurrency compare-and-swap guard on an overwriting
-> write (ETag `IfMatch`, bounded retry, structured `conflict` error on exhaustion — vector writes
-> stay unconditional/recoverable), and (b) the `references`-replace / `commit_refs`-accrete
-> asymmetry on that same overwriting write. Neither tool needs its own logic for either — both are
-> properties of the shared inner write path. Full requirements:
-> `docs/specs/review-followup-2026-07-06-design-fixes.md` ("Optimistic-Concurrency Writes" and
-> "Reference-Field Value Semantics" sections) and ADR-011 decisions 4 and 6.
+> **Forward-pointer note (2026-07-06, shipped in `7a697dd`).** Because every entry ultimately
+> delegates to `_write_artifact_inner`, both `write_artifacts` and `migrate_artifacts` inherit,
+> without any change of their own: (a) the optimistic-concurrency compare-and-swap guard on an
+> overwriting write (ETag `IfMatch`, bounded retry, structured `conflict` error on exhaustion —
+> vector writes stay unconditional/recoverable), and (b) the `references`-replace /
+> `commit_refs`-accrete asymmetry on that same overwriting write. Neither tool needs its own logic
+> for either — both are properties of the shared inner write path. Full mechanism:
+> `docs/specs/p2-t7-write-artifact.md`'s equivalent forward-pointer note; rationale: ADR-011
+> decisions 4 and 6.
 - Section body truncation (`EMBED_MAX_SECTION_LENGTH`) applies to the embedding input only.
   Content stored in S3 is always the original, untruncated body.
 - The `ARTIFACT_CONCURRENCY` semaphore governs both `write_artifacts` (document-level parallelism)

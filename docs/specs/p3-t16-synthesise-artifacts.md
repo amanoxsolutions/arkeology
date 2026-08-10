@@ -70,16 +70,19 @@ The same gate that applies to `search_artifacts` and `read_artifact` applies her
 - Given `top_k=150` (above ceiling), when `synthesise_artifacts` is called, then it is
   clamped to 100 — not an error.
 
-> **Forward-pointer note (2026-07-06, not yet shipped).** The `top_k` count ceiling above bounds
-> the number of results but not their total size, which can still grow unboundedly with the
-> ceiling raised. A response-size (byte) budget is being added on top of it: results are assembled
-> in rank order and assembly stops before adding any result that would push the total response past
-> a configurable budget, even if the requested count has not yet been reached; when assembly stops
-> for this reason, the response signals `truncated: true` plus how many results were actually
-> included. The count ceiling remains in force as a secondary, cheaper guard, not the primary
-> bound. Full requirements, the proposed default budget, and open questions:
-> `docs/specs/review-followup-2026-07-06-design-fixes.md` ("Synthesise Response-Size Budget"
-> section); PRD FR-19 / NFR-02.
+> **Forward-pointer note (2026-07-06, shipped in `2aa1633`).** The `top_k` count ceiling above
+> bounds the number of results but not their total size, which could still grow unboundedly with
+> the ceiling raised. A configurable response-size (byte) budget now sits on top of it —
+> `SYNTHESISE_MAX_RESPONSE_BYTES`, default **1,000,000 bytes (1 MB)**, measured as the UTF-8-encoded
+> byte length of each result's `content` field. Results are assembled in rank order and assembly
+> stops before adding any result that would push the total response past the budget, even if the
+> requested count has not yet been reached; when assembly stops for this reason, the response adds
+> `truncated: true` plus an `included: N` count of results actually returned (both fields are
+> omitted when no truncation occurs, so a normal ~10-artifact synthesis is unaffected). The single
+> exception: if the very first ranked candidate alone exceeds the budget, it is included anyway
+> (never return zero results for a single relevant oversized hit) with `truncated: true` still set.
+> The count ceiling (100) remains in force as a secondary, cheaper guard, not the primary bound.
+> Rationale for the 1 MB default: PRD FR-19 / NFR-02.
 
 ### Story 4 — Credential errors return structured responses (P1)
 

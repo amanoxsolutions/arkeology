@@ -84,9 +84,8 @@ what Story 1's check measured.
 - Given a merge that stays within all three budgets, then the second check passes silently and the
   write proceeds normally.
 
-> **Note (2026-07-06, not yet shipped).** A later decision makes `references` **replace** rather
-> than merge on an overwriting write (see
-> `docs/specs/review-followup-2026-07-06-design-fixes.md`, "Reference-Field Value Semantics"); only
+> **Note (2026-07-06, shipped in `7a697dd`).** `references` now **replaces** rather than merges on
+> an overwriting write (see `docs/specs/p12-t46-references-field.md`'s forward-pointer note); only
 > `commit_refs` still read-forwards and unions. This narrows, but does not remove, the reason for
 > the second check above: `references`'s contribution to `vector_metadata` after the write-path's
 > "merge" step is now exactly the value already measured by Story 1's check (a replace cannot grow

@@ -83,14 +83,14 @@ A microservices team agent must not be able to archive the platform team's ADRs.
 - WHEN updating S3 metadata THE SYSTEM SHALL preserve the artifact's content unchanged;
   only the `status` field in S3 object metadata changes.
 
-> **Forward-pointer note (2026-07-06, not yet shipped).** The status-flip re-PUT above (and, once
-> `commit_refs`/`references` durable-link storage lands — see `p12-t47` — the annotation re-apply
-> that must accompany it) is guarded by an ETag compare-and-swap: the object's ETag is captured
-> before the re-PUT and the write is conditional (`IfMatch`); a detected concurrent change triggers
-> a bounded retry (re-read status and link fields, re-flip) before returning a structured
-> `conflict` error, rather than silently racing another concurrent writer of the same artifact.
-> Full requirements: `docs/specs/review-followup-2026-07-06-design-fixes.md`
-> ("Optimistic-Concurrency Writes" section) and ADR-011 decision 6.
+> **Forward-pointer note (2026-07-06, shipped in `7a697dd`).** The status-flip re-PUT above (and,
+> once `commit_refs`/`references` durable-link storage lands — see `p12-t47` — the annotation
+> re-apply that must accompany it) is guarded by an ETag compare-and-swap: the object's ETag is
+> captured before the re-PUT and the write is conditional (`IfMatch`); a detected concurrent change
+> triggers a bounded retry (~3 attempts: re-read status and link fields, re-flip) before returning a
+> structured `conflict` error, rather than silently racing another concurrent writer of the same
+> artifact. See `docs/specs/p2-t7-write-artifact.md`'s equivalent forward-pointer note for the same
+> mechanism on the write path; rationale: ADR-011 decision 6.
 - WHEN updating vector metadata THE SYSTEM SHALL find all section vectors via
   `list_vectors_by_metadata({"artifact_id": {"$eq": s3_key}})`, fetch their current data
   and metadata via `get_vectors`, then re-upsert each with updated `status="inactive"`.

@@ -186,10 +186,10 @@ Pure-helper unit tests (no AWS, no moto):
 Skill-level behaviour (AC-58) is validated by the migration integration/manual flow, not unit tests,
 since the rewrite orchestration is skill prose driving `migrate_artifacts`.
 
-> **Consistency note (2026-07-06).** A later decision makes an ordinary overwriting write **replace**
-> `references` outright rather than merging it with any prior stored value (see
-> `docs/specs/review-followup-2026-07-06-design-fixes.md`, "Reference-Field Value Semantics"). This
-> task is already consistent with that decision and needs no behavioural change: it only ever
+> **Consistency note (2026-07-06, shipped in `7a697dd`).** An ordinary overwriting write now
+> **replaces** `references` outright rather than merging it with any prior stored value (see
+> `docs/specs/p12-t46-references-field.md`'s forward-pointer note). This task is already consistent
+> with that decision and needs no behavioural change: it only ever
 > populates `references` on a **first write** (migration never overwrites an existing key), where
 > there is no prior stored value to merge against in the first place — the resolved frontmatter
 > list this task produces simply *becomes* the field's initial value, which is what "replace" means

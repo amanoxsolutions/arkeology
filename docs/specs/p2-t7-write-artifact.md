@@ -286,22 +286,19 @@ Sequence for tier 3 re-write:
 4. `list_vectors_by_metadata({"artifact_id": {"$eq": artifact_id}})` → get all current keys.
 5. Delete any key in the returned set that is not in the newly written key set.
 
-> **Forward-pointer note (2026-07-06).** This sequence has since been extended in two ways not
-> reflected above — this spec predates both the `commit_refs`/`references` link fields and the
-> concurrency hardening below (implementation tracked in
-> `docs/specs/review-followup-2026-07-06-design-fixes.md`, not yet shipped):
+> **Forward-pointer note (2026-07-06, shipped in `7a697dd`).** This sequence has since been
+> extended in two ways not reflected above — this spec predates both the `commit_refs`/`references`
+> link fields and the concurrency hardening below:
 >
-> 1. **Optimistic-concurrency writes.** Step 1's `PutObject` becomes a conditional write guarded by
+> 1. **Optimistic-concurrency writes.** Step 1's `PutObject` is now a conditional write guarded by
 >    an ETag compare-and-swap (`IfMatch`); on a detected concurrent change it performs a bounded
->    retry (re-read, re-merge, re-write) before returning a structured `conflict` error. Vector
->    writes (steps 2–3) stay unconditional — they are the recoverable, derived copy healed by
->    `reconcile_index` if needed. See ADR-011 decision 6 and the design-fixes spec's
->    "Optimistic-Concurrency Writes" section.
+>    retry (~3 attempts: re-read, re-merge, re-write) before returning a structured `conflict` error.
+>    Vector writes (steps 2–3) stay unconditional — they are the recoverable, derived copy healed by
+>    `reconcile_index` if needed. Rationale: ADR-011 decision 6.
 > 2. **Reference-field value semantics.** On this same overwriting write, `commit_refs` is read
 >    forward and merged (accretive — union with the value supplied to the call), while `references`
 >    is replaced outright with exactly the value supplied to the call (a call supplying no
->    `references` clears it). See ADR-011 decision 4 and the design-fixes spec's "Reference-Field
->    Value Semantics" section.
+>    `references` clears it). Rationale: ADR-011 decision 4.
 
 ## Open Questions
 

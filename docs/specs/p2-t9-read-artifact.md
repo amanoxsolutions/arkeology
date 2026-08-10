@@ -25,15 +25,15 @@ revised:
 > `references` field (also read from vector metadata). This field addition is specced in `p12-t46`;
 > this spec is not re-opened for it.
 >
-> **Forward-pointer note (2026-07-06, not yet shipped).** When the requested artifact is in a
-> **foreign** scope (Story 2/3's cross-scope gate applies), the returned `references` list must
-> additionally drop any entry the requesting reader could not independently read (i.e. an entry
+> **Forward-pointer note (2026-07-06, shipped in `2aa1633`).** When the requested artifact is in a
+> **foreign** scope (Story 2/3's cross-scope gate applies), the returned `references` list
+> additionally drops any entry the requesting reader could not independently read (i.e. an entry
 > that is not itself a tier 3 shared artifact) — a missing or unresolvable entry is treated the same
 > as not-readable and is also stripped. Own-scope reads (Story 1) are unaffected and continue to
 > return `references` exactly as stored. This is an additional response-shaping step layered on top
-> of the existing cross-scope gate above, not a change to that gate. Full requirements:
-> `docs/specs/review-followup-2026-07-06-design-fixes.md` ("Cross-Scope Reference Filtering"
-> section) and ADR-012's "Cross-scope reference visibility" section.
+> of the existing cross-scope gate above, not a change to that gate. Full semantics:
+> `docs/specs/p12-t46-references-field.md`'s forward-pointer note; rationale: ADR-012's "Cross-scope
+> reference visibility" section.
 
 <!-- SCOPE BLOCK — frozen after approval -->
 

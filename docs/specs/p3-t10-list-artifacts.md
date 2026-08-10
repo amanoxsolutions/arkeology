@@ -98,14 +98,14 @@ their listing.
 - WHEN cross-scope results are assembled THE SYSTEM SHALL include foreign-scope artifacts
   only if `tier=3` AND `visibility="shared"`; own-scope artifacts are never gated.
 
-> **Forward-pointer note (2026-07-06, not yet shipped).** This spec predates the first-class
-> `references` field (added by `p12-t46`) and its return in each `list_artifacts` entry. Once
-> `references` is present in the response, a foreign-scope entry's `references` list must drop any
-> entry the requesting reader could not independently read (i.e. not itself tier 3 shared) — batched
-> into a single additional query across the whole result page rather than one lookup per
-> artifact per reference, to avoid an N×M cost. Own-scope entries are never filtered. Full
-> requirements: `docs/specs/review-followup-2026-07-06-design-fixes.md` ("Cross-Scope Reference
-> Filtering" section) and ADR-012's "Cross-scope reference visibility" section.
+> **Forward-pointer note (2026-07-06, shipped in `2aa1633`).** This spec predates the first-class
+> `references` field (added by `p12-t46`) and its return in each `list_artifacts` entry. Now that
+> `references` is present in the response, a foreign-scope entry's `references` list drops any entry
+> the requesting reader could not independently read (i.e. not itself tier 3 shared) — batched into
+> a single additional query across the whole result page rather than one lookup per artifact per
+> reference, to avoid an N×M cost. Own-scope entries are never filtered. Full semantics:
+> `docs/specs/p12-t46-references-field.md`'s forward-pointer note; rationale: ADR-012's "Cross-scope
+> reference visibility" section.
 - WHEN multiple section vectors for the same artifact match the filter THE SYSTEM SHALL
   deduplicate by `artifact_id` and return exactly one record per artifact.
 - WHEN `list_artifacts` returns successfully THE SYSTEM SHALL return for each artifact:

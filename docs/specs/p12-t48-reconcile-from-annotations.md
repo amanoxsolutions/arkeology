@@ -47,9 +47,9 @@ authority model), a reconcile run no longer drops them. This resolves OQ2 and th
 > very likely to break the surrounding reconcile call too and must not be silently treated as "no
 > link fields". See the corrected Requirements/Boundaries below.
 >
-> **Note (2026-07-06).** The write path's `commit_refs`/`references` handling has since diverged
-> per field (`references` replaces on an overwriting write; `commit_refs` still accretes — see
-> `docs/specs/review-followup-2026-07-06-design-fixes.md`, "Reference-Field Value Semantics").
+> **Note (2026-07-06, shipped in `7a697dd`).** The write path's `commit_refs`/`references` handling
+> has since diverged per field (`references` replaces on an overwriting write; `commit_refs` still
+> accretes — see `docs/specs/p12-t46-references-field.md`'s forward-pointer note).
 > **This task is unaffected**: reconcile is a repair operation, not a write-time policy — it
 > continues to restore *both* fields as the union of the annotation copy and the existing
 > vector-metadata copy regardless of how each field's stored value came to be written, exactly as

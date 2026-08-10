@@ -46,18 +46,19 @@ second) with the same embeddings. No Bedrock call, no content mutation, no chang
 > value, unchanged, rather than being wiped to `[]` because the read missed a value that lived only
 > in the annotation. See the corrected Requirements/Boundaries below.
 >
-> **Note (2026-07-06, not yet shipped elsewhere).** The write path's ordinary overwriting write now
+> **Note (2026-07-06, shipped in `7a697dd`).** The write path's ordinary overwriting write now
 > treats `references` differently from `commit_refs` — replacing `references` outright instead of
-> merging it (see `docs/specs/review-followup-2026-07-06-design-fixes.md`, "Reference-Field Value
-> Semantics"). **This tool's own merge mechanic below is unaffected and unchanged**: `link_metadata`
-> remains the post-hoc, accretive backfill primitive for *both* `commit_refs` and `references`. One
-> real interaction worth flagging: because an ordinary overwriting write now replaces `references`
-> from the frontmatter, a `references` value backfilled here can later be superseded by a subsequent
+> merging it (full semantics: `docs/specs/p12-t46-references-field.md`'s forward-pointer note).
+> **This tool's own merge mechanic below is unaffected and unchanged**: `link_metadata` remains the
+> post-hoc, accretive backfill primitive for *both* `commit_refs` and `references`. One real
+> interaction worth flagging: because an ordinary overwriting write now replaces `references` from
+> the frontmatter, a `references` value backfilled here can later be superseded by a subsequent
 > overwriting write whose supplied `references` does not also carry it — this is expected, not a
-> defect in either tool. Also, this task's fetch-merge-reput cycle becomes guarded by an
+> defect in either tool. Also, this task's fetch-merge-reput cycle is now guarded by an
 > optimistic-concurrency compare-and-swap (ETag `IfMatch` on the object, `ObjectIfMatch` on the
-> annotation writes; bounded retry → structured `conflict` error on exhaustion) — see the
-> design-fixes spec's "Optimistic-Concurrency Writes" section and ADR-011 decision 6.
+> annotation writes; ~3 bounded retry attempts → structured `conflict` error on exhaustion), each
+> `artifact_id` in the loop retrying independently — see `docs/specs/p2-t7-write-artifact.md`'s
+> equivalent forward-pointer note for the same mechanism; rationale: ADR-011 decision 6.
 
 ## Problem Statement
 

@@ -54,15 +54,15 @@ AC-60.)
 > push the vector filterable/total budgets over their limit even when the supplied values alone did
 > not. Both corrections are reflected in the Requirements/Boundaries sections below.
 >
-> **Revised 2026-07-06 (architect, not yet shipped).** A third correction, layered on top of the
-> two above: the read-forward-and-union behaviour described throughout this spec — here and in the
-> Requirements/Boundaries sections below — now applies to **`commit_refs` only**. `references` is
-> no longer read forward or merged on an overwriting write; it is **replaced** outright with exactly
-> the value supplied to that call (a call supplying no `references` clears it). This supersedes
-> Story 2's "resulting `references` is the union" acceptance criterion below and the corresponding
-> Requirements/Boundaries wording — see the notes at each affected location. Full requirements:
-> `docs/specs/review-followup-2026-07-06-design-fixes.md` ("Reference-Field Value Semantics"
-> section) and ADR-011 decision 4.
+> **Revised 2026-07-06 (architect, shipped in `7a697dd`).** A third correction, layered on top of
+> the two above: the read-forward-and-union behaviour described throughout this spec — here and in
+> the Requirements/Boundaries sections below — now applies to **`commit_refs` only**. `references`
+> is no longer read forward or merged on an overwriting write; it is **replaced** outright with
+> exactly the value supplied to that call (a call supplying no `references` clears it). This
+> supersedes Story 2's "resulting `references` is the union" acceptance criterion below and the
+> corresponding Requirements/Boundaries wording — see the notes at each affected location. Full
+> semantics: `docs/specs/p12-t46-references-field.md`'s forward-pointer note; rationale: ADR-011
+> decision 4.
 
 ## Problem Statement
 
@@ -125,10 +125,10 @@ An artifact was written, then had `commit_refs` backfilled. A later tier-3 conte
   neither store is sole authority) — and merge them (union, dedup,
   order-preserving) with the values supplied to this write.
 
-  > **Not yet shipped (2026-07-06):** this union read-forward applies to **`commit_refs` only**.
+  > **Shipped in `7a697dd`:** this union read-forward applies to **`commit_refs` only**.
   > `references` is not read forward and not merged — it is replaced outright with exactly the
   > value supplied to this call (which may be empty, clearing the field). See
-  > `docs/specs/review-followup-2026-07-06-design-fixes.md` ("Reference-Field Value Semantics").
+  > `docs/specs/p12-t46-references-field.md`'s forward-pointer note.
 - WHEN the read-forward merge above enlarges `vector_metadata` THE SYSTEM SHALL re-run the T55
   metadata budget check (`check_metadata_budgets`) a second time, after the merge and before any
   `put_object` / `put_vectors_batch`, because the union can push the vector filterable/total budgets
@@ -151,24 +151,24 @@ An artifact was written, then had `commit_refs` backfilled. A later tier-3 conte
 - Ordering is durable-first: `PutObject` → write annotations → `put_vectors_batch`. This mirrors
   `delete_artifact`'s recoverable-state reasoning (ADR-011 decision 1/2).
 
-> **Forward-pointer note (2026-07-06, not yet shipped).** The `PutObject` above becomes a
+> **Forward-pointer note (2026-07-06, shipped in `7a697dd`).** The `PutObject` above is now a
 > conditional write guarded by an ETag compare-and-swap (`IfMatch`); the annotation writes that
 > follow it use the object's new ETag as `ObjectIfMatch`. A detected concurrent change (HTTP 412)
-> triggers a bounded retry — re-read, re-merge, re-write — before returning a structured `conflict`
-> error, rather than silently letting a stale read-forward clobber a newer merge. `put_vectors_batch`
-> stays unconditional (no S3 Vectors CAS surface exists) — it is the recoverable, derived copy,
-> healed by `reconcile_index` if needed. Full requirements:
-> `docs/specs/review-followup-2026-07-06-design-fixes.md` ("Optimistic-Concurrency Writes" section)
-> and ADR-011 decision 6.
+> triggers a bounded retry (~3 attempts: re-read, re-merge, re-write) before returning a structured
+> `conflict` error, rather than silently letting a stale read-forward clobber a newer merge.
+> `put_vectors_batch` stays unconditional (no S3 Vectors CAS surface exists) — it is the
+> recoverable, derived copy, healed by `reconcile_index` if needed. See
+> `docs/specs/p2-t7-write-artifact.md`'s equivalent forward-pointer note; rationale: ADR-011
+> decision 6.
 
 - Read-forward source is the **union of both durable stores** — the S3 annotation copy and the
   vector metadata (`get_vectors`, which `PutObject` does not touch) — via
   `annotations.read_current_link_fields`. Neither store is sole authority:
   an annotation-unavailable deployment can hold values in vector metadata only, and a partial
   dual-write can leave the annotation copy ahead of the vector copy.
-  **Not yet shipped (2026-07-06):** this union read-forward now applies to `commit_refs` only —
+  **Shipped in `7a697dd`:** this union read-forward now applies to `commit_refs` only —
   `references` is replaced outright from the supplied value instead (see the Requirements section
-  above and `docs/specs/review-followup-2026-07-06-design-fixes.md`).
+  above and `docs/specs/p12-t46-references-field.md`'s forward-pointer note).
 - Merge semantics: `list(dict.fromkeys(read_forward + supplied))` — order-preserving dedup, same as
   `commit_refs` merge in `link_commit`. (Applies to `commit_refs` only as of 2026-07-06 — see above.)
 - Annotation encoding is comma-joined UTF-8 payload, one annotation per field

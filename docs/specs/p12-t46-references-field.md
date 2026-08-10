@@ -125,17 +125,33 @@ An agent writes an artifact with `references=["adr-use-postgres-abc12345"]`; rea
 - `references` is read from **vector metadata** in `read_artifact` / `list_artifacts` (consistent
   with how `commit_refs` is surfaced today) — NOT from S3 user-defined metadata.
 
-> **Forward-pointer note (2026-07-06, not yet shipped).** Two behaviours layer on top of this
-> field's plumbing without changing anything above: (a) on an ordinary overwriting write,
-> `references` is **replaced** outright with exactly the value supplied to that call — no
-> read-forward, no merge against the prior stored value, and a call supplying no `references`
-> clears it — asymmetric with `commit_refs`, which stays accretive; and (b) when `references` is
-> returned to a **foreign-scope** reader (via `read_artifact` / `list_artifacts`), any entry the
-> reader could not independently read is dropped from the response first. Neither behaviour changes
-> the field's write-time acceptance or vector-metadata encoding described above. Full requirements:
-> `docs/specs/review-followup-2026-07-06-design-fixes.md` ("Reference-Field Value Semantics" and
-> "Cross-Scope Reference Filtering" sections); ADR-011 decision 4; ADR-012's "Cross-scope reference
-> visibility" section; PRD FR-51/FR-54/FR-55/FR-10.
+> **Forward-pointer note (2026-07-06, shipped — replace semantics in `7a697dd`, cross-scope
+> filtering in `2aa1633`).** Two behaviours layer on top of this field's plumbing without changing
+> anything above:
+>
+> 1. **Replace, not accrete, on overwrite.** On an ordinary overwriting write, `references` is
+>    **replaced** outright with exactly the value supplied to that call — no read-forward, no merge
+>    against the prior stored value, and a call supplying no `references` clears the field. This is
+>    asymmetric with `commit_refs`, which stays accretive (union of read-forward and supplied
+>    values) — `commit_refs` is a git-derived audit trail with no frontmatter counterpart, backfilled
+>    by `link_metadata`; `references` mirrors the artifact's *current* frontmatter and must be able
+>    to shrink. `link_metadata`'s own backfill merge is unaffected by this — a value it adds can
+>    later be superseded by an ordinary overwriting write that doesn't also supply it, which is
+>    expected. `archive_artifact`'s status-flip re-PUT is also unaffected — it has no caller-supplied
+>    `references` to replace *from*, so it continues to re-apply the stored value unconditionally
+>    across both fields. Rationale: ADR-011 decision 4.
+> 2. **Cross-scope filtering.** When `references` is returned to a **foreign-scope** reader (via
+>    `read_artifact` / `list_artifacts`), any entry the reader could not independently read (i.e.
+>    not itself a tier 3 shared artifact, or unresolvable — fail safe) is dropped from the response
+>    first, via a shared `resolve_readable_targets` helper that reuses `read_artifact`'s own
+>    readability predicate. **Own-scope reads bypass this filter entirely** — `references` is
+>    returned exactly as stored. `list_artifacts` batches this into a single additional query across
+>    the whole result page's distinct foreign-scope reference ids, rather than one lookup per
+>    artifact per reference, to avoid an N×M cost. Rationale: ADR-012's "Cross-scope reference
+>    visibility" section.
+>
+> Neither behaviour changes the field's write-time acceptance or vector-metadata encoding described
+> above. PRD: FR-51/FR-54/FR-55/FR-10.
 
 **Ask First:**
 - Nothing — all constraints are defined.
