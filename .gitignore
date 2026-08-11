@@ -11,3 +11,5 @@ dist/
 .pytest_cache/
 dev_server.py
 .claude/
+.serena/
+.tokensave/
