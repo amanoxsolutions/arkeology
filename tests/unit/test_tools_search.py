@@ -1125,7 +1125,11 @@ async def test_bedrock_credential_failure_returns_error_no_query(
     """Bedrock credential failure → error response; query_vectors NOT called."""
     settings = _make_settings(monkeypatch)
     bedrock = FakeBedrockClient(dimension=8)
-    bedrock.set_credential_failure(True)
+    mocker.patch.object(
+        bedrock,
+        "embed",
+        side_effect=CredentialError("simulated", "bedrock", Exception("simulated")),
+    )
     spy = mocker.spy(vectors_client_8, "query_vectors")
 
     result = await search_artifacts(

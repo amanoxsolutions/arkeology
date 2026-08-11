@@ -204,3 +204,30 @@ def test_list_vectors_by_metadata_mixed_type_comparison_raises_typed_error(
 
     with pytest.raises(CairnError):
         vectors_client_2.list_vectors_by_metadata(filter_expr)
+
+
+# ---------------------------------------------------------------------------
+# list_vectors_by_metadata — nextToken multi-page pagination (07-02 #35)
+# ---------------------------------------------------------------------------
+
+
+def test_list_vectors_by_metadata_follows_next_token_across_pages(
+    vectors_client_2: VectorsClientImpl, mocker: MockerFixture
+) -> None:
+    """A first page carrying nextToken must trigger a second ListVectors call (with
+    that token forwarded) and the matches from both pages must be combined."""
+    page1 = {
+        "vectors": [{"key": "k1", "metadata": {"type": "keep"}}],
+        "nextToken": "token-1",
+    }
+    page2 = {
+        "vectors": [{"key": "k2", "metadata": {"type": "keep"}}],
+    }
+    mocker.patch.object(vectors_client_2._client, "list_vectors", side_effect=[page1, page2])
+
+    keys = vectors_client_2.list_vectors_by_metadata({"type": {"$eq": "keep"}})
+
+    assert sorted(keys) == ["k1", "k2"]
+    assert vectors_client_2._client.list_vectors.call_count == 2
+    second_call_kwargs = vectors_client_2._client.list_vectors.call_args_list[1].kwargs
+    assert second_call_kwargs["nextToken"] == "token-1"

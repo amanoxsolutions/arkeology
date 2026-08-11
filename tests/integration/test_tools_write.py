@@ -11,6 +11,7 @@ from cairn_mcp.clients.s3 import S3ClientImpl
 from cairn_mcp.clients.vectors import VectorsClientImpl
 from cairn_mcp.config import Settings
 from cairn_mcp.tools.delete import delete_artifact
+from cairn_mcp.tools.link_metadata import link_metadata
 from cairn_mcp.tools.write import write_artifact
 
 
@@ -89,6 +90,62 @@ async def test_full_round_trip_s3_content_and_vector_metadata(
             vector_results = vectors.get_vectors([artifact_id])
         assert len(vector_results) > 0
         assert vector_results[0]["metadata"]["artifact_id"] == artifact_id
+    finally:
+        if artifact_id:
+            await delete_artifact(
+                settings=settings,
+                s3=s3,
+                vectors=vectors,
+                bedrock=bedrock,
+                artifact_id=artifact_id,
+                confirm=True,
+            )
+
+
+@pytest.mark.integration
+async def test_overwrite_preserves_link_metadata_backfilled_annotation(
+    settings: Settings,
+    s3: S3ClientImpl,
+    vectors: VectorsClientImpl,
+    bedrock: BedrockClientImpl,
+) -> None:
+    """SA-3(a): write → link_metadata backfill → content-only overwrite must preserve
+    the backfilled commit_refs, in both the durable S3 annotation and vector metadata,
+    via write_artifact's Step 4a read-forward — against real AWS."""
+    kwargs = {**_BASE_KWARGS, "tier": 3, "title": "Integration link-metadata overwrite test"}
+    artifact_id: str = ""
+    try:
+        result = await write_artifact(
+            s3=s3, vectors=vectors, bedrock=bedrock, settings=settings, **kwargs
+        )
+        artifact_id = result["artifact_id"]
+
+        backfill = await link_metadata(
+            settings=settings,
+            s3=s3,
+            vectors=vectors,
+            bedrock=bedrock,
+            artifact_ids=[artifact_id],
+            commit_refs=["abc1234"],
+        )
+        assert backfill["linked"] == 1
+
+        overwrite_result = await write_artifact(
+            s3=s3,
+            vectors=vectors,
+            bedrock=bedrock,
+            settings=settings,
+            overwrite=True,
+            **{**kwargs, "content": "## Summary\n\nUpdated content, no commit_refs supplied."},
+        )
+        assert "error" not in overwrite_result
+
+        assert s3.get_object_annotation(artifact_id, "commit_refs") == "abc1234"
+        keys = vectors.list_vectors_by_metadata({"artifact_id": {"$eq": artifact_id}})
+        entries = vectors.get_vectors(keys)
+        assert entries, "expected at least one vector for the overwritten artifact"
+        for entry in entries:
+            assert entry["metadata"]["commit_refs"] == ["abc1234"]
     finally:
         if artifact_id:
             await delete_artifact(

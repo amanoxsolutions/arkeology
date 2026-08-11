@@ -54,23 +54,6 @@ def test_embed_custom_dimension() -> None:
     assert len(result) == 512
 
 
-def test_embed_credential_failure_raises() -> None:
-    """embed raises CredentialError when credential failure is set."""
-    client = FakeBedrockClient()
-    client.set_credential_failure(True)
-    with pytest.raises(CredentialError):
-        client.embed("hello", _MODEL_ID, 1024)
-
-
-def test_embed_credential_failure_can_be_cleared() -> None:
-    """Credential failure can be cleared; subsequent calls succeed."""
-    client = FakeBedrockClient()
-    client.set_credential_failure(True)
-    client.set_credential_failure(False)
-    result = client.embed("hello", _MODEL_ID, 1024)
-    assert len(result) > 0
-
-
 # ---------------------------------------------------------------------------
 # Spec 07 — Throttle-retry behaviour
 # ---------------------------------------------------------------------------
@@ -101,10 +84,15 @@ def test_model_timeout_retried_once() -> None:
     assert len(result) == 1024
 
 
-def test_non_transient_error_not_retried() -> None:
-    """CredentialError is not retried — propagates immediately."""
+def test_non_transient_error_not_retried(mocker: pytest.MonkeyPatch) -> None:
+    """A non-transient error (e.g. CredentialError) is not retried — the retry loop
+    only catches ThrottlingError/ModelTimeoutError, so it propagates immediately."""
     client = FakeBedrockClient()
-    client.set_credential_failure(True)
+    mocker.patch.object(
+        client,
+        "_do_embed",
+        side_effect=CredentialError("simulated", "bedrock", Exception("simulated")),
+    )
     with pytest.raises(CredentialError):
         client.embed("hello", _MODEL_ID, 1024)
 

@@ -9,7 +9,6 @@ import math
 import struct
 
 from cairn_mcp.clients.interfaces import BedrockClientInterface  # noqa: F401 (structural only)
-from cairn_mcp.errors import CredentialError
 
 
 class ThrottlingError(Exception):
@@ -58,13 +57,8 @@ class FakeBedrockClient:
 
     def __init__(self, dimension: int = 1024) -> None:
         self._dimension = dimension
-        self._credential_failure: bool = False
         self._throttle_remaining: int = 0
         self._timeout_remaining: int = 0
-
-    def set_credential_failure(self, value: bool) -> None:
-        """Toggle simulated credential failure for all subsequent calls."""
-        self._credential_failure = value
 
     def set_throttle_count(self, count: int) -> None:
         """Simulate ``count`` consecutive throttles on the next embed calls."""
@@ -91,16 +85,9 @@ class FakeBedrockClient:
             Deterministic unit vector of length ``dimensions``.
 
         Raises:
-            CredentialError: If credential failure has been simulated.
             ThrottlingError: If throttle persists after retry.
             ModelTimeoutError: If timeout persists after retry.
         """
-        if self._credential_failure:
-            raise CredentialError(
-                message="AWS credentials are invalid or expired (simulated).",
-                service="bedrock",
-                original=Exception("simulated credential failure"),
-            )
         for attempt in range(2):
             try:
                 return self._do_embed(text, dimensions)

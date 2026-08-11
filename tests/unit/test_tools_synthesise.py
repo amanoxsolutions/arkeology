@@ -669,11 +669,16 @@ async def test_synthesise_embed_credential_error(
     monkeypatch: pytest.MonkeyPatch,
     s3_client: S3ClientImpl,
     vectors_client_8: VectorsClientImpl,
+    mocker: MockerFixture,
 ) -> None:
     """Embed call raises CredentialError → structured error response."""
     settings = _make_settings(monkeypatch)
     bedrock = FakeBedrockClient(dimension=8)
-    bedrock.set_credential_failure(True)
+    mocker.patch.object(
+        bedrock,
+        "embed",
+        side_effect=CredentialError("simulated", "bedrock", Exception("simulated")),
+    )
     _seed_all(s3_client, vectors_client_8)
 
     result = await synthesise_artifacts(

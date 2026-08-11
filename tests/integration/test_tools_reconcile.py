@@ -15,6 +15,7 @@ from cairn_mcp.clients.vectors import VectorsClientImpl
 from cairn_mcp.config import Settings
 from cairn_mcp.failure_log import append_failure_entry
 from cairn_mcp.tools.delete import delete_artifact
+from cairn_mcp.tools.link_metadata import link_metadata
 
 # Implementation import — will fail until src/cairn_mcp/tools/reconcile.py is created
 from cairn_mcp.tools.reconcile import reconcile_index
@@ -301,6 +302,77 @@ async def test_reconcile_clean_state_written_artifact_not_reindexed(
         # The artifact has vectors → must not appear as an orphan
         reconciled_ids = [e["artifact_id"] for e in result["reconciled"]]
         assert artifact_id not in reconciled_ids
+    finally:
+        if artifact_id:
+            await delete_artifact(
+                settings=settings_with_tmp_log,
+                s3=s3,
+                vectors=vectors,
+                bedrock=bedrock,
+                artifact_id=artifact_id,
+                confirm=True,
+            )
+
+
+# ---------------------------------------------------------------------------
+# Test 4b: link_metadata backfill survives a vector-drop-and-reconcile round trip
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.integration
+async def test_reconcile_restores_link_fields_backfilled_via_link_metadata(
+    settings_with_tmp_log: Settings,
+    s3: S3ClientImpl,
+    vectors: VectorsClientImpl,
+    bedrock: BedrockClientImpl,
+) -> None:
+    """SA-3(b): write → link_metadata backfill (commit_refs + references) → drop all
+    vectors → reconcile_index must restore both fields from the durable S3 annotation
+    onto the rebuilt vector metadata — against real AWS."""
+    artifact_id = ""
+    try:
+        r = await write_artifact(
+            s3=s3,
+            vectors=vectors,
+            bedrock=bedrock,
+            settings=settings_with_tmp_log,
+            **{**_BASE_KWARGS, "title": "Integration Reconcile Link Metadata Restore Test"},
+        )
+        artifact_id = r["artifact_id"]
+
+        backfill = await link_metadata(
+            settings=settings_with_tmp_log,
+            s3=s3,
+            vectors=vectors,
+            bedrock=bedrock,
+            artifact_ids=[artifact_id],
+            commit_refs=["abc1234"],
+            references=["implementation-note-2026-01-01-other"],
+        )
+        assert backfill["linked"] == 1
+
+        # Drop all vectors, simulating the state reconcile's orphan scan must repair.
+        vec_keys = vectors.list_vectors_by_metadata({"artifact_id": {"$eq": artifact_id}})
+        assert len(vec_keys) > 0, "Expected vectors to exist after write"
+        vectors.delete_vectors(vec_keys)
+
+        result = await reconcile_index(
+            settings=settings_with_tmp_log,
+            s3=s3,
+            vectors=vectors,
+            bedrock=bedrock,
+        )
+
+        assert "error" not in result
+        reconciled_ids = [e["artifact_id"] for e in result["reconciled"]]
+        assert artifact_id in reconciled_ids
+
+        re_indexed_keys = vectors.list_vectors_by_metadata({"artifact_id": {"$eq": artifact_id}})
+        assert len(re_indexed_keys) > 0
+        entries = vectors.get_vectors(re_indexed_keys)
+        for entry in entries:
+            assert entry["metadata"]["commit_refs"] == ["abc1234"]
+            assert entry["metadata"]["references"] == ["implementation-note-2026-01-01-other"]
     finally:
         if artifact_id:
             await delete_artifact(

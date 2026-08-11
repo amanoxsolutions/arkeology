@@ -126,11 +126,16 @@ async def test_bedrock_embed_credential_error(
     monkeypatch: pytest.MonkeyPatch,
     s3_client: S3ClientImpl,
     vectors_client_8: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
 ) -> None:
     """embed raises CredentialError → bedrock entry is 'error'; others 'ok'."""
     settings = _make_settings(monkeypatch, READ_PREFIXES="")
     bedrock = FakeBedrockClient(dimension=8)
-    bedrock.set_credential_failure(True)
+    mocker.patch.object(
+        bedrock,
+        "embed",
+        side_effect=CredentialError("simulated", "bedrock", Exception("simulated")),
+    )
 
     result = await health_check(
         settings=settings, s3=s3_client, vectors=vectors_client_8, bedrock=bedrock
@@ -200,7 +205,11 @@ async def test_all_failures_all_error_no_exception(
     mocker.patch.object(s3_client, "put_object", side_effect=RuntimeError("simulated"))
     mocker.patch.object(s3_client, "list_objects", side_effect=RuntimeError("simulated"))
     bedrock = FakeBedrockClient(dimension=8)
-    bedrock.set_credential_failure(True)
+    mocker.patch.object(
+        bedrock,
+        "embed",
+        side_effect=CredentialError("simulated", "bedrock", Exception("simulated")),
+    )
 
     result = await health_check(
         settings=settings, s3=s3_client, vectors=vectors_client_no_index, bedrock=bedrock
@@ -253,7 +262,11 @@ async def test_error_entries_have_nonempty_message(
         ),
     )
     bedrock = FakeBedrockClient(dimension=8)
-    bedrock.set_credential_failure(True)
+    mocker.patch.object(
+        bedrock,
+        "embed",
+        side_effect=CredentialError("simulated", "bedrock", Exception("simulated")),
+    )
 
     result = await health_check(
         settings=settings, s3=s3_client, vectors=vectors_client_no_index, bedrock=bedrock
@@ -467,11 +480,16 @@ async def test_bedrock_probe_credential_error_returns_cause(
     monkeypatch: pytest.MonkeyPatch,
     s3_client: S3ClientImpl,
     vectors_client_8: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
 ) -> None:
     """Bedrock probe CredentialError → cause is 'credential_error'."""
     settings = _make_settings(monkeypatch, READ_PREFIXES="")
     bedrock = FakeBedrockClient(dimension=8)
-    bedrock.set_credential_failure(True)
+    mocker.patch.object(
+        bedrock,
+        "embed",
+        side_effect=CredentialError("simulated", "bedrock", Exception("simulated")),
+    )
 
     result = await health_check(
         settings=settings, s3=s3_client, vectors=vectors_client_8, bedrock=bedrock

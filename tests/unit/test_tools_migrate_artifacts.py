@@ -9,12 +9,14 @@ is implemented.
 import asyncio as asyncio_module
 import logging
 from typing import Any
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from cairn_mcp.clients.fakes.fake_bedrock import FakeBedrockClient
 from cairn_mcp.clients.s3 import S3ClientImpl
 from cairn_mcp.clients.vectors import VectorsClientImpl
+from cairn_mcp.server import _app, register_tools
 from tests.unit.conftest import _make_settings
 
 _FAKE_DESCRIPTION = "Fake generated description."
@@ -901,26 +903,31 @@ async def test_a1_migrate_rerun_over_full_corpus_is_idempotent_and_non_destructi
         assert s3_client.get_object(key) == content
 
 
-def test_m20_server_migrate_artifacts_exposes_artifact_concurrency() -> None:
-    """M20 Bug 3: The MCP tool definition in server.py wraps migrate_artifacts but does not
-    forward artifact_concurrency to the inner function.  After the fix, the tool function
-    signature must include an artifact_concurrency parameter.
-
-    This test inspects the source of server.py to verify the parameter is present in the
-    migrate_artifacts tool definition.
+async def test_m20_server_migrate_artifacts_exposes_artifact_concurrency(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """M20 Bug 3: The MCP tool definition in server.py wraps migrate_artifacts but must
+    forward a caller-supplied artifact_concurrency to the inner function — a behavioural
+    assertion (07-02 #34) rather than a brittle inspect.getsource substring check, which
+    would keep passing even if the parameter were declared but never forwarded.
     """
-    import inspect
+    settings = _make_settings(monkeypatch)
+    mock_migrate = AsyncMock(return_value={"results": []})
+    monkeypatch.setattr("cairn_mcp.server._migrate_artifacts", mock_migrate)
 
-    from cairn_mcp import server as server_module
-
-    # The register_tools function creates local tool closures; we inspect its source.
-    src = inspect.getsource(server_module.register_tools)
-    # The migrate_artifacts inner function definition must declare artifact_concurrency.
-    # The fix adds it as a parameter with a default value.
-    assert "artifact_concurrency" in src, (
-        "M20 Bug 3: server.py register_tools must include 'artifact_concurrency' in the "
-        "migrate_artifacts tool definition so callers can control concurrency via MCP."
+    register_tools(
+        settings=settings,
+        s3=MagicMock(),
+        vectors=MagicMock(),
+        bedrock=MagicMock(),
     )
+    tool = await _app.get_tool("migrate_artifacts")
+    assert tool is not None
+    await tool.fn(descriptors=[], artifact_concurrency=10)
+
+    mock_migrate.assert_awaited_once()
+    _, call_kwargs = mock_migrate.call_args
+    assert call_kwargs["artifact_concurrency"] == 10
 
 
 # ---------------------------------------------------------------------------

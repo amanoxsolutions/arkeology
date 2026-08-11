@@ -899,13 +899,18 @@ async def test_bedrock_credential_failure_returns_error(
     s3_client: S3ClientImpl,
     vectors_client: VectorsClientImpl,
     tmp_path: pytest.TempPathFactory,
+    mocker: pytest.MonkeyPatch,
 ) -> None:
     """Bedrock credential failure → error in response (S3 already written by this
     point — a failure-log entry is written per M-4, hence the tmp-path-scoped log)."""
     log_path = tmp_path / "failures.jsonl"
     settings = _make_settings(monkeypatch, FAILURE_LOG_PATH=str(log_path))
     bedrock = FakeBedrockClient(dimension=1024)
-    bedrock.set_credential_failure(True)
+    mocker.patch.object(
+        bedrock,
+        "embed",
+        side_effect=CredentialError("simulated", "bedrock", Exception("simulated")),
+    )
 
     result = await write_artifact(
         s3=s3_client,
@@ -1261,6 +1266,7 @@ async def test_bedrock_credential_error_writes_failure_log(
     s3_client: S3ClientImpl,
     vectors_client: VectorsClientImpl,
     tmp_path: pytest.TempPathFactory,
+    mocker: pytest.MonkeyPatch,
 ) -> None:
     """Bedrock CredentialError (doc-level fallback path) → credential_error response;
     a failure-log entry IS written (M-4) since the S3 put has already succeeded by
@@ -1269,7 +1275,11 @@ async def test_bedrock_credential_error_writes_failure_log(
     log_path = tmp_path / "failures.jsonl"
     settings = _make_settings(monkeypatch, FAILURE_LOG_PATH=str(log_path))
     bedrock = FakeBedrockClient(dimension=1024)
-    bedrock.set_credential_failure(True)
+    mocker.patch.object(
+        bedrock,
+        "embed",
+        side_effect=CredentialError("simulated", "bedrock", Exception("simulated")),
+    )
 
     result = await write_artifact(
         s3=s3_client,
@@ -1708,7 +1718,11 @@ async def test_write_embed_credential_error_aborts(
     log_path = tmp_path / "failures.jsonl"
     settings = _make_settings(monkeypatch, FAILURE_LOG_PATH=str(log_path))
     bedrock = FakeBedrockClient(dimension=1024)
-    bedrock.set_credential_failure(True)
+    mocker.patch.object(
+        bedrock,
+        "embed",
+        side_effect=CredentialError("simulated", "bedrock", Exception("simulated")),
+    )
     batch_spy = mocker.spy(vectors_client, "put_vectors_batch")
 
     content = _make_sections_content(3)

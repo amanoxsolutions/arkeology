@@ -50,6 +50,27 @@ def test_list_returns_all_annotation_names(s3_client: S3ClientImpl) -> None:
     assert sorted(names) == ["commit_refs", "references"]
 
 
+def test_list_annotations_follows_continuation_token_across_pages(
+    s3_client: S3ClientImpl, mocker: pytest.MonkeyPatch
+) -> None:
+    """M14: A first page carrying NextContinuationToken must trigger a second
+    ListObjectAnnotations call (with that token forwarded as ContinuationToken) and
+    the names from both pages must be combined."""
+    s3_client.put_object(key="artifacts/a2b.md", body="content", metadata={"title": "A2b"})
+    page1 = {
+        "Annotations": [{"AnnotationName": "commit_refs"}],
+        "NextContinuationToken": "token-1",
+    }
+    page2 = {"Annotations": [{"AnnotationName": "references"}]}
+    spy = mocker.patch.object(s3_client._s3, "list_object_annotations", side_effect=[page1, page2])
+
+    names = s3_client.list_object_annotations("artifacts/a2b.md")
+
+    assert sorted(names) == ["commit_refs", "references"]
+    assert spy.call_count == 2
+    assert spy.call_args_list[1].kwargs["ContinuationToken"] == "token-1"
+
+
 def test_delete_annotation_removes_it(s3_client: S3ClientImpl) -> None:
     """After delete_object_annotation, get_object_annotation raises KeyError."""
     s3_client.put_object(key="artifacts/a3.md", body="content", metadata={"title": "A3"})
@@ -84,6 +105,14 @@ def test_put_annotation_on_missing_object_raises_key_error(s3_client: S3ClientIm
     on an unmapped ClientError."""
     with pytest.raises(KeyError):
         s3_client.put_object_annotation("artifacts/does-not-exist.md", "commit_refs", "abc1234")
+
+
+def test_list_annotations_on_missing_object_raises_key_error(s3_client: S3ClientImpl) -> None:
+    """list_object_annotations against a key that does not exist at all raises KeyError
+    (Phase-12 #26) — mirrors get_object_annotation's / put_object_annotation's / delete_-
+    object_annotation's NoSuchKey mapping, which list_object_annotations was untested for."""
+    with pytest.raises(KeyError):
+        s3_client.list_object_annotations("artifacts/does-not-exist.md")
 
 
 def test_delete_missing_annotation_does_not_raise(s3_client: S3ClientImpl) -> None:

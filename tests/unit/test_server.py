@@ -435,3 +435,39 @@ async def test_propose_commit_links_still_registered_and_functional(
     _, call_kwargs = mock_propose.call_args
     assert call_kwargs["commit_sha"] == "abc1234"
     assert call_kwargs["since_ulid"] == "01ABC"
+
+
+async def test_register_tools_registers_full_tool_set(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """07-02 #36: register_tools must expose exactly the 16 documented MCP tools —
+    catches an accidental omission or an orphaned extra registration that individual
+    per-tool tests wouldn't notice."""
+    settings = _make_settings(monkeypatch)
+
+    register_tools(
+        settings=settings,
+        s3=MagicMock(),
+        vectors=MagicMock(),
+        bedrock=MagicMock(),
+    )
+    tools = await _app.list_tools()
+
+    assert {t.name for t in tools} == {
+        "write_artifact",
+        "search_artifacts",
+        "read_artifact",
+        "list_artifacts",
+        "archive_artifact",
+        "delete_artifact",
+        "purge_archived",
+        "health_check",
+        "synthesise_artifacts",
+        "reconcile_index",
+        "check_synthesis_freshness",
+        "write_artifacts",
+        "migrate_artifacts",
+        "propose_commit_links",
+        "link_metadata",
+        "cairn_studio",
+    }

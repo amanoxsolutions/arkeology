@@ -7,6 +7,7 @@ and provides shared AWS-mocked fixtures for unit tests.
 """
 
 import math
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -320,6 +321,20 @@ def aws_mock():
     """Activate moto for all AWS services for the duration of the test."""
     with mock_aws():
         yield
+
+
+@pytest.fixture(autouse=True)
+def _reset_annotation_store() -> Iterator[None]:
+    """Reset the self-mocked S3-annotation in-memory store between tests (Phase-12 #24).
+
+    ``_ANNOTATION_STORE`` is a module-level dict keyed by ``(bucket, key)`` backing the
+    moto self-mock extension above. Without a reset, annotation state written by one
+    test could leak into another test that happens to reuse the same bucket/key pair
+    (e.g. the shared "my-bucket" / "artifacts/a1.md" defaults many tests fall back on).
+    """
+    _ANNOTATION_STORE.clear()
+    yield
+    _ANNOTATION_STORE.clear()
 
 
 @pytest.fixture
