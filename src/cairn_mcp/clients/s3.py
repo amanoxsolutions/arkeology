@@ -23,6 +23,7 @@ from cairn_mcp.errors import (
     ArtifactCollisionError,
     ArtifactConflictError,
     CredentialError,
+    NonUtf8PayloadError,
 )
 
 logger = logging.getLogger(__name__)
@@ -112,7 +113,11 @@ class S3ClientImpl:
         with wrap_credential_errors("s3"):
             try:
                 response = self._s3.get_object(Bucket=self._bucket, Key=key)
-                return response["Body"].read().decode("utf-8")
+                body = response["Body"].read()
+                try:
+                    return body.decode("utf-8")
+                except UnicodeDecodeError as exc:
+                    raise NonUtf8PayloadError(key, exc) from exc
             except botocore.exceptions.ClientError as exc:
                 code = exc.response.get("Error", {}).get("Code", "")
                 if code in ("NoSuchKey", "404"):
@@ -209,7 +214,11 @@ class S3ClientImpl:
                 response = self._s3.get_object_annotation(
                     Bucket=self._bucket, Key=key, AnnotationName=annotation_name
                 )
-                return response["AnnotationPayload"].read().decode("utf-8")
+                payload = response["AnnotationPayload"].read()
+                try:
+                    return payload.decode("utf-8")
+                except UnicodeDecodeError as exc:
+                    raise NonUtf8PayloadError(key, exc) from exc
             except botocore.exceptions.ClientError as exc:
                 if is_annotation_unavailable_error(exc):
                     raise AnnotationUnavailableError(

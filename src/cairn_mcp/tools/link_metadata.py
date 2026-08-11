@@ -323,7 +323,19 @@ async def _link_metadata_inner(
             # unlike the write path's graceful degrade, this is not silently absorbed —
             # it is reported as a structured, actionable error and this artifact_id is
             # never counted as linked.
-            return {"error": ErrorCode.ANNOTATION_UNAVAILABLE, "message": str(exc)}
+            #
+            # Phase-12 #17: linked/skipped progress accumulated on earlier artifact_ids
+            # in this same call must not be discarded — only included when non-zero, so
+            # a failure on the very first artifact_id (nothing done yet) keeps the
+            # response shape unchanged.
+            error_response: dict[str, Any] = {
+                "error": ErrorCode.ANNOTATION_UNAVAILABLE,
+                "message": str(exc),
+            }
+            if linked or skipped:
+                error_response["linked"] = linked
+                error_response["skipped"] = skipped
+            return error_response
         except ArtifactConflictError as exc:
             # ADR-011 decision 6: the bounded CAS retry cycle in
             # _apply_link_metadata_with_cas was exhausted without a successful

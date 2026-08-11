@@ -57,10 +57,29 @@ logger = logging.getLogger(__name__)
 # × EMBED_MAX_SECTIONS default (20) = 300.  All embed calls in this module use
 # run_in_executor(_EMBED_EXECUTOR, ...) rather than asyncio.to_thread() so the
 # pool is not shared with other blocking work on the default executor.
-_EMBED_EXECUTOR: ThreadPoolExecutor = ThreadPoolExecutor(
-    max_workers=300,  # 15 artifacts × 20 sections
-    thread_name_prefix="cairn-embed",
-)
+#
+# 07-02 #18: constructed lazily (module __getattr__ below) rather than at import
+# time — importing this module must not itself spin up 300 OS threads.
+_embed_executor: ThreadPoolExecutor | None = None
+
+
+def _get_embed_executor() -> ThreadPoolExecutor:
+    global _embed_executor
+    if _embed_executor is None:
+        _embed_executor = ThreadPoolExecutor(
+            max_workers=300,  # 15 artifacts × 20 sections
+            thread_name_prefix="cairn-embed",
+        )
+    return _embed_executor
+
+
+def __getattr__(name: str) -> Any:
+    """Lazily materialise ``_EMBED_EXECUTOR`` on first external attribute access
+    (e.g. ``write.py`` internals and tests referencing ``write_module._EMBED_EXECUTOR``)
+    without constructing it merely from importing this module (PEP 562)."""
+    if name == "_EMBED_EXECUTOR":
+        return _get_embed_executor()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def _log_partial_write_failure(
@@ -640,10 +659,16 @@ async def _write_artifact_inner(  # noqa: PLR0913
         # branch below (a real credential failure is very likely to also break the
         # upcoming Bedrock/vector calls, so aborting there remains correct).
         _ = new_etag  # no CAS token needed — nothing preceded this write to race
+        # Phase-12 #18: this is a fresh create (atomic if_none_match put above), so the
+        # key had zero prior annotations a moment ago. When neither field was supplied,
+        # there is nothing to write and nothing to clear — skip the call entirely
+        # rather than issuing two pointless delete_object_annotation round trips (and,
+        # on an annotation-unavailable deployment, a spurious warning for a no-op).
         try:
-            apply_link_annotations(
-                s3, s3_key, commit_refs=final_commit_refs, references=final_references
-            )
+            if final_commit_refs or final_references:
+                apply_link_annotations(
+                    s3, s3_key, commit_refs=final_commit_refs, references=final_references
+                )
         except AnnotationUnavailableError as exc:
             logger.warning(
                 "Annotation write unavailable for key=%s; content and vectors will still "
@@ -717,7 +742,7 @@ async def _write_artifact_inner(  # noqa: PLR0913
         async def embed_section(vec_key: str, text: str) -> tuple[str, list[float]]:
             async with semaphore:
                 embedding = await asyncio.get_running_loop().run_in_executor(
-                    _EMBED_EXECUTOR,
+                    _get_embed_executor(),
                     bedrock.embed,
                     text,
                     settings.bedrock_embedding_model,
@@ -813,7 +838,7 @@ async def _write_artifact_inner(  # noqa: PLR0913
         )
         try:
             doc_embedding = await asyncio.get_running_loop().run_in_executor(
-                _EMBED_EXECUTOR,
+                _get_embed_executor(),
                 bedrock.embed,
                 embed_text,
                 settings.bedrock_embedding_model,

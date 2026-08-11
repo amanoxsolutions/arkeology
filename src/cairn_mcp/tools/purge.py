@@ -106,7 +106,7 @@ async def _purge_archived_inner(
         if not inactive_keys:
             return empty_result
 
-        inactive_items = vectors.get_vectors(inactive_keys)
+        inactive_items = vectors.get_vectors(inactive_keys, include_data=False)
     except CredentialError as exc:
         return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
 
@@ -132,7 +132,7 @@ async def _purge_archived_inner(
             }
         )
         if synthesis_keys:
-            synthesis_items = vectors.get_vectors(synthesis_keys)
+            synthesis_items = vectors.get_vectors(synthesis_keys, include_data=False)
 
             seen_synth: set[str] = set()
             for item in synthesis_items:

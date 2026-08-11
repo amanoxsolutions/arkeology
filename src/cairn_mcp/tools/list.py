@@ -154,7 +154,7 @@ async def _list_artifacts_inner(
     # ── Step 3: Fetch vector metadata (the client chunks to the GetVectors limit;
     # M-8: off the event loop) ─────────────────────────────────────────────────
     try:
-        items = await asyncio.to_thread(vectors.get_vectors, keys)
+        items = await asyncio.to_thread(vectors.get_vectors, keys, False)
     except CredentialError as exc:
         return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
 

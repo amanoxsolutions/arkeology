@@ -285,22 +285,22 @@ def find_referrers(
     Generalizes ``delete_artifact``'s former synthesis-only check (ADR-012 D13, T50)
     into a single unified own-scope ``referenced_by`` lookup covering every field in
     :data:`cairn_mcp.artifact.REFERENCE_FIELDS`, reused by both ``delete_artifact`` and
-    ``archive_artifact``. The lookup branches by each field's filterability, driven by
-    :data:`cairn_mcp.artifact.NON_FILTERABLE_METADATA_KEYS` — never hardcoded per tool:
+    ``archive_artifact``. Both filterable and non-filterable reference fields are
+    resolved with a **single** ``list_vectors_by_metadata`` query (Phase-12 #27 — this
+    used to be two separate full-index scans): own-scope + active-status, ANDed with a
+    top-level ``$or`` that combines one server-side ``{field: {"$eq": artifact_id}}``
+    clause per filterable field (driven by
+    :data:`cairn_mcp.artifact.NON_FILTERABLE_METADATA_KEYS` — never hardcoded per tool)
+    with a bounded ``type = synthesis`` prefilter standing in for the non-filterable
+    ``source_artifacts`` field, which S3 Vectors rejects a server-side ``$eq`` on. Each
+    candidate returned by that one query is then checked in-process against every
+    reference field it could plausibly match: filterable fields directly (the
+    server-side ``$eq`` already guarantees a match for those, so this re-check is
+    cheap confirmation, not new filtering), and ``source_artifacts`` only when
+    ``type == "synthesis"``. A server-side ``$eq`` is never issued on
+    ``source_artifacts``.
 
-    - **Filterable** fields (currently ``references``) are resolved with a single
-      ``list_vectors_by_metadata`` query ANDing the own-scope filter, the active-status
-      filter, and an ``$or`` of one ``{field: {"$eq": artifact_id}}`` clause per
-      filterable field.
-    - **Non-filterable** ``source_artifacts`` — which S3 Vectors rejects a server-side
-      ``$eq`` on — is resolved via a bounded, filterable ``type = synthesis`` prefilter
-      (own-scope, active) fetched via ``list_vectors_by_metadata``, followed by an
-      in-process membership check of ``artifact_id`` in each candidate's
-      ``source_artifacts`` value. A server-side ``$eq`` is never issued on
-      ``source_artifacts``.
-
-    Results from both branches are unioned and deduplicated by ``artifact_id``; the
-    target itself is always excluded.
+    Results are deduplicated by ``artifact_id``; the target itself is always excluded.
 
     Args:
         vectors: S3 Vectors client.
@@ -317,44 +317,38 @@ def find_referrers(
     """
     filterable_fields = [f for f in REFERENCE_FIELDS if f not in NON_FILTERABLE_METADATA_KEYS]
     non_filterable_fields = [f for f in REFERENCE_FIELDS if f in NON_FILTERABLE_METADATA_KEYS]
+    # source_artifacts only ever appears on synthesis artifacts (bounded prefilter, not
+    # an unbounded fetch-all-then-filter). No other non-filterable reference field is
+    # currently defined; a future one requires its own field-appropriate prefilter.
+    check_source_artifacts = "source_artifacts" in non_filterable_fields
 
+    or_clauses: list[dict[str, Any]] = [
+        {field: {"$eq": artifact_id}} for field in filterable_fields
+    ]
+    if check_source_artifacts:
+        or_clauses.append({"type": {"$eq": "synthesis"}})
+
+    if not or_clauses:
+        return []
+
+    filter_expr: dict[str, Any] = {
+        "$and": [
+            {"scope": {"$eq": settings.write_prefix}},
+            {"status": {"$eq": ArtifactStatus.ACTIVE}},
+            {"$or": or_clauses},
+        ]
+    }
+    keys = vectors.list_vectors_by_metadata(filter_expr)
     referrers: set[str] = set()
-
-    # ── Filterable branch: single server-side $eq/$or query ──────────────────────
-    if filterable_fields:
-        filter_expr: dict[str, Any] = {
-            "$and": [
-                {"scope": {"$eq": settings.write_prefix}},
-                {"status": {"$eq": ArtifactStatus.ACTIVE}},
-                {"$or": [{field: {"$eq": artifact_id}} for field in filterable_fields]},
-            ]
-        }
-        keys = vectors.list_vectors_by_metadata(filter_expr)
-        if keys:
-            for item in vectors.get_vectors(keys):
-                referrer_id = str(item["metadata"].get("artifact_id", ""))
-                if referrer_id and referrer_id != artifact_id:
-                    referrers.add(referrer_id)
-
-    # ── Non-filterable branch: type=synthesis prefilter + in-process check ───────
-    # source_artifacts only ever appears on synthesis artifacts (bounded prefilter,
-    # not an unbounded fetch-all-then-filter). No other non-filterable reference field
-    # is currently defined; a future one requires its own field-appropriate prefilter.
-    if "source_artifacts" in non_filterable_fields:
-        prefilter: dict[str, Any] = {
-            "$and": [
-                {"type": {"$eq": "synthesis"}},
-                {"status": {"$eq": ArtifactStatus.ACTIVE}},
-                {"scope": {"$eq": settings.write_prefix}},
-            ]
-        }
-        keys = vectors.list_vectors_by_metadata(prefilter)
-        if keys:
-            for item in vectors.get_vectors(keys):
-                meta = item["metadata"]
-                referrer_id = str(meta.get("artifact_id", ""))
-                if referrer_id == artifact_id:
-                    continue
+    if keys:
+        for item in vectors.get_vectors(keys, include_data=False):
+            meta = item["metadata"]
+            referrer_id = str(meta.get("artifact_id", ""))
+            if not referrer_id or referrer_id == artifact_id:
+                continue
+            if any(artifact_id in coerce_list_field(meta, field) for field in filterable_fields):
+                referrers.add(referrer_id)
+            elif check_source_artifacts and meta.get("type") == "synthesis":
                 if artifact_id in coerce_list_field(meta, "source_artifacts"):
                     referrers.add(referrer_id)
 

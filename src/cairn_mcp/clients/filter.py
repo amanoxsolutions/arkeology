@@ -17,21 +17,24 @@ Supported operators:
 
 from typing import Any
 
+from cairn_mcp.errors import FilterEvaluationError
 
-def matches_filter(metadata: dict[str, Any], filter: dict[str, Any]) -> bool:
+
+def matches_filter(metadata: dict[str, Any], filter_expr: dict[str, Any]) -> bool:
     """Evaluate a metadata filter expression against a metadata dict.
 
     Args:
         metadata: The metadata dict attached to a vector.
-        filter: A filter expression using the supported operators above.
+        filter_expr: A filter expression using the supported operators above.
 
     Returns:
         True if the metadata satisfies all filter conditions.
 
     Raises:
-        ValueError: If an unsupported operator is encountered.
+        FilterEvaluationError: If an unsupported operator is encountered, or a
+            ``$gte``/``$lte`` comparison is attempted between incomparable types.
     """
-    for field, expr in filter.items():
+    for field, expr in filter_expr.items():
         if field == "$and":
             if not all(matches_filter(metadata, sub) for sub in expr):
                 return False
@@ -60,13 +63,31 @@ def matches_filter(metadata: dict[str, Any], filter: dict[str, Any]) -> bool:
                     elif field_value in operand:
                         return False
                 elif op == "$gte":
-                    if field_value is None or field_value < operand:
+                    if field_value is None:
                         return False
+                    try:
+                        if field_value < operand:
+                            return False
+                    except TypeError as exc:
+                        raise FilterEvaluationError(
+                            f"Cannot compare $gte field {field!r} value {field_value!r} "
+                            f"({type(field_value).__name__}) against operand {operand!r} "
+                            f"({type(operand).__name__})"
+                        ) from exc
                 elif op == "$lte":
-                    if field_value is None or field_value > operand:
+                    if field_value is None:
                         return False
+                    try:
+                        if field_value > operand:
+                            return False
+                    except TypeError as exc:
+                        raise FilterEvaluationError(
+                            f"Cannot compare $lte field {field!r} value {field_value!r} "
+                            f"({type(field_value).__name__}) against operand {operand!r} "
+                            f"({type(operand).__name__})"
+                        ) from exc
                 else:
-                    raise ValueError(f"Unsupported filter operator: {op}")
+                    raise FilterEvaluationError(f"Unsupported filter operator: {op}")
         else:
             # Plain equality shorthand: {"field": value}
             if metadata.get(field) != expr:

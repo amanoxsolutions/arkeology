@@ -68,7 +68,7 @@ async def resolve_readable_targets(
     if not keys:
         return readable
 
-    items = await asyncio.to_thread(vectors.get_vectors, keys)
+    items = await asyncio.to_thread(vectors.get_vectors, keys, False)
     for item in items:
         meta: dict[str, Any] = item.get("metadata", {})
         candidate_id = str(meta.get("artifact_id", ""))

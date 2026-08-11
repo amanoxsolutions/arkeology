@@ -168,7 +168,7 @@ async def _archive_artifact_inner(
             )
             vectors_need_flip = False
             if existing_vec_keys:
-                existing_vec_items = vectors.get_vectors(existing_vec_keys)
+                existing_vec_items = vectors.get_vectors(existing_vec_keys, include_data=False)
                 vectors_need_flip = any(
                     item["metadata"].get("status") != ArtifactStatus.INACTIVE
                     for item in existing_vec_items

@@ -59,10 +59,12 @@ def decode_link_list(payload: str) -> list[str]:
 
     Returns:
         The decoded list. An empty payload decodes to ``[]`` (never ``[""]``).
+        Empty elements from a malformed/hand-edited payload (e.g. a double or
+        trailing comma) are dropped rather than surfaced as blank entries.
     """
     if not payload:
         return []
-    return payload.split(",")
+    return [item for item in payload.split(",") if item]
 
 
 def apply_link_annotations(
@@ -226,7 +228,7 @@ def _read_vector_link_fields(
     keys = vectors.list_vectors_by_metadata({"artifact_id": {"$eq": artifact_id}})
     if not keys:
         return [], []
-    entries = vectors.get_vectors(keys)
+    entries = vectors.get_vectors(keys, include_data=False)
     commit_refs: list[str] = []
     references: list[str] = []
     for entry in entries:

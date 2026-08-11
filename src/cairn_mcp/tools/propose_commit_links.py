@@ -100,7 +100,7 @@ async def _propose_commit_links_inner(
         if not keys:
             return {"proposed": [], "commit_sha": commit_sha}
 
-        items = vectors.get_vectors(keys)
+        items = vectors.get_vectors(keys, include_data=False)
     except CredentialError as exc:
         return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
 

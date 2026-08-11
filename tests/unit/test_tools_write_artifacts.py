@@ -15,6 +15,7 @@ import pytest
 from cairn_mcp.clients.fakes.fake_bedrock import FakeBedrockClient
 from cairn_mcp.clients.s3 import S3ClientImpl
 from cairn_mcp.clients.vectors import VectorsClientImpl
+from cairn_mcp.constants import ErrorCode
 from tests.unit.conftest import _make_settings
 
 
@@ -863,3 +864,107 @@ async def test_write_artifacts_descriptor_references_round_trips_to_vector_metad
     entries = vectors_client.get_vectors(keys)
     for entry in entries:
         assert entry["metadata"]["references"] == ["a-1"]
+
+
+# ---------------------------------------------------------------------------
+# 07-02 #37 — raw AWS error details must not leak to MCP callers
+# ---------------------------------------------------------------------------
+
+
+async def test_write_artifacts_top_level_error_does_not_leak_raw_aws_details(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """The write_artifacts() top-level `except Exception as exc: ... "message":
+    str(exc)` catch-all must not echo raw AWS-specific error text (account IDs, IAM
+    ARNs, internal bucket names) straight back to the MCP caller (07-02 #37). An
+    unexpected exception raised before any per-descriptor try/except (here, during
+    the pre-flight duplicate-ID detection loop) is caught only by the outer
+    write_artifacts() handler, which today returns str(exc) verbatim."""
+    try:
+        from cairn_mcp.tools import write_artifacts as write_artifacts_module
+    except ImportError:
+        pytest.fail("cairn_mcp.tools.write_artifacts is not yet implemented")
+
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+    raw_aws_message = (
+        "An error occurred (AccessDenied) when calling the PutObject operation: "
+        "User: arn:aws:iam::123456789012:role/internal-deploy-role is not authorized "
+        "to perform: s3:PutObject on resource: "
+        "arn:aws:s3:::acme-corp-secret-bucket/artifacts/x"
+    )
+    mocker.patch.object(
+        write_artifacts_module,
+        "generate_artifact_id",
+        side_effect=RuntimeError(raw_aws_message),
+    )
+
+    result = await write_artifacts_module.write_artifacts(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        artifacts=[_make_descriptor(0)],
+    )
+
+    assert result.get("error") == ErrorCode.INTERNAL_ERROR
+    assert "arn:aws:iam" not in result["message"], (
+        "Raw AWS IAM ARN/account details must not be echoed to MCP callers: "
+        f"got message={result['message']!r}"
+    )
+    assert "acme-corp-secret-bucket" not in result["message"], (
+        "Raw internal bucket name from the underlying AWS error must not leak to "
+        f"callers: got message={result['message']!r}"
+    )
+
+
+async def test_write_artifacts_per_descriptor_error_does_not_leak_raw_aws_details(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """The per-descriptor exception handler in write_one() — the path a real boto
+    ClientError during an individual artifact's write actually takes — must sanitize
+    the same way the top-level handler does (07-02 #37). Only the failing descriptor
+    is affected; a healthy sibling descriptor still succeeds."""
+    try:
+        from cairn_mcp.tools import write_artifacts as write_artifacts_module
+    except ImportError:
+        pytest.fail("cairn_mcp.tools.write_artifacts is not yet implemented")
+
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+    raw_aws_message = (
+        "An error occurred (AccessDenied) when calling the PutObject operation: "
+        "User: arn:aws:iam::123456789012:role/internal-deploy-role is not authorized "
+        "to perform: s3:PutObject on resource: "
+        "arn:aws:s3:::acme-corp-secret-bucket/artifacts/y"
+    )
+    mocker.patch.object(
+        write_artifacts_module,
+        "_write_artifact_inner",
+        side_effect=RuntimeError(raw_aws_message),
+    )
+
+    result = await write_artifacts_module.write_artifacts(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        artifacts=[_make_descriptor(0)],
+    )
+
+    entry = result["results"][0]
+    assert entry.get("error") == ErrorCode.INTERNAL_ERROR
+    assert "arn:aws:iam" not in entry["message"], (
+        f"Raw AWS IAM ARN/account details leaked from per-descriptor handler: "
+        f"got message={entry['message']!r}"
+    )
+    assert "acme-corp-secret-bucket" not in entry["message"], (
+        f"Raw internal bucket name leaked from per-descriptor handler: "
+        f"got message={entry['message']!r}"
+    )

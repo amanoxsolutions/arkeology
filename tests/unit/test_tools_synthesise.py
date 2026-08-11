@@ -572,6 +572,48 @@ async def test_synthesise_s3_read_failure_skips_artifact(
     assert isinstance(result["artifacts"], list)
 
 
+async def test_synthesise_s3_read_failure_reports_skip_count(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """A non-credential S3 read failure for one candidate must be surfaced in the
+    response (e.g. a skipped count), not silently vanish (07-02 #15). Today the
+    `except Exception: continue` branch in the content-fetch loop drops the failed
+    candidate with no trace in the returned payload — a caller cannot tell the
+    difference between "fewer results legitimately matched" and "a result was
+    dropped due to a fetch error"."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=8)
+    _seed_all(s3_client, vectors_client_8)
+
+    call_count: dict[str, int] = {"n": 0}
+    original_get = s3_client.get_object
+
+    def fail_first(key: str) -> str:
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            raise KeyError(key)
+        return original_get(key)
+
+    mocker.patch.object(s3_client, "get_object", side_effect=fail_first)
+
+    result = await synthesise_artifacts(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_8,
+        bedrock=bedrock,
+        query="review",
+        top_k=10,
+    )
+
+    assert result.get("skipped_count") == 1, (
+        "One candidate's content fetch failed and was skipped — that must be "
+        f"reported in the response (e.g. skipped_count), got: {result}"
+    )
+
+
 async def test_synthesise_empty_search_returns_empty_list(
     monkeypatch: pytest.MonkeyPatch,
     s3_client: S3ClientImpl,
@@ -591,6 +633,31 @@ async def test_synthesise_empty_search_returns_empty_list(
     )
 
     assert result["artifacts"] == []
+
+
+async def test_synthesise_empty_search_includes_zero_results_field(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
+) -> None:
+    """Zero matches must set zero_results=True, mirroring search_artifacts' shape
+    (07-02 #15 asymmetry) — synthesise_artifacts currently returns a bare
+    {"artifacts": []} with no equivalent signal that nothing matched."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=8)
+
+    result = await synthesise_artifacts(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_8,
+        bedrock=bedrock,
+        query="anything",
+        top_k=5,
+    )
+
+    assert result.get("zero_results") is True, (
+        f"Expected zero_results=True for a zero-match query, got: {result}"
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -419,6 +419,49 @@ async def test_artifacts_resource_empty_scope_returns_markdown(
 
 
 # ---------------------------------------------------------------------------
+# Test 10 — embedded newline in a cell value must not corrupt the markdown table
+# (07-02 #31): _render_artifacts_markdown escapes '|' but not '\n', so a
+# description/title containing a literal newline splits what should be one table
+# row into multiple lines, corrupting every subsequent row's column alignment.
+# ---------------------------------------------------------------------------
+
+
+def test_render_artifacts_markdown_escapes_embedded_newline_in_cell() -> None:
+    """A description containing an embedded newline must not break the table's row
+    structure. A raw (unescaped) '\\n' splits one logical row into two physical
+    lines — the tail fragment ("line two |") is neither the title line, blank, nor
+    a '|'-prefixed table line, so it corrupts every subsequent row's column
+    alignment when rendered. Every physical line in the output must be the title,
+    blank, or a '|'-prefixed table row."""
+    from cairn_mcp.resources import _render_artifacts_markdown
+
+    artifacts = [
+        {
+            "artifact_id": "artifacts/a1",
+            "title": "Fine",
+            "type": "adr",
+            "description": "line one\nline two",
+        },
+        {
+            "artifact_id": "artifacts/a2",
+            "title": "Also fine",
+            "type": "adr",
+            "description": "unrelated",
+        },
+    ]
+
+    content = _render_artifacts_markdown(artifacts)
+
+    for line in content.split("\n"):
+        assert line == "" or line.startswith("#") or line.startswith("|"), (
+            f"malformed line — likely an unescaped embedded newline: {line!r}"
+        )
+    # One table row per artifact, none swallowed or split apart.
+    row_lines = [line for line in content.split("\n") if line.startswith("| artifacts/")]
+    assert len(row_lines) == len(artifacts)
+
+
+# ---------------------------------------------------------------------------
 # C1 — full S3 key is the operative artifact_id (review finding C1)
 # ---------------------------------------------------------------------------
 #

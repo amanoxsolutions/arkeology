@@ -18,7 +18,7 @@ from cairn_mcp.clients.vectors import (
     _GET_VECTORS_CHUNK_SIZE,
     VectorsClientImpl,
 )
-from cairn_mcp.errors import VectorDistanceMissingError
+from cairn_mcp.errors import CairnError, VectorDistanceMissingError
 
 
 def _put_n_vectors(client: VectorsClientImpl, n: int) -> list[str]:
@@ -45,6 +45,23 @@ def test_get_vectors_chunks_oversized_key_list(
     assert spy.call_count == 3
     for call in spy.call_args_list:
         assert len(call.kwargs["keys"]) <= _GET_VECTORS_CHUNK_SIZE
+
+
+def test_get_vectors_metadata_only_does_not_request_vector_data(
+    vectors_client_2: VectorsClientImpl, mocker: MockerFixture
+) -> None:
+    """Callers that only need metadata (e.g. list_artifacts, check_synthesis_freshness,
+    purge_archived) should be able to opt out of fetching the float32 vector data.
+    get_vectors always passes returnData=True today regardless of caller need, wasting
+    bandwidth on every metadata-only read (07-02 #17). A metadata-only caller must be
+    able to request include_data=False and have that result in returnData=False on the
+    underlying GetVectors call."""
+    keys = _put_n_vectors(vectors_client_2, 3)
+    spy = mocker.spy(vectors_client_2._client, "get_vectors")
+
+    vectors_client_2.get_vectors(keys, include_data=False)  # type: ignore[call-arg]
+
+    assert spy.call_args.kwargs["returnData"] is False
 
 
 def test_delete_vectors_chunks_oversized_key_list(
@@ -147,3 +164,43 @@ def test_query_vectors_scores_non_trivially_ordered(
     )
     assert scores_by_key["near"] > scores_by_key["mid"] > scores_by_key["far"]
     assert scores_by_key["near"] != 1.0 or scores_by_key["far"] != 1.0
+
+
+# ---------------------------------------------------------------------------
+# list_vectors_by_metadata — matches_filter errors must not escape as bare,
+# unclassified exceptions mid-pagination (07-02 #21/#4, #22/#5)
+# ---------------------------------------------------------------------------
+
+
+def test_list_vectors_by_metadata_unsupported_operator_raises_typed_error(
+    vectors_client_2: VectorsClientImpl,
+) -> None:
+    """An unsupported filter operator encountered while evaluating one vector's
+    metadata must surface as a typed, catchable CairnError — not a bare ValueError
+    that a caller mid-pagination has no way to classify.
+
+    Uses a top-level $or so one vector (k1) fully matches via the first branch —
+    and would already be accumulated into matching_keys — before a second vector
+    (k2) trips the unsupported $gt operator on the second branch, reproducing
+    "an error partway through the scan discards results already collected"
+    without needing a real multi-thousand-vector S3 page boundary.
+    """
+    vectors_client_2.put_vector("k1", [1.0, 0.0], {"type": "keep"})
+    vectors_client_2.put_vector("k2", [0.0, 1.0], {"type": "other"})
+    filter_expr = {"$or": [{"type": {"$eq": "keep"}}, {"score": {"$gt": 3}}]}
+
+    with pytest.raises(CairnError):
+        vectors_client_2.list_vectors_by_metadata(filter_expr)
+
+
+def test_list_vectors_by_metadata_mixed_type_comparison_raises_typed_error(
+    vectors_client_2: VectorsClientImpl,
+) -> None:
+    """A $gte/$lte comparison between incomparable types (int metadata field vs str
+    operand) must surface as a typed, catchable CairnError out of the same
+    pagination loop as the unsupported-operator case — not an unhandled TypeError."""
+    vectors_client_2.put_vector("k1", [1.0, 0.0], {"tier": 2})
+    filter_expr = {"tier": {"$gte": "not-a-number"}}
+
+    with pytest.raises(CairnError):
+        vectors_client_2.list_vectors_by_metadata(filter_expr)

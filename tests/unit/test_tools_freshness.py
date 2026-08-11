@@ -100,10 +100,15 @@ _MALFORMED_S3_META: dict[str, str] = {
 
 
 def _filter_matches_artifact_id(filter_expr: dict[str, Any], artifact_id: str) -> bool:
-    """Return True iff filter_expr is a direct $eq lookup for the given artifact_id."""
+    """Return True iff filter_expr is a direct $eq lookup, or a batched $in lookup
+    that includes, the given artifact_id (07-02 #17: source lookups are now batched
+    into a single $in query rather than one $eq call per source)."""
     if "artifact_id" in filter_expr:
-        eq_val = filter_expr["artifact_id"].get("$eq")
-        return eq_val == artifact_id
+        clause = filter_expr["artifact_id"]
+        if "$eq" in clause:
+            return bool(clause["$eq"] == artifact_id)
+        if "$in" in clause:
+            return artifact_id in clause["$in"]
     if "$and" in filter_expr:
         return any(
             _filter_matches_artifact_id(clause, artifact_id) for clause in filter_expr["$and"]
@@ -1117,4 +1122,46 @@ async def test_freshness_malformed_deletion_calls_run_off_event_loop(
     assert seen_threads, "delete_vectors/head_object/delete_object were never called"
     assert all(t is not main_thread for t in seen_threads), (
         "Deletion calls ran on the event-loop thread — they must be offloaded"
+    )
+
+
+# ---------------------------------------------------------------------------
+# 07-02 #17 — source lookups must be batched, not one query per unique source
+# ---------------------------------------------------------------------------
+
+
+async def test_freshness_multiple_distinct_sources_batches_lookup_not_one_per_source(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """check_synthesis_freshness must resolve all distinct source artifact ids across
+    every synthesis with a bounded, batched vector-metadata query (mirroring list.py's
+    M5 cross-scope batching pattern via a single $in filter), not one
+    list_vectors_by_metadata call per unique source_id (1+N queries today — 07-02
+    #17)."""
+    settings = _make_settings(monkeypatch)
+    synth_id = "artifacts/synthesis-multi-source"
+    src_ids = [f"artifacts/implementation-note-2026-01-0{i}-source" for i in range(1, 4)]
+
+    vectors_client_8.put_vector(
+        f"{synth_id}#section", DUMMY_VEC, _synthesis_meta(synth_id, "2026-06-01", src_ids)
+    )
+    for i, src_id in enumerate(src_ids, start=1):
+        vectors_client_8.put_vector(src_id, DUMMY_VEC, _source_meta(src_id, f"2026-01-0{i}"))
+
+    spy = mocker.spy(vectors_client_8, "list_vectors_by_metadata")
+
+    result = await check_synthesis_freshness(
+        settings=settings, s3=s3_client, vectors=vectors_client_8
+    )
+
+    assert "error" not in result
+    assert spy.call_count <= 2, (
+        "Expected source lookups to be batched into a bounded number of "
+        "list_vectors_by_metadata calls (one for synthesis discovery, one batched "
+        f"$in query for all distinct sources) — got {spy.call_count} calls, "
+        "indicating one query per unique source_id (1+N) rather than a single "
+        "batched lookup"
     )

@@ -95,7 +95,7 @@ async def _check_synthesis_freshness_inner(
             }
 
         # ── Step 2: Fetch vector metadata for all synthesis keys (M-8: off loop) ──
-        synth_items = await asyncio.to_thread(vectors.get_vectors, synth_keys)
+        synth_items = await asyncio.to_thread(vectors.get_vectors, synth_keys, False)
     except CredentialError as exc:
         return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
 
@@ -122,7 +122,10 @@ async def _check_synthesis_freshness_inner(
         for src_id in meta.get("source_artifacts", []):
             all_source_ids.add(src_id)
 
-    # ── Step 6: Fetch source metadata — one lookup per unique source ID ───────
+    # ── Step 6: Fetch source metadata — one batched lookup for all unique sources ──
+    # 07-02 #17: previously one list_vectors_by_metadata call per unique source_id
+    # (1+N queries total). Batched into a single $in query, mirroring the pattern
+    # already established in _reference_filter.py::resolve_readable_targets.
     # Cross-scope gate (C-5): identical to list.py's Step 5 — own-scope sources are
     # always readable; a foreign-scope source is only readable when it is tier 3 AND
     # visibility="shared". A gated-out source is treated exactly as an unresolved
@@ -130,46 +133,45 @@ async def _check_synthesis_freshness_inner(
     # reported — this must never leak whether a foreign artifact exists.
     own_scope = settings.write_prefix
     read_prefixes = settings.read_prefixes_list
-    source_meta: dict[str, dict[str, Any] | None] = {}
-    for source_id in all_source_ids:
+    source_meta: dict[str, dict[str, Any] | None] = dict.fromkeys(all_source_ids)
+
+    if all_source_ids:
         try:
             # M-8: off the event loop — blocking boto3 call.
             src_keys = await asyncio.to_thread(
-                vectors.list_vectors_by_metadata, {"artifact_id": {"$eq": source_id}}
+                vectors.list_vectors_by_metadata,
+                {"artifact_id": {"$in": sorted(all_source_ids)}},
             )
         except CredentialError as exc:
             return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
 
-        if not src_keys:
-            # No vector index entries → the source is missing (T22). All freshness data
-            # comes from the vector index; S3 is never read during the audit (S3 reads are
-            # reserved for malformed-synthesis deletion only).
-            source_meta[source_id] = None
-            continue
+        if src_keys:
+            try:
+                # M-8: off the event loop — blocking boto3 call.
+                src_items = await asyncio.to_thread(vectors.get_vectors, src_keys, False)
+            except CredentialError as exc:
+                return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
 
-        try:
-            # M-8: off the event loop — blocking boto3 call.
-            src_items = await asyncio.to_thread(vectors.get_vectors, src_keys[:1])
-        except CredentialError as exc:
-            return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
+            # No vector index entries for a given source → it stays missing (T22),
+            # already defaulted to None above. Multi-section sources may yield
+            # several keys per source_id — first occurrence wins.
+            seen_source_ids: set[str] = set()
+            for item in src_items:
+                meta = item["metadata"]
+                source_id = str(meta.get("artifact_id", ""))
+                if source_id not in all_source_ids or source_id in seen_source_ids:
+                    continue
+                seen_source_ids.add(source_id)
 
-        if not src_items:
-            source_meta[source_id] = None
-            continue
+                if source_id.startswith(own_scope + "/"):
+                    source_meta[source_id] = meta  # own scope — always allowed
+                    continue
 
-        meta = src_items[0]["metadata"]
-
-        if source_id.startswith(own_scope + "/"):
-            source_meta[source_id] = meta  # own scope — always allowed
-            continue
-
-        is_foreign_readable = any(source_id.startswith(p + "/") for p in read_prefixes)
-        item_tier = int(meta.get("tier", 0))
-        item_visibility = str(meta.get("visibility", ""))
-        if is_foreign_readable and item_tier == 3 and item_visibility == "shared":
-            source_meta[source_id] = meta
-        else:
-            source_meta[source_id] = None
+                is_foreign_readable = any(source_id.startswith(p + "/") for p in read_prefixes)
+                item_tier = int(meta.get("tier", 0))
+                item_visibility = str(meta.get("visibility", ""))
+                if is_foreign_readable and item_tier == 3 and item_visibility == "shared":
+                    source_meta[source_id] = meta
 
     # ── Step 7: Build stale, archived_sources, missing_sources per synthesis ──
     stale: list[dict[str, Any]] = []

@@ -57,6 +57,7 @@ import re
 from typing import TypedDict
 
 from cairn_mcp.artifact import generate_artifact_id
+from cairn_mcp.errors import DuplicateManifestPathError
 
 # URL schemes that are always left untouched and never treated as a path candidate
 # (ADR-012 D5).
@@ -142,6 +143,9 @@ def build_path_to_id_map(
         entry's ``path`` via :func:`posixpath.splitext`, defaulting to ``.md`` when the
         path carries no extension — mirroring ``write_artifact``'s own ``file_extension``
         default. Empty when ``manifest_entries`` is empty.
+
+    Raises:
+        DuplicateManifestPathError: Two entries normalize to the same path.
     """
     path_to_id: dict[str, str] = {}
     for entry in manifest_entries:
@@ -156,7 +160,12 @@ def build_path_to_id_map(
         # entry spelled with a leading "./" or a backslash must still be found by
         # resolve_reference's normalize_reference_path(candidate) lookup, otherwise
         # the reference silently never resolves.
-        path_to_id[normalize_reference_path(entry["path"])] = f"{write_prefix}/{bare_id}{extension}"
+        normalized_path = normalize_reference_path(entry["path"])
+        # Phase-12 #23: two entries normalizing to the same key must never silently
+        # last-write-win — that discards one entry's mapping with zero signal.
+        if normalized_path in path_to_id:
+            raise DuplicateManifestPathError(normalized_path)
+        path_to_id[normalized_path] = f"{write_prefix}/{bare_id}{extension}"
     return path_to_id
 
 

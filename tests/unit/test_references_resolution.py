@@ -9,6 +9,7 @@ no I/O — every helper here is pure.
 import pytest
 
 from cairn_mcp.artifact import generate_artifact_id
+from cairn_mcp.errors import CairnError
 from cairn_mcp.references import (
     ManifestEntry,
     build_path_to_id_map,
@@ -183,6 +184,23 @@ def test_build_path_to_id_map_normalizes_backslash_manifest_path() -> None:
 
     assert "docs/adr/001-use-s3.md" in result
     assert "docs\\adr\\001-use-s3.md" not in result
+
+
+def test_build_path_to_id_map_duplicate_normalized_path_signals_collision() -> None:
+    """Phase-12 #23: two manifest entries whose paths normalize to the same key must
+    not silently last-write-win with zero signal — the caller has no way to know one
+    manifest entry's mapping was discarded. A genuine collision must raise a typed,
+    catchable error rather than silently returning a map with the second entry's
+    mapping only."""
+    entries = [
+        _entry("docs/adr/001-use-s3.md", "adr", 3, "First title", "2026-01-01"),
+        # Normalizes to the identical key as above (leading './' stripped) but is a
+        # distinct manifest entry describing a different artifact.
+        _entry("./docs/adr/001-use-s3.md", "spec", 3, "Second title", "2026-01-02"),
+    ]
+
+    with pytest.raises(CairnError):
+        build_path_to_id_map(entries, write_prefix=_WRITE_PREFIX)
 
 
 # ---------------------------------------------------------------------------

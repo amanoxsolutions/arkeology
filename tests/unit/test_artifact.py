@@ -1,5 +1,6 @@
 """Unit tests for cairn_mcp.artifact."""
 
+import json
 import re
 
 import pytest
@@ -864,6 +865,29 @@ def test_encode_metadata_value_leaves_plain_ascii_unchanged() -> None:
     assert encode_metadata_value(value) == value
 
 
+def test_decode_metadata_value_legacy_literal_percent_sequence_is_an_accepted_ambiguity() -> None:
+    """07-02 #20 / Phase-12 #20: a legacy (pre-T55) value stored raw — before
+    encode_metadata_value existed — can legitimately contain a literal '%' followed by
+    hex-like characters (e.g. a title mentioning "%25" as literal text). Naively, this
+    looks fixable by having decode_metadata_value skip values that were never encoded.
+    It is not: encode_metadata_value("Q3 % growth report") also produces the exact
+    stored string "Q3 %25 growth report" (because '%' is itself always escaped, per
+    its docstring), so decode_metadata_value cannot distinguish "legacy raw text
+    containing a literal %25" from "T55-encoded text whose original had a literal %"
+    — the two possible original values are genuinely indistinguishable from the stored
+    byte string alone. Resolving this would require a persistent per-object encoding-
+    version marker (an ADR-level schema decision, out of scope for this fix cycle) —
+    not a decode.py-local heuristic. This is accepted as a documented limitation:
+    decode_metadata_value keeps unconditionally percent-decoding, which is correct for
+    every T55+-written value and only mis-decodes the narrow legacy case above."""
+    legacy_raw_value = "Q3 %25 growth report"
+
+    # Documents current (accepted) behaviour, not a fix: this corrupts the legacy
+    # literal "%25" to "%", which is the same output encode_metadata_value("Q3 %
+    # growth report") would also decode back to correctly (see docstring above).
+    assert decode_metadata_value(legacy_raw_value) == "Q3 % growth report"
+
+
 # ---------------------------------------------------------------------------
 # T55 — check_metadata_budgets (M-5): three byte budgets, representation-driven
 # ---------------------------------------------------------------------------
@@ -934,4 +958,24 @@ def test_check_metadata_budgets_vector_total_just_under_passes() -> None:
     """Full vector metadata JSON just under VECTOR_TOTAL_METADATA_MAX_BYTES → no exception."""
     # Account for JSON overhead (quotes, braces, key names) by leaving headroom.
     vector_meta = {"title": "ok", "description": "x" * (VECTOR_TOTAL_METADATA_MAX_BYTES - 100)}
+    check_metadata_budgets(_MINIMAL_S3_METADATA, vector_meta)
+
+
+def test_check_metadata_budgets_cjk_filterable_field_under_true_byte_budget_passes() -> None:
+    """Phase-12 #19: json.dumps defaults to ensure_ascii=True, which escapes every
+    non-ASCII character to a 6-byte \\uXXXX sequence before UTF-8 encoding — measuring
+    the size of the *escaped* JSON representation, not the real UTF-8 byte size of the
+    content. A CJK-heavy filterable field (e.g. tags) can be well under the true
+    VECTOR_FILTERABLE_METADATA_MAX_BYTES budget yet still get rejected purely due to
+    this escaping over-count. This value is deliberately picked so the escaped size
+    exceeds the budget while the true UTF-8 size does not — it must be accepted."""
+    cjk_tag = "日本語" * 150
+    filterable_true_utf8_bytes = len(
+        json.dumps({"type": "adr", "tags": [cjk_tag]}, ensure_ascii=False).encode("utf-8")
+    )
+    assert filterable_true_utf8_bytes < VECTOR_FILTERABLE_METADATA_MAX_BYTES, (
+        "test fixture must be under the true UTF-8 budget to prove the over-count bug"
+    )
+    vector_meta = {"title": "ok", "type": "adr", "tags": [cjk_tag]}
+
     check_metadata_budgets(_MINIMAL_S3_METADATA, vector_meta)

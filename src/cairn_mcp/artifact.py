@@ -215,7 +215,7 @@ def check_metadata_budgets(
         for key, value in vector_metadata.items()
         if key not in NON_FILTERABLE_METADATA_KEYS
     }
-    filterable_bytes = len(json.dumps(filterable_metadata).encode("utf-8"))
+    filterable_bytes = len(json.dumps(filterable_metadata, ensure_ascii=False).encode("utf-8"))
     if filterable_bytes > VECTOR_FILTERABLE_METADATA_MAX_BYTES:
         raise MetadataTooLargeError(
             budget="vector_filterable_metadata",
@@ -223,7 +223,7 @@ def check_metadata_budgets(
             max_bytes=VECTOR_FILTERABLE_METADATA_MAX_BYTES,
         )
 
-    total_bytes = len(json.dumps(vector_metadata).encode("utf-8"))
+    total_bytes = len(json.dumps(vector_metadata, ensure_ascii=False).encode("utf-8"))
     if total_bytes > VECTOR_TOTAL_METADATA_MAX_BYTES:
         raise MetadataTooLargeError(
             budget="vector_total_metadata",

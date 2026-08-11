@@ -12,6 +12,7 @@ from cairn_mcp.clients.s3 import S3ClientImpl
 from cairn_mcp.clients.vectors import VectorsClientImpl
 from cairn_mcp.config import Settings
 from cairn_mcp.errors import CredentialError
+from cairn_mcp.tools._search_helper import find_referrers
 from cairn_mcp.tools.archive import archive_artifact
 from cairn_mcp.tools.delete import delete_artifact
 from tests.unit.conftest import _make_settings as _make_settings_base
@@ -442,6 +443,34 @@ async def test_delete_never_issues_server_side_eq_on_source_artifacts(
     for call in spy_list.call_args_list:
         filter_expr = call.args[0] if call.args else call.kwargs["filter_expr"]
         assert _find_eq_clauses(filter_expr, "source_artifacts") == []
+
+
+def test_find_referrers_issues_single_list_vectors_by_metadata_call(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """Phase-12 #27: find_referrers currently issues two separate full-index
+    list_vectors_by_metadata scans per delete/archive call — one for the
+    filterable-fields ($or of reference-field $eq clauses) branch, one for the
+    non-filterable source_artifacts / type=synthesis prefilter branch. Both
+    predicates are safely combinable under one top-level $or (own-scope + active +
+    ($or: [references $eq target, type=synthesis])), with in-process branching per
+    candidate's type deciding which check applies — so a single query suffices
+    without changing find_referrers' documented return value."""
+    settings = _make_settings(monkeypatch)
+    _seed_all(s3_client, vectors_client_2)
+    spy_list = mocker.spy(vectors_client_2, "list_vectors_by_metadata")
+
+    referrers = find_referrers(
+        vectors=vectors_client_2, settings=settings, artifact_id="artifacts/t2-active"
+    )
+
+    # Existing behaviour (both referrer mechanisms) must be preserved by the merge.
+    assert "artifacts/synthesis-one" in referrers
+    assert "artifacts/synthesis-two" in referrers
+    assert spy_list.call_count == 1
 
 
 async def test_delete_unions_and_dedupes_referrers_from_both_mechanisms(

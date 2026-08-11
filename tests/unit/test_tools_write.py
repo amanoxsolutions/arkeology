@@ -2506,6 +2506,36 @@ async def test_write_empty_references_annotation_absent(
 
 
 @pytest.mark.asyncio
+async def test_write_fresh_artifact_no_link_fields_skips_annotation_delete_calls(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """A fresh (never-existed) artifact write with no commit_refs/references supplied
+    has nothing to clear — apply_link_annotations must not issue pointless
+    delete_object_annotation round trips for fields that never had a value
+    (Phase-12 #18)."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+    delete_spy = mocker.spy(s3_client, "delete_object_annotation")
+
+    result = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        **_BASE_WRITE_KWARGS,
+    )
+
+    assert "error" not in result
+    assert delete_spy.call_count == 0, (
+        "A fresh write with no commit_refs/references supplied must not call "
+        f"delete_object_annotation at all — got {delete_spy.call_count} call(s)"
+    )
+
+
+@pytest.mark.asyncio
 async def test_write_annotations_written_after_put_object_before_put_vectors_batch(
     monkeypatch: pytest.MonkeyPatch,
     s3_client: S3ClientImpl,
@@ -3042,6 +3072,32 @@ def test_embed_executor_has_adequate_max_workers() -> None:
 
     expected_min = _ARTIFACT_CONCURRENCY_MAX * 5  # 5 = SECTION_CONCURRENCY default
     assert write_module._EMBED_EXECUTOR._max_workers >= expected_min
+
+
+def test_embed_executor_not_created_at_import_time() -> None:
+    """_EMBED_EXECUTOR (a 300-thread pool) must not be constructed merely by importing
+    write.py (07-02 #18) — a module-level ``ThreadPoolExecutor(max_workers=300, ...)``
+    spins up 300 OS threads at import time, every time the module is (re)imported,
+    regardless of whether write_artifact is ever called. It should be created lazily,
+    on first actual use.
+    """
+    import importlib
+    from unittest.mock import patch
+
+    import cairn_mcp.tools.write as write_module
+
+    try:
+        with patch("concurrent.futures.ThreadPoolExecutor") as mock_executor_cls:
+            importlib.reload(write_module)
+            assert mock_executor_cls.call_count == 0, (
+                "ThreadPoolExecutor must not be constructed merely by importing "
+                "cairn_mcp.tools.write — it should be created lazily on first use"
+            )
+    finally:
+        # Restore the module to its normal (real ThreadPoolExecutor) state
+        # regardless of the outcome above, so later tests in this session are
+        # unaffected.
+        importlib.reload(write_module)
 
 
 @pytest.mark.asyncio

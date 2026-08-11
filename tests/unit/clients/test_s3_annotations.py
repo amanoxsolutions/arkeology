@@ -12,11 +12,18 @@ and ``put_object_annotation`` / ``delete_object_annotation``'s ``if_match`` para
 (sent as boto3's ``ObjectIfMatch``).
 """
 
+import io
+
 import botocore.exceptions
 import pytest
 
 from cairn_mcp.clients.s3 import S3ClientImpl
-from cairn_mcp.errors import AnnotationUnavailableError, ArtifactConflictError, CredentialError
+from cairn_mcp.errors import (
+    AnnotationUnavailableError,
+    ArtifactConflictError,
+    CairnError,
+    CredentialError,
+)
 
 # ---------------------------------------------------------------------------
 # Story 1 — annotation round-trip through the client
@@ -105,6 +112,30 @@ def test_overwrite_wipes_annotations(s3_client: S3ClientImpl) -> None:
 
     with pytest.raises(KeyError):
         s3_client.get_object_annotation("artifacts/a6.md", "commit_refs")
+
+
+# ---------------------------------------------------------------------------
+# Story 2b — non-UTF-8 stored payload is classified, not a bare UnicodeDecodeError
+# (Phase-12 #16)
+# ---------------------------------------------------------------------------
+
+
+def test_get_object_annotation_non_utf8_payload_raises_typed_error(
+    s3_client: S3ClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """A stored annotation payload that is not valid UTF-8 (e.g. corrupted, or written
+    by a non-cairn-mcp tool) must surface as a typed, classified CairnError — not a
+    bare UnicodeDecodeError propagating out as an unhandled exception."""
+    s3_client.put_object(key="artifacts/bad-utf8.md", body="content", metadata={"title": "X"})
+    mocker.patch.object(
+        s3_client._s3,
+        "get_object_annotation",
+        return_value={"AnnotationPayload": io.BytesIO(b"\xff\xfe not valid utf-8")},
+    )
+
+    with pytest.raises(CairnError):
+        s3_client.get_object_annotation("artifacts/bad-utf8.md", "commit_refs")
 
 
 # ---------------------------------------------------------------------------

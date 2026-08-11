@@ -25,6 +25,7 @@ browser UI handles rendering; Claude's role ends after the initial `cairn_studio
 - **Languages:** python
 - **Frameworks:** fastmcp
 - **Infrastructure:** none — the server is deployment-agnostic; S3 bucket, S3 Vectors bucket/index, and IAM are provisioned externally
+- **Platform:** assumes a POSIX host (Linux/macOS) — `failure_log.py` uses `fcntl` for file locking, disabled gracefully (not a crash) on non-POSIX hosts
 
 ## Agent Settings
 - **Documentation:** docs/

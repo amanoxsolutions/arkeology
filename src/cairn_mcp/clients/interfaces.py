@@ -243,15 +243,19 @@ class VectorsClientInterface(Protocol):
         """
         ...
 
-    def get_vectors(self, keys: list[str]) -> list[dict[str, Any]]:
+    def get_vectors(self, keys: list[str], include_data: bool = True) -> list[dict[str, Any]]:
         """Retrieve vectors (with metadata) by key list.
 
         Args:
             keys: List of vector keys to retrieve.
+            include_data: When False, skips requesting the float32 vector data —
+                callers that only need metadata should pass this to avoid the
+                bandwidth cost of fetching embeddings they never use (07-02 #17).
 
         Returns:
-            List of dicts with keys: ``key``, ``metadata``, ``data``.
-            Missing keys are omitted silently.
+            List of dicts with keys: ``key``, ``metadata``, ``data``. ``data`` is
+            an empty dict when ``include_data=False``. Missing keys are omitted
+            silently.
 
         Raises:
             CredentialError: If credentials are invalid or expired.

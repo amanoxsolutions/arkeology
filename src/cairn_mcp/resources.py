@@ -465,7 +465,7 @@ def register_ui_resource(app: fastmcp.FastMCP) -> None:
 
     @app.resource(
         "ui://cairn-studio/index.html",
-        description="cairn studio— visual reading interface to browse artifacts.",
+        description="cairn studio — visual reading interface to browse artifacts.",
         app=AppConfig(csp=ResourceCSP(resource_domains=_BROWSER_CDN_ORIGINS)),
     )
     def _cairn_studio_html() -> str:
@@ -584,9 +584,11 @@ def _render_artifacts_markdown(artifacts: list[dict[str, Any]]) -> str:
         "|------------|-------|------|-------------|",
     ]
     for artifact in artifacts:
-        # Escape pipe characters inside each cell value so they don't break the table.
+        # Escape pipe characters and collapse embedded line breaks inside each cell
+        # value (via splitlines) so a '\n'/'\r' can never split one logical table row
+        # into multiple physical lines (07-02 #31).
         cells = [
-            str(artifact.get(key, "")).replace("|", "\\|")
+            " ".join(str(artifact.get(key, "")).replace("|", "\\|").splitlines())
             for key in ("artifact_id", "title", "type", "description")
         ]
         lines.append("| " + " | ".join(cells) + " |")

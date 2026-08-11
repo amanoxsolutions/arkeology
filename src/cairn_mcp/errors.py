@@ -186,6 +186,57 @@ class InvalidFilterValueError(CairnError):
         self.value = value
 
 
+class FilterEvaluationError(CairnError):
+    """Raised when a metadata filter expression cannot be evaluated against a vector's
+    metadata — an unsupported operator, or a comparison between incomparable types
+    (e.g. a ``$gte``/``$lte`` operand whose type does not support ordering against the
+    field's value). Raised by :func:`cairn_mcp.clients.filter.matches_filter`; never
+    caught inside ``VectorsClientImpl.list_vectors_by_metadata``'s pagination loop, so
+    it always propagates as a clear, typed signal instead of a bare ``ValueError``/
+    ``TypeError`` or a silently discarded partial scan.
+
+    Attributes:
+        message: Human-readable explanation of what could not be evaluated.
+    """
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+        self.message = message
+
+
+class NonUtf8PayloadError(CairnError):
+    """Raised when a stored S3 object body or object-annotation payload is not valid
+    UTF-8. Every cairn-mcp write path always UTF-8-encodes content and metadata, so
+    this signals external corruption (a non-cairn-mcp writer, or bit rot) rather than
+    an in-repo bug — callers must surface it as a classified error instead of letting
+    a bare ``UnicodeDecodeError`` propagate unhandled.
+
+    Attributes:
+        key: S3 key whose payload could not be decoded.
+        original: The original ``UnicodeDecodeError``, preserved for logging.
+    """
+
+    def __init__(self, key: str, original: UnicodeDecodeError) -> None:
+        super().__init__(f"Payload for key '{key}' is not valid UTF-8: {original}")
+        self.key = key
+        self.original = original
+
+
+class DuplicateManifestPathError(CairnError):
+    """Raised when a migration manifest contains two entries whose paths normalize to
+    the same key. Silently letting the second entry overwrite the first (last-write-
+    wins) would discard one manifest entry's mapping with zero signal to the caller
+    (Phase-12 #23) — a collision must be surfaced instead of swallowed.
+
+    Attributes:
+        path: The normalized path shared by both colliding manifest entries.
+    """
+
+    def __init__(self, path: str) -> None:
+        super().__init__(f"Duplicate manifest path after normalization: {path!r}")
+        self.path = path
+
+
 class VectorDistanceMissingError(CairnError):
     """Raised when a ``query_vectors`` result is missing the ``distance`` field.
 

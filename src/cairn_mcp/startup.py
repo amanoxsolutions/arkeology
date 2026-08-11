@@ -18,6 +18,9 @@ Failures raise StartupValidationError; credential errors propagate as Credential
 import logging
 from typing import Any
 
+import botocore.exceptions
+from ulid import ULID
+
 from cairn_mcp.clients.interfaces import (
     BedrockClientInterface,
     S3ClientInterface,
@@ -29,7 +32,14 @@ from cairn_mcp.errors import CredentialError, StartupValidationError, VectorInde
 logger = logging.getLogger(__name__)
 
 # Key suffix for the write probe object. Starts with underscore to distinguish from real artifacts.
+# A ULID is appended per invocation (07-02 #9) so two servers starting concurrently
+# against the same WRITE_PREFIX never race on the same S3 key.
 _PROBE_KEY_SUFFIX = "_cairn_mcp_startup_probe"
+
+# botocore error codes indicating the bucket itself does not exist — distinct from a
+# credential/auth failure (07-02 #11): a typo'd ARTIFACT_BUCKET is a configuration
+# error, not something "aws sso login" can fix.
+_BUCKET_NOT_FOUND_CODES = frozenset({"404", "NoSuchBucket", "NotFound"})
 
 # Short probe string embedded during check 6 (M-9). Content is irrelevant — only the
 # returned vector's dimension and the absence of a credential/entitlement failure matter.
@@ -84,6 +94,22 @@ def _check_credentials(settings: Settings, s3: S3ClientInterface) -> None:
                 f"{settings.aws_profile or '<profile>'}) and restart the server."
             ),
         ) from exc
+    except botocore.exceptions.ClientError as exc:
+        code = exc.response.get("Error", {}).get("Code", "")
+        if code in _BUCKET_NOT_FOUND_CODES:
+            raise StartupValidationError(
+                check="credentials",
+                message=(
+                    f"Bucket check failed: ARTIFACT_BUCKET '{settings.artifact_bucket}' "
+                    "does not exist (or is not visible in this region). This is a "
+                    "configuration error, not a credentials problem — verify the "
+                    "bucket name and AWS_REGION are correct."
+                ),
+            ) from exc
+        raise StartupValidationError(
+            check="credentials",
+            message=f"Credential check failed: {exc}",
+        ) from exc
     except Exception as exc:
         raise StartupValidationError(
             check="credentials",
@@ -94,7 +120,7 @@ def _check_credentials(settings: Settings, s3: S3ClientInterface) -> None:
 def _check_write_prefix(settings: Settings, s3: S3ClientInterface) -> None:
     """Check 2: Verify read and write access to WRITE_PREFIX via a probe object."""
     write_prefix = settings.write_prefix
-    probe_key = f"{write_prefix}/{_PROBE_KEY_SUFFIX}"
+    probe_key = f"{write_prefix}/{_PROBE_KEY_SUFFIX}_{ULID()}"
     bucket = settings.artifact_bucket
 
     try:
@@ -151,7 +177,7 @@ def _check_read_prefixes(settings: Settings, s3: S3ClientInterface) -> None:
 
     for prefix in read_prefixes:
         try:
-            s3.list_objects(prefix)
+            keys = s3.list_objects(prefix)
         except CredentialError:
             raise
         except Exception as exc:
@@ -163,6 +189,29 @@ def _check_read_prefixes(settings: Settings, s3: S3ClientInterface) -> None:
                     f"StringLike s3:prefix '{prefix}*'."
                 ),
             ) from exc
+
+        # 07-02 #10: ListBucket succeeding does not prove GetObject is granted — a
+        # policy can allow listing a prefix while denying reads on its objects, which
+        # would only surface later as a read_artifact failure. Probe actual object
+        # read access on one listed key (if any exist yet).
+        if keys:
+            try:
+                s3.head_object(keys[0])
+            except CredentialError:
+                raise
+            except KeyError:
+                # Listed a moment ago but now gone (race) — not a permission problem.
+                continue
+            except Exception as exc:
+                raise StartupValidationError(
+                    check="read_prefix",
+                    message=(
+                        f"Read prefix access check failed for '{prefix}': listed "
+                        f"objects but cannot read object content (denied on "
+                        f"'{keys[0]}'). Ensure the IAM policy includes s3:GetObject "
+                        f"with condition StringLike s3:prefix '{prefix}*'."
+                    ),
+                ) from exc
 
     logger.debug("Check 3/7 passed: %d foreign read prefix(es) accessible", len(read_prefixes))
 

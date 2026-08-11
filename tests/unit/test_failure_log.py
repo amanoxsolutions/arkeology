@@ -5,6 +5,7 @@ Tests append_failure_entry() using tmp_path — no AWS calls.
 
 import json
 import logging
+import threading
 from pathlib import Path
 
 import pytest
@@ -163,3 +164,74 @@ def test_os_error_logs_stderr_does_not_raise(
     with caplog.at_level(logging.ERROR):
         # Must not raise
         append_failure_entry(log_path, _BASE_ENTRY)
+
+
+# ---------------------------------------------------------------------------
+# Concurrency (07-02 #19: no lock — concurrent writers can interleave/corrupt lines)
+# ---------------------------------------------------------------------------
+
+
+def test_concurrent_writers_are_mutually_exclusive(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Two concurrent append_failure_entry calls to the same log file must be
+    serialized (e.g. via a file lock) — a second writer must not be able to complete
+    its append while a first writer's append is still in flight. This is verified
+    deterministically (no timing/sleep races): writer A is held mid-write, inside the
+    presumed-locked critical section (after opening the file, before the actual
+    fh.write()), via a controlled threading.Event(). [Corrected during implementation:
+    the original version of this test blocked inside Path.open() itself, which is
+    *before* any lock would be acquired — that injection point could never have
+    detected mutual exclusion even with a correct fix, since two independent open()
+    calls never contend on a flock held by neither yet. Blocking inside json.dumps()
+    instead lands squarely inside the locked region.] Today, append_failure_entry has
+    no locking at all, so writer B completes immediately regardless of writer A's
+    in-flight write — with no lock, concurrent writers can interleave partial JSON
+    lines and corrupt the log.
+    """
+    log_path = tmp_path / "failures.jsonl"
+    writer_a_in_critical_section = threading.Event()
+    release_writer_a = threading.Event()
+    first_call_seen = threading.Event()
+
+    orig_dumps = json.dumps
+
+    def _slow_dumps(*args: object, **kwargs: object) -> str:
+        result: str = orig_dumps(*args, **kwargs)  # type: ignore[arg-type]
+        if not first_call_seen.is_set():
+            first_call_seen.set()
+            writer_a_in_critical_section.set()
+            # Block here — simulating writer A holding the lock — until the test
+            # explicitly releases it below.
+            release_writer_a.wait(timeout=2)
+        return result
+
+    monkeypatch.setattr(json, "dumps", _slow_dumps)
+
+    thread_a = threading.Thread(
+        target=append_failure_entry, args=(log_path, {**_BASE_ENTRY, "reason": "A"})
+    )
+    thread_a.start()
+    assert writer_a_in_critical_section.wait(timeout=2), "writer A never reached json.dumps()"
+
+    writer_b_done = threading.Event()
+
+    def _writer_b() -> None:
+        append_failure_entry(log_path, {**_BASE_ENTRY, "reason": "B"})
+        writer_b_done.set()
+
+    thread_b = threading.Thread(target=_writer_b)
+    thread_b.start()
+    # While writer A is deliberately blocked mid-write, a correctly-locked
+    # implementation must prevent writer B from completing its append.
+    completed_while_a_blocked = writer_b_done.wait(timeout=0.5)
+
+    release_writer_a.set()
+    thread_a.join(timeout=2)
+    thread_b.join(timeout=2)
+
+    assert not completed_while_a_blocked, (
+        "writer B completed its append while writer A's write was still in flight — "
+        "append_failure_entry has no mutual-exclusion lock, so concurrent writers can "
+        "interleave and corrupt the log file"
+    )

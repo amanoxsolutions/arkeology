@@ -732,3 +732,99 @@ def test_check1_credential_failure_chains_cause(
         validate_startup(settings=settings, s3=s3_client, vectors=vectors_client, bedrock=bedrock)
     assert exc_info.value.__cause__ is not None
     assert isinstance(exc_info.value.__cause__, CredentialError)
+
+
+# ---------------------------------------------------------------------------
+# 07-02 #11 — Check 1 conflates missing bucket vs bad credentials
+# ---------------------------------------------------------------------------
+
+
+def test_check1_missing_bucket_is_distinct_from_credential_failure(
+    settings: Settings,
+    vectors_client: VectorsClientImpl,
+) -> None:
+    """A bucket that does not exist (e.g. a typo'd ARTIFACT_BUCKET) is a configuration
+    error, not a credentials problem. head_bucket raising a non-credential ClientError
+    (404, no such bucket) must not be reported under the generic 'Credential check
+    failed' message _check_credentials uses for every non-CredentialError exception —
+    that mislabels a config typo as an auth problem and points the operator at the
+    wrong remediation (07-02 #11)."""
+    s3_missing_bucket = S3ClientImpl(
+        region=settings.aws_region, profile=None, bucket=settings.artifact_bucket
+    )
+    bedrock = FakeBedrockClient()
+    with pytest.raises(StartupValidationError) as exc_info:
+        validate_startup(
+            settings=settings, s3=s3_missing_bucket, vectors=vectors_client, bedrock=bedrock
+        )
+    assert "Credential check failed" not in exc_info.value.message, (
+        "A missing-bucket configuration error must not be reported under the generic "
+        "'Credential check failed' message used for real auth failures"
+    )
+
+
+# ---------------------------------------------------------------------------
+# 07-02 #9 — Fixed startup probe key → concurrent-server race
+# ---------------------------------------------------------------------------
+
+
+def test_check2_probe_key_is_unique_per_invocation(
+    settings: Settings,
+    s3_client: S3ClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """Two successive (or concurrent) write-prefix probes against the same
+    WRITE_PREFIX must not reuse the same fixed probe key (07-02 #9). A constant
+    ``_PROBE_KEY_SUFFIX`` means two servers starting concurrently against the same
+    WRITE_PREFIX race on the identical S3 key — one's best-effort cleanup
+    (delete_object in the finally block) can delete the object out from under the
+    other before its get_object runs. The probe key must be unique per invocation
+    (e.g. ULID/uuid-suffixed) so concurrent invocations never collide."""
+    from cairn_mcp.startup import _check_write_prefix
+
+    seen_keys: list[str] = []
+    original_put = s3_client.put_object
+
+    def _recording_put(key: str, *args: object, **kwargs: object) -> str:
+        seen_keys.append(key)
+        return original_put(key, *args, **kwargs)  # type: ignore[arg-type]
+
+    mocker.patch.object(s3_client, "put_object", side_effect=_recording_put)
+
+    _check_write_prefix(settings, s3_client)
+    _check_write_prefix(settings, s3_client)
+
+    assert len(seen_keys) == 2
+    assert len(set(seen_keys)) == 2, (
+        "Each startup write-prefix probe invocation must use a distinct probe key so "
+        "concurrent servers sharing WRITE_PREFIX cannot race on the same S3 object"
+    )
+
+
+# ---------------------------------------------------------------------------
+# 07-02 #10 — Check 3 proves only ListBucket, not GetObject
+# ---------------------------------------------------------------------------
+
+
+def test_check3_read_prefix_grants_list_but_denies_object_read_still_fails(
+    settings_with_read_prefix: Settings,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """A foreign prefix whose IAM policy grants s3:ListBucket but denies object-level
+    read access must still fail startup (07-02 #10) — list_objects succeeding is not
+    sufficient proof that read_artifact will later be able to fetch object content.
+    Check 3 currently only calls list_objects; it must also verify object-level read
+    access (e.g. head_object/get_object) on at least one listed key."""
+    mocker.patch.object(s3_client, "list_objects", return_value=["network/some-artifact"])
+    mocker.patch.object(s3_client, "head_object", side_effect=PermissionError("get denied"))
+    bedrock = FakeBedrockClient()
+    with pytest.raises(StartupValidationError) as exc_info:
+        validate_startup(
+            settings=settings_with_read_prefix,
+            s3=s3_client,
+            vectors=vectors_client,
+            bedrock=bedrock,
+        )
+    assert exc_info.value.check == "read_prefix"

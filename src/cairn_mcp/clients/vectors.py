@@ -98,8 +98,19 @@ class VectorsClientImpl:
                     vectors=cast(list[Any], vectors_payload),
                 )
 
-    def get_vectors(self, keys: list[str]) -> list[dict[str, Any]]:
-        logger.debug("S3Vectors get_vectors count=%d", len(keys))
+    def get_vectors(self, keys: list[str], include_data: bool = True) -> list[dict[str, Any]]:
+        """Retrieve vectors by key.
+
+        Args:
+            keys: Vector keys to retrieve.
+            include_data: When False, skips requesting the float32 vector data
+                (returnData=False) — callers that only need metadata (list_artifacts,
+                check_synthesis_freshness, purge_archived, find_referrers, ...) should
+                pass this to avoid the bandwidth cost of fetching embeddings they never
+                use (07-02 #17). Defaults to True to preserve existing behaviour for
+                callers (e.g. link_metadata) that reuse the embedding.
+        """
+        logger.debug("S3Vectors get_vectors count=%d include_data=%s", len(keys), include_data)
         if not keys:
             return []
         results: list[dict[str, Any]] = []
@@ -110,7 +121,7 @@ class VectorsClientImpl:
                     indexName=self._index,
                     keys=chunk,
                     returnMetadata=True,
-                    returnData=True,
+                    returnData=include_data,
                 )
                 for item in response.get("vectors", []):
                     results.append(

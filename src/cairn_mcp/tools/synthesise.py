@@ -138,7 +138,7 @@ async def _synthesise_artifacts_inner(
     search_results, _fetch_exhausted = loop_result
 
     if not search_results:
-        return {"artifacts": []}
+        return {"artifacts": [], "zero_results": True}
 
     # ── Step 6: Fetch content for each result, budget-aware (CA-5) ─────────────
     # Track a running total of assembled response bytes — measured as the
@@ -153,6 +153,7 @@ async def _synthesise_artifacts_inner(
     artifacts: list[dict[str, Any]] = []
     total_content_bytes = 0
     truncated = False
+    skipped_count = 0
     for entry in search_results:
         artifact_id: str = entry["artifact_id"]
         meta: dict[str, Any] = entry["meta"]
@@ -163,6 +164,7 @@ async def _synthesise_artifacts_inner(
             return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
         except Exception:
             logger.warning("Skipping artifact '%s': S3 read failed", artifact_id)
+            skipped_count += 1
             continue
 
         content_bytes = len(content.encode("utf-8"))
@@ -209,4 +211,6 @@ async def _synthesise_artifacts_inner(
     if truncated:
         response["truncated"] = True
         response["included"] = len(artifacts)
+    if skipped_count:
+        response["skipped_count"] = skipped_count
     return response

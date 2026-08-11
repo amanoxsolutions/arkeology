@@ -760,6 +760,56 @@ async def test_link_metadata_annotation_unavailable_returns_structured_error(
     assert batch_spy.call_count == 0
 
 
+async def test_link_metadata_annotation_unavailable_preserves_partial_progress(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """When AnnotationUnavailableError fires partway through a multi-artifact batch,
+    the linked/skipped progress already accumulated on earlier, successfully-linked
+    artifact_ids in this same call must be preserved in the response — not silently
+    discarded (Phase-12 #17). Today the except AnnotationUnavailableError branch
+    returns a bare {"error": ..., "message": ...} dict with no linked/skipped keys
+    at all, regardless of how much progress preceded the failure."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient()
+    _seed_all(s3_client, vectors_client_2)
+
+    original_put_annotation = s3_client.put_object_annotation
+    call_count = {"n": 0}
+
+    def _put_annotation(*args: object, **kwargs: object) -> None:
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            original_put_annotation(*args, **kwargs)  # type: ignore[arg-type]
+            return
+        raise AnnotationUnavailableError(
+            "S3 object annotations are unavailable for this bucket.",
+            "s3",
+            Exception("simulated"),
+        )
+
+    mocker.patch.object(s3_client, "put_object_annotation", side_effect=_put_annotation)
+
+    # ID_B is processed (and successfully linked) before ID_A hits the simulated
+    # annotation-unavailable failure on its own put_object_annotation call.
+    result = await link_metadata(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=bedrock,
+        artifact_ids=[ID_B, ID_A],
+        commit_refs=["abc1234"],
+    )
+
+    assert result.get("error") == "annotation_unavailable"
+    assert result.get("linked") == 1, (
+        "ID_B was successfully linked before ID_A's annotation-unavailable failure — "
+        f"that partial progress must be preserved in the response, got: {result}"
+    )
+
+
 async def test_link_metadata_put_vectors_batch_credential_error(
     monkeypatch: pytest.MonkeyPatch,
     s3_client: S3ClientImpl,

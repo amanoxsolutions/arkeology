@@ -7,6 +7,7 @@ plus the plain equality shorthand and the unsupported-operator error.
 import pytest
 
 from cairn_mcp.clients.filter import matches_filter
+from cairn_mcp.errors import FilterEvaluationError
 
 # ---------------------------------------------------------------------------
 # $eq operator
@@ -206,9 +207,10 @@ def test_plain_equality_no_match() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_unsupported_operator_raises_value_error() -> None:
-    """An unsupported operator raises ValueError with the operator in the message."""
-    with pytest.raises(ValueError, match="\\$gt"):
+def test_unsupported_operator_raises_filter_evaluation_error() -> None:
+    """An unsupported operator raises the typed FilterEvaluationError (not a bare
+    ValueError) with the operator in the message (07-02 #21)."""
+    with pytest.raises(FilterEvaluationError, match="\\$gt"):
         matches_filter({"score": 5}, {"score": {"$gt": 3}})
 
 
@@ -336,7 +338,8 @@ def test_regression_nin_still_works() -> None:
     assert matches_filter({"status": "active"}, {"status": {"$nin": ["inactive"]}}) is True
 
 
-def test_regression_unknown_operator_raises_value_error() -> None:
-    """Unknown operator still raises ValueError (regression guard)."""
-    with pytest.raises(ValueError, match="\\$gt"):
+def test_regression_unknown_operator_raises_filter_evaluation_error() -> None:
+    """Unknown operator still raises the typed FilterEvaluationError (regression
+    guard)."""
+    with pytest.raises(FilterEvaluationError, match="\\$gt"):
         matches_filter({"score": "5"}, {"score": {"$gt": "3"}})

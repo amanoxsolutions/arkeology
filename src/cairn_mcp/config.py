@@ -112,7 +112,10 @@ class Settings(BaseSettings):
             le=100,
             description=(
                 "Section vectors requested per S3 Vectors call in the search re-fetch loop "
-                "(1–100 inclusive)"
+                "(1–100 inclusive). This 100 ceiling is a deliberate, cost-conscious "
+                "application-level choice, not an AWS-imposed limit — the real S3 Vectors "
+                "QueryVectors topK cap is 10,000 (confirmed by the integration test "
+                "test_top_k_over_documented_cap_is_rejected)."
             ),
         ),
     ]
@@ -233,13 +236,25 @@ class Settings(BaseSettings):
     @field_validator("WRITE_PREFIX")
     @classmethod
     def validate_write_prefix(cls, v: str) -> str:
-        if not v.strip():
+        """Reject internal whitespace and normalize surrounding slashes, mirroring
+        READ_PREFIXES' validator (07-02 #8). Unlike a READ_PREFIXES token (which can
+        simply be dropped from the list when it reduces to empty), WRITE_PREFIX is a
+        single mandatory scalar, so a value that reduces to empty after stripping
+        slashes (e.g. '///') is rejected with the same error as an empty value.
+        """
+        if any(c in v for c in (" ", "\t")):
+            raise ValueError(
+                f"WRITE_PREFIX '{v}' must not contain whitespace. "
+                "Check your .env file for template placeholder text."
+            )
+        normalized = v.strip("/")
+        if not normalized:
             raise ValueError(
                 "WRITE_PREFIX must not be empty. "
                 "Set it to a non-empty prefix such as 'artifacts' or 'team/project'. "
                 "An empty prefix breaks scope determination and cross-scope access control."
             )
-        return v.strip("/")
+        return normalized
 
     @field_validator("READ_PREFIXES")
     @classmethod

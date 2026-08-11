@@ -174,6 +174,47 @@ def test_write_prefix_whitespace_only_raises(monkeypatch: pytest.MonkeyPatch) ->
         Settings()
 
 
+# --- 07-02 #8: WRITE_PREFIX validation weaker than READ_PREFIXES ---
+
+
+def test_write_prefix_all_slashes_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """WRITE_PREFIX='///' must be rejected, not silently resolve to an empty prefix.
+
+    [Corrected during implementation: the original version of this test asserted
+    Settings() succeeds with a non-empty write_prefix. The actually-correct fix
+    rejects an all-slash value outright — WRITE_PREFIX is a single mandatory
+    scalar (unlike READ_PREFIXES, a list where an empty-after-strip token can
+    simply be dropped), so there is no sensible non-empty value to normalize it
+    to; the same "must not be empty" error used for WRITE_PREFIX='' applies once
+    surrounding slashes are stripped and nothing remains (07-02 #8).]
+    """
+    _required_env(monkeypatch)
+    monkeypatch.setenv("WRITE_PREFIX", "///")
+    with pytest.raises(Exception):
+        Settings()
+
+
+def test_write_prefix_internal_whitespace_rejected_like_read_prefixes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """WRITE_PREFIX containing internal whitespace must be rejected, matching
+    READ_PREFIXES' validator.
+
+    READ_PREFIXES' validator explicitly rejects a token containing internal
+    whitespace (e.g. leftover '.env' template placeholder text such as
+    'or leave blank') with an actionable ValueError. validate_write_prefix has no
+    equivalent check — it only tests for a fully-blank value — so the same
+    template-placeholder mistake in WRITE_PREFIX is silently accepted as a
+    (invalid) S3 prefix instead of failing startup with a clear message.
+    """
+    _required_env(monkeypatch)
+    monkeypatch.setenv("WRITE_PREFIX", "or leave blank")
+    with pytest.raises(Exception):
+        Settings()
+
+
 # --- SEARCH_FETCH_TOP_K validation ---
 
 
