@@ -17,7 +17,7 @@ findings were **re-verified against merged `main` (`a4cf881`) on 2026-07-06** by
 agents; only the confirmed-still-valid items are listed here.
 
 - **Verification: complete.** **Fixes: in progress** — all four design-gated findings (M3, M4, M5,
-  CA-5), FC-1, FC-2, and FC-3 are landed; FC-4/FC-5/FC-6 remain. Per-finding status is tracked in the
+  CA-5), FC-1, FC-2, FC-3, and FC-5 are landed; FC-4/FC-6 remain. Per-finding status is tracked in the
   `Status` column of each cluster table below, and per-cluster status in each section's `Status` line.
 - Work now lands directly on `main` (trunk-based, per AGENTS.md), commit-per-cluster — the earlier
   `review-followup-2026-07-06` branch noted below was merged and deleted:
@@ -189,21 +189,20 @@ write_artifacts.py per-descriptor error sanitisation).
 
 ### FC-5 — Missing tests  *(developer; some need real AWS)*
 
-**Status: 🚧 partly blocked** — 0/9 findings fixed. The two SA-3 integration round-trips need live AWS
-credentials (SSO session was expired on 2026-08-07 — run `aws sso login` before dispatching those);
-the remaining 7 are unit-level and can proceed without AWS.
+**Status: ✅ done (2026-08-11)** — 9/9 findings fixed, commit `6060f1d`. 1128 unit tests, 79
+integration tests green; ruff/format/mypy clean.
 
 | Finding | Item | Status |
 |---------|------|--------|
-| **SA-3(a)** | T47 integration: real-AWS write→backfill→overwrite→annotation-survives round-trip (`tests/integration/test_tools_write.py`) | 🚧 blocked — needs live AWS |
-| **SA-3(b)** | T48 integration: backfill→drop vectors→`reconcile_index` restores both link fields (`tests/integration/test_tools_reconcile.py`) | 🚧 blocked — needs live AWS |
-| **M14** | unit test for `list_object_annotations` `ContinuationToken` pagination (currently dead code under tests) | ⬜ todo |
-| 07-02 **#35** | `nextToken` multi-page test for `list_vectors_by_metadata` | ⬜ todo |
-| 07-02 **#36** | assert `register_tools` registers the full tool set | ⬜ todo |
-| Phase-12 **#26** | remaining: list-on-missing-object; orphaned-vector-skip (ties to M10) | ⬜ todo — orphaned-vector-skip test landed with M10 in `63e5665`; list-on-missing-object still open |
-| 07-02 **#33** | replace the 5 `set_credential_failure` call sites with `mocker.patch.object(..., side_effect=CredentialError)` and delete the deprecated method from `fake_bedrock.py` | ⬜ todo |
-| Phase-12 **#24** | add an autouse fixture to reset `_ANNOTATION_STORE` between tests (`conftest.py`) | ⬜ todo |
-| 07-02 **#34** | replace the brittle `inspect.getsource` substring assertion (`test_tools_migrate_artifacts.py`) | ⬜ todo |
+| **SA-3(a)** | T47 integration: real-AWS write→backfill→overwrite→annotation-survives round-trip (`tests/integration/test_tools_write.py`) | ✅ done |
+| **SA-3(b)** | T48 integration: backfill→drop vectors→`reconcile_index` restores both link fields (`tests/integration/test_tools_reconcile.py`) | ✅ done |
+| **M14** | unit test for `list_object_annotations` `ContinuationToken` pagination (currently dead code under tests) | ✅ done |
+| 07-02 **#35** | `nextToken` multi-page test for `list_vectors_by_metadata` | ✅ done |
+| 07-02 **#36** | assert `register_tools` registers the full tool set | ✅ done |
+| Phase-12 **#26** | remaining: list-on-missing-object; orphaned-vector-skip (ties to M10) | ✅ done — orphaned-vector-skip test landed with M10 in `63e5665`; list-on-missing-object added |
+| 07-02 **#33** | replace the 5 `set_credential_failure` call sites with `mocker.patch.object(..., side_effect=CredentialError)` and delete the deprecated method from `fake_bedrock.py` | ✅ done |
+| Phase-12 **#24** | add an autouse fixture to reset `_ANNOTATION_STORE` between tests (`conftest.py`) | ✅ done |
+| 07-02 **#34** | replace the brittle `inspect.getsource` substring assertion (`test_tools_migrate_artifacts.py`) | ✅ done |
 
 ### FC-6 — Docs / hygiene  *(tech-writer)*
 
@@ -233,8 +232,7 @@ commits (`7a697dd`, `63e5665`, `2aa1633`), which deliberately left `CHANGELOG.md
 2. ✅ **done** — **FC-1** (link-storage integrity), highest value; M4 outcome folded in. `63e5665`.
 3. ✅ **done** — **FC-2** (search/write validation). `1d554c2`.
 4. ✅ **done** — **FC-3** (robustness minors). `05321c4`.
-5. 🚧 **FC-5** (tests) — the 7 unit-level items can run now; the two SA-3 integration round-trips need a
-   live-AWS run (`aws sso login` first — the session was expired on 2026-08-07).
+5. ✅ **done** — **FC-5** (missing tests, incl. both SA-3 real-AWS integration round-trips). `6060f1d`.
 6. ⬜ **next** — **FC-4** (studio) and **FC-6** (docs) — parallelisable, lower risk. FC-6 now also owns the
    CHANGELOG entries for the five landed code commits (M3/M4, FC-1, M5/CA-5, FC-2, FC-3).
 
