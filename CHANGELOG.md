@@ -42,6 +42,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   time, so `sections_indexed` is accurate and no section's vector silently overwrites
   another's; the same disambiguation is shared between `write_artifact` and
   `reconcile_index`
+- `WRITE_PREFIX` validation now matches `READ_PREFIXES`'s strictness — it rejects
+  internal whitespace and values that collapse to empty after slash-stripping,
+  instead of accepting them
+- Metadata filter evaluator's `filter` parameter renamed to `filter_expr`, so it no
+  longer shadows the `filter` builtin
+- `check_synthesis_freshness` now batches its per-source vector lookups into a
+  single query instead of issuing one per unique source
+- The write path's section-embedding thread pool is now constructed lazily on
+  first use instead of at module import time
+- The reverse-reference lookup used by `delete_artifact` / `archive_artifact`
+  (checking whether other artifacts still reference the one being acted on) now
+  issues one vector-index query instead of two
 
 ### Added
 - `synthesise_artifacts` gained a configurable response-size budget — new
@@ -54,6 +66,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `search_artifacts` response now includes `fetch_exhausted: true` when the
   re-fetch loop's own fetch budget — not the true number of matching artifacts — is
   what limited the result count below `top_k`
+- `synthesise_artifacts` response now includes `zero_results` (matching
+  `search_artifacts`'s existing convention) and `skipped_count`, the latter
+  reporting per-candidate content-read failures that were previously dropped
+  silently
+- Vector client's `get_vectors` supports `include_data=False` for metadata-only
+  reads, skipping the underlying vector-float payload
 
 ### Fixed
 - Unknown/transient `ClientError`s during annotation writes on `write_artifact` no
@@ -72,6 +90,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   matching, fixing a silent no-op on `./`- or backslash-spelled paths
 - `search_artifacts` / `synthesise_artifacts` now default missing vector `tier`
   metadata to `0` instead of raising `KeyError`
+- Startup's write-prefix probe now uses a unique key per invocation instead of a
+  fixed one, so concurrent server starts against the same prefix no longer race on
+  the same S3 object
+- Startup's read-prefix check now verifies actual object-read access, not just
+  `ListBucket`, catching an IAM misconfiguration (list-but-not-read) at startup
+  instead of on the first `read_artifact` call
+- Startup's credentials check now distinguishes a missing/misnamed bucket from an
+  actual credentials failure, instead of reporting both under a misleading
+  "re-authenticate" message
+- A fresh artifact write with no `commit_refs` / `references` supplied no longer
+  issues two pointless annotation-delete calls
+- `link_metadata` now preserves partial `linked` / `skipped` progress in its
+  response when an annotation-unavailable condition cuts a batch short, instead of
+  discarding it
+- The local failure log is now guarded against concurrent-writer corruption with a
+  `flock`-based lock, gracefully degrading on non-POSIX platforms
+- Raw AWS/boto error text no longer leaks into `write_artifacts` error responses,
+  on both the top-level and per-artifact error paths
+- An unsupported filter operator or a mixed-type comparison (e.g. an int field
+  compared against a string operand) now raises a typed, catchable error instead
+  of a bare `ValueError` / `TypeError` that could abort a paginated query mid-way
+  and discard already-collected results
+- `decode_link_list` now drops empty segments produced by a malformed
+  comma-joined payload (e.g. a double comma) instead of including them as
+  empty-string list entries
+- A non-UTF-8 S3 object or annotation payload now raises a typed, classified
+  error instead of a bare `UnicodeDecodeError`
+- Metadata byte-budget validation now measures true UTF-8 size for non-ASCII
+  content (CJK, Arabic, etc.) instead of the inflated size of `json.dumps`'s
+  default ASCII-escaped representation, which could reject a value that actually
+  fit within budget
+- A migration manifest with two entries that normalise to the same path now
+  raises instead of silently letting the second entry overwrite the first
+- A newline embedded in an artifact's title or description no longer corrupts the
+  `cairn://artifacts` markdown table's row structure
+- Investigated and left unchanged: the `coerce_list_field` inconsistency flagged
+  for `delete_artifact` / `purge_archived` / `check_synthesis_freshness` is not a
+  real bug — vector metadata natively stores lists, so the direct access already
+  in use is behaviourally equivalent
+- Documented as an accepted limitation rather than fixed: a metadata value
+  written before the transport-encoding scheme existed (v0.5.0-era) that happens
+  to contain a literal `%XX`-shaped substring cannot be reliably distinguished on
+  read from an intentionally-encoded value without a persistent per-object
+  encoding-version marker — a schema-level decision out of scope for this fix
 
 ## [0.5.0] - 2026-06-29
 

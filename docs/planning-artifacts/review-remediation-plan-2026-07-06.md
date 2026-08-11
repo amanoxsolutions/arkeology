@@ -17,7 +17,7 @@ findings were **re-verified against merged `main` (`a4cf881`) on 2026-07-06** by
 agents; only the confirmed-still-valid items are listed here.
 
 - **Verification: complete.** **Fixes: in progress** — all four design-gated findings (M3, M4, M5,
-  CA-5), FC-1, and FC-2 are landed; FC-3/FC-4/FC-5/FC-6 remain. Per-finding status is tracked in the
+  CA-5), FC-1, FC-2, and FC-3 are landed; FC-4/FC-5/FC-6 remain. Per-finding status is tracked in the
   `Status` column of each cluster table below, and per-cluster status in each section's `Status` line.
 - Work now lands directly on `main` (trunk-based, per AGENTS.md), commit-per-cluster — the earlier
   `review-followup-2026-07-06` branch noted below was merged and deleted:
@@ -25,8 +25,10 @@ agents; only the confirmed-still-valid items are listed here.
   - `63e5665` — FC-1 link-storage integrity (M1, M2, M9, M10, M13).
   - `2aa1633` — M5 (cross-scope reference filtering) + CA-5 (synthesise response-size budget).
   - `1d554c2` — FC-2 search/write validation correctness (07-02 #2/#3/#4/#5/#7/#13).
-  Each passed the full quality gate and an independent code review with no defects left open (1101
-  unit tests green at `1d554c2`). The one other attempted fix — minor #38 — was found not applicable
+  - `05321c4` — FC-3 client/config/robustness minors (23 of 25 findings; 1 stale, 1 accepted
+    limitation — see the FC-3 table).
+  Each passed the full quality gate and an independent code review with no defects left open (1126
+  unit tests green at `05321c4`). The one other attempted fix — minor #38 — was found not applicable
   (see below). The standalone design-decision spec these four items were implemented against
   (`review-followup-2026-07-06-design-fixes.md`) has since been folded into the per-task specs that
   reference it and retired.
@@ -137,35 +139,38 @@ independent review clean after one Major fix (see below).
 
 ### FC-3 — Client / config / robustness minors  *(developer)*
 
-**Status: ⬜ todo** — 0/25 findings fixed. The M5 / CA-5 fold-in noted in the resume order is already done (`2aa1633`), so this cluster is unblocked.
+**Status: ✅ done** — 23/25 findings fixed in `05321c4`; 1 verified stale, 1 documented as an
+accepted, irresolvable ambiguity rather than force-fixed (see below). Full quality gate green
+(1126 unit tests), independent review clean after two Major fixes (fcntl platform guard,
+write_artifacts.py per-descriptor error sanitisation).
 
 | Finding | Item | Status |
 |---------|------|--------|
-| 07-02 **#8** | `WRITE_PREFIX` validation weaker than `READ_PREFIXES` (`config.py`) | ⬜ todo |
-| 07-02 **#9** | fixed startup probe key → concurrent-server race (`startup.py`) | ⬜ todo |
-| 07-02 **#10** | check 3 proves only `ListBucket` | ⬜ todo |
-| 07-02 **#11** | check 1 conflates missing bucket vs bad creds | ⬜ todo |
-| 07-02 **#14** | `coerce_list_field` used in delete but not purge/freshness | ⬜ todo |
-| 07-02 **#15** | `zero_results` asymmetry; synthesise silently drops failed reads | ⬜ todo |
-| 07-02 **#17** | `get_vectors` `returnData=True` wastes float arrays for metadata-only reads; freshness 1+N | ⬜ todo |
-| 07-02 **#18** | 300-thread executor at import (`write.py`) | ⬜ todo |
-| 07-02 **#19** | failure log: no lock/rotation, cwd-relative default path | ⬜ todo |
-| 07-02 **#20** | percent-decode mangles legacy `%XX` | ⬜ todo |
-| 07-02 **#21** | `_URL_PREFIXES` case-sensitive (`references.py`) | ⬜ todo |
-| 07-02 **#20** (`filter.py`) | `filter` shadows builtin | ⬜ todo |
-| 07-02 **#21** (`filter.py`) | unsupported op raises mid-pagination | ⬜ todo |
-| 07-02 **#22** (`filter.py`) | mixed-type comparison `TypeError` | ⬜ todo |
-| 07-02 **#31** (`resources.py`) | newline in description corrupts `cairn://artifacts` table | ⬜ todo |
-| 07-02 **#32** (`resources.py`) | typo "cairn studio— visual" | ⬜ todo |
-| 07-02 **#37** | raw boto messages — bucket/index names — leak to MCP callers | ⬜ todo |
-| Phase-12 **#15** | `decode_link_list` keeps interior empty segments | ⬜ todo |
-| Phase-12 **#16** | non-UTF-8 annotation → unclassified `UnicodeDecodeError` | ⬜ todo |
-| Phase-12 **#17** | `link_metadata` `annotation_unavailable` discards partial `linked`/`skipped` counts | ⬜ todo |
-| Phase-12 **#18** | `apply_link_annotations` issues 2 pointless deletes per fresh write + warns on annotation-less deployments | ⬜ todo |
-| Phase-12 **#19** | `json.dumps` defaults over-count budget — use `ensure_ascii=False, separators=(",",":")` | ⬜ todo |
-| Phase-12 **#23** | duplicate manifest paths last-win silently | ⬜ todo |
-| Phase-12 **#27** | `find_referrers` = 2 full-index scans per delete/archive — merge to one; ties to Phase-12 #17 | ⬜ todo |
-| Phase-12 **#12** (informational) | `SEARCH_FETCH_TOP_K le=100` — the real QueryVectors topK cap is 10 000 (confirmed by `test_top_k_over_documented_cap_is_rejected`); just annotate the bound's provenance | ⬜ todo |
+| 07-02 **#8** | `WRITE_PREFIX` validation weaker than `READ_PREFIXES` (`config.py`) | ✅ done (`05321c4`) — rejects internal whitespace and all-slashes-collapsing-to-empty, mirroring `READ_PREFIXES` |
+| 07-02 **#9** | fixed startup probe key → concurrent-server race (`startup.py`) | ✅ done (`05321c4`) — probe key is ULID-suffixed per invocation |
+| 07-02 **#10** | check 3 proves only `ListBucket` | ✅ done (`05321c4`) — `_check_read_prefixes` now also probes actual object-read access |
+| 07-02 **#11** | check 1 conflates missing bucket vs bad creds | ✅ done (`05321c4`) — `_check_credentials` distinguishes a missing-bucket `ClientError` from a real credentials failure |
+| 07-02 **#14** | `coerce_list_field` used in delete but not purge/freshness | ⛔ not applicable — verified stale: `purge.py`'s direct `meta.get(...)` is behaviourally equivalent for native-list vector metadata, `delete.py` never touches list fields directly (routes through `find_referrers`, which already uses `coerce_list_field`) |
+| 07-02 **#15** | `zero_results` asymmetry; synthesise silently drops failed reads | ✅ done (`05321c4`) — `synthesise_artifacts` gains `zero_results` (matching `search_artifacts`) and `skipped_count` for dropped per-candidate reads |
+| 07-02 **#17** | `get_vectors` `returnData=True` wastes float arrays for metadata-only reads; freshness 1+N | ✅ done (`05321c4`) — `get_vectors(..., include_data=False)` skips `returnData`; freshness batches its per-source lookups |
+| 07-02 **#18** | 300-thread executor at import (`write.py`) | ✅ done (`05321c4`) — `_EMBED_EXECUTOR` now lazily constructed on first use via module `__getattr__` (PEP 562) |
+| 07-02 **#19** | failure log: no lock/rotation, cwd-relative default path | ✅ done (`05321c4`) — `append_failure_entry` now holds an `fcntl.flock` around the write (POSIX-only, guarded import, degrades gracefully elsewhere); rotation/cwd-relative-path left as documented, operator-configurable limitations |
+| 07-02 **#20** | percent-decode mangles legacy `%XX` | ⚠️ accepted limitation, documented not fixed — a legacy literal `%XX` value and one produced by `encode_metadata_value`'s own escaping are byte-for-byte indistinguishable without a persistent per-object encoding-version marker (an ADR-level schema decision, out of scope for this cluster); recorded in `test_artifact.py` and `decode_metadata_value`'s docstring |
+| 07-02 **#21** | `_URL_PREFIXES` case-sensitive (`references.py`) | ⛔ not applicable — verified stale: a case-mismatched URL that misses the prefix check falls through to the path-lookup branch, which returns unchanged/`None` at every current call site (no manifest path ever coincidentally matches an uppercase-URL-shaped string) — no observable behaviour difference found |
+| 07-02 **#20** (`filter.py`) | `filter` shadows builtin | ✅ done (`05321c4`) — renamed to `filter_expr` throughout (`matches_filter`, `vectors.py`, `conftest.py`'s moto extension) |
+| 07-02 **#21** (`filter.py`) | unsupported op raises mid-pagination | ✅ done (`05321c4`) — raises typed `FilterEvaluationError` instead of bare `ValueError` |
+| 07-02 **#22** (`filter.py`) | mixed-type comparison `TypeError` | ✅ done (`05321c4`) — `$gte`/`$lte` comparisons now catch mixed-type `TypeError` and re-raise `FilterEvaluationError` |
+| 07-02 **#31** (`resources.py`) | newline in description corrupts `cairn://artifacts` table | ✅ done (`05321c4`) — cell values collapse `\n`/`\r`/`\r\n` alongside the existing `|` escaping |
+| 07-02 **#32** (`resources.py`) | typo "cairn studio— visual" | ✅ done (`05321c4`) |
+| 07-02 **#37** | raw boto messages — bucket/index names — leak to MCP callers | ✅ done (`05321c4`) — sanitised at both the top-level and per-descriptor `write_artifacts` handlers (the latter added during review follow-up) |
+| Phase-12 **#15** | `decode_link_list` keeps interior empty segments | ✅ done (`05321c4`) — filters out empty segments after `.split(",")` |
+| Phase-12 **#16** | non-UTF-8 annotation → unclassified `UnicodeDecodeError` | ✅ done (`05321c4`) — new typed `NonUtf8PayloadError` raised at both S3 decode sites |
+| Phase-12 **#17** | `link_metadata` `annotation_unavailable` discards partial `linked`/`skipped` counts | ✅ done (`05321c4`) — accumulated progress preserved in the response |
+| Phase-12 **#18** | `apply_link_annotations` issues 2 pointless deletes per fresh write + warns on annotation-less deployments | ✅ done (`05321c4`) — `write.py`'s fresh-create path skips the call entirely when neither link field was supplied; overwrite path unaffected (FC-2's M4 replace-semantics untouched, independently verified) |
+| Phase-12 **#19** | `json.dumps` defaults over-count budget — use `ensure_ascii=False, separators=(",",":")` | ✅ done (`05321c4`) — `ensure_ascii=False` applied (the `separators` half was scoped out during review as a safe, conservative simplification — only makes the estimate more conservative, never under-counts) |
+| Phase-12 **#23** | duplicate manifest paths last-win silently | ✅ done (`05321c4`) — new typed `DuplicateManifestPathError` raised on collision instead of silent overwrite |
+| Phase-12 **#27** | `find_referrers` = 2 full-index scans per delete/archive — merge to one; ties to Phase-12 #17 | ✅ done (`05321c4`) — merged into one `list_vectors_by_metadata` call via a combined `$or`, in-process branch per candidate's `type`; return-value equivalence independently verified algebraically and empirically |
+| Phase-12 **#12** (informational) | `SEARCH_FETCH_TOP_K le=100` — the real QueryVectors topK cap is 10 000 (confirmed by `test_top_k_over_documented_cap_is_rejected`); just annotate the bound's provenance | ✅ done (`05321c4`) — field docstring now states the 100 ceiling is an application-level choice, not an AWS limit |
 
 ### FC-4 — Studio UI hardening  *(developer; part enhancement — `static/cairn-studio.html`)*
 
@@ -227,12 +232,11 @@ commits (`7a697dd`, `63e5665`, `2aa1633`), which deliberately left `CHANGELOG.md
    Implemented in `7a697dd` (M3, M4) and `2aa1633` (M5, CA-5).
 2. ✅ **done** — **FC-1** (link-storage integrity), highest value; M4 outcome folded in. `63e5665`.
 3. ✅ **done** — **FC-2** (search/write validation). `1d554c2`.
-4. ⬜ **next** — **FC-3** (robustness minors) — the M5 and CA-5 fold-in is already done, so no longer
-   gated.
+4. ✅ **done** — **FC-3** (robustness minors). `05321c4`.
 5. 🚧 **FC-5** (tests) — the 7 unit-level items can run now; the two SA-3 integration round-trips need a
    live-AWS run (`aws sso login` first — the session was expired on 2026-08-07).
-6. ⬜ **FC-4** (studio) and **FC-6** (docs) — parallelisable, lower risk. FC-6 now also owns the CHANGELOG
-   entries for the four landed code commits (M3/M4, FC-1, M5/CA-5, FC-2).
+6. ⬜ **next** — **FC-4** (studio) and **FC-6** (docs) — parallelisable, lower risk. FC-6 now also owns the
+   CHANGELOG entries for the five landed code commits (M3/M4, FC-1, M5/CA-5, FC-2, FC-3).
 
 ## Cross-references
 
