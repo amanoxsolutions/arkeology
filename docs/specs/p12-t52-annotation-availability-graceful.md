@@ -31,7 +31,7 @@ revised:
 ## TL;DR
 
 Handle S3 object annotation availability and IAM as a **feature-level** concern, not a hard server
-startup gate (ADR-011 D15). Add a one-time availability + IAM-permission probe to the
+startup gate (ADR-011 decision 5). Add a one-time availability + IAM-permission probe to the
 `setting-up-arkeology` skill; document the four required IAM actions and the unavailable regions /
 bucket types in the README; handle annotation-unavailable / access-denied errors gracefully at
 runtime in `link_metadata` and the write path (structured, actionable, never a raw exception — the
@@ -40,8 +40,9 @@ reference-healing guidance to the AGENTS.md snippet. (FR-57, NFR-12, AC-62.)
 
 ## Problem Statement
 
-Annotations are unavailable in some regions (UAE, Bahrain) and on some bucket types (S3 Express One
-Zone, Outposts, directory buckets) and need IAM actions beyond core storage. Because annotations
+Annotations are unavailable in some regions (UAE, Bahrain) and on some bucket types (directory
+buckets, which is what the S3 Express One Zone storage class uses, and Outposts buckets) and need
+IAM actions beyond core storage. Because annotations
 back only the `commit_refs` / `references` feature — not the core store — refusing to boot over an
 annotation problem would be disproportionate. Instead the deployment needs a friendly early check at
 setup and graceful degradation at runtime to cover post-setup drift (an IAM edit, a bucket/region
@@ -65,7 +66,7 @@ change) a one-time check cannot catch.
 **Acceptance criteria:**
 - Given a deployment where annotations are unavailable, when the server starts then startup
   validation still passes and the server serves content and search — annotation availability is NOT
-  a startup check. (ADR-011 D15)
+  a startup check. (ADR-011 decision 5)
 
 ### Story 3 — Setup probe reports availability + IAM (P1)
 
@@ -100,13 +101,13 @@ change) a one-time check cannot catch.
   return its normal success payload plus a top-level `warning` noting durable link storage is
   unavailable — the artifact is never lost.
 - WHEN the server starts THE SYSTEM SHALL NOT add an annotation availability startup check
-  (ADR-011 D15) — the existing startup sequence is unchanged.
+  (ADR-011 decision 5) — the existing startup sequence is unchanged.
 - WHEN the `setting-up-arkeology` skill runs its pre-flight checks THE SYSTEM SHALL add an annotation
   availability + IAM probe (CLI ≥ 2.35.14 or boto3 `uv run` fallback) that put→get→deletes a
   throwaway annotation and reports the outcome + the four IAM actions.
 - WHEN the README reference policy is updated THE SYSTEM SHALL list `s3:PutObjectAnnotation`,
   `s3:GetObjectAnnotation`, `s3:ListObjectAnnotations`, `s3:DeleteObjectAnnotation` and the
-  unavailable regions (UAE, Bahrain) and bucket types (S3 Express One Zone, Outposts, directory).
+  unavailable regions (UAE, Bahrain) and bucket types (directory / S3 Express One Zone, Outposts).
 - WHEN the AGENTS.md snippet is updated THE SYSTEM SHALL add the two D9 guidance clauses and switch
   the post-commit protocol to `link_metadata`.
 
@@ -120,7 +121,7 @@ change) a one-time check cannot catch.
   not lost.
 
 **Ask First:**
-- Nothing — placement and behaviour fixed by ADR-011 D15 / FR-57.
+- Nothing — placement and behaviour fixed by ADR-011 decision 5 / FR-57.
 
 **Never:**
 - Do not add a seventh/eighth startup check for annotations.

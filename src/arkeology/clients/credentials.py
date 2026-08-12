@@ -62,8 +62,9 @@ _CREDENTIAL_EXCEPTION_TYPES: tuple[type[Exception], ...] = (
 )
 
 # botocore error codes that indicate S3 object annotations are unavailable — either
-# because the operation is not supported for this region/bucket type (e.g. UAE,
-# Bahrain, S3 Express One Zone, Outposts, directory buckets) or the caller lacks the
+# because the operation is not supported for this region/bucket type (e.g. the UAE
+# and Bahrain regions; directory buckets, the bucket type the S3 Express One Zone
+# storage class uses; and Outposts buckets) or the caller lacks the
 # required IAM permission. Not an official AWS-documented enumeration (annotations
 # are a newer S3 feature); this is the set observed/expected per ADR-011 decision 5
 # and is deliberately distinct from CREDENTIAL_ERROR_CODES above — "AccessDenied" here

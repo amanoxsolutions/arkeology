@@ -524,10 +524,11 @@ async def test_read_commit_refs_multiple_shas_from_vector_metadata(
 ) -> None:
     """commit_refs: ['prev123', 'new456'] in vector metadata → response returns both SHAs.
 
-    Simulates post-link_commit state where S3 object metadata has no commit_refs at all.
+    Simulates post-link_metadata state where S3 object metadata has no commit_refs at all.
     """
     settings = _make_settings(monkeypatch)
-    # S3 object metadata intentionally has no commit_refs key — link_commit only updates vectors
+    # S3 object metadata intentionally has no commit_refs key — link_metadata writes vector
+    # metadata and the durable S3 annotation copy, never object metadata
     s3_client.put_object("artifacts/post-link-commit", "Content.", {**_BASE_METADATA})
     vectors_client_2.put_vector(
         key="artifacts/post-link-commit#section-0",

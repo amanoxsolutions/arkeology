@@ -140,8 +140,8 @@ skill or starting the server manually:
   deleting and recreating the index, which loses all stored vectors
 - **S3 object annotations** (optional) — back the `commit_refs` / `references` link-tracking
   feature (`link_metadata` and the write path's dual-write). Unavailable in the UAE and Bahrain
-  regions and on S3 Express One Zone, Outposts, and directory buckets — no IAM change fixes a
-  bucket in one of these categories. The `setting-up-arkeology` skill probes availability and IAM
+  regions and on directory buckets (the bucket type the S3 Express One Zone storage class uses)
+  and Outposts buckets — no IAM change fixes a bucket of one of these types. The `setting-up-arkeology` skill probes availability and IAM
   permissions during setup; the core server starts and serves content, search, and embeddings
   normally when annotations are unavailable — only this one feature degrades. See the
   [Server Reference](SERVER-REFERENCE.md#minimum-iam-policy) for the required IAM actions

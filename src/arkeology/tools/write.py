@@ -452,7 +452,7 @@ async def _write_artifact_inner(  # noqa: PLR0913
     if is_existing and not overwrite:
         return _collision_response()
 
-    # ── Step 4a/4b: Read-forward + merge commit_refs; replace references (ADR-011 D4);
+    # ── Step 4a/4b: Read-forward + merge commit_refs; replace references (ADR-011 decision 4);
     # optimistic-concurrency compare-and-swap around both writes (ADR-011 decision 6) ──
     #
     # PutObject clears S3 annotations, so an in-place re-PUT (a tier-3 living-document

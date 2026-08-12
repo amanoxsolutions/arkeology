@@ -60,8 +60,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The reverse-reference lookup used by `delete_artifact` / `archive_artifact`
   (checking whether other artifacts still reference the one being acted on) now
   issues one vector-index query instead of two
+- `arkeology_studio`'s plain-text fallback listing, used on hosts that cannot render
+  the visual browser, is now capped at the 50 most recent artifacts and reports the
+  total count, pointing at `list_artifacts` when truncated. Previously it emitted every
+  artifact, so the listing grew without bound on large stores
+- `reconcile_index`'s orphan scan now skips every own-scope key whose final path
+  segment begins with `_arkeology_`, a prefix now reserved for internal probe objects.
+  Previously two specific probe names were hard-coded, so the setup skill's annotation
+  probe could be reported as an orphaned artifact. No generated artifact id can collide
+  with the prefix
 
 ### Added
+- `search_artifacts` now accepts `status="all"`, the same all-inclusive sentinel
+  `list_artifacts` already accepted, returning matches regardless of status. It was
+  previously rejected with a `validation_error`, which left a caller holding an
+  explicit "any status" filter — such as the studio's status facet, whose default is
+  `"all"` — with no correct way to express it. This is a strict widening: omitting
+  `status` still defaults to active-only, `"active"` / `"inactive"` are unchanged, and
+  any unrecognised value still returns a `validation_error`
+- The studio renders `arkeology://artifact/{id}` links in artifact content as
+  activatable controls that open the target in its own detail view. Links that cannot
+  be resolved — non-artifact `arkeology://` resources, malformed URIs, and the raw
+  repository paths migration leaves behind — render as inert text rather than as dead
+  or navigable links. Access control is unchanged; the server-side scope gate remains
+  the sole authority
+- The studio's artifact list now renders 50 rows at a time behind a "Show more"
+  control that reports how many of how many artifacts are shown
 - `synthesise_artifacts` gained a configurable response-size budget — new
   `SYNTHESISE_MAX_RESPONSE_BYTES` setting (default 1,000,000 bytes / 1 MB), measured
   as the UTF-8 byte length of the result's `content` field. Results assemble in rank
@@ -80,6 +104,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reads, skipping the underlying vector-float payload
 
 ### Fixed
+- A `read_artifact` failure in the studio now shows the server's own error message with
+  the detail view open, instead of a blank body
+- The `setting-up-arkeology` skill's annotation probe now always removes its probe
+  object, reporting the exact key and removal command if cleanup fails. Previously an
+  `AccessDenied` during the probe could strand the object in the bucket
 - Unknown/transient `ClientError`s during annotation writes on `write_artifact` no
   longer escape as `internal_error`; the S3 content is already durable, so the
   failure is now logged and surfaced as `partial_write`, matching existing

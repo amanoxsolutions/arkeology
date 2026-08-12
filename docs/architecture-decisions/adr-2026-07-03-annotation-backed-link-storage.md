@@ -193,8 +193,9 @@ help) are:
 - `s3:ListObjectAnnotations`
 - `s3:DeleteObjectAnnotation`
 
-Annotations are **unavailable** in the UAE and Bahrain regions and on **S3 Express One Zone**,
-**Outposts**, and **directory** buckets. These are documented in the README, not enforced at startup.
+Annotations are **unavailable** in the UAE and Bahrain regions and on **directory buckets** — the
+bucket type the **S3 Express One Zone** storage class uses, so these are one category, not two — and
+on **Outposts** buckets. These are documented in the README, not enforced at startup.
 
 ### 6. Optimistic concurrency (ETag compare-and-swap) for durable read-modify-write cycles
 

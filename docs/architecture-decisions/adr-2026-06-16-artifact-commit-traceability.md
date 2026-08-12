@@ -33,7 +33,7 @@ V1 trigger mechanism.
 
 ## Status
 
-Superseded by [adr-2026-07-03-annotation-backed-link-storage.md](adr-2026-07-03-annotation-backed-link-storage.md).
+Partially superseded by [adr-2026-07-03-annotation-backed-link-storage.md](adr-2026-07-03-annotation-backed-link-storage.md).
 
 **Only the "Vector-only `commit_refs` storage (V1)" decision is superseded** — along with its
 consequence that `reconcile_index` drops commit links. The durable store for the mutable link

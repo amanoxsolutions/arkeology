@@ -234,8 +234,9 @@ Two statements above are conditional on which features you use:
 - `S3ObjectAnnotations` backs the `commit_refs` / `references` link-tracking feature
   (`link_metadata` and the write path's dual-write). It is optional — the server degrades this
   one feature gracefully, rather than failing startup, when these actions are absent. This
-  statement is unavailable in the UAE and Bahrain regions and on S3 Express One Zone, Outposts,
-  and directory buckets — see [Prerequisites](README.md#prerequisites) for the operational
+  statement is unavailable in the UAE and Bahrain regions and on directory buckets (the bucket
+  type the S3 Express One Zone storage class uses) and Outposts buckets — see
+  [Prerequisites](README.md#prerequisites) for the operational
   impact and the `setting-up-arkeology` skill's availability probe.
 - `BedrockTextModel` is required only if you use `migrate_artifacts`. In `us-east-1`, use the
   foundation-model ARN shown above; in all other regions, replace it with the cross-region

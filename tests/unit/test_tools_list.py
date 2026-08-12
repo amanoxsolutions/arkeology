@@ -241,7 +241,7 @@ async def test_status_all_returns_active_and_inactive(
     monkeypatch: pytest.MonkeyPatch,
     vectors_client_8: VectorsClientImpl,
 ) -> None:
-    """status='all' (M-11d) → both active and inactive own-scope artifacts returned;
+    """status='all' → both active and inactive own-scope artifacts returned;
     previously the browser Studio's "All" filter was unreachable because omitting the
     status arg fell back to the "active" default."""
     settings = _make_settings(monkeypatch)

@@ -59,10 +59,12 @@ async def list_artifacts(
             team: Optional team filter.
         project: Optional project filter.
         tier: Optional tier filter.
-        status: Status filter (default "active"). Pass "all" (M-11d) to return
-            artifacts regardless of status — this is the only sentinel value
-            recognised; any other string is matched literally against the
-            stored status.
+        status: Status filter (default "active"). Pass "all" to return
+            artifacts regardless of status — the status clause is omitted
+            entirely rather than matched literally, since "all" is not a
+            stored status. It is the only sentinel recognised; any other
+            value must be a valid status, and an unrecognised one returns
+            a validation error rather than silently matching nothing.
 
     Returns:
         On success: ``{"artifacts": [...]}``
