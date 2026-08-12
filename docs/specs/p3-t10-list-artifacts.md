@@ -93,6 +93,14 @@ their listing.
 > `loadList` then omitted from the call arguments — falling through to the server's
 > `status="active"` default and making "All" unreachable. Any other literal value (including
 > the default `"active"`) still filters normally; `"all"` is the only recognised sentinel.
+>
+> **Not list-specific (2026-08-12).** This sentinel was introduced here but is not a property of
+> `list_artifacts` — it is a property of the `status` parameter, and every query-shaped tool that
+> exposes one honours it identically. It was not propagated to `search_artifacts` at the time,
+> which left the two tools disagreeing about the same argument until
+> `docs/specs/p2-t8-search-artifacts.md`'s `> **Revised (2026-08-12)**` note closed the gap. The
+> convention, and its obligation on any future tool exposing `status`, is recorded in
+> `docs/architecture-decisions/adr-2026-08-12-status-all-sentinel-convention.md`.
 - WHEN filters are applied THE SYSTEM SHALL evaluate them server-side using the metadata
   stored in the vector index; no S3 reads are required for the list operation.
 - WHEN cross-scope results are assembled THE SYSTEM SHALL include foreign-scope artifacts

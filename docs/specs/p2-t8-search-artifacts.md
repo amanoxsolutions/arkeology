@@ -9,13 +9,14 @@ feature: p2-t8-search-artifacts
 status: ready
 phase: 2
 task: 8
-references: []
+references:
+  - docs/architecture-decisions/adr-2026-08-12-status-all-sentinel-convention.md
 authored:
   by: "architect"
   date: "2026-05-30"
 revised:
-  by: ""
-  date: ""
+  by: "architect"
+  date: "2026-08-12"
 ---
 
 # T8 — Search Artifacts Tool
@@ -88,6 +89,13 @@ other types and feature tags.
   `search_artifacts` is called, then all returned artifacts have `"payments"` in their
   `tags`.
 - Given `tier=3` filter, when `search_artifacts` returns, then all results are tier 3.
+- Given a mix of active and archived artifacts matching the query, when `search_artifacts` is
+  called without a `status` argument, then only active artifacts are returned.
+- Given the same mix, when `search_artifacts` is called with `status="all"`, then both active
+  and archived artifacts are returned. *(Added 2026-08-12 — see the revision note under
+  Requirements.)*
+- Given `status="activ"` or any other unrecognised value, when `search_artifacts` is called,
+  then a `validation_error` is returned — the result set is never silently widened by a typo.
 
 ## Requirements
 
@@ -102,6 +110,23 @@ other types and feature tags.
 - WHEN building the filter for each S3 Vectors call THE SYSTEM SHALL include: user-provided
   metadata filters (type, tags, team, project, tier), a `status="active"` gate
   (archived artifacts excluded by default), and `artifact_id $nin already_seen_ids`.
+
+> **Revised (2026-08-12).** `status="all"` is now recognised as an explicit all-inclusive
+> sentinel, identically to `list_artifacts`: the status clause is omitted from the filter
+> entirely, so artifacts are returned regardless of status. It is checked before enum
+> validation and is never matched as a literal — `"all"` is not an `ArtifactStatus` member, so
+> filtering on the string would match no stored status and silently return zero results on
+> every call. Previously `search_artifacts` validated `status` against `ArtifactStatus`
+> unconditionally and rejected `"all"` with a `validation_error`, so a caller holding an
+> explicit "any status" filter — `arkeology_studio`'s status facet, which defaults to `"all"` —
+> could neither forward it (search errored on the facet's own default) nor omit it (search
+> silently returned active-only results while the UI displayed "All"). The sentinel had been
+> added to `list_artifacts` as a point fix and never propagated to its sibling. This is a
+> strict widening: `status` omitted still defaults to active-only, `"active"` and `"inactive"`
+> still validate and filter normally, and any unrecognised value still returns a
+> `validation_error`. `"all"` is the only recognised sentinel. Rationale and the cross-tool
+> convention binding any future tool that exposes a `status` parameter:
+> `docs/architecture-decisions/adr-2026-08-12-status-all-sentinel-convention.md`.
 - WHEN the index returns multiple section vectors for the same artifact THE SYSTEM SHALL
   group them by `artifact_id` and keep only the highest-scoring section's score as the
   artifact score.
@@ -141,9 +166,17 @@ other types and feature tags.
   consistency), `vectors`, and `bedrock` as injected dependencies.
 
 **Ask First:**
-- Whether to include `inactive` (archived) artifacts when `status` is explicitly passed as
+- ~~Whether to include `inactive` (archived) artifacts when `status` is explicitly passed as
   a filter parameter. Default assumed: passing `status="inactive"` overrides the default
-  active-only gate.
+  active-only gate.~~ **Resolved (2026-08-12).** The assumed default is confirmed and there
+  are now two explicit overrides, not one: `status="inactive"` returns archived artifacts
+  only, and the `status="all"` sentinel returns artifacts regardless of status by omitting the
+  clause entirely. Omitting `status` still means active-only, so archived artifacts are
+  excluded unless asked for — which is what FR-05 requires "by default" and what its wording
+  already permits to be overridden. Any value other than a recognised `ArtifactStatus` member
+  or the `"all"` sentinel is a `validation_error`; the result set is never widened by an
+  unrecognised value. See the revision note under Requirements and
+  `docs/architecture-decisions/adr-2026-08-12-status-all-sentinel-convention.md`.
 
 **Never:**
 - Do not fetch S3 object content during search — all data returned must come from S3 Vectors
