@@ -22,7 +22,7 @@ scope, `local_only_paths`) and, if present, `ARKEOLOGY_IMPORT.yaml` in the repo 
 context this skill depends on: the config block supplies the own-scope `team`/`project` filter
 for every tool call, and a still-present manifest is the most accurate source for the
 path→full-key map (Step 2 below). The map's values are the full S3 key — the operative
-`artifact_id` used everywhere else in Arkeology — not a bare id (review finding C1).
+`artifact_id` used everywhere else in Arkeology — not a bare id.
 
 ## Gotchas
 
@@ -64,7 +64,7 @@ path→full-key map (Step 2 below). The map's values are the full S3 key — the
    bare id alone — the full S3 key is the operative `artifact_id` everywhere else in Arkeology
    (`write_artifact`'s vector metadata, `read_artifact`'s scope gate, the own-scope existence
    check in step 4 below, and `link_metadata`'s target ids in step 8) — a map keyed to the bare
-   id alone never matches any of them (review finding C1).
+   id alone never matches any of them.
 
    **Determine `write_prefix` first.** Call `list_artifacts(team=<team>, project=<project>,
    status="active")` (this doubles as the enumeration needed in step 4 below — do not call it
@@ -175,8 +175,8 @@ path→full-key map (Step 2 below). The map's values are the full S3 key — the
    | myteam/myproject/adr-...-a1b2c3d4.md | ./decisions/xyz.md | myteam/myproject/adr-2026-...-c9d0e1f2.md |
    ```
 
-   `Artifact` and `Resolves to` are always the full S3 key (the operative `artifact_id`,
-   review finding C1) — never the bare id shown without its `write_prefix`.
+   `Artifact` and `Resolves to` are always the full S3 key (the operative `artifact_id`) —
+   never the bare id shown without its `write_prefix`.
 
    If the proposed-candidates table is empty, say so explicitly ("No backfill candidates
    found — every resolvable frontmatter reference is already backfilled") and stop; there is

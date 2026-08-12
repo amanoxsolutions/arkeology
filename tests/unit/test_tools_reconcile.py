@@ -983,6 +983,82 @@ async def test_nested_probe_key_also_excluded(
     assert result.get("orphans_found", 0) == 0
 
 
+async def test_annotation_probe_key_excluded_from_orphans(
+    reconcile_settings: Settings,
+    s3_reconcile: S3ClientImpl,
+    vectors_reconcile: VectorsClientImpl,
+) -> None:
+    """Setup skill's `_arkeology_annotation_probe` leftover is never treated as an orphan."""
+    s3_reconcile.put_object("artifacts/_arkeology_annotation_probe", "probe", {})
+    bedrock = FakeBedrockClient(dimension=DIMENSION)
+
+    result = await reconcile_index(
+        settings=reconcile_settings,
+        s3=s3_reconcile,
+        vectors=vectors_reconcile,
+        bedrock=bedrock,
+    )
+
+    assert result.get("orphans_found", 0) == 0
+    assert "_arkeology_annotation_probe" not in str(result)
+
+
+async def test_annotation_probe_excluded_but_real_orphan_found(
+    reconcile_settings: Settings,
+    s3_reconcile: S3ClientImpl,
+    vectors_reconcile: VectorsClientImpl,
+) -> None:
+    """The `_arkeology_` exclusion filters probes only — a real orphan is still re-indexed."""
+    s3_reconcile.put_object("artifacts/_arkeology_annotation_probe", "probe", {})
+    s3_reconcile.put_object(
+        "artifacts/code-review-2026-05-30-orphan",
+        "## Summary\n\nOrphan content.",
+        {
+            "type": "code_review",
+            "team": "platform",
+            "project": "arkeology",
+            "tier": "2",
+            "date": "2026-05-30",
+            "status": "active",
+            "title": "Orphan",
+            "visibility": "shared",
+            "description": "An orphan",
+        },
+    )
+    bedrock = FakeBedrockClient(dimension=DIMENSION)
+
+    result = await reconcile_index(
+        settings=reconcile_settings,
+        s3=s3_reconcile,
+        vectors=vectors_reconcile,
+        bedrock=bedrock,
+    )
+
+    assert result.get("orphans_found", 0) == 1
+    reconciled_ids = [e["artifact_id"] for e in result.get("reconciled", [])]
+    assert reconciled_ids == ["artifacts/code-review-2026-05-30-orphan"]
+    assert "_arkeology_annotation_probe" not in str(result)
+
+
+async def test_future_probe_key_excluded_without_code_change(
+    reconcile_settings: Settings,
+    s3_reconcile: S3ClientImpl,
+    vectors_reconcile: VectorsClientImpl,
+) -> None:
+    """Any key whose final segment starts with `_arkeology_` is excluded — no per-name patch."""
+    s3_reconcile.put_object("artifacts/nested/_arkeology_some_future_probe", "probe", {})
+    bedrock = FakeBedrockClient(dimension=DIMENSION)
+
+    result = await reconcile_index(
+        settings=reconcile_settings,
+        s3=s3_reconcile,
+        vectors=vectors_reconcile,
+        bedrock=bedrock,
+    )
+
+    assert result.get("orphans_found", 0) == 0
+
+
 # ---------------------------------------------------------------------------
 # Spec 13 — CredentialError tests for reconcile call sites
 # ---------------------------------------------------------------------------

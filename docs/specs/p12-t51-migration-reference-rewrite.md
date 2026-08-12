@@ -13,14 +13,14 @@ references:
   - docs/architecture-decisions/adr-2026-07-03-artifact-cross-referencing.md
   - docs/architecture-decisions/adr-2026-05-29-deterministic-artifact-ids.md
   - docs/specs/p12-t46-references-field.md
-  - skills/migrating-to-arkeology/SKILL.md
+  - plugins/arkeology/skills/migrating-to-arkeology/SKILL.md
   - docs/planning-artifacts/prd.md
 authored:
   by: "architect"
   date: "2026-07-03"
 revised:
   by: "tech-writer"
-  date: "2026-07-04"
+  date: "2026-08-12"
 ---
 
 # T51 — Migration Frontmatter Reference Rewriting + `arkeology://` Content Rewrite
@@ -46,6 +46,20 @@ markdown links are out of scope. (FR-52, AC-58.)
 > "repair" of a genuinely broken reference that D6 deliberately excludes; a `../` that escapes above
 > the repo root still normalizes to a path absent from the map and falls through to unresolved. See
 > the Requirements/Boundaries additions below.
+
+> **Revised 2026-08-12 (tech-writer).** OQ-T51-a's "helpers are authoritative, the skill
+> documents the same algorithm" split shipped with nothing holding the two sides together.
+> `plugins/arkeology/skills/migrating-to-arkeology/SKILL.md` ("Building the path→full-key
+> map") and `plugins/arkeology/skills/backfilling-references/SKILL.md` (Workflow step
+> "Build the path→full-key map") each carry a
+> standalone `python3` snippet that recomputes the identifier, and `src/arkeology/references.py`'s
+> module docstring tells the reader not to reimplement the algorithm — while two copies of it sit
+> in the skills, unguarded: either can drift from `generate_artifact_id` without any test failing,
+> and the result is a migration that resolves every reference to an identifier no artifact will
+> ever have. **Decision (operator, 2026-08-12): add a drift test; do not attempt to
+> single-source.** The skills must compute identifiers *offline*, during a migration or backfill
+> run, before the server is necessarily reachable or even installed, so importing `references.py`
+> is not available to them. Story 5 and the requirements below pin the two copies behaviourally.
 
 ## Problem Statement
 
@@ -101,6 +115,34 @@ the primary risk (ADR-012 D1/D5/D6).
   tier 2 content is never retroactively patched. (FR-52)
 - Given in-body markdown links, then they are NOT rewritten (out of scope). (ADR-012 D1)
 
+### Story 5 — The skills' offline ID algorithm cannot drift from the server's (P1)
+
+A migration or backfill run computes identifiers before any artifact exists, from a
+`python3` snippet documented in the skill. If `generate_artifact_id` changes and the snippets
+do not, every reference resolves to an identifier no artifact will ever have — the whole
+rewrite silently produces dead links, and nothing fails.
+
+**Acceptance criteria:**
+- Given the ID-computation snippet documented in
+  `plugins/arkeology/skills/migrating-to-arkeology/SKILL.md`, when it is executed over a shared
+  table of representative inputs, then for every input it produces exactly the full key
+  `f"{write_prefix}/{generate_artifact_id(tier=…, type=…, date=…, title=…)}{extension}"`.
+- Given the same for `plugins/arkeology/skills/backfilling-references/SKILL.md`, then the same
+  equality holds — both skills are covered, neither by transitive assumption from the other.
+- Given a change to `generate_artifact_id`'s slug rules, hash length, hash input, or tier-2 /
+  tier-3 component order that is not mirrored in a skill snippet, when the suite runs, then the
+  drift test fails and names the diverging input.
+- Given the input table, then it exercises at minimum: tier 2 and tier 3; a type containing an
+  underscore; a non-ASCII title; a title whose punctuation collapses to the same slug as another;
+  a title longer than the 60-character slug truncation; a title that slugifies to empty (the
+  `artifact` fallback); and a path with and without a file extension.
+- Given the test, then it makes **no assertion about the skill's source text** — no substring
+  match, no `inspect.getsource` comparison. A source-text assertion passes as long as the text is
+  present and says nothing about what the algorithm computes. It asserts only on computed outputs.
+- Given a skill file whose documented snippet can no longer be located for execution (block
+  moved, renamed, or deleted), when the test runs, then it fails — an unlocatable algorithm is
+  itself drift, not a reason to skip.
+
 ## Requirements
 
 - WHEN migration begins THE SYSTEM (skill flow) SHALL build a single path→`artifact_id` map from the
@@ -129,6 +171,21 @@ the primary risk (ADR-012 D1/D5/D6).
 - WHEN the resolution / normalization logic is implemented as pure helpers THE SYSTEM SHALL make them
   unit-testable (no AWS, no I/O) so the algorithm is verifiable independently of the skill prose.
 
+**Skill-side identifier computation:**
+
+- WHEN a skill documents the offline identifier computation THE SYSTEM SHALL keep that
+  documented algorithm behaviourally identical to `src/arkeology/artifact.py::generate_artifact_id`
+  composed into the full key form `{write_prefix}/{bare_id}{extension}`.
+- WHEN the unit suite runs THE SYSTEM SHALL execute each skill's documented snippet — extracted
+  from the SKILL.md file itself, never retyped into the test — over a shared input table and
+  SHALL fail if any produced identifier differs from the server's for the same input.
+- WHEN the drift test cannot locate a skill's documented snippet THE SYSTEM SHALL fail rather
+  than skip.
+- WHEN the drift test asserts THE SYSTEM SHALL assert on computed identifiers only and SHALL NOT
+  assert on the skill's source text (no substring or `inspect.getsource` comparison).
+- WHEN a new skill introduces its own offline identifier computation THE SYSTEM SHALL add it to
+  the same parameterised drift test rather than leaving it unguarded.
+
 ## Boundaries
 
 **Always:**
@@ -140,6 +197,9 @@ the primary risk (ADR-012 D1/D5/D6).
   the D6 normalization ceiling — this is resolution, not repair: an escaping
   `../` still falls through to unresolved, it does not raise or get special-cased.
 - Mixed addressing (`arkeology://…` next to raw `/docs/…`) is the correct permanent steady state (D3).
+- The skills keep their own offline copy of the ID algorithm — they must compute identifiers
+  before the server is reachable — and that copy is held to the server's behaviour by a drift
+  test, not by import.
 
 **Ask First:**
 - Nothing — scope and ceiling fixed by ADR-012.
@@ -151,6 +211,10 @@ the primary risk (ADR-012 D1/D5/D6).
 - Do not retroactively rewrite already-written tier 2 content (D8).
 - Do not add server-side rewrite logic inside `migrate_artifacts` beyond threading the `references`
   descriptor key (ADR-012 rejected server-side rewrite; the skill orchestrates).
+- Do not try to single-source the skills' ID computation by importing `references.py` /
+  `artifact.py` from the skill, shelling out to the installed package, or calling an MCP tool —
+  the skills run before the server is necessarily installed or reachable (decided 2026-08-12).
+- Do not assert on skill source text in the drift test — behavioural equivalence only.
 
 <!-- IMPLEMENTATION BLOCK — agent-owned -->
 
@@ -160,7 +224,19 @@ the primary risk (ADR-012 D1/D5/D6).
 |------|--------|-------|
 | `tests/unit/test_references_resolution.py` | Create | Pure-helper tests: map build, normalization ceiling, URL passthrough, forward reference, unresolved fall-through — Red first |
 | `src/arkeology/references.py` | Create | Pure helpers: `normalize_reference_path(path)`, `build_path_to_id_map(manifest_entries)` (uses `generate_artifact_id`), `join_reference_path(referencing_file_path, reference_path)` (relative-path join), `resolve_reference(path, path_to_id_map, referencing_file_path=None)` → id or `None` |
-| `skills/migrating-to-arkeology/SKILL.md` | Modify | Add the build-map → resolve-frontmatter → populate `references` → rewrite content to `arkeology://artifact/{id}` → report-unresolved flow to Steps 3.A/3.B; document the normalization ceiling and URL/unresolved passthrough; in-body links explicitly out of scope |
+| `plugins/arkeology/skills/migrating-to-arkeology/SKILL.md` | Modify | Add the build-map → resolve-frontmatter → populate `references` → rewrite content to `arkeology://artifact/{id}` → report-unresolved flow to Steps 3.A/3.B; document the normalization ceiling and URL/unresolved passthrough; in-body links explicitly out of scope |
+
+*(Skill path corrected 2026-08-12: skills live only at `plugins/arkeology/skills/<name>/`; there is no
+top-level `skills/` directory and no symlinks.)*
+
+**ID drift test (Story 5):**
+
+| File | Action | Notes |
+|------|--------|-------|
+| `tests/unit/test_skill_artifact_id_drift.py` | Create | The drift test. Parameterised over both skill files; extracts each one's documented `python3` ID snippet from its SKILL.md, executes it, compares the produced full key against `generate_artifact_id` + `{write_prefix}/{bare_id}{extension}` for every row of a shared input table; fails if a snippet cannot be located. Pure — no AWS, no moto, no Bedrock |
+| `plugins/arkeology/skills/migrating-to-arkeology/SKILL.md` | Verify (flag) | Snippet in the "Building the path→full-key map" section (`python3 - "$TYPE" "$TIER" "$DATE" "$TITLE" "$EXTENSION" "$WRITE_PREFIX"` with a `<<'PY'` heredoc). Change only if the test proves it already diverges, or if it needs a stable delimiter for extraction |
+| `plugins/arkeology/skills/backfilling-references/SKILL.md` | Verify (flag) | Same snippet in Workflow step "Build the path→full-key map", indented inside a numbered list — the extraction must dedent. Same change rule as above |
+| `src/arkeology/references.py` | Modify | Module docstring's "do not reimplement the algorithm elsewhere" is currently contradicted by the two skill copies it names one line earlier: state that the skills keep a deliberate offline copy and that `tests/unit/test_skill_artifact_id_drift.py` is what holds it to this module |
 
 ## Testing Approach
 
@@ -186,6 +262,27 @@ Pure-helper unit tests (no AWS, no moto):
 Skill-level behaviour (AC-58) is validated by the migration integration/manual flow, not unit tests,
 since the rewrite orchestration is skill prose driving `migrate_artifacts`.
 
+**Skill ID drift test (Story 5).** Written before any change to `references.py`'s docstring or to
+either skill snippet, and expected to pass on first run against today's tree (the snippets are
+believed correct; the test exists to keep them that way — a Red first run would mean the snippets
+have already drifted, which is a defect in them, not in the test).
+
+- One test module, `tests/unit/test_skill_artifact_id_drift.py`, parameterised over the two skill
+  files so a third skill is one list entry away from being covered.
+- Per skill: locate the documented ID snippet in the SKILL.md, dedent it, execute it (subprocess
+  or `exec` with the documented arguments — the developer picks; the snippet already takes its six
+  values as `sys.argv[1:7]`), and compare its printed full key against
+  `f"{write_prefix}/{generate_artifact_id(tier=…, type=…, date=…, title=…)}{extension}"`.
+- Shared input table covering the cases listed in Story 5's acceptance criteria (tier 2/3,
+  underscore type, non-ASCII title, punctuation-collapse pair, over-60-char title, empty-slug
+  title, with/without extension). One table, both skills — divergence between the two snippets is
+  caught by the same rows.
+- Failure output must name the input that diverged and both identifiers, so the next reader knows
+  which side moved.
+- Snippet not found → fail with a message pointing at the skill file and the expected block.
+- No assertion on the skill's source text; extraction is a means of *executing* the documented
+  algorithm, never a means of comparing it as a string.
+
 > **Consistency note (2026-07-06, shipped in `7a697dd`).** An ordinary overwriting write now
 > **replaces** `references` outright rather than merging it with any prior stored value (see
 > `docs/specs/p12-t46-references-field.md`'s forward-pointer note). This task is already consistent
@@ -204,3 +301,13 @@ since the rewrite orchestration is skill prose driving `migrate_artifacts`.
   agent to apply in-context. This satisfies both the ADR (skill orchestrates, no server-side rewrite)
   and the plan (testable Red/Green logic). Operator confirmed the server-side-helper-plus-skill
   placement.
+- **OQ-T51-b (DECIDED by operator, 2026-08-12) — how to stop the skills' duplicated ID algorithm
+  from drifting.** Options were single-sourcing (skill imports or calls the server)
+  versus a drift test. **Chosen: drift test.** Single-sourcing is not available: a migration or
+  backfill run computes identifiers offline, before the server is necessarily installed,
+  configured, or reachable — that is the whole reason the algorithm is pure and documented in
+  prose. The duplication is therefore accepted and guarded, not removed. See Story 5, the
+  requirements, and the Testing Approach section above. Remaining latitude for the developer: the
+  extraction mechanism (regex on the fenced block vs. an explicit marker added to the skill) and
+  execution mechanism (subprocess vs. `exec`) — both are implementation choices, provided the test
+  never asserts on source text and never silently skips.

@@ -30,6 +30,15 @@ from arkeology.tools._section_pipeline import (
 
 logger = logging.getLogger(__name__)
 
+# Reserved marker for throwaway connectivity-probe objects written into a deployment's own
+# WRITE_PREFIX (the health-check probe in ``tools/health.py``, the startup probe in
+# ``startup.py``, the setting-up-arkeology skill's annotation probe). Any key whose final
+# path segment begins with this marker is a probe, never an artifact: no generated artifact
+# id can collide with it, because every id starts with a type slug drawn from
+# ``ARTIFACT_TYPES``, none of which begins with an underscore. Matching the marker rather
+# than individual probe names means a future probe needs no change here.
+_PROBE_KEY_MARKER = "_arkeology_"
+
 
 def _reindex_artifact(
     artifact_id: str,
@@ -53,10 +62,10 @@ def _reindex_artifact(
         raw_s3_meta: Metadata dict returned by ``head_object`` (string values).
         settings: Server configuration.
         s3: S3 client, used to read the durable commit_refs/references annotations
-            (ADR-011 / T48).
-        vectors: Vectors client, used both for upsert and (per Phase 12 review C5) to
-            read the existing indexed vector-metadata copy of commit_refs/references
-            before it is overwritten, so the union-of-both-stores authority model
+            (ADR-011).
+        vectors: Vectors client, used both for upsert and to read the existing indexed
+            vector-metadata copy of commit_refs/references before it is overwritten,
+            so the union-of-both-stores authority model
             (``read_current_link_fields``) never loses a value that lives only in the
             vector copy (e.g. an annotation-unavailable deployment).
         bedrock: Bedrock client for embedding.
@@ -66,11 +75,11 @@ def _reindex_artifact(
 
     Raises:
         CredentialError: If reading the durable link fields fails due to expired or
-            invalid credentials (Phase 12 review M6) — propagated to the caller rather
-            than swallowed, aborting the reconcile run with a structured credential
-            error instead of silently continuing without link fields.
+            invalid credentials — propagated to the caller rather than swallowed,
+            aborting the reconcile run with a structured credential error instead of
+            silently continuing without link fields.
     """
-    # T55 (M-5, Story 4): decode transport-encoded S3 user-metadata values (see
+    # Decode transport-encoded S3 user-metadata values (see
     # arkeology.artifact.encode_metadata_value) so a non-ASCII title (and any other
     # metadata value) is rebuilt into vector metadata as the original Unicode text, not
     # the percent-encoded transport form. Plain ASCII values decode to themselves.
@@ -109,7 +118,7 @@ def _reindex_artifact(
     if references_list:
         vector_metadata["references"] = references_list
 
-    # M-3: use the same shared pipeline write_artifact uses — min-length filtering,
+    # Use the same shared pipeline write_artifact uses — min-length filtering,
     # max-sections capping, and per-section truncation — so a section that write-time
     # truncates (or drops, or caps) is truncated (or dropped, or capped) identically on
     # reconcile. Before this shared helper existed, reconcile embedded every parsed
@@ -244,7 +253,7 @@ async def _reconcile_index_inner(
                 logger.warning("Skipping out-of-scope failure log entry: %s", artifact_id)
                 continue
             try:
-                # M-8: off the event loop — blocking boto3 call.
+                # Off the event loop — blocking boto3 call.
                 raw_meta = await asyncio.to_thread(s3.head_object, artifact_id)
             except CredentialError as exc:
                 return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
@@ -258,7 +267,7 @@ async def _reconcile_index_inner(
                 continue
 
             try:
-                # M-8: off the event loop — both the S3 read and _reindex_artifact
+                # Off the event loop — both the S3 read and _reindex_artifact
                 # (which embeds via bedrock.embed, including its blocking retry sleep,
                 # and writes vectors) are blocking; run each via asyncio.to_thread.
                 content = await asyncio.to_thread(s3.get_object, artifact_id)
@@ -302,14 +311,12 @@ async def _reconcile_index_inner(
     # ── Phase 2: Orphan scan ──────────────────────────────────────────────────
     own_prefix = settings.write_prefix + "/"
     try:
-        # M-8: off the event loop — blocking boto3 calls.
+        # Off the event loop — blocking boto3 calls.
         all_s3_keys = await asyncio.to_thread(s3.list_objects, settings.write_prefix)
         own_keys = [
             k
             for k in all_s3_keys
-            if k.startswith(own_prefix)
-            and "_arkeology_health_probe" not in k
-            and "_arkeology_startup_probe" not in k
+            if k.startswith(own_prefix) and not k.rsplit("/", 1)[-1].startswith(_PROBE_KEY_MARKER)
         ]
         indexed_keys_raw = await asyncio.to_thread(
             vectors.list_vectors_by_metadata, {"scope": {"$eq": settings.write_prefix}}
@@ -331,7 +338,7 @@ async def _reconcile_index_inner(
 
     for orphan_key in orphans:
         try:
-            # M-8: off the event loop — see the equivalent failure-log-replay comment above.
+            # Off the event loop — see the equivalent failure-log-replay comment above.
             content = await asyncio.to_thread(s3.get_object, orphan_key)
             raw_meta = await asyncio.to_thread(s3.head_object, orphan_key)
             n = await asyncio.to_thread(
@@ -371,11 +378,11 @@ async def _reconcile_index_inner(
     for dangling_id in dangling_artifact_ids:
         keys_to_delete = vectors_by_artifact[dangling_id]
         try:
-            # M-2: an artifact fully written between the S3 listing and the vector
+            # An artifact fully written between the S3 listing and the vector
             # listing above would otherwise be misclassified dangling here and have
             # its brand-new vectors pruned. Re-confirm S3 absence immediately before
             # deleting — only prune when the object is actually gone right now.
-            # M-8: off the event loop — blocking boto3 call.
+            # Off the event loop — blocking boto3 call.
             try:
                 await asyncio.to_thread(s3.head_object, dangling_id)
             except KeyError:
@@ -385,7 +392,7 @@ async def _reconcile_index_inner(
                 # all. Leave its vectors untouched.
                 continue
 
-            # M-8: off the event loop — blocking boto3 call.
+            # Off the event loop — blocking boto3 call.
             await asyncio.to_thread(vectors.delete_vectors, keys_to_delete)
             dangling_artifacts.append(dangling_id)
             dangling_artifacts_found += 1

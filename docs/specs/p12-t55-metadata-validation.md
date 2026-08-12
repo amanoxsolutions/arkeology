@@ -20,7 +20,7 @@ authored:
   date: "2026-07-03"
 revised:
   by: "tech-writer"
-  date: "2026-07-04"
+  date: "2026-08-12"
 ---
 
 # T55 — Write-Path Metadata Size + Charset Validation
@@ -213,11 +213,20 @@ user-guide); S3 Vectors filterable ≤ 2 KB and total ≤ 40 KB per vector
 
 `NON_FILTERABLE_METADATA_KEYS = ("description", "source_artifacts", "title", "author_role")` — matches the index declaration.
 All other vector-metadata keys (`artifact_id`, `scope`, `type`, `team`, `project`, `tier`, `date`,
-`status`, `title`, `visibility`, `author_role`, `last_edited_ulid`, `tags`, `references`,
+`status`, `visibility`, `last_edited_ulid`, `tags`, `references`,
 `commit_refs`) are filterable and count against the 2 KB filterable budget — so `references`/
 `commit_refs` are the fields that most threaten it, which is why T55 must precede T46/T47. The
 constants are the single tuning point if integration testing shows AWS's internal accounting differs
 from the JSON/byte approximation.
+
+> **Corrected 2026-08-12 (tech-writer).** The "all other keys" sentence above previously also
+> listed `title` and `author_role`, which are non-filterable — it contradicted the
+> `NON_FILTERABLE_METADATA_KEYS` tuple immediately above it and would have led a reader to count
+> both keys against the wrong budget. Both are now listed only as non-filterable. Verified against
+> the shipped `src/arkeology/artifact.py` (`NON_FILTERABLE_METADATA_KEYS`) and the
+> `vector_metadata` dict assembled in `_write_artifact_inner` in
+> `src/arkeology/tools/write.py`: the
+> filterable enumeration above now matches the shipped keys exactly.
 
 ## Files to Touch
 
@@ -274,5 +283,3 @@ Use `aws_mock`, `s3_client`, `vectors_client_*` fixtures; `FakeBedrockClient` fo
   check correctly measures because it measures the encoded representation. (Resolved.)
 - **Budget nominal units (KiB vs decimal).** Nominal values above use KiB; if integration testing
   shows AWS rejects earlier, tighten the single-source constants. (Deferred to integration.)
-</content>
-</invoke>

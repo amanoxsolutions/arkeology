@@ -21,8 +21,8 @@ authored:
   by: "architect"
   date: "2026-06-07"
 revised:
-  by: "architect"
-  date: "2026-06-08"
+  by: "tech-writer"
+  date: "2026-08-12"
 ---
 
 # T31a — Setting-Up-Arkeology Skill
@@ -43,6 +43,11 @@ GitHub Copilot CLI the entry lands in `.mcp.json` at the workspace root (shared
 with Claude Code, supported since v0.0.401).
 No Python code, no bundled scripts, no `.env` file, no AWS resource creation, no
 IAM policy generation.
+
+The skill's Step 2 connectivity check writes throwaway probe objects into the
+deployment's own `WRITE_PREFIX`. This spec also covers how those probes are named and
+cleaned up, and the orphan-scan exclusion in `src/arkeology/tools/reconcile.py` that
+keeps one from being mistaken for an artifact (Story 9).
 
 ## Problem Statement
 
@@ -191,6 +196,32 @@ client uses — the skill detects it from what is already in the project.
   reaches the client-choice question, then the skill presents the full list of
   supported clients with a brief description and asks the operator to choose.
 
+### Story 9 — Connectivity probes never leave an object the orphan scan mistakes for an artifact (P1)
+
+The Step 2 annotation probe writes a real object into the deployment's own
+`WRITE_PREFIX`. Whether or not the probe succeeds, that object must be gone by the end
+of the step, and `reconcile_index` must never treat one that survives as an artifact.
+
+**Acceptance criteria:**
+- Given the aws-cli probe path and a bucket/IAM configuration that makes
+  `put-object-annotation` fail with `AccessDenied`, when the probe runs, then the probe
+  object and any annotation written on it are still deleted before the step reports its
+  result — the cleanup commands are presented as an always-run step, not as the tail of
+  a sequence that an agent abandons at the first failure.
+- Given the boto3 probe path, when any step raises, then the probe object is still
+  deleted (the existing `finally:` block) — behaviour unchanged.
+- Given a probe object that survives anyway (e.g. the cleanup delete itself is denied),
+  when the step reports, then the operator is told the exact key left behind and the
+  command to remove it.
+- Given a `<WRITE_PREFIX>/_arkeology_annotation_probe` object present in S3 with no
+  vectors indexed for it, when `reconcile_index` runs, then it is not counted as an
+  orphan, not re-indexed, and does not appear anywhere in the reconcile response.
+- Given that same probe object alongside a genuinely orphaned artifact, when
+  `reconcile_index` runs, then the real orphan is still found and re-indexed — the
+  exclusion filters the probe only.
+- Given the existing `_arkeology_health_probe` and `_arkeology_startup_probe` keys, when
+  `reconcile_index` runs, then they remain excluded exactly as before.
+
 ## Requirements
 
 - WHEN the skill starts THE SYSTEM SHALL scan the project root for recognised MCP
@@ -291,6 +322,29 @@ client uses — the skill detects it from what is already in the project.
   display the complete entry for manual addition and proceed to Step 5 — it SHALL NOT fall
   back to any global configuration file as a substitute write target.
 
+**Connectivity probe objects:**
+
+- WHEN a Step 2 check writes a throwaway probe object into the deployment's own
+  `WRITE_PREFIX` THE SYSTEM SHALL name it with the reserved non-artifact marker
+  `_arkeology_<purpose>_probe` as the key's final path segment — the annotation probe's
+  key is `<WRITE_PREFIX>/_arkeology_annotation_probe`, matching the existing
+  `_arkeology_health_probe` (`tools/health.py`) and `_arkeology_startup_probe`
+  (`startup.py`) keys. No artifact identifier can collide with this marker: every
+  generated identifier starts with a type slug drawn from `ARTIFACT_TYPES`.
+- WHEN `reconcile_index` builds its orphan-scan candidate list THE SYSTEM SHALL exclude
+  every own-scope S3 key whose final path segment begins with `_arkeology_`, replacing
+  the two hard-coded probe-name checks it applies today — so the setup, health, startup,
+  and any future probe key are all excluded by one rule rather than each needing its own
+  patch. Excluded keys SHALL NOT be re-indexed, counted as orphans, or named in the
+  reconcile response.
+- WHEN the aws-cli annotation-probe path runs THE SYSTEM SHALL present the annotation
+  delete and the object delete as an explicit always-run cleanup step that executes on
+  every outcome — success, `ANNOTATIONS_FAILED`, `AccessDenied`, or any other error —
+  mirroring the boto3 path's `finally:` block, and SHALL state that the agent must run it
+  even when an earlier command in the sequence failed.
+- WHEN a probe cleanup delete itself fails THE SYSTEM SHALL report the orphaned key and
+  the exact command to remove it to the operator rather than continuing silently.
+
 ## Boundaries
 
 **Always:**
@@ -309,7 +363,8 @@ client uses — the skill detects it from what is already in the project.
 - The config block format is YAML inside an HTML comment:
   `<!-- arkeology:config\n<yaml>\n-->` — opening and closing tags each on their own line.
 - Path syntax: trailing `/` = directory tree; no trailing `/` = exact file; no globs.
-- The `SKILL.md` must be ≤ 500 lines.
+- The `SKILL.md` must be ≤ 500 lines — with the shipped file's connectivity probes as a
+  standing exception; do not delete probe content to meet the count.
 - The skill is compatible with Claude Code, opencode, GitHub Copilot CLI, and Codex CLI —
   client differences are confined to the reference table in Step 4.
 - The files scanned for auto-detection in Step 1 are: `.mcp.json`, `.mcp.jsonc`
@@ -327,6 +382,9 @@ client uses — the skill detects it from what is already in the project.
 - Per-project config files (`.mcp.json`, `opencode.json`, `.codex/config.toml`) are
   the preferred write targets for the three clients that support them; the user's global
   MCP client config is never written to or modified during a project installation.
+- Any object a check writes into `WRITE_PREFIX` is a throwaway probe named
+  `_arkeology_<purpose>_probe`, is deleted by an always-run cleanup step, and is excluded
+  from `reconcile_index`'s orphan scan by the `_arkeology_` marker.
 
 **IDE config file locations, scopes, env key names, and official docs (Step 4 reference):**
 
@@ -373,21 +431,51 @@ client uses — the skill detects it from what is already in the project.
   write (e.g. declining Codex project trust) — always redirect to manual addition.
 - Do not embed the full narrative snippet inline if it would push `SKILL.md` over 500
   lines — keep it in `references/agents-snippet.md`.
+- Do not write a probe object anywhere other than under the deployment's own
+  `WRITE_PREFIX`, and do not leave one behind — the cleanup runs on the failure paths the
+  probe exists to detect, not only on success.
+- Do not add a third hard-coded probe name to `reconcile.py`'s orphan scan — the
+  `_arkeology_` final-segment marker replaces the per-name checks so the next probe needs
+  no code change.
 
 <!-- IMPLEMENTATION BLOCK — agent-owned -->
 
 ## Files to Touch
 
+> **Path correction 2026-08-12 (tech-writer).** The original rows below named a top-level
+> `skills/setting-up-arkeology/` directory. Skills were consolidated since: the canonical
+> (and only) location is `plugins/arkeology/skills/<name>/`, with no top-level `skills/`
+> directory and no symlinks. The rows use the shipped paths.
+
 | File | Action | Notes |
 |------|--------|-------|
-| `skills/setting-up-arkeology/SKILL.md` | Create | 6-step workflow; ≤ 500 lines |
-| `skills/setting-up-arkeology/references/agents-snippet.md` | Create | Full narrative AGENTS.md snippet; both ADR variants; standing never-write instruction |
+| `plugins/arkeology/skills/setting-up-arkeology/SKILL.md` | Create | 6-step workflow; ≤ 500 lines, probes excepted |
+| `plugins/arkeology/skills/setting-up-arkeology/references/agents-snippet.md` | Create | Full narrative AGENTS.md snippet; both ADR variants; standing never-write instruction |
+
+**Probe cleanup + orphan-scan exclusion (Story 9):**
+
+| File | Action | Notes |
+|------|--------|-------|
+| `tests/unit/test_tools_reconcile.py` | Modify | Red first: `_arkeology_annotation_probe` key excluded from the orphan scan and absent from the response; a real orphan alongside it is still re-indexed; the existing health/startup probe exclusion tests still pass under the generalised rule |
+| `src/arkeology/tools/reconcile.py` | Modify | Phase 2 orphan scan (the `own_keys` comprehension in `reconcile_index`): replace the two `"_arkeology_health_probe" not in k` / `"_arkeology_startup_probe" not in k` checks with one final-path-segment `_arkeology_` marker check |
+| `plugins/arkeology/skills/setting-up-arkeology/SKILL.md` | Modify | Step 2 annotation probe, aws-cli (`native`) branch of Check 8: make the annotation delete + object delete an explicit always-run cleanup step covering the `AccessDenied` path; report the key and delete command if cleanup itself fails. The boto3 (`fallback`) branch already cleans up in `finally:` — leave it |
 
 ## Testing Approach
 
-This is a pure skill (markdown) update — no Python source files or unit tests. Verification
-is by inspection against the checklist below. Work through the checklist top-to-bottom after
-writing; do not mark done until every item passes.
+The skill body is markdown — verification is by inspection against the checklist below.
+Work through the checklist top-to-bottom after writing; do not mark done until every item
+passes.
+
+**Story 9 adds one code change, and the project uses TDD — test file before the
+implementation file it gates:**
+
+1. **`tests/unit/test_tools_reconcile.py` → `src/arkeology/tools/reconcile.py`** — write the
+   failing test for the `_arkeology_annotation_probe` exclusion (and for a nested-path probe
+   key, mirroring the existing health-probe cases) *before* touching the orphan scan; then
+   generalise the filter to the `_arkeology_` marker and confirm the pre-existing
+   health/startup exclusion tests stay green unchanged.
+2. The skill-side cleanup change has no unit test — it is prose, covered by the checklist
+   items below and by the manual run in `tests/skill_validation/`.
 
 **`SKILL.md` structure:**
 - [ ] Exactly 6 numbered steps, each as a `##` section
@@ -455,6 +543,12 @@ writing; do not mark done until every item passes.
 - [ ] No AWS resource creation command appears anywhere in the skill
 - [ ] No IAM policy generation or substitution appears anywhere in the skill
 - [ ] Line count ≤ 500
+- [ ] Step 2's annotation probe writes only `<WRITE_PREFIX>/_arkeology_annotation_probe`
+- [ ] Step 2's aws-cli probe branch has an always-run cleanup step (annotation delete +
+  object delete) explicitly stated to run on failure paths including `AccessDenied`, not
+  just as trailing commands
+- [ ] Step 2 tells the operator the leftover key and the delete command if cleanup itself
+  fails
 
 **`references/agents-snippet.md` structure:**
 - [ ] Contains the standing never-write instruction referencing `local_only_types` and

@@ -9,7 +9,8 @@ The canonical, operative ``artifact_id`` form used everywhere else in arkeology
 (``write_artifact``'s vector metadata, ``read_artifact``'s scope gate, the
 ``referenced_by`` reverse lookup) is the **full S3 key** —
 ``f"{write_prefix}/{bare_id}{extension}"`` — never the bare
-:func:`arkeology.artifact.generate_artifact_id` output on its own (review finding C1).
+:func:`arkeology.artifact.generate_artifact_id` output on its own, which matches none of
+those surfaces.
 Every helper in this module that produces or consumes an identifier uses that same
 full-key form:
 
@@ -48,8 +49,17 @@ full-key form:
    it occurs).
 
 The ``migrating-to-arkeology`` and ``backfilling-references`` skills document and drive this
-exact algorithm (OQ-T51-a) — this module is the authoritative, unit-tested reference
-implementation; do not reimplement the algorithm elsewhere.
+exact algorithm — this module is the authoritative, unit-tested reference implementation;
+do not reimplement it in server code.
+
+Those two skills are the one deliberate exception: each documents a standalone ``python3``
+snippet that recomputes the identifier offline, because a migration or backfill run
+computes identifiers before the server is necessarily installed, configured, or reachable,
+so importing this module is not available to them. That duplication is accepted and
+guarded, not removed — ``tests/unit/test_skill_artifact_id_drift.py`` executes each skill's
+documented snippet over a shared input table and fails if it diverges from
+:func:`arkeology.artifact.generate_artifact_id`. A new skill that computes identifiers
+offline belongs in that test's skill list.
 """
 
 import posixpath
@@ -124,8 +134,8 @@ def build_path_to_id_map(
     ``write_artifact`` uses (``f"{write_prefix}/{bare_id}{extension}"``, see
     ``arkeology.tools.write``) — this is the operative ``artifact_id`` every other
     arkeology surface (vector metadata, ``read_artifact``'s scope gate, the
-    ``referenced_by`` reverse lookup) matches on (review finding C1). A map keyed to
-    the bare id alone is dead on every one of those surfaces.
+    ``referenced_by`` reverse lookup) matches on. A map keyed to the bare id alone is dead
+    on every one of those surfaces.
 
     Args:
         manifest_entries: Every entry from the migration manifest, each already carrying

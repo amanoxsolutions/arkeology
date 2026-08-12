@@ -160,9 +160,11 @@ one makes all persisted memory inaccessible:
 - Client interfaces in `src/arkeology/clients/interfaces.py` use `typing.Protocol` — concrete implementations (`s3.py`, `vectors.py`, `bedrock.py`) and fakes satisfy the structural contract without inheriting from the interface class; never add `ABC` or `abstractmethod` to client code
 - Vector client methods use the parameter name `filter_expr` (not `filter`) — never use the bare name `filter` in vector client calls; `filter` is a Python builtin and the rename avoids shadowing it
 - `SECTION_CONCURRENCY`, `EMBED_MAX_SECTIONS`, and `EMBED_MIN_SECTION_LENGTH` control write-path embedding behaviour; all three are validated at startup — setting any to an out-of-range value prevents the server from starting
+- **Backlog (`B-` items) are a live work queue, not a history log.** When a `B-` item is completed, delete its entire row from `docs/planning-artifacts/backlog.md` and remove all cross-references to it in specs, ADRs, the review register, and `plan.md`. Pending-language (`⏳ Option A/B`, `code fix pending`) becomes dangling noise once an item is done; there is no value in keeping resolved rows.
 
 ## Non-Negotiable Rules
 
+- Never cite line numbers, review finding numbers when referencing any project file — for Markdown documents (ADRs, specs, and the like) reference the document by name and, where possible, its `##` (H2) section heading; for source-code files reference the file by name and, where possible, the class or function that contains the referenced code. Both document and code line-anchors drift as content is added or removed above the reference, creating recurring maintenance churn. The same applies to aggregate counts of `backlog.md` rows ("137 backlog rows", "12 DW items") cited in any other document — `backlog.md` is a live work queue whose rows are deleted the moment a `B-` item closes (see Working Conventions), so a cited total drifts the same way a line anchor does; reference the specific `B-` IDs involved instead of a total.
 - Never print to stdout — it corrupts the MCP stdio transport; use `logging.getLogger(__name__)` to write to stderr
 - Never bypass the cross-scope gate — read and search tools must always check tier + visibility for foreign-scope artifacts
 - Never store artifact content in S3 Vectors metadata — content belongs in S3 only

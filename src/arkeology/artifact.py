@@ -57,7 +57,7 @@ ARTIFACT_TYPES: frozenset[str] = frozenset(
 # duplicate {2, 3} elsewhere.
 VALID_TIERS: frozenset[int] = frozenset({2, 3})
 
-# T55 (M-5) — write-path metadata size + charset validation constants. Single source of
+# Write-path metadata size + charset validation constants. Single source of
 # truth, mirroring ARTIFACT_TYPES: never duplicate these elsewhere.
 #
 # TITLE_MAX_LENGTH is a coarse model-level sanity bound (headline-length); the three byte
@@ -86,7 +86,7 @@ NON_FILTERABLE_METADATA_KEYS: tuple[str, ...] = (
     "author_role",
 )
 
-# T50 (FR-56, AC-61) — single source of truth for reverse-lookup-bearing metadata fields
+# Single source of truth for reverse-lookup-bearing metadata fields
 # consumed by the unified own-scope referenced_by check on delete_artifact and
 # archive_artifact (see find_referrers in tools/_search_helper.py). Never duplicate this
 # list elsewhere. The filterable/non-filterable branch of that check is driven by each
@@ -181,7 +181,7 @@ def check_metadata_budgets(
     s3_metadata: dict[str, str],
     vector_metadata: dict[str, Any],
 ) -> None:
-    """Validate assembled write-path metadata against the three byte budgets (M-5).
+    """Validate assembled write-path metadata against the three byte budgets.
 
     Representation-driven, not field-list-driven: this measures the actual assembled
     dicts about to be written, so it stays correct regardless of which fields later move
@@ -235,7 +235,7 @@ def check_metadata_budgets(
 _MAX_SLUG_LEN = 60
 
 # Length (in hex characters) of the deterministic title-hash suffix appended to every
-# generated artifact ID (C-3). 8 hex chars = 32 bits of a SHA-256 digest. The relevant
+# generated artifact ID. 8 hex chars = 32 bits of a SHA-256 digest. The relevant
 # collision population is NOT the full per-type/date artifact corpus: two titles with
 # different title_slug values already produce distinct IDs from the slug alone, hash or
 # no hash. The hash only has to disambiguate the much smaller subset of titles that
@@ -315,7 +315,7 @@ def generate_artifact_id(*, tier: int, type: str, date: str, title: str) -> str:
     ``hash`` is a deterministic 8-hex-char SHA-256 prefix of the full, original title
     (see ``_title_hash``) and is *always* appended, regardless of whether the slug
     normalisation above collided or not. This structurally eliminates three collision
-    classes that used to silently destroy artifacts (C-3): titles with no Latin/digit
+    classes that used to silently destroy artifacts: titles with no Latin/digit
     content (which all fell back to the constant ``"artifact"`` slug), two titles that
     differ only after the 60-character truncation point, and titles that differ only
     in punctuation stripped by the slug normalisation (e.g. ``"Auth: Module Review"``

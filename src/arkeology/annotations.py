@@ -11,10 +11,10 @@ This module centralises the annotation names, the comma-joined list encoding, an
 the apply/read operations so the write path (T47), ``link_metadata`` (T49), and
 ``reconcile_index`` (T48) share one implementation rather than three divergent ones.
 
-Phase 12 review findings C5/M6 established that neither store is sole authority for
-the current link-field state: an annotation-unavailable deployment (T52 graceful
-degrade) can hold values in vector metadata only, and a partial dual-write can leave
-the annotation copy ahead of the vector copy. ``read_current_link_fields`` below
+Neither store is sole authority for the current link-field state: an
+annotation-unavailable deployment (graceful degrade) can hold values in vector metadata
+only, and a partial dual-write can leave the annotation copy ahead of the vector copy.
+``read_current_link_fields`` below
 implements the operator-approved union-of-both-stores authority model — the current
 state is always the order-preserving dedup union of both stores, so no read path ever
 reduces the fields.
@@ -145,13 +145,13 @@ def read_current_link_fields(
 ) -> tuple[list[str], list[str]]:
     """Return the current ``commit_refs`` / ``references`` as the union of both stores.
 
-    Per the operator-approved union-of-both-stores authority model (Phase 12 review
-    findings C5 + M6), neither the S3 annotation copy nor the S3 Vectors metadata copy
-    is sole authority for the mutable link fields — the current state is the
-    order-preserving dedup union of both. This closes two data-loss paths that existed
-    when either store was treated as authoritative on its own:
+    Per the operator-approved union-of-both-stores authority model, neither the S3
+    annotation copy nor the S3 Vectors metadata copy is sole authority for the mutable
+    link fields — the current state is the order-preserving dedup union of both. This
+    closes two data-loss paths that existed when either store was treated as
+    authoritative on its own:
 
-    - An annotation-unavailable deployment (T52 graceful degrade) holds link fields in
+    - An annotation-unavailable deployment (graceful degrade) holds link fields in
       vector metadata only; a naive annotation-only read reports them as absent, and a
       caller that rebuilds vector metadata from that (``reconcile_index``) would erase
       the only durable copy.
@@ -166,7 +166,7 @@ def read_current_link_fields(
     must never abort the caller); a ``CredentialError`` is re-raised, never swallowed,
     because it signals a general authentication failure that is very likely to also
     break the surrounding operation and must not be silently treated as "no link
-    fields" (Phase 12 review finding M6).
+    fields".
 
     Args:
         s3: S3 client, used to read the durable annotation copy.

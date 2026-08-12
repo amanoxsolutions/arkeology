@@ -9,12 +9,19 @@ okf_version: "0.1"
 
 # Backlog
 
-The single home for all work **waiting to be started** — issues, deferred improvements, and not-yet-built features. Tasks are pulled from here into the current open phase in [`plan.md`](plan.md) when we decide to tackle them; there is no pre-planned schedule.
+The single home for all work **waiting to be started** — issues, deferred improvements, and
+not-yet-built features. Tasks are pulled from here into the current open phase in
+[`plan.md`](plan.md) when we decide to tackle them; there is no pre-planned schedule.
 
-Organised by topic. Each item keeps a stable ID so brainstorming docs, specs, and reviews can reference it:
-- **`B-…`** — deferred backlog items (features, improvements, or design-first items that require brainstorming before they can be specced).
+Organised by topic. Each item keeps a stable ID so brainstorming docs, specs, and reviews can
+reference it:
+- **`B-…`** — deferred backlog items (features, improvements, or design-first items that
+  require brainstorming before they can be specced).
+  When a `B-` item is completed, delete its entire row from `docs/planning-artifacts/backlog.md`
+  and remove all cross-references to it in specs, ADRs, the review register, and `plan.md`.
 
-Items that were promoted to a phase are **not** listed here — see the phase history in [`plan.md`](plan.md).
+Items that were promoted to a phase are **not** listed here — see the phase history in
+[`plan.md`](plan.md).
 
 ---
 
@@ -63,20 +70,22 @@ Items that were promoted to a phase are **not** listed here — see the phase hi
 
 ## OKF interoperability
 
-- **B-2 — OKF export adapter (+ governance).** `arkeology export --okf <scope>` emitting an OKF bundle
-  (git repo + `index.md` + `log.md` + cross-links) on a **best-effort** basis: preserve each
-  document's existing agent-authored frontmatter, fill gaps from Arkeology's stored metadata (`tags`;
-  OKF `timestamp` ← `last_edited_ulid`; Arkeology `date` → custom key; add `resource`), and append
-  Arkeology's extra tags. Arkeology
-  does **not** transform non-OKF content into OKF (the authoring agent's job) and makes no internal
-  schema change; vector index stays OKF-agnostic. Must reuse the scope/tier/visibility gate at export
-  time, exclude/partition `hidden`/cross-scope artifacts, and stamp the bundle as ungoverned
-  downstream. Open detail: precedence when existing frontmatter and Arkeology metadata disagree (default:
-  existing frontmatter authoritative, Arkeology fills gaps only). Also resolves the visual-reading-interface
-  export path. Source: [`brainstorming-2026-06-15-okf-alignment.md`](../brainstorming/brainstorming-2026-06-15-okf-alignment.md) (D1, D2a, D4).
+- **B-2 — OKF export adapter (+ governance).** `arkeology export --okf <scope>` emitting an OKF
+  bundle (git repo + `index.md` + `log.md` + cross-links) on a **best-effort** basis: preserve
+  each document's existing agent-authored frontmatter, fill gaps from Arkeology's stored metadata
+  (`tags`; OKF `timestamp` ← `last_edited_ulid`; Arkeology `date` → custom key; add `resource`),
+  and append Arkeology's extra tags. Arkeology does **not** transform non-OKF content into OKF
+  (the authoring agent's job) and makes no internal schema change; vector index stays
+  OKF-agnostic. Must reuse the scope/tier/visibility gate at export time, exclude/partition
+  `hidden`/cross-scope artifacts, and stamp the bundle as ungoverned downstream. Open detail:
+  precedence when existing frontmatter and Arkeology metadata disagree (default: existing
+  frontmatter authoritative, Arkeology fills gaps only). Also resolves the
+  visual-reading-interface export path.
+  Source: [`brainstorming-2026-06-15-okf-alignment.md`](../brainstorming/brainstorming-2026-06-15-okf-alignment.md) (D1, D2a, D4).
 
-- **B-4 — OKF import of foreign bundles.** Ingest an external OKF bundle into an Arkeology scope: the
-  `migrating-to-arkeology` skill accepts an OKF bundle as an input source, and/or an `import_okf` tool that
-  reads each concept, stores its content, and embeds it. Map OKF free-form `type` onto Arkeology's enum with
-  a fallback for unmapped types (OKF consumers must not reject unknown types). In scope per the
-  first-class OKF commitment (D6). Source: [`brainstorming-2026-06-15-okf-alignment.md`](../brainstorming/brainstorming-2026-06-15-okf-alignment.md) (D6).
+- **B-4 — OKF import of foreign bundles.** Ingest an external OKF bundle into an Arkeology scope:
+  the `migrating-to-arkeology` skill accepts an OKF bundle as an input source, and/or an
+  `import_okf` tool that reads each concept, stores its content, and embeds it. Map OKF free-form
+  `type` onto Arkeology's enum with a fallback for unmapped types (OKF consumers must not reject
+  unknown types). In scope per the first-class OKF commitment (D6).
+  Source: [`brainstorming-2026-06-15-okf-alignment.md`](../brainstorming/brainstorming-2026-06-15-okf-alignment.md) (D6).

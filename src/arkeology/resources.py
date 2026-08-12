@@ -647,7 +647,7 @@ def register_data_resources(
       because ``id`` is the full S3 key — ``{write_prefix}/{bare_id}{extension}`` —
       which contains ``/`` characters; a plain ``{id}`` segment parameter (the FastMCP
       default) only matches a single path segment and would reject every real
-      artifact_id (review finding C1). Includes a ``lastModified`` annotation derived
+      artifact_id. Includes a ``lastModified`` annotation derived
       from ``last_edited_ulid`` when present.
     - ``arkeology://artifacts`` — static listing; returns a markdown table of all active
       own-scope artifacts.
@@ -675,7 +675,7 @@ def register_data_resources(
         ``id`` is the full S3 key (``{write_prefix}/{bare_id}{extension}``), matched via
         the ``{id*}`` RFC 6570 wildcard-path template parameter so that the ``/``
         characters in a real artifact_id are captured rather than truncating the match
-        at the first path segment (review finding C1).
+        at the first path segment.
         """
         try:
             # NOTE: the per-artifact `lastModified` annotation (T42) is intentionally NOT

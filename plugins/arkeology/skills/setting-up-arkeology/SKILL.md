@@ -208,31 +208,49 @@ fi
 ```
 
 **If `native`** (aws-cli ≥ 2.35.14), put→get→delete a throwaway annotation on a throwaway
-object directly with the CLI:
+object directly with the CLI. The probe writes a real object into the deployment's own
+`WRITE_PREFIX`, so it comes in two blocks: the probe itself, then a cleanup block that
+**always runs**.
+
+Block 1 — the probe. Every command tolerates its own failure so the run reaches cleanup:
 
 ```bash
 printf 'arkeology-probe' > /tmp/arkeology-annotation-probe.txt
 
 aws s3api put-object --bucket <ARTIFACT_BUCKET> \
-  --key "<WRITE_PREFIX>/_arkeology_annotation_probe" --body /dev/null --region <REGION>
+  --key "<WRITE_PREFIX>/_arkeology_annotation_probe" --body /dev/null --region <REGION> \
+  || echo "ANNOTATIONS_FAILED: probe object could not be created — see the error above"
 
 aws s3api put-object-annotation --bucket <ARTIFACT_BUCKET> \
   --key "<WRITE_PREFIX>/_arkeology_annotation_probe" \
   --annotation-name arkeology_probe --annotation-payload fileb:///tmp/arkeology-annotation-probe.txt \
-  --region <REGION>
+  --region <REGION> \
+  || echo "ANNOTATIONS_FAILED: put-object-annotation — read the error code above"
 
 aws s3api get-object-annotation --bucket <ARTIFACT_BUCKET> \
   --key "<WRITE_PREFIX>/_arkeology_annotation_probe" \
-  --annotation-name arkeology_probe --region <REGION> /tmp/arkeology-annotation-probe-out.txt
+  --annotation-name arkeology_probe --region <REGION> /tmp/arkeology-annotation-probe-out.txt \
+  && diff /tmp/arkeology-annotation-probe.txt /tmp/arkeology-annotation-probe-out.txt \
+  && echo "ANNOTATIONS_OK" \
+  || echo "ANNOTATIONS_FAILED: annotation round-trip — read the error code above"
+```
 
-diff /tmp/arkeology-annotation-probe.txt /tmp/arkeology-annotation-probe-out.txt && echo "ANNOTATIONS_OK"
+Block 2 — cleanup. **Run this block unconditionally**, before reporting the check's result:
+run it when Block 1 printed `ANNOTATIONS_OK`, and equally when it printed
+`ANNOTATIONS_FAILED` for any reason including `AccessDenied`. A failed probe still leaves
+the probe object behind — abandoning the sequence at the first error is what strands it.
 
+```bash
 aws s3api delete-object-annotation --bucket <ARTIFACT_BUCKET> \
   --key "<WRITE_PREFIX>/_arkeology_annotation_probe" \
-  --annotation-name arkeology_probe --region <REGION>
+  --annotation-name arkeology_probe --region <REGION> 2>/dev/null || true
 
 aws s3api delete-object --bucket <ARTIFACT_BUCKET> \
-  --key "<WRITE_PREFIX>/_arkeology_annotation_probe" --region <REGION>
+  --key "<WRITE_PREFIX>/_arkeology_annotation_probe" --region <REGION> \
+  && echo "PROBE_CLEANUP_OK" \
+  || echo "PROBE_CLEANUP_FAILED: <WRITE_PREFIX>/_arkeology_annotation_probe still exists"
+
+rm -f /tmp/arkeology-annotation-probe.txt /tmp/arkeology-annotation-probe-out.txt
 ```
 
 **If `fallback`** (aws-cli < 2.35.14 — the CLI's annotation subcommands are absent, but
@@ -285,6 +303,19 @@ Interpreting the result:
 - Any other failure (e.g. the throwaway object/bucket itself is unreachable) — report the
   raw error and let the operator decide whether it is safe to proceed; this check never
   blocks Step 3 by itself.
+- **`PROBE_CLEANUP_FAILED`** (aws-cli path), or a `delete_object` error from the boto3
+  path's `finally:` block — the probe object could not be removed and is still in the
+  bucket. Report the exact key, `<WRITE_PREFIX>/_arkeology_annotation_probe`, and give the
+  operator the command to remove it themselves:
+
+  ```bash
+  aws s3api delete-object --bucket <ARTIFACT_BUCKET> \
+    --key "<WRITE_PREFIX>/_arkeology_annotation_probe" --region <REGION>
+  ```
+
+  A surviving probe object is harmless to the server — `reconcile_index` skips every key
+  whose final path segment begins with `_arkeology_`, so it is never mistaken for an
+  artifact — but never leave one behind silently.
 
 Once Checks 1–7 pass, proceed to Step 3 (Check 8's outcome is reported but never blocks
 progression).

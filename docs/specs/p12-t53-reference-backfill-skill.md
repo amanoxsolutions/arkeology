@@ -19,8 +19,8 @@ authored:
   by: "architect"
   date: "2026-07-03"
 revised:
-  by: ""
-  date: ""
+  by: "tech-writer"
+  date: "2026-08-12"
 ---
 
 # T53 — Reference-Backfill Cleanup Skill (optional, decoupled, dry-run-first)
@@ -83,9 +83,13 @@ content rules (ADR-012 D8).
 - WHEN the operator confirms THE SYSTEM SHALL apply the backfills via `link_metadata(references=…)`
   and SHALL NOT rewrite stored content.
 - WHEN the operator declines or skips THE SYSTEM SHALL leave every artifact unchanged.
-- WHEN the skill is distributed THE SYSTEM SHALL wire it through the existing plugin channels
-  (OpenCode auto-discovery via `skills/`; Claude Code symlink under `plugins/arkeology/skills/`;
-  Copilot via `gh skill install` on the next `install.sh` run), consistent with the other skills.
+- WHEN the skill is distributed THE SYSTEM SHALL require no per-skill wiring: placing
+  `SKILL.md` in a new directory under `plugins/arkeology/skills/` is sufficient for all three
+  channels — the OpenCode JS plugin registers the whole `plugins/arkeology/skills` directory into
+  `config.skills.paths`, the Claude Code plugin is declared once in
+  `plugins/arkeology/.claude-plugin/plugin.json`, and `install.sh` loops
+  `plugins/arkeology/skills/*/` for `gh skill install`. *(Corrected 2026-08-12 — the original
+  wording described the retired top-level `skills/` + symlink layout.)*
 
 ## Boundaries
 
@@ -108,11 +112,19 @@ content rules (ADR-012 D8).
 
 ## Files to Touch
 
+> **Layout correction 2026-08-12 (tech-writer).** The original table described the
+> pre-consolidation layout: a top-level `skills/backfilling-references/` directory plus a symlink
+> at `plugins/arkeology/skills/backfilling-references` pointing into it. That layout no longer
+> exists. Skills live **directly** at `plugins/arkeology/skills/<name>/SKILL.md` — one canonical
+> copy, no top-level `skills/` directory, no symlinks anywhere. Verified against the working tree
+> on 2026-08-12.
+
 | File | Action | Notes |
 |------|--------|-------|
-| `skills/backfilling-references/SKILL.md` | Create | The skill: discovery scan → dry-run batch report → confirm → apply via `link_metadata` |
-| `plugins/arkeology/skills/backfilling-references` | Create | Symlink → `../../../skills/backfilling-references` (Claude Code plugin distribution, mirroring existing skills) |
-| `.claude-plugin` / `install.sh` | Verify | No change expected — existing `skills/*/` loops already cover the new skill; confirm it is picked up |
+| `plugins/arkeology/skills/backfilling-references/SKILL.md` | Create | The skill, and the only file it needs: discovery scan → dry-run batch report → confirm → apply via `link_metadata` |
+| `.opencode/plugins/arkeology.js` | Verify | No change — the plugin pushes the whole `plugins/arkeology/skills` directory onto `config.skills.paths`; new subdirectories are picked up automatically |
+| `plugins/arkeology/.claude-plugin/plugin.json` | Verify | No change — the manifest declares the plugin, not individual skills; Claude Code discovers `skills/*/` beneath it |
+| `install.sh` | Verify | No change — the Copilot branch already loops `plugins/arkeology/skills/*/` and runs `gh skill install` per directory; confirm the new skill appears in the run output |
 | `README.md` | Modify | Add the skill to the skills table / brief mention (optional cleanup step) |
 
 ## Testing Approach

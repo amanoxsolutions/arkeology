@@ -7,7 +7,7 @@ ADR-012 D13) covering both source_artifacts and references — warn-but-don't-bl
 informational (reversible) phrasing.
 
 The status flip is an in-place S3 re-PUT, which clears the object's S3 annotations
-(ADR-011). Per Phase 12 review finding C2, this tool reads the current
+(ADR-011). This tool therefore reads the current
 commit_refs/references link fields forward (via the union-of-both-stores authority
 model, ``annotations.read_current_link_fields``) before the re-PUT and re-applies
 them afterward (``annotations.apply_link_annotations``), mirroring write.py's
@@ -46,7 +46,7 @@ def _record_partial_archive_failure(
     A partial archive is one where the S3 status flip has already succeeded
     (``s3.put_object`` returned) but the vector-side flip (annotation re-apply
     and/or the per-vector status update loop) failed — credential error or
-    otherwise (Phase 12 review M-1). Without this, a vector-side failure left no
+    otherwise. Without this, a vector-side failure left no
     repairable trace: the S3 object already reports ``status: inactive`` so a
     retried ``archive_artifact`` call used to hit the ``already_archived``
     idempotency short-circuit forever (fixed alongside this by also checking
@@ -155,7 +155,7 @@ async def _archive_artifact_inner(
         }
 
     # ── Step 2b: Idempotency — already fully archived → early return ─────────
-    # M-1: a half-archived artifact (S3 status already flipped to inactive, but
+    # A half-archived artifact (S3 status already flipped to inactive, but
     # one or more of its vectors are still status=active because a prior
     # vector-side flip attempt failed partway) must NOT be treated as fully
     # archived — an early return here would make every retry hit this
@@ -207,11 +207,11 @@ async def _archive_artifact_inner(
     # guarded by an ETag compare-and-swap (ADR-011 decision 6) ────────────────
     # PutObject clears S3 annotations, so the in-place status re-PUT would otherwise
     # silently destroy the durable commit_refs/references annotation trail. Read the
-    # current values forward as the union of both durable stores (Phase 12 review
-    # C5/M6 — neither the annotation copy nor the vector-metadata copy is sole
-    # authority; see ``annotations.read_current_link_fields``) so they can be
-    # re-applied after the re-PUT. Archive has no caller-supplied references to
-    # replace *from* — unlike write.py's overwrite path (review-followup-2026-07-06),
+    # current values forward as the union of both durable stores (neither the
+    # annotation copy nor the vector-metadata copy is sole authority; see
+    # ``annotations.read_current_link_fields``) so they can be re-applied after the
+    # re-PUT. Archive has no caller-supplied references to replace *from* — unlike
+    # the overwrite path in ``tools/write.py``,
     # it must continue to read-forward and re-apply BOTH commit_refs and references
     # unconditionally; letting the write-path's replace semantics leak in here would
     # silently wipe references on every archive operation.
@@ -295,7 +295,7 @@ async def _archive_artifact_inner(
             annotation_warning = str(exc)
             break
         except CredentialError as exc:
-            # M-1: the S3 status flip above has already succeeded — this is a
+            # The S3 status flip above has already succeeded — this is a
             # partial archive, not a clean failure.
             _record_partial_archive_failure(
                 settings, artifact_id=artifact_id, s3_meta=updated_s3_meta, reason=str(exc)
@@ -324,7 +324,7 @@ async def _archive_artifact_inner(
 
     # ── Steps 5–6: Flip all vector statuses ───────────────────────────────────
     # Vector writes stay unconditional (no S3 Vectors CAS surface exists; ADR-011
-    # decision 6) — vector metadata is the recoverable/derived copy. M-1: the S3
+    # decision 6) — vector metadata is the recoverable/derived copy. The S3
     # status flip above has already succeeded — any failure from this point on is a
     # *partial archive* (S3 inactive, vectors not yet fully flipped) and must leave a
     # repairable failure-log trace, credential error or otherwise, so reconcile_index

@@ -23,7 +23,7 @@ Both paths additionally resolve frontmatter `references:` entries against a
 single, full-manifest path→full-key map before any file is written — see
 "Building the path→full-key map" under Step 3. The map's values are the full S3
 key (`{write_prefix}/{bare_id}{extension}`), not the bare id alone — this is the
-operative `artifact_id` used everywhere else in Arkeology (review finding C1). The
+operative `artifact_id` used everywhere else in Arkeology. The
 agent resolves each entry and passes the result as `resolved_references_map` in the
 descriptor; `migrate_artifacts` deterministically rewrites both the frontmatter
 list item and any matching body link target to `arkeology://artifact/{id}`
@@ -183,7 +183,7 @@ Wait for operator confirmation of the table before continuing.
 
 ---
 
-### Determining `write_prefix` (review finding C1)
+### Determining `write_prefix`
 
 The map built below must produce the **full S3 key** for each file, not a bare
 identifier — the full S3 key (`{write_prefix}/{bare_id}{extension}`) is the operative
@@ -210,7 +210,7 @@ the map:
 Never guess `write_prefix` silently — an incorrect value produces `references`
 entries and rewritten `arkeology://` links that look plausible but never resolve.
 
-### Building the path→full-key map (ADR-012 D4, C1)
+### Building the path→full-key map (ADR-012 D4)
 
 Applies to both Step 3.A and Step 3.B. Before either path writes anything, build a
 single, authoritative path→full-key map covering **every** confirmed file —
@@ -251,7 +251,7 @@ reference implementation:
 4. Tier 3 (date-independent): `bare_id = {type_slug}-{title_slug}-{title_hash}`.
    Tier 2 (date-anchored): `bare_id = {type_slug}-{date}-{title_slug}-{title_hash}`.
 5. `full_key = {write_prefix}/{bare_id}{extension}` — **this full key, not `bare_id`
-   alone, is the map's value and the operative `artifact_id`** (C1).
+   alone, is the map's value and the operative `artifact_id`**.
 
 A short script computes this exactly instead of doing it by hand — run once per
 file (`$TYPE`, `$TIER`, `$DATE`, `$TITLE`, `$EXTENSION`, `$WRITE_PREFIX` are that
@@ -310,7 +310,7 @@ file being processed this run:
    - Convert backslashes (`\`) to forward slashes (`/`).
    - Then strip exactly one of: a leading `./`, a single leading `/`, or neither
      (whichever applies).
-4. **Match found** → add the resolved full S3 key (the operative `artifact_id`, C1)
+4. **Match found** → add the resolved full S3 key (the operative `artifact_id`)
    to the artifact's `references` field (T46) AND add an entry to this file's
    `resolved_references_map` (`{original_reference_text: artifact_id}`, keyed by the
    entry's *exact literal text as written in frontmatter* — before any join or
@@ -368,7 +368,7 @@ For each file, read its full content and build a descriptor:
 | `content` | **full file text — must not be empty** |
 | `tags` | from frontmatter only; omit if not present |
 | `description` | OKF frontmatter `description:` (if ≤ 280 chars use as-is; if > 280 chars truncate or rewrite to fit) → **write in-context, ≤ 280 chars** — be specific, mention decision/outcome/scope; avoid "This document describes…" preamble |
-| `references` | resolved full S3 keys (the operative `artifact_id`s, C1) only — see "Resolving `references:` entries" below; omit or leave empty if none resolve |
+| `references` | resolved full S3 keys (the operative `artifact_id`s) only — see "Resolving `references:` entries" below; omit or leave empty if none resolve |
 | `resolved_references_map` | `{original_reference_text: artifact_id}` for every entry that resolved — see "Resolving `references:` entries" below and 3.A1b; omit or leave empty if none resolve. The server uses this to rewrite `content` before writing — do not rewrite `content` yourself. |
 | `file_extension` | source file extension including the dot (e.g. `.md`); default `.md` if the file has no extension |
 
@@ -579,7 +579,7 @@ generation is not triggered.
 file, extract its frontmatter `references:` list from the now-fully-read content
 and resolve each entry per "Resolving a `references:` entry against the map"
 (Step 3), using the map built in 3.B1b: populate the descriptor's `references`
-field with the resolved full S3 keys (the operative `artifact_id`s, C1), and
+field with the resolved full S3 keys (the operative `artifact_id`s), and
 populate the descriptor's `resolved_references_map` field with
 `{original_reference_text: artifact_id}` for every entry that resolved. Do **not**
 rewrite the file's `content` yourself — the server rewrites both the frontmatter
