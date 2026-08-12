@@ -37,7 +37,7 @@ def append_failure_entry(path: Path, entry: dict[str, Any]) -> None:
             # across NFS-mounted paths either way. Swap for a cross-platform/
             # network-safe lock (e.g. `filelock`) if either ceiling is ever hit.
             # Without it, concurrent writers' appends could interleave and corrupt
-            # lines (07-02 #19).
+            # lines.
             if fcntl is not None:
                 fcntl.flock(fh, fcntl.LOCK_EX)
             try:

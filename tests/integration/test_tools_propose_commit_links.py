@@ -3,10 +3,9 @@
 Requires real AWS credentials and configured .env file.
 All tests decorated with @pytest.mark.integration.
 
-M-16 (Phase 12 review, Cluster E): propose_commit_links had zero integration
-coverage. These tests write real artifacts via write_artifact and confirm the
-discovery query (own-scope, no commit_refs, optional since_ulid bound) behaves
-correctly against real S3 Vectors.
+These tests are propose_commit_links' only real-AWS coverage. They write real
+artifacts via write_artifact and confirm the discovery query (own-scope, no
+commit_refs, optional since_ulid bound) behaves correctly against real S3 Vectors.
 
 Note on filter semantics: propose_commit_links resolves candidates via
 VectorsClientImpl.list_vectors_by_metadata, which the S3 Vectors ListVectors

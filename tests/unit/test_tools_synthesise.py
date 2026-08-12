@@ -224,7 +224,7 @@ async def test_synthesise_result_missing_tier_metadata_defaults_gracefully(
     s3_client: S3ClientImpl,
     vectors_client_8: VectorsClientImpl,
 ) -> None:
-    """07-02 #13: a vector whose metadata lacks 'tier' must not hard-crash the
+    """A vector whose metadata lacks 'tier' must not hard-crash the
     whole synthesise call. synthesise.py currently does ``int(meta["tier"])``
     (a plain dict subscript) instead of the ``.get("tier", 0)`` pattern
     already used by list.py — this raises a bare KeyError, caught only by
@@ -382,7 +382,7 @@ async def test_synthesise_top_k_zero_returns_validation_error(
     s3_client: S3ClientImpl,
     vectors_client_8: VectorsClientImpl,
 ) -> None:
-    """top_k=0 has no floor guard (07-02 #4) — must return validation_error,
+    """top_k=0 has no floor guard in the clamp — must return validation_error,
     not a silent empty artifacts list indistinguishable from a legitimate
     no-match query.
     """
@@ -409,7 +409,7 @@ async def test_synthesise_top_k_negative_returns_validation_error(
     s3_client: S3ClientImpl,
     vectors_client_8: VectorsClientImpl,
 ) -> None:
-    """top_k=-5 has no floor guard (07-02 #4) — must return validation_error."""
+    """top_k=-5 has no floor guard in the clamp — must return validation_error."""
     settings = _make_settings(monkeypatch)
     bedrock = FakeBedrockClient(dimension=8)
     _seed_all(s3_client, vectors_client_8)
@@ -433,7 +433,7 @@ async def test_synthesise_filter_type_typo_returns_validation_error(
     s3_client: S3ClientImpl,
     vectors_client_8: VectorsClientImpl,
 ) -> None:
-    """type='cod_review' (typo) must return validation_error (07-02 #5) — not a
+    """type='cod_review' (typo) must return validation_error — not a
     silent, misleadingly-empty result set that looks identical to a legitimate
     zero-match query.
     """
@@ -579,7 +579,7 @@ async def test_synthesise_s3_read_failure_reports_skip_count(
     mocker: MockerFixture,
 ) -> None:
     """A non-credential S3 read failure for one candidate must be surfaced in the
-    response (e.g. a skipped count), not silently vanish (07-02 #15). Today the
+    response (e.g. a skipped count), not silently vanish. Today the
     `except Exception: continue` branch in the content-fetch loop drops the failed
     candidate with no trace in the returned payload — a caller cannot tell the
     difference between "fewer results legitimately matched" and "a result was
@@ -641,7 +641,7 @@ async def test_synthesise_empty_search_includes_zero_results_field(
     vectors_client_8: VectorsClientImpl,
 ) -> None:
     """Zero matches must set zero_results=True, mirroring search_artifacts' shape
-    (07-02 #15 asymmetry) — synthesise_artifacts currently returns a bare
+    — synthesise_artifacts currently returns a bare
     {"artifacts": []} with no equivalent signal that nothing matched."""
     settings = _make_settings(monkeypatch)
     bedrock = FakeBedrockClient(dimension=8)
@@ -808,14 +808,14 @@ async def test_synthesise_top_k_within_limit_not_clamped(
 
 
 # ---------------------------------------------------------------------------
-# CA-5: Response-size (byte) budget
+# Response-size (byte) budget
 # ---------------------------------------------------------------------------
 #
 # These tests patch run_search_loop (as imported into synthesise.py) with a
 # fixed, already rank-ordered candidate list rather than relying on the real
 # embedding-based search: FakeBedrockClient's hash-derived vectors make the
 # relative ranking of the manually-seeded section vectors used elsewhere in
-# this file non-deterministic across artifacts, and CA-5's budget logic
+# this file non-deterministic across artifacts, and the budget logic
 # depends on processing candidates in a known rank order.
 
 
@@ -833,7 +833,7 @@ def _entry(artifact_id: str, score: float) -> dict[str, Any]:
 
 
 def _mock_search_loop(mocker: MockerFixture, entries: list[dict[str, Any]]) -> None:
-    # run_search_loop returns (results, fetch_exhausted) on success (07-02 #7).
+    # run_search_loop returns (results, fetch_exhausted) on success.
     mocker.patch(
         "arkeology.tools.synthesise.run_search_loop",
         new=AsyncMock(return_value=(entries, False)),

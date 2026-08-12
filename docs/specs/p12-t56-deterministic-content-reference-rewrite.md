@@ -219,7 +219,7 @@ that file's own frontmatter.
   existing resolution algorithm, T51-unchanged), threaded through the `migrate_artifacts`
   descriptor, consumed by the server, and never stored in S3 metadata, vector metadata, or the
   `Artifact` model.
-- Migration never overwrites an existing key (A-1 skip-existing), so this rewrite is inherently
+- Migration never overwrites an existing key (the skip-existing guard), so this rewrite is inherently
   first-write-only — matches T51/D8's "content rewritten once, never retroactively patched."
 - Every id in `resolved_references_map` values is resolved from this deployment's own migration
   manifest / `write_prefix` (T51/D4) — inherently own-scope; no new cross-scope validation is

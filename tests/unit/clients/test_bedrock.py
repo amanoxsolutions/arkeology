@@ -5,7 +5,7 @@ Tests cover:
 - invoke_text_model returns a non-empty string (BedrockClientImpl, mocked boto3)
 - Credential error → CredentialError raised
 - FakeBedrockClient.invoke_text_model returns a deterministic short string
-- invoke_text_model retries once on transient ThrottlingException (M3 fix)
+- invoke_text_model retries once on transient ThrottlingException
 """
 
 import io
@@ -106,7 +106,7 @@ def test_fake_bedrock_invoke_text_model_returns_deterministic_string() -> None:
 
 
 # ---------------------------------------------------------------------------
-# D4 — invoke_text_model retries once on ThrottlingException (M3)
+# D4 — invoke_text_model retries once on ThrottlingException
 # ---------------------------------------------------------------------------
 
 

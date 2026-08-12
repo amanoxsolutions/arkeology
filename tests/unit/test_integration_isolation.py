@@ -1,4 +1,4 @@
-"""Unit tests for tests.integration._isolation (C-4 fix — run-scoped test isolation).
+"""Unit tests for tests.integration._isolation (run-scoped test isolation).
 
 Exercises the isolation helpers with moto-mocked S3 / S3 Vectors clients so the
 teardown logic is verified without touching real AWS. See AGENTS.md Testing

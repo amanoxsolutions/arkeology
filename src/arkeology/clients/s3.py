@@ -83,7 +83,7 @@ class S3ClientImpl:
             "Metadata": _transport_safe_metadata(metadata),
         }
         if if_none_match:
-            # Atomic conditional-create (A-2): "*" matches any existing object, so the
+            # Atomic conditional-create: "*" matches any existing object, so the
             # request is rejected with HTTP 412 PreconditionFailed if the key already
             # exists. This closes the head_object-then-put_object TOCTOU race — the
             # existence check and the write happen as a single S3-side atomic operation.

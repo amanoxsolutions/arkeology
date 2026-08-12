@@ -79,7 +79,7 @@ async def _check_synthesis_freshness_inner(
         ]
     }
     try:
-        # M-8: off the event loop — blocking boto3 call.
+        # Off the event loop — blocking boto3 call.
         synth_keys = await asyncio.to_thread(vectors.list_vectors_by_metadata, synth_filter)
 
         if not synth_keys:
@@ -94,7 +94,7 @@ async def _check_synthesis_freshness_inner(
                 "all_fresh": True,
             }
 
-        # ── Step 2: Fetch vector metadata for all synthesis keys (M-8: off loop) ──
+        # ── Step 2: Fetch vector metadata for all synthesis keys (off the loop) ──
         synth_items = await asyncio.to_thread(vectors.get_vectors, synth_keys, False)
     except CredentialError as exc:
         return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
@@ -123,10 +123,10 @@ async def _check_synthesis_freshness_inner(
             all_source_ids.add(src_id)
 
     # ── Step 6: Fetch source metadata — one batched lookup for all unique sources ──
-    # 07-02 #17: previously one list_vectors_by_metadata call per unique source_id
-    # (1+N queries total). Batched into a single $in query, mirroring the pattern
-    # already established in _reference_filter.py::resolve_readable_targets.
-    # Cross-scope gate (C-5): identical to list.py's Step 5 — own-scope sources are
+    # One batched $in query rather than one list_vectors_by_metadata call per unique
+    # source_id (which would be 1+N queries), mirroring the pattern already established
+    # in _reference_filter.py::resolve_readable_targets.
+    # Cross-scope gate: identical to list.py's Step 5 — own-scope sources are
     # always readable; a foreign-scope source is only readable when it is tier 3 AND
     # visibility="shared". A gated-out source is treated exactly as an unresolved
     # source (None) so it surfaces as missing and its date/status are never read or
@@ -137,7 +137,7 @@ async def _check_synthesis_freshness_inner(
 
     if all_source_ids:
         try:
-            # M-8: off the event loop — blocking boto3 call.
+            # Off the event loop — blocking boto3 call.
             src_keys = await asyncio.to_thread(
                 vectors.list_vectors_by_metadata,
                 {"artifact_id": {"$in": sorted(all_source_ids)}},
@@ -147,7 +147,7 @@ async def _check_synthesis_freshness_inner(
 
         if src_keys:
             try:
-                # M-8: off the event loop — blocking boto3 call.
+                # Off the event loop — blocking boto3 call.
                 src_items = await asyncio.to_thread(vectors.get_vectors, src_keys, False)
             except CredentialError as exc:
                 return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
@@ -233,7 +233,7 @@ async def _check_synthesis_freshness_inner(
             # Non-credential errors at any step → report in delete_failed and continue
             # (T22 Boundary: a partial delete leaves a recoverable S3 orphan).
             try:
-                # M-8: off the event loop — blocking boto3 call.
+                # Off the event loop — blocking boto3 call.
                 vec_keys = await asyncio.to_thread(
                     vectors.list_vectors_by_metadata, {"artifact_id": {"$eq": aid}}
                 )
@@ -250,7 +250,7 @@ async def _check_synthesis_freshness_inner(
                 continue
             if vec_keys:
                 try:
-                    # M-8: off the event loop — blocking boto3 call.
+                    # Off the event loop — blocking boto3 call.
                     await asyncio.to_thread(vectors.delete_vectors, vec_keys)
                 except CredentialError as exc:
                     return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
@@ -264,7 +264,7 @@ async def _check_synthesis_freshness_inner(
                     delete_failed.append(aid)
                     continue
             try:
-                # M-8: off the event loop — blocking boto3 call.
+                # Off the event loop — blocking boto3 call.
                 await asyncio.to_thread(s3.head_object, aid)
             except KeyError:
                 logger.warning(
@@ -276,7 +276,7 @@ async def _check_synthesis_freshness_inner(
             except CredentialError as exc:
                 return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
             try:
-                # M-8: off the event loop — blocking boto3 call.
+                # Off the event loop — blocking boto3 call.
                 await asyncio.to_thread(s3.delete_object, aid)
             except CredentialError as exc:
                 return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}

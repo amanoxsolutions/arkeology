@@ -109,7 +109,7 @@ async def test_overwrite_preserves_link_metadata_backfilled_annotation(
     vectors: VectorsClientImpl,
     bedrock: BedrockClientImpl,
 ) -> None:
-    """SA-3(a): write → link_metadata backfill → content-only overwrite must preserve
+    """Write → link_metadata backfill → content-only overwrite must preserve
     the backfilled commit_refs, in both the durable S3 annotation and vector metadata,
     via write_artifact's Step 4a read-forward — against real AWS."""
     kwargs = {**_BASE_KWARGS, "tier": 3, "title": "Integration link-metadata overwrite test"}

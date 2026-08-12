@@ -121,7 +121,7 @@ async def _search_artifacts_inner(  # noqa: PLR0913
     effective_top_k = min(requested_top_k, 100)
     clamped = effective_top_k < requested_top_k
 
-    # ── Step 2: Embed the query (M-8: off the event loop — blocking boto3 call) ──
+    # ── Step 2: Embed the query (off the event loop — blocking boto3 call) ───────
     try:
         query_vector = await asyncio.to_thread(
             bedrock.embed,
@@ -179,9 +179,9 @@ async def _search_artifacts_inner(  # noqa: PLR0913
         tags_val = coerce_list_field(meta, "tags")
         source_artifacts_val = coerce_list_field(meta, "source_artifacts")
 
-        # Last-edited age transparency (CA-4 Option A): surface the raw ULID and a
-        # derived ISO 8601 timestamp so agents can discount stale hits. This is
-        # transparency only — it never influences result ordering.
+        # Last-edited age transparency: surface the raw ULID and a derived ISO 8601
+        # timestamp so agents can discount stale hits themselves. This is transparency
+        # only — age never influences result ordering, which stays purely semantic.
         last_edited_ulid: str | None = meta.get("last_edited_ulid") or None
         last_edited_at: str | None = None
         if last_edited_ulid:

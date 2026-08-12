@@ -79,7 +79,7 @@ async def write_artifacts(
             Must be in [1, 15]. Values > 15 are capped to 15 (with a warning in
             the response). Values < 1 are substituted with the default 3 (with a
             warning). Out-of-range values are never an error. Defaults to 3.
-        overwrite: Batch-level default for the C-3 collision guard (default
+        overwrite: Batch-level default for the collision guard (default
             ``False`` — a descriptor targeting an already-existing key is
             rejected with ``validation_error``). Each descriptor may also supply
             an ``overwrite`` key to override this default for that entry only,
@@ -104,7 +104,7 @@ async def write_artifacts(
             overwrite=overwrite,
         )
     except Exception:
-        # 07-02 #37: the raw exception (which may contain AWS-specific details —
+        # The raw exception (which may contain AWS-specific details —
         # ARNs, account IDs, internal bucket names) is logged server-side for
         # diagnostics but never echoed to the MCP caller.
         logger.exception("Unexpected error in write_artifacts")
@@ -218,7 +218,7 @@ async def _write_artifacts_inner(
                     "sections_indexed": result.get("sections_indexed", 0),
                 }
             except Exception:
-                # 07-02 #37: same sanitization as the top-level handler above — the
+                # Same sanitization as the top-level handler above — the
                 # raw exception (which may contain AWS-specific details) is logged
                 # server-side but never echoed to the MCP caller.
                 logger.exception("Unexpected error writing artifact '%s'", descriptor.get("title"))

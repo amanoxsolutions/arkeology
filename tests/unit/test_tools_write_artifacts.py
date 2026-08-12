@@ -380,7 +380,7 @@ async def test_write_artifacts_invalid_file_extension_validation_error(
 
 
 # ---------------------------------------------------------------------------
-# Invalid tier type/value → validation_error, not internal_error (07-02 #3)
+# Invalid tier type/value → validation_error, not internal_error
 # ---------------------------------------------------------------------------
 
 
@@ -701,7 +701,7 @@ async def test_duplicate_non_adjacent_third_entry_is_validation_error(
 
 
 # ---------------------------------------------------------------------------
-# C-3 — batch path: collision guard + overwrite flag (batch-level and per-descriptor)
+# Batch path: collision guard + overwrite flag (batch-level and per-descriptor)
 # ---------------------------------------------------------------------------
 
 
@@ -867,7 +867,7 @@ async def test_write_artifacts_descriptor_references_round_trips_to_vector_metad
 
 
 # ---------------------------------------------------------------------------
-# 07-02 #37 — raw AWS error details must not leak to MCP callers
+# Raw AWS error details must not leak to MCP callers
 # ---------------------------------------------------------------------------
 
 
@@ -879,7 +879,7 @@ async def test_write_artifacts_top_level_error_does_not_leak_raw_aws_details(
 ) -> None:
     """The write_artifacts() top-level `except Exception as exc: ... "message":
     str(exc)` catch-all must not echo raw AWS-specific error text (account IDs, IAM
-    ARNs, internal bucket names) straight back to the MCP caller (07-02 #37). An
+    ARNs, internal bucket names) straight back to the MCP caller. An
     unexpected exception raised before any per-descriptor try/except (here, during
     the pre-flight duplicate-ID detection loop) is caught only by the outer
     write_artifacts() handler, which today returns str(exc) verbatim."""
@@ -929,7 +929,7 @@ async def test_write_artifacts_per_descriptor_error_does_not_leak_raw_aws_detail
 ) -> None:
     """The per-descriptor exception handler in write_one() — the path a real boto
     ClientError during an individual artifact's write actually takes — must sanitize
-    the same way the top-level handler does (07-02 #37). Only the failing descriptor
+    the same way the top-level handler does. Only the failing descriptor
     is affected; a healthy sibling descriptor still succeeds."""
     try:
         from arkeology.tools import write_artifacts as write_artifacts_module

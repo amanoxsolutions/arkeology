@@ -46,7 +46,7 @@ user-metadata cap or S3 Vectors' 2 KB filterable-metadata cap and fails *after* 
 deterministic partial write that `reconcile_index` and the failure log replay into the same failure
 forever; (2) a control character (e.g. a `\n` in the title) reaches urllib3 as a raw `ValueError`
 that escapes the tool; (3) a non-Latin title is NFKD-stripped to `""` in S3 metadata
-(`s3.py:24-40`) while vector metadata keeps the real UTF-8 title, so `read_artifact` and
+(by `s3.py`'s metadata sanitiser) while vector metadata keeps the real UTF-8 title, so `read_artifact` and
 `search_artifacts` return different titles for the same artifact. This lands before/with T46 (adds
 `references` to the filterable vector payload) and T47 (moves `commit_refs`/`references` off S3
 user-metadata to annotations) because those tasks enlarge exactly the payload this guard measures.

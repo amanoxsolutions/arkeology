@@ -237,7 +237,7 @@ class Settings(BaseSettings):
     @classmethod
     def validate_write_prefix(cls, v: str) -> str:
         """Reject internal whitespace and normalize surrounding slashes, mirroring
-        READ_PREFIXES' validator (07-02 #8). Unlike a READ_PREFIXES token (which can
+        READ_PREFIXES' validator. Unlike a READ_PREFIXES token (which can
         simply be dropped from the list when it reduces to empty), WRITE_PREFIX is a
         single mandatory scalar, so a value that reduces to empty after stripping
         slashes (e.g. '///') is rejected with the same error as an empty value.

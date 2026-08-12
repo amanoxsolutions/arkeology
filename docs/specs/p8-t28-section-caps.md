@@ -33,7 +33,7 @@ in S3 and is always returned by `read_artifact`.
 
 ## Problem Statement
 
-The brainstorming session (2026-06-01) identified two defensive bounds (C1, C2) that limit
+The brainstorming session (2026-06-01) identified two defensive bounds that limit
 worst-case embed work without degrading the typical case. A document with 80 sections (a
 verbose brainstorming dump) generates 80 Bedrock calls even with P1 — still a meaningful cost.
 Very short sections ("TBD", "See above", a single link) add index noise without contributing

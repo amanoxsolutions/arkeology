@@ -30,7 +30,7 @@ from arkeology.config import Settings
 # ---------------------------------------------------------------------------
 # moto query_vectors extension — applied once at module load
 #
-# M-16 (Phase 12 review, Cluster E): this extension filters using the exact
+# NOTE: this extension filters using the exact
 # same production `matches_filter` that VectorsClientImpl.query_vectors hands
 # to boto3 as the real `filter` request parameter — so it is circular for
 # anything QueryVectors evaluates server-side (if matches_filter's assumptions
@@ -69,7 +69,7 @@ def _backend_query_vectors(
     ``return_distance`` mirrors the real S3 Vectors ``returnDistance`` request flag
     (AWS default: false) — 'distance' is only included in each result when it is
     truthy. This is required so a client that forgets to request distances (as
-    production code did before the C-1 fix) sees the same missing-field shape a
+    production code would if it stopped requesting distances) sees the same missing-field shape a
     real S3 Vectors response would return, rather than the fixture masking the bug.
     """
     bucket = next(
@@ -136,7 +136,7 @@ url_paths["{0}/QueryVectors$"] = S3VectorsResponse.dispatch
 # (bucket, key). It also wraps S3Backend.put_object so that writing a new object
 # version clears that key's annotations, matching real S3 overwrite-wipe semantics.
 #
-# ADR-011 decision 6 / review-followup-2026-07-06: PutObjectAnnotation and
+# ADR-011 decision 6: PutObjectAnnotation and
 # DeleteObjectAnnotation also accept an optional ``ObjectIfMatch`` compare-and-swap
 # parameter. Inspecting the installed botocore S3 service model
 # (botocore/data/s3/2006-03-01/service-2.json.gz, PutObjectAnnotationRequest /
@@ -325,7 +325,7 @@ def aws_mock():
 
 @pytest.fixture(autouse=True)
 def _reset_annotation_store() -> Iterator[None]:
-    """Reset the self-mocked S3-annotation in-memory store between tests (Phase-12 #24).
+    """Reset the self-mocked S3-annotation in-memory store between tests.
 
     ``_ANNOTATION_STORE`` is a module-level dict keyed by ``(bucket, key)`` backing the
     moto self-mock extension above. Without a reset, annotation state written by one

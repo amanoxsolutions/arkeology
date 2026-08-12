@@ -437,7 +437,7 @@ def register_resources(app: fastmcp.FastMCP) -> None:
 #: Only the ext-apps SDK (unpkg) and marked.js / mermaid.js (jsDelivr) are allowed.
 #: Google Fonts origins are deliberately NOT declared — loading web fonts from a
 #: third-party CDN leaks the user's IP and is disallowed on GDPR grounds; typography
-#: uses the ``system-ui`` stack. (Review 2026-06-29, finding C1.)
+#: uses the ``system-ui`` stack.
 _BROWSER_CDN_ORIGINS: list[str] = [
     "https://unpkg.com",
     "https://cdn.jsdelivr.net",
@@ -586,7 +586,7 @@ def _render_artifacts_markdown(artifacts: list[dict[str, Any]]) -> str:
     for artifact in artifacts:
         # Escape pipe characters and collapse embedded line breaks inside each cell
         # value (via splitlines) so a '\n'/'\r' can never split one logical table row
-        # into multiple physical lines (07-02 #31).
+        # into multiple physical lines.
         cells = [
             " ".join(str(artifact.get(key, "")).replace("|", "\\|").splitlines())
             for key in ("artifact_id", "title", "type", "description")

@@ -575,8 +575,8 @@ async def test_archive_list_vectors_credential_error(
 
     This fails during the Step 3 own-scope referrer check (``find_referrers`` calls
     ``list_vectors_by_metadata`` too, and it runs before the S3 status flip) — no
-    failure-log entry is expected here since nothing has been written yet (M-1 only
-    requires logging *after* the S3 flip has succeeded; see
+    failure-log entry is expected here since nothing has been written yet (logging is
+    only required *after* the S3 flip has succeeded; see
     ``test_archive_put_vector_credential_error`` and
     ``test_archive_annotation_credential_error_aborts`` for the post-flip case)."""
     settings = _make_settings(monkeypatch, tmp_path=tmp_path)
@@ -648,7 +648,7 @@ async def test_archive_put_vector_credential_error(
     tmp_path: Path,
 ) -> None:
     """put_vector raises CredentialError on first section → structured error;
-    failure-log entry written (M-1)."""
+    failure-log entry written."""
     settings = _make_settings(monkeypatch, tmp_path=tmp_path)
     s3_client.put_object("artifacts/active-review", _CONTENT, {**_BASE_S3_META, "status": "active"})
     vectors_client_2.put_vector(
@@ -750,7 +750,7 @@ async def test_archive_already_inactive_makes_no_writes(
 
 
 # ---------------------------------------------------------------------------
-# M-1 — Half-archived retry must complete the vector flip, not early-return
+# Half-archived retry must complete the vector flip, not early-return
 # ---------------------------------------------------------------------------
 
 
@@ -761,7 +761,7 @@ async def test_archive_half_archived_retry_completes_vector_flip(
 ) -> None:
     """S3 status already inactive but a vector is still status=active (simulating a
     prior partial archive) → retrying archive_artifact must NOT early-return
-    already_archived; it must complete the vector-side flip instead (M-1)."""
+    already_archived; it must complete the vector-side flip instead."""
     settings = _make_settings(monkeypatch)
     s3_client.put_object(
         "artifacts/half-archived",
@@ -869,8 +869,9 @@ async def test_archive_partial_archive_credential_error_writes_failure_log(
     tmp_path: Path,
 ) -> None:
     """A vector-side failure mid-archive (S3 already flipped) appends a failure-log
-    entry so the partial archive is repairable (M-1) — this is the RED proof: before
-    the fix, no failure-log entry was written for any credential error in this path."""
+    entry so the partial archive is repairable. Without it, no failure-log entry is
+    written for any credential error in this path and the partial archive is invisible
+    to reconcile_index."""
     settings = _make_settings(monkeypatch, tmp_path=tmp_path)
     _seed_all(s3_client, vectors_client_2)
     mocker.patch.object(
@@ -905,7 +906,7 @@ async def test_archive_partial_archive_credential_error_writes_failure_log(
 
 
 # ---------------------------------------------------------------------------
-# Phase 12 review C2 — annotation preservation across the archive status re-PUT
+# Annotation preservation across the archive status re-PUT
 # ---------------------------------------------------------------------------
 #
 # archive_artifact flips status by re-PUTting the S3 object. PutObject clears an
@@ -922,7 +923,7 @@ async def test_archive_preserves_commit_refs_and_references_annotations(
 ) -> None:
     """Archiving an artifact that has durable commit_refs/references annotations
     must preserve both annotations intact — the status re-PUT must not silently
-    wipe the annotation trail (Phase 12 review C2)."""
+    wipe the annotation trail."""
     settings = _make_settings(monkeypatch)
     _seed_all(s3_client, vectors_client_2)
     s3_client.put_object_annotation("artifacts/active-review", "commit_refs", "abc1234,def5678")
@@ -956,7 +957,7 @@ async def test_archive_preserves_link_fields_sourced_from_vector_metadata_only(
     """When commit_refs/references exist only in vector metadata (no annotation —
     e.g. an annotation-unavailable deployment per T52), archiving must still
     re-apply them as the durable annotation copy, per the union-of-both-stores
-    authority model (read_current_link_fields, C5)."""
+    authority model (read_current_link_fields)."""
     settings = _make_settings(monkeypatch)
     _seed_all(s3_client, vectors_client_2)
     vectors_client_2.put_vector(
@@ -1027,7 +1028,7 @@ async def test_archive_annotation_credential_error_aborts(
     """A CredentialError raised while re-applying link annotations after the status
     re-PUT still aborts the archive with a structured credential error, unlike the
     AnnotationUnavailableError graceful degrade. The S3 status flip has already
-    succeeded by this point, so a failure-log entry must be written (M-1) — otherwise
+    succeeded by this point, so a failure-log entry must be written — otherwise
     the partial archive (S3 inactive, vectors still active) leaves no repairable trace."""
     settings = _make_settings(monkeypatch, tmp_path=tmp_path)
     _seed_all(s3_client, vectors_client_2)
@@ -1057,8 +1058,7 @@ async def test_archive_annotation_credential_error_aborts(
 
 
 # ---------------------------------------------------------------------------
-# Optimistic-concurrency (ETag compare-and-swap) writes — ADR-011 decision 6 /
-# review-followup-2026-07-06 "Optimistic-Concurrency Writes"
+# Optimistic-concurrency (ETag compare-and-swap) writes — ADR-011 decision 6
 # ---------------------------------------------------------------------------
 
 
@@ -1319,7 +1319,7 @@ async def test_archive_vector_writes_remain_unconditional_despite_cas_retry(
 
 # ---------------------------------------------------------------------------
 # Regression guard: write-path replace-semantics for `references` must NOT leak
-# into archive (review-followup-2026-07-06, "Reference-Field Value Semantics")
+# into archive
 # ---------------------------------------------------------------------------
 
 
@@ -1329,8 +1329,8 @@ async def test_archive_preserves_references_even_with_no_commit_refs(
     vectors_client_2: VectorsClientImpl,
 ) -> None:
     """Archive's status-flip re-PUT has no caller-supplied 'references' to replace
-    from — unlike write.py's overwrite path (which now REPLACES references outright
-    per the review-followup-2026-07-06 fix), archive must continue to read-forward
+    from — unlike write.py's overwrite path, which REPLACES references outright,
+    archive must continue to read-forward
     and re-apply 'references' unconditionally. This isolates the references field
     (no commit_refs present) to guard against an implementer mistakenly propagating
     the write-path's replace semantics into archive, which would silently wipe

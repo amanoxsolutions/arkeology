@@ -5,13 +5,13 @@ min-length filtering, max-sections capping, per-section truncation, and
 embedding-text construction. Both ``write.py`` and ``reconcile.py`` call
 ``prepare_sections_for_embedding`` so a section that is dropped, capped, or
 truncated at write time is dropped, capped, or truncated *identically* when
-``reconcile_index`` later re-embeds the same artifact (Phase 12 review M-3).
+``reconcile_index`` later re-embeds the same artifact.
 
-Before this module existed, ``reconcile.py::_reindex_artifact`` parsed sections and
-embedded each one directly, sharing only the ``_build_*_embedding_text`` formatting
-helpers with ``write.py`` — it never applied the min-length filter, the
-``EMBED_MAX_SECTIONS`` cap, or ``EMBED_MAX_SECTION_LENGTH`` truncation. A section
-that write-time truncated to fit Titan's input limit was therefore re-submitted
+Divergence here is not cosmetic. If ``reconcile.py::_reindex_artifact`` parsed and
+embedded sections directly — sharing only the ``_build_*_embedding_text`` formatting
+helpers with ``write.py`` — it would skip the min-length filter, the
+``EMBED_MAX_SECTIONS`` cap, and ``EMBED_MAX_SECTION_LENGTH`` truncation. A section
+that write-time truncated to fit Titan's input limit would then be re-submitted
 full-length on every reconcile replay, permanently failing and leaving a stuck
 failure-log entry that reconcile could never actually clear.
 """
@@ -201,13 +201,13 @@ def disambiguate_section_slugs(sections: list[PreparedSection]) -> list[str]:
     slug as a vector key suffix (``f"{s3_key}#{slug}"``) would then collide: the
     second section's vector would silently overwrite the first's, and the write
     path's ``sections_indexed`` count would under-report the true section count
-    (07-02 #2). Repeat occurrences of the same base slug within one artifact get
+    Repeat occurrences of the same base slug within one artifact therefore get
     a numeric suffix (``-2``, ``-3``, ...) appended, in document order, so every
     section is guaranteed a distinct vector key.
 
-    Shared by ``write.py`` and ``reconcile.py`` (Phase 12 review M-3 convention)
-    so a collision is disambiguated identically on both the initial write and any
-    later ``reconcile_index`` replay of the same artifact.
+    Shared by ``write.py`` and ``reconcile.py`` so a collision is disambiguated
+    identically on both the initial write and any later ``reconcile_index`` replay
+    of the same artifact.
 
     Args:
         sections: Prepared sections in document order.

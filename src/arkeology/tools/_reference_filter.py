@@ -61,7 +61,7 @@ async def resolve_readable_targets(
     if not unresolved:
         return readable
 
-    # M-8: off the event loop — blocking boto3 calls.
+    # Off the event loop — blocking boto3 calls.
     keys = await asyncio.to_thread(
         vectors.list_vectors_by_metadata, {"artifact_id": {"$in": sorted(unresolved)}}
     )

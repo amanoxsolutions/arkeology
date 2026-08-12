@@ -156,7 +156,7 @@ def _require_no_control_chars(field: str, value: str) -> None:
 
 
 def _require_no_comma(field: str, value: str) -> None:
-    """Raise ``ValueError`` if ``value`` contains a literal comma (M2).
+    """Raise ``ValueError`` if ``value`` contains a literal comma.
 
     ``commit_refs``/``references`` are comma-joined into a single string for their
     S3 annotation payload (:func:`arkeology.annotations.encode_link_list`), while
@@ -465,7 +465,7 @@ class Artifact(BaseModel):
     # strict=True: tier must be a real int, not a numeric string. Pydantic's default
     # lax coercion would silently accept "2" and convert it to 2 *before* the
     # validate_tier field_validator below ever runs — masking a caller's type mistake
-    # instead of rejecting it, and (07-02 #3) leaving the raw, un-coerced string to
+    # instead of rejecting it, and leaving the raw, un-coerced string to
     # blow up downstream in generate_artifact_id's _require_valid_tier as an
     # unhandled ValueError.
     tier: int = Field(strict=True)

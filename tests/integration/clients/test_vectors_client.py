@@ -100,7 +100,7 @@ def test_query_vectors_returns_result(
 def test_query_vectors_scores_non_trivially_ordered(
     vectors_client: VectorsClientImpl, index_dimension: int
 ) -> None:
-    """C-1: real S3 Vectors query_vectors returns distinct, correctly ranked scores.
+    """Real S3 Vectors query_vectors returns distinct, correctly ranked scores.
 
     Regression guard for the production bug where returnDistance was never requested,
     so every result scored 1.0 and ranking silently degenerated to insertion order.

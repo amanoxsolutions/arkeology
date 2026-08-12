@@ -3,9 +3,9 @@
 Requires real AWS credentials and configured .env file.
 All tests decorated with @pytest.mark.integration.
 
-M-16 (Phase 12 review, Cluster E): migrate_artifacts had zero integration
-coverage. These tests exercise the live write path (delegation to
-write_artifacts against real S3/S3 Vectors) and the A-1 skip-existing guard
+These tests are migrate_artifacts' only real-AWS coverage. They exercise the
+live write path (delegation to
+write_artifacts against real S3/S3 Vectors) and the skip-existing guard
 (real S3 head_object check), which is exactly the kind of real-store behaviour
 moto cannot be trusted to stand in for on its own.
 
@@ -84,7 +84,7 @@ async def test_migrate_artifacts_live_write_round_trip(
     """dry_run=False with explicit descriptions → real S3 content + real vectors.
 
     Descriptions are supplied explicitly so the Nova Lite generation branch is
-    never entered — this test exercises migrate_artifacts' own logic (the A-1
+    never entered — this test exercises migrate_artifacts' own logic (the
     skip-existing pre-check and delegation to write_artifacts) against the real
     store, independent of the deferred Nova Lite coverage noted in this file's
     module docstring.
@@ -136,7 +136,7 @@ async def test_migrate_artifacts_rerun_skips_existing(
     vectors: VectorsClientImpl,
     bedrock: BedrockClientImpl,
 ) -> None:
-    """A-1: re-running migrate_artifacts over the same descriptor skips, never overwrites.
+    """Re-running migrate_artifacts over the same descriptor skips, never overwrites.
 
     Real-AWS assertion: the second run's head_object check against the real S3
     bucket finds the key from the first run and skips it — the S3 content from

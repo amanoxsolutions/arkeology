@@ -167,7 +167,7 @@ def test_os_error_logs_stderr_does_not_raise(
 
 
 # ---------------------------------------------------------------------------
-# Concurrency (07-02 #19: no lock — concurrent writers can interleave/corrupt lines)
+# Concurrency (no lock — concurrent writers can interleave/corrupt lines)
 # ---------------------------------------------------------------------------
 
 

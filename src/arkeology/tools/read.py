@@ -89,7 +89,7 @@ async def _read_artifact_inner(
             "message": f"Artifact '{artifact_id}' is not in any accessible scope.",
         }
 
-    # ── Step 2: Fetch metadata and apply gate (M-8: off the event loop) ──────
+    # ── Step 2: Fetch metadata and apply gate (off the event loop) ───────────
     try:
         meta = await asyncio.to_thread(s3.head_object, artifact_id)
     except CredentialError as exc:
@@ -100,7 +100,7 @@ async def _read_artifact_inner(
             "message": f"Artifact '{artifact_id}' not found.",
         }
 
-    # T55 (M-5, Story 4): S3 user-metadata values are transport-encoded (percent-encoded)
+    # T55 (Story 4): S3 user-metadata values are transport-encoded (percent-encoded)
     # on write to preserve non-ASCII content losslessly (see arkeology.artifact and
     # arkeology.clients.s3). Decode every value here so this is the single symmetric
     # decode point — plain ASCII values decode to themselves unchanged — ensuring
@@ -120,7 +120,7 @@ async def _read_artifact_inner(
                 ),
             }
 
-    # ── Step 3: Fetch content (M-8: off the event loop) ───────────────────────
+    # ── Step 3: Fetch content (off the event loop) ────────────────────────────
     try:
         content = await asyncio.to_thread(s3.get_object, artifact_id)
     except CredentialError as exc:
@@ -136,7 +136,7 @@ async def _read_artifact_inner(
     references: list[str] = []
     if vectors is not None:
         try:
-            # M-8: off the event loop — blocking boto3 calls.
+            # Off the event loop — blocking boto3 calls.
             keys = await asyncio.to_thread(
                 vectors.list_vectors_by_metadata, {"artifact_id": {"$eq": artifact_id}}
             )

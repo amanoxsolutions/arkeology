@@ -554,15 +554,15 @@ async def test_credential_error_in_one_probe_does_not_skip_others(
 # ---------------------------------------------------------------------------
 
 
-async def test_m22_credential_error_on_write_prefix_probe_key_present(
+async def test_credential_error_on_write_prefix_probe_key_present(
     monkeypatch: pytest.MonkeyPatch,
     s3_client: S3ClientImpl,
     vectors_client_8: VectorsClientImpl,
     mocker: pytest.MonkeyPatch,
 ) -> None:
-    """M22 Bug 1: When s3.put_object raises CredentialError during the write_prefix probe,
-    the current code executes ``pass`` (lines 120-121) leaving result["write_prefix"] absent.
-    After the fix, result["write_prefix"] must be present with an appropriate status.
+    """When s3.put_object raises CredentialError during the write_prefix probe, the
+    probe branch must not swallow it with a bare ``pass`` and leave
+    result["write_prefix"] absent — it must be present with an appropriate status.
 
     Scenario:
     - Mock s3.put_object to raise CredentialError specifically for the probe key.
@@ -602,7 +602,7 @@ async def test_m22_credential_error_on_write_prefix_probe_key_present(
 # ---------------------------------------------------------------------------
 
 
-async def test_m22_probe_object_cleaned_up_when_get_object_fails(
+async def test_probe_object_cleaned_up_when_get_object_fails(
     monkeypatch: pytest.MonkeyPatch,
     s3_client: S3ClientImpl,
     vectors_client_8: VectorsClientImpl,

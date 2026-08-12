@@ -17,7 +17,7 @@ artifact listing without requiring a separate ``list_artifacts`` call.
 
 If the inner ``list_artifacts`` call itself fails (e.g. expired credentials), the
 result is a structured error (``is_error=True``, ``structured_content={"error": ...,
-"message": ...}``) — never a coerced empty listing (Phase 12 review M-11a).
+"message": ...}``) — never a coerced empty listing.
 """
 
 import logging
@@ -60,7 +60,7 @@ async def _arkeology_studio_inner(
     # Non-supporting host: include the artifact listing so the client has the data.
     listing = await _list_artifacts_inner(settings=settings, vectors=vectors)
     if "error" in listing:
-        # M-11(a): an error dict from the inner list call (e.g. expired credentials)
+        # An error dict from the inner list call (e.g. expired credentials)
         # must never be coerced into a successful empty listing — that would read as
         # "the store is empty" instead of "the store could not be reached" (PRD FR-12).
         # Propagate it as a structured error so the caller can distinguish the two.
@@ -115,7 +115,7 @@ async def arkeology_studio(
       extension; contains ``{"write_prefix": …, "artifacts": […]}`` so the client
       has the full listing without a separate tool call. If the inner listing call
       fails, ``is_error=True`` and ``structured_content`` instead carries
-      ``{"error": ..., "message": ...}`` (M-11a) — never a coerced empty listing.
+      ``{"error": ..., "message": ...}`` — never a coerced empty listing.
 
     Args:
         settings: Validated server configuration.

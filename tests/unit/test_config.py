@@ -174,7 +174,7 @@ def test_write_prefix_whitespace_only_raises(monkeypatch: pytest.MonkeyPatch) ->
         Settings()
 
 
-# --- 07-02 #8: WRITE_PREFIX validation weaker than READ_PREFIXES ---
+# --- WRITE_PREFIX validation must be as strict as READ_PREFIXES ---
 
 
 def test_write_prefix_all_slashes_raises(
@@ -188,7 +188,7 @@ def test_write_prefix_all_slashes_raises(
     scalar (unlike READ_PREFIXES, a list where an empty-after-strip token can
     simply be dropped), so there is no sensible non-empty value to normalize it
     to; the same "must not be empty" error used for WRITE_PREFIX='' applies once
-    surrounding slashes are stripped and nothing remains (07-02 #8).]
+    surrounding slashes are stripped and nothing remains.]
     """
     _required_env(monkeypatch)
     monkeypatch.setenv("WRITE_PREFIX", "///")
@@ -551,7 +551,7 @@ def test_read_prefixes_comment_then_whitespace_token_raises(
     """READ_PREFIXES='# comma-separated, or leave blank' → ValidationError.
 
     The comment token is dropped first; the whitespace token still triggers the error.
-    This is the exact value observed in the live-test log (line 580).
+    This is the exact value observed in the live-test log.
     """
     _required_env(monkeypatch)
     monkeypatch.setenv("READ_PREFIXES", "# comma-separated, or leave blank")
@@ -632,7 +632,7 @@ def test_embed_max_section_length_negative_invalid(monkeypatch: pytest.MonkeyPat
 
 
 # ---------------------------------------------------------------------------
-# M4 — BEDROCK_EMBEDDING_MODEL / BEDROCK_TEXT_MODEL empty-string validators
+# BEDROCK_EMBEDDING_MODEL / BEDROCK_TEXT_MODEL empty-string validators
 # ---------------------------------------------------------------------------
 
 
@@ -653,7 +653,7 @@ def test_bedrock_text_model_empty_string_raises(monkeypatch: pytest.MonkeyPatch)
 
 
 # ---------------------------------------------------------------------------
-# M4 — load_settings() factory raises ConfigurationError
+# load_settings() factory raises ConfigurationError
 # ---------------------------------------------------------------------------
 
 
@@ -699,7 +699,7 @@ def test_load_settings_configuration_error_reports_failing_fields(
         assert any("AWS_REGION" in f for f in exc.fields)
 
 
-# --- SYNTHESISE_MAX_RESPONSE_BYTES validation (CA-5) ---
+# --- SYNTHESISE_MAX_RESPONSE_BYTES validation ---
 
 
 def test_synthesise_max_response_bytes_default(monkeypatch: pytest.MonkeyPatch) -> None:

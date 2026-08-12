@@ -52,7 +52,7 @@ _ONE_SECTION_KWARGS: dict = {
 # filter/cap/truncate pipeline (formerly private to this module) now live in
 # tests/unit/test_tools_section_pipeline.py — they moved to
 # arkeology.tools._section_pipeline as a shared helper used by both
-# write_artifact and reconcile_index (Phase 12 review M-3).
+# write_artifact and reconcile_index.
 
 
 async def test_three_section_content_indexes_three_sections(
@@ -84,7 +84,7 @@ async def test_h2_heading_slug_collision_indexes_both_sections_distinctly(
     s3_client: S3ClientImpl,
     vectors_client: VectorsClientImpl,
 ) -> None:
-    """07-02 #2: two H2 headings that normalise to the same section_slug (e.g.
+    """Two H2 headings that normalise to the same section_slug (e.g.
     'Notes' and 'Notes!' both collapse to 'notes' — punctuation is stripped and
     case is folded by section_slug) currently collide on the same vector key
     (``f"{s3_key}#{section_slug(heading)}"``). ``new_keys: set[str]`` silently
@@ -282,7 +282,7 @@ async def test_response_has_artifact_id_and_sections_indexed(
 
 
 # ---------------------------------------------------------------------------
-# C-3 — collision guard: same-key write rejected by default, overwrite flag opts in
+# Collision guard: same-key write rejected by default, overwrite flag opts in
 # ---------------------------------------------------------------------------
 
 
@@ -410,7 +410,7 @@ async def test_same_key_write_with_overwrite_true_succeeds(
 
 
 # ---------------------------------------------------------------------------
-# A-2 — atomic conditional-create put closes the head_object-then-put_object TOCTOU race
+# Atomic conditional-create put closes the head_object-then-put_object TOCTOU race
 # ---------------------------------------------------------------------------
 
 
@@ -492,8 +492,7 @@ async def test_overwrite_true_put_object_called_without_if_none_match(
     """overwrite=True on an existing key → the s3.put_object call is not a
     conditional-create (no if_none_match=True): it goes through the CAS retry loop
     instead, whose conditional-update guard is if_match (not if_none_match) —
-    extended for the review-followup-2026-07-06 optimistic-concurrency fix to also
-    assert the if_match token equals the object's pre-write ETag."""
+    and which also asserts the if_match token equals the object's pre-write ETag."""
     settings = _make_settings(monkeypatch)
     bedrock = FakeBedrockClient(dimension=1024)
 
@@ -817,7 +816,7 @@ async def test_validation_wrong_type_tier_string_returns_validation_error(
 
     Pydantic's lax coercion accepts the string "2" for the ``Artifact`` model's
     ``tier: int`` field (coercing it to the valid int 2), so the model
-    construction itself does not raise. The bug (07-02 #3) is that
+    construction itself does not raise. The bug is that
     ``generate_artifact_id`` downstream is called with the original,
     un-coerced string parameter rather than the validated ``artifact.tier``,
     so ``_require_valid_tier`` raises a plain ``ValueError`` — caught only by
@@ -902,7 +901,7 @@ async def test_bedrock_credential_failure_returns_error(
     mocker: pytest.MonkeyPatch,
 ) -> None:
     """Bedrock credential failure → error in response (S3 already written by this
-    point — a failure-log entry is written per M-4, hence the tmp-path-scoped log)."""
+    point — a failure-log entry is written, hence the tmp-path-scoped log)."""
     log_path = tmp_path / "failures.jsonl"
     settings = _make_settings(monkeypatch, FAILURE_LOG_PATH=str(log_path))
     bedrock = FakeBedrockClient(dimension=1024)
@@ -1232,7 +1231,7 @@ async def test_failure_log_appends_across_multiple_failures(
 ) -> None:
     """Two separate partial write failures → failure log has two entries (append behaviour).
 
-    Uses two distinct titles (rather than retrying the same key) so the C-3 collision
+    Uses two distinct titles (rather than retrying the same key) so the collision
     guard does not interfere — this test verifies failure-log append behaviour, not
     overwrite semantics.
     """
@@ -1269,7 +1268,7 @@ async def test_bedrock_credential_error_writes_failure_log(
     mocker: pytest.MonkeyPatch,
 ) -> None:
     """Bedrock CredentialError (doc-level fallback path) → credential_error response;
-    a failure-log entry IS written (M-4) since the S3 put has already succeeded by
+    a failure-log entry IS written since the S3 put has already succeeded by
     this point — without it, reconcile_index has no way to discover and repair the
     artifact's missing vector index entry."""
     log_path = tmp_path / "failures.jsonl"
@@ -1305,7 +1304,7 @@ async def test_put_vector_credential_error_writes_failure_log(
     mocker: pytest.MonkeyPatch,
 ) -> None:
     """put_vectors_batch CredentialError (doc-level fallback path) → credential_error
-    response; a failure-log entry IS written (M-4)."""
+    response; a failure-log entry IS written."""
     log_path = tmp_path / "failures.jsonl"
     settings = _make_settings(monkeypatch, FAILURE_LOG_PATH=str(log_path))
     bedrock = FakeBedrockClient(dimension=1024)
@@ -1714,7 +1713,7 @@ async def test_write_embed_credential_error_aborts(
     tmp_path: pytest.TempPathFactory,
 ) -> None:
     """CredentialError on any embed → response error == 'credential_error'; no vectors
-    written; a failure-log entry IS written (M-4) since S3 already succeeded."""
+    written; a failure-log entry IS written since S3 already succeeded."""
     log_path = tmp_path / "failures.jsonl"
     settings = _make_settings(monkeypatch, FAILURE_LOG_PATH=str(log_path))
     bedrock = FakeBedrockClient(dimension=1024)
@@ -2182,7 +2181,7 @@ async def test_section_truncation_logged_at_debug(
     """When a section body is truncated, the event is logged at DEBUG level.
 
     The truncation now happens inside the shared ``arkeology.tools._section_pipeline``
-    helper (M-3), not in ``arkeology.tools.write`` directly, so the log is emitted
+    helper, not in ``arkeology.tools.write`` directly, so the log is emitted
     under that module's logger.
     """
     settings = _make_settings(monkeypatch, EMBED_MAX_SECTION_LENGTH="50")
@@ -2528,8 +2527,7 @@ async def test_write_fresh_artifact_no_link_fields_skips_annotation_delete_calls
 ) -> None:
     """A fresh (never-existed) artifact write with no commit_refs/references supplied
     has nothing to clear — apply_link_annotations must not issue pointless
-    delete_object_annotation round trips for fields that never had a value
-    (Phase-12 #18)."""
+    delete_object_annotation round trips for fields that never had a value."""
     settings = _make_settings(monkeypatch)
     bedrock = FakeBedrockClient(dimension=1024)
     delete_spy = mocker.spy(s3_client, "delete_object_annotation")
@@ -2630,8 +2628,8 @@ async def test_tier3_overwrite_preserves_commit_refs_and_replaces_references(
     s3_client: S3ClientImpl,
     vectors_client: VectorsClientImpl,
 ) -> None:
-    """AC-60 (core test), updated for the review-followup-2026-07-06 reference-field
-    semantics fix: a tier-3 overwrite must not lose commit_refs that were accumulated on
+    """AC-60 (core test) for the reference-field value semantics: a tier-3
+    overwrite must not lose commit_refs that were accumulated on
     the artifact, even though the underlying PutObject clears S3 annotations — the prior
     commit_refs must be read forward and merged (union) with any newly supplied value.
     references, by contrast, is REPLACED outright: the overwrite here supplies only a new
@@ -2830,7 +2828,7 @@ async def test_write_credential_error_from_annotation_write_is_structured(
 ) -> None:
     """A CredentialError raised by put_object_annotation surfaces as a structured
     credential_error including artifact_id — never a raw exception — and no vector
-    write is attempted. A failure-log entry IS written (M-4) since the S3 put has
+    write is attempted. A failure-log entry IS written since the S3 put has
     already succeeded by this point — the annotation write happens after PutObject."""
     log_path = tmp_path / "failures.jsonl"
     settings = _make_settings(monkeypatch, FAILURE_LOG_PATH=str(log_path))
@@ -3090,7 +3088,7 @@ def test_embed_executor_has_adequate_max_workers() -> None:
 
 def test_embed_executor_not_created_at_import_time() -> None:
     """_EMBED_EXECUTOR (a 300-thread pool) must not be constructed merely by importing
-    write.py (07-02 #18) — a module-level ``ThreadPoolExecutor(max_workers=300, ...)``
+    write.py — a module-level ``ThreadPoolExecutor(max_workers=300, ...)``
     spins up 300 OS threads at import time, every time the module is (re)imported,
     regardless of whether write_artifact is ever called. It should be created lazily,
     on first actual use.
@@ -3174,7 +3172,7 @@ async def test_doc_fallback_embed_uses_dedicated_executor(
 
 
 # ---------------------------------------------------------------------------
-# T55 (M-5) — write-path metadata size + charset validation, fail-fast pre-write
+# T55 — write-path metadata size + charset validation, fail-fast pre-write
 # ---------------------------------------------------------------------------
 
 
@@ -3190,8 +3188,9 @@ async def test_oversize_s3_metadata_rejected_before_any_write(
     filterable budget) and small relative to the 40 KB total budget, so it isolates the S3
     budget specifically. The write must be rejected with validation_error and must perform
     NO head_object/put_object/put_vectors_batch call and append NO failure-log entry —
-    the M-5 defect being closed is exactly the case where S3 succeeds first and only the
-    vector write fails later, leaving a partial write that reconcile replays forever.
+    failure mode being guarded against is exactly the case where S3 succeeds first and
+    only the vector write fails later, leaving a partial write that reconcile replays
+    forever.
     """
     log_path = tmp_path / "failures.jsonl"
     settings = _make_settings(monkeypatch, FAILURE_LOG_PATH=str(log_path))
@@ -3329,7 +3328,7 @@ async def test_non_ascii_title_written_and_read_back_via_vector_metadata(
 
 
 # ---------------------------------------------------------------------------
-# C4 (Phase 12 review) — T55 budget re-check must cover the T47 read-forward
+# T55 budget re-check must cover the T47 read-forward
 # merge on an overwrite. Step 3c only measures the *supplied* commit_refs/
 # references; the Step 4a merge unions them with the values already indexed
 # in vector metadata and can push the enlarged list past the 2 KB filterable
@@ -3358,7 +3357,7 @@ async def test_overwrite_merged_commit_refs_exceeding_filterable_budget_rejected
     tmp_path: pytest.TempPathFactory,
     mocker: pytest.MonkeyPatch,
 ) -> None:
-    """C4: a tier-3 overwrite whose *supplied* commit_refs pass the pre-merge Step 3c
+    """A tier-3 overwrite whose *supplied* commit_refs pass the pre-merge Step 3c
     check, but whose union with the *already-indexed* commit_refs (read forward by
     Step 4a) breaches the vector filterable-metadata budget, must be rejected with
     validation_error — with NO put_object, NO put_vectors_batch, and NO failure-log
@@ -3419,7 +3418,7 @@ async def test_overwrite_merged_commit_refs_under_budget_still_succeeds(
     s3_client: S3ClientImpl,
     vectors_client: VectorsClientImpl,
 ) -> None:
-    """C4 positive case: an overwrite whose merged (existing + supplied) commit_refs
+    """Positive case: an overwrite whose merged (existing + supplied) commit_refs
     stay under the filterable budget must still succeed — the post-merge re-check
     must not reject writes that were always going to fit.
     """
@@ -3454,7 +3453,7 @@ async def test_overwrite_merged_commit_refs_under_budget_still_succeeds(
 
 
 # ---------------------------------------------------------------------------
-# C5(b) (Phase 12 review) — union-of-both-stores authority model
+# Union-of-both-stores authority model
 # ---------------------------------------------------------------------------
 
 
@@ -3464,7 +3463,7 @@ async def test_overwrite_read_forward_preserves_annotation_only_value(
     s3_client: S3ClientImpl,
     vectors_client: VectorsClientImpl,
 ) -> None:
-    """C5(b) RED: after a partial dual-write (e.g. an out-of-band ``link_metadata`` call)
+    """RED: after a partial dual-write (e.g. an out-of-band ``link_metadata`` call)
     leaves the annotation copy ahead of the vector copy — the annotation holds a value
     vector metadata lacks — a tier-3 overwrite's Step 4a read-forward must preserve the
     union of both stores. Before the fix, Step 4a sourced the existing link fields from
@@ -3509,8 +3508,7 @@ async def test_overwrite_read_forward_preserves_annotation_only_value(
 
 
 # ---------------------------------------------------------------------------
-# Optimistic-concurrency (ETag compare-and-swap) writes — ADR-011 decision 6 /
-# review-followup-2026-07-06 "Optimistic-Concurrency Writes"
+# Optimistic-concurrency (ETag compare-and-swap) writes — ADR-011 decision 6
 # ---------------------------------------------------------------------------
 
 
@@ -3886,7 +3884,7 @@ async def test_overwrite_vector_writes_remain_unconditional_despite_cas_retry(
 
 
 # ---------------------------------------------------------------------------
-# review-followup-2026-07-06 M1 — an unknown/transient annotation ClientError
+# An unknown/transient annotation ClientError
 # (e.g. SlowDown) must degrade to a structured partial_write response with a
 # failure-log entry, not escape uncaught to the blanket internal_error handler.
 # ---------------------------------------------------------------------------

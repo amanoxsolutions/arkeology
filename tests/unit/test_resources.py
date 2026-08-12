@@ -353,7 +353,7 @@ def test_register_ui_resource_returns_non_empty_html() -> None:
 
 
 # ---------------------------------------------------------------------------
-# CSP origins — Google Fonts must never be declared (Review 2026-06-29, C1)
+# CSP origins — Google Fonts must never be declared
 # ---------------------------------------------------------------------------
 
 
@@ -361,7 +361,7 @@ def test_browser_csp_origins_are_exactly_unpkg_and_jsdelivr() -> None:
     """The arkeology studio CSP declares only the two CDN origins — no web-font origins.
 
     Loading web fonts from Google's CDN leaks the user's IP to a third party and is
-    disallowed on GDPR grounds (Review 2026-06-29, finding C1). The accepted set is
+    disallowed on GDPR grounds. The accepted set is
     exactly ``unpkg.com`` (ext-apps SDK) + ``cdn.jsdelivr.net`` (marked.js / mermaid.js).
     """
     assert _BROWSER_CDN_ORIGINS == [
@@ -371,7 +371,7 @@ def test_browser_csp_origins_are_exactly_unpkg_and_jsdelivr() -> None:
 
 
 def test_browser_csp_origins_exclude_google_fonts() -> None:
-    """No Google Fonts origin appears in the CSP origin list (GDPR; C1)."""
+    """No Google Fonts origin appears in the CSP origin list (GDPR)."""
     forbidden = {"https://fonts.googleapis.com", "https://fonts.gstatic.com"}
     assert forbidden.isdisjoint(_BROWSER_CDN_ORIGINS), (
         f"Google Fonts origins must not be declared in the CSP: {_BROWSER_CDN_ORIGINS}"

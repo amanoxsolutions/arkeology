@@ -6,7 +6,7 @@ tests/unit/conftest.py (moto 5.2.2 has no native annotation support — see
 docs/architecture-decisions/adr-2026-07-03-annotation-backed-link-storage.md).
 
 Also exercises the optimistic-concurrency (ETag compare-and-swap) surface added for
-ADR-011 decision 6 / the review-followup-2026-07-06 design fixes: ``head_object``'s
+ADR-011 decision 6: ``head_object``'s
 reserved ``"ETag"`` key, ``put_object``'s ``if_match`` parameter and ETag return value,
 and ``put_object_annotation`` / ``delete_object_annotation``'s ``if_match`` parameter
 (sent as boto3's ``ObjectIfMatch``).
@@ -109,8 +109,8 @@ def test_put_annotation_on_missing_object_raises_key_error(s3_client: S3ClientIm
 
 def test_list_annotations_on_missing_object_raises_key_error(s3_client: S3ClientImpl) -> None:
     """list_object_annotations against a key that does not exist at all raises KeyError
-    (Phase-12 #26) — mirrors get_object_annotation's / put_object_annotation's / delete_-
-    object_annotation's NoSuchKey mapping, which list_object_annotations was untested for."""
+    — mirrors get_object_annotation's / put_object_annotation's /
+    delete_object_annotation's NoSuchKey mapping."""
     with pytest.raises(KeyError):
         s3_client.list_object_annotations("artifacts/does-not-exist.md")
 
@@ -145,7 +145,6 @@ def test_overwrite_wipes_annotations(s3_client: S3ClientImpl) -> None:
 
 # ---------------------------------------------------------------------------
 # Story 2b — non-UTF-8 stored payload is classified, not a bare UnicodeDecodeError
-# (Phase-12 #16)
 # ---------------------------------------------------------------------------
 
 

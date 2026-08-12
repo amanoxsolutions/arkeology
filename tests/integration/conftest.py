@@ -21,7 +21,7 @@ WHY a session fixture instead of pytest_configure:
     least one test in tests/integration/ is collected, leaving unit tests
     with a clean environment.
 
-RUN-SCOPED ISOLATION (review finding C-4):
+RUN-SCOPED ISOLATION:
     The suite must be safe to run against ANY configured store — .env still
     supplies AWS credentials and resource names (bucket/index/region), but
     the operator's WRITE_PREFIX and READ_PREFIXES are never used. Immediately
@@ -90,7 +90,7 @@ def require_env_vars(load_env: None) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Run-scoped isolation (review finding C-4)
+# Run-scoped isolation
 # ---------------------------------------------------------------------------
 
 

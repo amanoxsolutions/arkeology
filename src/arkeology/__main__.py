@@ -86,11 +86,11 @@ def main() -> None:
     configure_logging(settings.log_level)
 
     # ── Step 2: Construct AWS clients ─────────────────────────────────────────
-    # M-7 (Phase 12 review): boto3.Session(profile_name=...) raises ProfileNotFound
-    # synchronously, before any AWS call is made, when AWS_PROFILE names a profile
-    # absent from the credentials/config files. Previously uncaught here, this crashed
-    # the process with a raw traceback instead of the same structured, actionable exit
-    # path already used for every other startup failure.
+    # boto3.Session(profile_name=...) raises ProfileNotFound synchronously, before any
+    # AWS call is made, when AWS_PROFILE names a profile absent from the
+    # credentials/config files. It must be caught here or the process crashes with a raw
+    # traceback instead of the structured, actionable exit path used for every other
+    # startup failure.
     try:
         s3_client = S3ClientImpl(
             region=settings.aws_region,

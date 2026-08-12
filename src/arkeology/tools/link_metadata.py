@@ -3,8 +3,8 @@
 Generalizes and supersedes ``link_commit`` (p10-t38): backfills ``commit_refs``
 and/or ``references`` onto existing own-scope artifacts by fetching the current
 vectors + embeddings, reading the current link-field state as the union of both
-durable stores (``annotations.read_current_link_fields`` — Phase 12 review C3/C5;
-neither the S3 annotation copy nor the vector-metadata copy is sole authority),
+durable stores (``annotations.read_current_link_fields``; neither the S3 annotation
+copy nor the vector-metadata copy is sole authority),
 merging and deduplicating the supplied values into that union, and dual-writing
 the result — durable S3 annotations first (``apply_link_annotations``), then
 vector metadata second, reusing each vector's existing float32 embedding
@@ -111,8 +111,8 @@ def _apply_link_metadata_with_cas(
 
 def _validate_supplied_link_values(values: list[str], field: str) -> str | None:
     """Reject empty/whitespace-only/comma-bearing elements in a supplied link-field
-    list (M9), matching the same per-element constraints ``Artifact.validate_commit_refs``
-    / ``validate_references`` enforce on write (M2) — a value link_metadata accepted here
+    list, matching the same per-element constraints ``Artifact.validate_commit_refs``
+    / ``validate_references`` enforce on write — a value link_metadata accepted here
     but the Artifact model would later reject would desync the annotation and vector
     stores or silently corrupt the comma-joined annotation payload.
 
@@ -138,7 +138,7 @@ def _merge_link_field(existing: list[str], supplied: list[str]) -> list[str]:
     Args:
         existing: The current value of the field — the order-preserving dedup union
             of both durable stores (``annotations.read_current_link_fields``), so
-            neither store is treated as sole authority (Phase 12 review C3/C5).
+            neither store is treated as sole authority.
         supplied: The values requested by this call (may be empty, in which case
             the existing value is returned unchanged, only deduplicated).
 
@@ -225,9 +225,9 @@ async def _link_metadata_inner(
             "message": "At least one of commit_refs or references must be non-empty",
         }
 
-    # M9: reject empty/whitespace/comma-bearing values up front, before any artifact
+    # Reject empty/whitespace/comma-bearing values up front, before any artifact
     # is touched — mirrors the per-element constraints Artifact.validate_commit_refs /
-    # validate_references enforce on write (M2).
+    # validate_references enforce on write.
     for values, field in (
         (supplied_commit_refs, "commit_refs"),
         (supplied_references, "references"),
@@ -264,8 +264,8 @@ async def _link_metadata_inner(
 
             # ── Read-forward + merge, guarded by an ETag compare-and-swap (ADR-011
             # decision 6) ─────────────────────────────────────────────────────────
-            # Read-forward the current state as the union of BOTH durable stores
-            # (Phase 12 review C3/C5) — never vector metadata alone. A vector-only
+            # Read-forward the current state as the union of BOTH durable stores —
+            # never vector metadata alone. A vector-only
             # read misses a value that lives only in the S3 annotation (e.g. a prior
             # link_metadata call whose annotation write succeeded but whose vector
             # write failed), and merging supplied=[] against that missing value would
@@ -324,7 +324,7 @@ async def _link_metadata_inner(
             # it is reported as a structured, actionable error and this artifact_id is
             # never counted as linked.
             #
-            # Phase-12 #17: linked/skipped progress accumulated on earlier artifact_ids
+            # linked/skipped progress accumulated on earlier artifact_ids
             # in this same call must not be discarded — only included when non-zero, so
             # a failure on the very first artifact_id (nothing done yet) keeps the
             # response shape unchanged.

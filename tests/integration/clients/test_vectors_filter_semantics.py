@@ -1,6 +1,6 @@
 """Integration tests pinning real S3 Vectors QueryVectors server-side filter semantics.
 
-M-16 (Phase 12 review, Cluster E): the moto ``query_vectors`` extension in
+The moto ``query_vectors`` extension in
 tests/unit/conftest.py filters using the exact same production
 ``arkeology.clients.filter.matches_filter`` function that
 ``VectorsClientImpl.query_vectors`` hands to boto3 as the ``filter`` request
@@ -42,8 +42,8 @@ semantic the codebase relies on:
      expression* size cap — this test pins what actually happens).
 
 Findings are recorded in each test's docstring/comments once observed against
-real AWS, per the M-16 acceptance criterion that these assertions "pin" real
-behaviour rather than merely re-assert the production filter's own logic.
+real AWS: these assertions must "pin" real behaviour rather than merely
+re-assert the production filter's own logic.
 """
 
 import math
@@ -152,7 +152,7 @@ def test_gte_on_string_ulid_field_real_behaviour(
 ) -> None:
     """Pin real QueryVectors behaviour for $gte with a String operand on a ULID field.
 
-    CONFIRMED FINDING (run against real AWS S3 Vectors, see commit for M-16):
+    CONFIRMED against real AWS S3 Vectors:
     QueryVectors REJECTS $gte with a String operand —
     ``botocore.errorfactory.ValidationException: ... Invalid filter``. This
     confirms the AWS docs' operator table ("$gte: Number" only) is accurate,
@@ -233,12 +233,12 @@ def test_oversized_filter_expression_behaviour(
     client-side choice with no corresponding server-side cap at this size).
     Either result is asserted explicitly — this must not be a silent try/except.
 
-    CONFIRMED FINDING (run against real AWS S3 Vectors, see commit for M-16):
+    CONFIRMED against real AWS S3 Vectors:
     a ~4 KB $nin filter expression is ACCEPTED without error — AWS enforces no
     filter-expression size cap at this size (at least none distinct from the
     documented 2 KB *per-vector* filterable-metadata limit, which bounds what
     a single vector can carry, not what a query filter can contain). The
-    _NIN_EXCLUSION_BYTE_BUDGET guard in _search_helper.py (M-6) therefore
+    _NIN_EXCLUSION_BYTE_BUDGET guard in _search_helper.py therefore
     remains a defensive, not empirically-required-at-this-size, choice — kept
     for safety margin against a larger, undocumented cap the search re-fetch
     loop's unbounded growth could otherwise hit at scale.

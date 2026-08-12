@@ -11,13 +11,13 @@ controls both the Nova Lite description semaphore (enrichment phase) and is forw
 to write_artifacts for the write semaphore (live phase). Out-of-range values are
 clamped silently with a top-level ``"warning"`` field in the response.
 
-A-1: bulk migration never overwrites a pre-existing key. Before the write phase, each
+Bulk migration never overwrites a pre-existing key. Before the write phase, each
 candidate's generated key is checked for existence; any candidate that already exists
 is skipped (no write, no error) and reported in the ``"skipped_existing"`` list, so
 re-running a migration over an already-imported corpus is idempotent and non-destructive.
 
-M-12 (Phase 12 review): a descriptor whose Nova Lite description generation fails is
-never written with an empty ``description`` — it is skipped (mirroring the A-1
+A descriptor whose Nova Lite description generation fails is never written with an
+empty ``description`` — it is skipped (mirroring the skip-existing
 ``skipped_existing`` shape) and reported in the top-level ``"generation_failed"`` list,
 in both ``dry_run`` modes. The artifact content interpolated into the generation prompt
 is bounded to ``_PROMPT_CONTENT_MAX_CHARS`` — full untruncated content is never sent to
@@ -75,7 +75,7 @@ _MAX_DESCRIPTION_LENGTH = 280
 _ARTIFACT_CONCURRENCY_DEFAULT: int = 3
 _ARTIFACT_CONCURRENCY_MAX: int = 15
 
-# M-12: bound the artifact content interpolated into the Nova Lite prompt. A
+# Bound the artifact content interpolated into the Nova Lite prompt. A
 # single-sentence summary never needs the full body of a multi-thousand-line spec
 # or log dump — sending it unbounded risks exceeding the text model's input limit
 # and wastes tokens well beyond what the task requires. The prompt only needs
@@ -100,9 +100,9 @@ def _clip_description(description: str, title: str) -> str:
 def _truncate_prompt_content(content: str) -> str:
     """Bound the artifact content interpolated into the description-generation prompt.
 
-    M-12: the prompt previously interpolated the full, untruncated artifact content.
     Truncate to ``_PROMPT_CONTENT_MAX_CHARS`` with a trailing marker so the prompt
-    size is bounded regardless of the source artifact's length.
+    size stays bounded regardless of the source artifact's length — an unbounded
+    body risks exceeding the text model's input limit on large specs and log dumps.
     """
     if len(content) <= _PROMPT_CONTENT_MAX_CHARS:
         return content
@@ -157,7 +157,7 @@ async def migrate_artifacts(
             migration over an already-imported corpus is therefore idempotent and
             non-destructive: every already-present artifact is skipped and nothing is
             overwritten or deleted.
-        M-12: a descriptor whose Nova Lite description generation fails is never
+        A descriptor whose Nova Lite description generation fails is never
             written with an empty ``description``. In ``dry_run=False`` its result
             entry is ``{"written": False, "skipped": True,
             "reason": "description_generation_failed", "message": ...}``; in either
@@ -238,7 +238,7 @@ async def _migrate_artifacts_inner(
         }
 
     # ── Step 2: generate missing descriptions concurrently ────────────────────
-    # M-12: track which indices failed generation so Step 3/5/6 can skip them
+    # Track which indices failed generation so Step 3/5/6 can skip them
     # instead of letting an empty "description" fall through to a written artifact.
     generation_failures: dict[int, str] = {}
     if missing_indices:
@@ -273,7 +273,7 @@ async def _migrate_artifacts_inner(
             descriptors[i] = {**descriptors[i], "description": text}
 
     # ── Step 3: clip all descriptions to _MAX_DESCRIPTION_LENGTH ──────────────
-    # M-12: a generation-failed descriptor is carried through unchanged (its
+    # A generation-failed descriptor is carried through unchanged (its
     # "description" stays absent/empty) rather than clipped — it is excluded from
     # writing in Step 5/6 below, so clipping it here would be misleading busywork.
     enriched: list[dict[str, Any]] = []
@@ -318,21 +318,21 @@ async def _migrate_artifacts_inner(
             )
         return _with_warning(dry_run_response)
 
-    # ── Step 5: skip-existing filter (A-1) ─────────────────────────────────────
+    # ── Step 5: skip-existing filter ───────────────────────────────────────────
     # Bulk migration is commonly re-run over the same corpus (resuming an interrupted
     # import, or re-importing an updated corpus). It must NEVER overwrite: a
     # candidate whose generated key already exists is skipped — not written, not an
     # error — so re-running a migration is idempotent and non-destructive. This is
     # deliberately never bypassed with overwrite=True, which would reopen the
-    # silent-overwrite hole C-3's collision guard exists to close.
+    # silent-overwrite hole that write_artifact's collision guard exists to close.
     to_write_indices: list[int] = []
     skipped_existing: list[dict[str, Any]] = []
     combined_results: list[dict[str, Any] | None] = [None] * len(enriched)
 
     for idx, descriptor in enumerate(enriched):
-        # M-12: a generation-failed descriptor is never written with an empty
+        # A generation-failed descriptor is never written with an empty
         # description — skip it before any key computation or existence check,
-        # and report it distinctly from the A-1 "already exists" skip reason.
+        # and report it distinctly from the "already exists" skip reason.
         if idx in generation_failures:
             combined_results[idx] = {
                 "written": False,

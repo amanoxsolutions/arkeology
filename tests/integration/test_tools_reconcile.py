@@ -326,7 +326,7 @@ async def test_reconcile_restores_link_fields_backfilled_via_link_metadata(
     vectors: VectorsClientImpl,
     bedrock: BedrockClientImpl,
 ) -> None:
-    """SA-3(b): write → link_metadata backfill (commit_refs + references) → drop all
+    """Write → link_metadata backfill (commit_refs + references) → drop all
     vectors → reconcile_index must restore both fields from the durable S3 annotation
     onto the rebuilt vector metadata — against real AWS."""
     artifact_id = ""

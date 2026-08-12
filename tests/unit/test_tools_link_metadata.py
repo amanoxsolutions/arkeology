@@ -769,7 +769,7 @@ async def test_link_metadata_annotation_unavailable_preserves_partial_progress(
     """When AnnotationUnavailableError fires partway through a multi-artifact batch,
     the linked/skipped progress already accumulated on earlier, successfully-linked
     artifact_ids in this same call must be preserved in the response — not silently
-    discarded (Phase-12 #17). Today the except AnnotationUnavailableError branch
+    discarded. Today the except AnnotationUnavailableError branch
     returns a bare {"error": ..., "message": ...} dict with no linked/skipped keys
     at all, regardless of how much progress preceded the failure."""
     settings = _make_settings(monkeypatch)
@@ -844,7 +844,7 @@ async def test_link_metadata_put_vectors_batch_credential_error(
 
 
 # ---------------------------------------------------------------------------
-# Story 6 — C3 fix: union read + only-touch-supplied-fields (Phase 12 review)
+# Story 6 — union read + only-touch-supplied-fields
 # ---------------------------------------------------------------------------
 
 
@@ -853,7 +853,7 @@ async def test_link_metadata_only_references_supplied_preserves_annotation_only_
     s3_client: S3ClientImpl,
     vectors_client_2: VectorsClientImpl,
 ) -> None:
-    """C3: commit_refs exists ONLY as an S3 annotation (the partial-write state — the
+    """commit_refs exists ONLY as an S3 annotation (the partial-write state — the
     vector write of a prior link_metadata call failed after the annotation write
     succeeded). Supplying ONLY references on a subsequent call must leave the
     commit_refs annotation intact rather than deleting it (the vector-only read this
@@ -889,7 +889,7 @@ async def test_link_metadata_idempotent_supply_preserves_other_fields_annotation
     s3_client: S3ClientImpl,
     vectors_client_2: VectorsClientImpl,
 ) -> None:
-    """C3: re-supplying a commit_refs value already fully present in both stores is
+    """Re-supplying a commit_refs value already fully present in both stores is
     idempotent, and must not disturb a references value that exists only as an
     annotation (references was never supplied to this call)."""
     settings = _make_settings(monkeypatch)
@@ -927,7 +927,7 @@ async def test_link_metadata_union_read_heals_vector_copy_missing_annotation_val
     s3_client: S3ClientImpl,
     vectors_client_2: VectorsClientImpl,
 ) -> None:
-    """C3: the union read heals a state where the annotation holds a commit_refs value
+    """The union read heals a state where the annotation holds a commit_refs value
     the vector copy lacks — after linking a new value, the vector metadata must contain
     BOTH the pre-existing annotation-only value and the newly supplied one."""
     settings = _make_settings(monkeypatch)
@@ -989,8 +989,7 @@ async def test_link_metadata_linked_not_incremented_when_get_vectors_returns_emp
 
 
 # ---------------------------------------------------------------------------
-# Optimistic-concurrency (ETag compare-and-swap) writes — ADR-011 decision 6 /
-# review-followup-2026-07-06 "Optimistic-Concurrency Writes"
+# Optimistic-concurrency (ETag compare-and-swap) writes — ADR-011 decision 6
 # ---------------------------------------------------------------------------
 
 
@@ -1227,9 +1226,9 @@ async def test_link_metadata_same_field_concurrent_residual_not_detected(
 
 
 # ---------------------------------------------------------------------------
-# review-followup-2026-07-06 M9 — per-value validation on supplied commit_refs /
-# references: empty, whitespace-only, and comma-bearing values must be rejected
-# (consistent with the Artifact model's comma rejection, M2) rather than silently
+# Per-value validation on supplied commit_refs / references: empty,
+# whitespace-only, and comma-bearing values must be rejected (consistent with the
+# Artifact model's own comma rejection) rather than silently
 # passing through and diverging the two durable stores.
 # ---------------------------------------------------------------------------
 
@@ -1284,7 +1283,7 @@ async def test_link_metadata_comma_bearing_commit_ref_returns_validation_error(
     vectors_client_2: VectorsClientImpl,
 ) -> None:
     """A comma inside a supplied commit_refs value → validation_error (consistent with
-    the Artifact model's M2 comma rejection — the S3 annotation payload comma-joins
+    the Artifact model's comma rejection — the S3 annotation payload comma-joins
     list elements, so a comma inside one would diverge the two stores)."""
     settings = _make_settings(monkeypatch)
     bedrock = FakeBedrockClient()
@@ -1303,7 +1302,7 @@ async def test_link_metadata_comma_bearing_commit_ref_returns_validation_error(
 
 
 # ---------------------------------------------------------------------------
-# review-followup-2026-07-06 M10 — an orphaned vector (indexed in S3 Vectors but its
+# An orphaned vector (indexed in S3 Vectors but its
 # underlying S3 object already deleted) must be skipped-and-counted for its own
 # artifact_id, not abort the whole batch's linked/skipped accounting.
 # ---------------------------------------------------------------------------

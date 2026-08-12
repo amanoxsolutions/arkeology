@@ -8,7 +8,7 @@
 import { App } from "https://unpkg.com/@modelcontextprotocol/ext-apps@1.7.4/app-with-deps";
 import { marked } from "https://cdn.jsdelivr.net/npm/marked/+esm";
 import mermaid from "https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.esm.min.mjs";
-// C-2: marked.parse() passes raw HTML through unchanged. Artifact content (including
+// marked.parse() passes raw HTML through unchanged. Artifact content (including
 // cross-scope tier-3 "shared" artifacts written by other teams) is untrusted input, so
 // the rendered HTML is sanitised with DOMPurify before it ever reaches innerHTML. Pinned
 // version — loaded from cdn.jsdelivr.net, already an allowed CSP origin (see resources.py
@@ -48,7 +48,7 @@ function applyTheme(theme) {
   const btn = document.getElementById("theme-toggle");
   if (btn) btn.setAttribute("aria-pressed", theme === "light" ? "true" : "false");
   // Keep mermaid's theme aligned with the active app theme.
-  // securityLevel: "strict" (C-2) — mermaid HTML-escapes label text and disables
+  // securityLevel: "strict" — mermaid HTML-escapes label text and disables
   // clickable-node script/href injection; diagram source comes from untrusted
   // artifact content (see the DOMPurify import above for the same reason).
   mermaid.initialize({
@@ -135,7 +135,7 @@ let currentArtifacts = [];
 let selectedId = null;
 let filterType = "";
 let filterTier = "";
-// M-11(d): "all" is an explicit all-inclusive sentinel recognised server-side by
+// "all" is an explicit all-inclusive sentinel recognised server-side by
 // list_artifacts (status="all" omits the status clause entirely). It is always sent
 // — never omitted — so the "All" option in #sel-status is actually reachable instead
 // of silently falling back to the server's "active" default.
@@ -193,7 +193,7 @@ function renderList(artifacts) {
     const tier    = a.tier || "";
     const isActive = id === selectedId;
 
-    // M6: each row is a real <button> inside the listbox so it is keyboard-operable.
+    // Each row is a real <button> inside the listbox so it is keyboard-operable.
     const item = document.createElement("button");
     item.type = "button";
     item.className = "li" + (isActive ? " active" : "");
@@ -211,7 +211,7 @@ function renderList(artifacts) {
   }
 }
 
-// M6: roving keyboard navigation across list rows (Up/Down move; Enter/Space open).
+// Roving keyboard navigation across list rows (Up/Down move; Enter/Space open).
 artifactList.addEventListener("keydown", e => {
   const rows = [...artifactList.querySelectorAll(".li")];
   if (rows.length === 0) return;
@@ -246,7 +246,7 @@ async function loadList() {
   try {
     const result = await app.callServerTool({ name: "list_artifacts", arguments: args });
     const data = result.structuredContent ?? JSON.parse(result.content?.find(c => c.type === "text")?.text ?? "{}");
-    // M-11(b): a server error dict must render its own message, not be treated as an
+    // A server error dict must render its own message, not be treated as an
     // empty successful listing (a credential failure must never read as "no artifacts").
     if (data.error) {
       artifactList.innerHTML = `<p class="empty-msg">${escHtml(data.message || data.error)}</p>`;
@@ -307,7 +307,7 @@ async function selectArtifact(id) {
     let rendered;
     try { rendered = marked.parse(content); }
     catch { rendered = `<pre style="white-space:pre-wrap;">${escHtml(content)}</pre>`; }
-    // C-2: content is untrusted (cross-scope tier-3 "shared" artifacts may come from a
+    // Content is untrusted (cross-scope tier-3 "shared" artifacts may come from a
     // different, possibly compromised, team) — sanitise the rendered HTML before it
     // reaches innerHTML so a stored payload like <img src=x onerror=...> cannot execute
     // and reach app.callServerTool with this reader's credentials.
@@ -333,7 +333,7 @@ async function doSearch(query) {
   try {
     const result = await app.callServerTool({ name: "search_artifacts", arguments: { query } });
     const data = result.structuredContent ?? JSON.parse(result.content?.find(c => c.type === "text")?.text ?? "{}");
-    // M-11(b): render the server-provided error message instead of a generic
+    // Render the server-provided error message instead of a generic
     // "Search failed." — the catch block below still covers transport-level failures.
     if (data.error) {
       artifactList.innerHTML = `<p class="empty-msg">${escHtml(data.message || data.error)}</p>`;
@@ -374,7 +374,7 @@ selStatus.addEventListener("change", async () => { filterStatus = selStatus.valu
 // ── App init ───────────────────────────────────────────────────────────────
 app = new App({ name: "arkeology studio", version: "1.0.0" });
 
-// M-11(c): this iframe only ever runs in a *supporting* host (a non-supporting host
+// This iframe only ever runs in a *supporting* host (a non-supporting host
 // never loads the UI extension at all), so every plain-text confirmation this app
 // receives — including arkeology_studio's own "Arkeology Studio opened…" text — carries no
 // structuredContent. JSON.parse-ing that plain text unconditionally threw on every
@@ -420,7 +420,7 @@ app.sendSizeChanged({ height: 1000 });
   /* — Text — */
   --t1:          #e2eaff;   /* primary   — body + headings (AAA on base) */
   --t2:          #8390bc;   /* secondary — meta, body copy (AA on base)  */
-  --t3:          #757fb0;   /* tertiary  — readable labels (AA on base; brightened from #404870, C2) */
+  --t3:          #757fb0;   /* tertiary  — readable labels (AA on base; brightened from #404870) */
 
   --mono:        "SF Mono","Cascadia Code","Fira Code",ui-monospace,monospace;
 
@@ -445,7 +445,7 @@ app.sendSizeChanged({ height: 1000 });
   --c-synth:     #f00077;
   --c-bug:       #f50060;
 
-  /* — Type badge/eyebrow TEXT colours (M8) — lightened so each clears ≥4.5:1
+  /* — Type badge/eyebrow TEXT colours — lightened so each clears ≥4.5:1
      as text on its own 16% tint over the dark base. Stops at or above plan
      already pass and are kept identical to their --c-* value. — */
   --bt-adr:       #00d4b8;
@@ -467,7 +467,7 @@ app.sendSizeChanged({ height: 1000 });
   /* — Focus ring — */
   --focus: #0088ff;
 
-  /* — Type scale (1rem = 16px base; 14px reading floor) (M3/M7) — */
+  /* — Type scale (1rem = 16px base; 14px reading floor) — */
   --text-h1:   1.375rem;  /* 22px */
   --text-h2:   1.1875rem; /* 19px */
   --text-h3:   1.0625rem; /* 17px */
@@ -479,19 +479,19 @@ app.sendSizeChanged({ height: 1000 });
   --text-badge:0.75rem;   /* 12px — type badge chips */
   --text-th:   0.6875rem; /* 11px — table headers, eyebrow */
 
-  /* — Spacing scale (4px base) (M7) — */
+  /* — Spacing scale (4px base) — */
   --sp-1: 4px;  --sp-2: 8px;  --sp-3: 12px; --sp-4: 16px;
   --sp-5: 24px; --sp-6: 32px; --sp-7: 48px; --sp-8: 64px;
 
-  /* — Radius (M7) — */
+  /* — Radius — */
   --r-sm: 6px; --r-md: 8px; --r-lg: 10px; --r-xl: 16px; --r-pill: 999px;
 
-  /* — Elevation (M7) — */
+  /* — Elevation — */
   --shadow-1: 0 1px 2px rgba(0,0,0,0.40);
   --shadow-2: 0 6px 18px rgba(0,0,0,0.50);
   --shadow-3: 0 24px 60px -16px rgba(0,0,0,0.70);
 
-  /* — Motion (M7) — */
+  /* — Motion — */
   --dur-fast: 0.15s; --dur-base: 0.25s; --ease: cubic-bezier(.4,0,.2,1);
 }
 
@@ -568,7 +568,7 @@ html {
   background: var(--base);
   color: var(--t1);
   font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", sans-serif;
-  font-size: 16px;            /* M3: 16px base */
+  font-size: 16px;            /* 16px base */
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
   transition: background var(--dur-base) var(--ease), color var(--dur-base) var(--ease);
@@ -579,7 +579,7 @@ html {
   50%       { background-position: 100% 50%; }
 }
 
-/* M5: a single visible focus ring for every interactive control. */
+/* A single visible focus ring for every interactive control. */
 :focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: 2px;
@@ -650,7 +650,7 @@ html {
   font-family: inherit;
   font-size: var(--text-cap);
   padding: 0 var(--sp-3);
-  outline: none;     /* replaced by the :focus-visible ring below (M5) */
+  outline: none;     /* replaced by the :focus-visible ring below */
   transition: box-shadow var(--dur-fast), border-color var(--dur-fast);
 }
 
@@ -730,7 +730,7 @@ html {
   padding: 5px var(--sp-2);
   cursor: pointer;
   font-family: inherit;
-  outline: none;     /* replaced by the :focus-visible ring below (M5) */
+  outline: none;     /* replaced by the :focus-visible ring below */
   appearance: none;
   -webkit-appearance: none;
 }
@@ -753,7 +753,7 @@ html {
 }
 
 .empty-msg {
-  color: var(--t3);     /* C2: brightened --t3 is AA on base */
+  color: var(--t3);     /* brightened --t3 is AA on base */
   font-size: var(--text-cap);
   padding: var(--sp-5) var(--sp-4);
 }
@@ -766,14 +766,14 @@ html {
   overflow: hidden;
   flex-shrink: 0;   /* never compress below natural height — list scrolls instead */
   cursor: pointer;
-  /* M6: real <button> — reset native button chrome, keep left-aligned block layout. */
+  /* Real <button> — reset native button chrome, keep left-aligned block layout. */
   display: block;
   width: 100%;
   text-align: left;
   background: transparent;
   font: inherit;
   color: inherit;
-  /* M4: no opacity dimming — unselected rows render at full opacity. */
+  /* No opacity dimming — dimming unselected rows drops their text below AA. */
   transition: background var(--dur-fast), border-color var(--dur-fast);
 }
 
@@ -811,7 +811,7 @@ html {
 }
 
 .li-title {
-  font-size: var(--text-cap);   /* 14px reading floor for list titles (M3) */
+  font-size: var(--text-cap);   /* 14px reading floor for list titles */
   font-weight: 500;
   color: var(--t1);
   margin-bottom: var(--sp-1);
@@ -822,7 +822,7 @@ html {
 
 .li-meta {
   font-size: var(--text-label);
-  color: var(--t3);     /* C2: meta uses brightened --t3 — one rule */
+  color: var(--t3);     /* meta uses brightened --t3 — one rule */
 }
 
 /* ── Detail view ────────────────────────────────────────────────────────── */
@@ -935,7 +935,7 @@ html {
 }
 
 .rp-content p {
-  font-size: var(--text-body);   /* 16px reading paragraphs (M3) */
+  font-size: var(--text-body);   /* 16px reading paragraphs */
   color: var(--t2);
   line-height: 1.75;
   margin-bottom: 14px;
@@ -948,7 +948,7 @@ html {
 }
 
 .rp-content li {
-  font-size: var(--text-read);   /* 15px — above the 14px floor (M3) */
+  font-size: var(--text-read);   /* 15px — above the 14px floor */
   color: var(--t2);
   line-height: 1.7;
   margin-bottom: var(--sp-1);
@@ -982,7 +982,7 @@ html {
 .rp-content table {
   width: 100%;
   border-collapse: collapse;
-  font-size: var(--text-read);   /* 15px table cells (M3) */
+  font-size: var(--text-read);   /* 15px table cells */
   margin-bottom: 18px;
   display: block;
   overflow-x: auto;
@@ -1015,7 +1015,7 @@ html {
   border-left: 3px solid var(--bd);
   margin: 0 0 14px;
   padding: var(--sp-2) var(--sp-4);
-  color: var(--t3);     /* C2: brightened --t3 */
+  color: var(--t3);     /* brightened --t3 */
   font-style: italic;
 }
 

@@ -3,8 +3,7 @@
 Requires real AWS credentials and configured .env file.
 All tests decorated with @pytest.mark.integration.
 
-M-16 (Phase 12 review, Cluster E): write_artifacts had zero integration
-coverage. These tests exercise the concurrent bulk-write path against real S3
+These tests exercise the concurrent bulk-write path against real S3
 and S3 Vectors — the moto unit suite already covers the same logic against a
 simulated backend, so this file focuses on round-trip fidelity (real content,
 real vector indexing) and the intra-batch duplicate-key guard, both of which

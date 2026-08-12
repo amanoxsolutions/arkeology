@@ -3,15 +3,14 @@
 Requires real AWS credentials and configured .env file.
 All tests decorated with @pytest.mark.integration.
 
-M-16 (Phase 12 review, Cluster E): link_metadata had zero integration
-coverage, and it is the tool most dependent on real AWS behaviour in this
-cluster — it dual-writes to a real S3 object annotation (ADR-011,
-PutObjectAnnotation) and reuses each vector's existing float32 embedding
-unchanged. Neither of those behaviours is meaningfully exercised by moto:
+These tests are link_metadata's only real-AWS coverage, and it is the tool most
+dependent on real AWS behaviour in this cluster — it dual-writes to a real S3
+object annotation (ADR-011, PutObjectAnnotation) and reuses each vector's existing
+float32 embedding unchanged. Neither behaviour is meaningfully exercised by moto:
 S3 object annotations are entirely self-mocked in tests/unit/conftest.py
 (see tests/integration/clients/test_s3_annotations.py for the dedicated
 annotation-API integration coverage), and moto's query_vectors extension
-is the circular simulation boundary M-16 calls out directly.
+is the circular simulation boundary these tests exist to cross.
 """
 
 import pytest

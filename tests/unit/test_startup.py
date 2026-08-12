@@ -222,8 +222,8 @@ def test_check5_dimension_comparison_itself_never_calls_embed(
     mocker: pytest.MonkeyPatch,
 ) -> None:
     """Check 5 (the configuration-only dimension comparison) never calls bedrock.embed
-    itself — dimension comes from settings vs. describe_index. M-9 adds a *separate*
-    check 6 that does call embed once (see test_check6_embedding_probe_calls_embed_once);
+    itself — dimension comes from settings vs. describe_index. A *separate*
+    check 6 does call embed once (see test_check6_embedding_probe_calls_embed_once);
     this test still isolates check 5's own behaviour by asserting exactly one call
     total (attributable to check 6, not check 5)."""
     bedrock = FakeBedrockClient(dimension=1024)
@@ -231,7 +231,7 @@ def test_check5_dimension_comparison_itself_never_calls_embed(
     validate_startup(settings=settings, s3=s3_client, vectors=vectors_client, bedrock=bedrock)
     assert spy.call_count == 1, (
         "bedrock.embed must be called exactly once during startup (by check 6's "
-        "embedding probe, M-9) — not by check 5's dimension comparison"
+        "embedding probe) — not by check 5's dimension comparison"
     )
 
 
@@ -274,7 +274,7 @@ def test_check5_explicit_dimensions_override_skips_registry_and_probe(
     mocker: pytest.MonkeyPatch,
 ) -> None:
     """BEDROCK_EMBEDDING_DIMENSIONS=2048 with index reporting 2048 → passes; check 6's
-    embedding probe still calls embed exactly once (M-9) even though check 5 itself
+    embedding probe still calls embed exactly once even though check 5 itself
     (the configuration-only comparison) does not."""
     monkeypatch.setenv("BEDROCK_EMBEDDING_DIMENSIONS", "2048")
     settings_custom = Settings()
@@ -311,7 +311,7 @@ def test_check5_explicit_dimensions_override_mismatch_raises(
     assert "2048" in exc_info.value.message
 
 
-# ── Check 6: Embedding probe (M-9) ─────────────────────────────────────────────
+# ── Check 6: Embedding probe ───────────────────────────────────────────────────
 
 
 def test_check6_embedding_probe_calls_embed_once(
@@ -362,7 +362,7 @@ def test_check6_embedding_probe_credential_error_propagates(
     mocker: pytest.MonkeyPatch,
 ) -> None:
     """embed() raises CredentialError (e.g. unentitled model) → propagates as-is,
-    not wrapped in StartupValidationError (reuses the M-7 classification)."""
+    not wrapped in StartupValidationError (reuses the credential classification)."""
     bedrock = FakeBedrockClient(dimension=1024)
     mocker.patch.object(
         bedrock,
@@ -618,7 +618,7 @@ def test_check5_none_dimension_raises_startup_error(
 # ---------------------------------------------------------------------------
 
 
-def test_m23_check1_non_credential_error_raises_startup_validation_error(
+def test_check1_non_credential_error_raises_startup_validation_error(
     settings: Settings,
     s3_client: S3ClientImpl,
     vectors_client: VectorsClientImpl,
@@ -644,7 +644,7 @@ def test_m23_check1_non_credential_error_raises_startup_validation_error(
 # ---------------------------------------------------------------------------
 
 
-def test_m23_check4_non_credential_error_raises_startup_validation_error(
+def test_check4_non_credential_error_raises_startup_validation_error(
     settings: Settings,
     s3_client: S3ClientImpl,
     vectors_client: VectorsClientImpl,
@@ -670,7 +670,7 @@ def test_m23_check4_non_credential_error_raises_startup_validation_error(
 # ---------------------------------------------------------------------------
 
 
-def test_m23_check6_credential_error_propagates_not_wrapped(
+def test_check6_credential_error_propagates_not_wrapped(
     settings: Settings,
     s3_client: S3ClientImpl,
     vectors_client: VectorsClientImpl,
@@ -735,7 +735,7 @@ def test_check1_credential_failure_chains_cause(
 
 
 # ---------------------------------------------------------------------------
-# 07-02 #11 — Check 1 conflates missing bucket vs bad credentials
+# Check 1 must not conflate a missing bucket with bad credentials
 # ---------------------------------------------------------------------------
 
 
@@ -748,7 +748,7 @@ def test_check1_missing_bucket_is_distinct_from_credential_failure(
     (404, no such bucket) must not be reported under the generic 'Credential check
     failed' message _check_credentials uses for every non-CredentialError exception —
     that mislabels a config typo as an auth problem and points the operator at the
-    wrong remediation (07-02 #11)."""
+    wrong remediation."""
     s3_missing_bucket = S3ClientImpl(
         region=settings.aws_region, profile=None, bucket=settings.artifact_bucket
     )
@@ -764,7 +764,7 @@ def test_check1_missing_bucket_is_distinct_from_credential_failure(
 
 
 # ---------------------------------------------------------------------------
-# 07-02 #9 — Fixed startup probe key → concurrent-server race
+# A fixed startup probe key would cause a concurrent-server race
 # ---------------------------------------------------------------------------
 
 
@@ -774,7 +774,7 @@ def test_check2_probe_key_is_unique_per_invocation(
     mocker: pytest.MonkeyPatch,
 ) -> None:
     """Two successive (or concurrent) write-prefix probes against the same
-    WRITE_PREFIX must not reuse the same fixed probe key (07-02 #9). A constant
+    WRITE_PREFIX must not reuse the same fixed probe key. A constant
     ``_PROBE_KEY_SUFFIX`` means two servers starting concurrently against the same
     WRITE_PREFIX race on the identical S3 key — one's best-effort cleanup
     (delete_object in the finally block) can delete the object out from under the
@@ -802,7 +802,7 @@ def test_check2_probe_key_is_unique_per_invocation(
 
 
 # ---------------------------------------------------------------------------
-# 07-02 #10 — Check 3 proves only ListBucket, not GetObject
+# Check 3 must prove GetObject, not only ListBucket
 # ---------------------------------------------------------------------------
 
 
@@ -813,7 +813,7 @@ def test_check3_read_prefix_grants_list_but_denies_object_read_still_fails(
     mocker: pytest.MonkeyPatch,
 ) -> None:
     """A foreign prefix whose IAM policy grants s3:ListBucket but denies object-level
-    read access must still fail startup (07-02 #10) — list_objects succeeding is not
+    read access must still fail startup — list_objects succeeding is not
     sufficient proof that read_artifact will later be able to fetch object content.
     Check 3 currently only calls list_objects; it must also verify object-level read
     access (e.g. head_object/get_object) on at least one listed key."""

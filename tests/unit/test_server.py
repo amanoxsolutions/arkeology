@@ -145,7 +145,7 @@ async def test_write_artifact_mcp_layer_forwards_references(
 
 
 # ---------------------------------------------------------------------------
-# MCP tool layer — C-3: overwrite flag is reachable by MCP callers
+# MCP tool layer — the overwrite flag is reachable by MCP callers
 # ---------------------------------------------------------------------------
 
 
@@ -237,7 +237,7 @@ async def test_write_artifacts_mcp_layer_forwards_overwrite(
 
 
 # ---------------------------------------------------------------------------
-# MCP tool layer — M-10: write_artifacts exposes artifact_concurrency
+# MCP tool layer — write_artifacts exposes artifact_concurrency
 # ---------------------------------------------------------------------------
 
 
@@ -245,8 +245,8 @@ async def test_write_artifacts_mcp_layer_forwards_artifact_concurrency(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """write_artifacts MCP tool forwards a caller-supplied artifact_concurrency to
-    the underlying _write_artifacts (M-10 — closes the doc-vs-code contradiction
-    with PRD FR-25 / p10-t39, which document it as caller-controllable)."""
+    the underlying _write_artifacts — PRD FR-25 / p10-t39 document it as
+    caller-controllable, so the MCP signature must actually expose it."""
     settings = _make_settings(monkeypatch)
     mock_write_batch = AsyncMock(return_value={"results": []})
     monkeypatch.setattr("arkeology.server._write_artifacts", mock_write_batch)
@@ -269,7 +269,7 @@ async def test_write_artifacts_mcp_layer_artifact_concurrency_defaults_to_three(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """write_artifacts MCP tool defaults artifact_concurrency to 3 when the caller
-    omits it, matching the inner function's default (M-10)."""
+    omits it, matching the inner function's default."""
     settings = _make_settings(monkeypatch)
     mock_write_batch = AsyncMock(return_value={"results": []})
     monkeypatch.setattr("arkeology.server._write_artifacts", mock_write_batch)
@@ -293,7 +293,7 @@ async def test_write_artifacts_mcp_layer_out_of_range_artifact_concurrency_forwa
 ) -> None:
     """An out-of-range artifact_concurrency is forwarded as-is (not pre-validated at
     the MCP layer) — the inner function owns clamping + warning behaviour, so the
-    MCP layer must not silently reinterpret or reject it (M-10)."""
+    MCP layer must not silently reinterpret or reject it."""
     settings = _make_settings(monkeypatch)
     mock_write_batch = AsyncMock(return_value={"results": [], "warning": "capped"})
     monkeypatch.setattr("arkeology.server._write_artifacts", mock_write_batch)
@@ -440,7 +440,7 @@ async def test_propose_commit_links_still_registered_and_functional(
 async def test_register_tools_registers_full_tool_set(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """07-02 #36: register_tools must expose exactly the 16 documented MCP tools —
+    """register_tools must expose exactly the 16 documented MCP tools —
     catches an accidental omission or an orphaned extra registration that individual
     per-tool tests wouldn't notice."""
     settings = _make_settings(monkeypatch)

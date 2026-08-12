@@ -1,4 +1,4 @@
-"""Run-scoped isolation for the integration test suite (review finding C-4).
+"""Run-scoped isolation for the integration test suite.
 
 The integration suite must be safe to run against ANY configured store,
 including one already holding real team memory. The operator-configured

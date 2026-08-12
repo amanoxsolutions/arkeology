@@ -147,7 +147,7 @@ def test_head_object_403_raises_credential_error_not_key_error(
 
 
 # ---------------------------------------------------------------------------
-# A-2 — S3ClientImpl.put_object conditional-create mode (IfNoneMatch: "*")
+# S3ClientImpl.put_object conditional-create mode (IfNoneMatch: "*")
 # ---------------------------------------------------------------------------
 
 

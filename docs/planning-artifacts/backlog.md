@@ -33,7 +33,7 @@ Items that were promoted to a phase are **not** listed here — see the phase hi
   the "semantic memory beats progressive-disclosure wiki at scale" positioning claim.
   Source: [`brainstorming-2026-06-15-okf-alignment.md`](../brainstorming/brainstorming-2026-06-15-okf-alignment.md) (OQ1).
 
-- **B-6 — Recency-weighted search ranking (CA-4 Option B).** Blend an age signal into
+- **B-6 — Recency-weighted search ranking.** Blend an age signal into
   `search_artifacts` ranking so a fresher artifact is not tied by pure cosine similarity with a
   superseded older one. The temporal data already exists (`last_edited_ulid` on every vector — no
   re-index needed) and the ranking choke point is single (`_search_helper.py` `run_search_loop`
@@ -43,9 +43,10 @@ Items that were promoted to a phase are **not** listed here — see the phase hi
   (2) **score combination** — cosine scores are in [−1, 1], so a naive multiplicative decay
   misbehaves on negative scores and needs normalization; (3) **default-on vs opt-in per query**,
   and the caveat that post-hoc reranking only reorders the fetched candidate pool, not the whole
-  index. CA-4 Option A (age transparency, no ranking change) shipped separately — see
+  index. This item is the *ranking* half of the recency work; the *transparency* half — surface
+  the artifact's age on each result and let the agent discount stale hits itself, with ranking
+  left untouched — shipped separately, see
   [`p12-t54-search-age-transparency.md`](../specs/p12-t54-search-age-transparency.md).
-  Source: full-project review CA-4 (2026-07-02).
 
 ## Cross-scope security
 
@@ -66,7 +67,7 @@ Items that were promoted to a phase are **not** listed here — see the phase hi
      writes on tier 3 shared artifacts, a cross-index reconcile story, and a search path
      that queries two indexes.
   Source: [`adr-2026-05-29-tier-based-access-control.md`](../architecture-decisions/adr-2026-05-29-tier-based-access-control.md)
-  (Revision 2026-07-02); full-project review CA-1 (2026-07-02).
+  (Revision 2026-07-02).
 
 ## OKF interoperability
 

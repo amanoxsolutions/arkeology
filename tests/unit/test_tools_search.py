@@ -303,7 +303,7 @@ async def test_result_missing_tier_metadata_defaults_gracefully(
     monkeypatch: pytest.MonkeyPatch,
     vectors_client_8: VectorsClientImpl,
 ) -> None:
-    """07-02 #13: a vector whose metadata lacks 'tier' must not hard-crash the
+    """A vector whose metadata lacks 'tier' must not hard-crash the
     whole search. search.py currently does ``int(meta["tier"])`` (a plain
     dict subscript) instead of the ``.get("tier", 0)`` pattern already used
     by list.py — this raises a bare KeyError, caught only by the outer
@@ -460,7 +460,7 @@ async def test_filter_tier_restricts_results(
 
 
 # ---------------------------------------------------------------------------
-# Filter enum validation (07-02 #5) — typos must error, not silently return []
+# Filter enum validation — typos must error, not silently return []
 # ---------------------------------------------------------------------------
 
 
@@ -669,7 +669,7 @@ async def test_top_k_above_fetch_budget_signals_truncation(
     monkeypatch: pytest.MonkeyPatch,
     vectors_client_8: VectorsClientImpl,
 ) -> None:
-    """07-02 #7: search_artifacts advertises top_k up to 100, but the re-fetch
+    """search_artifacts advertises top_k up to 100, but the re-fetch
     loop is bounded by SEARCH_FETCH_TOP_K x SEARCH_MAX_ITERATIONS. When that
     fetch budget is smaller than the number of distinct matching artifacts
     actually available, the loop exhausts its iteration budget before
@@ -817,7 +817,7 @@ async def test_top_k_zero_returns_validation_error(
     monkeypatch: pytest.MonkeyPatch,
     vectors_client_8: VectorsClientImpl,
 ) -> None:
-    """top_k=0 has no floor guard (07-02 #4) — must return validation_error,
+    """top_k=0 has no floor guard in the clamp — must return validation_error,
     not a silent empty/zero-results response indistinguishable from a
     legitimate no-match query.
     """
@@ -838,7 +838,7 @@ async def test_top_k_negative_returns_validation_error(
     monkeypatch: pytest.MonkeyPatch,
     vectors_client_8: VectorsClientImpl,
 ) -> None:
-    """top_k=-5 has no floor guard (07-02 #4) — with the current unclamped
+    """top_k=-5 has no floor guard in the clamp — with an unclamped
     ``min(requested_top_k, 100)`` implementation this silently produces a
     negative-slice artifact list instead of erroring; must return
     validation_error instead.
@@ -857,7 +857,7 @@ async def test_top_k_negative_returns_validation_error(
 
 
 # ---------------------------------------------------------------------------
-# M-6 — $nin exclusion list is byte-bounded; non-credential mid-loop failures
+# $nin exclusion list is byte-bounded; non-credential mid-loop failures
 # return partial results instead of internal_error
 # ---------------------------------------------------------------------------
 
@@ -943,7 +943,7 @@ async def test_non_credential_failure_mid_loop_returns_partial_results(
     """A non-credential exception raised by query_vectors after the first iteration
     already collected results → those results are returned (not internal_error).
 
-    07-02 #7 follow-up: this early break is a fetch-budget-style truncation (fewer
+    This early break is a fetch-budget-style truncation (fewer
     results than top_k, more may exist) exactly like the iteration-budget and $nin-
     budget cases — fetch_exhausted must be True here too, not silently left False.
     """
@@ -982,7 +982,7 @@ async def test_credential_failure_mid_loop_still_returns_credential_error(
     mocker: MockerFixture,
 ) -> None:
     """A CredentialError raised after the first iteration already collected results
-    still returns the structured credential_error — partial-results handling (M-6) is
+    still returns the structured credential_error — partial-results handling is
     scoped to non-credential failures only; credential-error classification is unchanged.
     """
     settings = _make_settings(monkeypatch, SEARCH_MAX_ITERATIONS="5", SEARCH_FETCH_TOP_K="1")
@@ -1013,7 +1013,7 @@ async def test_credential_failure_mid_loop_still_returns_credential_error(
 
 
 # ---------------------------------------------------------------------------
-# M-8 — search's blocking client calls are offloaded off the asyncio event loop
+# search's blocking client calls are offloaded off the asyncio event loop
 # ---------------------------------------------------------------------------
 
 
@@ -1292,7 +1292,7 @@ async def test_search_top_k_within_limit_not_clamped(
 
 
 # ---------------------------------------------------------------------------
-# P12·T54 — CA-4 Option A: last-edited age transparency in search results
+# P12·T54 — last-edited age transparency in search results (ranking unaffected)
 # ---------------------------------------------------------------------------
 
 

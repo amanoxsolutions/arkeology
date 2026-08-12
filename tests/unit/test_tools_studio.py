@@ -74,7 +74,7 @@ async def test_arkeology_studio_non_supporting_host_credential_error_is_propagat
     settings: Settings,
     mocker: MockerFixture,
 ) -> None:
-    """M-11(a): a credential-error dict from the inner list call must surface as a
+    """A credential-error dict from the inner list call must surface as a
     structured error, not be coerced into a successful empty listing — otherwise
     expired credentials read as "the store is empty" (PRD FR-12)."""
     from arkeology.tools import studio
@@ -149,7 +149,7 @@ async def test_arkeology_studio_exception_returns_error_tool_result(
 # ---------------------------------------------------------------------------
 
 
-def test_m21_arkeology_studio_inner_function_exists() -> None:
+def test_arkeology_studio_inner_function_exists() -> None:
     """M21: The project convention requires every tool's public function to delegate to
     an ``_inner`` variant.  arkeology_studio currently has an inline try/except and no
     ``_arkeology_studio_inner`` function.  After the refactor, ``_arkeology_studio_inner`` must

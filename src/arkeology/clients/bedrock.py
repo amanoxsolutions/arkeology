@@ -27,7 +27,7 @@ _TRANSIENT_ERROR_CODES = frozenset(
 # Sleep duration between attempts for transient errors (seconds)
 _RETRY_SLEEP_SECONDS: float = 2.0
 
-# M-8 (Phase 12 review): embed()/invoke_text_model() are synchronous Protocol methods
+# embed()/invoke_text_model() are deliberately synchronous Protocol methods
 # (BedrockClientInterface) — making the retry sleep below `await asyncio.sleep(...)`
 # would require turning both methods (and the interface, every concrete/fake
 # implementation, and every direct caller — startup.py, health.py) into coroutines, far
@@ -38,8 +38,8 @@ _RETRY_SLEEP_SECONDS: float = 2.0
 # them through its bounded `_EMBED_EXECUTOR` — the entire synchronous call, retry sleep
 # included, runs on a worker thread, never on the event-loop thread. startup.py calls
 # these methods directly, but synchronously before the event loop starts. health.py's
-# direct (non-offloaded) calls are a known, separately-tracked gap — out of scope for
-# this cluster, which covers only search/read/list/reconcile/freshness (M-8 acceptance).
+# direct (non-offloaded) calls are a known, separately-tracked gap: health.py runs only
+# on operator demand, never on a hot request path, so a blocked loop there is bounded.
 
 
 class BedrockClientImpl:

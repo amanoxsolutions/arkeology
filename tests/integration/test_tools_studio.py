@@ -3,9 +3,9 @@
 Requires real AWS credentials and configured .env file.
 All tests decorated with @pytest.mark.integration.
 
-M-16 (Phase 12 review, Cluster E): arkeology_studio had zero integration
-coverage. arkeology_studio's only AWS-touching branch is the non-supporting-host
-fallback, which delegates to list_artifacts against the real vector index —
+These tests are arkeology_studio's only real-AWS coverage. Its only AWS-touching
+branch is the non-supporting-host fallback, which delegates to list_artifacts
+against the real vector index —
 the supporting-host branch and the exception branch are pure Python (already
 covered by the moto/mock unit suite in tests/unit/test_tools_studio.py) and
 are not repeated here. ``ctx`` (the FastMCP request Context) is mocked because

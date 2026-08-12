@@ -1,4 +1,4 @@
-"""Unit tests for arkeology.clients.credentials (Phase 12 review M-7).
+"""Unit tests for arkeology.clients.credentials.
 
 Covers:
 - The newly-added botocore error codes classify as CredentialError.
@@ -22,7 +22,7 @@ from arkeology.clients.s3 import S3ClientImpl
 from arkeology.errors import AnnotationUnavailableError, CredentialError
 
 # ---------------------------------------------------------------------------
-# New credential error codes (M-7)
+# Credential error codes
 # ---------------------------------------------------------------------------
 
 
@@ -62,7 +62,7 @@ def test_wrap_credential_errors_translates_new_codes(code: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# NoCredentialsError / SSO / token exceptions (M-7)
+# NoCredentialsError / SSO / token exceptions
 # ---------------------------------------------------------------------------
 
 
@@ -93,7 +93,7 @@ def test_wrap_credential_errors_other_botocore_error_still_propagates() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Reconciliation: annotation-unavailable AccessDenied path is unaffected (M-7)
+# Reconciliation: the annotation-unavailable AccessDenied path is unaffected
 # ---------------------------------------------------------------------------
 
 

@@ -207,7 +207,7 @@ def _read_vector_link_fields(
 ) -> tuple[list[str], list[str]]:
     """Read the ``commit_refs`` / ``references`` currently indexed in vector metadata.
 
-    Unions across ALL of the artifact's section vectors (M9), not just the first key
+    Unions across ALL of the artifact's section vectors, not just the first key
     returned by ``list_vectors_by_metadata`` — a multi-section artifact indexes one
     vector per section, and a link field written by an earlier ``link_metadata`` call
     (or backfilled by ``reconcile_index``) may live on any one of them, not

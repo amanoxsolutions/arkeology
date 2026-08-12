@@ -8,7 +8,7 @@ Verifies that:
 - An invalid level silently falls back to INFO.
 - Repeated calls do not accumulate duplicate handlers.
 - main() surfaces a structured, actionable error (not a raw traceback) when
-  AWS_PROFILE names a profile the credential chain cannot find (M-7).
+  AWS_PROFILE names a profile the credential chain cannot find.
 """
 
 import logging
@@ -121,7 +121,7 @@ def test_repeated_calls_do_not_accumulate_handlers() -> None:
     assert len(stream_handlers) == 1
 
 
-# ── main(): bad AWS_PROFILE surfaces a structured error (M-7) ──────────────────
+# ── main(): bad AWS_PROFILE surfaces a structured error ───────────────────────
 
 
 def _settings_with_bad_profile() -> Settings:
@@ -145,8 +145,8 @@ def test_main_bad_profile_exits_cleanly_not_raw_traceback(
     Uses capsys rather than caplog: main() calls configure_logging(), which replaces
     the root logger's handlers (including caplog's) with its own stderr StreamHandler.
 
-    Red: before the M-7 fix, ProfileNotFound propagates uncaught — pytest.raises(SystemExit)
-    fails because a different exception type escapes instead.
+    Red: with ProfileNotFound left uncaught, pytest.raises(SystemExit) fails because a
+    different exception type escapes instead.
     """
     mocker.patch(
         "arkeology.__main__.load_settings",

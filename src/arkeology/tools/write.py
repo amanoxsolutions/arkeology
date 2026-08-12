@@ -58,8 +58,8 @@ logger = logging.getLogger(__name__)
 # run_in_executor(_EMBED_EXECUTOR, ...) rather than asyncio.to_thread() so the
 # pool is not shared with other blocking work on the default executor.
 #
-# 07-02 #18: constructed lazily (module __getattr__ below) rather than at import
-# time — importing this module must not itself spin up 300 OS threads.
+# Constructed lazily (module __getattr__ below) rather than at import time —
+# importing this module must not itself spin up 300 OS threads.
 _embed_executor: ThreadPoolExecutor | None = None
 
 
@@ -98,13 +98,13 @@ def _log_partial_write_failure(
 
     Shared by the ``partial_write`` response path (:func:`_record_partial_write`)
     and the credential-error branches that occur after the S3 put has already
-    succeeded (Phase 12 review M-4): a credential failure is no less a partial
-    write than any other kind of failure — the S3 object is durably written but
-    the index does not yet reflect it (or, for an ``overwrite=True`` rewrite,
-    still reflects the pre-overwrite version) — and only a failure-log entry lets
-    ``reconcile_index`` find and repair it. Without this, a retried credential
-    failure after S3 success left no trace, so the stale or missing index state
-    was never picked up by reconciliation.
+    succeeded: a credential failure is no less a partial write than any other kind
+    of failure — the S3 object is durably written but the index does not yet
+    reflect it (or, for an ``overwrite=True`` rewrite, still reflects the
+    pre-overwrite version) — and only a failure-log entry lets ``reconcile_index``
+    find and repair it. Skip the log on the credential branches and a credential
+    failure after S3 success leaves no trace, so the stale or missing index state
+    is never picked up by reconciliation.
 
     Args:
         settings: Server configuration (for ``failure_log_path``).
@@ -393,7 +393,7 @@ async def _write_artifact_inner(  # noqa: PLR0913
     if references:
         vector_metadata["references"] = references
 
-    # ── Step 3c: Metadata size budgets (M-5) — fail fast, before any write ───
+    # ── Step 3c: Metadata size budgets — fail fast, before any write ─────────
     # Measures the actual assembled representations: the S3 aggregate against the
     # transport-encoded s3_metadata dict, and the vector filterable/total budgets against
     # vector_metadata. A breach here means NO head_object, NO put_object, NO
@@ -406,12 +406,12 @@ async def _write_artifact_inner(  # noqa: PLR0913
         return {"error": ErrorCode.VALIDATION_ERROR, "message": str(exc)}
 
     # ── Step 4: Check existing before writing (collision guard + orphan detection) ──
-    # C-3: a write whose generated key already exists is rejected by default — silent
+    # A write whose generated key already exists is rejected by default — silent
     # overwrite-by-collision is the worst failure mode for a store whose purpose is
     # never losing memory. The caller must pass overwrite=True to intentionally
     # replace an existing artifact (tier 3 living-doc updates, corrections).
     #
-    # A-2: head_object here is a *friendly fast path* only — check-then-act is racy
+    # head_object here is a *friendly fast path* only — check-then-act is racy
     # (two concurrent same-key writes can both pass this check). The authoritative,
     # atomic guard is the conditional put_object(if_none_match=True) below, which
     # closes the race by making the existence check and the write a single S3-side
@@ -459,17 +459,17 @@ async def _write_artifact_inner(  # noqa: PLR0913
     # update, or an explicit tier-2 replacement) would otherwise silently lose the
     # accumulated commit_refs trail. commit_refs is a durable, backfill-only audit trail
     # with no frontmatter counterpart: read its current value forward as the union of
-    # both durable stores (Phase 12 review C5/M6 — neither the annotation copy nor the
-    # vector-metadata copy is sole authority; see ``annotations.read_current_link_fields``)
+    # both durable stores (neither the annotation copy nor the vector-metadata copy is
+    # sole authority; see ``annotations.read_current_link_fields``)
     # and merge it with the value supplied to this write (union, dedup, order-preserving)
     # before either store is touched.
     #
     # references mirrors the artifact's frontmatter ``references:`` list — a claim about
-    # the artifact's *current* outbound links, not an audit trail (review-followup
-    # 2026-07-06, "Reference-Field Value Semantics"). It is REPLACED outright on every
-    # write: final_references is exactly the value supplied to this call (including
-    # ``[]``), with no read-forward and no merge against the prior stored value — a write
-    # supplying no references clears the field (operator-confirmed intended). vector_metadata's
+    # the artifact's *current* outbound links, not an audit trail. It is REPLACED
+    # outright on every write: final_references is exactly the value supplied to this
+    # call (including ``[]``), with no read-forward and no merge against the prior stored
+    # value — a write supplying no references clears the field (operator-confirmed
+    # intended). vector_metadata's
     # "references" key was already set/omitted from the supplied value at Step 3b, and
     # ``apply_link_annotations`` already deletes the annotation when its input list is
     # empty, so no further adjustment to either store is needed here for this field.
@@ -570,7 +570,7 @@ async def _write_artifact_inner(  # noqa: PLR0913
                 annotation_warning = str(exc)
                 break
             except CredentialError as exc:
-                # M-4: the S3 put above has already succeeded — this is a partial
+                # The S3 put above has already succeeded — this is a partial
                 # write, not a clean failure.
                 _log_partial_write_failure(
                     settings,
@@ -588,7 +588,7 @@ async def _write_artifact_inner(  # noqa: PLR0913
                     "artifact_id": s3_key,
                 }
             except Exception as exc:
-                # M1: an unknown/transient annotation failure (e.g. SlowDown,
+                # An unknown/transient annotation failure (e.g. SlowDown,
                 # RequestTimeout — not a conflict, not annotation-unavailable, not a
                 # credential failure) must not escape uncaught to the blanket
                 # internal_error handler: the content is already durably written on
@@ -659,7 +659,7 @@ async def _write_artifact_inner(  # noqa: PLR0913
         # branch below (a real credential failure is very likely to also break the
         # upcoming Bedrock/vector calls, so aborting there remains correct).
         _ = new_etag  # no CAS token needed — nothing preceded this write to race
-        # Phase-12 #18: this is a fresh create (atomic if_none_match put above), so the
+        # This is a fresh create (atomic if_none_match put above), so the
         # key had zero prior annotations a moment ago. When neither field was supplied,
         # there is nothing to write and nothing to clear — skip the call entirely
         # rather than issuing two pointless delete_object_annotation round trips (and,
@@ -678,10 +678,10 @@ async def _write_artifact_inner(  # noqa: PLR0913
             )
             annotation_warning = str(exc)
         except CredentialError as exc:
-            # M-4: the S3 put above has already succeeded — this is a partial write,
-            # not a clean failure. Without a failure-log entry here, a retried
-            # credential failure after S3 success left no repairable trace, and for
-            # an overwrite=True rewrite the pre-overwrite vectors would silently
+            # The S3 put above has already succeeded — this is a partial write,
+            # not a clean failure. Without a failure-log entry here, a credential
+            # failure after S3 success leaves no repairable trace, and for an
+            # overwrite=True rewrite the pre-overwrite vectors would silently
             # survive forever (reconcile never sees a reason to touch this artifact).
             _log_partial_write_failure(
                 settings,
@@ -699,7 +699,7 @@ async def _write_artifact_inner(  # noqa: PLR0913
                 "artifact_id": s3_key,
             }
         except Exception as exc:
-            # M1: same unknown/transient-failure gap as the overwrite/CAS path above
+            # Same unknown/transient-failure gap as the overwrite/CAS path above
             # — the S3 put has already succeeded by this point, so this is a partial
             # write, not a clean failure; record it so reconcile_index can repair the
             # link-field state later instead of letting it escape as internal_error.
@@ -714,7 +714,7 @@ async def _write_artifact_inner(  # noqa: PLR0913
                 reason=str(exc),
             )
 
-    # ── Step 5: Parse, filter, cap, and truncate sections (M-3 shared pipeline) ──
+    # ── Step 5: Parse, filter, cap, and truncate sections (shared pipeline) ─────
     # Delegates to the same helper reconcile_index uses, so a section that write-time
     # drops (min-length), caps (max-sections), or truncates (max-section-length) is
     # dropped/capped/truncated identically on a later reconcile replay.

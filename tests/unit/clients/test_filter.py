@@ -209,7 +209,7 @@ def test_plain_equality_no_match() -> None:
 
 def test_unsupported_operator_raises_filter_evaluation_error() -> None:
     """An unsupported operator raises the typed FilterEvaluationError (not a bare
-    ValueError) with the operator in the message (07-02 #21)."""
+    ValueError) with the operator in the message."""
     with pytest.raises(FilterEvaluationError, match="\\$gt"):
         matches_filter({"score": 5}, {"score": {"$gt": 3}})
 

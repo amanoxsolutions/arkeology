@@ -53,7 +53,7 @@ def test_get_vectors_metadata_only_does_not_request_vector_data(
     """Callers that only need metadata (e.g. list_artifacts, check_synthesis_freshness,
     purge_archived) should be able to opt out of fetching the float32 vector data.
     get_vectors always passes returnData=True today regardless of caller need, wasting
-    bandwidth on every metadata-only read (07-02 #17). A metadata-only caller must be
+    bandwidth on every metadata-only read. A metadata-only caller must be
     able to request include_data=False and have that result in returnData=False on the
     underlying GetVectors call."""
     keys = _put_n_vectors(vectors_client_2, 3)
@@ -91,7 +91,7 @@ def test_get_vectors_empty_keys_makes_no_api_call(
 
 
 # ---------------------------------------------------------------------------
-# C-1: query_vectors must request and honour returnDistance
+# query_vectors must request and honour returnDistance
 # ---------------------------------------------------------------------------
 
 
@@ -108,7 +108,7 @@ def test_query_vectors_requests_return_distance(
     """query_vectors sends returnDistance=True to the underlying boto3 client.
 
     AWS defaults returnDistance to false; omitting it made every score 1.0 in
-    production (C-1). Guard the exact request shape sent over the wire.
+    production. Guard the exact request shape sent over the wire.
     """
     vec = _unit_vec([1.0] + [0.0] * 7)
     vectors_client_8.put_vector("k1", vec, {"artifact_id": "a/k1"})
@@ -144,8 +144,8 @@ def test_query_vectors_scores_non_trivially_ordered(
 ) -> None:
     """Vectors of differing similarity produce distinct, correctly ranked scores.
 
-    Before the C-1 fix, every result scored 1.0 (returnDistance was never
-    requested) so ranking silently degenerated to insertion order. This proves
+    Without returnDistance requested, every result scores 1.0 and ranking
+    silently degenerates to insertion order. This proves
     scores actually vary and rank correctly.
     """
     query = _unit_vec([1.0] + [0.0] * 7)
@@ -168,7 +168,7 @@ def test_query_vectors_scores_non_trivially_ordered(
 
 # ---------------------------------------------------------------------------
 # list_vectors_by_metadata — matches_filter errors must not escape as bare,
-# unclassified exceptions mid-pagination (07-02 #21/#4, #22/#5)
+# unclassified exceptions mid-pagination
 # ---------------------------------------------------------------------------
 
 
@@ -207,7 +207,7 @@ def test_list_vectors_by_metadata_mixed_type_comparison_raises_typed_error(
 
 
 # ---------------------------------------------------------------------------
-# list_vectors_by_metadata — nextToken multi-page pagination (07-02 #35)
+# list_vectors_by_metadata — nextToken multi-page pagination
 # ---------------------------------------------------------------------------
 
 

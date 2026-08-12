@@ -250,7 +250,7 @@ class VectorsClientInterface(Protocol):
             keys: List of vector keys to retrieve.
             include_data: When False, skips requesting the float32 vector data —
                 callers that only need metadata should pass this to avoid the
-                bandwidth cost of fetching embeddings they never use (07-02 #17).
+                bandwidth cost of fetching embeddings they never use.
 
         Returns:
             List of dicts with keys: ``key``, ``metadata``, ``data``. ``data`` is

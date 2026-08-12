@@ -129,9 +129,8 @@ without a docs-root discovery step.
 
 ## Exact replacement
 
-**Remove** (lines 68–110 in the current file): everything from
-`"Scan the repository for migration candidates…"` through the end of the
-`### Ambiguous files` section (inclusive).
+**Remove**: everything from `"Scan the repository for migration candidates…"`
+through the end of the `### Ambiguous files` section (inclusive).
 
 **Replace with** the following content (preserve the `---` separator before Step 3):
 

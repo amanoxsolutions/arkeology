@@ -171,7 +171,7 @@ def build_path_to_id_map(
         # resolve_reference's normalize_reference_path(candidate) lookup, otherwise
         # the reference silently never resolves.
         normalized_path = normalize_reference_path(entry["path"])
-        # Phase-12 #23: two entries normalizing to the same key must never silently
+        # Two entries normalizing to the same key must never silently
         # last-write-win — that discards one entry's mapping with zero signal.
         if normalized_path in path_to_id:
             raise DuplicateManifestPathError(normalized_path)
@@ -182,7 +182,7 @@ def build_path_to_id_map(
 def join_reference_path(referencing_file_path: str, reference_path: str) -> str:
     """Join a well-formed relative reference path against the referencing file's own
     directory, producing a repo-relative path suitable for a
-    :func:`build_path_to_id_map` lookup (C6 fix — relative-path resolution).
+    :func:`build_path_to_id_map` lookup.
 
     ``http://`` / ``https://`` URLs pass through unchanged (ADR-012 D5). A path that
     does not start with ``./`` or ``../`` (after backslash normalization) is already
@@ -223,8 +223,8 @@ def resolve_reference(
     ``http://`` / ``https://`` entries are never treated as path candidates (ADR-012
     D5) and always resolve to ``None``, regardless of ``referencing_file_path``. When
     ``referencing_file_path`` is supplied, a well-formed relative (``./`` or ``../``)
-    path is first joined against its directory via :func:`join_reference_path` (C6
-    fix) — this is what makes ``../decisions/B.md`` written in ``notes/A.md`` resolve
+    path is first joined against its directory via :func:`join_reference_path` —
+    this is what makes ``../decisions/B.md`` written in ``notes/A.md`` resolve
     to B's id. When ``referencing_file_path`` is omitted, no join is attempted and
     behaviour matches the original bounded (D6) ceiling exactly. Either way, the
     (possibly joined) path is then normalized via :func:`normalize_reference_path` and

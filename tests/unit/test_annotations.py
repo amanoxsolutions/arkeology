@@ -58,13 +58,13 @@ def test_decode_link_list_empty_string_returns_empty_list() -> None:
 
 def test_decode_link_list_interior_double_comma_drops_empty_element() -> None:
     """A malformed/hand-edited payload with a double comma ('a,,b') must not surface
-    a blank entry in the middle of the decoded list (Phase-12 #15, defensive)."""
+    a blank entry in the middle of the decoded list (defensive)."""
     assert decode_link_list("a,,b") == ["a", "b"]
 
 
 def test_decode_link_list_trailing_comma_drops_empty_element() -> None:
     """A malformed/hand-edited payload with a trailing comma ('a,') must not surface
-    a trailing blank entry (Phase-12 #15, defensive)."""
+    a trailing blank entry (defensive)."""
     assert decode_link_list("a,") == ["a"]
 
 
@@ -109,7 +109,7 @@ def test_apply_link_annotations_calls_put_for_non_empty_and_delete_for_empty(
 ) -> None:
     """apply_link_annotations puts the non-empty field and deletes the empty one —
     verified by spying on the underlying client calls (not just the end state).
-    Extended (review-followup-2026-07-06) to also assert if_match defaults to None
+    Also asserts if_match defaults to None
     (unconditional) when the caller does not supply a compare-and-swap token."""
     s3_client.put_object(key="artifacts/a3.md", body="content", metadata={"title": "A3"})
     put_spy = mocker.spy(s3_client, "put_object_annotation")
@@ -232,7 +232,7 @@ def test_read_link_annotations_credential_error_propagates(
 
 # ---------------------------------------------------------------------------
 # read_current_link_fields — vector-metadata side must union across ALL section
-# vectors, not just the first (M9)
+# vectors, not just the first
 # ---------------------------------------------------------------------------
 
 

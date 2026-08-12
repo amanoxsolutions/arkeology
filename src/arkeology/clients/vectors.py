@@ -107,7 +107,7 @@ class VectorsClientImpl:
                 (returnData=False) — callers that only need metadata (list_artifacts,
                 check_synthesis_freshness, purge_archived, find_referrers, ...) should
                 pass this to avoid the bandwidth cost of fetching embeddings they never
-                use (07-02 #17). Defaults to True to preserve existing behaviour for
+                use. Defaults to True to preserve existing behaviour for
                 callers (e.g. link_metadata) that reuse the embedding.
         """
         logger.debug("S3Vectors get_vectors count=%d include_data=%s", len(keys), include_data)
@@ -147,7 +147,8 @@ class VectorsClientImpl:
             "queryVector": {"float32": vector},
             "returnMetadata": True,
             # AWS defaults returnDistance to false; without it every result comes back
-            # with no 'distance' field and ranking silently degenerates (see C-1).
+            # with no 'distance' field and ranking silently degenerates to a uniform
+            # score, so this must stay explicit — never rely on the service default.
             "returnDistance": True,
         }
         if filter_expr is not None:

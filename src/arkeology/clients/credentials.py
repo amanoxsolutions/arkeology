@@ -16,13 +16,14 @@ from arkeology.errors import CredentialError
 
 # botocore error codes that indicate credential/auth problems.
 #
-# M-7 (Phase 12 review): the original set only covered the STS/"Exception"-suffixed
-# forms. AWS also returns the bare S3 XML forms (no "Exception" suffix) for the same
-# underlying conditions — expired session token, malformed/unknown access key, a
-# request signed with the wrong secret key, and S3's own plain "AccessDenied" — plus
+# Both the STS/"Exception"-suffixed forms and the bare S3 XML forms (no "Exception"
+# suffix) must be listed: AWS returns either spelling for the same underlying
+# conditions — expired session token, malformed/unknown access key, a request signed
+# with the wrong secret key, and S3's own plain "AccessDenied" — as well as
 # "UnrecognizedClientException", which several services (including Bedrock) return for
 # an invalid/malformed SigV4 signature. All are credential/auth problems, not
-# authorization-scope problems, and are added here.
+# authorization-scope problems. Omitting a spelling makes that failure surface as an
+# opaque generic error instead of an actionable credential error.
 #
 # Caution: "AccessDenied" is deliberately also part of ANNOTATION_UNAVAILABLE_ERROR_CODES
 # below (T52 / ADR-011 decision 5) for the four S3 object-annotation operations. This is
@@ -53,7 +54,7 @@ CREDENTIAL_ERROR_CODES: frozenset[str] = frozenset(
 # invalid SSO or bearer token. Unlike CREDENTIAL_ERROR_CODES above (which classifies a
 # ClientError's response body), these are raised directly by botocore's credential
 # resolution machinery before any API call is even made, so wrap_credential_errors must
-# catch them independently of the ClientError branch (M-7).
+# catch them independently of the ClientError branch.
 _CREDENTIAL_EXCEPTION_TYPES: tuple[type[Exception], ...] = (
     botocore.exceptions.NoCredentialsError,
     botocore.exceptions.SSOError,
@@ -119,12 +120,12 @@ def wrap_credential_errors(service: str) -> Iterator[None]:
     type) propagate unchanged so callers can apply their own special-case
     handling (not-found mapping, transient retries, index-not-found, …).
 
-    M-7 (Phase 12 review): also catches ``NoCredentialsError`` and the SSO/bearer-token
-    exceptions (``SSOError`` and its subclasses, ``TokenRetrievalError``) — these are
-    raised directly by botocore's local credential resolution, not delivered as a
-    ``ClientError`` response, so they previously escaped as an uncaught
-    ``BotoCoreError`` (surfacing to MCP callers as ``internal_error`` instead of the
-    actionable ``aws sso login`` remediation path).
+    ``NoCredentialsError`` and the SSO/bearer-token exceptions (``SSOError`` and its
+    subclasses, ``TokenRetrievalError``) are caught too: botocore's local credential
+    resolution raises them directly rather than delivering a ``ClientError`` response,
+    so without a separate branch they escape as an uncaught ``BotoCoreError`` and
+    surface to MCP callers as ``internal_error`` instead of the actionable
+    ``aws sso login`` remediation path.
     """
     try:
         yield

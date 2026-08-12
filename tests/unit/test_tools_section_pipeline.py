@@ -3,11 +3,11 @@
 Covers the shared section-embedding pipeline (min-length filter, max-sections cap,
 per-section truncation, and embedding-text construction) factored out of write.py
 so write_artifact and reconcile_index apply byte-for-byte identical rules
-(Phase 12 review M-3).
+shared by both write and reconcile.
 
 Also includes a write/reconcile parity test proving the exact text sent to
 ``bedrock.embed`` is identical between the two call paths for a section that gets
-truncated — the RED proof for M-3.
+truncated — the RED proof that the two paths cannot drift.
 """
 
 from pathlib import Path
@@ -257,7 +257,7 @@ def test_prepare_sections_filter_applied_before_cap(monkeypatch: pytest.MonkeyPa
 
 
 # ---------------------------------------------------------------------------
-# M-3 — write/reconcile parity: identical embed text for a truncated section
+# write/reconcile parity: identical embed text for a truncated section
 # ---------------------------------------------------------------------------
 
 _M3_S3_META: dict[str, str] = {
@@ -283,7 +283,7 @@ async def test_write_and_reconcile_embed_identical_truncated_text(
     tmp_path: Path,
     mocker: MockerFixture,
 ) -> None:
-    """M-3 RED proof: a section that write_artifact truncates before embedding must be
+    """RED proof: a section that write_artifact truncates before embedding must be
     truncated identically when reconcile_index later re-embeds the same content — the
     exact text passed to bedrock.embed must match between the two paths.
 

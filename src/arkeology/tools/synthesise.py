@@ -99,7 +99,7 @@ async def _synthesise_artifacts_inner(
     effective_top_k = min(top_k, 100)
     clamped = effective_top_k < top_k
 
-    # ── Step 2: Embed the query (M-8: off the event loop — blocking boto3 call) ──
+    # ── Step 2: Embed the query (off the event loop — blocking boto3 call) ───────
     try:
         query_vector = await asyncio.to_thread(
             bedrock.embed,
@@ -133,14 +133,14 @@ async def _synthesise_artifacts_inner(
     if isinstance(loop_result, dict):
         return loop_result
 
-    # fetch_exhausted (07-02 #7) is currently only surfaced by search_artifacts;
+    # fetch_exhausted is currently only surfaced by search_artifacts;
     # synthesise_artifacts does not expose it (no test/spec currently requires it).
     search_results, _fetch_exhausted = loop_result
 
     if not search_results:
         return {"artifacts": [], "zero_results": True}
 
-    # ── Step 6: Fetch content for each result, budget-aware (CA-5) ─────────────
+    # ── Step 6: Fetch content for each result, budget-aware ────────────────────
     # Track a running total of assembled response bytes — measured as the
     # UTF-8-encoded byte length of each result's `content` field only, per the
     # frozen decision (per-entry metadata is small, fixed overhead and is not

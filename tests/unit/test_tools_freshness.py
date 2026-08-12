@@ -101,8 +101,8 @@ _MALFORMED_S3_META: dict[str, str] = {
 
 def _filter_matches_artifact_id(filter_expr: dict[str, Any], artifact_id: str) -> bool:
     """Return True iff filter_expr is a direct $eq lookup, or a batched $in lookup
-    that includes, the given artifact_id (07-02 #17: source lookups are now batched
-    into a single $in query rather than one $eq call per source)."""
+    that includes, the given artifact_id (source lookups are batched into a single
+    $in query rather than one $eq call per source)."""
     if "artifact_id" in filter_expr:
         clause = filter_expr["artifact_id"]
         if "$eq" in clause:
@@ -492,7 +492,7 @@ async def test_scope_gate_only_own_scope_synthesis_checked(
 
 
 # ---------------------------------------------------------------------------
-# C-5: cross-scope gate on source lookups (non-negotiable rule)
+# Cross-scope gate on source lookups (non-negotiable rule)
 # ---------------------------------------------------------------------------
 
 
@@ -1026,7 +1026,7 @@ async def test_delete_failed_always_present_in_response(
 
 
 # ---------------------------------------------------------------------------
-# M-8 — check_synthesis_freshness's blocking client calls are offloaded off the
+# check_synthesis_freshness's blocking client calls are offloaded off the
 # event loop
 # ---------------------------------------------------------------------------
 
@@ -1126,7 +1126,7 @@ async def test_freshness_malformed_deletion_calls_run_off_event_loop(
 
 
 # ---------------------------------------------------------------------------
-# 07-02 #17 — source lookups must be batched, not one query per unique source
+# Source lookups must be batched, not one query per unique source
 # ---------------------------------------------------------------------------
 
 
@@ -1138,9 +1138,8 @@ async def test_freshness_multiple_distinct_sources_batches_lookup_not_one_per_so
 ) -> None:
     """check_synthesis_freshness must resolve all distinct source artifact ids across
     every synthesis with a bounded, batched vector-metadata query (mirroring list.py's
-    M5 cross-scope batching pattern via a single $in filter), not one
-    list_vectors_by_metadata call per unique source_id (1+N queries today — 07-02
-    #17)."""
+    cross-scope batching pattern via a single $in filter), not one
+    list_vectors_by_metadata call per unique source_id (1+N queries)."""
     settings = _make_settings(monkeypatch)
     synth_id = "artifacts/synthesis-multi-source"
     src_ids = [f"artifacts/implementation-note-2026-01-0{i}-source" for i in range(1, 4)]

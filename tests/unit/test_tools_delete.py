@@ -451,7 +451,7 @@ def test_find_referrers_issues_single_list_vectors_by_metadata_call(
     vectors_client_2: VectorsClientImpl,
     mocker: MockerFixture,
 ) -> None:
-    """Phase-12 #27: find_referrers currently issues two separate full-index
+    """find_referrers must not issue two separate full-index
     list_vectors_by_metadata scans per delete/archive call — one for the
     filterable-fields ($or of reference-field $eq clauses) branch, one for the
     non-filterable source_artifacts / type=synthesis prefilter branch. Both

@@ -707,7 +707,7 @@ async def test_migrate_artifacts_in_range_concurrency_5_dry_run_false_forwards_5
 
 
 @pytest.mark.asyncio
-async def test_m20_single_nova_lite_failure_does_not_abort_migration(
+async def test_single_nova_lite_failure_does_not_abort_migration(
     monkeypatch: pytest.MonkeyPatch,
     s3_client: S3ClientImpl,
     vectors_client: VectorsClientImpl,
@@ -785,7 +785,7 @@ async def test_a1_migrate_writes_only_new_and_skips_pre_existing_key(
     vectors_client: VectorsClientImpl,
     mocker: pytest.MonkeyPatch,
 ) -> None:
-    """A-1: a descriptor whose generated key was already written by a prior call is
+    """A descriptor whose generated key was already written by a prior call is
     skipped (no overwrite, no error); the other, genuinely-new descriptors are written.
     """
     try:
@@ -851,7 +851,7 @@ async def test_a1_migrate_rerun_over_full_corpus_is_idempotent_and_non_destructi
     vectors_client: VectorsClientImpl,
     mocker: pytest.MonkeyPatch,
 ) -> None:
-    """A-1: re-running a migration over an already-imported corpus writes nothing and
+    """Re-running a migration over an already-imported corpus writes nothing and
     skips everything — idempotent and non-destructive, even when re-run content differs.
     """
     try:
@@ -903,12 +903,12 @@ async def test_a1_migrate_rerun_over_full_corpus_is_idempotent_and_non_destructi
         assert s3_client.get_object(key) == content
 
 
-async def test_m20_server_migrate_artifacts_exposes_artifact_concurrency(
+async def test_server_migrate_artifacts_exposes_artifact_concurrency(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """M20 Bug 3: The MCP tool definition in server.py wraps migrate_artifacts but must
     forward a caller-supplied artifact_concurrency to the inner function — a behavioural
-    assertion (07-02 #34) rather than a brittle inspect.getsource substring check, which
+    assertion rather than a brittle inspect.getsource substring check, which
     would keep passing even if the parameter were declared but never forwarded.
     """
     settings = _make_settings(monkeypatch)
@@ -936,18 +936,18 @@ async def test_m20_server_migrate_artifacts_exposes_artifact_concurrency(
 
 
 # ---------------------------------------------------------------------------
-# M-12 — a failed description generation must not write an empty description
+# A failed description generation must not write an empty description
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_m12_failed_generation_skipped_not_written_with_empty_description(
+async def test_failed_generation_skipped_not_written_with_empty_description(
     monkeypatch: pytest.MonkeyPatch,
     s3_client: S3ClientImpl,
     vectors_client: VectorsClientImpl,
     mocker: pytest.MonkeyPatch,
 ) -> None:
-    """M-12: dry_run=False — a descriptor whose Nova Lite generation fails is never
+    """dry_run=False — a descriptor whose Nova Lite generation fails is never
     written with an empty description. It is skipped and reported under
     "generation_failed"; the other, successfully-generated descriptor still writes.
     """
@@ -1005,13 +1005,13 @@ async def test_m12_failed_generation_skipped_not_written_with_empty_description(
 
 
 @pytest.mark.asyncio
-async def test_m12_dry_run_reports_generation_failed_without_empty_description_write(
+async def test_dry_run_reports_generation_failed_without_empty_description_write(
     monkeypatch: pytest.MonkeyPatch,
     s3_client: S3ClientImpl,
     vectors_client: VectorsClientImpl,
     mocker: pytest.MonkeyPatch,
 ) -> None:
-    """M-12: dry_run=True — a failed generation is reported under "generation_failed";
+    """dry_run=True — a failed generation is reported under "generation_failed";
     the enriched descriptor list still contains an entry per input (existing contract),
     but the failure is explicitly surfaced rather than silently left as an empty string.
     """
@@ -1050,13 +1050,13 @@ async def test_m12_dry_run_reports_generation_failed_without_empty_description_w
 
 
 @pytest.mark.asyncio
-async def test_m12_generation_prompt_content_is_bounded(
+async def test_generation_prompt_content_is_bounded(
     monkeypatch: pytest.MonkeyPatch,
     s3_client: S3ClientImpl,
     vectors_client: VectorsClientImpl,
     mocker: pytest.MonkeyPatch,
 ) -> None:
-    """M-12: the artifact content interpolated into the Nova Lite prompt is bounded —
+    """The artifact content interpolated into the Nova Lite prompt is bounded —
     a very large content body is truncated rather than sent to Nova Lite unbounded.
     """
     try:

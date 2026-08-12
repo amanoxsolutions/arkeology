@@ -756,7 +756,7 @@ async def test_read_last_edited_ulid_missing_returns_none(
 
 
 # ---------------------------------------------------------------------------
-# T55 (M-5, Story 4) — non-ASCII title round-trips identically via read_artifact
+# T55 (Story 4) — non-ASCII title round-trips identically via read_artifact
 # ---------------------------------------------------------------------------
 
 
@@ -787,7 +787,7 @@ async def test_non_ascii_title_read_back_identically(
 
 
 # ---------------------------------------------------------------------------
-# M-8 — read_artifact's blocking client calls are offloaded off the event loop
+# read_artifact's blocking client calls are offloaded off the event loop
 # ---------------------------------------------------------------------------
 
 
@@ -873,7 +873,7 @@ async def test_read_vector_calls_run_off_event_loop(
 
 
 # ---------------------------------------------------------------------------
-# M5 — cross-scope reference filtering (ADR-012)
+# Cross-scope reference filtering (ADR-012)
 # ---------------------------------------------------------------------------
 
 

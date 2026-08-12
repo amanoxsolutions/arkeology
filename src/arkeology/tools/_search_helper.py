@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 # (mirrors the order of magnitude of VECTOR_FILTERABLE_METADATA_MAX_BYTES in
 # artifact.py), leaving headroom in the same $and for the user/status/scope filter
 # clauses. Once the $nin exclusion list would grow past this budget, the re-fetch
-# loop (M-6, Phase 12 review) stops issuing further queries and returns whatever has
+# loop stops issuing further queries and returns whatever has
 # already been collected rather than risking a ValidationException from an oversized
 # filter expression.
 _NIN_EXCLUSION_BYTE_BUDGET = 1024
@@ -118,7 +118,7 @@ def build_user_filters(
 
     Raises:
         InvalidFilterValueError: ``type`` is not a recognised artifact type, or
-            ``tier`` is not 2 or 3 (07-02 #5) — a typo'd/out-of-range filter
+            ``tier`` is not 2 or 3 — a typo'd/out-of-range filter
             value must never silently fall through to a filter clause that
             legitimately matches nothing, which is indistinguishable from a
             real zero-result query. Callers translate this to
@@ -158,20 +158,19 @@ async def run_search_loop(
     distinct artifacts until ``effective_top_k`` is reached or the index
     is exhausted. Already-seen artifact IDs are excluded via ``$nin`` filter.
 
-    M-6 (Phase 12 review): the ``$nin`` exclusion list is bounded by
-    ``_NIN_EXCLUSION_BYTE_BUDGET`` — once it would grow past that budget the loop
-    stops gracefully and returns whatever has been collected, rather than risking a
-    filter-size error from S3 Vectors. Similarly, a **non-credential** failure from
-    ``query_vectors`` mid-loop no longer discards already-collected results: it stops
-    the loop and returns the partial result set. Credential-error handling is
-    unchanged — it still returns the structured ``credential_error`` response
-    immediately, even if some results were already collected.
+    The ``$nin`` exclusion list is bounded by ``_NIN_EXCLUSION_BYTE_BUDGET`` — once it
+    would grow past that budget the loop stops gracefully and returns whatever has been
+    collected, rather than risking a filter-size error from S3 Vectors. Similarly, a
+    **non-credential** failure from ``query_vectors`` mid-loop stops the loop and returns
+    the partial result set rather than discarding already-collected results. A credential
+    error is the one exception: it returns the structured ``credential_error`` response
+    immediately, even if some results were already collected, because every subsequent
+    iteration would fail the same way.
 
-    M-8 (Phase 12 review): ``query_vectors`` is a blocking boto3 call, so each
-    iteration routes it through ``asyncio.to_thread`` — this coroutine must be
-    awaited by every caller.
+    ``query_vectors`` is a blocking boto3 call, so each iteration routes it through
+    ``asyncio.to_thread`` — this coroutine must be awaited by every caller.
 
-    07-02 #7: the fetch budget (``search_fetch_top_k × search_max_iterations``)
+    The fetch budget (``search_fetch_top_k × search_max_iterations``)
     can be smaller than the true number of distinct matching artifacts, so the
     loop may stop with fewer than ``effective_top_k`` results collected purely
     because it ran out of iterations or ``$nin`` budget — not because the index
@@ -286,8 +285,8 @@ def find_referrers(
     into a single unified own-scope ``referenced_by`` lookup covering every field in
     :data:`arkeology.artifact.REFERENCE_FIELDS`, reused by both ``delete_artifact`` and
     ``archive_artifact``. Both filterable and non-filterable reference fields are
-    resolved with a **single** ``list_vectors_by_metadata`` query (Phase-12 #27 — this
-    used to be two separate full-index scans): own-scope + active-status, ANDed with a
+    resolved with a **single** ``list_vectors_by_metadata`` query — never two separate
+    full-index scans: own-scope + active-status, ANDed with a
     top-level ``$or`` that combines one server-side ``{field: {"$eq": artifact_id}}``
     clause per filterable field (driven by
     :data:`arkeology.artifact.NON_FILTERABLE_METADATA_KEYS` — never hardcoded per tool)

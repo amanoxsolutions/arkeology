@@ -384,7 +384,7 @@ async def test_no_matching_artifacts_returns_empty_list(
 
 
 # ---------------------------------------------------------------------------
-# Filter enum validation (07-02 #5) — typos must error, not silently return []
+# Filter enum validation — typos must error, not silently return []
 # ---------------------------------------------------------------------------
 
 
@@ -1101,7 +1101,7 @@ async def test_more_than_100_artifacts_all_returned(
 # ---------------------------------------------------------------------------
 
 
-async def test_m17_vector_missing_tier_key_does_not_raise(
+async def test_vector_missing_tier_key_does_not_raise(
     monkeypatch: pytest.MonkeyPatch,
     vectors_client_8: VectorsClientImpl,
 ) -> None:
@@ -1147,7 +1147,7 @@ async def test_m17_vector_missing_tier_key_does_not_raise(
 
 
 # ---------------------------------------------------------------------------
-# M-8 — list_artifacts's blocking client calls are offloaded off the event loop
+# list_artifacts's blocking client calls are offloaded off the event loop
 # ---------------------------------------------------------------------------
 
 
@@ -1190,7 +1190,7 @@ async def test_list_vector_calls_run_off_event_loop(
 
 
 # ---------------------------------------------------------------------------
-# M5 — cross-scope reference filtering (ADR-012)
+# Cross-scope reference filtering (ADR-012)
 # ---------------------------------------------------------------------------
 
 

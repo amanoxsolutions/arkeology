@@ -109,10 +109,10 @@ async def _list_artifacts_inner(
     _ = bedrock
 
     # ── Step 1: Build metadata filter ────────────────────────────────────────
-    # M-11(d): status="all" is an explicit all-inclusive sentinel — omit the status
+    # status="all" is an explicit all-inclusive sentinel — omit the status
     # clause entirely rather than filtering on the literal string "all" (which would
     # never match a stored status and always return zero results). Any other value,
-    # including the "active" default, filters normally — but (07-02 #5) it must be a
+    # including the "active" default, filters normally — but it must be a
     # recognised status value, not a silently-empty-matching typo.
     clauses: list[dict[str, Any]] = []
     if status != "all":
@@ -142,7 +142,7 @@ async def _list_artifacts_inner(
 
     combined_filter: dict[str, Any] = {"$and": clauses} if len(clauses) > 1 else clauses[0]
 
-    # ── Step 2: Query vector index (M-8: off the event loop) ──────────────────
+    # ── Step 2: Query vector index (off the event loop) ───────────────────────
     try:
         keys = await asyncio.to_thread(vectors.list_vectors_by_metadata, combined_filter)
     except CredentialError as exc:
@@ -152,7 +152,7 @@ async def _list_artifacts_inner(
         return {"artifacts": []}
 
     # ── Step 3: Fetch vector metadata (the client chunks to the GetVectors limit;
-    # M-8: off the event loop) ─────────────────────────────────────────────────
+    # off the event loop) ──────────────────────────────────────────────────────
     try:
         items = await asyncio.to_thread(vectors.get_vectors, keys, False)
     except CredentialError as exc:

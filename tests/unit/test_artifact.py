@@ -151,7 +151,7 @@ def test_tier3_learning_id_is_date_independent() -> None:
 
 
 # ---------------------------------------------------------------------------
-# C-3 — deterministic hash suffix disambiguates slug collisions
+# Deterministic hash suffix disambiguates slug collisions
 # ---------------------------------------------------------------------------
 
 
@@ -537,7 +537,7 @@ def test_artifact_tier_3_valid() -> None:
 def test_artifact_tier_bool_invalid() -> None:
     """tier=True (bool, not int) → ValidationError.
 
-    07-02 #3: ``tier`` uses ``Field(strict=True)`` so non-int types are rejected
+    ``tier`` uses ``Field(strict=True)`` so non-int types are rejected
     outright rather than silently coerced. ``bool`` is a subclass of ``int`` in
     Python, so this specifically exercises that pydantic's strict-int mode still
     rejects it (bools are excluded from strict-int coercion).
@@ -550,7 +550,7 @@ def test_artifact_tier_bool_invalid() -> None:
 def test_artifact_tier_float_invalid() -> None:
     """tier=2.0 (float, not int) → ValidationError.
 
-    07-02 #3: ``Field(strict=True)`` on ``tier`` rejects a float even when its
+    ``Field(strict=True)`` on ``tier`` rejects a float even when its
     value would otherwise be a valid tier — the type itself must be int.
     """
     kwargs = {**VALID_ARTIFACT_KWARGS, "tier": 2.0}
@@ -561,7 +561,7 @@ def test_artifact_tier_float_invalid() -> None:
 def test_artifact_tier_numeric_string_invalid() -> None:
     """tier="2" (numeric string, not int) → ValidationError.
 
-    07-02 #3 root cause: pydantic's default lax mode would silently coerce this
+    Root cause: pydantic's default lax mode would silently coerce this
     to the valid int 2, masking a caller's type mistake. ``Field(strict=True)``
     rejects it instead.
     """
@@ -771,7 +771,7 @@ def test_commit_refs_element_with_control_char_rejected() -> None:
 
 
 def test_commit_refs_element_with_comma_rejected() -> None:
-    """M2: a literal comma in a commit_refs element diverges the two link-field
+    """A literal comma in a commit_refs element diverges the two link-field
     stores — the S3 annotation payload comma-joins list elements (encode_link_list),
     so a comma inside an element would decode back into extra elements. Rejected at
     validation time rather than switching the encoding."""
@@ -805,7 +805,7 @@ def test_references_element_with_control_char_rejected() -> None:
 
 
 def test_references_element_with_comma_rejected() -> None:
-    """M2: a literal comma in a references element diverges the two link-field
+    """A literal comma in a references element diverges the two link-field
     stores — mirrors the commit_refs comma rejection."""
     kwargs = {**VALID_ARTIFACT_KWARGS, "references": ["adr-one,adr-two"]}
     with pytest.raises(ValidationError, match="references"):
@@ -866,7 +866,7 @@ def test_encode_metadata_value_leaves_plain_ascii_unchanged() -> None:
 
 
 def test_decode_metadata_value_legacy_literal_percent_sequence_is_an_accepted_ambiguity() -> None:
-    """07-02 #20 / Phase-12 #20: a legacy (pre-T55) value stored raw — before
+    """A legacy (pre-T55) value stored raw — before
     encode_metadata_value existed — can legitimately contain a literal '%' followed by
     hex-like characters (e.g. a title mentioning "%25" as literal text). Naively, this
     looks fixable by having decode_metadata_value skip values that were never encoded.
@@ -889,7 +889,7 @@ def test_decode_metadata_value_legacy_literal_percent_sequence_is_an_accepted_am
 
 
 # ---------------------------------------------------------------------------
-# T55 — check_metadata_budgets (M-5): three byte budgets, representation-driven
+# T55 — check_metadata_budgets: three byte budgets, representation-driven
 # ---------------------------------------------------------------------------
 
 _MINIMAL_S3_METADATA: dict[str, str] = {"title": "ok", "type": "adr"}
@@ -962,7 +962,7 @@ def test_check_metadata_budgets_vector_total_just_under_passes() -> None:
 
 
 def test_check_metadata_budgets_cjk_filterable_field_under_true_byte_budget_passes() -> None:
-    """Phase-12 #19: json.dumps defaults to ensure_ascii=True, which escapes every
+    """json.dumps defaults to ensure_ascii=True, which escapes every
     non-ASCII character to a 6-byte \\uXXXX sequence before UTF-8 encoding — measuring
     the size of the *escaped* JSON representation, not the real UTF-8 byte size of the
     content. A CJK-heavy filterable field (e.g. tags) can be well under the true

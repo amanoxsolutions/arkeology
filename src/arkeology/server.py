@@ -161,8 +161,8 @@ def register_tools(
     ) -> dict[str, Any]:
         """List artifacts by metadata filters without a semantic query.
 
-        status defaults to "active"; pass status="all" (M-11d) to return
-        artifacts regardless of status.
+        status defaults to "active"; pass the explicit sentinel status="all" to
+        return artifacts regardless of status.
         """
         return await _list_artifacts(
             settings=settings,

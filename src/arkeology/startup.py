@@ -8,7 +8,7 @@ Performs seven checks in order before the server enters its MCP event loop:
   5. Embedding model dimension vs. index dimension (from BEDROCK_EMBEDDING_DIMENSIONS)
   6. Embedding model probe (embeds a short string via bedrock.embed and asserts the
      returned vector's dimension matches — catches a wrong/unentitled embedding model
-     that check 5's configuration-only comparison cannot detect; Phase 12 review M-9)
+     that check 5's configuration-only comparison cannot detect)
   7. Text model accessibility (invoke_text_model probe, only when BEDROCK_TEXT_MODEL is set)
 
 All checks use the client interfaces — no direct boto3 calls.
@@ -32,16 +32,16 @@ from arkeology.errors import CredentialError, StartupValidationError, VectorInde
 logger = logging.getLogger(__name__)
 
 # Key suffix for the write probe object. Starts with underscore to distinguish from real artifacts.
-# A ULID is appended per invocation (07-02 #9) so two servers starting concurrently
+# A ULID is appended per invocation so two servers starting concurrently
 # against the same WRITE_PREFIX never race on the same S3 key.
 _PROBE_KEY_SUFFIX = "_arkeology_startup_probe"
 
 # botocore error codes indicating the bucket itself does not exist — distinct from a
-# credential/auth failure (07-02 #11): a typo'd ARTIFACT_BUCKET is a configuration
+# credential/auth failure: a typo'd ARTIFACT_BUCKET is a configuration
 # error, not something "aws sso login" can fix.
 _BUCKET_NOT_FOUND_CODES = frozenset({"404", "NoSuchBucket", "NotFound"})
 
-# Short probe string embedded during check 6 (M-9). Content is irrelevant — only the
+# Short probe string embedded during check 6. Content is irrelevant — only the
 # returned vector's dimension and the absence of a credential/entitlement failure matter.
 _EMBED_PROBE_TEXT = "arkeology startup embedding probe"
 
@@ -141,10 +141,10 @@ def _check_write_prefix(settings: Settings, s3: S3ClientInterface) -> None:
     try:
         s3.get_object(probe_key)
     except CredentialError:
-        # M-7: previously uncaught here — a real GetObject AccessDenied propagated as a
-        # raw ClientError past this function (only KeyError was handled), crashing the
-        # process with an unstructured traceback instead of the structured credential
-        # error __main__.py already knows how to report.
+        # Must be re-raised explicitly: without this branch a real GetObject
+        # AccessDenied would propagate as a raw ClientError past this function (only
+        # KeyError is otherwise handled), crashing the process with an unstructured
+        # traceback instead of the structured credential error __main__.py reports.
         raise
     except KeyError as exc:
         raise StartupValidationError(
@@ -190,7 +190,7 @@ def _check_read_prefixes(settings: Settings, s3: S3ClientInterface) -> None:
                 ),
             ) from exc
 
-        # 07-02 #10: ListBucket succeeding does not prove GetObject is granted — a
+        # ListBucket succeeding does not prove GetObject is granted — a
         # policy can allow listing a prefix while denying reads on its objects, which
         # would only surface later as a read_artifact failure. Probe actual object
         # read access on one listed key (if any exist yet).
@@ -303,8 +303,8 @@ def _check_embedding_probe(settings: Settings, bedrock: BedrockClientInterface) 
 
     Check 5 only compares two *configured* numbers (``BEDROCK_EMBEDDING_DIMENSIONS`` vs.
     the index dimension) — it never calls Bedrock, so a wrong or unentitled embedding
-    model still passes it, and every subsequent write/search then fails (Phase 12 review
-    M-9). This check makes one real ``bedrock.embed`` call and asserts the returned
+    model still passes it, and every subsequent write/search then fails. This check
+    makes one real ``bedrock.embed`` call and asserts the returned
     vector's length matches ``BEDROCK_EMBEDDING_DIMENSIONS`` (already confirmed equal to
     the index dimension by check 5).
     """

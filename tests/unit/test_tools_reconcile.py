@@ -668,7 +668,7 @@ async def test_failure_log_replay_and_orphan_scan_both_restore(
 
 
 # ---------------------------------------------------------------------------
-# C5(a) / M6 (Phase 12 review) — union-of-both-stores authority model
+# Union-of-both-stores authority model
 # ---------------------------------------------------------------------------
 
 
@@ -677,7 +677,7 @@ async def test_reindex_from_failure_log_preserves_vector_only_link_fields(
     s3_reconcile: S3ClientImpl,
     vectors_reconcile: VectorsClientImpl,
 ) -> None:
-    """C5(a) RED: an artifact whose commit_refs/references live ONLY in vector metadata
+    """RED: an artifact whose commit_refs/references live ONLY in vector metadata
     (e.g. a T52 annotation-unavailable deployment, where the annotation write degraded
     but the vector write still carried the fields) must survive a reconcile re-index
     with those fields intact. Re-index is forced here via a failure-log entry so
@@ -727,7 +727,7 @@ async def test_reindex_credential_error_from_annotation_read_propagates(
     vectors_reconcile: VectorsClientImpl,
     mocker: MockerFixture,
 ) -> None:
-    """M6 RED: a CredentialError raised while reading link annotations during reconcile
+    """RED: a CredentialError raised while reading link annotations during reconcile
     must propagate as a structured credential_error and abort the run — not be silently
     swallowed by a bare ``except Exception``, which would otherwise re-index every
     remaining artifact without its commit_refs/references and report success."""
@@ -1365,7 +1365,7 @@ async def test_phase3_race_written_after_vector_listing_not_pruned(
     vectors_reconcile: VectorsClientImpl,
     mocker: MockerFixture,
 ) -> None:
-    """M-2 RED proof: an artifact whose S3 object exists at prune time, but was excluded
+    """RED proof: an artifact whose S3 object exists at prune time, but was excluded
     from the S3 listing snapshot Phase 2/3 took (simulating a write that completed
     between the S3 listing and the vector listing), must NOT have its vectors pruned.
     A re-``head_object`` check immediately before deletion must confirm the object is
@@ -1558,7 +1558,7 @@ async def test_response_schema_includes_new_fields(
 # ---------------------------------------------------------------------------
 
 
-async def test_m15_phase1_failure_not_duplicated_as_phase2_orphan(
+async def test_phase1_failure_not_duplicated_as_phase2_orphan(
     reconcile_settings: Settings,
     s3_reconcile: S3ClientImpl,
     vectors_reconcile: VectorsClientImpl,
@@ -1609,7 +1609,7 @@ async def test_m15_phase1_failure_not_duplicated_as_phase2_orphan(
 
 
 # ---------------------------------------------------------------------------
-# T55 (M-5, Story 4) — reconcile rebuild preserves non-ASCII titles losslessly
+# T55 (Story 4) — reconcile rebuild preserves non-ASCII titles losslessly
 # ---------------------------------------------------------------------------
 
 
@@ -1648,7 +1648,7 @@ async def test_reindex_preserves_non_ascii_title(
 
 
 # ---------------------------------------------------------------------------
-# M-8 — reconcile_index's blocking client calls are offloaded off the event loop
+# reconcile_index's blocking client calls are offloaded off the event loop
 # ---------------------------------------------------------------------------
 
 

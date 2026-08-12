@@ -89,7 +89,7 @@ def test_register_data_resources_artifact_template_uri_present(
 
     # Assert — the template uses the {id*} RFC 6570 wildcard-path parameter (not plain
     # {id}) so that a full S3 key artifact_id (which contains '/') is matched in full
-    # rather than truncated at the first path segment (review finding C1).
+    # rather than truncated at the first path segment.
     templates = asyncio.run(app._list_resource_templates())  # type: ignore[attr-defined]
     template_uris = {str(t.uri_template) for t in templates}
     assert "arkeology://artifact/{id*}" in template_uris, (
@@ -420,7 +420,7 @@ async def test_artifacts_resource_empty_scope_returns_markdown(
 
 # ---------------------------------------------------------------------------
 # Test 10 — embedded newline in a cell value must not corrupt the markdown table
-# (07-02 #31): _render_artifacts_markdown escapes '|' but not '\n', so a
+# _render_artifacts_markdown escapes '|' but not '\n', so a
 # description/title containing a literal newline splits what should be one table
 # row into multiple lines, corrupting every subsequent row's column alignment.
 # ---------------------------------------------------------------------------
@@ -462,7 +462,7 @@ def test_render_artifacts_markdown_escapes_embedded_newline_in_cell() -> None:
 
 
 # ---------------------------------------------------------------------------
-# C1 — full S3 key is the operative artifact_id (review finding C1)
+# The full S3 key is the operative artifact_id
 # ---------------------------------------------------------------------------
 #
 # The bug: build_path_to_id_map emitted the BARE generate_artifact_id output, but
@@ -485,10 +485,10 @@ async def test_build_path_to_id_map_matches_live_write_artifact_full_key(
     vectors_client: VectorsClientImpl,
     bedrock_1024: FakeBedrockClient,
 ) -> None:
-    """Red-first (C1, TDD 1a): build_path_to_id_map's full-key output for a manifest
+    """Red-first (TDD 1a): build_path_to_id_map's full-key output for a manifest
     entry equals EXACTLY the artifact_id write_artifact returns for the same
     type/tier/title/date — the map must never diverge from the live write-path key
-    composition (write.py:342, write.py:367)."""
+    composition in ``write_artifact``."""
     # Arrange — write an artifact via the real write path
     write_kwargs = {
         "type": "adr",
@@ -536,7 +536,7 @@ async def test_arkeology_artifact_template_resolves_full_key_own_scope(
     vectors_client: VectorsClientImpl,
     bedrock_1024: FakeBedrockClient,
 ) -> None:
-    """C1 (TDD 1c): arkeology://artifact/{full-key} resolves end-to-end through the ACTUAL
+    """TDD 1c: arkeology://artifact/{full-key} resolves end-to-end through the ACTUAL
     registered FastMCP resource template (not just the inner content function) for an
     own-scope artifact. The full key contains '/' from write_prefix — proving the
     {id*} wildcard-path template parameter (not plain {id}) is what is registered."""
@@ -572,7 +572,7 @@ async def test_arkeology_artifact_template_gates_full_key_foreign_scope_tier2(
     vectors_client_8: VectorsClientImpl,
     bedrock_8: FakeBedrockClient,
 ) -> None:
-    """C1 (TDD 1c): a foreign-scope tier-2 full key is still correctly GATED (access
+    """TDD 1c: a foreign-scope tier-2 full key is still correctly GATED (access
     denied) when resolved through the ACTUAL registered {id*} template — the wildcard
     fix that lets full keys match must not also bypass the cross-scope gate."""
     import boto3

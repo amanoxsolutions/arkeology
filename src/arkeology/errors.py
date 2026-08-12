@@ -173,7 +173,7 @@ class InvalidFilterValueError(ArkeologyError):
     value (e.g. ``type="cod_review"``, ``tier=99``, ``status="actve"``) must
     surface as an explicit ``validation_error`` rather than silently returning
     an empty result set that looks identical to a query that legitimately
-    matched nothing (07-02 #5).
+    matched nothing.
 
     Attributes:
         field: The filter field name (e.g. ``"type"``, ``"tier"``, ``"status"``).
@@ -226,7 +226,7 @@ class DuplicateManifestPathError(ArkeologyError):
     """Raised when a migration manifest contains two entries whose paths normalize to
     the same key. Silently letting the second entry overwrite the first (last-write-
     wins) would discard one manifest entry's mapping with zero signal to the caller
-    (Phase-12 #23) — a collision must be surfaced instead of swallowed.
+    — a collision must be surfaced instead of swallowed.
 
     Attributes:
         path: The normalized path shared by both colliding manifest entries.

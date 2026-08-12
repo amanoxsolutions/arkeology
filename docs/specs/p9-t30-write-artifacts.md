@@ -322,7 +322,7 @@ All open questions resolved during implementation:
 >    `description: ""`, which passed validation and wrote a degraded, near-unsearchable
 >    artifact. A failed-generation descriptor is now **skipped, never written** — its result
 >    entry is `{"written": False, "skipped": True, "reason": "description_generation_failed",
->    "message": ...}` (mirroring the A-1 `skipped_existing` shape), and a top-level
+>    "message": ...}` (mirroring the `skipped_existing` shape), and a top-level
 >    `"generation_failed"` list (`index`, `title`, `message`) is included in the response in
 >    both `dry_run` modes.
 > 2. The generation prompt interpolated the full, untruncated artifact content. It is now
