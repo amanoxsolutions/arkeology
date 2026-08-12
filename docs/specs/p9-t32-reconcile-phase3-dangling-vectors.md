@@ -44,7 +44,7 @@ always runs automatically — consistent with how Scenarios 1 and 2 operate.
 
 ## Problem Statement
 
-Dangling vectors arise when an S3 object is deleted outside cairn-mcp (manual deletion,
+Dangling vectors arise when an S3 object is deleted outside Arkeology (manual deletion,
 lifecycle rule, bucket migration) while its vector index entries remain. The server's
 vectors-first deletion order prevents this from occurring in normal server operation, but
 external S3 changes are not controlled by the server. Dangling vectors are not inert: the
@@ -160,13 +160,13 @@ Scenario 3 never prunes vector entries belonging to foreign scopes.
 | File | Action | Notes |
 |------|--------|-------|
 | `tests/unit/test_tools_reconcile.py` | Modify | Add Phase 3 unit tests — written first (Red) |
-| `src/cairn_mcp/tools/reconcile.py` | Modify | Add Phase 3 logic after existing Phase 2 orphan scan; unify `vectors_by_artifact` grouping |
+| `src/arkeology/tools/reconcile.py` | Modify | Add Phase 3 logic after existing Phase 2 orphan scan; unify `vectors_by_artifact` grouping |
 | `tests/integration/test_tools_reconcile.py` | Modify | Add Phase 3 integration test — written first (Red for integration) |
 
 ## Testing Approach
 
 **TDD cycle — unit tests first:**
-- `tests/unit/test_tools_reconcile.py` (Red) → `src/cairn_mcp/tools/reconcile.py` (Green)
+- `tests/unit/test_tools_reconcile.py` (Red) → `src/arkeology/tools/reconcile.py` (Green)
 
 **New unit tests for Phase 3:**
 - `test_phase3_dangling_vector_pruned` — fake has one vector entry for `own-scope/artifact-a`

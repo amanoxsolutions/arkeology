@@ -1,7 +1,7 @@
 ---
 type: spec
 title: T20 — Migration Skill
-description: Provides a structured one-time workflow skill for bulk-migrating existing project documentation into cairn-mcp, supporting both agent-only (< 30 files) and manifest-plus-script (≥ 30 files) execution paths.
+description: Provides a structured one-time workflow skill for bulk-migrating existing project documentation into Arkeology, supporting both agent-only (< 30 files) and manifest-plus-script (≥ 30 files) execution paths.
 tags: []
 timestamp: 2026-05-31T00:00:00Z
 okf_version: "0.1"
@@ -29,7 +29,7 @@ revised:
 
 > **⚠️ SUPERSEDED — historical record only.** This spec established the original migration
 > skill, but every concrete mechanic below has since been replaced. Do not implement from this
-> spec; the live behaviour is the current `skills/migrating-to-cairn/SKILL.md`. What changed:
+> spec; the live behaviour is the current `skills/migrating-to-arkeology/SKILL.md`. What changed:
 > - **Classification** (docs-root discovery + single-level directory table) → reworked by
 >   **p7-t25b** (extended type vocabulary + flexible docs root) and then **p7-t25c**
 >   (two-pass filename + path-segment classification).
@@ -38,24 +38,24 @@ revised:
 >   skill-level threshold; the agent calls `write_artifacts` / `migrate_artifacts`).
 > - **`migrate.py` script + `schema.yaml`** → the `scripts/` directory was **deleted in
 >   p9-t30**; all Bedrock/description-generation and write logic now lives in the server's
->   `migrate_artifacts` / `write_artifacts` tools. `CAIRN_IMPORT.yaml` remains as the
+>   `migrate_artifacts` / `write_artifacts` tools. `ARKEOLOGY_IMPORT.yaml` remains as the
 >   agent-authored manifest / progress tracker.
-> - **Exclusion handling** → the `cairn-mcp:config` gate (`local_only_paths` /
->   `local_only_types`, ADR strategy) was added by **p9-t31b** (+ setting-up-cairn, p9-t31a).
+> - **Exclusion handling** → the `arkeology:config` gate (`local_only_paths` /
+>   `local_only_types`, ADR strategy) was added by **p9-t31b** (+ setting-up-arkeology, p9-t31a).
 >
 > The original spec text is retained verbatim below for provenance.
 
 ## Problem Statement
 
-Every team adopting cairn-mcp on an existing project starts with months or years of
+Every team adopting Arkeology on an existing project starts with months or years of
 accumulated documentation in their repo — ADRs, specs, session notes, implementation
 records. Without a migration path, they either start from zero (losing all prior knowledge
 as searchable context) or migrate files one by one with no structure. The migration skill
-provides a one-time, structured workflow bundled with the cairn-mcp repository. It covers
+provides a one-time, structured workflow bundled with the Arkeology repository. It covers
 discovery, classification, metadata enrichment (descriptions, git dates), and two execution
 paths: agent-only for small projects (< 30 files) and manifest-plus-script for large ones.
 A bundled `migrate.py` script handles bulk operations using the same AWS env vars as the
-server without importing the `cairn_mcp` package. Following the agentskills.io standard,
+server without importing the `arkeology` package. Following the agentskills.io standard,
 the skill is usable by any MCP-compatible agentic IDE without framework lock-in.
 
 ## User Stories
@@ -69,17 +69,17 @@ from `git log`, and calls `write_artifact` for each — with no extra tooling re
 
 **Acceptance criteria:**
 - Given the agent follows the SKILL.md agent-only workflow, then all identified artifacts
-  are written to cairn-mcp and immediately searchable.
+  are written to Arkeology and immediately searchable.
 - The SKILL.md workflow covers discovery, classification, description generation, and
   post-migration AGENTS.md update without gaps.
 
 ### Story 2 — Operator migrates a large project (≥ 30 files) using manifest + script (P1)
 
 An operator on a project with 50 documentation files uses the agent to produce a
-`CAIRN_IMPORT.yaml` manifest, reviews it, then runs `migrate.py` to execute bulk writes.
+`ARKEOLOGY_IMPORT.yaml` manifest, reviews it, then runs `migrate.py` to execute bulk writes.
 
 **Acceptance criteria:**
-- Given a valid `CAIRN_IMPORT.yaml`, when `uv run skills/migration/scripts/migrate.py` is
+- Given a valid `ARKEOLOGY_IMPORT.yaml`, when `uv run skills/migration/scripts/migrate.py` is
   run, then all listed artifacts are written and immediately searchable.
 - Re-running the same manifest produces no duplicate artifacts and no errors.
 - When a file has no git history (squashed repo, transferred history), the date fallback
@@ -89,7 +89,7 @@ An operator on a project with 50 documentation files uses the agent to produce a
 ### Story 3 — Operator previews migration before committing writes (P1)
 
 **Acceptance criteria:**
-- Given a valid `CAIRN_IMPORT.yaml`, when `--dry-run` is passed to `migrate.py`, then
+- Given a valid `ARKEOLOGY_IMPORT.yaml`, when `--dry-run` is passed to `migrate.py`, then
   structured JSON is output to stdout listing every artifact that would be imported —
   resolved `artifact_id`, resolved date, generated description, section count — with no
   writes to S3 or S3 Vectors.
@@ -98,7 +98,7 @@ An operator on a project with 50 documentation files uses the agent to produce a
 
 **Acceptance criteria:**
 - Given a completed migration, when the SKILL.md post-migration step is followed, then
-  the operator's project `AGENTS.md` has the cairn-mcp usage snippet appended (the same
+  the operator's project `AGENTS.md` has the Arkeology usage snippet appended (the same
   snippet from T19).
 - The SKILL.md explicitly identifies which tier 2 files may be removed from the repo and
   instructs the operator on when it is safe to do so.
@@ -115,14 +115,14 @@ An operator on a project with 50 documentation files uses the agent to produce a
 - THE SKILL SHALL ship as three files: `skills/migration/SKILL.md`,
   `skills/migration/scripts/migrate.py`, and `skills/migration/schema.yaml`.
 - THE `SKILL.md` SHALL cover a complete, sequential workflow: (1) pre-migration
-  check (cairn-mcp configured and reachable via `health_check`), (2) discovery (directory
+  check (Arkeology configured and reachable via `health_check`), (2) discovery (directory
   allowlist + exclusion list), (3) classification table (directory-to-type-and-tier
   mapping), (4) metadata enrichment strategy, (5) two-path decision gate (< 30 files →
   agent-only; ≥ 30 files → manifest + script), (6) post-migration file removal guidance,
   (7) `AGENTS.md` update step (append the T19 snippet).
 - THE `migrate.py` script SHALL use PEP 723 inline dependency declarations (boto3, pyyaml)
   and be run with `uv run skills/migration/scripts/migrate.py`; it SHALL NOT import from
-  the `cairn_mcp` package.
+  the `arkeology` package.
 - THE `migrate.py` script SHALL implement the same write path as `write_artifact`: parse
   `##` sections from content, embed each section via Bedrock (fallback to single
   document-level embed if no sections), put the S3 object with metadata, put a section
@@ -145,7 +145,7 @@ An operator on a project with 50 documentation files uses the agent to produce a
   warnings, and diagnostics go to stderr.
 - THE `migrate.py` script SHALL be idempotent: re-running the same manifest produces the
   same `artifact_id` values, which overwrite silently via the server's upsert semantics.
-- THE `schema.yaml` SHALL document the `CAIRN_IMPORT.yaml` manifest format: global fields
+- THE `schema.yaml` SHALL document the `ARKEOLOGY_IMPORT.yaml` manifest format: global fields
   (`team`, `project`, `aws_region`, `bedrock_model`, `bedrock_dimensions`) and per-entry
   fields (`path`, `type`, `tier`, `visibility`, `title`, `description` [optional],
   `date` [optional], `tags` [optional]).
@@ -156,15 +156,15 @@ An operator on a project with 50 documentation files uses the agent to produce a
 ## Boundaries
 
 **Always:**
-- `migrate.py` calls AWS APIs directly via boto3 — it does not import from `cairn_mcp`
+- `migrate.py` calls AWS APIs directly via boto3 — it does not import from `arkeology`
   to avoid creating a source dependency from the skill bundle into the server package.
 - `migrate.py` uses the same env vars as the server (`ARTIFACT_BUCKET`, `VECTORS_BUCKET`,
   `VECTORS_INDEX`, `AWS_REGION`, `BEDROCK_EMBEDDING_MODEL`, `BEDROCK_EMBEDDING_DIMENSIONS`)
   so no additional configuration is needed.
 - The migration skill is a one-time operational resource — it is NOT added to
-  `cairn-mcp/AGENTS.md` (which would inject migration guidance into every session).
+  `arkeology/AGENTS.md` (which would inject migration guidance into every session).
 - `migrate.py` does not delete, move, or modify any files in the operator's repo — it
-  only writes to cairn-mcp.
+  only writes to Arkeology.
 - All CLI inputs to `migrate.py` are via flags; no interactive prompts.
 - `migrate.py --help` documents all flags and usage examples.
 
@@ -172,10 +172,10 @@ An operator on a project with 50 documentation files uses the agent to produce a
 - Nothing — all constraints are defined.
 
 **Never:**
-- Do not import from `cairn_mcp` in `migrate.py`.
+- Do not import from `arkeology` in `migrate.py`.
 - Do not write anything to stdout from `migrate.py` except the structured JSON result.
 - Do not make `migrate.py` interactive — all inputs must be CLI flags.
-- Do not add the migration skill to `cairn-mcp/AGENTS.md`.
+- Do not add the migration skill to `arkeology/AGENTS.md`.
 - Do not delete files from the operator's repository.
 
 <!-- IMPLEMENTATION BLOCK — agent-owned -->
@@ -186,16 +186,16 @@ An operator on a project with 50 documentation files uses the agent to produce a
 |------|--------|-------|
 | `skills/migration/SKILL.md` | Create | Structured workflow document (agentskills.io format) |
 | `skills/migration/scripts/migrate.py` | Create | PEP 723 script — boto3 inline dep, `--dry-run`, `--help` |
-| `skills/migration/schema.yaml` | Create | CAIRN_IMPORT.yaml manifest format documentation |
+| `skills/migration/schema.yaml` | Create | ARKEOLOGY_IMPORT.yaml manifest format documentation |
 | `README.md` | Modify | Add "Using the Migration Skill" section with IDE skills table and `cp -r` one-liner |
 
 ## Testing Approach
 
-`migrate.py` is a standalone script outside the `cairn_mcp` package; standard unit tests
+`migrate.py` is a standalone script outside the `arkeology` package; standard unit tests
 do not apply. Verification is integration-level and manual:
 
 **Script verification (requires real AWS in `.env`):**
-1. Author a minimal `CAIRN_IMPORT.yaml` with 2–3 real markdown files from this repo's
+1. Author a minimal `ARKEOLOGY_IMPORT.yaml` with 2–3 real markdown files from this repo's
    `docs/` directory.
 2. Run `uv run skills/migration/scripts/migrate.py --dry-run --manifest test.yaml` →
    verify JSON output contains `artifact_id`, `title`, `type`, `tier`, `date`,
@@ -213,7 +213,7 @@ do not apply. Verification is integration-level and manual:
   `AGENTS.md` update step appends the correct snippet without error.
 
 **`schema.yaml` verification (human review):**
-- Review against CAIRN_IMPORT.yaml fields used in step 2–3 above to confirm all fields
+- Review against ARKEOLOGY_IMPORT.yaml fields used in step 2–3 above to confirm all fields
   are documented.
 
 ## Open Questions

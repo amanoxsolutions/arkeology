@@ -84,7 +84,7 @@ content rules (ADR-012 D8).
   and SHALL NOT rewrite stored content.
 - WHEN the operator declines or skips THE SYSTEM SHALL leave every artifact unchanged.
 - WHEN the skill is distributed THE SYSTEM SHALL wire it through the existing plugin channels
-  (OpenCode auto-discovery via `skills/`; Claude Code symlink under `plugins/cairn-mcp/skills/`;
+  (OpenCode auto-discovery via `skills/`; Claude Code symlink under `plugins/arkeology/skills/`;
   Copilot via `gh skill install` on the next `install.sh` run), consistent with the other skills.
 
 ## Boundaries
@@ -111,7 +111,7 @@ content rules (ADR-012 D8).
 | File | Action | Notes |
 |------|--------|-------|
 | `skills/backfilling-references/SKILL.md` | Create | The skill: discovery scan → dry-run batch report → confirm → apply via `link_metadata` |
-| `plugins/cairn-mcp/skills/backfilling-references` | Create | Symlink → `../../../skills/backfilling-references` (Claude Code plugin distribution, mirroring existing skills) |
+| `plugins/arkeology/skills/backfilling-references` | Create | Symlink → `../../../skills/backfilling-references` (Claude Code plugin distribution, mirroring existing skills) |
 | `.claude-plugin` / `install.sh` | Verify | No change expected — existing `skills/*/` loops already cover the new skill; confirm it is picked up |
 | `README.md` | Modify | Add the skill to the skills table / brief mention (optional cleanup step) |
 

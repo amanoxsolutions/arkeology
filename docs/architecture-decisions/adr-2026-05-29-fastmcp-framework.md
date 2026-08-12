@@ -19,7 +19,7 @@ revised:
 
 ## Description
 
-cairn-mcp needs a Python library to host the Model Context Protocol server. This decision
+Arkeology needs a Python library to host the Model Context Protocol server. This decision
 records the choice of `fastmcp` as the MCP server framework and the rationale behind it.
 
 ## Status

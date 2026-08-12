@@ -1,4 +1,4 @@
-"""Integration tests for cairn_mcp.tools.health.
+"""Integration tests for arkeology.tools.health.
 
 Requires real AWS credentials and configured .env file.
 All tests decorated with @pytest.mark.integration.
@@ -6,11 +6,11 @@ All tests decorated with @pytest.mark.integration.
 
 import pytest
 
-from cairn_mcp.clients.bedrock import BedrockClientImpl
-from cairn_mcp.clients.s3 import S3ClientImpl
-from cairn_mcp.clients.vectors import VectorsClientImpl
-from cairn_mcp.config import Settings
-from cairn_mcp.tools.health import health_check
+from arkeology.clients.bedrock import BedrockClientImpl
+from arkeology.clients.s3 import S3ClientImpl
+from arkeology.clients.vectors import VectorsClientImpl
+from arkeology.config import Settings
+from arkeology.tools.health import health_check
 
 
 @pytest.fixture(scope="session")

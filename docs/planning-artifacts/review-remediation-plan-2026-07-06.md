@@ -75,7 +75,7 @@ intentionally requires 3.14+. No change to make.
 > - **M4 → `references` = plain REPLACE mirroring the frontmatter; `commit_refs` stays UNION/accretive.**
 >   `references` is set to exactly the (resolved) frontmatter list on every write — additions, removals, and swaps
 >   all mirrored; **a write supplying no references CLEARS the field** (operator-confirmed intended). Body-text
->   references not in frontmatter are ignored (not cairn's job). No separate removal primitive needed (removal =
+>   references not in frontmatter are ignored (not Arkeology's job). No separate removal primitive needed (removal =
 >   edit frontmatter + rewrite). `commit_refs` is a git audit trail, not in the frontmatter, backfilled by
 >   `link_metadata` — it must be read-forward/preserved on overwrite. This makes the two fields **asymmetric**,
 >   reversing the **D12 "one uniform mechanism"** decision (recorded in **ADR-011 decision 1**, with a
@@ -160,8 +160,8 @@ write_artifacts.py per-descriptor error sanitisation).
 | 07-02 **#20** (`filter.py`) | `filter` shadows builtin | ✅ done (`05321c4`) — renamed to `filter_expr` throughout (`matches_filter`, `vectors.py`, `conftest.py`'s moto extension) |
 | 07-02 **#21** (`filter.py`) | unsupported op raises mid-pagination | ✅ done (`05321c4`) — raises typed `FilterEvaluationError` instead of bare `ValueError` |
 | 07-02 **#22** (`filter.py`) | mixed-type comparison `TypeError` | ✅ done (`05321c4`) — `$gte`/`$lte` comparisons now catch mixed-type `TypeError` and re-raise `FilterEvaluationError` |
-| 07-02 **#31** (`resources.py`) | newline in description corrupts `cairn://artifacts` table | ✅ done (`05321c4`) — cell values collapse `\n`/`\r`/`\r\n` alongside the existing `|` escaping |
-| 07-02 **#32** (`resources.py`) | typo "cairn studio— visual" | ✅ done (`05321c4`) |
+| 07-02 **#31** (`resources.py`) | newline in description corrupts `arkeology://artifacts` table | ✅ done (`05321c4`) — cell values collapse `\n`/`\r`/`\r\n` alongside the existing `|` escaping |
+| 07-02 **#32** (`resources.py`) | typo "Arkeology studio— visual" | ✅ done (`05321c4`) |
 | 07-02 **#37** | raw boto messages — bucket/index names — leak to MCP callers | ✅ done (`05321c4`) — sanitised at both the top-level and per-descriptor `write_artifacts` handlers (the latter added during review follow-up) |
 | Phase-12 **#15** | `decode_link_list` keeps interior empty segments | ✅ done (`05321c4`) — filters out empty segments after `.split(",")` |
 | Phase-12 **#16** | non-UTF-8 annotation → unclassified `UnicodeDecodeError` | ✅ done (`05321c4`) — new typed `NonUtf8PayloadError` raised at both S3 decode sites |
@@ -172,7 +172,7 @@ write_artifacts.py per-descriptor error sanitisation).
 | Phase-12 **#27** | `find_referrers` = 2 full-index scans per delete/archive — merge to one; ties to Phase-12 #17 | ✅ done (`05321c4`) — merged into one `list_vectors_by_metadata` call via a combined `$or`, in-process branch per candidate's `type`; return-value equivalence independently verified algebraically and empirically |
 | Phase-12 **#12** (informational) | `SEARCH_FETCH_TOP_K le=100` — the real QueryVectors topK cap is 10 000 (confirmed by `test_top_k_over_documented_cap_is_rejected`); just annotate the bound's provenance | ✅ done (`05321c4`) — field docstring now states the 100 ceiling is an application-level choice, not an AWS limit |
 
-### FC-4 — Studio UI hardening  *(developer; part enhancement — `static/cairn-studio.html`)*
+### FC-4 — Studio UI hardening  *(developer; part enhancement — `static/arkeology-studio.html`)*
 
 **Status: ⬜ todo** — 0/8 findings fixed.
 
@@ -222,8 +222,8 @@ commits (`7a697dd`, `63e5665`, `2aa1633`), which deliberately left `CHANGELOG.md
 | Phase-12 **#14** | FR-51–58 what-not-how violations + FR-54 duplicates ADR-011 §1 → dual-maintenance | ⬜ todo |
 | Phase-12 **#22** | skills reimplement `generate_artifact_id` twice with no drift test — add a drift test or single-source it | ⬜ todo |
 | Phase-12 **#8** | style residue ("D4" shorthand vs "decision 5") | ⬜ todo |
-| **M8** | straddles code+doc: the `setting-up-cairn` aws-cli probe path has no always-run cleanup, and the probe key isn't excluded by `reconcile.py`'s orphan scan (only `_cairn_health_probe`/`_cairn_mcp_startup_probe` are). Fix = reserved non-artifact prefix + reconcile exclusion (code) + always-run cleanup instruction (skill) | ⬜ todo |
-| **#13** (concept) | mixed addressing (D3) has no documented consumer — `cairn://` links render dead in the studio app; specify read-surface treatment (or make the studio resolve `cairn://` — overlaps FC-4) | ⬜ todo |
+| **M8** | straddles code+doc: the `setting-up-arkeology` aws-cli probe path has no always-run cleanup, and the probe key isn't excluded by `reconcile.py`'s orphan scan (only `_arkeology_health_probe`/`_arkeology_startup_probe` are). Fix = reserved non-artifact prefix + reconcile exclusion (code) + always-run cleanup instruction (skill) | ⬜ todo |
+| **#13** (concept) | mixed addressing (D3) has no documented consumer — `arkeology://` links render dead in the studio app; specify read-surface treatment (or make the studio resolve `arkeology://` — overlaps FC-4) | ⬜ todo |
 
 ## Suggested order when resumed
 

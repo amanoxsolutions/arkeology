@@ -1,7 +1,7 @@
 ---
 type: adr
 title: Tier-Based Cross-Scope Access Control Model
-description: Records the model that controls which artifacts from foreign scopes are readable by a given cairn-mcp deployment, governed by tier and visibility attributes and enforced server-side.
+description: Records the model that controls which artifacts from foreign scopes are readable by a given Arkeology deployment, governed by tier and visibility attributes and enforced server-side.
 tags: []
 timestamp: 2026-05-29T00:00:00Z
 okf_version: "0.1"
@@ -19,7 +19,7 @@ revised:
 
 ## Description
 
-cairn-mcp is designed to be deployed once per team or project, with each deployment writing
+Arkeology is designed to be deployed once per team or project, with each deployment writing
 to its own S3 prefix. This decision records the model that controls which artifacts from
 foreign scopes are readable by a given deployment, and how that model is enforced.
 

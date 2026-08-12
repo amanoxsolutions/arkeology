@@ -24,7 +24,7 @@ revised:
 
 ## Description
 
-Artifacts written to cairn-mcp — code reviews, implementation notes, ADRs, session summaries —
+Artifacts written to Arkeology — code reviews, implementation notes, ADRs, session summaries —
 describe work tied to a specific git commit, but the commit SHA does not exist yet when the agent
 writes them. This ADR records the three coupled design decisions that close that traceability gap:
 using ULID as the write-time timestamp to enable session-scoped discovery, storing commit
@@ -72,12 +72,12 @@ Associating artifacts with their commits after the fact requires:
    - **Path 2** — Agent-driven via AGENTS.md post-commit protocol: the installation skill writes
      a post-commit section to the project AGENTS.md. Because AGENTS.md is loaded at session start
      in all supported tools, the protocol is in context without any tool-specific configuration.
-   - **Path 3** — Git `post-commit` hook + `cairn link-commit` CLI: universal (any git workflow,
+   - **Path 3** — Git `post-commit` hook + `arkeology link-commit` CLI: universal (any git workflow,
      any IDE), fires even without an active agent session. The critical prerequisite is a
      tool-agnostic config source for AWS credentials — MCP server environment variables are stored
      in different locations across tools (Claude Code `settings.json`, OpenCode `opencode.json`,
      Copilot `.mcp.json`), so a git hook cannot source any of them reliably without a separate
-     `.cairn/config.sh` written by the installation skill. Git hooks are also non-interactive —
+     `.arkeology/config.sh` written by the installation skill. Git hooks are also non-interactive —
      confirmation before linking is not possible; the options are auto-link or a deferred-review
      pending file, neither of which is ready without the installation skill milestone.
 
@@ -111,8 +111,8 @@ object metadata in `link_commit` via `copy_object`, so that `reconcile_index` pi
 
 **Agent-driven AGENTS.md post-commit protocol (Path 2) as the V1 trigger.** Path 2 was chosen
 because AGENTS.md is always loaded at session start in all four supported MCP clients, and the
-post-commit protocol is project-specific — cairn-mcp must be configured for this project for the
-protocol to make sense. A separately loadable cairn skill would be invisible to agents that load
+post-commit protocol is project-specific — Arkeology must be configured for this project for the
+protocol to make sense. A separately loadable Arkeology skill would be invisible to agents that load
 only `committing-code`; AGENTS.md is the correct carrier for project-specific standing
 instructions. The protocol is: at session start, capture a session ULID (`python-ulid`); after
 each commit, call `propose_commit_links(commit_sha=<sha>, since_ulid=<since_ulid>)` to get
@@ -146,7 +146,7 @@ decision.
 |--------|------|------|
 | **Chosen** — Agent-driven AGENTS.md protocol (Path 2) | Tool-agnostic; no additional config; always in context via AGENTS.md; works today across all four supported clients | Requires an active agent session; relies on operator discipline to follow the protocol; CI pipelines without an active agent session must supply `commit_refs` at write time |
 | Claude Code `PostToolUse` MCP hook (Path 1) | Fires automatically after `git commit` within the session; no operator discipline required; calls MCP tools directly in the existing session | Claude Code-specific; requires installation skill to write hook config; deferred to installation skill milestone |
-| Git `post-commit` hook + CLI (Path 3) | Universal — fires even without an active agent session; not tool-specific | Requires `.cairn/config.sh` for a tool-agnostic credential source (no universal MCP config location across tools); non-interactive — confirmation before linking not possible; deferred to installation skill milestone |
+| Git `post-commit` hook + CLI (Path 3) | Universal — fires even without an active agent session; not tool-specific | Requires `.arkeology/config.sh` for a tool-agnostic credential source (no universal MCP config location across tools); non-interactive — confirmation before linking not possible; deferred to installation skill milestone |
 
 ## Consequences
 
@@ -177,5 +177,5 @@ decision.
 
 - **Path 1 and Path 3 automation deferred.** Neither automated trigger path is blocked by any V1
   design decision. Path 1 (Claude Code hook) is unblocked once the installation skill is updated
-  to write the hook configuration. Path 3 (git hook + CLI) requires a `.cairn/config.sh` written
+  to write the hook configuration. Path 3 (git hook + CLI) requires a `.arkeology/config.sh` written
   by the installation skill as a tool-agnostic config source.

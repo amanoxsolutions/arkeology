@@ -1,6 +1,6 @@
-# cairn-mcp — Server Reference
+# Arkeology — Server Reference
 
-Tool reference, configuration, IAM policy, and headless server setup for cairn-mcp
+Tool reference, configuration, IAM policy, and headless server setup for Arkeology
 operators and CI/CD pipeline integrations.
 
 ## Tools
@@ -27,7 +27,7 @@ serve browsable artifact content to humans — see [Resources](#resources) below
 | `check_synthesis_freshness` | Audit every synthesis in own scope against its declared source artifacts; report stale (source newer), archived sources, missing sources (deleted), and malformed syntheses (no sources declared); optionally hard-delete malformed ones | `confirm` (bool, default `false` — set `true` to hard-delete malformed syntheses) | `stale`, `archived_sources`, `missing_sources`, `malformed`, `deleted_malformed`, `total_checked`, `all_fresh` (bool) |
 | `propose_commit_links` | Discover own-scope artifacts with no `commit_refs`, optionally bounded to those written since a session ULID — read-only, no writes | `commit_sha`, optional `since_ulid` | `proposed` (list of candidates with `artifact_id`, `title`, `type`, `last_edited_at`), `commit_sha` |
 | `link_metadata` | Backfill `commit_refs` and/or `references` onto confirmed own-scope artifacts — dual-writes the durable S3 annotation copy first, then vector metadata, no re-embedding | `artifact_ids`, optional `commit_refs`, optional `references` | `linked`, `skipped`, `next_since_ulid` |
-| `cairn_studio` | Opens the visual artifact browser — renders an inline HTML application on hosts that support [MCP Apps](https://modelcontextprotocol.io/extensions/apps/overview); returns the full artifact listing as structured data on non-supporting hosts | — | Browser UI on supporting hosts; structured artifact listing on others |
+| `arkeology_studio` | Opens the visual artifact browser — renders an inline HTML application on hosts that support [MCP Apps](https://modelcontextprotocol.io/extensions/apps/overview); returns the full artifact listing as structured data on non-supporting hosts | — | Browser UI on supporting hosts; structured artifact listing on others |
 
 ## Resources
 
@@ -41,11 +41,11 @@ exist so a connected agent can discover the full schema without consulting exter
 
 | URI | What it contains |
 |-----|-----------------|
-| `cairn://schema/artifact` | Required and optional fields, enum values, and constraints |
-| `cairn://schema/tiers` | Tier 2 vs tier 3 semantics, key formats, and access rules |
-| `cairn://schema/visibility` | Visibility values and the cross-scope access gate |
-| `cairn://schema/types` | Type catalogue with one-line usage guidance per type |
-| `cairn://schema/query-strategy` | Recommended query strategy: when to list vs search vs synthesise |
+| `arkeology://schema/artifact` | Required and optional fields, enum values, and constraints |
+| `arkeology://schema/tiers` | Tier 2 vs tier 3 semantics, key formats, and access rules |
+| `arkeology://schema/visibility` | Visibility values and the cross-scope access gate |
+| `arkeology://schema/types` | Type catalogue with one-line usage guidance per type |
+| `arkeology://schema/query-strategy` | Recommended query strategy: when to list vs search vs synthesise |
 
 ### Data resources — human browsing surface (`audience: ["user"]`)
 
@@ -55,12 +55,12 @@ configuration exactly.
 
 | URI | What it returns | Notes |
 |-----|----------------|-------|
-| `cairn://artifacts` | Markdown table of all active own-scope artifacts (columns: Identifier, Title, Type, Description) | Equivalent to calling `list_artifacts` with `status="active"` and no filters |
-| `cairn://artifact/{id}` | Full markdown content of the named artifact | Applies the same cross-scope/tier/visibility gate as `read_artifact`; returns a markdown error block on access failure |
+| `arkeology://artifacts` | Markdown table of all active own-scope artifacts (columns: Identifier, Title, Type, Description) | Equivalent to calling `list_artifacts` with `status="active"` and no filters |
+| `arkeology://artifact/{id}` | Full markdown content of the named artifact | Applies the same cross-scope/tier/visibility gate as `read_artifact`; returns a markdown error block on access failure |
 
 #### Tools vs resources — when to use which
 
-| | Resources (`cairn://`) | Tools |
+| | Resources (`arkeology://`) | Tools |
 |--|---|---|
 | **Primary audience** | Human browsing in MCP Inspector, Claude Desktop, or Claude Code | Agent workflows in a session |
 | **Typical use** | Quick index review, reading a specific artifact without tool overhead | Search, filter, write, archive, delete |
@@ -75,9 +75,9 @@ everything agents do — search, filter, write, synthesise, archive.
 > See [ADR-010](docs/architecture-decisions/adr-2026-06-24-mcp-apps-visual-reading-interface.md)
 > for the decision record behind this approach.
 
-The `cairn_studio` tool is the primary human reading entry point. On hosts that support
+The `arkeology_studio` tool is the primary human reading entry point. On hosts that support
 the `io.modelcontextprotocol/ui` extension (Claude Desktop, claude.ai, VS Code Copilot),
-calling `cairn_studio` renders a self-contained two-pane HTML/JS application inline in
+calling `arkeology_studio` renders a self-contained two-pane HTML/JS application inline in
 the host. The browser is populated from the tool's initial result and then issues
 subsequent tool calls (`list_artifacts`, `read_artifact`, `search_artifacts`) directly
 from the iframe over the same MCP connection.
@@ -107,7 +107,7 @@ leaks the caller's IP address and was rejected on GDPR grounds; the browser uses
 Simply call the tool with no arguments:
 
 ```
-cairn_studio
+arkeology_studio
 ```
 
 The host renders the browser inline. From there you can:
@@ -122,18 +122,18 @@ read directly without any UI rendering.
 #### Browsing with MCP Inspector
 
 ```bash
-eval $(jq -r '.mcpServers.cairn.env | to_entries[] | "export \(.key)=\(.value)"' .mcp.json)
-npx @modelcontextprotocol/inspector uv run --directory /path/to/cairn-mcp cairn-mcp
+eval $(jq -r '.mcpServers.arkeology.env | to_entries[] | "export \(.key)=\(.value)"' .mcp.json)
+npx @modelcontextprotocol/inspector uv run --directory /path/to/arkeology arkeology
 ```
 
-Navigate to the **Resources** tab to read `cairn://artifacts`, and the **Resource
-Templates** tab to read `cairn://artifact/{id}` by supplying an artifact ID.
+Navigate to the **Resources** tab to read `arkeology://artifacts`, and the **Resource
+Templates** tab to read `arkeology://artifact/{id}` by supplying an artifact ID.
 
 #### Using data resources in Claude Code
 
 Ask the agent directly:
 
-> "Read the `cairn://artifacts` resource and tell me what's there."
+> "Read the `arkeology://artifacts` resource and tell me what's there."
 
 Claude Code fetches the resource via the MCP resources protocol and returns the
 pre-rendered markdown table — useful for a quick human-readable index without
@@ -162,7 +162,7 @@ the candidate designs).
 
 ## Minimum IAM Policy
 
-Attach the following policy to the IAM user or role that runs cairn-mcp. Replace each `YOUR-*` placeholder with your actual values before applying.
+Attach the following policy to the IAM user or role that runs Arkeology. Replace each `YOUR-*` placeholder with your actual values before applying.
 
 ```json
 {
@@ -230,7 +230,7 @@ Two statements above are conditional on which features you use:
   one feature gracefully, rather than failing startup, when these actions are absent. This
   statement is unavailable in the UAE and Bahrain regions and on S3 Express One Zone, Outposts,
   and directory buckets — see [Prerequisites](README.md#prerequisites) for the operational
-  impact and the `setting-up-cairn` skill's availability probe.
+  impact and the `setting-up-arkeology` skill's availability probe.
 - `BedrockTextModel` is required only if you use `migrate_artifacts`. In `us-east-1`, use the
   foundation-model ARN shown above; in all other regions, replace it with the cross-region
   inference profile ARN, e.g. `arn:aws:bedrock:eu-west-1::inference-profile/eu.amazon.nova-lite-v1:0`.
@@ -238,7 +238,7 @@ Two statements above are conditional on which features you use:
 ## Configuration
 
 All configuration is read from environment variables. Pass them via your IDE's MCP config
-file `env` (or `environment`) block — see the `setting-up-cairn` skill for the exact
+file `env` (or `environment`) block — see the `setting-up-arkeology` skill for the exact
 format for each supported IDE.
 
 | Variable | Required | Default | Description |
@@ -255,7 +255,7 @@ format for each supported IDE.
 | `SEARCH_FETCH_TOP_K` | No | `25` | Section vectors requested from S3 Vectors per search iteration |
 | `SEARCH_MAX_ITERATIONS` | No | `3` | Maximum S3 Vectors calls per search before returning available results |
 | `SEARCH_DEFAULT_TOP_K` | No | `5` | Default number of artifacts returned when the caller does not specify |
-| `FAILURE_LOG_PATH` | No | `.cairn_failures.jsonl` | Path to the tier 1 failure log file (JSONL); appended on partial write failures |
+| `FAILURE_LOG_PATH` | No | `.arkeology_failures.jsonl` | Path to the tier 1 failure log file (JSONL); appended on partial write failures |
 | `SECTION_CONCURRENCY` | No | `5` | Max concurrent Bedrock embed calls per artifact write. Increase for faster bulk writes; lower to avoid throttling. Must be ≥ 1. |
 | `EMBED_MAX_SECTIONS` | No | `20` | Maximum number of `##` sections indexed per artifact. Sections beyond the cap are dropped from the vector index; full content is still stored in S3. Must be ≥ 1. |
 | `EMBED_MIN_SECTION_LENGTH` | No | `50` | Minimum body length (chars, stripped) for a section to be indexed. Sections shorter than this are dropped from the vector index. Set to `0` to disable. |
@@ -274,17 +274,17 @@ callers tune behaviour without restarting the server.
 
 ## Running the server
 
-> **AI coding tools manage this automatically.** If you are connecting cairn-mcp to OpenCode,
+> **AI coding tools manage this automatically.** If you are connecting Arkeology to OpenCode,
 > Claude Code, Copilot, or Codex, the tool launches the server process on session start using
 > the command in your MCP config — you never run it manually. This section is relevant for
 > **CI/CD pipeline agents** (e.g. an automated code reviewer running in a pipeline that needs
-> cairn-mcp as a subprocess) and for **smoke-testing** a new installation before wiring it to
+> Arkeology as a subprocess) and for **smoke-testing** a new installation before wiring it to
 > an MCP client.
 
 ```bash
-uv run cairn-mcp
+uv run arkeology
 # or
-uv run python -m cairn_mcp
+uv run python -m arkeology
 ```
 
 The server runs on stdio and is ready to accept MCP client connections.

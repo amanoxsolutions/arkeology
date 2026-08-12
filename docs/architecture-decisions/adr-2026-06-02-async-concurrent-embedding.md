@@ -116,5 +116,5 @@ than 1 cause a hard startup failure.
 > this change: it remains a server-wide env var, still validated at startup exactly as
 > described above. The `artifact_concurrency × SECTION_CONCURRENCY ≤ ~15` quota guideline still
 > applies conceptually, but the first factor is now chosen per call rather than fixed for the
-> whole server. See `src/cairn_mcp/tools/write_artifacts.py` and `SERVER-REFERENCE.md`
+> whole server. See `src/arkeology/tools/write_artifacts.py` and `SERVER-REFERENCE.md`
 > ("Per-call tool parameters") for the current behaviour.

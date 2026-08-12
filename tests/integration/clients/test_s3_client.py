@@ -14,7 +14,7 @@ import uuid
 
 import pytest
 
-from cairn_mcp.clients.s3 import S3ClientImpl
+from arkeology.clients.s3 import S3ClientImpl
 
 pytestmark = pytest.mark.integration
 
@@ -30,7 +30,7 @@ def s3_client() -> S3ClientImpl:
 @pytest.fixture
 def unique_key() -> str:
     """Generate a unique test key that won't collide with real artifacts."""
-    return f"_cairn_mcp_integration_test/{uuid.uuid4().hex}.md"
+    return f"_arkeology_integration_test/{uuid.uuid4().hex}.md"
 
 
 def test_put_get_round_trip(s3_client: S3ClientImpl, unique_key: str) -> None:
@@ -46,7 +46,7 @@ def test_put_get_round_trip(s3_client: S3ClientImpl, unique_key: str) -> None:
 
 def test_list_objects_returns_expected_keys(s3_client: S3ClientImpl) -> None:
     """list_objects returns expected keys after writes."""
-    prefix = f"_cairn_mcp_integration_test/{uuid.uuid4().hex}/"
+    prefix = f"_arkeology_integration_test/{uuid.uuid4().hex}/"
     keys = [f"{prefix}file{i}.md" for i in range(3)]
     for key in keys:
         s3_client.put_object(key, "content", {})

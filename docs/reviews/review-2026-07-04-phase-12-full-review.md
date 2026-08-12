@@ -58,10 +58,10 @@ mypy clean. Green gates notwithstanding, the phase is **not merge-ready** — se
 
 ## Files Reviewed
 
-Full Phase 12 diff: `src/cairn_mcp/` (annotations.py, references.py, artifact.py, errors.py,
+Full Phase 12 diff: `src/arkeology/` (annotations.py, references.py, artifact.py, errors.py,
 constants.py, clients/{s3,interfaces,credentials}.py, tools/{write,write_artifacts,link_metadata,
 delete,archive,read,list,reconcile,_search_helper}.py, server.py, resources.py), all new/changed
-unit + integration tests, `plugins/cairn-mcp/skills/` (setting-up-cairn, migrating-to-cairn,
+unit + integration tests, `plugins/arkeology/skills/` (setting-up-arkeology, migrating-to-arkeology,
 backfilling-references), AGENTS.md, README.md, SERVER-REFERENCE.md, CONTRIBUTING.md, and the
 Phase 12 documentation set. Detailed per-cluster logs are in `docs/reviews/` (referenced above).
 
@@ -75,7 +75,7 @@ operations — was verified against the installed service model.
 ### Spec Alignment (critical by definition)
 
 - **SA-1 = C1 below** — the `references` identifier form is contradictory *between specs* (bare
-  id in T46/T51/ADR-012 D2/skills vs full S3 key in T50/FR-56/`cairn://` read gate), and both
+  id in T46/T51/ADR-012 D2/skills vs full S3 key in T50/FR-56/`arkeology://` read gate), and both
   conventions shipped. The delivered migration/backfill flow does not work end-to-end.
 - **SA-2** — T51 P1 Story 1 (`../decisions/B.md` resolves to B's id) is unimplemented at the
   layer the spec assigns it to (C6).
@@ -93,7 +93,7 @@ operations — was verified against the installed service model.
 - **C1 — ✅ RESOLVED (2026-07-04) — Bare-id vs full-key contradiction makes migration-produced references dead on every
   consuming surface.** `references.py:109` and both skills emit/store bare
   `generate_artifact_id` output; the operative `artifact_id` everywhere else is the full S3 key
-  `{write_prefix}/{id}{ext}` (`write.py:377`). Consequences: `cairn://artifact/{bare-id}` URIs
+  `{write_prefix}/{id}{ext}` (`write.py:377`). Consequences: `arkeology://artifact/{bare-id}` URIs
   rewritten into migrated content fail `read_artifact`'s scope gate; the FR-56 `referenced_by`
   reverse-lookup (`$eq` on the full-key delete target) never matches migration-populated entries;
   the backfilling-references skill's Step 5 eligibility check is always false → permanent silent
@@ -101,7 +101,7 @@ operations — was verified against the installed service model.
   (full key without extension) appears in T50's tests. **Architect decision required on the
   canonical form before any code fix**; the pragmatic direction is full keys from
   `build_path_to_id_map` (ManifestEntry needs team/project + extension), plus rewording T46/T51.
-  > **Resolution (2026-07-04)** — operator chose the **full S3 key** as canonical. `build_path_to_id_map(manifest_entries, write_prefix)` now emits `{write_prefix}/{generate_artifact_id(...)}{ext}` (ext from the manifest path, default `.md`), identical to `write.py`'s stored `artifact_id`. `resources.py`'s `cairn://artifact/{id}` template became `{id*}` (FastMCP RFC-6570 wildcard-path — not `{+id}`, which the vendored `mcp` SDK mis-parses) so a full-key URI containing slashes resolves through the registered template and the same scope/tier gate as `read_artifact`. Both skills emit full keys and gained a `write_prefix`-discovery step (derive from an existing own-scope artifact via `list_artifacts`, else ask the operator). T46/T51 and ADR-012 D2 reworded bare→full-key. Verified end-to-end: build-map output equals a *live* `write_artifact`'s `artifact_id`; a full-key `cairn://` read resolves via the actual registered FastMCP template (foreign-scope tier-2 gate holds); `referenced_by` `$eq` matches full-key refs. +6 tests (red→green); suite 918 green. Commit `10db8dd`. (This finding = **SA-1**, also resolved.)
+  > **Resolution (2026-07-04)** — operator chose the **full S3 key** as canonical. `build_path_to_id_map(manifest_entries, write_prefix)` now emits `{write_prefix}/{generate_artifact_id(...)}{ext}` (ext from the manifest path, default `.md`), identical to `write.py`'s stored `artifact_id`. `resources.py`'s `arkeology://artifact/{id}` template became `{id*}` (FastMCP RFC-6570 wildcard-path — not `{+id}`, which the vendored `mcp` SDK mis-parses) so a full-key URI containing slashes resolves through the registered template and the same scope/tier gate as `read_artifact`. Both skills emit full keys and gained a `write_prefix`-discovery step (derive from an existing own-scope artifact via `list_artifacts`, else ask the operator). T46/T51 and ADR-012 D2 reworded bare→full-key. Verified end-to-end: build-map output equals a *live* `write_artifact`'s `artifact_id`; a full-key `arkeology://` read resolves via the actual registered FastMCP template (foreign-scope tier-2 gate holds); `referenced_by` `$eq` matches full-key refs. +6 tests (red→green); suite 918 green. Commit `10db8dd`. (This finding = **SA-1**, also resolved.)
 - **C2 — ✅ RESOLVED (2026-07-04) — `archive_artifact` silently destroys durable link annotations** (`archive.py:113`,
   probe-confirmed). The status-flip re-PUT wipes annotations and archive has no
   read-forward/re-apply. Loss is invisible until the next reconcile, which then erases the
@@ -143,12 +143,12 @@ operations — was verified against the installed service model.
   > **Resolution (2026-07-04)** — operator approved **union-of-both-stores** authority. New `annotations.read_current_link_fields(s3, vectors, key)` returns `union(annotation, vector)` (order-preserving dedup); `reconcile_index` restores the union — fixes **(a)** (vector-only fields now survive reconcile on annotation-unavailable deployments) — and the write-path read-forward reads the union — fixes **(b)** (a partial `link_metadata` dual-write self-heals instead of being clobbered). Window **(c)** (mid-write crash between `put_object` and `apply_link_annotations`, before the vector write) is recorded as an explicit **accepted caveat** in ADR-011's revised authority-model consequence — there is no cross-store transaction, and it never affects already-persisted link data. +3 unit tests (C5a/C5b + M6, red→green); suite 895 green; ruff/format/mypy clean. Commit `fe33c7d`. (PRD Known Limitations / FR-54 "lossless" wording reconciliation tracked under M11, docs pass.)
 - **C6 — ✅ RESOLVED (2026-07-04) — Relative-path references (`../…`, and `./…` joins against the referencing file's
   directory) never resolve anywhere in the delivered flow.** `references.py:23–26` delegates
-  relative joining to the skill; `migrating-to-cairn/SKILL.md:265` instead lists `../` paths as
+  relative joining to the skill; `migrating-to-arkeology/SKILL.md:265` instead lists `../` paths as
   the canonical *unresolvable* example; the backfill skill has no join step either. T51's own P1
   Story 1 example cannot resolve. Fix: add a skill step — POSIX-join `./`/`../` entries against
   the referencing file's directory before the D6 ceiling lookup (this is resolution of
   well-formed relative paths, not the "repair" D6 bounds).
-  > **Resolution (2026-07-04)** — added pure `references.join_reference_path(referencing_file_path, reference_path)` (posixpath join + normpath; URLs/non-dotted pass through; root-escaping `../` stays unresolved without raising) and an optional `referencing_file_path` param on `resolve_reference` (default preserves prior behaviour). The `migrating-to-cairn` and `backfilling-references` skills now join `./`/`../` against the referencing file's directory before the D6 lookup and no longer treat well-formed relative paths as unresolvable. +10 tests (incl. T51 Story 1 `../decisions/B.md`; red→green); suite 912 green. Commit `027fd26`.
+  > **Resolution (2026-07-04)** — added pure `references.join_reference_path(referencing_file_path, reference_path)` (posixpath join + normpath; URLs/non-dotted pass through; root-escaping `../` stays unresolved without raising) and an optional `referencing_file_path` param on `resolve_reference` (default preserves prior behaviour). The `migrating-to-arkeology` and `backfilling-references` skills now join `./`/`../` against the referencing file's directory before the D6 lookup and no longer treat well-formed relative paths as unresolvable. +10 tests (incl. T51 Story 1 `../decisions/B.md`; red→green); suite 912 green. Commit `027fd26`.
 
 ### Major
 
@@ -200,7 +200,7 @@ operations — was verified against the installed service model.
   failure of the whole policy. Fix: move the text to prose.
   > **Verified 2026-07-06** — SERVER-REFERENCE.md IAM policy block contains no `"Comment"` field anywhere; the JSON parses cleanly. Closed by the M-15 reference-docs pass.
 - **M8 — The setup probe object lives inside the artifact scope with no guaranteed CLI-path
-  cleanup** (`setting-up-cairn/SKILL.md:~205`): on the AccessDenied failure the probe exists to
+  cleanup** (`setting-up-arkeology/SKILL.md:~205`): on the AccessDenied failure the probe exists to
   detect, a zero-byte non-artifact object is orphaned where the reconcile orphan scan will try
   to index it. Fix: reserved non-artifact prefix + always-run cleanup instruction.
 - **M9 — Value validation was dropped in the link_commit → link_metadata generalization**:
@@ -218,7 +218,7 @@ operations — was verified against the installed service model.
   as prefilter + in-process check); (c) ADR-011/FR-57 say the write path surfaces annotation
   errors as *errors* while T52 deliberately resolved it as success-plus-warning. Each is a
   next-agent trap; fold the spec-level resolutions back into PRD/ADR.
-  > **Resolution (2026-07-04)** — docs reconciliation pass (commit `95dde5c`): (a) FR-23 + AC-38/AC-39/AC-50 now use `link_metadata`; (b) FR-56 + ADR-012 D13 reworded to the shipped hybrid (server-side `$eq` for `references`; `type=synthesis` prefilter + in-process membership for the non-filterable `source_artifacts`) — also closes **SA-4**; (c) FR-57 split into write-path success+warning vs `link_metadata` structured error. Additionally folded: FR-53/54/55 + Known Limitations → union-of-both + residual caveat, FR-17 reconcile-from-union, the six drifted specs (T47/T48/T49/T55/T42/T51), and two doc-hygiene minors (Scope tool count 15→16 incl. `cairn_studio`; ADR-009 `status:` → partially superseded). grep-clean of stale `link_commit`/mechanism claims.
+  > **Resolution (2026-07-04)** — docs reconciliation pass (commit `95dde5c`): (a) FR-23 + AC-38/AC-39/AC-50 now use `link_metadata`; (b) FR-56 + ADR-012 D13 reworded to the shipped hybrid (server-side `$eq` for `references`; `type=synthesis` prefilter + in-process membership for the non-filterable `source_artifacts`) — also closes **SA-4**; (c) FR-57 split into write-path success+warning vs `link_metadata` structured error. Additionally folded: FR-53/54/55 + Known Limitations → union-of-both + residual caveat, FR-17 reconcile-from-union, the six drifted specs (T47/T48/T49/T55/T42/T51), and two doc-hygiene minors (Scope tool count 15→16 incl. `arkeology_studio`; ADR-009 `status:` → partially superseded). grep-clean of stale `link_commit`/mechanism claims.
 - **M12 — ✅ RESOLVED (verified 2026-07-06; ADR-011 D4 reconciled during the C1–C6 cycle)** — Tier-2 explicit replacement has no consistent link-preservation story: ADR-011
   Decision 4 vs its own Consequences vs FR-55 vs T47 each say something different; what ships is
   the tier-agnostic `is_existing and overwrite` (tested for tier-2 by accident of the condition).
@@ -241,13 +241,13 @@ Grouped; full detail in the cluster logs.
   partial; plan.md says both "open — planning" and "all tasks implemented", T55 marked done yet
   "Spec: to be written"; T53's Files-to-Touch describes the pre-consolidation symlink layout;
   T54/T55 cite a gitignored `.docs/` review as provenance; PRD Scope's "15 tools" count omits
-  `cairn_studio`; T55 contradicts itself on which keys are filterable; write.py comments cite
+  `arkeology_studio`; T55 contradicts itself on which keys are filterable; write.py comments cite
   "ADR-011 D4/D14" (brainstorming numbering) vs ADR-011's decisions 1–5; stale `link_commit`
   comment in `test_tools_read.py:524`; CHANGELOG `[Unreleased]` empty despite a breaking tool
   removal; AGENTS.md repo-structure table missing `annotations.py`, `references.py`,
   `tools/link_metadata.py`; "S3 Express One Zone" and "directory buckets" double-count one
   category everywhere.
-- **Concept/docs**: mixed addressing (D3) has no documented consumer — `cairn://` links render
+- **Concept/docs**: mixed addressing (D3) has no documented consumer — `arkeology://` links render
   dead in the studio HTML app and nothing specifies read-surface treatment; the PRD
   what-not-how convention (AGENTS.md) is violated wholesale by FR-51–58 (consistent with
   pre-existing FR style — the convention and house practice are irreconcilable and FR-54

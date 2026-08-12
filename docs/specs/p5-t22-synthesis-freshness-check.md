@@ -183,9 +183,9 @@ deleted and reported in the response.
 | File | Action | Notes |
 |------|--------|-------|
 | `tests/unit/test_tools_freshness.py` | Create | Written first (Red) — all unit tests against fakes |
-| `src/cairn_mcp/tools/freshness.py` | Create | Written after unit tests pass (Green); accepts `confirm: bool = False` |
+| `src/arkeology/tools/freshness.py` | Create | Written after unit tests pass (Green); accepts `confirm: bool = False` |
 | `tests/integration/test_tools_freshness.py` | Create | Written after unit tests (Red for integration), implemented by the same tool |
-| `src/cairn_mcp/server.py` | Modify | Import and register `check_synthesis_freshness(confirm=False)` inside `register_tools()` |
+| `src/arkeology/server.py` | Modify | Import and register `check_synthesis_freshness(confirm=False)` inside `register_tools()` |
 
 ## Testing Approach
 

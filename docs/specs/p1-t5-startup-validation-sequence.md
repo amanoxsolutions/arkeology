@@ -36,7 +36,7 @@ revised:
 > and only failed on the first real write/search. The new check embeds a short probe string via
 > `bedrock.embed` and asserts the returned vector's dimension matches, reusing the existing
 > credential-error classification for entitlement/credential failures. The running sequence is now
-> **seven checks**; log messages and the success line read `/7`. See `src/cairn_mcp/startup.py`
+> **seven checks**; log messages and the success line read `/7`. See `src/arkeology/startup.py`
 > (`_check_embedding_probe`) for the implementation. The PRD (FR-07) and `SERVER-REFERENCE.md`
 > check-count references still say
 > five/six and need a corresponding update — flagged to the PM and tech-writer (out of scope for
@@ -83,7 +83,7 @@ the server refuses to start with instructions for how to fix it.
 When all checks pass, the server logs a success line and enters the MCP event loop.
 
 **Acceptance criteria:**
-- Given all checks pass, when the server starts, then it logs `"Startup validation passed. cairn-mcp is ready."` at INFO level and enters the FastMCP event loop.
+- Given all checks pass, when the server starts, then it logs `"Startup validation passed. arkeology is ready."` at INFO level and enters the FastMCP event loop.
 - Given all checks pass, then each check's success is logged at DEBUG level.
 
 ## Requirements
@@ -121,9 +121,9 @@ When all checks pass, the server logs a success line and enters the MCP event lo
 
 | File | Action | Notes |
 |------|--------|-------|
-| `src/cairn_mcp/startup.py` | Create | `validate_startup(settings, s3, vectors, bedrock)` function |
-| `src/cairn_mcp/__main__.py` | Modify | Call `validate_startup(...)` between Settings construction and `server.run()` |
-| `src/cairn_mcp/errors.py` | Modify | `StartupValidationError` already declared in T3; verify it has the needed fields |
+| `src/arkeology/startup.py` | Create | `validate_startup(settings, s3, vectors, bedrock)` function |
+| `src/arkeology/__main__.py` | Modify | Call `validate_startup(...)` between Settings construction and `server.run()` |
+| `src/arkeology/errors.py` | Modify | `StartupValidationError` already declared in T3; verify it has the needed fields |
 | `tests/unit/test_startup.py` | Create | All five failure paths + the all-pass path, using fakes |
 
 ---
@@ -178,7 +178,7 @@ client. Document this as the implementation choice.
 `ARTIFACT_BUCKET`.
 
 **How to check write access without creating real artifacts:** Use a sentinel object:
-1. Write a small probe object to a well-known key under `WRITE_PREFIX`: `{WRITE_PREFIX}_cairn_probe/write-check`.
+1. Write a small probe object to a well-known key under `WRITE_PREFIX`: `{WRITE_PREFIX}_arkeology_probe/write-check`.
 2. Read it back via `get_object` to verify read access.
 3. Delete it (if the interface supports `delete_object`) or leave it with a well-known key (it is harmless — tiny and clearly named).
 
@@ -186,7 +186,7 @@ If the `S3ClientInterface` does not have `delete_object`, add it. The probe obje
 easily identifiable.
 
 The probe key must be deterministic and clearly named so it does not pollute the artifact namespace:
-`{write_prefix}_cairn_mcp_startup_probe` (note the leading underscore in the filename distinguishes
+`{write_prefix}_arkeology_startup_probe` (note the leading underscore in the filename distinguishes
 it from real artifact keys which start with a type segment).
 
 **Failure scenarios:**
@@ -291,7 +291,7 @@ known dimension registry; probing via embedding call."`.
 
 ### After all checks pass
 
-Log at INFO: `"Startup validation passed (6/6 checks). cairn-mcp is ready."`.
+Log at INFO: `"Startup validation passed (6/6 checks). arkeology is ready."`.
 
 This log line is the developer's signal that AWS resources are correctly provisioned and the server
 is accepting requests.
@@ -325,7 +325,7 @@ The fakes from T3 make every failure path simulatable without AWS. This is strai
 
 **Step 1 — Write `tests/unit/test_startup.py` in full (Red).**
 Write all test cases from the Test Cases section below. Import `validate_startup` from
-`cairn_mcp.startup` — which does not exist yet. Run `uv run pytest tests/unit/test_startup.py`
+`arkeology.startup` — which does not exist yet. Run `uv run pytest tests/unit/test_startup.py`
 — every test fails with `ImportError`. This is the Red state. ✓
 
 **Step 2 — Write `startup.py` (Green).**
@@ -373,5 +373,5 @@ raises.
 
 ## Open Questions
 
-- [ ] Decide whether to add a `delete_object` method to `S3ClientInterface` (and its fake + concrete impl) for the write probe cleanup. If not added, document that `_cairn_mcp_startup_probe` keys will accumulate (they are tiny and clearly named, so this is acceptable). Recommendation: add `delete_object` — it is needed for the archive tool in Phase 3 anyway.
+- [ ] Decide whether to add a `delete_object` method to `S3ClientInterface` (and its fake + concrete impl) for the write probe cleanup. If not added, document that `_arkeology_startup_probe` keys will accumulate (they are tiny and clearly named, so this is acceptable). Recommendation: add `delete_object` — it is needed for the archive tool in Phase 3 anyway.
 - [ ] Confirm the S3 Vectors API error code/name for a missing index (needed to implement `VectorIndexNotFoundError` correctly in the concrete client). Check the boto3 S3 Vectors error catalogue.

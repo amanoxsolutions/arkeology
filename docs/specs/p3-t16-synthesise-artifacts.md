@@ -140,9 +140,9 @@ The same gate that applies to `search_artifacts` and `read_artifact` applies her
 | File | Action | Notes |
 |------|--------|-------|
 | `tests/unit/test_tools_synthesise.py` | Create | Written first (Red) |
-| `src/cairn_mcp/tools/synthesise.py` | Create | Written after unit tests (Green) |
+| `src/arkeology/tools/synthesise.py` | Create | Written after unit tests (Green) |
 | `tests/integration/test_tools_synthesise.py` | Create | Written before integration wiring |
-| `src/cairn_mcp/server.py` | Modify | Register `synthesise_artifacts` tool on `_app` |
+| `src/arkeology/server.py` | Modify | Register `synthesise_artifacts` tool on `_app` |
 
 ## Testing Approach
 

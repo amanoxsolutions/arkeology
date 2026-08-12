@@ -1,14 +1,14 @@
-# Contributing to cairn-mcp
+# Contributing to Arkeology
 
 Thank you for contributing! This guide covers how to get the development environment
-running, how to wire cairn-mcp into your AI tools, and the conventions the project
+running, how to wire Arkeology into your AI tools, and the conventions the project
 follows.
 
 ## Development setup
 
 ```bash
-git clone https://github.com/amanoxsolutions/cairn-mcp.git
-cd cairn-mcp
+git clone https://github.com/amanoxsolutions/arkeology.git
+cd arkeology
 uv sync
 ```
 
@@ -66,17 +66,17 @@ Supported tools: OpenCode, Claude Code, and GitHub Copilot (via `gh skill instal
 Add one line to `~/.config/opencode/opencode.jsonc`:
 
 ```json
-"plugin": ["cairn-mcp@git+ssh://git@github.com/amanoxsolutions/cairn-mcp.git"]
+"plugin": ["arkeology@git+ssh://git@github.com/amanoxsolutions/arkeology.git"]
 ```
 
 HTTPS alternative (no SSH key required):
 
 ```json
-"plugin": ["cairn-mcp@git+https://github.com/amanoxsolutions/cairn-mcp.git"]
+"plugin": ["arkeology@git+https://github.com/amanoxsolutions/arkeology.git"]
 ```
 
-Restart OpenCode to activate the plugin. All four cairn-mcp skills (`setting-up-cairn`,
-`migrating-to-cairn`, `sync-cairn-plugin`, and `backfilling-references`) will be available
+Restart OpenCode to activate the plugin. All four Arkeology skills (`setting-up-arkeology`,
+`migrating-to-arkeology`, `sync-arkeology-plugin`, and `backfilling-references`) will be available
 in every subsequent session.
 
 ### Manual — Claude Code
@@ -84,30 +84,30 @@ in every subsequent session.
 Two commands register the marketplace and install the plugin:
 
 ```bash
-claude plugin marketplace add git@github.com:amanoxsolutions/cairn-mcp.git
-claude plugin install cairn@cairn-mcp
+claude plugin marketplace add git@github.com:amanoxsolutions/arkeology.git
+claude plugin install arkeology@arkeology
 ```
 
 HTTPS alternative (for environments where outbound SSH / port 22 is blocked):
 
 ```bash
-claude plugin marketplace add https://github.com/amanoxsolutions/cairn-mcp.git
-claude plugin install cairn@cairn-mcp
+claude plugin marketplace add https://github.com/amanoxsolutions/arkeology.git
+claude plugin install arkeology@arkeology
 ```
 
-This installs all four skills as `cairn:setting-up-cairn`, `cairn:migrating-to-cairn`,
-`cairn:sync-cairn-plugin`, and `cairn:backfilling-references` slash commands. To update
-the plugin clone later, run `/cairn:sync-cairn-plugin`.
+This installs all four skills as `arkeology:setting-up-arkeology`, `arkeology:migrating-to-arkeology`,
+`arkeology:sync-arkeology-plugin`, and `arkeology:backfilling-references` slash commands. To update
+the plugin clone later, run `/arkeology:sync-arkeology-plugin`.
 
 ## Adding a new tool
 
-All tool implementations live in `src/cairn_mcp/tools/<name>.py`. Register the new tool
+All tool implementations live in `src/arkeology/tools/<name>.py`. Register the new tool
 on `_app` in `server.py` via `register_tools()`. Follow the existing tool pattern:
 a public function that wraps an `_inner` variant in `try/except Exception`.
 
 ## Adding a new skill
 
-Skills live in `plugins/cairn-mcp/skills/<skill-name>/SKILL.md`. Each skill must have a YAML frontmatter
+Skills live in `plugins/arkeology/skills/<skill-name>/SKILL.md`. Each skill must have a YAML frontmatter
 block with `name` and `description` fields. If the `description` value contains `: `
 (colon-space), it must be wrapped in double quotes — the Go YAML parser used by
 `gh skill install` rejects unquoted colon-space values.
@@ -120,10 +120,10 @@ This is caught at commit time by `scripts/validate.py`:
 
 ```yaml
 # Wrong — will fail gh skill install
-description: Installing cairn: the MCP server
+description: Installing arkeology: the MCP server
 
 # Correct — double-quoted
-description: "Installing cairn: the MCP server"
+description: "Installing arkeology: the MCP server"
 ```
 
 ## License

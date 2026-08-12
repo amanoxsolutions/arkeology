@@ -96,7 +96,7 @@ The server supports **all standard boto3 credential environments** — local dev
 
 `AWS_REGION` is required for all API calls.
 
-This pattern is informed by awslabs/mcp but refined: awslabs frames `AWS_PROFILE` as the primary mechanism because their tools are exclusively interactive. cairn-mcp is designed for both interactive and automated use.
+This pattern is informed by awslabs/mcp but refined: awslabs frames `AWS_PROFILE` as the primary mechanism because their tools are exclusively interactive. Arkeology is designed for both interactive and automated use.
 
 ### D2 — Startup credential check is the first guard ✅ Locked
 
@@ -465,7 +465,7 @@ health_check() → {auth_ok, bucket_ok, vectors_ok, write_prefix_ok, read_prefix
 
 The new project directly resolves open questions in `research-artifact-store.md`:
 
-| Requirement | Status in research | How cairn-mcp resolves it |
+| Requirement | Status in research | How Arkeology resolves it |
 |---|---|---|
 | R1 — Storage location | Open | S3 Bucket — now viable because we own the infra |
 | R2 — Naming convention | Open | Key derived from D9; type in path provides grouping |
@@ -473,7 +473,7 @@ The new project directly resolves open questions in `research-artifact-store.md`
 | R6 — Artifact schema | Open | D6 metadata schema in S3 Vectors — server-side filtering without parsing markdown |
 | Promising idea #1 | Deferred | Semantic search over project history — now the core feature |
 
-Once cairn-mcp exists, the tier 2 solution for amanox-ai-agents skills becomes: "configure `cairn-mcp`, then each skill that produces significant output includes a `write_artifact` step."
+Once Arkeology exists, the tier 2 solution for amanox-ai-agents skills becomes: "configure `arkeology`, then each skill that produces significant output includes a `write_artifact` step."
 
 ---
 
@@ -533,7 +533,7 @@ Any MCP-compatible agent can query these resources at runtime. They are always i
 
 **Layer 2 — Recommended AGENTS.md snippet (behavioural, repo-provided):**
 
-The cairn-mcp repository ships a recommended AGENTS.md snippet in its documentation. Teams add this block to their root `AGENTS.md` once. It covers:
+The Arkeology repository ships a recommended AGENTS.md snippet in its documentation. Teams add this block to their root `AGENTS.md` once. It covers:
 - When to write artifacts (end of session, after code review, after architecture decision)
 - Artifact types and when to use each
 - How to write a high-quality description — the key lever for search quality
@@ -545,7 +545,7 @@ The cairn-mcp repository ships a recommended AGENTS.md snippet in its documentat
 - AGENTS.md is the machine-readable instruction convention — any agent that reads it picks up the guidance automatically, no skill loading required
 - No skill rewriting — existing skills are untouched
 - Framework-agnostic — works with any agent following the AGENTS.md convention
-- Simple versioning — when cairn-mcp evolves, teams update their snippet from the docs
+- Simple versioning — when Arkeology evolves, teams update their snippet from the docs
 
 **Why not a companion skill:**
 
@@ -579,14 +579,14 @@ Deployments using separate vector indexes per team cannot perform cross-scope se
 - **Artifact content editing**: tier 2 artifacts are **append-only and immutable by design** — a code review, session summary, or implementation note is a historical record; its value lies in being an unmodified point-in-time snapshot. New knowledge produces a new artifact, not an edit to an existing one. The sole exception is `archive_artifact`, which changes only the `status` metadata field, not the content. Tier 3 artifacts (ADRs, plans, specs) are intentionally mutable — plans change, decisions evolve — and should be updated via a new `write_artifact` call that produces a new dated artifact superseding the previous one.
 - **Tier 2 → Tier 3 promotion tool**: if a code review or session note contains an insight important enough for org-wide permanent knowledge, the correct action is for the agent to surface that knowledge in existing or new tier 3 documentation. A `promote_artifact` tool would blur the boundary between working documents and canonical knowledge. The lifecycle is: produce artifacts → review and extract insights → write canonical tier 3 documents. This is an agent concern, not a server concern.
 - **Context positioning enforcement**: how agents position retrieved artifacts in their context window (beginning vs. end) is a skill and agent convention, not a server responsibility. The server returns results; the skill instructs the agent where to place them.
-- **Companion skill**: a dedicated skill for cairn-mcp would create a version coupling between the skill and the server schema, require skill loading by each team, and add framework dependency. Replaced by: MCP Resources for runtime schema discovery (D13) and a recommended AGENTS.md snippet shipped with the repo documentation.
+- **Companion skill**: a dedicated skill for Arkeology would create a version coupling between the skill and the server schema, require skill loading by each team, and add framework dependency. Replaced by: MCP Resources for runtime schema discovery (D13) and a recommended AGENTS.md snippet shipped with the repo documentation.
 
 ---
 
 ## Next Steps
 
 1. Challenge assumptions before scaffolding
-2. Begin project scaffolding: new repo `cairn-mcp`, `pyproject.toml`, FastMCP skeleton
+2. Begin project scaffolding: new repo `arkeology`, `pyproject.toml`, FastMCP skeleton
 3. Update `research-artifact-store.md` with a link to this project as the tier 2 infrastructure answer
 
 ---
@@ -599,9 +599,9 @@ Two external sources were reviewed after the PRD was complete to challenge relev
 
 **What it is:** A vectorless, reasoning-based RAG system. For long, complex, unstructured documents (financial filings, legal manuals, academic textbooks), it builds a hierarchical tree index per document and uses LLM reasoning to navigate it. Core claim: *similarity ≠ relevance*; vector similarity search misses multi-step reasoning across long documents.
 
-**Does it challenge cairn-mcp?** No.
+**Does it challenge Arkeology?** No.
 
-PageIndex targets documents where structure is implicit and reasoning-intensive navigation is required. cairn-mcp artifacts are short (a few hundred to a few thousand words), explicitly structured by agent skills using consistent markdown templates, and written to be semantically dense. Vector search with metadata filtering is well-suited to them. At team scale with thousands of artifacts, tree-index-per-document navigation would be prohibitively expensive.
+PageIndex targets documents where structure is implicit and reasoning-intensive navigation is required. Arkeology artifacts are short (a few hundred to a few thousand words), explicitly structured by agent skills using consistent markdown templates, and written to be semantically dense. Vector search with metadata filtering is well-suited to them. At team scale with thousands of artifacts, tree-index-per-document navigation would be prohibitively expensive.
 
 **What it validates:** structure matters in retrieval — which is exactly why D12 (EMBEDDING_SECTIONS) exists.
 
@@ -611,9 +611,9 @@ PageIndex targets documents where structure is implicit and reasoning-intensive 
 
 **What it is:** A pattern for LLM-maintained persistent knowledge bases. Instead of RAG (re-deriving knowledge from raw sources at query time), an LLM incrementally builds and maintains a structured wiki — synthesising new inputs into existing concept pages, cross-referencing related entries, and flagging contradictions. Three layers: raw sources (immutable), wiki (LLM-maintained synthesis), schema (AGENTS.md / CLAUDE.md for agent instructions).
 
-**Does it challenge cairn-mcp?** No — complementary, not competing.
+**Does it challenge Arkeology?** No — complementary, not competing.
 
-| | cairn-mcp | Karpathy wiki |
+| | Arkeology | Karpathy wiki |
 |---|---|---|
 | What is stored | Raw agent work products — point-in-time records | Synthesised knowledge — evolving understanding |
 | Scale | Teams, cross-project, thousands of artifacts | Individual to small team, one project |
@@ -623,7 +623,7 @@ PageIndex targets documents where structure is implicit and reasoning-intensive 
 | Write model | Agent writes → stored immediately | Agent writes → LLM synthesises into existing pages |
 | Maintenance cost | Zero (store-and-retrieve) | Real (synthesis, contradiction flagging, linting) |
 
-cairn-mcp stores raw artifacts; a Karpathy-style wiki synthesises them into compiled knowledge. They operate at different abstraction levels. The wiki pattern is a natural future layer *above* cairn-mcp — tier 3 shared artifacts are the natural vehicle for storing the synthesised output. This was captured as a Future Consideration in the PRD.
+Arkeology stores raw artifacts; a Karpathy-style wiki synthesises them into compiled knowledge. They operate at different abstraction levels. The wiki pattern is a natural future layer *above* Arkeology — tier 3 shared artifacts are the natural vehicle for storing the synthesised output. This was captured as a Future Consideration in the PRD.
 
 **What it validates:**
 - The three-layer model (raw sources / wiki / schema) directly mirrors our three-tier model (tier 1 ephemeral / tier 2 working artifacts / tier 3 canonical knowledge)
@@ -637,9 +637,9 @@ cairn-mcp stores raw artifacts; a Karpathy-style wiki synthesises them into comp
 
 ### Verdict
 
-Both sources are in the same problem space (knowledge persistence for LLMs). Neither challenges the core approach. cairn-mcp is the right tool for its target use case: teams, cross-project sharing, AWS environments, semantic search at scale, immediate write-then-read consistency. The synthesis/wiki pattern is now **in scope** as of the 2026-05-29 brainstorming session — locked as D15–D17 below.
+Both sources are in the same problem space (knowledge persistence for LLMs). Neither challenges the core approach. Arkeology is the right tool for its target use case: teams, cross-project sharing, AWS environments, semantic search at scale, immediate write-then-read consistency. The synthesis/wiki pattern is now **in scope** as of the 2026-05-29 brainstorming session — locked as D15–D17 below.
 
-**D15 — Synthesis lives as tier 3 artifacts in cairn-mcp ✅ Locked**
+**D15 — Synthesis lives as tier 3 artifacts in Arkeology ✅ Locked**
 
 Synthesis pages are stored as tier 3 shared artifacts with `type: synthesis`. They are living documents — overwritten when updated (tier 3 semantics). They participate in semantic search like any other artifact. No new infrastructure is required. `synthesis` is a first-class type in the type catalogue from day one.
 

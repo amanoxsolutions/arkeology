@@ -144,8 +144,8 @@ current session.
 | File | Action | Notes |
 |------|--------|-------|
 | `tests/unit/test_tools_propose_commit_links.py` | Create | Written first (Red) |
-| `src/cairn_mcp/tools/propose_commit_links.py` | Create | Written after unit tests (Green) |
-| `src/cairn_mcp/server.py` | Modify | Register `propose_commit_links` on `_app` |
+| `src/arkeology/tools/propose_commit_links.py` | Create | Written after unit tests (Green) |
+| `src/arkeology/server.py` | Modify | Register `propose_commit_links` on `_app` |
 
 ## Testing Approach
 

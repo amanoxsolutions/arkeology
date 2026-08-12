@@ -21,7 +21,7 @@ import uuid
 
 import pytest
 
-from cairn_mcp.clients.vectors import VectorsClientImpl
+from arkeology.clients.vectors import VectorsClientImpl
 
 pytestmark = pytest.mark.integration
 
@@ -51,7 +51,7 @@ def vectors_client() -> VectorsClientImpl:
 @pytest.fixture
 def test_key() -> str:
     """Generate a unique vector key for test isolation."""
-    return f"_cairn_integration_{uuid.uuid4().hex}"
+    return f"_arkeology_integration_{uuid.uuid4().hex}"
 
 
 def test_put_get_round_trip(
@@ -108,9 +108,9 @@ def test_query_vectors_scores_non_trivially_ordered(
     their scores are distinct and ordered near > mid > far.
     """
     query = _unit_vec(index_dimension)
-    near_key = f"_cairn_integration_{uuid.uuid4().hex}_near"
-    mid_key = f"_cairn_integration_{uuid.uuid4().hex}_mid"
-    far_key = f"_cairn_integration_{uuid.uuid4().hex}_far"
+    near_key = f"_arkeology_integration_{uuid.uuid4().hex}_near"
+    mid_key = f"_arkeology_integration_{uuid.uuid4().hex}_mid"
+    far_key = f"_arkeology_integration_{uuid.uuid4().hex}_far"
 
     def _vec_with_second_component(second: float) -> list[float]:
         values = [1.0, second] + [0.0] * (index_dimension - 2)
@@ -151,7 +151,7 @@ def test_hash_in_vector_key(vectors_client: VectorsClientImpl, index_dimension: 
     Integration checkpoint: document result in plan.md under Learnings.
     If '#' is invalid, '--' is the fallback separator.
     """
-    key_with_hash = f"_cairn_integration_{uuid.uuid4().hex}#section-1"
+    key_with_hash = f"_arkeology_integration_{uuid.uuid4().hex}#section-1"
     vec = _unit_vec(index_dimension)
     try:
         vectors_client.put_vector(key_with_hash, vec, {"type": "review"})

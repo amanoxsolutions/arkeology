@@ -1,4 +1,4 @@
-"""Unit tests for cairn_mcp.clients.credentials (Phase 12 review M-7).
+"""Unit tests for arkeology.clients.credentials (Phase 12 review M-7).
 
 Covers:
 - The newly-added botocore error codes classify as CredentialError.
@@ -12,14 +12,14 @@ Covers:
 import botocore.exceptions
 import pytest
 
-from cairn_mcp.clients.credentials import (
+from arkeology.clients.credentials import (
     CREDENTIAL_ERROR_CODES,
     is_annotation_unavailable_error,
     is_credential_error,
     wrap_credential_errors,
 )
-from cairn_mcp.clients.s3 import S3ClientImpl
-from cairn_mcp.errors import AnnotationUnavailableError, CredentialError
+from arkeology.clients.s3 import S3ClientImpl
+from arkeology.errors import AnnotationUnavailableError, CredentialError
 
 # ---------------------------------------------------------------------------
 # New credential error codes (M-7)

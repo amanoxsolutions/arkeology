@@ -30,7 +30,7 @@ known Pydantic boundary. All are low-risk, non-breaking, and safe to ship as one
 ### Story 1 — Server starts from source without crashing (P2)
 
 **Acceptance criteria:**
-- Given the `cairn-mcp` package is not installed (running from source with `uv run`),
+- Given the `arkeology` package is not installed (running from source with `uv run`),
   when the server starts, then `server_info.version` is `"0.0.0-dev"` and no exception
   is raised.
 
@@ -49,7 +49,7 @@ known Pydantic boundary. All are low-risk, non-breaking, and safe to ship as one
 
 ## Requirements
 
-- WHEN the `cairn-mcp` package is not installed THE SYSTEM SHALL report version as
+- WHEN the `arkeology` package is not installed THE SYSTEM SHALL report version as
   `"0.0.0-dev"` instead of raising `PackageNotFoundError`.
 - WHEN `startup.py` receives a non-numeric dimension value from `describe_index` THE
   SYSTEM SHALL raise `StartupValidationError` with a message including the bad value.
@@ -60,14 +60,14 @@ known Pydantic boundary. All are low-risk, non-breaking, and safe to ship as one
   file=sys.stderr)`.
 - WHEN `check_required_non_empty` receives a non-dict `values` THE SYSTEM SHALL log a
   warning and return `values` unchanged (never raise).
-- WHEN `CairnError` is defined THE SYSTEM SHALL be the base class of `CredentialError`,
+- WHEN `ArkeologyError` is defined THE SYSTEM SHALL be the base class of `CredentialError`,
   `StartupValidationError`, and `VectorIndexNotFoundError`; existing `except` clauses
   that catch the concrete subclasses SHALL continue to work unchanged.
 
 ## Boundaries
 
 **Always:**
-- `CairnError` must be backward-compatible — no change to any exception's public
+- `ArkeologyError` must be backward-compatible — no change to any exception's public
   attributes or constructor signature.
 - The `isinstance` guard in `check_required_non_empty` must never raise — only warn.
 - The `@field_validator("date")` must call `datetime.date.fromisoformat(v)` and re-raise
@@ -83,14 +83,14 @@ known Pydantic boundary. All are low-risk, non-breaking, and safe to ship as one
 | File | Action | Notes |
 |------|--------|-------|
 | `tests/unit/test_artifact.py` | Modify | Add tests for date validator (Red) before changing `artifact.py` |
-| `tests/unit/test_errors.py` | Modify | Add tests asserting `CairnError` base class (Red) before changing `errors.py` |
+| `tests/unit/test_errors.py` | Modify | Add tests asserting `ArkeologyError` base class (Red) before changing `errors.py` |
 | `tests/unit/test_startup.py` | Modify | Add test for bad dimension string (Red) before changing `startup.py` |
-| `src/cairn_mcp/artifact.py` | Modify | Add `@field_validator("date")` using `datetime.date.fromisoformat` |
-| `src/cairn_mcp/errors.py` | Modify | Add `CairnError(Exception)`; make existing exceptions inherit from it |
-| `src/cairn_mcp/startup.py` | Modify | Wrap `int(raw_dim)` in try/except; raise `StartupValidationError` |
-| `src/cairn_mcp/server.py` | Modify | Wrap `importlib.metadata.version` in `try/except PackageNotFoundError` |
-| `src/cairn_mcp/__main__.py` | Modify | Replace three `print(..., file=sys.stderr)` with `logger.critical/error` |
-| `src/cairn_mcp/config.py` | Modify | Add `isinstance` guard in `check_required_non_empty`; add `# type: ignore[misc]` comment at line 10 |
+| `src/arkeology/artifact.py` | Modify | Add `@field_validator("date")` using `datetime.date.fromisoformat` |
+| `src/arkeology/errors.py` | Modify | Add `ArkeologyError(Exception)`; make existing exceptions inherit from it |
+| `src/arkeology/startup.py` | Modify | Wrap `int(raw_dim)` in try/except; raise `StartupValidationError` |
+| `src/arkeology/server.py` | Modify | Wrap `importlib.metadata.version` in `try/except PackageNotFoundError` |
+| `src/arkeology/__main__.py` | Modify | Replace three `print(..., file=sys.stderr)` with `logger.critical/error` |
+| `src/arkeology/config.py` | Modify | Add `isinstance` guard in `check_required_non_empty`; add `# type: ignore[misc]` comment at line 10 |
 
 ## Testing Approach
 
@@ -102,9 +102,9 @@ known Pydantic boundary. All are low-risk, non-breaking, and safe to ship as one
 - Invalid date string `"2026-13-01"` (month 13) → `ValidationError` raised.
 
 **`tests/unit/test_errors.py` additions (before `errors.py` change):**
-- `isinstance(CredentialError(...), CairnError)` is `True`.
-- `isinstance(StartupValidationError(...), CairnError)` is `True`.
-- `isinstance(VectorIndexNotFoundError(...), CairnError)` is `True`.
+- `isinstance(CredentialError(...), ArkeologyError)` is `True`.
+- `isinstance(StartupValidationError(...), ArkeologyError)` is `True`.
+- `isinstance(VectorIndexNotFoundError(...), ArkeologyError)` is `True`.
 - `except CredentialError` still catches a `CredentialError` instance.
 
 **`tests/unit/test_startup.py` additions (before `startup.py` change):**
@@ -113,7 +113,7 @@ known Pydantic boundary. All are low-risk, non-breaking, and safe to ship as one
 - `describe_index` returns `{"dimensions": None}` → `StartupValidationError` raised.
 
 **`server.py` and `__main__.py` changes:** no new tests; confirm existing unit tests pass
-and `uv run cairn-mcp --help` does not raise `PackageNotFoundError`.
+and `uv run arkeology --help` does not raise `PackageNotFoundError`.
 
 ## Open Questions
 

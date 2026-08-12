@@ -1,4 +1,4 @@
-"""Unit tests for cairn_mcp.failure_log.
+"""Unit tests for arkeology.failure_log.
 
 Tests append_failure_entry() using tmp_path — no AWS calls.
 """
@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from cairn_mcp.failure_log import append_failure_entry
+from arkeology.failure_log import append_failure_entry
 
 # ---------------------------------------------------------------------------
 # Base entry fixture

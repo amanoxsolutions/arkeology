@@ -47,7 +47,7 @@ An operator notices the failure log has entries from a previous partial write. T
 and the summary tells them which artifacts were recovered.
 
 **Acceptance criteria:**
-- Given a `.cairn_failures.jsonl` file with one entry for an artifact whose S3 object
+- Given a `.arkeology_failures.jsonl` file with one entry for an artifact whose S3 object
   exists, when `reconcile_index` is called, then the artifact becomes searchable and the
   failure log entry is removed.
 - Given a failure log entry whose S3 object no longer exists, when `reconcile_index` is
@@ -143,9 +143,9 @@ An artifact is present in S3 under `WRITE_PREFIX` but has no entry in the vector
 | File | Action | Notes |
 |------|--------|-------|
 | `tests/unit/test_tools_reconcile.py` | Create | Written first (Red) — all unit tests against fakes |
-| `src/cairn_mcp/tools/reconcile.py` | Create | Written after unit tests pass (Green) |
+| `src/arkeology/tools/reconcile.py` | Create | Written after unit tests pass (Green) |
 | `tests/integration/test_tools_reconcile.py` | Create | Written after unit tests (Red for integration), implemented by the same tool |
-| `src/cairn_mcp/server.py` | Modify | Import and register `reconcile_index` inside `register_tools()` |
+| `src/arkeology/server.py` | Modify | Import and register `reconcile_index` inside `register_tools()` |
 
 ## Testing Approach
 

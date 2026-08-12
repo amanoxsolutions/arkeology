@@ -182,13 +182,13 @@ An agent needs all artifacts linked to a specific commit.
 |------|--------|-------|
 | `pyproject.toml` | Modify | Add `python-ulid` to runtime dependencies |
 | `tests/unit/test_artifact.py` | Modify | Add tests for `commit_refs` field on `Artifact` |
-| `src/cairn_mcp/artifact.py` | Modify | Add `commit_refs: list[str]` field |
+| `src/arkeology/artifact.py` | Modify | Add `commit_refs: list[str]` field |
 | `tests/unit/test_tools_write.py` | Modify | Add tests for `last_edited_ulid` in response, S3 metadata, and vector metadata; `commit_refs` round-trip |
-| `src/cairn_mcp/tools/write.py` | Modify | Generate ULID; add both fields to `s3_metadata` and `vector_metadata`; include `last_edited_ulid` in return dict |
+| `src/arkeology/tools/write.py` | Modify | Generate ULID; add both fields to `s3_metadata` and `vector_metadata`; include `last_edited_ulid` in return dict |
 | `tests/unit/test_tools_list.py` | Modify | Add tests for `commit_refs` filter and `last_edited_ulid` / `commit_refs` in response; absence-tolerant for legacy artifacts |
-| `src/cairn_mcp/tools/list.py` | Modify | Add `commit_refs` filter parameter; decode both fields in result dict |
+| `src/arkeology/tools/list.py` | Modify | Add `commit_refs` filter parameter; decode both fields in result dict |
 | `tests/unit/test_tools_read.py` | Modify | Replace S3-backed `commit_refs` tests with vector-backed equivalents; add tests for no-vectors and CredentialError paths; keep `last_edited_ulid` tests unchanged |
-| `src/cairn_mcp/tools/read.py` | Modify | Read `commit_refs` from first section vector's metadata via `list_vectors_by_metadata` + `get_vectors`; remove dead `meta.get("commit_refs", "")` S3 parse; `vectors` parameter is no longer discarded; include `commit_refs` and `last_edited_ulid` in return dict |
+| `src/arkeology/tools/read.py` | Modify | Read `commit_refs` from first section vector's metadata via `list_vectors_by_metadata` + `get_vectors`; remove dead `meta.get("commit_refs", "")` S3 parse; `vectors` parameter is no longer discarded; include `commit_refs` and `last_edited_ulid` in return dict |
 
 ## Testing Approach
 

@@ -33,7 +33,7 @@ a design decision is taken.
 
 ### Root cause diagnosis
 
-Reading `src/cairn_mcp/tools/write.py` and the client implementations reveals
+Reading `src/arkeology/tools/write.py` and the client implementations reveals
 four compounding bottlenecks.
 
 #### RC-1 — Sequential section embedding (dominant)
@@ -236,7 +236,7 @@ Trade-offs:
 - Error handling is more complex: partial successes must be reported per-artifact.
 - Large payload: a batch of 10 × 3 KB documents = 30 KB in a single MCP call.
   This is well within MCP message limits.
-- The migrate.py script in the migrating-to-cairn skill would be the primary
+- The migrate.py script in the migrating-to-arkeology skill would be the primary
   caller — it already has all metadata resolved before calling the server.
 
 **D2 — Async pipeline in `migrate.py` (skill-side, not server-side)**
@@ -382,7 +382,7 @@ batch put behavior.
 
 ### The question
 
-Can the migrating-to-cairn skill parallelize at the **document level** as well —
+Can the migrating-to-arkeology skill parallelize at the **document level** as well —
 running several agents simultaneously, each getting a batch of documents to write?
 Combined with P1 (section-level concurrent embedding), this gives two independent
 axes of parallelism:
@@ -398,15 +398,15 @@ Documents  ────┬── Batch A → write_artifact → ──┬── 
 ### Hard constraint: stdio transport
 
 The MCP stdio transport is a **one-client-one-server** channel. Each
-cairn-mcp process is connected to exactly one client via stdin/stdout. It is
+Arkeology process is connected to exactly one client via stdin/stdout. It is
 not a server that multiple clients can connect to simultaneously; it is a pipe.
 
 This has a concrete implication for parallel agents:
 
 | Scenario | What happens |
 |---|---|
-| Sub-agents share the parent's MCP connection | cairn-mcp tool calls are serialized through the parent's transport — LLM inference parallelizes but `write_artifact` calls do not |
-| Each sub-agent spawns its own cairn-mcp process | Full parallelism for both LLM and `write_artifact`; each instance runs startup validation (~1–2 s overhead) |
+| Sub-agents share the parent's MCP connection | Arkeology tool calls are serialized through the parent's transport — LLM inference parallelizes but `write_artifact` calls do not |
+| Each sub-agent spawns its own Arkeology process | Full parallelism for both LLM and `write_artifact`; each instance runs startup validation (~1–2 s overhead) |
 
 In opencode, the `task` tool spawns sub-agents with the same MCP tool
 definitions available. The exact multiplexing behavior (shared process vs.
@@ -416,7 +416,7 @@ or partial. Even partial (LLM inference only) is a meaningful win: description
 generation for a 3 KB file takes several seconds of LLM inference, which is
 parallelizable regardless of transport behavior.
 
-**S3 concurrent write safety:** Multiple cairn-mcp instances writing to the
+**S3 concurrent write safety:** Multiple Arkeology instances writing to the
 same S3 bucket simultaneously is safe. Each artifact gets a unique
 deterministic key; `PutObject` is atomic per key; two agents writing different
 documents never conflict. S3 Vectors `PutVector` behaves as an upsert —
@@ -453,7 +453,7 @@ Trade-offs:
   in-context), writing is parallel (API-bound, safe to parallelize).
 - Phase 1 adds no latency relative to today (it replaces the sequential
   read-then-write loop with a sequential read-only pass).
-- Requires the sub-agents to have cairn-mcp `write_artifact` access — if
+- Requires the sub-agents to have Arkeology `write_artifact` access — if
   not, they return descriptors to the main agent which writes them (partial
   win: only LLM inference parallelizes).
 - Batch size tuning: too small (1 per agent) → high spawn overhead; too large
@@ -468,7 +468,7 @@ Main agent collects all results then calls `write_artifact` sequentially
 (or with the future server-side bulk write tool).
 
 Trade-offs:
-- Works regardless of sub-agent MCP access — sub-agents never call cairn-mcp.
+- Works regardless of sub-agent MCP access — sub-agents never call Arkeology.
 - Parallelizes description generation (currently ~3–5 s per file of LLM
   inference) but not the API calls.
 - For 10 files: parallel enrichment ~5–10 s; sequential writes ~30–60 s.
@@ -476,7 +476,7 @@ Trade-offs:
 
 **X3 — Parallel agents + manifest coordination artifact**
 
-Main agent generates the full `CAIRN_IMPORT.yaml` manifest (all metadata
+Main agent generates the full `ARKEOLOGY_IMPORT.yaml` manifest (all metadata
 resolved, all descriptions written) and saves it to disk. Then spawns N
 sub-agents, each given a slice of the manifest path list. Sub-agents read
 their slice from the manifest, read the file content, and call `write_artifact`.
@@ -509,7 +509,7 @@ Trade-offs:
 - Parallelism is at the write call level (document-level) AND at the section
   embedding level (P1) — the full two-layer stack.
 - Requires migrate.py to call `write_artifact` via the MCP Python client
-  with async support, or to call the cairn-mcp Python API directly.
+  with async support, or to call the Arkeology Python API directly.
 - The agent's contribution reduces to: enrichment manifest → hand off to
   migrate.py. This is already how Path B works — just removes the 30-file
   gate.
@@ -558,7 +558,7 @@ Trade-offs:
   response list.
 - Requires significant server-side work (new tool, new test coverage,
   concurrency logic). Higher effort than skill changes.
-- The migrating-to-cairn skill and migrate.py both benefit: migrate.py's
+- The migrating-to-arkeology skill and migrate.py both benefit: migrate.py's
   asyncio loop is replaced by a single bulk call.
 
 ---
@@ -601,7 +601,7 @@ These two are **complementary, not competing**:
 
 **Challenge 1: Sub-agent MCP access (opencode task tool)**
 
-If sub-agents spawned by the `task` tool do not receive cairn-mcp MCP
+If sub-agents spawned by the `task` tool do not receive Arkeology MCP
 connections, X1 (sub-agents calling `write_artifact`) silently degrades to
 sub-agents returning metadata → main agent writes sequentially. The skill must
 detect this and have a fallback. Practical mitigation: the sub-agent prompt
@@ -682,8 +682,8 @@ but the order-of-magnitude improvement is robust.
 
 | Question | Impact | Resolution path |
 |---|---|---|
-| Do sub-agents spawned by `task` tool inherit cairn-mcp MCP connections? | High — determines whether X1 works at all | Test empirically; opencode docs or source |
-| Does each sub-agent share or spawn its own cairn-mcp process? | High — determines whether writes are truly concurrent | Same test as above |
+| Do sub-agents spawned by `task` tool inherit Arkeology MCP connections? | High — determines whether X1 works at all | Test empirically; opencode docs or source |
+| Does each sub-agent share or spawn its own Arkeology process? | High — determines whether writes are truly concurrent | Same test as above |
 | Does FastMCP's Python client support async `call_tool` for use in migrate.py? | Medium — needed for Y1 | FastMCP client source / docs |
 | What is the practical Bedrock TPS for Titan v2 in the target region? | Medium — informs semaphore defaults | AWS Service Quotas console |
 
@@ -833,7 +833,7 @@ Reference URLs:
 
 | Question | Impact | Resolution path |
 |---|---|---|
-| Do sub-agents spawned by `task` tool inherit cairn-mcp MCP connections? | High — determines whether L1 write parallelism works or falls back to metadata-return | Resolved in Session 4: Z1 makes this moot |
+| Do sub-agents spawned by `task` tool inherit Arkeology MCP connections? | High — determines whether L1 write parallelism works or falls back to metadata-return | Resolved in Session 4: Z1 makes this moot |
 | Is the 6,000 RPM quota enforced for embedding models or only listed? | Medium — determines whether RPM or TPM is the actual throttle trigger | Verify empirically or via AWS support |
 
 ---
@@ -852,7 +852,7 @@ problems that explain why the implemented design does not deliver the expected s
 ### Problem 1 — L1 sub-agent parallelism depends on an unverified topology assumption
 
 The L1 design assumed that sub-agents spawned via the `task` tool each receive their own
-cairn-mcp MCP connection (their own stdio pipe to their own server process). If true,
+Arkeology MCP connection (their own stdio pipe to their own server process). If true,
 three sub-agents give three independent write pipelines. The brainstorming flagged this as
 an open empirical question but the spec was written and implemented without resolving it.
 
@@ -861,7 +861,7 @@ an open empirical question but the spec was written and implemented without reso
 | Topology | What happens to write_artifact calls | L1 write parallelism |
 |---|---|---|
 | **Shared connection** (sub-agents share parent's MCP pipe) | All calls serialized through one pipe | None — only LLM enrichment parallelizes |
-| **Separate process per sub-agent** | Each call goes to its own cairn-mcp instance | Full — as designed |
+| **Separate process per sub-agent** | Each call goes to its own Arkeology instance | Full — as designed |
 
 Persistent performance problems after L1 implementation constitute empirical evidence that the
 shared-connection topology is the actual behaviour. In this topology L1 only parallelizes LLM
@@ -872,7 +872,7 @@ serial regardless of how many sub-agents are spawned.
 
 ### Problem 2 — migrate.py never received P1's section-level improvement
 
-When P1 was implemented in `src/cairn_mcp/tools/write.py` (concurrent embedding via
+When P1 was implemented in `src/arkeology/tools/write.py` (concurrent embedding via
 `asyncio.to_thread` + `asyncio.gather` + batched `put_vectors`), `migrate.py`'s own
 `write_artifact()` function was not updated. It contains the original sequential section
 loop:
@@ -913,7 +913,7 @@ introduced to improve performance is actively harmful compared to the baseline.
 `migrate.py` duplicates slug logic, section parsing, artifact-ID generation, embedding
 calls, and the entire write path. The P1 improvement demonstrates the failure mode: writing
 code twice means each improvement must be applied twice, and at least one copy will lag. The
-"must not import cairn_mcp" constraint in the L2 spec was not a deliberate product decision
+"must not import Arkeology" constraint in the L2 spec was not a deliberate product decision
 but an implicit consequence of the "PEP 723 self-contained script" framing — it was not
 reviewed as a constraint.
 
@@ -978,8 +978,8 @@ Server (inside the single call):
   extraction, and description generation via Bedrock Nova Lite. The script's output changes
   from "call AWS directly" to "call `write_artifacts` via MCP or Python API".
 
-- **"Must not import cairn_mcp" constraint is lifted.** This constraint was never a deliberate
-  decision. migrate.py is bundled with cairn-mcp and always has the package available. If
+- **"Must not import Arkeology" constraint is lifted.** This constraint was never a deliberate
+  decision. migrate.py is bundled with Arkeology and always has the package available. If
   migrate.py calls the Python API directly (importing `write_artifacts_inner` or equivalent),
   it avoids MCP transport entirely while sharing the single write path. Alternatively it can
   call via the FastMCP Python client SDK.
@@ -1072,9 +1072,9 @@ Two possible homes for this work:
 
 **Option A — Enrichment stays in migrate.py (script)**
 
-- migrate.py becomes enrichment-only: git dates, Nova Lite descriptions, CAIRN_ENRICHED.json output
+- migrate.py becomes enrichment-only: git dates, Nova Lite descriptions, ARKEOLOGY_ENRICHED.json output
 - Agent calls `write_artifacts` with the enriched manifest
-- Skill ships migrate.py (enrichment-only) + CAIRN_IMPORT.yaml schema
+- Skill ships migrate.py (enrichment-only) + ARKEOLOGY_IMPORT.yaml schema
 
 **Option B — Enrichment moves into `migrate_artifacts` server tool**
 
@@ -1124,9 +1124,9 @@ Option B eliminates the duplication identified in Problem 3 (Part 1). Option A c
 With `migrate_artifacts` handling both description generation and writing, the skill is fully script-free:
 
 - **Path A — agent-only (< 5 files):** agent reads files, generates descriptions in-context, calls `write_artifacts` once
-- **Path B — manifest + `migrate_artifacts` (≥ 5 files):** agent produces CAIRN_IMPORT.yaml (classification + git dates recovered via `git log`; no descriptions needed); agent calls `migrate_artifacts(manifest, dry_run=True)` to preview resolved metadata + generated descriptions → reviews → calls `migrate_artifacts(enriched_list, dry_run=False)` to write
-- No bundled scripts — `skills/migrating-to-cairn/SKILL.md` + `schema.yaml` only; `scripts/` directory deleted
-- CAIRN_IMPORT.yaml role changes: from "input to migrate.py script" to "agent-maintained classification and progress tracker" — failed artifacts can be retried by re-calling `migrate_artifacts` with only the failed entries
+- **Path B — manifest + `migrate_artifacts` (≥ 5 files):** agent produces ARKEOLOGY_IMPORT.yaml (classification + git dates recovered via `git log`; no descriptions needed); agent calls `migrate_artifacts(manifest, dry_run=True)` to preview resolved metadata + generated descriptions → reviews → calls `migrate_artifacts(enriched_list, dry_run=False)` to write
+- No bundled scripts — `skills/migrating-to-arkeology/SKILL.md` + `schema.yaml` only; `scripts/` directory deleted
+- ARKEOLOGY_IMPORT.yaml role changes: from "input to migrate.py script" to "agent-maintained classification and progress tracker" — failed artifacts can be retried by re-calling `migrate_artifacts` with only the failed entries
 
 ---
 
@@ -1135,8 +1135,8 @@ With `migrate_artifacts` handling both description generation and writing, the s
 With `migrate_artifacts` handling description generation server-side and the agent running `git log` directly:
 
 - migrate.py has no remaining responsibilities
-- The "must not import cairn_mcp" constraint is no longer relevant (script is gone)
-- `skills/migrating-to-cairn/scripts/` directory is deleted entirely
+- The "must not import Arkeology" constraint is no longer relevant (script is gone)
+- `skills/migrating-to-arkeology/scripts/` directory is deleted entirely
 
 ---
 

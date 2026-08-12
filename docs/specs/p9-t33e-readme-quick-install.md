@@ -28,15 +28,15 @@ revised:
 
 Add a "Quick install" section to the README that gives operators the one-line OpenCode
 snippet (SSH primary, HTTPS alternative) and the two-command Claude Code install, plus a
-short coexistence note confirming cairn-mcp's `cairn:` namespace does not collide with
+short coexistence note confirming Arkeology's `arkeology:` namespace does not collide with
 other installed plugins. This replaces the four-layer composability model from the
-reference project — cairn-mcp is a specific tool, not a personal engineering baseline, so
+reference project — Arkeology is a specific tool, not a personal engineering baseline, so
 the composability framing adds no value here.
 
 ## Problem Statement
 
 The README currently documents the server setup in detail but gives no quick-start for
-wiring the cairn-mcp skills into AI tools. Engineers who clone the repo to run the server
+wiring the Arkeology skills into AI tools. Engineers who clone the repo to run the server
 also need to know how to make the skills discoverable. The quick install section provides
 that in under 10 lines of content — enough for an engineer to be up and running without
 reading the full setup documentation, and short enough to sit at the top of the README
@@ -46,7 +46,7 @@ before the detailed sections.
 
 ### Story 1 — Engineer gets wired in under two minutes (P1)
 
-As a cairn-mcp operator who has already provisioned the AWS resources and started the
+As an Arkeology operator who has already provisioned the AWS resources and started the
 server, I read the Quick Install section and wire the skills into my AI tools without
 consulting any other documentation.
 
@@ -58,36 +58,36 @@ consulting any other documentation.
 ### Story 2 — Coexistence with other plugins is clear (P1)
 
 As an operator who already has another AI plugin installed (e.g. from a shared engineering
-plugin set), I confirm from the README that adding cairn-mcp's plugin does not break
+plugin set), I confirm from the README that adding Arkeology's plugin does not break
 anything already installed.
 
 **Acceptance criteria:**
 - Given the operator reads the Quick Install section, when they reach the coexistence note,
-  then they understand that `cairn:` is a distinct namespace that does not shadow or collide
+  then they understand that `arkeology:` is a distinct namespace that does not shadow or collide
   with skills from other installed plugins.
 
 ## Requirements
 
 - WHEN an engineer reads the Quick Install section THE SYSTEM SHALL provide:
   - The one-line OpenCode plugin snippet, SSH primary:
-    `"plugin": ["cairn-mcp@git+ssh://git@github.com/amanoxsolutions/cairn-mcp.git"]`
+    `"plugin": ["arkeology@git+ssh://git@github.com/amanoxsolutions/arkeology.git"]`
   - The HTTPS alternative clearly labelled (no SSH key required):
-    `"plugin": ["cairn-mcp@git+https://github.com/amanoxsolutions/cairn-mcp.git"]`
+    `"plugin": ["arkeology@git+https://github.com/amanoxsolutions/arkeology.git"]`
   - A note that the snippet goes in `~/.config/opencode/opencode.jsonc`.
   - The Claude Code install, SSH primary:
     ```
-    claude plugin marketplace add git@github.com:amanoxsolutions/cairn-mcp.git
-    claude plugin install cairn@cairn-mcp
+    claude plugin marketplace add git@github.com:amanoxsolutions/arkeology.git
+    claude plugin install arkeology@arkeology
     ```
   - The Claude Code HTTPS alternative clearly labelled (for environments where outbound
     SSH / port 22 is blocked):
     ```
-    claude plugin marketplace add https://github.com/amanoxsolutions/cairn-mcp.git
-    claude plugin install cairn@cairn-mcp
+    claude plugin marketplace add https://github.com/amanoxsolutions/arkeology.git
+    claude plugin install arkeology@arkeology
     ```
   - A note to run `./install.sh` to handle all wiring automatically (including GitHub
     Copilot via `gh skill install`).
-  - A coexistence note: the `cairn:` namespace does not collide with skills from other
+  - A coexistence note: the `arkeology:` namespace does not collide with skills from other
     plugins; both can be active simultaneously.
 - WHEN the section is rendered THE SYSTEM SHALL not require any placeholder substitution —
   all commands are literal and copy-paste-ready.
@@ -98,13 +98,13 @@ anything already installed.
 - Section lives in `README.md`, placed before the full server setup section so it is
   reachable without scrolling past configuration details.
 - All URLs use the **forward slash** after the hostname
-  (`git+ssh://git@github.com/amanoxsolutions/cairn-mcp.git`) — the SCP colon form is
+  (`git+ssh://git@github.com/amanoxsolutions/arkeology.git`) — the SCP colon form is
   invalid in Node.js and causes the plugin to silently never install.
 - The HTTPS alternative is always shown alongside the SSH form — not only in a footnote.
 - Commands match exactly what T33a, T33b, T33c specify — no invented or speculative syntax.
 
 **Never:**
-- No four-layer composability model — cairn-mcp is a specific tool, not a personal
+- No four-layer composability model — Arkeology is a specific tool, not a personal
   engineering baseline (D4).
 - No invented plugin registry URLs — all examples use the `git+ssh://` / `git+https://`
   pattern pointing at the real repo.
@@ -125,8 +125,8 @@ anything already installed.
 1. **Copy-paste check — OpenCode:** Add the printed plugin line verbatim to a test
    `opencode.jsonc`; restart OpenCode; confirm both skills are loadable.
 2. **Copy-paste check — Claude Code SSH:** Run the two printed `claude plugin` commands
-   using the SSH URL verbatim; confirm `/cairn:setting-up-cairn` and
-   `/cairn:migrating-to-cairn` appear.
+   using the SSH URL verbatim; confirm `/arkeology:setting-up-arkeology` and
+   `/arkeology:migrating-to-arkeology` appear.
 3. **Copy-paste check — Claude Code HTTPS:** Run the two printed `claude plugin` commands
    using the HTTPS URL verbatim; confirm the same two slash commands appear — confirms the
    HTTPS alternative is correct for SSH-blocked environments.
@@ -136,7 +136,7 @@ anything already installed.
 4. **No placeholders:** Review the section for any `YOUR-*`, `<placeholder>`, or
    `example.com` strings — none should be present.
 5. **Coexistence note accuracy:** If another plugin is installed (e.g. a shared engineering
-   plugin), confirm that adding the cairn-mcp plugin line alongside it and restarting
+   plugin), confirm that adding the Arkeology plugin line alongside it and restarting
    OpenCode makes both plugin's skills simultaneously available without error.
 
 ## Open Questions

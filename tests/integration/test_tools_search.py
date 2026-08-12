@@ -1,4 +1,4 @@
-"""Integration tests for cairn_mcp.tools.search.
+"""Integration tests for arkeology.tools.search.
 
 Requires real AWS credentials and configured .env file.
 Depends on T7 integration write tests having already seeded data.
@@ -7,13 +7,13 @@ All tests decorated with @pytest.mark.integration.
 
 import pytest
 
-from cairn_mcp.clients.bedrock import BedrockClientImpl
-from cairn_mcp.clients.s3 import S3ClientImpl
-from cairn_mcp.clients.vectors import VectorsClientImpl
-from cairn_mcp.config import Settings
-from cairn_mcp.tools.delete import delete_artifact
-from cairn_mcp.tools.search import search_artifacts
-from cairn_mcp.tools.write import write_artifact
+from arkeology.clients.bedrock import BedrockClientImpl
+from arkeology.clients.s3 import S3ClientImpl
+from arkeology.clients.vectors import VectorsClientImpl
+from arkeology.config import Settings
+from arkeology.tools.delete import delete_artifact
+from arkeology.tools.search import search_artifacts
+from arkeology.tools.write import write_artifact
 
 
 @pytest.fixture(scope="session")
@@ -59,7 +59,7 @@ async def test_write_then_search_finds_artifact(
     """Write 3 artifacts; search with related query; at least 1 appears in results."""
     base_kwargs = {
         "team": "platform",
-        "project": "cairn",
+        "project": "arkeology",
         "tier": 2,
         "date": "2026-05-30",
         "status": "active",

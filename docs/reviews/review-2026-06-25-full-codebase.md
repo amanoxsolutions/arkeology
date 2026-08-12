@@ -1,8 +1,8 @@
 ---
 type: code_review
-title: "Full source review of cairn-mcp (src/cairn_mcp)"
-description: "Whole-codebase review of the cairn-mcp MCP server — correctness, security, spec alignment, and maintainability across all 36 source files."
-tags: [code-review, cairn-mcp, full-review]
+title: "Full source review of Arkeology (src/arkeology)"
+description: "Whole-codebase review of the Arkeology MCP server — correctness, security, spec alignment, and maintainability across all 36 source files."
+tags: [code-review, Arkeology, full-review]
 timestamp: 2026-06-25T00:00:00Z
 okf_version: "0.1"
 status: draft
@@ -15,10 +15,10 @@ revised:
   date: 2026-06-29
 ---
 
-# Full source review of cairn-mcp (src/cairn_mcp)
+# Full source review of Arkeology (src/arkeology)
 
 ## Description
-A complete review of all 36 Python source files under `src/cairn_mcp/`, grounded in the
+A complete review of all 36 Python source files under `src/arkeology/`, grounded in the
 per-task feature specs (`docs/specs/`), `AGENTS.md` conventions, and non-negotiable rules.
 The review was conducted by partitioning the source into seven logical areas, reviewing each
 against its spec, and independently verifying every critical/major finding against the code.
@@ -32,7 +32,7 @@ clean, `mypy` clean, no `print()`/stdout writes anywhere in `src/`.
 - `AGENTS.md` (conventions + non-negotiable rules), `docs/architecture-decisions/overview.md`
 
 ## Files Reviewed
-All of `src/cairn_mcp/**.py` (domain/config, clients, all 17 tools, server, startup, resources).
+All of `src/arkeology/**.py` (domain/config, clients, all 17 tools, server, startup, resources).
 
 ## Findings
 
@@ -63,7 +63,7 @@ documented T42 waiver (a genuine FastMCP/MCP-SDK limitation). **No open majors o
   T44 were corrected on 2026-06-25 to document this branching behavior and rationale.
 - ✅ **RESOLVED (waiver) — resources.py `lastModified` annotation never emitted.** Verified
   against the pinned stack (FastMCP 3.4.2 + MCP SDK): a per-id `lastModified` on the
-  `cairn://artifact/{id}` **template** is not expressible — template annotations are static and
+  `arkeology://artifact/{id}` **template** is not expressible — template annotations are static and
   `TextResourceContents` has no `annotations` field. Recorded an explicit waiver in T42 (requirement,
   Story 1 AC, test bullets, and resolved the open question), and documented the retained, unit-tested
   `_artifact_last_modified` helper at its definition + the handler so it is no longer undocumented
@@ -167,7 +167,7 @@ requires Python 3.14. At most a minor readability note.)
   the whole migration — now isolated per-descriptor; **:11–12** docstring mislabels enrichment
   phase as "dry_run" — corrected; **server.py:271–274** `artifact_concurrency` not exposed on the
   MCP `migrate_artifacts` tool — parameter added.
-- ✅ **M21 FIXED 2026-06-29 — studio.py:33–97** no `_cairn_studio_inner` (inline try/except meets
+- ✅ **M21 FIXED 2026-06-29 — studio.py:33–97** no `_arkeology_studio_inner` (inline try/except meets
   the safety goal but not the documented `_inner` convention / T43 naming).
 - ✅ **M22 FIXED 2026-06-29 — health.py:120–121** `write_prefix` key absent on `CredentialError`;
   **:116–123** probe object can leak if `get_object`/`delete_object` fails — `finally` cleanup
@@ -205,7 +205,7 @@ requires Python 3.14. At most a minor readability note.)
   returns `validation_error`. M19: `propose_commit_links.py` comment added to document intentional
   `since_ulid` exclusion. M20: `migrate_artifacts.py` per-descriptor Nova Lite failure isolation;
   "dry_run phase" → "enrichment phase" in docstring; `artifact_concurrency` exposed on MCP tool in
-  `server.py`. M21: `studio.py` `_cairn_studio_inner` extracted following `_inner` convention.
+  `server.py`. M21: `studio.py` `_arkeology_studio_inner` extracted following `_inner` convention.
   M22: `health.py` `write_prefix` key set on `CredentialError` (was `pass`); `finally` block
   added for probe object cleanup. M23: `startup.py` non-credential `head_bucket`/`describe_index`
   errors now raise `StartupValidationError`; `CredentialError` propagates from check 6; `AGENTS.md`

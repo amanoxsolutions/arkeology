@@ -1,4 +1,4 @@
-"""Integration tests for cairn_mcp.tools.freshness.
+"""Integration tests for arkeology.tools.freshness.
 
 Requires real AWS credentials and configured .env file.
 All tests decorated with @pytest.mark.integration. Teardown uses delete_artifact
@@ -7,15 +7,15 @@ with confirm=True in try/finally — idempotent on already-deleted artifacts.
 
 import pytest
 
-from cairn_mcp.clients.bedrock import BedrockClientImpl
-from cairn_mcp.clients.s3 import S3ClientImpl
-from cairn_mcp.clients.vectors import VectorsClientImpl
-from cairn_mcp.config import Settings
-from cairn_mcp.tools.delete import delete_artifact
+from arkeology.clients.bedrock import BedrockClientImpl
+from arkeology.clients.s3 import S3ClientImpl
+from arkeology.clients.vectors import VectorsClientImpl
+from arkeology.config import Settings
+from arkeology.tools.delete import delete_artifact
 
-# Implementation import — will fail until src/cairn_mcp/tools/freshness.py is created
-from cairn_mcp.tools.freshness import check_synthesis_freshness
-from cairn_mcp.tools.write import write_artifact
+# Implementation import — will fail until src/arkeology/tools/freshness.py is created
+from arkeology.tools.freshness import check_synthesis_freshness
+from arkeology.tools.write import write_artifact
 
 # ---------------------------------------------------------------------------
 # Session-scoped AWS fixtures
@@ -61,7 +61,7 @@ def bedrock(settings: Settings) -> BedrockClientImpl:
 _SOURCE_KWARGS: dict = {
     "type": "implementation_note",
     "team": "platform",
-    "project": "cairn",
+    "project": "arkeology",
     "tier": 2,
     "status": "active",
     "description": "Integration test source artifact for freshness.",
@@ -72,7 +72,7 @@ _SOURCE_KWARGS: dict = {
 _SYNTHESIS_KWARGS: dict = {
     "type": "synthesis",
     "team": "platform",
-    "project": "cairn",
+    "project": "arkeology",
     "tier": 3,
     "status": "active",
     "description": "Integration test synthesis artifact for freshness.",

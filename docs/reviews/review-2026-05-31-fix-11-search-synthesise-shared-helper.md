@@ -67,7 +67,7 @@ in one copy must be manually applied to the other.
 - Follow the `public_fn / _inner` delegation pattern already in the codebase.
 
 **Decision (2026-05-31):**
-- Shared helper lives in `src/cairn_mcp/tools/_search_helper.py` (new private module).
+- Shared helper lives in `src/arkeology/tools/_search_helper.py` (new private module).
   Rationale: keeps `search.py` scoped to one tool; the single-underscore prefix follows
   Python convention for private modules; no `_helper.py` precedent exists in the tools
   directory so the new file makes the shared-implementation intent explicit without
@@ -83,9 +83,9 @@ in one copy must be manually applied to the other.
 |------|--------|-------|
 | `tests/unit/test_tools_search.py` | Modify | Add edge-case test for shared helper if new path introduced; verify existing tests still pass |
 | `tests/unit/test_tools_synthesise.py` | Modify | Add edge-case test for shared helper if new path introduced; verify existing tests still pass |
-| `src/cairn_mcp/tools/search.py` | Modify | Extract scope-filter + deduplicating re-fetch loop into helper; `search_artifacts` calls it |
-| `src/cairn_mcp/tools/synthesise.py` | Modify | Replace copy-pasted loop with call to shared helper |
-| `src/cairn_mcp/tools/_search_helper.py` | Create (if chosen) | Alternative: shared helper in its own module |
+| `src/arkeology/tools/search.py` | Modify | Extract scope-filter + deduplicating re-fetch loop into helper; `search_artifacts` calls it |
+| `src/arkeology/tools/synthesise.py` | Modify | Replace copy-pasted loop with call to shared helper |
+| `src/arkeology/tools/_search_helper.py` | Create (if chosen) | Alternative: shared helper in its own module |
 
 ## Testing Approach
 
@@ -96,9 +96,9 @@ edge case the helper introduces that was not covered before, then implement.
 |-------|------|---------|
 | 1 | `tests/unit/test_tools_search.py` | Add/verify helper edge cases (Red if new) |
 | 2 | `tests/unit/test_tools_synthesise.py` | Add/verify helper edge cases (Red if new) |
-| 3 | `src/cairn_mcp/tools/_search_helper.py` (or `search.py`) | Implement shared helper (Green) |
-| 4 | `src/cairn_mcp/tools/search.py` | Refactor to use helper |
-| 5 | `src/cairn_mcp/tools/synthesise.py` | Replace duplicate loop with helper call |
+| 3 | `src/arkeology/tools/_search_helper.py` (or `search.py`) | Implement shared helper (Green) |
+| 4 | `src/arkeology/tools/search.py` | Refactor to use helper |
+| 5 | `src/arkeology/tools/synthesise.py` | Replace duplicate loop with helper call |
 
 All existing unit tests must remain green after every step.
 

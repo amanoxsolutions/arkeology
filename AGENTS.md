@@ -1,23 +1,23 @@
-# cairn-mcp
+# Arkeology
 
 ## Overview
-cairn-mcp is a Python MCP server that gives AI agents persistent artifact memory backed by AWS S3
+Arkeology is a Python MCP server that gives AI agents persistent artifact memory backed by AWS S3
 (durable content storage), AWS S3 Vectors (vector embeddings + metadata filtering), and Amazon
 Bedrock (embeddings via Titan Text v2). Agents connect via MCP to write, search, and recall
 structured artifacts — code reviews, ADRs, implementation notes, specs, session summaries — across
 sessions and across team boundaries. It directly resolves the tier 2 artifact gap from the F3.2
 research: knowledge produced in one agent session is no longer discarded when the context window
 closes. Any agent or workflow that depends on recalled context relies on this server; if it is
-unavailable or misconfigured, all persisted memory is inaccessible. The `cairn_studio`
+unavailable or misconfigured, all persisted memory is inaccessible. The `arkeology_studio`
 tool is the human reading entry point — it renders a visual two-pane artifact browser
 inline in supporting MCP hosts (Claude Desktop, claude.ai, VS Code Copilot) and falls
-back to a plain-text listing on non-supporting hosts. When `cairn_studio` is active and
+back to a plain-text listing on non-supporting hosts. When `arkeology_studio` is active and
 the browser UI triggers `read_artifact`, `list_artifacts`, or `search_artifacts` on behalf
 of a user interaction, do not summarize, reformat, or interpret the tool result — the
-browser UI handles rendering; Claude's role ends after the initial `cairn_studio` invocation.
+browser UI handles rendering; Claude's role ends after the initial `arkeology_studio` invocation.
 
 ## Project
-- **Name:** cairn-mcp
+- **Name:** Arkeology
 - **Type:** mcp-server
 - **Description:** MCP server for persistent artifact memory powered by AWS S3, S3 Vectors, and Bedrock embeddings
 
@@ -49,48 +49,48 @@ browser UI handles rendering; Claude's role ends after the initial `cairn_studio
 
 | Path                              | Purpose                                                    |
 |-----------------------------------|------------------------------------------------------------|
-| `src/cairn_mcp/`                  | MCP server source                                          |
-| `src/cairn_mcp/__init__.py`       | Package marker (empty)                                     |
-| `src/cairn_mcp/__main__.py`       | Entry point: logging, config, clients, startup, server     |
-| `src/cairn_mcp/annotations.py`    | Shared helpers for the annotation-backed durable copy of `commit_refs`/`references` |
-| `src/cairn_mcp/artifact.py`       | Artifact model, key generation, section parsing            |
-| `src/cairn_mcp/config.py`         | Settings (pydantic-settings, all env vars)                 |
-| `src/cairn_mcp/constants.py`      | Centralised string-literal constants: error codes, artifact status values |
-| `src/cairn_mcp/errors.py`         | Typed exceptions: CairnError, CredentialError, etc.        |
-| `src/cairn_mcp/failure_log.py`    | Failure log helper: append_failure_entry, JSONL format     |
-| `src/cairn_mcp/references.py`     | Pure migration reference-resolution helpers (AWS-free, I/O-free) |
-| `src/cairn_mcp/resources.py`      | FastMCP resource registrations                             |
-| `src/cairn_mcp/server.py`         | FastMCP app, tool registration                             |
-| `src/cairn_mcp/startup.py`        | Seven-check startup validation sequence                    |
-| `src/cairn_mcp/tools/`            | MCP tool implementations (write, search, read, and more)   |
-| `src/cairn_mcp/tools/_search_helper.py` | Shared vector re-fetch loop used by search + synthesise |
-| `src/cairn_mcp/tools/_section_pipeline.py` | Shared write-path section embedding pipeline (min-length filter, max-sections cap, truncation) — used by `write.py` and `reconcile.py` |
-| `src/cairn_mcp/tools/archive.py`  | archive_artifact MCP tool                                  |
-| `src/cairn_mcp/tools/studio.py`   | cairn_studio MCP tool — UI extension + plain-text fallback |
-| `src/cairn_mcp/tools/delete.py`   | delete_artifact MCP tool                                   |
-| `src/cairn_mcp/tools/freshness.py`| check_synthesis_freshness MCP tool                         |
-| `src/cairn_mcp/tools/health.py`   | health_check MCP tool                                      |
-| `src/cairn_mcp/tools/link_metadata.py` | link_metadata MCP tool — backfills `commit_refs`/`references` without re-embedding (was `link_commit.py`) |
-| `src/cairn_mcp/tools/list.py`     | list_artifacts MCP tool                                    |
-| `src/cairn_mcp/tools/migrate_artifacts.py` | migrate_artifacts MCP tool — bulk migration write with Nova Lite description enrichment |
-| `src/cairn_mcp/tools/propose_commit_links.py` | propose_commit_links MCP tool — read-only discovery of unlinked own-scope artifacts |
-| `src/cairn_mcp/tools/purge.py`    | purge_archived MCP tool                                    |
-| `src/cairn_mcp/tools/read.py`     | read_artifact MCP tool                                     |
-| `src/cairn_mcp/tools/reconcile.py`| reconcile_index MCP tool                                   |
-| `src/cairn_mcp/tools/search.py`   | search_artifacts MCP tool                                  |
-| `src/cairn_mcp/tools/synthesise.py` | synthesise_artifacts MCP tool                            |
-| `src/cairn_mcp/tools/write.py`    | write_artifact MCP tool                                    |
-| `src/cairn_mcp/tools/write_artifacts.py` | write_artifacts MCP tool — bulk concurrent write bounded by caller-supplied `artifact_concurrency` |
-| `src/cairn_mcp/static/cairn-studio.html` | Self-contained HTML/JS MCP App: single-pane, view-switching browser (list view ↔ detail view) with faceted filter, artifact list, markdown + mermaid rendering, semantic search |
-| `src/cairn_mcp/clients/`          | AWS client interfaces, implementations, fakes, filter      |
-| `src/cairn_mcp/clients/interfaces.py` | Protocol interfaces for S3, S3 Vectors, Bedrock        |
-| `src/cairn_mcp/clients/s3.py`     | Concrete boto3 S3 client, incl. object-annotation put/get/list/delete |
-| `src/cairn_mcp/clients/vectors.py`| Concrete boto3 S3 Vectors client                           |
-| `src/cairn_mcp/clients/bedrock.py`| Concrete boto3 Bedrock embeddings client                   |
-| `src/cairn_mcp/clients/credentials.py` | Credential error code detection helper                |
-| `src/cairn_mcp/clients/filter.py` | In-process metadata filter evaluator ($eq, $in, $nin, …)   |
-| `src/cairn_mcp/clients/fakes/`    | `FakeBedrockClient` only — S3 and S3 Vectors are mocked via moto |
-| `src/cairn_mcp/clients/fakes/fake_bedrock.py` | Deterministic hash-derived embeddings fake for tests |
+| `src/arkeology/`                  | MCP server source                                          |
+| `src/arkeology/__init__.py`       | Package marker (empty)                                     |
+| `src/arkeology/__main__.py`       | Entry point: logging, config, clients, startup, server     |
+| `src/arkeology/annotations.py`    | Shared helpers for the annotation-backed durable copy of `commit_refs`/`references` |
+| `src/arkeology/artifact.py`       | Artifact model, key generation, section parsing            |
+| `src/arkeology/config.py`         | Settings (pydantic-settings, all env vars)                 |
+| `src/arkeology/constants.py`      | Centralised string-literal constants: error codes, artifact status values |
+| `src/arkeology/errors.py`         | Typed exceptions: ArkeologyError, CredentialError, etc.        |
+| `src/arkeology/failure_log.py`    | Failure log helper: append_failure_entry, JSONL format     |
+| `src/arkeology/references.py`     | Pure migration reference-resolution helpers (AWS-free, I/O-free) |
+| `src/arkeology/resources.py`      | FastMCP resource registrations                             |
+| `src/arkeology/server.py`         | FastMCP app, tool registration                             |
+| `src/arkeology/startup.py`        | Seven-check startup validation sequence                    |
+| `src/arkeology/tools/`            | MCP tool implementations (write, search, read, and more)   |
+| `src/arkeology/tools/_search_helper.py` | Shared vector re-fetch loop used by search + synthesise |
+| `src/arkeology/tools/_section_pipeline.py` | Shared write-path section embedding pipeline (min-length filter, max-sections cap, truncation) — used by `write.py` and `reconcile.py` |
+| `src/arkeology/tools/archive.py`  | archive_artifact MCP tool                                  |
+| `src/arkeology/tools/studio.py`   | arkeology_studio MCP tool — UI extension + plain-text fallback |
+| `src/arkeology/tools/delete.py`   | delete_artifact MCP tool                                   |
+| `src/arkeology/tools/freshness.py`| check_synthesis_freshness MCP tool                         |
+| `src/arkeology/tools/health.py`   | health_check MCP tool                                      |
+| `src/arkeology/tools/link_metadata.py` | link_metadata MCP tool — backfills `commit_refs`/`references` without re-embedding (was `link_commit.py`) |
+| `src/arkeology/tools/list.py`     | list_artifacts MCP tool                                    |
+| `src/arkeology/tools/migrate_artifacts.py` | migrate_artifacts MCP tool — bulk migration write with Nova Lite description enrichment |
+| `src/arkeology/tools/propose_commit_links.py` | propose_commit_links MCP tool — read-only discovery of unlinked own-scope artifacts |
+| `src/arkeology/tools/purge.py`    | purge_archived MCP tool                                    |
+| `src/arkeology/tools/read.py`     | read_artifact MCP tool                                     |
+| `src/arkeology/tools/reconcile.py`| reconcile_index MCP tool                                   |
+| `src/arkeology/tools/search.py`   | search_artifacts MCP tool                                  |
+| `src/arkeology/tools/synthesise.py` | synthesise_artifacts MCP tool                            |
+| `src/arkeology/tools/write.py`    | write_artifact MCP tool                                    |
+| `src/arkeology/tools/write_artifacts.py` | write_artifacts MCP tool — bulk concurrent write bounded by caller-supplied `artifact_concurrency` |
+| `src/arkeology/static/arkeology-studio.html` | Self-contained HTML/JS MCP App: single-pane, view-switching browser (list view ↔ detail view) with faceted filter, artifact list, markdown + mermaid rendering, semantic search |
+| `src/arkeology/clients/`          | AWS client interfaces, implementations, fakes, filter      |
+| `src/arkeology/clients/interfaces.py` | Protocol interfaces for S3, S3 Vectors, Bedrock        |
+| `src/arkeology/clients/s3.py`     | Concrete boto3 S3 client, incl. object-annotation put/get/list/delete |
+| `src/arkeology/clients/vectors.py`| Concrete boto3 S3 Vectors client                           |
+| `src/arkeology/clients/bedrock.py`| Concrete boto3 Bedrock embeddings client                   |
+| `src/arkeology/clients/credentials.py` | Credential error code detection helper                |
+| `src/arkeology/clients/filter.py` | In-process metadata filter evaluator ($eq, $in, $nin, …)   |
+| `src/arkeology/clients/fakes/`    | `FakeBedrockClient` only — S3 and S3 Vectors are mocked via moto |
+| `src/arkeology/clients/fakes/fake_bedrock.py` | Deterministic hash-derived embeddings fake for tests |
 | `tests/unit/`                     | Unit tests (moto + `FakeBedrockClient`, no real AWS)       |
 | `tests/unit/conftest.py`          | moto `query_vectors` extension + shared fixtures (settings, aws_mock, s3_client, vectors_client_*) |
 | `tests/unit/clients/test_moto_query_vectors_extension.py` | Verifies the cosine-similarity moto extension |
@@ -150,14 +150,14 @@ one makes all persisted memory inaccessible:
 ## Working Conventions
 
 - **PRD describes what, never how** — no env var names, file names, paths, CLI flags, or formula strings anywhere in the PRD; describe observable behaviours and constraints only
-- All new tool functions go in `src/cairn_mcp/tools/<name>.py`; register on `_app` in `server.py` via `register_tools()`
+- All new tool functions go in `src/arkeology/tools/<name>.py`; register on `_app` in `server.py` via `register_tools()`
 - Tool functions receive `settings`, `s3`, `vectors`, `bedrock` as injected dependencies — never import clients directly
 - `ARTIFACT_TYPES` in `artifact.py` is the single source of truth for valid artifact types — never duplicate it elsewhere
 - All metadata stored in S3 object metadata is string-valued; lists (`tags`, `source_artifacts`) are comma-joined
 - Vector metadata stores `tags` as `list[str]` (enables `$eq` element-in-list filtering); S3 object metadata stores them as a comma-joined string — these are intentionally different representations
 - Scope check always uses `artifact_id.startswith(scope + "/")` — never bare `startswith(scope)` (prevents false prefix matches where a scope `"team-a"` would incorrectly match `"team-abc/..."`)
 - Tier 2 artifact IDs are date-anchored: `{type_slug}-{date}-{title_slug}-{hash}`; tier 3 are date-independent: `{type_slug}-{title_slug}-{hash}` — `hash` is a deterministic 8-hex-char SHA-256 prefix of the full original title, always appended, and disambiguates the empty-slug/truncation/punctuation-collapse collision classes — do not alter this scheme. A write whose generated key already exists is rejected by default (`validation_error`); pass the `overwrite` flag to intentionally replace it
-- Client interfaces in `src/cairn_mcp/clients/interfaces.py` use `typing.Protocol` — concrete implementations (`s3.py`, `vectors.py`, `bedrock.py`) and fakes satisfy the structural contract without inheriting from the interface class; never add `ABC` or `abstractmethod` to client code
+- Client interfaces in `src/arkeology/clients/interfaces.py` use `typing.Protocol` — concrete implementations (`s3.py`, `vectors.py`, `bedrock.py`) and fakes satisfy the structural contract without inheriting from the interface class; never add `ABC` or `abstractmethod` to client code
 - Vector client methods use the parameter name `filter_expr` (not `filter`) — never use the bare name `filter` in vector client calls; `filter` is a Python builtin and the rename avoids shadowing it
 - `SECTION_CONCURRENCY`, `EMBED_MAX_SECTIONS`, and `EMBED_MIN_SECTION_LENGTH` control write-path embedding behaviour; all three are validated at startup — setting any to an out-of-range value prevents the server from starting
 
@@ -209,7 +209,7 @@ uv run pytest tests/unit/ -q -m 'not integration'    # must pass
 uv run ruff check src/ tests/                        # must be clean
 uv run ruff format --check src/ tests/               # must be clean
 uv run mypy src/                                     # must be clean
-uv run cairn-mcp                                     # must start without error (requires .env)
+uv run arkeology                                     # must start without error (requires .env)
 ```
 
 Integration tests (require real AWS credentials in `.env`):

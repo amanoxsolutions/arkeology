@@ -125,7 +125,7 @@ without a docs-root discovery step.
 
 | File | Action | Notes |
 |------|--------|-------|
-| `skills/migrating-to-cairn/SKILL.md` | Modify | Replace the docs-root discovery sub-step and the old directory table with the two-pass system described below |
+| `skills/migrating-to-arkeology/SKILL.md` | Modify | Replace the docs-root discovery sub-step and the old directory table with the two-pass system described below |
 
 ## Exact replacement
 
@@ -192,7 +192,7 @@ sensitive.
 This is a pure skill (markdown) update — no Python source files or unit tests are
 involved. Verification is by inspection:
 
-1. Read the updated `skills/migrating-to-cairn/SKILL.md` Step 2 section and confirm:
+1. Read the updated `skills/migrating-to-arkeology/SKILL.md` Step 2 section and confirm:
    - The docs-root discovery sub-step (the 5-bullet list) is gone
    - Pass 1 filename table is present and matches the spec exactly
    - Pass 2 path segment table is present with all aliases from the spec

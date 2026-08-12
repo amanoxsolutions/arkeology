@@ -86,12 +86,12 @@ shadowed variable name in `search.py` reduces clarity.
 | `tests/unit/test_tools_search.py` | Modify | Add test for `clamped: true` field in response (Red before m18 change) |
 | `tests/unit/test_tools_list.py` | Modify | Add test asserting `source_artifacts` in result dict (Red before m19 change) |
 | `tests/unit/test_tools_synthesise.py` | Modify | Add test for `clamped: true` field in response (Red before m18 change) |
-| `src/cairn_mcp/tools/write.py` | Modify | M13: pass `is_new_artifact` flag; m17: extract `_embed_with_retry` helper |
-| `src/cairn_mcp/tools/search.py` | Modify | m18: add `clamped`/`effective_top_k` to response; m25: rename shadowed `data` variable |
-| `src/cairn_mcp/tools/list.py` | Modify | m19: add `source_artifacts` to result dict |
-| `src/cairn_mcp/tools/synthesise.py` | Modify | m18: add `clamped`/`effective_top_k` to response |
-| `src/cairn_mcp/tools/reconcile.py` | Modify | m20: rename `line` → `raw_line` / `entry_line` to remove shadow |
-| `src/cairn_mcp/tools/freshness.py` | Modify | m21, m22: add inline comments only — no logic change |
+| `src/arkeology/tools/write.py` | Modify | M13: pass `is_new_artifact` flag; m17: extract `_embed_with_retry` helper |
+| `src/arkeology/tools/search.py` | Modify | m18: add `clamped`/`effective_top_k` to response; m25: rename shadowed `data` variable |
+| `src/arkeology/tools/list.py` | Modify | m19: add `source_artifacts` to result dict |
+| `src/arkeology/tools/synthesise.py` | Modify | m18: add `clamped`/`effective_top_k` to response |
+| `src/arkeology/tools/reconcile.py` | Modify | m20: rename `line` → `raw_line` / `entry_line` to remove shadow |
+| `src/arkeology/tools/freshness.py` | Modify | m21, m22: add inline comments only — no logic change |
 
 ## Testing Approach
 

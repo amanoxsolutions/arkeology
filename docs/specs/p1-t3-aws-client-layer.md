@@ -74,7 +74,7 @@ Every boto3 client is configured to use HTTPS endpoints. An unencrypted connecti
 **Always:**
 - Three interfaces, three concrete implementations, three fakes — one per AWS service (S3, S3 Vectors, Bedrock).
 - Interfaces are abstract base classes (Python `abc.ABC`, `abc.abstractmethod`).
-- Fakes live under `src/cairn_mcp/clients/fakes/` and are used exclusively in tests — never imported in production code paths.
+- Fakes live under `src/arkeology/clients/fakes/` and are used exclusively in tests — never imported in production code paths.
 - Fakes must implement every method on their corresponding interface — incomplete fakes cause unit test gaps.
 - `CredentialError` is defined in `errors.py` and imported by the clients — it does not live inside the `clients/` package.
 - The credential error wrapping is in the concrete client methods, not in the abstract interface.
@@ -95,16 +95,16 @@ Every boto3 client is configured to use HTTPS endpoints. An unencrypted connecti
 
 | File | Action | Notes |
 |------|--------|-------|
-| `src/cairn_mcp/errors.py` | Create | Defines `CredentialError` and other base error types |
-| `src/cairn_mcp/clients/__init__.py` | Create | Empty package marker |
-| `src/cairn_mcp/clients/interfaces.py` | Create | Abstract base classes for all three clients |
-| `src/cairn_mcp/clients/s3.py` | Create | Concrete S3 boto3 implementation |
-| `src/cairn_mcp/clients/vectors.py` | Create | Concrete S3 Vectors boto3 implementation |
-| `src/cairn_mcp/clients/bedrock.py` | Create | Concrete Bedrock boto3 implementation |
-| `src/cairn_mcp/clients/fakes/__init__.py` | Create | Empty package marker |
-| `src/cairn_mcp/clients/fakes/fake_s3.py` | Create | In-memory S3 fake |
-| `src/cairn_mcp/clients/fakes/fake_vectors.py` | Create | In-memory S3 Vectors fake |
-| `src/cairn_mcp/clients/fakes/fake_bedrock.py` | Create | Deterministic embedding fake |
+| `src/arkeology/errors.py` | Create | Defines `CredentialError` and other base error types |
+| `src/arkeology/clients/__init__.py` | Create | Empty package marker |
+| `src/arkeology/clients/interfaces.py` | Create | Abstract base classes for all three clients |
+| `src/arkeology/clients/s3.py` | Create | Concrete S3 boto3 implementation |
+| `src/arkeology/clients/vectors.py` | Create | Concrete S3 Vectors boto3 implementation |
+| `src/arkeology/clients/bedrock.py` | Create | Concrete Bedrock boto3 implementation |
+| `src/arkeology/clients/fakes/__init__.py` | Create | Empty package marker |
+| `src/arkeology/clients/fakes/fake_s3.py` | Create | In-memory S3 fake |
+| `src/arkeology/clients/fakes/fake_vectors.py` | Create | In-memory S3 Vectors fake |
+| `src/arkeology/clients/fakes/fake_bedrock.py` | Create | Deterministic embedding fake |
 | `tests/unit/clients/test_fake_s3.py` | Create | Full interface coverage via fake |
 | `tests/unit/clients/test_fake_vectors.py` | Create | Full interface coverage via fake |
 | `tests/unit/clients/test_fake_bedrock.py` | Create | Full interface coverage via fake |

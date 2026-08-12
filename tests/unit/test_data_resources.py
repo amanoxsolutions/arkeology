@@ -1,4 +1,4 @@
-"""Unit tests for cairn_mcp data resources (cairn://artifact/{id*} and cairn://artifacts).
+"""Unit tests for arkeology data resources (arkeology://artifact/{id*} and arkeology://artifacts).
 
 Tests verify registration, content delivery, cross-scope gate, and lastModified annotation
 using moto-backed clients and FakeBedrockClient.
@@ -9,14 +9,14 @@ import asyncio
 import fastmcp
 import pytest
 
-from cairn_mcp.artifact import generate_artifact_id
-from cairn_mcp.clients.fakes.fake_bedrock import FakeBedrockClient
-from cairn_mcp.clients.s3 import S3ClientImpl
-from cairn_mcp.clients.vectors import VectorsClientImpl
-from cairn_mcp.config import Settings
-from cairn_mcp.references import ManifestEntry, build_path_to_id_map
-from cairn_mcp.resources import register_data_resources
-from cairn_mcp.tools.write import write_artifact
+from arkeology.artifact import generate_artifact_id
+from arkeology.clients.fakes.fake_bedrock import FakeBedrockClient
+from arkeology.clients.s3 import S3ClientImpl
+from arkeology.clients.vectors import VectorsClientImpl
+from arkeology.config import Settings
+from arkeology.references import ManifestEntry, build_path_to_id_map
+from arkeology.resources import register_data_resources
+from arkeology.tools.write import write_artifact
 from tests.unit.conftest import _make_settings
 
 # ---------------------------------------------------------------------------
@@ -26,7 +26,7 @@ from tests.unit.conftest import _make_settings
 _OWN_SCOPE_WRITE_KWARGS: dict = {
     "type": "implementation_note",
     "team": "platform",
-    "project": "cairn",
+    "project": "arkeology",
     "tier": 2,
     "date": "2026-06-23",
     "status": "active",
@@ -70,7 +70,7 @@ def bedrock_1024() -> FakeBedrockClient:
 
 
 # ---------------------------------------------------------------------------
-# Test 1: cairn://artifact/{id} URI template present in templates list
+# Test 1: arkeology://artifact/{id} URI template present in templates list
 # ---------------------------------------------------------------------------
 
 
@@ -80,9 +80,9 @@ def test_register_data_resources_artifact_template_uri_present(
     vectors_client_8: VectorsClientImpl,
     bedrock_8: FakeBedrockClient,
 ) -> None:
-    """After register_data_resources, cairn://artifact/{id} appears in the template list."""
+    """After register_data_resources, arkeology://artifact/{id} appears in the template list."""
     # Arrange
-    app = fastmcp.FastMCP(name="test-cairn", version="0.0.0")
+    app = fastmcp.FastMCP(name="test-arkeology", version="0.0.0")
 
     # Act
     register_data_resources(app, settings, s3_client, vectors_client_8, bedrock_8)
@@ -92,13 +92,13 @@ def test_register_data_resources_artifact_template_uri_present(
     # rather than truncated at the first path segment (review finding C1).
     templates = asyncio.run(app._list_resource_templates())  # type: ignore[attr-defined]
     template_uris = {str(t.uri_template) for t in templates}
-    assert "cairn://artifact/{id*}" in template_uris, (
-        f"Expected 'cairn://artifact/{{id*}}' in templates, got: {template_uris}"
+    assert "arkeology://artifact/{id*}" in template_uris, (
+        f"Expected 'arkeology://artifact/{{id*}}' in templates, got: {template_uris}"
     )
 
 
 # ---------------------------------------------------------------------------
-# Test 2: cairn://artifacts static URI present in resources list
+# Test 2: arkeology://artifacts static URI present in resources list
 # ---------------------------------------------------------------------------
 
 
@@ -108,9 +108,9 @@ def test_register_data_resources_artifacts_static_uri_present(
     vectors_client_8: VectorsClientImpl,
     bedrock_8: FakeBedrockClient,
 ) -> None:
-    """After register_data_resources, cairn://artifacts appears in the resource list."""
+    """After register_data_resources, arkeology://artifacts appears in the resource list."""
     # Arrange
-    app = fastmcp.FastMCP(name="test-cairn", version="0.0.0")
+    app = fastmcp.FastMCP(name="test-arkeology", version="0.0.0")
 
     # Act
     register_data_resources(app, settings, s3_client, vectors_client_8, bedrock_8)
@@ -118,13 +118,13 @@ def test_register_data_resources_artifacts_static_uri_present(
     # Assert
     resources = asyncio.run(app._list_resources())  # type: ignore[attr-defined]
     resource_uris = {str(r.uri) for r in resources}
-    assert "cairn://artifacts" in resource_uris, (
-        f"Expected 'cairn://artifacts' in resources, got: {resource_uris}"
+    assert "arkeology://artifacts" in resource_uris, (
+        f"Expected 'arkeology://artifacts' in resources, got: {resource_uris}"
     )
 
 
 # ---------------------------------------------------------------------------
-# Test 3: cairn://artifact/{id} returns markdown content for own-scope artifact
+# Test 3: arkeology://artifact/{id} returns markdown content for own-scope artifact
 # ---------------------------------------------------------------------------
 
 
@@ -135,7 +135,7 @@ async def test_artifact_resource_returns_markdown_content(
     vectors_client: VectorsClientImpl,
     bedrock_1024: FakeBedrockClient,
 ) -> None:
-    """Reading cairn://artifact/{id} for a known own-scope artifact returns markdown content."""
+    """Reading arkeology://artifact/{id} for a known own-scope artifact returns markdown content."""
     # Arrange — write an own-scope artifact
     result = await write_artifact(
         settings=settings,
@@ -147,7 +147,7 @@ async def test_artifact_resource_returns_markdown_content(
     assert "artifact_id" in result, f"write_artifact failed: {result}"
     artifact_id = result["artifact_id"]
 
-    from cairn_mcp.resources import _artifact_resource_content
+    from arkeology.resources import _artifact_resource_content
 
     # Act
     content, mime_type = await _artifact_resource_content(
@@ -174,7 +174,7 @@ async def test_artifact_resource_foreign_scope_tier2_returns_error(
     aws_mock: None,
     bedrock_8: FakeBedrockClient,
 ) -> None:
-    """Reading cairn://artifact/{id} for a foreign-scope tier 2 artifact returns an error."""
+    """Reading arkeology://artifact/{id} for a foreign-scope tier 2 artifact returns an error."""
     import boto3
 
     settings = settings_with_read_prefix
@@ -209,7 +209,7 @@ async def test_artifact_resource_foreign_scope_tier2_returns_error(
         },
     )
 
-    from cairn_mcp.resources import _artifact_resource_content
+    from arkeology.resources import _artifact_resource_content
 
     # Act — no vectors client needed for this error path
     content, mime_type = await _artifact_resource_content(
@@ -237,8 +237,8 @@ async def test_artifact_resource_not_found_returns_error(
     vectors_client_8: VectorsClientImpl,
     bedrock_8: FakeBedrockClient,
 ) -> None:
-    """Reading cairn://artifact/{id} for a non-existent ID returns a not-found error."""
-    from cairn_mcp.resources import _artifact_resource_content
+    """Reading arkeology://artifact/{id} for a non-existent ID returns a not-found error."""
+    from arkeology.resources import _artifact_resource_content
 
     artifact_id = f"{settings.write_prefix}/implementation-note-2026-06-23-nonexistent"
 
@@ -281,7 +281,7 @@ async def test_artifact_resource_last_modified_annotation_present(
     artifact_id = result["artifact_id"]
     assert result.get("last_edited_ulid"), "Expected write_artifact to set last_edited_ulid"
 
-    from cairn_mcp.resources import _artifact_last_modified
+    from arkeology.resources import _artifact_last_modified
 
     # Act
     last_modified = await _artifact_last_modified(
@@ -319,7 +319,7 @@ async def test_artifact_resource_last_modified_annotation_absent(
         metadata={
             "type": "implementation_note",
             "team": "platform",
-            "project": "cairn",
+            "project": "arkeology",
             "tier": "2",
             "date": "2026-06-23",
             "status": "active",
@@ -332,7 +332,7 @@ async def test_artifact_resource_last_modified_annotation_absent(
         },
     )
 
-    from cairn_mcp.resources import _artifact_last_modified
+    from arkeology.resources import _artifact_last_modified
 
     # Act
     last_modified = await _artifact_last_modified(
@@ -348,7 +348,7 @@ async def test_artifact_resource_last_modified_annotation_absent(
 
 
 # ---------------------------------------------------------------------------
-# Test 8: cairn://artifacts returns markdown listing
+# Test 8: arkeology://artifacts returns markdown listing
 # ---------------------------------------------------------------------------
 
 
@@ -359,7 +359,7 @@ async def test_artifacts_resource_returns_markdown_listing(
     vectors_client: VectorsClientImpl,
     bedrock_1024: FakeBedrockClient,
 ) -> None:
-    """Reading cairn://artifacts with active own-scope artifacts returns a markdown listing."""
+    """Reading arkeology://artifacts with active own-scope artifacts returns a markdown listing."""
     # Arrange — write two artifacts
     for title in ("First Artifact", "Second Artifact"):
         result = await write_artifact(
@@ -371,7 +371,7 @@ async def test_artifacts_resource_returns_markdown_listing(
         )
         assert "artifact_id" in result, f"write_artifact failed: {result}"
 
-    from cairn_mcp.resources import _artifacts_listing_content
+    from arkeology.resources import _artifacts_listing_content
 
     # Act
     content = await _artifacts_listing_content(
@@ -390,7 +390,7 @@ async def test_artifacts_resource_returns_markdown_listing(
 
 
 # ---------------------------------------------------------------------------
-# Test 9: cairn://artifacts with no active artifacts returns non-error markdown
+# Test 9: arkeology://artifacts with no active artifacts returns non-error markdown
 # ---------------------------------------------------------------------------
 
 
@@ -401,8 +401,8 @@ async def test_artifacts_resource_empty_scope_returns_markdown(
     vectors_client_8: VectorsClientImpl,
     bedrock_8: FakeBedrockClient,
 ) -> None:
-    """Reading cairn://artifacts with no active artifacts returns non-error markdown."""
-    from cairn_mcp.resources import _artifacts_listing_content
+    """Reading arkeology://artifacts with no active artifacts returns non-error markdown."""
+    from arkeology.resources import _artifacts_listing_content
 
     # Act — no artifacts written
     content = await _artifacts_listing_content(
@@ -433,7 +433,7 @@ def test_render_artifacts_markdown_escapes_embedded_newline_in_cell() -> None:
     a '|'-prefixed table line, so it corrupts every subsequent row's column
     alignment when rendered. Every physical line in the output must be the title,
     blank, or a '|'-prefixed table row."""
-    from cairn_mcp.resources import _render_artifacts_markdown
+    from arkeology.resources import _render_artifacts_markdown
 
     artifacts = [
         {
@@ -469,7 +469,7 @@ def test_render_artifacts_markdown_escapes_embedded_newline_in_cell() -> None:
 # every consuming surface (write.py's vector metadata, read_artifact's scope gate,
 # the referenced_by reverse lookup) operates on the FULL S3 key
 # f"{write_prefix}/{bare_id}{extension}". A migration-produced reference or a
-# cairn://artifact/{id} URI built from the bare id is dead on every one of those
+# arkeology://artifact/{id} URI built from the bare id is dead on every one of those
 # surfaces. These tests prove: (1) build_path_to_id_map's output matches EXACTLY
 # what write_artifact itself stores as artifact_id, and (2) a full key (which
 # contains '/' from write_prefix) resolves through the ACTUAL registered FastMCP
@@ -493,7 +493,7 @@ async def test_build_path_to_id_map_matches_live_write_artifact_full_key(
     write_kwargs = {
         "type": "adr",
         "team": "platform",
-        "project": "cairn",
+        "project": "arkeology",
         "tier": 3,
         "date": "2026-07-01",
         "status": "active",
@@ -530,13 +530,13 @@ async def test_build_path_to_id_map_matches_live_write_artifact_full_key(
 
 
 @pytest.mark.asyncio
-async def test_cairn_artifact_template_resolves_full_key_own_scope(
+async def test_arkeology_artifact_template_resolves_full_key_own_scope(
     settings: Settings,
     s3_client: S3ClientImpl,
     vectors_client: VectorsClientImpl,
     bedrock_1024: FakeBedrockClient,
 ) -> None:
-    """C1 (TDD 1c): cairn://artifact/{full-key} resolves end-to-end through the ACTUAL
+    """C1 (TDD 1c): arkeology://artifact/{full-key} resolves end-to-end through the ACTUAL
     registered FastMCP resource template (not just the inner content function) for an
     own-scope artifact. The full key contains '/' from write_prefix — proving the
     {id*} wildcard-path template parameter (not plain {id}) is what is registered."""
@@ -552,11 +552,11 @@ async def test_cairn_artifact_template_resolves_full_key_own_scope(
     artifact_id = result["artifact_id"]
     assert "/" in artifact_id, "Test assumes a full key containing write_prefix + '/'"
 
-    app = fastmcp.FastMCP(name="test-cairn-fullkey", version="0.0.0")
+    app = fastmcp.FastMCP(name="test-arkeology-fullkey", version="0.0.0")
     register_data_resources(app, settings, s3_client, vectors_client, bedrock_1024)
 
     # Act — read through the actual registered URI template, not the inner helper
-    read_result = await app.read_resource(f"cairn://artifact/{artifact_id}")
+    read_result = await app.read_resource(f"arkeology://artifact/{artifact_id}")
 
     # Assert
     contents = read_result.contents
@@ -566,7 +566,7 @@ async def test_cairn_artifact_template_resolves_full_key_own_scope(
 
 
 @pytest.mark.asyncio
-async def test_cairn_artifact_template_gates_full_key_foreign_scope_tier2(
+async def test_arkeology_artifact_template_gates_full_key_foreign_scope_tier2(
     settings_with_read_prefix: Settings,
     aws_mock: None,
     vectors_client_8: VectorsClientImpl,
@@ -606,11 +606,11 @@ async def test_cairn_artifact_template_gates_full_key_foreign_scope_tier2(
         },
     )
 
-    app = fastmcp.FastMCP(name="test-cairn-fullkey-gate", version="0.0.0")
+    app = fastmcp.FastMCP(name="test-arkeology-fullkey-gate", version="0.0.0")
     register_data_resources(app, settings, s3_client, vectors_client_8, bedrock_8)
 
     # Act — read through the actual registered URI template
-    read_result = await app.read_resource(f"cairn://artifact/{foreign_artifact_id}")
+    read_result = await app.read_resource(f"arkeology://artifact/{foreign_artifact_id}")
 
     # Assert — access denied, not the foreign content
     contents = read_result.contents

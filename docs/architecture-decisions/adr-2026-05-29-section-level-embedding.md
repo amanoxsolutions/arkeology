@@ -19,7 +19,7 @@ revised:
 
 ## Description
 
-When an artifact is written, cairn-mcp must produce one or more embedding vectors to make it
+When an artifact is written, Arkeology must produce one or more embedding vectors to make it
 searchable. This decision records the choice to embed each `##` (H2) section of the artifact
 as an independent vector, rather than embedding the full artifact as a single document vector.
 
@@ -29,7 +29,7 @@ Accepted
 
 ## Context
 
-Artifacts in cairn-mcp can be long, structured Markdown documents — code reviews, session
+Artifacts in Arkeology can be long, structured Markdown documents — code reviews, session
 summaries, implementation notes, ADRs — each potentially covering multiple distinct concepts.
 A code review may discuss authentication in one section and database indexing in another. A
 session summary may cover a bug fix in one section and a performance optimisation in another.

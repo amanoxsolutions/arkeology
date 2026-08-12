@@ -21,7 +21,7 @@ from dataclasses import dataclass
 
 from ulid import ULID
 
-from cairn_mcp.clients.interfaces import S3ClientInterface, VectorsClientInterface
+from arkeology.clients.interfaces import S3ClientInterface, VectorsClientInterface
 
 logger = logging.getLogger(__name__)
 

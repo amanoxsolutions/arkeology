@@ -1,7 +1,7 @@
 ---
 type: brainstorming
 title: Retrieval Architecture and Synthesis Layer
-description: Explores whether PageIndex ideas can improve retrieval quality for structured artifacts and what a synthesis/wiki layer above cairn-mcp would concretely look like.
+description: Explores whether PageIndex ideas can improve retrieval quality for structured artifacts and what a synthesis/wiki layer above Arkeology would concretely look like.
 tags: []
 timestamp: 2026-05-29T00:00:00Z
 okf_version: "0.1"
@@ -21,7 +21,7 @@ assumptions_challenged: []
 
 ## Description
 
-Two questions left open after the external source review (PageIndex + Karpathy llm-wiki). First: can PageIndex ideas improve retrieval quality for structured artifacts, even though the core PageIndex architecture does not apply directly? Second: what would a synthesis/wiki layer above cairn-mcp actually look like — concretely, for this project? Brainstormed 2026-05-29, after PRD and plan.md were finalised.
+Two questions left open after the external source review (PageIndex + Karpathy llm-wiki). First: can PageIndex ideas improve retrieval quality for structured artifacts, even though the core PageIndex architecture does not apply directly? Second: what would a synthesis/wiki layer above Arkeology actually look like — concretely, for this project? Brainstormed 2026-05-29, after PRD and plan.md were finalised.
 
 ---
 
@@ -45,7 +45,7 @@ That claim was architectural reasoning dressed up as a data point. There is no b
 
 ### Transferable ideas from PageIndex
 
-Even though the full PageIndex architecture does not apply, the underlying insight — *structure matters for retrieval* — has concrete applications for cairn-mcp.
+Even though the full PageIndex architecture does not apply, the underlying insight — *structure matters for retrieval* — has concrete applications for Arkeology.
 
 #### Idea P1 — Section-level indexing
 
@@ -82,17 +82,17 @@ Concretely: a query for "authentication decisions" across a large shared corpus 
 2. `features: auth` (tree node: authentication)
 3. Only then run vector search within the narrowed set
 
-This is actually already possible with cairn-mcp's metadata filtering — the question is whether the agent should be instructed to issue narrow queries before broad ones, rather than always issuing a broad semantic query with loose filters.
+This is actually already possible with Arkeology's metadata filtering — the question is whether the agent should be instructed to issue narrow queries before broad ones, rather than always issuing a broad semantic query with loose filters.
 
 **Implication for AGENTS.md snippet:** the recommended snippet should include guidance on query strategy: start narrow (type + feature + team), broaden if results are insufficient, not the reverse. This is a skill concern, not a server concern — but PageIndex makes it explicit.
 
 ---
 
-#### Idea P3 — Corpus-level index artifact (index.md stored in cairn-mcp)
+#### Idea P3 — Corpus-level index artifact (index.md stored in Arkeology)
 
 **PageIndex insight:** before searching individual documents, an index of the corpus is queried first to identify where to look.
 
-**cairn-mcp adaptation:** a tier 3 shared artifact of `type: index` that an agent (or the synthesis tool) maintains — a high-level catalogue of what knowledge exists in the store, grouped by theme or domain. This is not the S3 Vectors index (which is the retrieval infrastructure); this is a *semantic map* of the artifact corpus, readable by any connected agent.
+**Arkeology adaptation:** a tier 3 shared artifact of `type: index` that an agent (or the synthesis tool) maintains — a high-level catalogue of what knowledge exists in the store, grouped by theme or domain. This is not the S3 Vectors index (which is the retrieval infrastructure); this is a *semantic map* of the artifact corpus, readable by any connected agent.
 
 **Contents of an index artifact:**
 - Thematic clusters: "authentication", "infrastructure", "data model", "security"
@@ -114,7 +114,7 @@ This is actually already possible with cairn-mcp's metadata filtering — the qu
 
 ### The core question
 
-cairn-mcp stores raw point-in-time artifacts. A Karpathy-style wiki synthesises them. Two agents working on authentication six months apart each write a code review. The code reviews are individually correct, individually useful, individually stored. But:
+Arkeology stores raw point-in-time artifacts. A Karpathy-style wiki synthesises them. Two agents working on authentication six months apart each write a code review. The code reviews are individually correct, individually useful, individually stored. But:
 
 - If the second agent had access to a *synthesised* understanding of everything known about authentication in this codebase — patterns, decisions, past bugs, past reviews — it would start from a richer baseline than either individual artifact provides.
 - That synthesis does not exist today. Nobody maintains it. It accretes implicitly, in human heads, if at all.
@@ -127,9 +127,9 @@ The synthesis layer is the answer to: *"What would a new engineer's onboarding d
 
 | Option | Description | Pro | Con |
 |---|---|---|---|
-| A1 — Tier 3 artifact in cairn-mcp | Synthesis pages stored as `type: wiki-page` or `type: synthesis`, overwritten in place (tier 3 semantics) | No new infrastructure; existing `write_artifact` handles it | No git history of synthesis evolution unless explicitly versioned |
-| A2 — Separate wiki git repo | Markdown files in a git repo, LLM-maintained, cairn-mcp artifacts as source | Full git history; human-readable without MCP client | Two systems to maintain; not accessible via MCP without a second server |
-| A3 — Both: wiki repo + mirrored tier 3 artifacts | Git repo is source of truth; artifacts are copies written to cairn-mcp for MCP discoverability | Best of both worlds | Sync complexity; divergence risk |
+| A1 — Tier 3 artifact in Arkeology | Synthesis pages stored as `type: wiki-page` or `type: synthesis`, overwritten in place (tier 3 semantics) | No new infrastructure; existing `write_artifact` handles it | No git history of synthesis evolution unless explicitly versioned |
+| A2 — Separate wiki git repo | Markdown files in a git repo, LLM-maintained, Arkeology artifacts as source | Full git history; human-readable without MCP client | Two systems to maintain; not accessible via MCP without a second server |
+| A3 — Both: wiki repo + mirrored tier 3 artifacts | Git repo is source of truth; artifacts are copies written to Arkeology for MCP discoverability | Best of both worlds | Sync complexity; divergence risk |
 | A4 — Tier 3 artifacts only, with dedicated `synthesis` type | A new first-class artifact type, visually distinct in listings | Clean; no new infrastructure | Requires schema change if added post-V1 |
 
 **Strongest option: A1 with a dedicated type.** Synthesis pages are tier 3 shared artifacts with `type: synthesis`. They are living documents — overwritten when updated. They participate in semantic search like any other artifact. Agents discover them naturally without any change to the retrieval tools. The only prerequisite: add `synthesis` to the type catalogue now (even if no synthesis tool exists yet) so the schema is ready.
@@ -142,7 +142,7 @@ The synthesis layer is the answer to: *"What would a new engineer's onboarding d
 |---|---|---|---|
 | B1 — On-demand: agent calls synthesis tool | Explicit agent invocation: "synthesise all artifacts about auth" | Predictable cost; agent controls when | Relies on agent remembering to synthesise; synthesis pages stay stale between invocations |
 | B2 — Event-based: after N new artifacts on a topic | After 3 new code reviews tagged `auth` are written, synthesis for `auth` is flagged as stale | Automatic; keeps synthesis current | Requires a staleness tracking mechanism; hard to implement without hooks |
-| B3 — Periodic: weekly or monthly | A scheduled job (outside cairn-mcp) calls the synthesis tool on a cadence | Simple; predictable | Synthesis may be outdated between runs; scheduled job is external infrastructure |
+| B3 — Periodic: weekly or monthly | A scheduled job (outside Arkeology) calls the synthesis tool on a cadence | Simple; predictable | Synthesis may be outdated between runs; scheduled job is external infrastructure |
 | B4 — Milestone-triggered | At project milestones (sprint end, release), synthesis is run | Aligned with natural review points | Requires milestone detection (hooks, F3.4) |
 | B5 — Lint-triggered: synthesis "lint" detects stale pages | A lint tool scans synthesis pages against their source artifacts; flags pages with new sources since last synthesis | Principled; Karpathy's explicit recommendation | Most complex to implement |
 
@@ -210,7 +210,7 @@ An agent skill that:
 
 ---
 
-### Cluster E — What does Karpathy's "Lint" look like for cairn-mcp?
+### Cluster E — What does Karpathy's "Lint" look like for Arkeology?
 
 Karpathy's Lint scans the wiki for:
 - Pages whose source artifacts have newer versions
@@ -218,7 +218,7 @@ Karpathy's Lint scans the wiki for:
 - Orphaned pages (source artifacts were archived but page wasn't updated)
 - Pages that reference each other incorrectly
 
-**cairn-mcp equivalent:**
+**Arkeology equivalent:**
 
 | Lint check | What it does | How to implement |
 |---|---|---|
@@ -231,7 +231,7 @@ Karpathy's Lint scans the wiki for:
 
 ---
 
-### Cluster F — What changes in cairn-mcp today to enable synthesis later?
+### Cluster F — What changes in Arkeology today to enable synthesis later?
 
 Very little. The synthesis pattern builds on the existing architecture. The only schema change needed:
 
@@ -249,13 +249,13 @@ Very little. The synthesis pattern builds on the existing architecture. The only
 **Without synthesis (today's model):**
 
 > Agent: "Search for anything about authentication"
-> cairn-mcp: returns 7 artifacts — 3 code reviews from different dates, 1 ADR, 1 implementation note, 1 session summary, 1 spec
+> arkeology: returns 7 artifacts — 3 code reviews from different dates, 1 ADR, 1 implementation note, 1 session summary, 1 spec
 > Agent: reads each one, forms its own understanding from 7 separate documents
 
 **With synthesis (future model):**
 
 > Agent: "Search for anything about authentication"
-> cairn-mcp: returns the same 7 artifacts PLUS 1 synthesis page: "Authentication Architecture — Synthesised 2026-04-01 from 7 sources"
+> arkeology: returns the same 7 artifacts PLUS 1 synthesis page: "Authentication Architecture — Synthesised 2026-04-01 from 7 sources"
 > Agent: reads the synthesis first (ranked highest by relevance and tier), then reads individual artifacts only if it needs specifics
 > Synthesis page includes: summary of all decisions made, recurring patterns, open questions, list of source artifacts
 

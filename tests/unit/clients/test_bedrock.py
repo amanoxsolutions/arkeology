@@ -14,9 +14,9 @@ import json
 import botocore.exceptions
 import pytest
 
-from cairn_mcp.clients.bedrock import BedrockClientImpl
-from cairn_mcp.clients.fakes.fake_bedrock import FakeBedrockClient
-from cairn_mcp.errors import CredentialError
+from arkeology.clients.bedrock import BedrockClientImpl
+from arkeology.clients.fakes.fake_bedrock import FakeBedrockClient
+from arkeology.errors import CredentialError
 
 _TEXT_MODEL_ID = "amazon.nova-lite-v1:0"
 _PROMPT = "Summarise this artifact in one sentence under 280 characters."
@@ -139,7 +139,7 @@ def test_invoke_text_model_retries_once_on_throttling(
         side_effect=[throttle_exc, success_response],
     )
     # Patch sleep so the test does not actually wait
-    mocker.patch("cairn_mcp.clients.bedrock.time.sleep")
+    mocker.patch("arkeology.clients.bedrock.time.sleep")
 
     result = client.invoke_text_model(_TEXT_MODEL_ID, _PROMPT)
 

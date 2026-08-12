@@ -1,4 +1,4 @@
-"""Unit tests for cairn_mcp.tools._section_pipeline.
+"""Unit tests for arkeology.tools._section_pipeline.
 
 Covers the shared section-embedding pipeline (min-length filter, max-sections cap,
 per-section truncation, and embedding-text construction) factored out of write.py
@@ -15,17 +15,17 @@ from pathlib import Path
 import pytest
 from pytest_mock import MockerFixture
 
-from cairn_mcp.clients.fakes.fake_bedrock import FakeBedrockClient
-from cairn_mcp.clients.s3 import S3ClientImpl
-from cairn_mcp.clients.vectors import VectorsClientImpl
-from cairn_mcp.config import Settings
-from cairn_mcp.tools._section_pipeline import (
+from arkeology.clients.fakes.fake_bedrock import FakeBedrockClient
+from arkeology.clients.s3 import S3ClientImpl
+from arkeology.clients.vectors import VectorsClientImpl
+from arkeology.config import Settings
+from arkeology.tools._section_pipeline import (
     build_document_embedding_text,
     build_section_embedding_text,
     prepare_sections_for_embedding,
 )
-from cairn_mcp.tools.reconcile import reconcile_index
-from cairn_mcp.tools.write import write_artifact
+from arkeology.tools.reconcile import reconcile_index
+from arkeology.tools.write import write_artifact
 from tests.unit.conftest import _make_settings as _make_settings_base
 
 
@@ -263,7 +263,7 @@ def test_prepare_sections_filter_applied_before_cap(monkeypatch: pytest.MonkeyPa
 _M3_S3_META: dict[str, str] = {
     "type": "implementation_note",
     "team": "platform",
-    "project": "cairn",
+    "project": "arkeology",
     "tier": "2",
     "date": "2026-01-01",
     "status": "active",
@@ -309,7 +309,7 @@ async def test_write_and_reconcile_embed_identical_truncated_text(
         bedrock=write_bedrock,
         type="implementation_note",
         team="platform",
-        project="cairn",
+        project="arkeology",
         tier=2,
         date="2026-01-01",
         title="Parity Artifact",
@@ -323,7 +323,7 @@ async def test_write_and_reconcile_embed_identical_truncated_text(
 
     # Now force reconcile to re-embed the same artifact via the failure log.
     artifact_id = write_result["artifact_id"]
-    from cairn_mcp.failure_log import append_failure_entry
+    from arkeology.failure_log import append_failure_entry
 
     append_failure_entry(
         settings.failure_log_path,

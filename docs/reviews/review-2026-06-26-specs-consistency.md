@@ -2,7 +2,7 @@
 type: code_review
 title: "Cross-spec consistency review of docs/specs"
 description: "Whole-corpus consistency review of all 50 per-task feature specs in docs/specs — numbering, naming, defaults, type vocabulary, and status alignment against plan.md and the PRD, separating genuine contradictions from intended supersession."
-tags: [code-review, cairn-mcp, specs, consistency]
+tags: [code-review, Arkeology, specs, consistency]
 timestamp: 2026-06-26T00:00:00Z
 okf_version: "0.1"
 status: draft
@@ -93,7 +93,7 @@ finding is documentation navigability and accuracy.
      `docs/specs/p10-t35-commit-refs-metadata-fields.md` — neither exists on disk (actual:
      `t35`, `t36`).
    - The frontmatter `task: 34`/`35` values **collide with Phase 9**, where the plan's T34 is
-     `sync-cairn-plugin`.
+     `sync-arkeology-plugin`.
 
    T39–T44 are all correctly self-consistent (filename = title = frontmatter), so the
    off-by-one is isolated to T35–T38 and is unambiguously an error, not a scheme.
@@ -122,7 +122,7 @@ finding is documentation navigability and accuracy.
    every era: T6 (same date) already defined 9, and the vocabulary is now 15. The AGENTS.md
    snippet guidance this drove has since moved into the skills (T31c), so the live impact is
    nil, but the count was never correct. Update to the current count or phrase it
-   count-independently ("all artifact types listed in `cairn://schema/types`").
+   count-independently ("all artifact types listed in `arkeology://schema/types`").
 
 4. **`p11-t43-mcp-app-infrastructure.md` is `status: draft` while `plan.md` marks T43 ✅
    done.** — ✅ **RESOLVED 2026-06-26.** Its sibling `p11-t44` is `status: ready`. Either the spec was never promoted or the
@@ -135,7 +135,7 @@ finding is documentation navigability and accuracy.
    T30). T29 is correctly marked `status: superseded`; T20 is the one major spec describing
    deleted machinery without that marker. Add a supersession note pointing at T25c/T30.
 
-6. **Terminology collision around "checks".** — ✅ **RESOLVED 2026-06-26** (fixed the stale 5-check count in `p1-t5`; the two check-sequences are now disambiguated). `p9-t31a` describes the setting-up-cairn skill's
+6. **Terminology collision around "checks".** — ✅ **RESOLVED 2026-06-26** (fixed the stale 5-check count in `p1-t5`; the two check-sequences are now disambiguated). `p9-t31a` describes the setting-up-arkeology skill's
    **5 CLI pre-flight checks** (creds, `uv`, S3 bucket, vectors index, bedrock); `p9-t30`
    describes the server's **6th startup check** (Nova Lite / `BEDROCK_TEXT_MODEL`). These are
    two unrelated sequences that happen to share the word "check" and the numbers 5/6. Not a
@@ -208,7 +208,7 @@ was checked and is clean:
   different sequence). No code change — the implementation was already correct.
 - 2026-06-26 — **Minor #3 (M3) fixed.** `p4-t19-setup-documentation.md:104` no longer says
   "all eight types"; the AGENTS.md-snippet requirement now reads "artifact type selection
-  guidance for all artifact types (the full catalogue lives in `cairn://schema/types`)" —
+  guidance for all artifact types (the full catalogue lives in `arkeology://schema/types`)" —
   count-independent, so it cannot go stale as the vocabulary grows. No residual "eight" in T19.
 - 2026-06-26 — **Minor #4 (M4) fixed.** Per author confirmation that both are done, set
   `status: complete` on `p11-t43-mcp-app-infrastructure.md` (was `draft`) and

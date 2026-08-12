@@ -1,4 +1,4 @@
-"""Unit tests for cairn_mcp.tools.search.
+"""Unit tests for arkeology.tools.search.
 
 Tests search_artifacts() using moto-backed VectorsClientImpl and FakeBedrockClient.
 """
@@ -13,11 +13,11 @@ import pytest
 from pytest_mock import MockerFixture
 from ulid import ULID
 
-from cairn_mcp.clients.fakes.fake_bedrock import FakeBedrockClient
-from cairn_mcp.clients.vectors import VectorsClientImpl
-from cairn_mcp.config import Settings
-from cairn_mcp.errors import CredentialError
-from cairn_mcp.tools.search import search_artifacts
+from arkeology.clients.fakes.fake_bedrock import FakeBedrockClient
+from arkeology.clients.vectors import VectorsClientImpl
+from arkeology.config import Settings
+from arkeology.errors import CredentialError
+from arkeology.tools.search import search_artifacts
 from tests.unit.conftest import _make_settings as _make_settings_base
 
 
@@ -54,7 +54,7 @@ def _seed_vectors(vectors: VectorsClientImpl, write_prefix: str = "artifacts") -
             "scope": write_prefix,
             "type": "code_review",
             "team": "platform",
-            "project": "cairn",
+            "project": "arkeology",
             "tier": 2,
             "visibility": "shared",
             "status": "active",
@@ -72,7 +72,7 @@ def _seed_vectors(vectors: VectorsClientImpl, write_prefix: str = "artifacts") -
             "scope": write_prefix,
             "type": "code_review",
             "team": "platform",
-            "project": "cairn",
+            "project": "arkeology",
             "tier": 2,
             "visibility": "hidden",
             "status": "active",
@@ -90,7 +90,7 @@ def _seed_vectors(vectors: VectorsClientImpl, write_prefix: str = "artifacts") -
             "scope": write_prefix,
             "type": "adr",
             "team": "platform",
-            "project": "cairn",
+            "project": "arkeology",
             "tier": 3,
             "visibility": "shared",
             "status": "active",
@@ -162,7 +162,7 @@ def _seed_vectors(vectors: VectorsClientImpl, write_prefix: str = "artifacts") -
             "scope": write_prefix,
             "type": "spec",
             "team": "platform",
-            "project": "cairn",
+            "project": "arkeology",
             "tier": 2,
             "visibility": "shared",
             "status": "active",
@@ -178,7 +178,7 @@ def _seed_vectors(vectors: VectorsClientImpl, write_prefix: str = "artifacts") -
             "scope": write_prefix,
             "type": "spec",
             "team": "platform",
-            "project": "cairn",
+            "project": "arkeology",
             "tier": 2,
             "visibility": "shared",
             "status": "active",
@@ -196,7 +196,7 @@ def _seed_vectors(vectors: VectorsClientImpl, write_prefix: str = "artifacts") -
             "scope": write_prefix,
             "type": "code_review",
             "team": "platform",
-            "project": "cairn",
+            "project": "arkeology",
             "tier": 2,
             "visibility": "shared",
             "status": "inactive",
@@ -324,7 +324,7 @@ async def test_result_missing_tier_metadata_defaults_gracefully(
             "visibility": "shared",
             "status": "active",
             "team": "platform",
-            "project": "cairn",
+            "project": "arkeology",
             "tags": [],
             "title": "No tier",
             # "tier" deliberately omitted
@@ -419,7 +419,7 @@ async def test_filter_project_restricts_results(
     monkeypatch: pytest.MonkeyPatch,
     vectors_client_8: VectorsClientImpl,
 ) -> None:
-    """project='cairn' → all results have project=='cairn'."""
+    """project='arkeology' → all results have project=='arkeology'."""
     settings = _make_settings(monkeypatch)
     bedrock = FakeBedrockClient(dimension=8)
     _seed_vectors(vectors_client_8)
@@ -428,13 +428,13 @@ async def test_filter_project_restricts_results(
         vectors=vectors_client_8,
         bedrock=bedrock,
         settings=settings,
-        query="cairn",
+        query="arkeology",
         top_k=10,
-        project="cairn",
+        project="arkeology",
     )
 
     for artifact in result["artifacts"]:
-        assert artifact["project"] == "cairn"
+        assert artifact["project"] == "arkeology"
 
 
 async def test_filter_tier_restricts_results(
@@ -704,7 +704,7 @@ async def test_top_k_above_fetch_budget_signals_truncation(
                 "scope": "artifacts",
                 "type": "code_review",
                 "team": "platform",
-                "project": "cairn",
+                "project": "arkeology",
                 "tier": 2,
                 "visibility": "shared",
                 "status": "active",
@@ -750,7 +750,7 @@ async def test_early_exit_when_no_new_artifact_ids(
             "visibility": "shared",
             "status": "active",
             "team": "platform",
-            "project": "cairn",
+            "project": "arkeology",
             "tags": [],
             "title": "Only one",
         },
@@ -766,7 +766,7 @@ async def test_early_exit_when_no_new_artifact_ids(
             "visibility": "shared",
             "status": "active",
             "team": "platform",
-            "project": "cairn",
+            "project": "arkeology",
             "tags": [],
             "title": "Only one",
         },
@@ -908,7 +908,7 @@ async def test_nin_exclusion_list_never_exceeds_byte_budget(
                 "scope": "artifacts",
                 "type": "adr",
                 "team": "platform",
-                "project": "cairn",
+                "project": "arkeology",
                 "tier": 3,
                 "visibility": "shared",
                 "status": "active",
@@ -1218,7 +1218,7 @@ async def test_search_results_include_source_artifacts(
             "scope": "artifacts",
             "type": "adr",
             "team": "platform",
-            "project": "cairn",
+            "project": "arkeology",
             "tier": 3,
             "visibility": "shared",
             "status": "active",
@@ -1309,7 +1309,7 @@ def _put_dim8_vector(
         "scope": "artifacts",
         "type": "adr",
         "team": "platform",
-        "project": "cairn",
+        "project": "arkeology",
         "tier": 3,
         "visibility": "shared",
         "status": "active",
@@ -1385,7 +1385,7 @@ async def test_search_result_malformed_ulid_yields_null_at_and_logs_warning(
         {"last_edited_ulid": "not-a-valid-ulid"},
     )
 
-    with caplog.at_level(logging.WARNING, logger="cairn_mcp.tools.search"):
+    with caplog.at_level(logging.WARNING, logger="arkeology.tools.search"):
         result = await search_artifacts(
             vectors=vectors_client_8, bedrock=bedrock, settings=settings, query="adr", top_k=5
         )

@@ -1,15 +1,15 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
-  "name": "cairn-mcp",
-  "description": "Persistent artifact memory MCP server skills for cairn-mcp",
+  "name": "arkeology",
+  "description": "Persistent artifact memory MCP server skills for arkeology",
   "owner": { "name": "Amanox" },
   "plugins": [
     {
-      "name": "cairn",
-      "description": "Persistent artifact memory MCP server skills for cairn-mcp",
+      "name": "arkeology",
+      "description": "Persistent artifact memory MCP server skills for arkeology",
       "author": { "name": "Amanox" },
-      "source": "./plugins/cairn-mcp",
-      "homepage": "https://github.com/amanoxsolutions/cairn-mcp"
+      "source": "./plugins/arkeology",
+      "homepage": "https://github.com/amanoxsolutions/arkeology"
     }
   ]
 }

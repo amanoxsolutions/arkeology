@@ -1,7 +1,7 @@
 ---
 type: spec
 title: T31c — README Reduction
-description: Spec to slim the README by removing operational sections moved into the setting-up-cairn skill and replacing them with pointers.
+description: Spec to slim the README by removing operational sections moved into the setting-up-arkeology skill and replacing them with pointers.
 tags: []
 timestamp: 2026-06-07T00:00:00Z
 okf_version: "0.1"
@@ -10,9 +10,9 @@ status: complete
 phase: 9
 task: 31c
 references:
-  - docs/brainstorming/brainstorming-2026-06-02-setting-up-cairn-skill.md
+  - docs/brainstorming/brainstorming-2026-06-02-setting-up-arkeology-skill.md
   - docs/brainstorming/brainstorming-2026-06-08-multi-team-multi-project-config.md
-  - docs/specs/p9-t31a-setting-up-cairn-skill.md
+  - docs/specs/p9-t31a-setting-up-arkeology-skill.md
   - docs/planning-artifacts/prd.md
 authored:
   by: "architect"
@@ -29,7 +29,7 @@ revised:
 ## TL;DR
 
 Slim `README.md` further by removing the remaining operational sections that have moved
-into the `setting-up-cairn` skill (`## Connecting to an MCP client` and
+into the `setting-up-arkeology` skill (`## Connecting to an MCP client` and
 `## Recommended AGENTS.md Snippet`), and update the `## Key Features` section to
 reflect the generalised exclusion model. The `## AWS Provisioning` section, the
 provisioning IAM policy, and the `.env` installation step have already been removed
@@ -42,19 +42,19 @@ section together account for ~97 lines not included in the original projection).
 ## Problem Statement
 
 The README still contains two large sections (`## Connecting to an MCP client` and
-`## Recommended AGENTS.md Snippet`) that belong in the `setting-up-cairn` skill rather
+`## Recommended AGENTS.md Snippet`) that belong in the `setting-up-arkeology` skill rather
 than in the README. Keeping them risks drift as the skill evolves and adds content that
 is operationally redundant once the skill exists. Removing them and replacing with
 pointers completes the README's transformation into a focused discovery document.
 
 ## User Stories
 
-### Story 1 — A new operator discovers cairn-mcp and understands what it is (P1)
+### Story 1 — A new operator discovers Arkeology and understands what it is (P1)
 
 **Acceptance criteria:**
 - Given a developer reading the README for the first time, when they reach the end,
-  then they understand what cairn-mcp does, whether it suits their project, and exactly
-  what to do next to get started (run the `setting-up-cairn` skill).
+  then they understand what Arkeology does, whether it suits their project, and exactly
+  what to do next to get started (run the `setting-up-arkeology` skill).
 - Given a developer scanning for the configuration reference, when they find it in the
   README, then every environment variable is documented with its default and a brief
   description.
@@ -62,7 +62,7 @@ pointers completes the README's transformation into a focused discovery document
 ### Story 2 — The README stays current with the skill (P2)
 
 **Acceptance criteria:**
-- Given the `setting-up-cairn` skill evolves, when the README is reviewed, then the
+- Given the `setting-up-arkeology` skill evolves, when the README is reviewed, then the
   README contains no duplicated operational steps that could drift — only concept
   content and config reference that are stable.
 
@@ -84,8 +84,8 @@ describes the full permanent-exclusion capability.
 - WHEN the README is updated THE SYSTEM SHALL remove `## Connecting to an MCP client`
   (including both IDE sub-sections) and `## Recommended AGENTS.md Snippet` (including
   `### Declare your ADR strategy first` and the full snippet body from
-  `### cairn-mcp — Persistent Artifact Memory` to end of snippet), replacing each with
-  a one-sentence pointer: "See the `setting-up-cairn` skill for interactive
+  `### arkeology — Persistent Artifact Memory` to end of snippet), replacing each with
+  a one-sentence pointer: "See the `setting-up-arkeology` skill for interactive
   step-by-step guidance."
 - WHEN the README is updated THE SYSTEM SHALL update the `## Key Features` bullet
   currently titled "Flexible ADR strategy" to read "Flexible ADR & document strategy"
@@ -94,7 +94,7 @@ describes the full permanent-exclusion capability.
   and respected by every future agent session and the migration skill automatically.
 - WHEN the README is updated THE SYSTEM SHALL retain without modification: all
   marketing/concept sections (`## The pain point`, `## Key Features` except the one
-  updated bullet, `### cairn-mcp vs. other approaches`, `## Who this is for`,
+  updated bullet, `### arkeology vs. other approaches`, `## Who this is for`,
   `## Why AWS`, `## How it works`, `## Status`), the `## Using the Migration Skill`
   section, the `## Prerequisites` section, the `## Minimum IAM Policy` section,
   the `## Installation` section, the `## Configuration` table, the
@@ -108,7 +108,7 @@ describes the full permanent-exclusion capability.
   installation step, and the `.env` Configuration intro are already removed from the
   README (done as part of the T31 scope-correction). This spec covers only the
   remaining two sections to remove.
-- Every removed section gets a one-sentence pointer to `setting-up-cairn`.
+- Every removed section gets a one-sentence pointer to `setting-up-arkeology`.
 - The `## Prerequisites`, `## Minimum IAM Policy`, and `## Installation` sections are
   retained — they were updated as part of the T31 scope-correction and should not be
   modified again here.
@@ -146,7 +146,7 @@ inspection against the checklist below.
 - [ ] `## Connecting to an MCP client` and both IDE sub-sections are absent
 - [ ] `## Recommended AGENTS.md Snippet` and `### Declare your ADR strategy first`
   are absent
-- [ ] The full AGENTS.md snippet body (`### cairn-mcp — Persistent Artifact Memory`
+- [ ] The full AGENTS.md snippet body (`### arkeology — Persistent Artifact Memory`
   through to the end of the snippet) is absent
 
 **Already removed before this task (verify not re-introduced):**
@@ -157,15 +157,15 @@ inspection against the checklist below.
 - [ ] `## Configuration` intro does not reference `.env`
 
 **Pointer sentences present:**
-- [ ] A pointer to `setting-up-cairn` appears where `## Connecting to an MCP client`
+- [ ] A pointer to `setting-up-arkeology` appears where `## Connecting to an MCP client`
   was
-- [ ] A pointer to `setting-up-cairn` appears where `## Recommended AGENTS.md Snippet`
+- [ ] A pointer to `setting-up-arkeology` appears where `## Recommended AGENTS.md Snippet`
   was
 
 **Retained sections intact:**
 - [ ] `## The pain point: the artifact gap` — unchanged
 - [ ] `## Key Features` — all bullets unchanged except the one updated bullet
-- [ ] `### cairn-mcp vs. other approaches` — unchanged
+- [ ] `### arkeology vs. other approaches` — unchanged
 - [ ] `## Who this is for` — unchanged
 - [ ] `## Why AWS, and why this stack?` — unchanged
 - [ ] `## How it works` — unchanged

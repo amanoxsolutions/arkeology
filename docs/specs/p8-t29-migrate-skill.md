@@ -1,7 +1,7 @@
 ---
 type: spec
 title: Write Performance L1+L2 — Migration Skill Parallel Writes
-description: Restructures the migrating-to-cairn skill's Path A into two phases (enrich-all then parallel-write via sub-agents) and adds concurrent writes to migrate.py, together reducing a 10-document migration from ~10 minutes to ~1 minute.
+description: Restructures the migrating-to-arkeology skill's Path A into two phases (enrich-all then parallel-write via sub-agents) and adds concurrent writes to migrate.py, together reducing a 10-document migration from ~10 minutes to ~1 minute.
 tags: []
 timestamp: 2026-06-02T00:00:00Z
 okf_version: "0.1"
@@ -24,7 +24,7 @@ revised:
 
 ## TL;DR
 
-The `migrating-to-cairn` skill's Path A processes files one-at-a-time (enrich → write → next),
+The `migrating-to-arkeology` skill's Path A processes files one-at-a-time (enrich → write → next),
 stacking LLM inference time and `write_artifact` latency sequentially. This spec restructures
 Path A into two phases (enrich all files first, then write in parallel batches via the `task`
 tool) for migrations of 10+ files, and lowers the Path B threshold from 30 to 5 files while
@@ -76,7 +76,7 @@ threshold, they use `migrate.py` from 5 files onwards.
 
 **Acceptance criteria:**
 - Given 6 files confirmed in Step 3, when the main agent reaches Step 5, then it follows
-  Path B (produce CAIRN_IMPORT.yaml, dry-run, execute with migrate.py).
+  Path B (produce ARKEOLOGY_IMPORT.yaml, dry-run, execute with migrate.py).
 - Given 4 files, when the main agent reaches Step 5, then it follows Path A.
 
 ### Story 4 — migrate.py writes artifacts concurrently (P1)
@@ -109,7 +109,7 @@ concurrently (up to `MIGRATE_CONCURRENCY` at a time), reducing total write time 
   structured list so the main agent can fall back to sequential writes.
 - WHEN the confirmed file count is 1–9 THE SKILL SHALL instruct the main agent to use the
   existing sequential Path A (enrich + write per file, no sub-agents).
-- WHEN the confirmed file count is ≥ 5 THE SKILL SHALL route to Path B (CAIRN_IMPORT.yaml +
+- WHEN the confirmed file count is ≥ 5 THE SKILL SHALL route to Path B (ARKEOLOGY_IMPORT.yaml +
   migrate.py) instead of the previous ≥ 30 threshold.
 - WHEN the confirmed file count is 1–4 THE SKILL SHALL route to Path A.
 - WHEN `migrate.py` executes writes THE SYSTEM SHALL process all entries concurrently using
@@ -129,7 +129,7 @@ concurrently (up to `MIGRATE_CONCURRENCY` at a time), reducing total write time 
   from P1, the maximum simultaneous Bedrock calls is `MIGRATE_AGENT_CONCURRENCY × SECTION_CONCURRENCY`.
   The default of 3 sub-agents × 5 section concurrency = 15 concurrent calls stays within the
   `≤ 15` rule-of-thumb derived from quota research (session 3, 2026-06-01).
-- `migrate.py` is a self-contained PEP 723 script — it must not import from `cairn_mcp`. All
+- `migrate.py` is a self-contained PEP 723 script — it must not import from `arkeology`. All
   async logic uses `asyncio` from the stdlib; no new dependencies are added.
 - Concurrency in `migrate.py` applies to the write step (`write_artifact` function calls) only.
   Description generation (Bedrock Nova Lite calls) may also be parallelised as a secondary
@@ -161,8 +161,8 @@ concurrently (up to `MIGRATE_CONCURRENCY` at a time), reducing total write time 
 
 | File | Action | Notes |
 |------|--------|-------|
-| `skills/migrating-to-cairn/SKILL.md` | Modify | Update Step 5 Path A to two phases (≥10: enrich-all then parallel-write; 1–9: sequential as today); update Path B gate from "< 30" to "< 5"; add `MIGRATE_CONCURRENCY` env var to Path B execution notes |
-| `skills/migrating-to-cairn/scripts/migrate.py` | Modify | Wrap `process_entry` calls with `asyncio.gather` + `asyncio.Semaphore`; make the write step (`write_artifact` inner function) safe to call from async context; read `MIGRATE_CONCURRENCY` from env (default 3, min 1); update `main()` to use `asyncio.run` |
+| `skills/migrating-to-arkeology/SKILL.md` | Modify | Update Step 5 Path A to two phases (≥10: enrich-all then parallel-write; 1–9: sequential as today); update Path B gate from "< 30" to "< 5"; add `MIGRATE_CONCURRENCY` env var to Path B execution notes |
+| `skills/migrating-to-arkeology/scripts/migrate.py` | Modify | Wrap `process_entry` calls with `asyncio.gather` + `asyncio.Semaphore`; make the write step (`write_artifact` inner function) safe to call from async context; read `MIGRATE_CONCURRENCY` from env (default 3, min 1); update `main()` to use `asyncio.run` |
 
 ## Testing Approach
 
@@ -179,8 +179,8 @@ without a pytest harness). Verification is manual and dry-run based.
 **migrate.py changes — verification:**
 
 Dry-run smoke test:
-- Create a 5-entry `CAIRN_IMPORT.yaml` pointing at real files with `--dry-run`; run
-  `uv run skills/migrating-to-cairn/scripts/migrate.py --manifest CAIRN_IMPORT.yaml --dry-run`;
+- Create a 5-entry `ARKEOLOGY_IMPORT.yaml` pointing at real files with `--dry-run`; run
+  `uv run skills/migrating-to-arkeology/scripts/migrate.py --manifest ARKEOLOGY_IMPORT.yaml --dry-run`;
   assert JSON output contains 5 entries with `would_write: true` and no errors.
 
 Concurrent write test (manual, requires AWS credentials):
@@ -201,7 +201,7 @@ Concurrency validation:
 ## Open Questions
 
 - [ ] Do sub-agents spawned by the `task` tool in opencode inherit the parent session's
-  cairn-mcp MCP connections? This determines whether L1 write parallelism works at full
+  Arkeology MCP connections? This determines whether L1 write parallelism works at full
   capacity or falls back to metadata-return + main-agent sequential writes. Resolution path:
   test empirically during L1 implementation by spawning a sub-agent that calls `write_artifact`
   and verifying the artifact appears in `list_artifacts`. The skill text must include the

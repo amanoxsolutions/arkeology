@@ -113,13 +113,13 @@ The server starts with no credentials configured. Every AWS call raises
 | `tests/unit/test_tools_delete.py` | Modify | Add test: `CredentialError` from S3 → `"credential_error"` response |
 | `tests/unit/test_tools_purge.py` | Modify | Add test: `CredentialError` from S3 → `"credential_error"` response |
 | `tests/unit/test_tools_reconcile.py` | Modify | Add test: `CredentialError` from `list_objects` → `"credential_error"` response |
-| `src/cairn_mcp/clients/credentials.py` | Modify | Add `ExpiredToken`, `InvalidAccessKeyId`, `SignatureDoesNotMatch` to recognised codes |
-| `src/cairn_mcp/clients/s3.py` | Modify | Catch `NoCredentialsError` at each public entry point; raise `CredentialError` |
-| `src/cairn_mcp/clients/vectors.py` | Modify | Catch `NoCredentialsError` at each public entry point; raise `CredentialError` |
-| `src/cairn_mcp/clients/bedrock.py` | Modify | Catch `NoCredentialsError` at each public entry point; raise `CredentialError` |
-| `src/cairn_mcp/tools/delete.py` | Modify | Split `except (CredentialError, Exception)` at line 156 into two clauses |
-| `src/cairn_mcp/tools/purge.py` | Modify | Split `except (CredentialError, Exception)` at line 169 into two clauses |
-| `src/cairn_mcp/tools/reconcile.py` | Modify | Wrap `s3.list_objects()` at line 272 in `try/except CredentialError` |
+| `src/arkeology/clients/credentials.py` | Modify | Add `ExpiredToken`, `InvalidAccessKeyId`, `SignatureDoesNotMatch` to recognised codes |
+| `src/arkeology/clients/s3.py` | Modify | Catch `NoCredentialsError` at each public entry point; raise `CredentialError` |
+| `src/arkeology/clients/vectors.py` | Modify | Catch `NoCredentialsError` at each public entry point; raise `CredentialError` |
+| `src/arkeology/clients/bedrock.py` | Modify | Catch `NoCredentialsError` at each public entry point; raise `CredentialError` |
+| `src/arkeology/tools/delete.py` | Modify | Split `except (CredentialError, Exception)` at line 156 into two clauses |
+| `src/arkeology/tools/purge.py` | Modify | Split `except (CredentialError, Exception)` at line 169 into two clauses |
+| `src/arkeology/tools/reconcile.py` | Modify | Wrap `s3.list_objects()` at line 272 in `try/except CredentialError` |
 
 ## Testing Approach
 

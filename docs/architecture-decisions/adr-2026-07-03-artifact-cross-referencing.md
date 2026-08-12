@@ -1,7 +1,7 @@
 ---
 type: adr
 title: Artifact Cross-Referencing — First-Class references Field, Migration Rewrite, and referenced_by Warning
-description: "Records the design of cairn-mcp's artifact cross-referencing capability: references promoted to a first-class Artifact field holding resolved full S3 keys (the operative artifact_id); migration frontmatter rewrite scope and its bounded normalization ceiling; the cairn://artifact/{id} content-rewrite target format; forward-reference resolution via a manifest-wide path→id map; mutability split by representation; AGENTS.md guidance; a deferred cleanup skill; and a unified own-scope referenced_by delete/archive warning. Durable storage mechanics are recorded in ADR-011; this ADR records the cross-referencing design."
+description: "Records the design of Arkeology's artifact cross-referencing capability: references promoted to a first-class Artifact field holding resolved full S3 keys (the operative artifact_id); migration frontmatter rewrite scope and its bounded normalization ceiling; the arkeology://artifact/{id} content-rewrite target format; forward-reference resolution via a manifest-wide path→id map; mutability split by representation; AGENTS.md guidance; a deferred cleanup skill; and a unified own-scope referenced_by delete/archive warning. Durable storage mechanics are recorded in ADR-011; this ADR records the cross-referencing design."
 tags: []
 timestamp: 2026-07-03T00:00:00Z
 okf_version: "0.1"
@@ -25,9 +25,9 @@ revised:
 
 ## Description
 
-cairn-mcp had no first-class way for one artifact to point at another. Existing project
+Arkeology had no first-class way for one artifact to point at another. Existing project
 documentation frequently cross-references sibling files by repo-relative path — in an OKF/house
-frontmatter `references:` list or as in-body markdown links — but a file path and a cairn
+frontmatter `references:` list or as in-body markdown links — but a file path and an Arkeology
 `artifact_id` are fundamentally different addressing schemes, and nothing in the migration path or
 the write path carried those links across the boundary. This ADR records the **design of the
 cross-referencing capability**: promoting `references` to a first-class `Artifact` field, the scope
@@ -64,7 +64,7 @@ Accepted
 ## Context
 
 Grounding during the 2026-07-01 session confirmed a genuine gap, not a hypothetical one:
-`src/cairn_mcp/artifact.py` had no `references` field (the frontmatter convention lived only in
+`src/arkeology/artifact.py` had no `references` field (the frontmatter convention lived only in
 project documentation style and never reached the `Artifact` model), and the migration skill's
 descriptor-building steps read file content verbatim into the stored `content` field with no
 rewriting logic anywhere. Once a file becomes an artifact, a reference embedded in it — or in
@@ -79,14 +79,14 @@ Two framing moves shaped the whole design:
    content mutation per se. This is why the migration rewrite is deliberately narrow (frontmatter
    only, bounded normalization, transparent fall-through) rather than an ambitious link repairer.
 
-2. **Scope-reframing.** The problem is a **general cross-referencing gap** (cairn had no
+2. **Scope-reframing.** The problem is a **general cross-referencing gap** (Arkeology had no
    first-class artifact-to-artifact reference), not a migration-only concern. This is why the field
    and mechanism serve ordinary `write_artifact` calls, not just the one-time import.
 
 Codebase archaeology established that the capability can be built almost entirely from existing,
 shipped plumbing rather than new mechanisms: `source_artifacts` (used by the `synthesis` type)
 already establishes the exact dual-storage pattern; `clients/filter.py`'s `$eq` operator already
-does generic list-membership matching for any field name; `cairn://artifact/{id}` is already a
+does generic list-membership matching for any field name; `arkeology://artifact/{id}` is already a
 registered MCP resource URI in `resources.py`; `delete_artifact`'s synthesis-reference check
 already proves the reverse-lookup pattern in production; and `generate_artifact_id` is a pure
 function of type + title (+ date for tier 2), per ADR-005, which makes a target's future identifier
@@ -101,7 +101,7 @@ tier-based access-control model (ADR-007); every reverse-lookup gate here remain
 ### D2 — `references` promoted to a first-class `Artifact` field (FR-51)
 
 `references: list[str]` becomes a first-class field on the `Artifact` model, storing **only
-resolved full S3 keys** — the operative `artifact_id` (e.g. `{write_prefix}/{id}{ext}`), not a bare id (**revised 2026-07-04**: the canonical form is the full S3 key, matching what the read gate, `referenced_by` `$eq`, and vector metadata use) — no `cairn://` prefix, no raw path text. It is **dual-stored
+resolved full S3 keys** — the operative `artifact_id` (e.g. `{write_prefix}/{id}{ext}`), not a bare id (**revised 2026-07-04**: the canonical form is the full S3 key, matching what the read gate, `referenced_by` `$eq`, and vector metadata use) — no `arkeology://` prefix, no raw path text. It is **dual-stored
 following the same pattern as `source_artifacts`** — a durable copy on the S3 object (location and
 encoding recorded in ADR-011) and a `list[str]` in S3 Vectors metadata — and it is queryable via
 the existing generic `$eq` list-membership filter with AND semantics (all supplied identifiers must
@@ -132,15 +132,15 @@ migration-fragility risk the inversion surfaced:
   slashes; attempt the lookup stripping only a small set of common leading-prefix variants (`./`, a
   single leading `/`, or none). **No match → leave the entry completely untouched** and fall
   through to the general search-based fallback. Repairing genuinely broken or inconsistent source
-  references beyond this ceiling is explicitly **not cairn's job**.
+  references beyond this ceiling is explicitly **not Arkeology's job**.
 
 ### D3 — Content-rewrite target format (FR-52)
 
 Resolved references are rewritten **in the stored content** to the existing
-`cairn://artifact/{id}` MCP resource URI — an already-registered scheme, not a new one. Unresolved
+`arkeology://artifact/{id}` MCP resource URI — an already-registered scheme, not a new one. Unresolved
 or excluded targets keep their **original raw path text untouched**. Mixed addressing across the
-corpus (`cairn://…` next to `/docs/…`) is the **correct permanent steady state, not a defect**: the
-corpus will always contain a blend of resolved cairn URIs and raw paths, and that is expected.
+corpus (`arkeology://…` next to `/docs/…`) is the **correct permanent steady state, not a defect**: the
+corpus will always contain a blend of resolved Arkeology URIs and raw paths, and that is expected.
 
 ### D16 — Deterministic server-side content-reference rewrite of already-resolved paths (FR-52)
 
@@ -160,7 +160,7 @@ rewriting a known string everywhere it occurs, not a new discovery capability.
 Mechanics:
 
 1. **A pure helper**, `rewrite_content_references(content, resolved_map)` in
-   `src/cairn_mcp/references.py`, alongside the other resolution helpers. `resolved_map` is
+   `src/arkeology/references.py`, alongside the other resolution helpers. `resolved_map` is
    `{original_reference_text: artifact_id}` — the exact literal text of each frontmatter
    `references:` entry that already resolved for *this* file, built by the migration skill using its
    existing resolution algorithm.
@@ -179,17 +179,17 @@ Mechanics:
    require per-occurrence file-context a body-found candidate cannot safely be assumed to share with
    the frontmatter entry it was resolved from.
 4. **Anchor handling: `#anchor` is dropped from the URI but preserved as a human-readable note.** A
-   matched body link `[text](path#anchor)` is rewritten to `[text](cairn://artifact/{id}) ("anchor"
+   matched body link `[text](path#anchor)` is rewritten to `[text](arkeology://artifact/{id}) ("anchor"
    section)` — the anchor is removed from the URI itself and re-surfaced verbatim (un-de-slugified)
    as a trailing note immediately after the link. Rationale for dropping it *from the URI*: the
-   `cairn://artifact/{id*}` template (`resources.py`) matches the id verbatim with no fragment-aware
+   `arkeology://artifact/{id*}` template (`resources.py`) matches the id verbatim with no fragment-aware
    resolution, and URI fragments are commonly stripped client-side before a resource read reaches the
    server — so keeping `#anchor` in the URI risks silently breaking the id match on hosts that do
    *not* strip fragments, for no compensating benefit. Rationale for *preserving it as a note* rather
    than discarding it entirely: the anchor carried real human pointing precision (which section of
    the target was meant), and the note retains that for a human reader without endangering machine
    resolution. Idempotency holds without special-casing: after rewrite the target is
-   `cairn://artifact/{id}` with no `#`, and `cairn://…` is never a key in the resolved map, so a
+   `arkeology://artifact/{id}` with no `#`, and `arkeology://…` is never a key in the resolved map, so a
    second pass matches nothing and never re-appends the note. A body link with no anchor is rewritten
    with no note.
 5. **Fenced code blocks (```` ``` ````) are never scanned** — content inside an open/close fence pair
@@ -216,7 +216,7 @@ the content stored in S3 and the content embedded are always the same (already-r
 there is no separate embed-then-rewrite-then-re-embed sequence, and no re-embedding cost or
 `last_edited_ulid` disturbance is introduced. This capability is `migrate_artifacts`-only;
 `write_artifact`/`write_artifacts` gain no content-rewrite behaviour (ongoing sessions remain covered
-by D9's "proactive `cairn://` referencing" guidance instead).
+by D9's "proactive `arkeology://` referencing" guidance instead).
 
 Carryover constraints (consistent with D1/D8): the rewrite is **first-write-only** —
 `migrate_artifacts` never overwrites an existing key, so it never retroactively patches
@@ -227,7 +227,7 @@ below.
 
 ### D4 — Forward-reference resolution via a manifest-wide path→id map (FR-52)
 
-Migration builds a **single authoritative path→`artifact_id` map from the FULL `CAIRN_IMPORT.yaml`
+Migration builds a **single authoritative path→`artifact_id` map from the FULL `ARKEOLOGY_IMPORT.yaml`
 manifest — every entry, any status, across sessions — before any writes happen.** Because
 `generate_artifact_id` is a **pure function** (ADR-005), each entry's identifier is computable from
 its type + title (+ date) as soon as those are known, with no dependency on write order. This turns
@@ -255,7 +255,7 @@ Mutability is split **by representation, not by a single retroactive-editing rul
   metadata, re-put with no re-embedding, no content touch). The `challenging-assumptions` pass
   established that tier 2's "append-only" rule is about **content**, not all metadata:
   `link_commit` already backfills tier 2 structured metadata today, so this is precedented, not new.
-- **Stored content text** is only ever rewritten to `cairn://artifact/{id}` at **first-write time**
+- **Stored content text** is only ever rewritten to `arkeology://artifact/{id}` at **first-write time**
   (migration or a new session write). It is **never retroactively patched** into an already-written
   tier 2 artifact. Tier 3 keeps its existing "updated in place" content freedom (ADR-007).
 
@@ -291,8 +291,8 @@ protects both the replace and the accrete write.
 
 The AGENTS.md usage snippet written by the installation skill gains two guidance clauses:
 
-1. **Proactive `cairn://` referencing** — when writing an artifact that references a target already
-   known to be a cairn artifact, use its `cairn://artifact/{id}` URI rather than a raw path.
+1. **Proactive `arkeology://` referencing** — when writing an artifact that references a target already
+   known to be an Arkeology artifact, use its `arkeology://artifact/{id}` URI rather than a raw path.
 2. **Reference healing** — an agent that encounters a broken or unresolved reference during normal
    work should search for the likely target and **propose a fix to the operator, never silently
    rewrite it**.
@@ -349,7 +349,7 @@ without telling anyone and was rejected outright.
 Two distinct questions about cross-team leakage were examined, with different answers:
 
 **Can a `references` entry itself encode or fabricate a leak?** No — a `references` entry can only
-ever hold a **resolved** `artifact_id`, which means the target is already a real cairn artifact
+ever hold a **resolved** `artifact_id`, which means the target is already a real Arkeology artifact
 reachable by *some* existing path. A caller cannot write a `references` value that names an
 unresolvable or computed foreign-team identifier that would not otherwise be discoverable, so no new
 write-time cross-scope validation is needed for this question.
@@ -386,7 +386,7 @@ graph TD
     subgraph Migration["Migration path (one-time)"]
         MAP["build path→id map\nfrom FULL manifest (D4)\ngenerate_artifact_id is pure — ADR-005"]
         REW["rewrite frontmatter references\n(D1 scope, D6 normalization ceiling)"]
-        CON["rewrite content →\ncairn://artifact/{id} (D3, D16)\nfirst-write only, deterministic"]
+        CON["rewrite content →\narkeology://artifact/{id} (D3, D16)\nfirst-write only, deterministic"]
         RPT["migration report\nunresolved/excluded (cluster E)"]
         MAP --> REW --> CON
         REW --> RPT
@@ -423,7 +423,7 @@ graph TD
 
 | Option | Pros | Cons |
 |--------|------|------|
-| **Chosen** — resolved full-key `artifact_id` in the structured field + `cairn://artifact/{id*}` in content | Reuses an already-registered MCP resource URI; the field stays clean resolved ids for `$eq` filtering; content is navigable in MCP hosts | Corpus permanently mixes `cairn://` and raw paths (accepted as correct steady state, not a defect) |
+| **Chosen** — resolved full-key `artifact_id` in the structured field + `arkeology://artifact/{id*}` in content | Reuses an already-registered MCP resource URI; the field stays clean resolved ids for `$eq` filtering; content is navigable in MCP hosts | Corpus permanently mixes `arkeology://` and raw paths (accepted as correct steady state, not a defect) |
 | Bare `artifact_id` string dropped into the content link target | Shortest text | Not a resolvable URI in MCP hosts; ambiguous with ordinary text; no navigation affordance |
 | Footnote/table appended mapping old path → new identifier | Preserves original text exactly | Adds boilerplate to every migrated body; still leaves the in-line link dead; no queryable structure |
 
@@ -431,10 +431,10 @@ graph TD
 
 | Option | Pros | Cons |
 |--------|------|------|
-| **Chosen** — synthesise all four: first-class field (D2) + reuse the `cairn://` URI (D3) + bounded normalization with search-based fall-through (D6) + a decoupled optional backfill step (D10) | Each direction covers a gap the others leave: queryable structure, navigable content, graceful failure, and post-hoc cleanup without server complexity | More moving parts than any single direction; requires the boundary discipline with ADR-011 |
+| **Chosen** — synthesise all four: first-class field (D2) + reuse the `arkeology://` URI (D3) + bounded normalization with search-based fall-through (D6) + a decoupled optional backfill step (D10) | Each direction covers a gap the others leave: queryable structure, navigable content, graceful failure, and post-hoc cleanup without server complexity | More moving parts than any single direction; requires the boundary discipline with ADR-011 |
 | First-class schema field alone | Queryable, structured | Says nothing about content rewrite, failure handling, or backfill |
 | Pure convention / search-based resolution, no new mechanism | Zero schema change; nothing to migrate | No queryable field; every consumer re-implements resolution; no durable link record |
-| A general `cairn://` resolver alone | Navigable content | No structured field to filter on; no migration story; no reverse-lookup |
+| A general `arkeology://` resolver alone | Navigable content | No structured field to filter on; no migration story; no reverse-lookup |
 
 ### Ownership — who performs the rewrite (cluster F)
 
@@ -455,7 +455,7 @@ graph TD
   inversion finding that *migration fragility*, not broken links, is the primary risk. Genuinely
   broken source references are surfaced in the report, not repaired.
 
-- **Mixed addressing is permanent and correct.** `cairn://…` links coexist with raw paths across
+- **Mixed addressing is permanent and correct.** `arkeology://…` links coexist with raw paths across
   the corpus (D3). Tooling and readers must treat this blend as the expected steady state.
 
 - **Content is rewritten once; structure is mutable forever.** The D8 split means a reference can
@@ -484,7 +484,7 @@ graph TD
   never reveals foreign-scope identifiers.
 
 - **A `references` entry cannot itself encode a cross-scope leak, and a cross-scope read filters
-  what it returns.** A `references` entry can only ever name a real, resolved cairn artifact, so no
+  what it returns.** A `references` entry can only ever name a real, resolved Arkeology artifact, so no
   fabricated target can be leaked at write time. On a cross-scope read, any entry whose target is not
   itself independently readable by the requesting reader is dropped from the response before it is
   returned — the server's read surface never exposes a pointer to an artifact the reader has no

@@ -1,13 +1,13 @@
 ---
 type: brainstorming
 title: Multi-team / Multi-project Configuration
-description: Explores solutions for operators who work across multiple teams and projects and need cairn-mcp to correctly scope artifact writes without restarting the server, ranging from better docs to named profiles and a proxy layer.
+description: Explores solutions for operators who work across multiple teams and projects and need Arkeology to correctly scope artifact writes without restarting the server, ranging from better docs to named profiles and a proxy layer.
 tags: []
 timestamp: 2026-06-08T00:00:00Z
 okf_version: "0.1"
 status: ready
 references:
-  - src/cairn_mcp/config.py
+  - src/arkeology/config.py
   - docs/planning-artifacts/prd.md
   - https://docs.aws.amazon.com/agent-toolkit/latest/userguide/multi-account-access.html
   - https://opencode.ai/docs/config/
@@ -37,7 +37,7 @@ decisions_locked:
   - D2: WRITE_PREFIX stays as-is; the enforcement fence is valuable and must not be removed
   - D3: Multi-backend isolation (different ARTIFACT_BUCKET per project) is out of scope for now;
         prefix-based isolation within one backend is sufficient; Direction 3 kept on roadmap
-  - D5: setting-up-cairn skill must be updated to document all four client setups;
+  - D5: setting-up-arkeology skill must be updated to document all four client setups;
         content and exact syntax documented in Session 3 of this file
   - D6: "opencode merge is additive at the mcp server-name level — a project config that only
         contains a new server name adds it to the global server list without disturbing existing
@@ -48,8 +48,8 @@ decisions_locked:
         from the project root, while the three global configs were. The officially documented
         project config filename is `opencode.json` (no dot prefix). The dot-prefix variant
         may work in some contexts/versions but cannot be relied upon. Use `opencode.json`."
-  - D8: The setting-up-cairn skill must check whether config files already exist and EDIT them
-        (insert the cairn entry) rather than create or overwrite; must handle .json and .jsonc
+  - D8: The setting-up-arkeology skill must check whether config files already exist and EDIT them
+        (insert the Arkeology entry) rather than create or overwrite; must handle .json and .jsonc
         variants for JSON-based clients and the existing TOML structure for Codex
 decisions_pending: []
 decisions_closed_not_applicable:
@@ -59,7 +59,7 @@ decisions_closed_not_applicable:
         concrete cross-project-session requirement emerges
   - D7: Codex mcp_servers merge depth — not applicable; Codex docs describe explicit layering
         for overrides ("set shared defaults, keep profile files focused on what differs");
-        cairn is only ever placed in the project config, never in global, so no same-name
+        Arkeology is only ever placed in the project config, never in global, so no same-name
         conflict exists; additive behaviour (new section in project adds to global) is the
         only case that matters and follows naturally from TOML table semantics
 ---
@@ -68,7 +68,7 @@ decisions_closed_not_applicable:
 
 ## Description
 
-The current design binds a cairn-mcp server instance to a single write scope
+The current design binds an Arkeology server instance to a single write scope
 (`WRITE_PREFIX = "team/project"`) and a single backend (`ARTIFACT_BUCKET`,
 `VECTORS_BUCKET`, `VECTORS_INDEX`) at startup. An operator who works across
 multiple teams and projects must either restart the server, juggle multiple
@@ -81,7 +81,7 @@ proxy layer).
 ### Problem Statement
 
 A developer working on several projects simultaneously — or across several teams
-— needs cairn-mcp to correctly scope artifact writes to the right team/project
+— needs Arkeology to correctly scope artifact writes to the right team/project
 without restarting the server or maintaining one process per project. The current
 single-value `WRITE_PREFIX` env var is a per-process constant that does not
 survive context switches. Extending this to `ARTIFACT_BUCKET`, `VECTORS_BUCKET`,
@@ -126,18 +126,18 @@ routes the call to the correct backend config. Analogous to `aws_profile` in
 the AWS proxy.
 
 **E. Multiple server instances, one per project (current workaround)**
-Declare `cairn-work` and `cairn-personal` as separate MCP server entries in
+Declare `arkeology-work` and `arkeology-personal` as separate MCP server entries in
 `opencode.json`, each with its own env. Works today with no code changes. Does
 not solve the "one session, two projects" problem.
 
 **F. Per-call backend routing via a proxy layer**
-A thin proxy process sits between MCP client and cairn-mcp. The proxy maintains
-one cairn-mcp sub-process per profile (each with its own env). Agent passes
+A thin proxy process sits between MCP client and Arkeology. The proxy maintains
+one Arkeology sub-process per profile (each with its own env). Agent passes
 `profile` per call; proxy routes it. Server code unchanged. Analogous to
-`mcp-proxy-for-aws`, but for cairn-mcp.
+`mcp-proxy-for-aws`, but for Arkeology.
 
 **G. No server constraint — agent prompt is the only gate**
-Treat cairn-mcp as a dumb S3 gateway. Remove all prefix enforcement. Scope
+Treat Arkeology as a dumb S3 gateway. Remove all prefix enforcement. Scope
 correctness is entirely the agent's responsibility (enforced by AGENTS.md).
 
 **H. Allowed-teams / allowed-projects fields as the enforcement unit**
@@ -145,13 +145,13 @@ Replace `WRITE_PREFIX` with `ALLOWED_TEAMS` + `ALLOWED_PROJECTS` env vars.
 The prefix is always auto-derived as `{team}/{project}`. The safety fence
 becomes semantically richer and directly tied to the artifact model.
 
-**I. Config file (`cairn.toml`) with named context blocks**
+**I. Config file (`arkeology.toml`) with named context blocks**
 A structured config file replaces env vars for multi-context scenarios. Richer
-than the `CAIRN_PROFILE_WORK_ARTIFACT_BUCKET=...` key explosion from Option D.
+than the `ARKEOLOGY_PROFILE_WORK_ARTIFACT_BUCKET=...` key explosion from Option D.
 
 **J. Per-project MCP config (`.mcp.json` / `opencode.json`) — documentation only**
 Document clearly that each project's `.mcp.json` (or opencode's project-scoped
-config) can declare its own cairn-mcp env block. Zero code changes. Standard
+config) can declare its own Arkeology env block. Zero code changes. Standard
 MCP client behaviour. Different projects get different server configs automatically.
 
 ### Clusters
@@ -227,7 +227,7 @@ block with its own `WRITE_PREFIX`, and optionally its own `ARTIFACT_BUCKET` and
 #### Direction 3 — Named profiles in server config
 *Cluster 3, Option D/H.*
 
-Add a `CAIRN_PROFILES` config concept. Each named profile carries its own
+Add a `ARKEOLOGY_PROFILES` config concept. Each named profile carries its own
 `WRITE_PREFIX`, `ARTIFACT_BUCKET`, `VECTORS_BUCKET`, `VECTORS_INDEX`. Tools
 accept an optional `profile` parameter; the server resolves the right backend
 config for the call. Default profile used when `profile` is not specified.
@@ -255,11 +255,11 @@ config for the call. Default profile used when `profile` is not specified.
    repos), Direction 1 or 3 becomes necessary in the future.
 
 2. **Proxy as a future layer**: Even with Direction 2 chosen now, a
-   `cairn-proxy` (inspired by `mcp-proxy-for-aws`) could be added later for
+   `arkeology-proxy` (inspired by `mcp-proxy-for-aws`) could be added later for
    true multi-account, multi-backend routing without changing the server.
    Should this be explicitly kept on the roadmap? (D4 pending)
 
-3. **Does the setting-up-cairn skill need updating?** It should document the
+3. **Does the setting-up-arkeology skill need updating?** It should document the
    per-project MCP config pattern for both opencode and Claude Code. (D5 pending)
 
 ## Session 2026-06-08 — Follow-up: opencode config merging depth
@@ -269,7 +269,7 @@ config for the call. Default profile used when `profile` is not specified.
 The user confirmed: Direction 2 is chosen (per-project MCP config). The
 WRITE_PREFIX fence stays. The practical question is: when a global
 `~/.config/opencode/opencode.json` and a project-level `opencode.json` both
-define a `cairn` MCP server entry, does opencode deep-merge at the env-var
+define a `arkeology` MCP server entry, does opencode deep-merge at the env-var
 level (ideal: project config only needs WRITE_PREFIX) or shallow-merge at the
 server-entry level (pragmatic: project config must include the full entry)?
 
@@ -302,12 +302,12 @@ However, the "Overriding remote defaults" example is revealing:
 
 The `type` and `url` fields are repeated just to override `enabled`. This
 **strongly suggests the merge is shallow at the server-entry level** — i.e.,
-`mcp.cairn` in the project config replaces `mcp.cairn` from global entirely,
+`mcp.arkeology` in the project config replaces `mcp.arkeology` from global entirely,
 rather than merging field-by-field within the entry. If the merge were deep,
 you would only need `{"mcp": {"jira": {"enabled": true}}}`.
 
 **Practical consequence**: The project-level `opencode.json` must include the
-**complete** cairn-mcp server entry (all env vars, command, etc.), not just
+**complete** Arkeology server entry (all env vars, command, etc.), not just
 the override fields. Global config cannot be used to hold shared backend
 settings that project configs inherit.
 
@@ -321,22 +321,22 @@ Given the shallow-merge finding, the safe recommendation is:
 
 **Option A — Self-contained project config (works with shallow or deep merge):**
 
-`~/.config/opencode/opencode.json` — no cairn-mcp entry (or a disabled
-placeholder). Each project's `opencode.json` contains the complete cairn-mcp
+`~/.config/opencode/opencode.json` — no Arkeology entry (or a disabled
+placeholder). Each project's `opencode.json` contains the complete Arkeology
 entry with its own `WRITE_PREFIX`, `ARTIFACT_BUCKET`, etc.
 
 ```json
 // project/opencode.json
 {
   "mcp": {
-    "cairn": {
+    "arkeology": {
       "type": "local",
-      "command": ["uvx", "cairn-mcp"],
+      "command": ["uvx", "arkeology"],
       "environment": {
         "WRITE_PREFIX": "team-a/project-x",
-        "ARTIFACT_BUCKET": "my-cairn-bucket",
-        "VECTORS_BUCKET": "my-cairn-vectors",
-        "VECTORS_INDEX": "cairn-index",
+        "ARTIFACT_BUCKET": "my-arkeology-bucket",
+        "VECTORS_BUCKET": "my-arkeology-vectors",
+        "VECTORS_INDEX": "arkeology-index",
         "AWS_REGION": "eu-central-1"
       }
     }
@@ -356,9 +356,9 @@ with how Claude Code's `.mcp.json` already works.
 
 ### Updated Open Questions
 
-- **D5**: The setting-up-cairn skill should be updated to document the per-project
+- **D5**: The setting-up-arkeology skill should be updated to document the per-project
   setup pattern for all four supported clients (see Session 3 below).
-- **D6**: An empirical opencode merge-depth test (place a partial `mcp.cairn`
+- **D6**: An empirical opencode merge-depth test (place a partial `mcp.arkeology`
   entry in project config and check if global env vars survive) would resolve
   ambiguity and potentially unlock Option B documentation as an alternative.
 
@@ -367,7 +367,7 @@ with how Claude Code's `.mcp.json` already works.
 ### Problem Statement
 
 The user confirmed that all four major AI coding tools (Claude Code, opencode,
-GitHub Copilot CLI, OpenAI Codex) support local (stdio) MCP servers, so cairn-mcp
+GitHub Copilot CLI, OpenAI Codex) support local (stdio) MCP servers, so Arkeology
 is compatible with all of them. The question is: which ones support a
 **per-project** config file that lets each project set its own `WRITE_PREFIX`,
 so the fence stays correct without touching global config?
@@ -385,14 +385,14 @@ so the fence stays correct without touching global config?
 ```json
 {
   "mcpServers": {
-    "cairn": {
+    "arkeology": {
       "command": "uvx",
-      "args": ["cairn-mcp"],
+      "args": ["arkeology"],
       "env": {
         "WRITE_PREFIX": "team-a/project-x",
-        "ARTIFACT_BUCKET": "my-cairn-bucket",
-        "VECTORS_BUCKET": "my-cairn-vectors",
-        "VECTORS_INDEX": "cairn-index",
+        "ARTIFACT_BUCKET": "my-arkeology-bucket",
+        "VECTORS_BUCKET": "my-arkeology-vectors",
+        "VECTORS_INDEX": "arkeology-index",
         "AWS_REGION": "eu-central-1"
       }
     }
@@ -412,14 +412,14 @@ so the fence stays correct without touching global config?
 ```json
 {
   "mcp": {
-    "cairn": {
+    "arkeology": {
       "type": "local",
-      "command": ["uvx", "cairn-mcp"],
+      "command": ["uvx", "arkeology"],
       "environment": {
         "WRITE_PREFIX": "team-a/project-x",
-        "ARTIFACT_BUCKET": "my-cairn-bucket",
-        "VECTORS_BUCKET": "my-cairn-vectors",
-        "VECTORS_INDEX": "cairn-index",
+        "ARTIFACT_BUCKET": "my-arkeology-bucket",
+        "VECTORS_BUCKET": "my-arkeology-vectors",
+        "VECTORS_INDEX": "arkeology-index",
         "AWS_REGION": "eu-central-1"
       }
     }
@@ -449,15 +449,15 @@ so the fence stays correct without touching global config?
 ```json
 {
   "mcpServers": {
-    "cairn": {
+    "arkeology": {
       "type": "local",
       "command": "uvx",
-      "args": ["cairn-mcp"],
+      "args": ["arkeology"],
       "env": {
         "WRITE_PREFIX": "team-a/project-x",
-        "ARTIFACT_BUCKET": "my-cairn-bucket",
-        "VECTORS_BUCKET": "my-cairn-vectors",
-        "VECTORS_INDEX": "cairn-index",
+        "ARTIFACT_BUCKET": "my-arkeology-bucket",
+        "VECTORS_BUCKET": "my-arkeology-vectors",
+        "VECTORS_INDEX": "arkeology-index",
         "AWS_REGION": "eu-central-1"
       },
       "tools": ["*"]
@@ -481,15 +481,15 @@ so the fence stays correct without touching global config?
 
 ```toml
 # .codex/config.toml
-[mcp_servers.cairn]
+[mcp_servers.arkeology]
 command = "uvx"
-args = ["cairn-mcp"]
+args = ["arkeology"]
 
-[mcp_servers.cairn.env]
+[mcp_servers.arkeology.env]
 WRITE_PREFIX = "team-a/project-x"
-ARTIFACT_BUCKET = "my-cairn-bucket"
-VECTORS_BUCKET = "my-cairn-vectors"
-VECTORS_INDEX = "cairn-index"
+ARTIFACT_BUCKET = "my-arkeology-bucket"
+VECTORS_BUCKET = "my-arkeology-vectors"
+VECTORS_INDEX = "arkeology-index"
 AWS_REGION = "eu-central-1"
 ```
 
@@ -515,7 +515,7 @@ Copilot CLI. See Research Note 2 below for the full source trail.
 The "global only + project-namespaced server name" workaround documented earlier
 in this session is obsolete and should not be used.
 
-### Implication for the setting-up-cairn skill (D5)
+### Implication for the setting-up-arkeology skill (D5)
 
 The skill should:
 1. Document all four client configurations with exact syntax.
@@ -525,14 +525,14 @@ The skill should:
    by Copilot CLI.
 4. Recommend committing per-project config files to git as the standard pattern for
    all four clients.
-5. opencode merge confirmed additive: the full entry is needed only for cairn
+5. opencode merge confirmed additive: the full entry is needed only for Arkeology
    (since it is a new server name not in global config); no need to duplicate
    shared MCP servers.
 6. For Codex, note the "trusted projects only" requirement for project config.
 
 ### Locked Decisions Update
 
-- **D5**: ✓ Resolved — setting-up-cairn skill needs updating for all four clients
+- **D5**: ✓ Resolved — setting-up-arkeology skill needs updating for all four clients
   (matrix documented above provides the content)
 - **D7** (new): Codex merge depth for `[mcp_servers]` across global + project
   layers needs empirical verification (analogous to D6 for opencode)
@@ -549,14 +549,14 @@ environment block, and a CloudWatch MCP server (disabled). All three have
 separate names and unrelated environment variables.
 
 **Project config** (`opencode.json` in the project root — contained a single
-MCP server entry named `cairn` with its own environment block including
+MCP server entry named `arkeology` with its own environment block including
 `WRITE_PREFIX`, backend bucket/index settings, AWS profile, and log levels.
-The `cairn` server name did not appear in the global config at all.
+The `arkeology` server name did not appear in the global config at all.
 
 ### Result
 
 All four servers were active in the session: the three from global config plus
-`cairn` from the project config. The project entry was **additively merged** —
+`arkeology` from the project config. The project entry was **additively merged** —
 not a replacement of the global `mcp` block.
 
 ### Conclusions from this test
@@ -565,12 +565,12 @@ not a replacement of the global `mcp` block.
    that introduces a server name not present in the global config adds it to the
    merged set. Global servers are preserved unchanged.
 
-2. **The pattern works for cairn-mcp**: Put cairn only in the project config.
+2. **The pattern works for Arkeology**: Put Arkeology only in the project config.
    Other shared MCP servers (AWS, IaC tooling, etc.) stay in the global config.
-   Result: the developer gets all their shared tools plus a project-scoped cairn
+   Result: the developer gets all their shared tools plus a project-scoped Arkeology
    instance with the correct `WRITE_PREFIX` — without any duplication.
 
-3. **Same-name override behaviour not tested**: If `cairn` had also appeared in
+3. **Same-name override behaviour not tested**: If `arkeology` had also appeared in
    the global config, it is not known whether the project entry would deeply
    merge fields or replace the entire entry. The Copilot docs example still
    suggests shallow (full-entry replacement), but this remains unconfirmed for
@@ -582,38 +582,38 @@ not a replacement of the global `mcp` block.
    ignored and only the global configs loaded. The officially documented project config
    name is `opencode.json` (no dot prefix).
 
-### Practical Guidance Update for the setting-up-cairn skill
+### Practical Guidance Update for the setting-up-arkeology skill
 
 - Check for both `opencode.json`.
 - If neither exists, create `opencode.json` (no dot prefix — officially documented name).
   **Do not create `.opencode.json`** — it was not reliably loaded in a subsequent test.
-- If one already exists, parse it and insert `mcp.cairn` without disturbing any
+- If one already exists, parse it and insert `mcp.arkeology` without disturbing any
   existing keys. This requires JSON-aware editing (not a text append), and must
   handle JSONC (comments) gracefully.
-- The cairn entry is self-contained: it need not repeat any settings from the
+- The Arkeology entry is self-contained: it need not repeat any settings from the
   global config. Only project-specific values belong here: `WRITE_PREFIX` and
   any env vars that differ per project.
 - Do not touch the global config at all during project setup; the global config
   is the user's personal preference layer and must not be overwritten.
 
-### New Requirement: D8 — Safe file editing in the setting-up-cairn skill
+### New Requirement: D8 — Safe file editing in the setting-up-arkeology skill
 
 The install skill must not blindly create or overwrite config files. Required
 behaviour for each client:
 
 | Client | Files to check | If exists | If absent |
 |--------|---------------|-----------|-----------|
-| Claude Code | `.mcp.json`, `.mcp.jsonc` | Insert `mcpServers.cairn` | Create `.mcp.json` |
-| opencode | `opencode.json` | Insert `mcp.cairn` | Create `opencode.json` (no dot; `.opencode.json` does not work) |
-| Copilot CLI | `.mcp.json` (**shared with Claude Code**, workspace root) | Insert `mcpServers.cairn` | Create `.mcp.json` |
-| Codex | `.codex/config.toml` | Insert `[mcp_servers.cairn]` section | Create `.codex/config.toml` |
+| Claude Code | `.mcp.json`, `.mcp.jsonc` | Insert `mcpServers.arkeology` | Create `.mcp.json` |
+| opencode | `opencode.json` | Insert `mcp.arkeology` | Create `opencode.json` (no dot; `.opencode.json` does not work) |
+| Copilot CLI | `.mcp.json` (**shared with Claude Code**, workspace root) | Insert `mcpServers.arkeology` | Create `.mcp.json` |
+| Codex | `.codex/config.toml` | Insert `[mcp_servers.arkeology]` section | Create `.codex/config.toml` |
 
 For JSON/JSONC files: read → parse (strip comments for JSONC) → merge at the
 correct key → write back (preserving existing comment blocks where possible, or
 at minimum not destroying the file). A pure text approach (sed/append) is
 insufficient and risks producing invalid JSON.
 
-For TOML files: check if `[mcp_servers.cairn]` already exists → if so, confirm
+For TOML files: check if `[mcp_servers.arkeology]` already exists → if so, confirm
 with the user before overwriting → otherwise append the new section.
 
 If the skill is invoked in an environment where Python / `uv` is available, a
@@ -671,7 +671,7 @@ Sources (all from GitHub API, issue comments):
 - **Shared with Claude Code**: `.mcp.json` with `mcpServers` key is read by BOTH
   clients — one file serves both simultaneously
 
-### Impact on the setting-up-cairn skill
+### Impact on the setting-up-arkeology skill
 
 The "global only + namespaced server name" workaround documented earlier in Session 3
 is **obsolete**. All four clients now support per-project config. The T31a spec has
@@ -696,7 +696,7 @@ in Session 4 Conclusion 4?
 
 ### Evidence
 
-An installation test was run where `skills/setting-up-cairn/SKILL.md` created
+An installation test was run where `skills/setting-up-arkeology/SKILL.md` created
 `.opencode.json` in the project root. After restarting opencode from that project
 directory, the opencode startup log showed:
 
@@ -707,7 +707,7 @@ service=config path=/home/.../.config/opencode/opencode.jsonc loading
 ```
 
 `.opencode.json` **never appeared** in the config-loading sequence. Only the three global
-configs loaded. The MCP servers from `.opencode.json` (including `cairn`) were not started.
+configs loaded. The MCP servers from `.opencode.json` (including `arkeology`) were not started.
 
 ### Conclusion
 
@@ -726,9 +726,9 @@ never be created.
 - `docs/brainstorming/brainstorming-2026-06-08-multi-team-multi-project-config.md`
   — Session 4 Conclusion 4 retracted; Practical Guidance and D8 table updated;
     comparison matrix updated; D6 note amended
-- `docs/specs/p9-t31a-setting-up-cairn-skill.md`
+- `docs/specs/p9-t31a-setting-up-arkeology-skill.md`
   — all `.opencode.json` create references updated to `opencode.json`; IDE table updated;
     Requirements updated; testing checklist updated
-- `skills/setting-up-cairn/SKILL.md`
+- `skills/setting-up-arkeology/SKILL.md`
   — detection table, entry format heading, permission gate example, and file creation
     target all updated to `opencode.json`

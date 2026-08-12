@@ -17,11 +17,11 @@ import io
 import botocore.exceptions
 import pytest
 
-from cairn_mcp.clients.s3 import S3ClientImpl
-from cairn_mcp.errors import (
+from arkeology.clients.s3 import S3ClientImpl
+from arkeology.errors import (
     AnnotationUnavailableError,
+    ArkeologyError,
     ArtifactConflictError,
-    CairnError,
     CredentialError,
 )
 
@@ -154,7 +154,7 @@ def test_get_object_annotation_non_utf8_payload_raises_typed_error(
     mocker: pytest.MonkeyPatch,
 ) -> None:
     """A stored annotation payload that is not valid UTF-8 (e.g. corrupted, or written
-    by a non-cairn-mcp tool) must surface as a typed, classified CairnError — not a
+    by a non-arkeology tool) must surface as a typed, classified ArkeologyError — not a
     bare UnicodeDecodeError propagating out as an unhandled exception."""
     s3_client.put_object(key="artifacts/bad-utf8.md", body="content", metadata={"title": "X"})
     mocker.patch.object(
@@ -163,7 +163,7 @@ def test_get_object_annotation_non_utf8_payload_raises_typed_error(
         return_value={"AnnotationPayload": io.BytesIO(b"\xff\xfe not valid utf-8")},
     )
 
-    with pytest.raises(CairnError):
+    with pytest.raises(ArkeologyError):
         s3_client.get_object_annotation("artifacts/bad-utf8.md", "commit_refs")
 
 

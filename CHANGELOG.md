@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- **Breaking:** the project is renamed from `cairn-mcp` to `arkeology`, because
+  `cairn-mcp` collided with several unrelated existing projects on GitHub and PyPI.
+  The Python package, CLI entrypoint, plugin and skill assets, and the MCP resource
+  scheme (`cairn://` → `arkeology://`) all change accordingly. Existing installations
+  must update their MCP client configuration to point at the new entrypoint; stored
+  artifacts and AWS resources are unaffected
 - **Breaking:** `references` now has plain replace semantics on write, mirroring the
   supplied frontmatter exactly — an ordinary overwrite sets `references` to the value
   supplied and omitting it clears the field. Previously an overwrite union-merged the
@@ -124,7 +130,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A migration manifest with two entries that normalise to the same path now
   raises instead of silently letting the second entry overwrite the first
 - A newline embedded in an artifact's title or description no longer corrupts the
-  `cairn://artifacts` markdown table's row structure
+  `arkeology://artifacts` markdown table's row structure
 - Investigated and left unchanged: the `coerce_list_field` inconsistency flagged
   for `delete_artifact` / `purge_archived` / `check_synthesis_freshness` is not a
   real bug — vector metadata natively stores lists, so the direct access already
@@ -138,7 +144,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.5.0] - 2026-06-29
 
 ### Added
-- `cairn_studio` MCP tool — two-pane visual artifact browser rendered as an MCP App in
+- `arkeology_studio` MCP tool — two-pane visual artifact browser rendered as an MCP App in
   supporting hosts (Claude Desktop, claude.ai, VS Code Copilot); falls back to a
   structured artifact listing on non-supporting hosts
 - `purge_archived` best-effort bulk partial-failure: non-credential failures on individual
@@ -174,7 +180,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.4.0] - 2026-06-23
 
 ### Added
-- `cairn://artifact/{id}` and `cairn://artifacts` MCP data resources — human-browsable
+- `arkeology://artifact/{id}` and `arkeology://artifacts` MCP data resources — human-browsable
   resources backed by existing `read_artifact` and `list_artifacts` logic; carry
   `audience: ["user"]` annotations and apply the same cross-scope gate as the tools;
   browsable in MCP Inspector and Claude Desktop
@@ -210,22 +216,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ARTIFACT_CONCURRENCY` env var
 
 ### Fixed
-- `setting-up-cairn` skill: installation now requires a single MCP client restart
+- `setting-up-arkeology` skill: installation now requires a single MCP client restart
   instead of two — AGENTS.md is written before the restart so both files are picked
   up in one reload
-- `setting-up-cairn` skill: removed the "When to write artifacts" section from the
+- `setting-up-arkeology` skill: removed the "When to write artifacts" section from the
   generated AGENTS.md snippet, which was triggering spurious `session_summary` writes
   at the end of skill-driven operations
-- `migrating-to-cairn` skill: dot-prefix directories (e.g. `.docs/`) are now surfaced
+- `migrating-to-arkeology` skill: dot-prefix directories (e.g. `.docs/`) are now surfaced
   in the 2b discovery scan; the blanket `.docs/` exclusion is removed
-- `migrating-to-cairn` skill: CAIRN_IMPORT.yaml is no longer printed to the terminal;
+- `migrating-to-arkeology` skill: ARKEOLOGY_IMPORT.yaml is no longer printed to the terminal;
   operators are directed to open the file in their editor
 
 ## [0.3.0] - 2026-06-10
 
 ### Added
-- `setting-up-cairn` skill — guided per-project cairn-mcp configuration for OpenCode, Claude Code, GitHub Copilot, and Claude Desktop
-- `sync-cairn-plugin` skill — updates the cairn-mcp plugin in place for any supported AI coding tool without manual config edits
+- `setting-up-arkeology` skill — guided per-project Arkeology configuration for OpenCode, Claude Code, GitHub Copilot, and Claude Desktop
+- `sync-arkeology-plugin` skill — updates the Arkeology plugin in place for any supported AI coding tool without manual config edits
 - Native plugin support for OpenCode, Claude Code, and GitHub Copilot via `install.sh` and `marketplace.json`
 - `reconcile_index` Scenario 3 — dangling vector pruning: removes vector entries with no corresponding S3 object
 
@@ -239,7 +245,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `SECTION_CONCURRENCY`, `EMBED_MAX_SECTIONS`, and `EMBED_MIN_SECTION_LENGTH` configuration variables for write-path tuning
 
 ### Changed
-- `migrating-to-cairn` skill rewritten with server-side parallel migration paths (Path B concurrent script, Path C sub-agent fan-out)
+- `migrating-to-arkeology` skill rewritten with server-side parallel migration paths (Path B concurrent script, Path C sub-agent fan-out)
 
 ### Fixed
 - `READ_PREFIXES` validated at startup to reject template placeholder text
@@ -279,7 +285,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `reconcile_index` tool — scans S3 prefix and re-indexes any artifacts with no corresponding vector entry
 - `check_synthesis_freshness` tool — detects synthesis artifacts whose source artifacts have changed since last synthesis
 - MCP resources for artifact type vocabulary and scope discovery
-- `migrating-to-cairn` skill for migrating existing project documentation into cairn-mcp
+- `migrating-to-arkeology` skill for migrating existing project documentation into Arkeology
 - Full integration test suite against live AWS (S3, S3 Vectors, Bedrock) with automatic teardown
 - Configurable `BEDROCK_EMBEDDING_DIMENSIONS` (default 1024)
 - In-process metadata filter evaluator enabling client-side filtering when S3 Vectors filter is not supported
@@ -295,7 +301,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Security
 - Credential-related boto3 exceptions caught at the AWS client layer and re-raised as structured typed errors; never exposed as raw stack traces to MCP callers
 
-[0.3.0]: https://github.com/amanoxsolutions/cairn-mcp/compare/v0.2.0...v0.3.0
-[0.2.0]: https://github.com/amanoxsolutions/cairn-mcp/compare/v0.1.1...v0.2.0
-[0.1.1]: https://github.com/amanoxsolutions/cairn-mcp/compare/v0.1.0...v0.1.1
-[0.1.0]: https://github.com/amanoxsolutions/cairn-mcp/releases/tag/v0.1.0
+[0.3.0]: https://github.com/amanoxsolutions/arkeology/compare/v0.2.0...v0.3.0
+[0.2.0]: https://github.com/amanoxsolutions/arkeology/compare/v0.1.1...v0.2.0
+[0.1.1]: https://github.com/amanoxsolutions/arkeology/compare/v0.1.0...v0.1.1
+[0.1.0]: https://github.com/amanoxsolutions/arkeology/releases/tag/v0.1.0

@@ -78,15 +78,15 @@ and have it stored and indexed under the correct type.
 
 ### Story 2 — Schema resources reflect all 14 types (P1)
 
-A connected agent reading cairn-mcp's MCP resources sees all 14 types in the catalogue
+A connected agent reading Arkeology's MCP resources sees all 14 types in the catalogue
 and artifact schema.
 
 **Acceptance criteria:**
-- Given a call to `cairn://schema/types`, when the resource is read, then each of the
+- Given a call to `arkeology://schema/types`, when the resource is read, then each of the
   five new types appears with a usage description.
-- Given a call to `cairn://schema/artifact`, when the resource is read, then all five
+- Given a call to `arkeology://schema/artifact`, when the resource is read, then all five
   new types are listed as valid type values.
-- Given a call to `cairn://schema/tiers`, when the resource is read, then `prd`, `plan`,
+- Given a call to `arkeology://schema/tiers`, when the resource is read, then `prd`, `plan`,
   and `runbook` appear in the tier 3 "Use for" guidance; `changelog` and `postmortem`
   appear in the tier 2 "Use for" guidance.
 
@@ -137,9 +137,9 @@ sees those directories mapped to the correct new types automatically.
   type and proceed normally.
 - WHEN `write_artifact` is called with `type="postmortem"` THE SYSTEM SHALL accept the
   type and proceed normally.
-- WHEN `cairn://schema/types` is read THE SYSTEM SHALL include a description for each of
+- WHEN `arkeology://schema/types` is read THE SYSTEM SHALL include a description for each of
   the five new types.
-- WHEN `cairn://schema/tiers` is read THE SYSTEM SHALL list `prd`, `plan`, `runbook`
+- WHEN `arkeology://schema/tiers` is read THE SYSTEM SHALL list `prd`, `plan`, `runbook`
   under tier 3 "Use for" guidance and `changelog`, `postmortem` under tier 2 "Use for"
   guidance.
 
@@ -173,11 +173,11 @@ sees those directories mapped to the correct new types automatically.
 | File | Action | Notes |
 |------|--------|-------|
 | `tests/unit/test_artifact.py` | Modify | Add 5 new types to parametrized list; update "All 9" → "All 14"; update docstring count |
-| `src/cairn_mcp/artifact.py` | Modify | Add 5 types to `ARTIFACT_TYPES`; update Artifact class docstring "nine" → "fourteen" |
-| `src/cairn_mcp/resources.py` | Modify | Add 5 entries to `_descriptions` in `types_schema_content()`; update both "Use for" lines in `tiers_schema_content()` |
+| `src/arkeology/artifact.py` | Modify | Add 5 types to `ARTIFACT_TYPES`; update Artifact class docstring "nine" → "fourteen" |
+| `src/arkeology/resources.py` | Modify | Add 5 entries to `_descriptions` in `types_schema_content()`; update both "Use for" lines in `tiers_schema_content()` |
 | `README.md` | Modify | Add 5 rows to artifact type table; update tier 2 and tier 3 type lists |
-| `skills/migrating-to-cairn/SKILL.md` | Modify | (1) Add docs-root discovery sub-step to Step 2; (2) change directory mapping table to subdirectory patterns; (3) add new type rows; (4) fix `planning-artifacts/` to split prd/plan/spec; (5) add 5 new types to Step 7 removal guidance |
-| `skills/migrating-to-cairn/schema.yaml` | Modify | Add 5 new types to the inline `ARTIFACT_TYPES` comment |
+| `skills/migrating-to-arkeology/SKILL.md` | Modify | (1) Add docs-root discovery sub-step to Step 2; (2) change directory mapping table to subdirectory patterns; (3) add new type rows; (4) fix `planning-artifacts/` to split prd/plan/spec; (5) add 5 new types to Step 7 removal guidance |
+| `skills/migrating-to-arkeology/schema.yaml` | Modify | Add 5 new types to the inline `ARTIFACT_TYPES` comment |
 
 ## Testing Approach
 
@@ -193,14 +193,14 @@ This project uses TDD. Test file is listed before the implementation file it gat
 
 **Green — implement to make the tests pass:**
 
-2. `src/cairn_mcp/artifact.py` — add `"changelog"`, `"plan"`, `"postmortem"`, `"prd"`,
+2. `src/arkeology/artifact.py` — add `"changelog"`, `"plan"`, `"postmortem"`, `"prd"`,
    `"runbook"` to `ARTIFACT_TYPES`; update the `Artifact` class docstring from "nine
    valid artifact types" to "fourteen valid artifact types". All five parametrized
    cases now pass.
 
 **Documentation (no failing test gates these — update after green):**
 
-3. `src/cairn_mcp/resources.py` — add description entries for the five new types to
+3. `src/arkeology/resources.py` — add description entries for the five new types to
    `_descriptions`; update `tiers_schema_content()` tier 2 "Use for" line to include
    `changelog` and `postmortem`; update tier 3 "Use for" line to include `plan`, `prd`,
    `runbook`. Existing `test_resources.py` iterates `ARTIFACT_TYPES` dynamically — no
@@ -222,7 +222,7 @@ This project uses TDD. Test file is listed before the implementation file it gat
    tier 2 type list to include `changelog` and `postmortem`; update the tier 3 type list
    to include `plan`, `prd`, `runbook`.
 
-5. `skills/migrating-to-cairn/SKILL.md` — the following changes are all in Step 2 and
+5. `skills/migrating-to-arkeology/SKILL.md` — the following changes are all in Step 2 and
    Step 7:
 
    **Step 2 — docs-root discovery sub-step** (insert before the directory mapping table):
@@ -258,13 +258,13 @@ This project uses TDD. Test file is listed before the implementation file it gat
 
    | Type | Safe to remove from repo |
    |---|---|
-   | `changelog` | Judgment call — keep if the changelog is actively referenced in release PRs; remove old entries already captured in cairn-mcp |
-   | `plan` | Judgment call — keep if the plan file is actively updated in the repo; remove if cairn-mcp is now the live version |
-   | `postmortem` | Yes — point-in-time incident records; cairn-mcp is the right home |
-   | `prd` | Judgment call — keep if the PRD is referenced in active development; remove once the feature is shipped and the cairn-mcp copy is the archive |
-   | `runbook` | Judgment call — keep if the team needs runbooks reachable outside cairn-mcp (e.g. via git during an incident); remove if cairn-mcp is the agreed operational home |
+   | `changelog` | Judgment call — keep if the changelog is actively referenced in release PRs; remove old entries already captured in Arkeology |
+   | `plan` | Judgment call — keep if the plan file is actively updated in the repo; remove if Arkeology is now the live version |
+   | `postmortem` | Yes — point-in-time incident records; Arkeology is the right home |
+   | `prd` | Judgment call — keep if the PRD is referenced in active development; remove once the feature is shipped and the Arkeology copy is the archive |
+   | `runbook` | Judgment call — keep if the team needs runbooks reachable outside Arkeology (e.g. via git during an incident); remove if Arkeology is the agreed operational home |
 
-6. `skills/migrating-to-cairn/schema.yaml` — update the inline `ARTIFACT_TYPES` comment
+6. `skills/migrating-to-arkeology/schema.yaml` — update the inline `ARTIFACT_TYPES` comment
    to list all types alphabetically (15 after the `learning` follow-up):
    `adr, brainstorming, bug_report, changelog, code_review, decision_note,`
    `implementation_note, learning, plan, postmortem, prd, runbook, session_summary,`

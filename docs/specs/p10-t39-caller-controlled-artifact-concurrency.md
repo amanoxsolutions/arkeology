@@ -130,10 +130,10 @@ starts, **then** no startup error is raised and the value has no effect on any t
   `artifact_concurrency` to `write_artifacts`.
 - WHEN `ARTIFACT_CONCURRENCY` is present in the environment THE SYSTEM SHALL ignore it; the
   `Settings` class shall not define a field for it.
-- WHEN the migrating-to-cairn skill is about to call `migrate_artifacts` THE SKILL SHALL
+- WHEN the migrating-to-arkeology skill is about to call `migrate_artifacts` THE SKILL SHALL
   compute `min(file_count, 15)`, present the recommendation with phase-appropriate Titan
   quota context, and wait for the operator to confirm or supply their own value.
-- WHEN the migrating-to-cairn skill executes 3.B3 or 3.B5 THE SKILL SHALL split the
+- WHEN the migrating-to-arkeology skill executes 3.B3 or 3.B5 THE SKILL SHALL split the
   descriptor list into batches of `artifact_concurrency` and call `migrate_artifacts` once
   per batch, reporting progress to the operator after each batch.
 
@@ -177,12 +177,12 @@ starts, **then** no startup error is raised and the value has no effect on any t
 | File | Action | Notes |
 |------|--------|-------|
 | `tests/unit/test_tools_write_artifacts.py` | Modify | Replace `monkeypatch.setenv("ARTIFACT_CONCURRENCY", ...)` with `artifact_concurrency=` parameter; add cap+warn test (> 15); add substitute+warn test (< 1); confirm no warning when in-range |
-| `src/cairn_mcp/tools/write_artifacts.py` | Modify | Add `artifact_concurrency: int = 3` to public + inner signatures; clamp to [1, 15] at top of `_inner`, adding `"warning"` to response dict when clamped; semaphore uses effective value |
+| `src/arkeology/tools/write_artifacts.py` | Modify | Add `artifact_concurrency: int = 3` to public + inner signatures; clamp to [1, 15] at top of `_inner`, adding `"warning"` to response dict when clamped; semaphore uses effective value |
 | `tests/unit/test_tools_migrate_artifacts.py` | Modify | Replace `monkeypatch.setenv("ARTIFACT_CONCURRENCY", ...)` with parameter; add > 15 cap+warn test; add < 1 substitute+warn test; add forward-to-write-phase test |
-| `src/cairn_mcp/tools/migrate_artifacts.py` | Modify | Add `artifact_concurrency: int = 3`; clamp to [1, 15] + warn; use effective value for description semaphore; pass effective value to `_write_artifacts` call |
+| `src/arkeology/tools/migrate_artifacts.py` | Modify | Add `artifact_concurrency: int = 3`; clamp to [1, 15] + warn; use effective value for description semaphore; pass effective value to `_write_artifacts` call |
 | `tests/unit/test_config.py` | Modify | Remove `ARTIFACT_CONCURRENCY` test blocks; add one test confirming `ARTIFACT_CONCURRENCY` in env raises no `ValidationError` |
-| `src/cairn_mcp/config.py` | Modify | Remove `ARTIFACT_CONCURRENCY` field, `validate_artifact_concurrency` validator, and `artifact_concurrency` property |
-| `skills/migrating-to-cairn/SKILL.md` | Modify | Add concurrency recommendation sub-step before the `migrate_artifacts` call in 3.A3, 3.B3, and 3.B5 |
+| `src/arkeology/config.py` | Modify | Remove `ARTIFACT_CONCURRENCY` field, `validate_artifact_concurrency` validator, and `artifact_concurrency` property |
+| `skills/migrating-to-arkeology/SKILL.md` | Modify | Add concurrency recommendation sub-step before the `migrate_artifacts` call in 3.A3, 3.B3, and 3.B5 |
 
 ## Testing Approach
 
@@ -193,7 +193,7 @@ TDD — each test file is written and run (Red) before the implementation file i
 ### Round 1 — `write_artifacts` parameter
 
 `tests/unit/test_tools_write_artifacts.py` (modify → Red) →
-`src/cairn_mcp/tools/write_artifacts.py` (modify → Green)
+`src/arkeology/tools/write_artifacts.py` (modify → Green)
 
 Tests to add or update:
 
@@ -213,7 +213,7 @@ Tests to add or update:
 ### Round 2 — `migrate_artifacts` parameter
 
 `tests/unit/test_tools_migrate_artifacts.py` (modify → Red) →
-`src/cairn_mcp/tools/migrate_artifacts.py` (modify → Green)
+`src/arkeology/tools/migrate_artifacts.py` (modify → Green)
 
 Tests to add or update:
 
@@ -232,7 +232,7 @@ Tests to add or update:
 
 ### Round 3 — config cleanup
 
-`tests/unit/test_config.py` (modify → Red) → `src/cairn_mcp/config.py` (modify → Green)
+`tests/unit/test_config.py` (modify → Red) → `src/arkeology/config.py` (modify → Green)
 
 - Remove the `ARTIFACT_CONCURRENCY` test block (tests T26 / Z1 label — default, custom,
   zero-invalid, negative-invalid).
@@ -263,7 +263,7 @@ Tests to add or update:
 >
 > Split the pending descriptor list into batches of `artifact_concurrency`. For each batch:
 > call `migrate_artifacts(dry_run=True, artifact_concurrency=…, descriptors=batch)`,
-> write the returned descriptions back to `CAIRN_IMPORT.yaml` as `description`,
+> write the returned descriptions back to `ARKEOLOGY_IMPORT.yaml` as `description`,
 > and report progress (e.g. "Described 15 of 95 files"). Continue until all batches are
 > processed.
 >
@@ -282,7 +282,7 @@ Tests to add or update:
 >
 > Split the pending descriptor list into batches of `artifact_concurrency`. For each batch:
 > call `migrate_artifacts(dry_run=False, artifact_concurrency=…, descriptors=batch)`,
-> update `CAIRN_IMPORT.yaml` statuses (written/failed), and report progress (e.g.
+> update `ARKEOLOGY_IMPORT.yaml` statuses (written/failed), and report progress (e.g.
 > "Written 15 of 95 files"). Continue until all batches are processed.
 >
 > *(stdio workaround — same as 3.B3; remove the loop when SSE is available.)*

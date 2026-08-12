@@ -1,0 +1,1132 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>arkeology studio</title>
+<script type="module">
+import { App } from "https://unpkg.com/@modelcontextprotocol/ext-apps@1.7.4/app-with-deps";
+import { marked } from "https://cdn.jsdelivr.net/npm/marked/+esm";
+import mermaid from "https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.esm.min.mjs";
+// C-2: marked.parse() passes raw HTML through unchanged. Artifact content (including
+// cross-scope tier-3 "shared" artifacts written by other teams) is untrusted input, so
+// the rendered HTML is sanitised with DOMPurify before it ever reaches innerHTML. Pinned
+// version — loaded from cdn.jsdelivr.net, already an allowed CSP origin (see resources.py
+// _BROWSER_CDN_ORIGINS).
+import DOMPurify from "https://cdn.jsdelivr.net/npm/dompurify@3.4.11/+esm";
+
+// ── Theme management ─────────────────────────────────────────────────────────
+// Default dark; honour prefers-color-scheme on first load; persist to localStorage.
+const THEME_KEY = "arkeology-studio-theme";
+
+function readStoredTheme() {
+  try { return localStorage.getItem(THEME_KEY); }
+  catch (err) { console.error("localStorage read failed:", err); return null; }
+}
+
+function storeTheme(theme) {
+  try { localStorage.setItem(THEME_KEY, theme); }
+  catch (err) { console.error("localStorage write failed:", err); }
+}
+
+function initialTheme() {
+  const stored = readStoredTheme();
+  if (stored === "light" || stored === "dark") return stored;
+  // No stored preference — honour the host's colour scheme, defaulting to dark.
+  try {
+    if (window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches) {
+      return "light";
+    }
+  } catch (err) { console.error("matchMedia failed:", err); }
+  return "dark";
+}
+
+function mermaidThemeFor(theme) { return theme === "light" ? "default" : "dark"; }
+
+function applyTheme(theme) {
+  document.documentElement.setAttribute("data-theme", theme);
+  const btn = document.getElementById("theme-toggle");
+  if (btn) btn.setAttribute("aria-pressed", theme === "light" ? "true" : "false");
+  // Keep mermaid's theme aligned with the active app theme.
+  // securityLevel: "strict" (C-2) — mermaid HTML-escapes label text and disables
+  // clickable-node script/href injection; diagram source comes from untrusted
+  // artifact content (see the DOMPurify import above for the same reason).
+  mermaid.initialize({
+    theme: mermaidThemeFor(theme),
+    darkMode: theme !== "light",
+    securityLevel: "strict",
+  });
+}
+
+// Apply the initial theme as early as possible to avoid a flash.
+let currentTheme = initialTheme();
+document.documentElement.setAttribute("data-theme", currentTheme);
+mermaid.initialize({
+  theme: mermaidThemeFor(currentTheme),
+  darkMode: currentTheme !== "light",
+  securityLevel: "strict",
+});
+
+// ── Type configuration ─────────────────────────────────────────────────────
+// --c-*  : identity colour (4px stripe). --bt-* : AA-safe badge/eyebrow text.
+// Both are theme-aware CSS custom properties; we reference them by var() name.
+const TYPE_VARS = {
+  adr:                 { c: "--c-adr",       bt: "--bt-adr" },
+  prd:                 { c: "--c-prd",       bt: "--bt-prd" },
+  spec:                { c: "--c-spec",      bt: "--bt-spec" },
+  plan:                { c: "--c-plan",      bt: "--bt-plan" },
+  runbook:             { c: "--c-runbook",   bt: "--bt-runbook" },
+  changelog:           { c: "--c-changelog", bt: "--bt-changelog" },
+  implementation_note: { c: "--c-impl",      bt: "--bt-impl" },
+  code_review:         { c: "--c-cr",        bt: "--bt-cr" },
+  decision_note:       { c: "--c-dn",        bt: "--bt-dn" },
+  postmortem:          { c: "--c-pm",        bt: "--bt-pm" },
+  brainstorming:       { c: "--c-brain",     bt: "--bt-brain" },
+  session_summary:     { c: "--c-ss",        bt: "--bt-ss" },
+  learning:            { c: "--c-learn",     bt: "--bt-learn" },
+  synthesis:           { c: "--c-synth",     bt: "--bt-synth" },
+  bug_report:          { c: "--c-bug",       bt: "--bt-bug" },
+};
+
+const TYPE_LABELS = {
+  adr:                "ADR",
+  prd:                "PRD",
+  spec:               "Spec",
+  plan:               "Plan",
+  runbook:            "Runbook",
+  changelog:          "Changelog",
+  implementation_note:"Impl. Note",
+  code_review:        "Code Review",
+  decision_note:      "Decision Note",
+  postmortem:         "Postmortem",
+  brainstorming:      "Brainstorming",
+  session_summary:    "Session Summary",
+  learning:           "Learning",
+  synthesis:          "Synthesis",
+  bug_report:         "Bug Report",
+};
+
+function stripeColor(type) {
+  const v = TYPE_VARS[type];
+  return v ? `var(${v.c})` : "var(--t3)";
+}
+function badgeTextColor(type) {
+  const v = TYPE_VARS[type];
+  return v ? `var(${v.bt})` : "var(--t3)";
+}
+// m9: tint derived from the identity token via color-mix, not a duplicated rgba literal.
+function badgeBg(type) {
+  const v = TYPE_VARS[type];
+  if (!v) return "color-mix(in srgb, var(--t3) 16%, transparent)";
+  return `color-mix(in srgb, var(${v.c}) 16%, transparent)`;
+}
+function typeLabel(type) { return TYPE_LABELS[type] || type; }
+
+function escHtml(str) {
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+// ── State ──────────────────────────────────────────────────────────────────
+let currentArtifacts = [];
+let selectedId = null;
+let filterType = "";
+let filterTier = "";
+// M-11(d): "all" is an explicit all-inclusive sentinel recognised server-side by
+// list_artifacts (status="all" omits the status clause entirely). It is always sent
+// — never omitted — so the "All" option in #sel-status is actually reachable instead
+// of silently falling back to the server's "active" default.
+let filterStatus = "all";
+
+// ── DOM refs ───────────────────────────────────────────────────────────────
+const appEl        = document.getElementById("app");
+const themeToggle  = document.getElementById("theme-toggle");
+const searchInput  = document.getElementById("search-input");
+const searchForm   = document.getElementById("search-form");
+const selType      = document.getElementById("sel-type");
+const selTier      = document.getElementById("sel-tier");
+const selStatus    = document.getElementById("sel-status");
+const artifactList = document.getElementById("artifact-list");
+const listView     = document.getElementById("list-view");
+const detailView   = document.getElementById("detail-view");
+const detailBack   = document.getElementById("detail-back");
+const detailBody   = document.getElementById("detail-body");
+
+// Sync the toggle's pressed state with the theme applied before DOM was ready.
+applyTheme(currentTheme);
+
+// ── View switching ─────────────────────────────────────────────────────────
+function openDetail() { appEl.classList.add("showing-detail"); }
+function openList()   {
+  appEl.classList.remove("showing-detail");
+  selectedId = null;
+  document.querySelectorAll(".li").forEach(el => {
+    el.classList.remove("active");
+    el.setAttribute("aria-selected", "false");
+  });
+}
+
+// ── Render helpers ─────────────────────────────────────────────────────────
+function renderList(artifacts) {
+  // Sort: type ascending (A→Z), then date descending (newest first)
+  const sorted = [...(artifacts || [])].sort((a, b) => {
+    const ta = (a.type || "").toLowerCase(), tb = (b.type || "").toLowerCase();
+    if (ta !== tb) return ta < tb ? -1 : 1;
+    return (b.date || "").localeCompare(a.date || "");
+  });
+  currentArtifacts = sorted;
+  artifactList.innerHTML = "";
+
+  if (!sorted || sorted.length === 0) {
+    artifactList.innerHTML = '<p class="empty-msg">No artifacts found.</p>';
+    return;
+  }
+
+  for (const a of sorted) {
+    const id      = a.artifact_id || "";
+    const type    = a.type || "";
+    const title   = a.title || id;
+    const date    = a.date || "";
+    const tier    = a.tier || "";
+    const isActive = id === selectedId;
+
+    // M6: each row is a real <button> inside the listbox so it is keyboard-operable.
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = "li" + (isActive ? " active" : "");
+    item.dataset.id = id;
+    item.setAttribute("role", "option");
+    item.setAttribute("aria-selected", isActive ? "true" : "false");
+    item.innerHTML = `
+      <div class="li-stripe" style="background:${stripeColor(type)};"></div>
+      <div class="li-badge" style="background:${badgeBg(type)};color:${badgeTextColor(type)};">${escHtml(typeLabel(type))}</div>
+      <div class="li-title">${escHtml(title)}</div>
+      <div class="li-meta">${escHtml(date)}${tier ? " · tier " + tier : ""}</div>
+    `;
+    item.addEventListener("click", () => selectArtifact(id));
+    artifactList.appendChild(item);
+  }
+}
+
+// M6: roving keyboard navigation across list rows (Up/Down move; Enter/Space open).
+artifactList.addEventListener("keydown", e => {
+  const rows = [...artifactList.querySelectorAll(".li")];
+  if (rows.length === 0) return;
+  const idx = rows.indexOf(document.activeElement);
+  if (e.key === "ArrowDown") {
+    e.preventDefault();
+    const next = rows[Math.min(idx + 1, rows.length - 1)] || rows[0];
+    next.focus();
+  } else if (e.key === "ArrowUp") {
+    e.preventDefault();
+    const prev = idx <= 0 ? rows[0] : rows[idx - 1];
+    prev.focus();
+  } else if (e.key === "Home") {
+    e.preventDefault();
+    rows[0].focus();
+  } else if (e.key === "End") {
+    e.preventDefault();
+    rows[rows.length - 1].focus();
+  }
+  // Enter / Space are handled natively by the <button> click.
+});
+
+// ── Tool calls ─────────────────────────────────────────────────────────────
+let app;
+
+async function loadList() {
+  const args = {};
+  if (filterType)   args.type   = filterType;
+  if (filterTier)   args.tier   = parseInt(filterTier, 10);
+  if (filterStatus) args.status = filterStatus;
+
+  try {
+    const result = await app.callServerTool({ name: "list_artifacts", arguments: args });
+    const data = result.structuredContent ?? JSON.parse(result.content?.find(c => c.type === "text")?.text ?? "{}");
+    // M-11(b): a server error dict must render its own message, not be treated as an
+    // empty successful listing (a credential failure must never read as "no artifacts").
+    if (data.error) {
+      artifactList.innerHTML = `<p class="empty-msg">${escHtml(data.message || data.error)}</p>`;
+      return;
+    }
+    renderList(data.artifacts || []);
+    if (selectedId && !(data.artifacts || []).find(a => a.artifact_id === selectedId)) {
+      openList();
+    }
+  } catch {
+    artifactList.innerHTML = '<p class="empty-msg">Failed to load artifacts.</p>';
+  }
+}
+
+async function selectArtifact(id) {
+  selectedId = id;
+
+  document.querySelectorAll(".li").forEach(el => {
+    const isActive = el.dataset.id === id;
+    el.classList.toggle("active", isActive);
+    el.setAttribute("aria-selected", isActive ? "true" : "false");
+  });
+
+  const meta   = currentArtifacts.find(a => a.artifact_id === id) || {};
+  const type   = meta.type   || "";
+  const title  = meta.title  || id;
+  const label  = typeLabel(type);
+  const tier   = meta.tier   || "";
+  const date   = meta.date   || "";
+  const scope  = id ? id.split("/").slice(0, -1).join("/") : "";
+  const status = meta.status || "";
+
+  detailBody.innerHTML = `
+    <div class="rp-doc">
+      <div class="rp-eyebrow" style="color:${badgeTextColor(type)};">${escHtml(label)}</div>
+      <h1 class="rp-title">${escHtml(title)}</h1>
+      <div class="rp-pills">
+        ${tier   ? `<span class="rp-pill">tier ${escHtml(String(tier))}</span>` : ""}
+        ${date   ? `<span class="rp-pill">${escHtml(date)}</span>`              : ""}
+        ${scope  ? `<span class="rp-pill">${escHtml(scope)}</span>`             : ""}
+        ${status ? `<span class="rp-pill">${escHtml(status)}</span>`            : ""}
+      </div>
+      <div id="rp-content-area" class="rp-content">
+        <p style="color:var(--t2);">Loading…</p>
+      </div>
+    </div>
+  `;
+
+  openDetail();
+
+  try {
+    const result = await app.callServerTool({ name: "read_artifact", arguments: { artifact_id: id } });
+    const data = result.structuredContent ?? JSON.parse(result.content?.find(c => c.type === "text")?.text ?? "{}");
+    const content = data.content || "";
+    const contentArea = document.getElementById("rp-content-area");
+    if (!contentArea) return;
+
+    let rendered;
+    try { rendered = marked.parse(content); }
+    catch { rendered = `<pre style="white-space:pre-wrap;">${escHtml(content)}</pre>`; }
+    // C-2: content is untrusted (cross-scope tier-3 "shared" artifacts may come from a
+    // different, possibly compromised, team) — sanitise the rendered HTML before it
+    // reaches innerHTML so a stored payload like <img src=x onerror=...> cannot execute
+    // and reach app.callServerTool with this reader's credentials.
+    contentArea.innerHTML = DOMPurify.sanitize(rendered);
+
+    try {
+      contentArea.querySelectorAll("code.language-mermaid").forEach(el => {
+        const pre = el.parentElement;
+        pre.className = "mermaid";
+        pre.textContent = el.textContent;
+      });
+      await mermaid.run({ querySelector: "#rp-content-area pre.mermaid" });
+    } catch (err) { console.error("Mermaid rendering failed:", err); }
+  } catch (err) {
+    console.error("read_artifact failed:", err);
+    const contentArea = document.getElementById("rp-content-area");
+    if (contentArea) contentArea.innerHTML = `<p style="color:var(--t2);">Failed to load content.</p>`;
+  }
+}
+
+async function doSearch(query) {
+  openList();
+  try {
+    const result = await app.callServerTool({ name: "search_artifacts", arguments: { query } });
+    const data = result.structuredContent ?? JSON.parse(result.content?.find(c => c.type === "text")?.text ?? "{}");
+    // M-11(b): render the server-provided error message instead of a generic
+    // "Search failed." — the catch block below still covers transport-level failures.
+    if (data.error) {
+      artifactList.innerHTML = `<p class="empty-msg">${escHtml(data.message || data.error)}</p>`;
+      return;
+    }
+    renderList(data.artifacts || data || []);
+  } catch {
+    artifactList.innerHTML = '<p class="empty-msg">Search failed.</p>';
+  }
+}
+
+// ── Event handlers ───────────────────────────────────────────────────────────
+detailBack.addEventListener("click", openList);
+
+themeToggle.addEventListener("click", () => {
+  currentTheme = currentTheme === "light" ? "dark" : "light";
+  applyTheme(currentTheme);
+  storeTheme(currentTheme);
+  // Re-render the open artifact so mermaid diagrams pick up the new theme.
+  if (selectedId) selectArtifact(selectedId);
+});
+
+searchForm.addEventListener("submit", async e => {
+  e.preventDefault();
+  const q = searchInput.value.trim();
+  if (q) await doSearch(q);
+  else   await loadList();
+});
+
+searchInput.addEventListener("input", async () => {
+  if (searchInput.value.trim() === "") await loadList();
+});
+
+selType.addEventListener("change",   async () => { filterType   = selType.value;              await loadList(); });
+selTier.addEventListener("change",   async () => { filterTier   = selTier.value;              await loadList(); });
+selStatus.addEventListener("change", async () => { filterStatus = selStatus.value;            await loadList(); });
+
+// ── App init ───────────────────────────────────────────────────────────────
+app = new App({ name: "arkeology studio", version: "1.0.0" });
+
+// M-11(c): this iframe only ever runs in a *supporting* host (a non-supporting host
+// never loads the UI extension at all), so every plain-text confirmation this app
+// receives — including arkeology_studio's own "Arkeology Studio opened…" text — carries no
+// structuredContent. JSON.parse-ing that plain text unconditionally threw on every
+// render. The { write_prefix, artifacts } shape is sent only to non-supporting hosts
+// (see studio.py) and can never appear here, so it is not a value this callback can
+// correctly source — guard on structuredContent.artifacts instead of attempting to
+// parse or read fields that do not apply to this path.
+app.ontoolresult = ({ structuredContent }) => {
+  if (structuredContent && Array.isArray(structuredContent.artifacts)) {
+    renderList(structuredContent.artifacts);
+  }
+};
+
+await app.connect();
+
+await loadList();
+
+// Request a comfortable reading height from the host.
+// Hosts that support ui/notifications/size-changed (VS Code, etc.) will
+// resize the panel; others ignore it silently.
+app.sendSizeChanged({ height: 1000 });
+</script>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+/* ============================================================
+   DESIGN TOKENS — :root = DARK (default). [data-theme="light"]
+   overrides below. Token scales adopted from the benchmark
+   (aws-certs-exam-study design system) per Review 2026-06-29.
+   ============================================================ */
+:root {
+  /* — Surfaces — */
+  --base:        #09091a;
+  --surface:     #12142a;
+  --surface-up:  #1a1d3a;
+  --surface-hi:  #222548;
+
+  /* — Borders — */
+  --bd-faint:    rgba(148,158,220,0.07);
+  --bd:          rgba(148,158,220,0.13);
+  --bd-strong:   rgba(148,158,220,0.22);
+
+  /* — Text — */
+  --t1:          #e2eaff;   /* primary   — body + headings (AAA on base) */
+  --t2:          #8390bc;   /* secondary — meta, body copy (AA on base)  */
+  --t3:          #757fb0;   /* tertiary  — readable labels (AA on base; brightened from #404870, C2) */
+
+  --mono:        "SF Mono","Cascadia Code","Fira Code",ui-monospace,monospace;
+
+  /* — Spectrum accent — */
+  --g:           linear-gradient(135deg, #00d4b8, #0088ff 33%, #8844ee 66%, #e800b0);
+  --g90:         linear-gradient(90deg,  #00d4b8, #0088ff 33%, #8844ee 66%, #e800b0);
+
+  /* — Type identity colours (4px stripe; decorative) — */
+  --c-adr:       #00d4b8;
+  --c-prd:       #00bccc;
+  --c-spec:      #00a0e0;
+  --c-plan:      #0088f8;
+  --c-runbook:   #1a66ee;
+  --c-changelog: #3344ee;
+  --c-impl:      #5533ee;
+  --c-cr:        #7733ee;
+  --c-dn:        #9933dd;
+  --c-pm:        #bb33cc;
+  --c-brain:     #cc22bb;
+  --c-ss:        #dd11aa;
+  --c-learn:     #e80088;
+  --c-synth:     #f00077;
+  --c-bug:       #f50060;
+
+  /* — Type badge/eyebrow TEXT colours (M8) — lightened so each clears ≥4.5:1
+     as text on its own 16% tint over the dark base. Stops at or above plan
+     already pass and are kept identical to their --c-* value. — */
+  --bt-adr:       #00d4b8;
+  --bt-prd:       #00bccc;
+  --bt-spec:      #00a0e0;
+  --bt-plan:      #0088f8;
+  --bt-runbook:   #4180f1;
+  --bt-changelog: #6a76f3;
+  --bt-impl:      #856cf3;
+  --bt-cr:        #9966f2;
+  --bt-dn:        #ae5ee4;
+  --bt-pm:        #c654d4;
+  --bt-brain:     #d548c7;
+  --bt-ss:        #e237b8;
+  --bt-learn:     #ec2e9d;
+  --bt-synth:     #f2268b;
+  --bt-bug:       #f62476;
+
+  /* — Focus ring — */
+  --focus: #0088ff;
+
+  /* — Type scale (1rem = 16px base; 14px reading floor) (M3/M7) — */
+  --text-h1:   1.375rem;  /* 22px */
+  --text-h2:   1.1875rem; /* 19px */
+  --text-h3:   1.0625rem; /* 17px */
+  --text-h4:   1rem;      /* 16px */
+  --text-body: 1rem;      /* 16px — reading floor for paragraphs/list/tables ≥14px */
+  --text-read: 0.9375rem; /* 15px — dense reading content (table cells, list items) */
+  --text-cap:  0.875rem;  /* 14px — smallest reading token */
+  --text-label:0.8125rem; /* 13px — micro-labels: pills, meta, scope */
+  --text-badge:0.75rem;   /* 12px — type badge chips */
+  --text-th:   0.6875rem; /* 11px — table headers, eyebrow */
+
+  /* — Spacing scale (4px base) (M7) — */
+  --sp-1: 4px;  --sp-2: 8px;  --sp-3: 12px; --sp-4: 16px;
+  --sp-5: 24px; --sp-6: 32px; --sp-7: 48px; --sp-8: 64px;
+
+  /* — Radius (M7) — */
+  --r-sm: 6px; --r-md: 8px; --r-lg: 10px; --r-xl: 16px; --r-pill: 999px;
+
+  /* — Elevation (M7) — */
+  --shadow-1: 0 1px 2px rgba(0,0,0,0.40);
+  --shadow-2: 0 6px 18px rgba(0,0,0,0.50);
+  --shadow-3: 0 24px 60px -16px rgba(0,0,0,0.70);
+
+  /* — Motion (M7) — */
+  --dur-fast: 0.15s; --dur-base: 0.25s; --ease: cubic-bezier(.4,0,.2,1);
+}
+
+/* ============================================================
+   LIGHT THEME — designed, not inverted. Spectrum identity kept;
+   stops deepened so text holds ≥4.5:1 on white (m11).
+   ============================================================ */
+[data-theme="light"] {
+  --base:        #f4f5fb;
+  --surface:     #ffffff;
+  --surface-up:  #eef0fa;
+  --surface-hi:  #e4e7f6;
+
+  --bd-faint:    rgba(40,46,90,0.07);
+  --bd:          rgba(40,46,90,0.14);
+  --bd-strong:   rgba(40,46,90,0.24);
+
+  --t1:          #15172b;   /* primary   (AAA on base) */
+  --t2:          #4f598a;   /* secondary (AA on base)  */
+  --t3:          #5e6796;   /* tertiary  (AA on base)  */
+
+  /* Deepened spectrum stops for the brand gradient on white. */
+  --g:           linear-gradient(135deg, #009b86, #0066e0 33%, #7a2fdd 66%, #c70098);
+  --g90:         linear-gradient(90deg,  #009b86, #0066e0 33%, #7a2fdd 66%, #c70098);
+
+  /* Deepened identity stops (stripe stays vivid on white). */
+  --c-adr:       #007565;
+  --c-prd:       #00717a;
+  --c-spec:      #006b96;
+  --c-plan:      #0063b5;
+  --c-runbook:   #1759cf;
+  --c-changelog: #3344ee;
+  --c-impl:      #5533ee;
+  --c-cr:        #7231e4;
+  --c-dn:        #8a2ec7;
+  --c-pm:        #9b2aa9;
+  --c-brain:     #a71c99;
+  --c-ss:        #af0d86;
+  --c-learn:     #b5006a;
+  --c-synth:     #b9005c;
+  --c-bug:       #ba0049;
+
+  /* Badge/eyebrow text — darkened stops, each ≥4.5:1 on its own 16% tint over
+     the light base (and ≥4.5:1 on the light base directly, for the eyebrow). */
+  --bt-adr:       #007565;
+  --bt-prd:       #00717a;
+  --bt-spec:      #006b96;
+  --bt-plan:      #0063b5;
+  --bt-runbook:   #1759cf;
+  --bt-changelog: #3344ee;
+  --bt-impl:      #5533ee;
+  --bt-cr:        #7231e4;
+  --bt-dn:        #8a2ec7;
+  --bt-pm:        #9b2aa9;
+  --bt-brain:     #a71c99;
+  --bt-ss:        #af0d86;
+  --bt-learn:     #b5006a;
+  --bt-synth:     #b9005c;
+  --bt-bug:       #ba0049;
+
+  --focus: #0062d6;
+
+  --shadow-1: 0 1px 2px rgba(20,22,50,0.08);
+  --shadow-2: 0 6px 18px rgba(20,22,50,0.10);
+  --shadow-3: 0 24px 60px -16px rgba(20,22,50,0.16);
+}
+
+html, body {
+  height: 100%;
+  overflow: hidden;
+}
+
+html {
+  background: var(--base);
+  color: var(--t1);
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", sans-serif;
+  font-size: 16px;            /* M3: 16px base */
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  transition: background var(--dur-base) var(--ease), color var(--dur-base) var(--ease);
+}
+
+@keyframes gb {
+  0%, 100% { background-position: 0 50%; }
+  50%       { background-position: 100% 50%; }
+}
+
+/* M5: a single visible focus ring for every interactive control. */
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* ── App shell ──────────────────────────────────────────────────────────── */
+
+#app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* ── Toolbar ────────────────────────────────────────────────────────────── */
+
+#toolbar {
+  height: 56px;
+  flex-shrink: 0;
+  background: var(--surface);
+  border-bottom: 1px solid var(--bd-faint);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: 0 var(--sp-4);
+  position: relative;
+  z-index: 10;
+}
+
+#toolbar::after {
+  content: "";
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  height: 2px;
+  background: var(--g90);
+  background-size: 200% 200%;
+  opacity: 0.8;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  #toolbar::after { animation: gb 10s ease infinite; }
+}
+
+.tb-logo {
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  flex-shrink: 0;
+  background: var(--g);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
+
+#search-form {
+  flex: 1;
+  display: flex;
+}
+
+#search-input {
+  width: 100%;
+  height: 34px;
+  background: var(--base);
+  border: 1px solid var(--bd);
+  border-radius: var(--r-md);
+  color: var(--t1);
+  font-family: inherit;
+  font-size: var(--text-cap);
+  padding: 0 var(--sp-3);
+  outline: none;     /* replaced by the :focus-visible ring below (M5) */
+  transition: box-shadow var(--dur-fast), border-color var(--dur-fast);
+}
+
+#search-input::placeholder { color: var(--t2); }
+
+#search-input:focus {
+  border-color: color-mix(in srgb, var(--focus) 50%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--focus) 18%, transparent);
+}
+
+#search-input:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* Theme toggle (m11) */
+#theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  height: 34px;
+  padding: 0 12px;
+  flex-shrink: 0;
+  background: var(--base);
+  color: var(--t1);
+  border: 1px solid var(--bd);
+  border-radius: var(--r-pill);
+  font: 600 var(--text-label)/1 inherit;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
+}
+#theme-toggle:hover { border-color: var(--bd-strong); }
+#theme-toggle__dot {
+  width: 13px; height: 13px; border-radius: 50%;
+  background: var(--g); flex-shrink: 0;
+}
+#theme-toggle .tt-label-dark,
+#theme-toggle .tt-label-light { display: none; }
+[data-theme="dark"]  #theme-toggle .tt-label-dark  { display: inline; }
+[data-theme="light"] #theme-toggle .tt-label-light { display: inline; }
+
+/* ── Views ──────────────────────────────────────────────────────────────── */
+
+#list-view,
+#detail-view {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+  min-height: 0;
+}
+
+/* Detail view hidden by default */
+#detail-view { display: none; }
+
+#app.showing-detail #list-view  { display: none; }
+#app.showing-detail #detail-view { display: flex; }
+
+/* ── Filters bar ────────────────────────────────────────────────────────── */
+
+#filters {
+  padding: var(--sp-3);
+  border-bottom: 1px solid var(--bd-faint);
+  display: flex;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  background: var(--surface);
+}
+
+#filters select {
+  font-size: var(--text-label);
+  color: var(--t2);
+  background: var(--base);
+  border: 1px solid var(--bd-faint);
+  border-radius: var(--r-sm);
+  padding: 5px var(--sp-2);
+  cursor: pointer;
+  font-family: inherit;
+  outline: none;     /* replaced by the :focus-visible ring below (M5) */
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+#filters select:focus { border-color: var(--bd); }
+#filters select:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* ── Artifact list ──────────────────────────────────────────────────────── */
+
+#artifact-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--sp-2);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+
+.empty-msg {
+  color: var(--t3);     /* C2: brightened --t3 is AA on base */
+  font-size: var(--text-cap);
+  padding: var(--sp-5) var(--sp-4);
+}
+
+.li {
+  padding: 14px 14px 14px 18px;
+  border-radius: var(--r-lg);
+  border: 1px solid transparent;
+  position: relative;
+  overflow: hidden;
+  flex-shrink: 0;   /* never compress below natural height — list scrolls instead */
+  cursor: pointer;
+  /* M6: real <button> — reset native button chrome, keep left-aligned block layout. */
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  /* M4: no opacity dimming — unselected rows render at full opacity. */
+  transition: background var(--dur-fast), border-color var(--dur-fast);
+}
+
+.li:hover {
+  background: var(--surface-up);
+  border-color: var(--bd-faint);
+}
+
+.li:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;   /* keep the ring inside the row's rounded edge */
+}
+
+.li.active {
+  background: var(--surface-hi);
+  border-color: var(--bd);
+}
+
+.li-stripe {
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 4px;
+}
+
+.li-badge {
+  display: inline-block;
+  font-size: var(--text-badge);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 4px;
+  margin-bottom: var(--sp-1);
+  font-family: var(--mono);
+}
+
+.li-title {
+  font-size: var(--text-cap);   /* 14px reading floor for list titles (M3) */
+  font-weight: 500;
+  color: var(--t1);
+  margin-bottom: var(--sp-1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.li-meta {
+  font-size: var(--text-label);
+  color: var(--t3);     /* C2: meta uses brightened --t3 — one rule */
+}
+
+/* ── Detail view ────────────────────────────────────────────────────────── */
+
+#detail-back-bar {
+  height: 48px;
+  flex-shrink: 0;
+  background: var(--surface);
+  border-bottom: 1px solid var(--bd-faint);
+  display: flex;
+  align-items: center;
+  padding: 0 var(--sp-4);
+}
+
+#detail-back {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  font-size: var(--text-cap);
+  font-weight: 500;
+  color: var(--t2);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 6px 10px 6px 6px;
+  border-radius: var(--r-sm);
+  transition: color var(--dur-fast), background var(--dur-fast);
+}
+
+#detail-back:hover {
+  color: var(--t1);
+  background: var(--surface-up);
+}
+
+#detail-back:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+#detail-back svg {
+  flex-shrink: 0;
+}
+
+#detail-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--sp-5) var(--sp-5) var(--sp-7);
+  background: var(--base);
+}
+
+/* ── Document view ──────────────────────────────────────────────────────── */
+
+.rp-eyebrow {
+  font-size: var(--text-th);
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  margin-bottom: 10px;
+}
+
+.rp-title {
+  font-size: var(--text-h1);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+  margin-bottom: var(--sp-3);
+  color: var(--t1);
+  text-wrap: balance;
+}
+
+.rp-pills {
+  display: flex;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  margin-bottom: 28px;
+}
+
+.rp-pill {
+  font-size: var(--text-label);
+  color: var(--t2);
+  background: var(--surface);
+  border: 1px solid var(--bd-faint);
+  border-radius: var(--r-pill);
+  padding: 4px 12px;
+}
+
+/* ── Markdown rendered content ──────────────────────────────────────────── */
+
+.rp-content h1 {
+  font-size: var(--text-h2);
+  font-weight: 700;
+  color: var(--t1);
+  margin: var(--sp-5) 0 10px;
+}
+
+.rp-content h2 {
+  font-size: var(--text-h3);
+  font-weight: 600;
+  color: var(--t1);
+  margin: 22px 0 var(--sp-2);
+  padding-bottom: var(--sp-2);
+  border-bottom: 1px solid var(--bd-faint);
+}
+
+.rp-content h3 {
+  font-size: var(--text-h4);
+  font-weight: 600;
+  color: var(--t1);
+  margin: 18px 0 6px;
+}
+
+.rp-content p {
+  font-size: var(--text-body);   /* 16px reading paragraphs (M3) */
+  color: var(--t2);
+  line-height: 1.75;
+  margin-bottom: 14px;
+}
+
+.rp-content ul,
+.rp-content ol {
+  padding-left: 22px;
+  margin-bottom: 14px;
+}
+
+.rp-content li {
+  font-size: var(--text-read);   /* 15px — above the 14px floor (M3) */
+  color: var(--t2);
+  line-height: 1.7;
+  margin-bottom: var(--sp-1);
+}
+
+.rp-content code {
+  font-family: var(--mono);
+  font-size: var(--text-cap);    /* 14px — code is reading content */
+  background: var(--surface);
+  color: var(--bt-spec);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.rp-content pre {
+  background: var(--surface);
+  border: 1px solid var(--bd-faint);
+  border-radius: var(--r-md);
+  padding: var(--sp-4);
+  margin-bottom: var(--sp-4);
+  overflow-x: auto;
+}
+
+.rp-content pre code {
+  background: none;
+  padding: 0;
+  font-size: var(--text-cap);
+  color: var(--t2);
+}
+
+.rp-content table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-read);   /* 15px table cells (M3) */
+  margin-bottom: 18px;
+  display: block;
+  overflow-x: auto;
+}
+
+.rp-content th {
+  text-align: left;
+  padding: 7px 10px;
+  font-size: var(--text-th);     /* 11px — micro-label, table header */
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--t3);
+  border-bottom: 1px solid var(--bd-faint);
+}
+
+.rp-content td {
+  padding: var(--sp-2) 10px;
+  color: var(--t2);
+  border-bottom: 1px solid var(--bd-faint);
+  vertical-align: top;
+}
+
+.rp-content td:first-child {
+  font-weight: 500;
+  color: var(--t1);
+}
+
+.rp-content blockquote {
+  border-left: 3px solid var(--bd);
+  margin: 0 0 14px;
+  padding: var(--sp-2) var(--sp-4);
+  color: var(--t3);     /* C2: brightened --t3 */
+  font-style: italic;
+}
+
+.rp-content a {
+  color: var(--bt-spec);
+  text-decoration: none;
+}
+
+.rp-content a:hover { text-decoration: underline; }
+
+.rp-content pre.mermaid {
+  background: var(--surface);
+  border: 1px solid var(--bd-faint);
+  border-radius: var(--r-md);
+  padding: var(--sp-4);
+  display: flex;
+  justify-content: center;
+}
+
+/* ── Scrollbars ─────────────────────────────────────────────────────────── */
+
+::-webkit-scrollbar        { width: 5px; height: 5px; }
+::-webkit-scrollbar-track  { background: transparent; }
+::-webkit-scrollbar-thumb  { background: var(--bd); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--bd-strong); }
+
+/* ── Touch targets (m10) — bump controls/rows to ≥44px on coarse pointers ── */
+@media (hover: none) and (pointer: coarse) {
+  #search-input { height: 44px; }
+  #theme-toggle { height: 44px; }
+  #filters select { min-height: 44px; }
+  #detail-back { min-height: 44px; }
+  .li { padding-top: 16px; padding-bottom: 16px; min-height: 44px; }
+}
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- ── Toolbar ─────────────────────────────────────────────────────── -->
+  <header id="toolbar">
+    <div class="tb-logo">arkeology</div>
+    <form id="search-form" role="search">
+      <input
+        id="search-input"
+        type="search"
+        placeholder="Search artifacts…"
+        aria-label="Search artifacts"
+        autocomplete="off"
+      >
+    </form>
+    <button
+      id="theme-toggle"
+      type="button"
+      aria-pressed="false"
+      aria-label="Toggle light and dark theme"
+    >
+      <span id="theme-toggle__dot" aria-hidden="true"></span>
+      <span class="tt-label-dark">Dark</span>
+      <span class="tt-label-light">Light</span>
+    </button>
+  </header>
+
+  <!-- ── List view ───────────────────────────────────────────────────── -->
+  <div id="list-view">
+    <div id="filters">
+      <select id="sel-type" aria-label="Filter by type">
+        <option value="">All types</option>
+        <option value="adr">ADR</option>
+        <option value="prd">PRD</option>
+        <option value="spec">Spec</option>
+        <option value="plan">Plan</option>
+        <option value="runbook">Runbook</option>
+        <option value="changelog">Changelog</option>
+        <option value="implementation_note">Impl. Note</option>
+        <option value="code_review">Code Review</option>
+        <option value="decision_note">Decision Note</option>
+        <option value="postmortem">Postmortem</option>
+        <option value="brainstorming">Brainstorming</option>
+        <option value="session_summary">Session Summary</option>
+        <option value="learning">Learning</option>
+        <option value="synthesis">Synthesis</option>
+        <option value="bug_report">Bug Report</option>
+      </select>
+      <select id="sel-tier" aria-label="Filter by tier">
+        <option value="">All tiers</option>
+        <option value="2">Tier 2</option>
+        <option value="3">Tier 3</option>
+      </select>
+      <select id="sel-status" aria-label="Filter by status">
+        <option value="all" selected>All</option>
+        <option value="active">Active</option>
+        <option value="inactive">Inactive</option>
+      </select>
+    </div>
+    <div id="artifact-list" role="listbox" aria-label="Artifacts"></div>
+  </div>
+
+  <!-- ── Detail view ─────────────────────────────────────────────────── -->
+  <div id="detail-view">
+    <div id="detail-back-bar">
+      <button id="detail-back" aria-label="Back to list">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <path d="M10 3L5 8L10 13" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        All artifacts
+      </button>
+    </div>
+    <div id="detail-body"></div>
+  </div>
+
+</div>
+</body>
+</html>

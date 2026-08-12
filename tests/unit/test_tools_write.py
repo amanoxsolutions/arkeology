@@ -1,4 +1,4 @@
-"""Unit tests for cairn_mcp.tools.write.
+"""Unit tests for arkeology.tools.write.
 
 Tests write_artifact() and its embedding helper functions using moto-backed clients.
 """
@@ -10,21 +10,21 @@ import logging
 import botocore.exceptions
 import pytest
 
-from cairn_mcp.artifact import S3_USER_METADATA_MAX_BYTES, VECTOR_FILTERABLE_METADATA_MAX_BYTES
-from cairn_mcp.clients.fakes.fake_bedrock import FakeBedrockClient
-from cairn_mcp.clients.s3 import S3ClientImpl
-from cairn_mcp.clients.vectors import VectorsClientImpl
-from cairn_mcp.errors import AnnotationUnavailableError, ArtifactConflictError, CredentialError
-from cairn_mcp.tools.link_metadata import link_metadata
-from cairn_mcp.tools.reconcile import reconcile_index
-from cairn_mcp.tools.write import write_artifact
+from arkeology.artifact import S3_USER_METADATA_MAX_BYTES, VECTOR_FILTERABLE_METADATA_MAX_BYTES
+from arkeology.clients.fakes.fake_bedrock import FakeBedrockClient
+from arkeology.clients.s3 import S3ClientImpl
+from arkeology.clients.vectors import VectorsClientImpl
+from arkeology.errors import AnnotationUnavailableError, ArtifactConflictError, CredentialError
+from arkeology.tools.link_metadata import link_metadata
+from arkeology.tools.reconcile import reconcile_index
+from arkeology.tools.write import write_artifact
 from tests.unit.conftest import _make_settings
 
 # Base write kwargs
 _BASE_WRITE_KWARGS: dict = {
     "type": "code_review",
     "team": "platform",
-    "project": "cairn",
+    "project": "arkeology",
     "tier": 2,
     "date": "2026-05-30",
     "status": "active",
@@ -51,7 +51,7 @@ _ONE_SECTION_KWARGS: dict = {
 # Note: unit tests for the section-embedding-text helpers and the section
 # filter/cap/truncate pipeline (formerly private to this module) now live in
 # tests/unit/test_tools_section_pipeline.py — they moved to
-# cairn_mcp.tools._section_pipeline as a shared helper used by both
+# arkeology.tools._section_pipeline as a shared helper used by both
 # write_artifact and reconcile_index (Phase 12 review M-3).
 
 
@@ -2181,8 +2181,8 @@ async def test_section_truncation_logged_at_debug(
 ) -> None:
     """When a section body is truncated, the event is logged at DEBUG level.
 
-    The truncation now happens inside the shared ``cairn_mcp.tools._section_pipeline``
-    helper (M-3), not in ``cairn_mcp.tools.write`` directly, so the log is emitted
+    The truncation now happens inside the shared ``arkeology.tools._section_pipeline``
+    helper (M-3), not in ``arkeology.tools.write`` directly, so the log is emitted
     under that module's logger.
     """
     settings = _make_settings(monkeypatch, EMBED_MAX_SECTION_LENGTH="50")
@@ -2192,7 +2192,7 @@ async def test_section_truncation_logged_at_debug(
     content = f"## Long Section\n\n{body}"
     kwargs = {**_BASE_WRITE_KWARGS, "content": content}
 
-    with caplog.at_level(logging.DEBUG, logger="cairn_mcp.tools._section_pipeline"):
+    with caplog.at_level(logging.DEBUG, logger="arkeology.tools._section_pipeline"):
         await write_artifact(
             s3=s3_client,
             vectors=vectors_client,
@@ -3081,8 +3081,8 @@ def test_embed_executor_has_adequate_max_workers() -> None:
     The dedicated pool must not be smaller than that product so that SECTION_CONCURRENCY
     semaphore slots across all concurrent artifact writes can all run simultaneously.
     """
-    import cairn_mcp.tools.write as write_module
-    from cairn_mcp.tools.write_artifacts import _ARTIFACT_CONCURRENCY_MAX
+    import arkeology.tools.write as write_module
+    from arkeology.tools.write_artifacts import _ARTIFACT_CONCURRENCY_MAX
 
     expected_min = _ARTIFACT_CONCURRENCY_MAX * 5  # 5 = SECTION_CONCURRENCY default
     assert write_module._EMBED_EXECUTOR._max_workers >= expected_min
@@ -3098,14 +3098,14 @@ def test_embed_executor_not_created_at_import_time() -> None:
     import importlib
     from unittest.mock import patch
 
-    import cairn_mcp.tools.write as write_module
+    import arkeology.tools.write as write_module
 
     try:
         with patch("concurrent.futures.ThreadPoolExecutor") as mock_executor_cls:
             importlib.reload(write_module)
             assert mock_executor_cls.call_count == 0, (
                 "ThreadPoolExecutor must not be constructed merely by importing "
-                "cairn_mcp.tools.write — it should be created lazily on first use"
+                "arkeology.tools.write — it should be created lazily on first use"
             )
     finally:
         # Restore the module to its normal (real ThreadPoolExecutor) state
@@ -3127,7 +3127,7 @@ async def test_embed_uses_dedicated_executor(
     so compound concurrency (artifact_concurrency × section_concurrency) is bounded by the
     dedicated pool and not by asyncio's default executor.
     """
-    import cairn_mcp.tools.write as write_module
+    import arkeology.tools.write as write_module
 
     settings = _make_settings(monkeypatch)
     bedrock = FakeBedrockClient(dimension=1024)
@@ -3153,7 +3153,7 @@ async def test_doc_fallback_embed_uses_dedicated_executor(
     mocker: pytest.MonkeyPatch,
 ) -> None:
     """Document-fallback embed (no sections) must also use _EMBED_EXECUTOR."""
-    import cairn_mcp.tools.write as write_module
+    import arkeology.tools.write as write_module
 
     settings = _make_settings(monkeypatch)
     bedrock = FakeBedrockClient(dimension=1024)

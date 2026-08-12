@@ -1,4 +1,4 @@
-"""Unit tests for cairn_mcp.tools.link_metadata.
+"""Unit tests for arkeology.tools.link_metadata.
 
 Tests link_metadata() using moto-backed S3ClientImpl + VectorsClientImpl.
 Generalizes and supersedes link_commit (p10-t38): dual-writes commit_refs and/or
@@ -12,12 +12,12 @@ from typing import Any
 import pytest
 from pytest_mock import MockerFixture
 
-from cairn_mcp.clients.fakes.fake_bedrock import FakeBedrockClient
-from cairn_mcp.clients.s3 import S3ClientImpl
-from cairn_mcp.clients.vectors import VectorsClientImpl
-from cairn_mcp.config import Settings
-from cairn_mcp.errors import AnnotationUnavailableError, ArtifactConflictError, CredentialError
-from cairn_mcp.tools.link_metadata import link_metadata
+from arkeology.clients.fakes.fake_bedrock import FakeBedrockClient
+from arkeology.clients.s3 import S3ClientImpl
+from arkeology.clients.vectors import VectorsClientImpl
+from arkeology.config import Settings
+from arkeology.errors import AnnotationUnavailableError, ArtifactConflictError, CredentialError
+from arkeology.tools.link_metadata import link_metadata
 from tests.unit.conftest import _make_settings as _make_settings_base
 
 # ---------------------------------------------------------------------------
@@ -48,7 +48,7 @@ _BASE_META: dict[str, Any] = {
     "scope": "artifacts",
     "type": "code_review",
     "team": "platform",
-    "project": "cairn",
+    "project": "arkeology",
     "tier": 2,
     "date": "2026-06-01",
     "status": "active",

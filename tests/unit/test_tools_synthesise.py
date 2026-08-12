@@ -1,4 +1,4 @@
-"""Unit tests for cairn_mcp.tools.synthesise.
+"""Unit tests for arkeology.tools.synthesise.
 
 Tests synthesise_artifacts() using moto-backed S3 + Vectors clients and FakeBedrockClient.
 """
@@ -10,12 +10,12 @@ from unittest.mock import AsyncMock
 import pytest
 from pytest_mock import MockerFixture
 
-from cairn_mcp.clients.fakes.fake_bedrock import FakeBedrockClient
-from cairn_mcp.clients.s3 import S3ClientImpl
-from cairn_mcp.clients.vectors import VectorsClientImpl
-from cairn_mcp.config import Settings
-from cairn_mcp.errors import CredentialError
-from cairn_mcp.tools.synthesise import synthesise_artifacts
+from arkeology.clients.fakes.fake_bedrock import FakeBedrockClient
+from arkeology.clients.s3 import S3ClientImpl
+from arkeology.clients.vectors import VectorsClientImpl
+from arkeology.config import Settings
+from arkeology.errors import CredentialError
+from arkeology.tools.synthesise import synthesise_artifacts
 from tests.unit.conftest import _make_settings as _make_settings_base
 
 
@@ -37,7 +37,7 @@ def _unit_vec(seed: float, dim: int = 8) -> list[float]:
 _BASE_S3_META: dict[str, str] = {
     "type": "code_review",
     "team": "platform",
-    "project": "cairn",
+    "project": "arkeology",
     "tier": "2",
     "date": "2026-05-30",
     "status": "active",
@@ -52,7 +52,7 @@ _BASE_VECTOR_META: dict[str, Any] = {
     "scope": "artifacts",
     "type": "code_review",
     "team": "platform",
-    "project": "cairn",
+    "project": "arkeology",
     "tier": 2,
     "date": "2026-05-30",
     "status": "active",
@@ -835,7 +835,7 @@ def _entry(artifact_id: str, score: float) -> dict[str, Any]:
 def _mock_search_loop(mocker: MockerFixture, entries: list[dict[str, Any]]) -> None:
     # run_search_loop returns (results, fetch_exhausted) on success (07-02 #7).
     mocker.patch(
-        "cairn_mcp.tools.synthesise.run_search_loop",
+        "arkeology.tools.synthesise.run_search_loop",
         new=AsyncMock(return_value=(entries, False)),
     )
 

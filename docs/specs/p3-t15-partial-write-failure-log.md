@@ -98,7 +98,7 @@ error with the artifact identifier, and a failure log entry is written to disk.
   `{"error": "partial_write", "message": str, "artifact_id": str}`.
 - THE FAILURE LOG PATH SHALL be a tier 1 artifact: local, ephemeral, and listed in
   `.gitignore`. The path SHALL be configurable via a `FAILURE_LOG_PATH` setting with a
-  default of `.cairn_failures.jsonl`.
+  default of `.arkeology_failures.jsonl`.
 
 ## Boundaries
 
@@ -112,7 +112,7 @@ error with the artifact identifier, and a failure log entry is written to disk.
 - Credential errors remain credential errors and are NOT treated as partial write failures.
 - The tool receives failure log path from `settings.failure_log_path`.
 - A new optional `FAILURE_LOG_PATH` setting is added to `config.py` with default
-  `.cairn_failures.jsonl`.
+  `.arkeology_failures.jsonl`.
 
 **Ask First:**
 - Nothing — all constraints are defined.
@@ -130,11 +130,11 @@ error with the artifact identifier, and a failure log entry is written to disk.
 | File | Action | Notes |
 |------|--------|-------|
 | `tests/unit/test_failure_log.py` | Create | Written first (Red) — failure_log module |
-| `src/cairn_mcp/failure_log.py` | Create | Written after unit tests (Green) |
+| `src/arkeology/failure_log.py` | Create | Written after unit tests (Green) |
 | `tests/unit/test_tools_write.py` | Modify | Add partial failure + retry test cases (Red) |
-| `src/cairn_mcp/tools/write.py` | Modify | Add failure logging + Bedrock retry (Green) |
-| `src/cairn_mcp/config.py` | Modify | Add `FAILURE_LOG_PATH` optional setting |
-| `.gitignore` | Modify | Add `.cairn_failures.jsonl` (and pattern for custom paths) |
+| `src/arkeology/tools/write.py` | Modify | Add failure logging + Bedrock retry (Green) |
+| `src/arkeology/config.py` | Modify | Add `FAILURE_LOG_PATH` optional setting |
+| `.gitignore` | Modify | Add `.arkeology_failures.jsonl` (and pattern for custom paths) |
 
 ## Testing Approach
 

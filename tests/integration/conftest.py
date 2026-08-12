@@ -39,9 +39,9 @@ from pathlib import Path
 
 import pytest
 
-from cairn_mcp.clients.s3 import S3ClientImpl
-from cairn_mcp.clients.vectors import VectorsClientImpl
-from cairn_mcp.config import Settings
+from arkeology.clients.s3 import S3ClientImpl
+from arkeology.clients.vectors import VectorsClientImpl
+from arkeology.config import Settings
 from tests.integration._isolation import (
     RunScope,
     apply_run_scope_env,

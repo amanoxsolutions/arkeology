@@ -42,7 +42,7 @@ revised:
 Add a write MCP tool `link_commit` that appends a commit SHA to the `commit_refs` vector
 metadata of confirmed own-scope artifacts without re-embedding them. It returns a fresh ULID
 cursor (`next_since_ulid`) so the agent advances its session-start pointer after each
-commit. The spec also covers the AGENTS.md post-commit protocol snippet that the cairn
+commit. The spec also covers the AGENTS.md post-commit protocol snippet that the Arkeology
 installation skill must include in every project it configures.
 
 ## Problem Statement
@@ -154,8 +154,8 @@ After the operator confirms the proposed list, the agent calls `link_commit`.
 | File | Action | Notes |
 |------|--------|-------|
 | `tests/unit/test_tools_link_commit.py` | Create | Written first (Red) |
-| `src/cairn_mcp/tools/link_commit.py` | Create | Written after unit tests (Green) |
-| `src/cairn_mcp/server.py` | Modify | Register `link_commit` on `_app` |
+| `src/arkeology/tools/link_commit.py` | Create | Written after unit tests (Green) |
+| `src/arkeology/server.py` | Modify | Register `link_commit` on `_app` |
 
 ## Testing Approach
 
@@ -215,14 +215,14 @@ Error handling:
 
 **AGENTS.md post-commit protocol note:**
 
-After `link_commit` is implemented and passing, add the following section to the cairn
+After `link_commit` is implemented and passing, add the following section to the Arkeology
 installation skill's AGENTS.md snippet. This snippet is written once by the installation
-skill into the project's `AGENTS.md` (or the cairn-mcp project's own `AGENTS.md` if this
-is the cairn-mcp project itself). The exact location within AGENTS.md is at the agent's
-discretion — after the cairn server configuration block is appropriate.
+skill into the project's `AGENTS.md` (or the Arkeology project's own `AGENTS.md` if this
+is the Arkeology project itself). The exact location within AGENTS.md is at the agent's
+discretion — after the Arkeology server configuration block is appropriate.
 
 ```markdown
-## Post-Commit Protocol (cairn-mcp)
+## Post-Commit Protocol (arkeology)
 
 **At session start:**
 Capture the session ULID once and carry it in context for the entire session:
@@ -243,8 +243,8 @@ Store this value as `since_ulid`.
 links. Re-run the post-commit protocol after any reconcile to restore them.
 ```
 
-This snippet must be placed in the cairn installation skill (the skill that writes AGENTS.md
-into a user's project) — it is not part of the cairn-mcp server's own `AGENTS.md`.
+This snippet must be placed in the Arkeology installation skill (the skill that writes AGENTS.md
+into a user's project) — it is not part of the Arkeology server's own `AGENTS.md`.
 
 ## Open Questions
 

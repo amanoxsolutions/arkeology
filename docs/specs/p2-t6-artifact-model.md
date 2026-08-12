@@ -127,7 +127,7 @@ rejected before any AWS call is made.
 | File | Action | Notes |
 |------|--------|-------|
 | `tests/unit/test_artifact.py` | Create | Written first (Red); all cases below |
-| `src/cairn_mcp/artifact.py` | Create | Written after tests fail (Green) |
+| `src/arkeology/artifact.py` | Create | Written after tests fail (Green) |
 
 ## Testing Approach
 

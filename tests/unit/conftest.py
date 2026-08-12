@@ -22,10 +22,10 @@ from moto.s3vectors.models import S3VectorsBackend
 from moto.s3vectors.responses import S3VectorsResponse
 from moto.s3vectors.urls import url_paths
 
-from cairn_mcp.clients.filter import matches_filter
-from cairn_mcp.clients.s3 import S3ClientImpl
-from cairn_mcp.clients.vectors import VectorsClientImpl
-from cairn_mcp.config import Settings
+from arkeology.clients.filter import matches_filter
+from arkeology.clients.s3 import S3ClientImpl
+from arkeology.clients.vectors import VectorsClientImpl
+from arkeology.config import Settings
 
 # ---------------------------------------------------------------------------
 # moto query_vectors extension — applied once at module load
@@ -299,7 +299,7 @@ def _make_settings(
     if "EMBED_MIN_SECTION_LENGTH" not in overrides:
         monkeypatch.setenv("EMBED_MIN_SECTION_LENGTH", "0")
     if tmp_path is not None:
-        monkeypatch.setenv("FAILURE_LOG_PATH", str(tmp_path / ".cairn_failures.jsonl"))
+        monkeypatch.setenv("FAILURE_LOG_PATH", str(tmp_path / ".arkeology_failures.jsonl"))
     for k, v in overrides.items():
         monkeypatch.setenv(k, v)
     return Settings()

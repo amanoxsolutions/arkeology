@@ -1,7 +1,7 @@
 ---
 type: code_review
 title: "Codebase simplification review — reuse, redundancy, dead code, clarity"
-description: "Whole-codebase review identifying simplification opportunities (DRY, dead code, over-engineering, clarity) across src/cairn_mcp; report only, no changes applied."
+description: "Whole-codebase review identifying simplification opportunities (DRY, dead code, over-engineering, clarity) across src/arkeology; report only, no changes applied."
 tags: [simplification, refactoring, dry, maintainability, code-review]
 timestamp: 2026-06-29T00:00:00Z
 okf_version: "0.1"
@@ -19,7 +19,7 @@ revised:
 
 ## Description
 
-A whole-codebase simplification pass over `src/cairn_mcp/` (~6,900 LOC, 30 files). The
+A whole-codebase simplification pass over `src/arkeology/` (~6,900 LOC, 30 files). The
 goal was to find where code can be made simpler — duplication that should be shared, dead
 code, over-engineering, and clarity issues — **without changing behaviour**. This is a
 review only; no code was modified. Every finding preserves the project's Non-Negotiable
@@ -42,7 +42,7 @@ consolidated and independently verified.
 
 ## Files Reviewed
 
-All `.py` under `src/cairn_mcp/`: `artifact.py`, `config.py`, `errors.py`,
+All `.py` under `src/arkeology/`: `artifact.py`, `config.py`, `errors.py`,
 `failure_log.py`, `__main__.py`, `server.py`, `startup.py`, `resources.py`;
 `clients/{interfaces,s3,vectors,bedrock,filter,credentials}.py` and
 `clients/fakes/fake_bedrock.py`; and all `tools/*.py`.
@@ -181,7 +181,7 @@ longest file.
   Metadata-key strings (`"artifact_id"`, `"scope"`, …) are higher churn — lower priority.
 - **`resources.py`** — extract `_error_markdown(result)` (duplicated at `:469–473` and
   `:569–572`); tidy the 4× pipe-escaping into one cell loop (`:532–542`); fix the
-  `_cairn_studior_html` typo (`:428`).
+  `_arkeology_studior_html` typo (`:428`).
 - **`fake_bedrock.py:69–75`** — `set_throttle_once()` is just `set_throttle_count(1)`;
   consolidate the throttle/timeout setter API (also touches 3 test call sites).
 

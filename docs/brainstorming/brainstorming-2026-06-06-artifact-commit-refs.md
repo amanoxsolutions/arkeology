@@ -1,13 +1,13 @@
 ---
 type: brainstorming
 title: Artifact Commit References
-description: How to add git commit references to artifact metadata in cairn-mcp, solving the association problem where the commit SHA is unknown at write time, covering the metadata model, timestamp precision, trigger mechanism, and migration skill implications. NOTE (revised 2026-07-03) — several decisions here (D6, D13, and KL1/OQ2) were later SUPERSEDED by the 2026-07-02 session in brainstorming-2026-07-01-artifact-cross-referencing.md; see the "Superseded decisions (updated 2026-07-03)" section below.
+description: How to add git commit references to artifact metadata in Arkeology, solving the association problem where the commit SHA is unknown at write time, covering the metadata model, timestamp precision, trigger mechanism, and migration skill implications. NOTE (revised 2026-07-03) — several decisions here (D6, D13, and KL1/OQ2) were later SUPERSEDED by the 2026-07-02 session in brainstorming-2026-07-01-artifact-cross-referencing.md; see the "Superseded decisions (updated 2026-07-03)" section below.
 tags: []
 timestamp: 2026-06-06T00:00:00Z
 okf_version: "0.1"
 status: ready
 references:
-  - docs/brainstorming/brainstorming-2026-06-01-adr-git-cairn-relationship.md
+  - docs/brainstorming/brainstorming-2026-06-01-adr-git-arkeology-relationship.md
   - docs/brainstorming/brainstorming-2026-07-01-artifact-cross-referencing.md  # supersedes D6, D13, KL1 (link_metadata dual-write + S3 annotations)
 authored:
   by: "analyst"
@@ -40,8 +40,8 @@ decisions_locked:
   - D10: link_commit returns next_since_ulid in its response; write_artifact returns last_edited_ulid in its response
   - D11: since_ulid is optional in propose_commit_links; when absent, returns all unlinked artifacts in own scope regardless of age
 decisions_pending:
-  - Path 1 (Claude Code PostToolUse mcp_tool hook) and Path 3 (git hook + cairn CLI) — deferred to installation skill milestone (see Known Limitations and Deferred Features)
-  - A dedicated .cairn/config.sh written by the installation skill as the tool-agnostic config source for Path 3
+  - Path 1 (Claude Code PostToolUse mcp_tool hook) and Path 3 (git hook + Arkeology CLI) — deferred to installation skill milestone (see Known Limitations and Deferred Features)
+  - A dedicated .arkeology/config.sh written by the installation skill as the tool-agnostic config source for Path 3
 decisions_locked:
   - D1: commit_refs as the metadata field name (list[str], opaque format — full SHA, short SHA, PR URL, tag all valid)
   - D2: last_edited_ulid as the write-time field (ULID generated on every write_artifact call, stored in S3 and vector metadata)
@@ -58,7 +58,7 @@ decisions_locked:
   - D13: S3 object metadata update for commit_refs (copy_object) is out of scope; commit_refs is read from vector metadata by read_artifact — no copy_object needed for read visibility
 decisions_closed_not_applicable:
   - Direction 1 (caller-supplied commit_refs at write time) — caller may not know the SHA at write time; post-write annotation is the right model
-  - Direction 2 (CAIRN_GIT_COMMIT env var) — does not solve interactive sessions; deferred
+  - Direction 2 (ARKEOLOGY_GIT_COMMIT env var) — does not solve interactive sessions; deferred
   - ISO-8601 datetime for written_at — ULID chosen instead (lexicographically sortable + unique + human-readable via conversion)
   - OQ1 + OQ4 (session-start ULID ergonomics) — resolved: Bash call at session start, link_commit returns next_since_ulid, since_ulid optional
   - OQ2 (S3 object metadata for commit_refs) — resolved as D6: vector-only in V1, reconcile limitation documented
@@ -72,7 +72,7 @@ decisions_closed_not_applicable:
 
 ## Description
 
-How to add git commit references to artifact metadata in cairn-mcp, and specifically how to
+How to add git commit references to artifact metadata in Arkeology, and specifically how to
 solve the association problem: artifacts are written during a session before a commit happens,
 so the commit SHA is unknown at write time. The session explored the metadata model, timestamp
 precision requirements, the trigger mechanism for linking artifacts to commits after the fact,
@@ -118,7 +118,7 @@ mechanism beneath them changed.
 
 ### Problem Statement
 
-Artifacts written to cairn-mcp (code reviews, implementation notes, ADRs, session summaries)
+Artifacts written to Arkeology (code reviews, implementation notes, ADRs, session summaries)
 describe work that is tied to a specific git commit. Without a `commit_refs` field, there is no
 traceability from an artifact to the code change it documents. The core difficulty is timing:
 the artifact is written during an agent session, often before the developer has committed. The
@@ -146,18 +146,18 @@ server-side auto-detection of the current HEAD is not viable.
 
 8. Caller supplies `commit_refs` at write time (explicit field)
 9. Server auto-detects from working directory (`git rev-parse HEAD`) — requires server to be in repo; breaks deployment-agnostic design
-10. Environment variable injection (`CAIRN_GIT_COMMIT`) — CI/CD friendly but not interactive sessions
+10. Environment variable injection (`ARKEOLOGY_GIT_COMMIT`) — CI/CD friendly but not interactive sessions
 11. Convention in Markdown content — no metadata field; not filterable
 12. Content convention + server parsing — adds parsing fragility
 13. Post-write re-call of `write_artifact` — idempotent but re-embeds all sections (expensive)
 14. New `annotate_artifact` / `patch_artifact_metadata` tool — metadata-only patch, no re-embed
 15. Git hook (`post-commit`) calling a CLI script
-16. Commit message convention — agent embeds `cairn:{artifact_id}` in commit; hook parses and backfills
+16. Commit message convention — agent embeds `arkeology:{artifact_id}` in commit; hook parses and backfills
 17. Reverse index (commit → artifacts) — separate storage, different query direction
 18. `reconcile_index` extended with `--link-commit` mode
 19. Webhook/HTTP endpoint — CI calls POST after build
 20. Agent AGENTS.md convention — no code change; agent supplies SHA as a `feature_tag`
-21. Session-scoped `CAIRN_SESSION_COMMIT` env var
+21. Session-scoped `ARKEOLOGY_SESSION_COMMIT` env var
 22. Soft convention for specific types (code_review, adr, implementation_note) only
 
 #### On vector metadata update mechanics (deeper dive)
@@ -225,19 +225,19 @@ hook configuration.
 
 The project's `AGENTS.md` is always loaded at session start, regardless of which skills the
 agent later loads. Adding the post-commit protocol to the `AGENTS.md` snippet written by the
-cairn installation skill means the agent follows it in every session, in every MCP tool, without
+Arkeology installation skill means the agent follows it in every session, in every MCP tool, without
 any additional configuration.
 
 When the agent loads the `committing-code` skill, both the skill instructions (commit format,
-conventional commits) and the AGENTS.md protocol (post-commit cairn linking) are simultaneously
+conventional commits) and the AGENTS.md protocol (post-commit Arkeology linking) are simultaneously
 in context. No skill composition mechanism is needed; AGENTS.md is the right carrier because
-the behaviour is project-specific (cairn-mcp must be configured for this project), not
-generically reusable. A separately loadable cairn skill would be invisible to agents who load
+the behaviour is project-specific (Arkeology must be configured for this project), not
+generically reusable. A separately loadable Arkeology skill would be invisible to agents who load
 only `committing-code`.
 
-**Path 3 — Git hook + `cairn link-commit` CLI**
+**Path 3 — Git hook + `arkeology link-commit` CLI**
 
-A `post-commit` git hook calls a CLI entry point (`cairn link-commit`) that reconstructs the
+A `post-commit` git hook calls a CLI entry point (`arkeology link-commit`) that reconstructs the
 AWS clients independently from the MCP session. The hook is universal (any git workflow, no IDE
 required) and fires even when no agent session is active.
 
@@ -248,13 +248,13 @@ variables are stored differently across tools:
 - Claude Desktop: `~/Library/Application Support/Claude/claude_desktop_config.json`
 - VS Code Copilot: `.vscode/mcp.json`
 
-A git hook cannot source any of these reliably. The solution is a **`.cairn/config.sh`** file
+A git hook cannot source any of these reliably. The solution is a **`.arkeology/config.sh`** file
 written once by the installation skill (tool-agnostic, `.gitignore`d), which the hook sources:
-`source "$(git rev-parse --show-toplevel)/.cairn/config.sh"`. This is a dependency on the
+`source "$(git rev-parse --show-toplevel)/.arkeology/config.sh"`. This is a dependency on the
 installation skill milestone and keeps Path 3 deferred.
 
 The confirmation problem also applies: git hooks are non-interactive. Options are auto-link
-without confirmation (Path 3a) or write a `.cairn_pending_links` file for the next agent
+without confirmation (Path 3a) or write a `.arkeology_pending_links` file for the next agent
 session to review (Path 3b).
 
 #### On the reconcile_index known limitation
@@ -421,7 +421,7 @@ restore them. This will be resolved in a future milestone by also updating S3 ob
 
 #### D5 — AGENTS.md post-commit protocol (V1 trigger)
 
-The cairn installation skill appends a post-commit section to the project's `AGENTS.md`:
+The Arkeology installation skill appends a post-commit section to the project's `AGENTS.md`:
 
 ```markdown
 ## Post-commit protocol
@@ -464,7 +464,7 @@ These changes are required before `propose_commit_links` can be implemented:
 ### Resolved Questions
 
 **Migration skill backfill of `commit_refs` (→ D12).**
-When running the `migrating-to-cairn` skill on an existing project, each migrated artifact
+When running the `migrating-to-arkeology` skill on an existing project, each migrated artifact
 may optionally be linked to its historical git commit. The default is **do not backfill**;
 the skill offers the operator three choices:
 
@@ -482,7 +482,7 @@ linked (one git call, one server call) and removes them from future `propose_com
 results, which is the operator's actual goal.
 
 The `git log -1` approach (option 3) yields the SHA of the last commit that touched each file —
-the most semantically accurate association. Commits may be arbitrarily old (pre-dating cairn-mcp
+the most semantically accurate association. Commits may be arbitrarily old (pre-dating Arkeology
 adoption), which is expected.
 
 ---
@@ -525,13 +525,13 @@ A hook entry in `.claude/settings.json` with `"type": "mcp_tool"` and
 within the existing MCP session — no separate credentials, no new process. This is
 Claude Code-specific and requires the installation skill to write the hook configuration.
 
-**Path 3 — `cairn link-commit` CLI + git hook**
-A `post-commit` hook calls a `cairn link-commit` CLI entry point that reconstructs AWS clients
-independently of any agent session. Requires a `.cairn/config.sh` file (written once by the
+**Path 3 — `arkeology link-commit` CLI + git hook**
+A `post-commit` hook calls a `arkeology link-commit` CLI entry point that reconstructs AWS clients
+independently of any agent session. Requires a `.arkeology/config.sh` file (written once by the
 installation skill) that the hook sources for AWS credentials and bucket names — solving the
 lack of a universal MCP config location across tools. Because git hooks are non-interactive,
 confirmation before linking is not possible; options are auto-link (3a) or write a
-`.cairn_pending_links` file for the next session to review (3b).
+`.arkeology_pending_links` file for the next session to review (3b).
 
 Both paths depend on the installation skill milestone and are not blocked by any V1 design
 decision.

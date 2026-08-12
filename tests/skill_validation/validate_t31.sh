@@ -3,7 +3,7 @@
 # T31 Validation Script
 #
 # Programmatically checks all automatable assertions from specs:
-#   - docs/specs/p9-t31a-setting-up-cairn-skill.md
+#   - docs/specs/p9-t31a-setting-up-arkeology-skill.md
 #   - docs/specs/p9-t31b-migration-skill-exclusion-gate.md
 #   - docs/specs/p9-t31c-readme-reduction.md
 #
@@ -102,20 +102,20 @@ check_match_count() {
 }
 
 # ── file paths ────────────────────────────────────────────────────────────────
-SKILL_MD="$REPO_ROOT/skills/setting-up-cairn/SKILL.md"
-AGENTS_SNIPPET="$REPO_ROOT/skills/setting-up-cairn/references/agents-snippet.md"
-MIGRATION_SKILL="$REPO_ROOT/skills/migrating-to-cairn/SKILL.md"
+SKILL_MD="$REPO_ROOT/skills/setting-up-arkeology/SKILL.md"
+AGENTS_SNIPPET="$REPO_ROOT/skills/setting-up-arkeology/references/agents-snippet.md"
+MIGRATION_SKILL="$REPO_ROOT/skills/migrating-to-arkeology/SKILL.md"
 README="$REPO_ROOT/README.md"
 
 
 # ═════════════════════════════════════════════════════════════════════════════
 echo ""
-echo "══ T31a: skills/setting-up-cairn/SKILL.md ══════════════════════════════"
+echo "══ T31a: skills/setting-up-arkeology/SKILL.md ══════════════════════════════"
 echo ""
 # ─── Existence & size ────────────────────────────────────────────────────────
 
 require_file "$SKILL_MD" \
-    "T31a [existence] skills/setting-up-cairn/SKILL.md exists"
+    "T31a [existence] skills/setting-up-arkeology/SKILL.md exists"
 
 check_line_count "$SKILL_MD" 1 500 \
     "T31a [size]      SKILL.md is ≤ 500 lines"
@@ -159,8 +159,8 @@ require_in_file "$SKILL_MD" 'invoke-model' \
 
 # ─── Step 6 config block ─────────────────────────────────────────────────────
 
-require_in_file "$SKILL_MD" 'cairn-mcp:config' \
-    "T31a [step6]     SKILL.md references cairn-mcp:config block"
+require_in_file "$SKILL_MD" 'arkeology:config' \
+    "T31a [step6]     SKILL.md references arkeology:config block"
 
 require_in_file "$SKILL_MD" 'local_only_types' \
     "T31a [step6]     SKILL.md contains local_only_types key"
@@ -194,17 +194,17 @@ forbid_in_file "$SKILL_MD" 'cp \.env\.example' \
 
 # ═════════════════════════════════════════════════════════════════════════════
 echo ""
-echo "══ T31a: skills/setting-up-cairn/references/agents-snippet.md ══════════"
+echo "══ T31a: skills/setting-up-arkeology/references/agents-snippet.md ══════════"
 echo ""
 # ─── Existence ───────────────────────────────────────────────────────────────
 
 require_file "$AGENTS_SNIPPET" \
-    "T31a [existence] skills/setting-up-cairn/references/agents-snippet.md exists"
+    "T31a [existence] skills/setting-up-arkeology/references/agents-snippet.md exists"
 
 # ─── Required content ─────────────────────────────────────────────────────────
 
-require_in_file "$AGENTS_SNIPPET" '<!-- cairn-mcp:config' \
-    "T31a [snippet]   agents-snippet.md contains <!-- cairn-mcp:config HTML comment"
+require_in_file "$AGENTS_SNIPPET" '<!-- arkeology:config' \
+    "T31a [snippet]   agents-snippet.md contains <!-- arkeology:config HTML comment"
 
 require_in_file "$AGENTS_SNIPPET" 'local_only_types' \
     "T31a [snippet]   agents-snippet.md references local_only_types"
@@ -216,12 +216,12 @@ require_in_file "$AGENTS_SNIPPET" 'Variant A' \
     "T31a [snippet]   agents-snippet.md contains Variant A (git-only ADR) section"
 
 require_in_file "$AGENTS_SNIPPET" 'Variant B' \
-    "T31a [snippet]   agents-snippet.md contains Variant B (cairn-mcp-only ADR) section"
+    "T31a [snippet]   agents-snippet.md contains Variant B (arkeology-only ADR) section"
 
 
 # ═════════════════════════════════════════════════════════════════════════════
 echo ""
-echo "══ T31b: skills/migrating-to-cairn/SKILL.md ════════════════════════════"
+echo "══ T31b: skills/migrating-to-arkeology/SKILL.md ════════════════════════════"
 echo ""
 # ─── Forbidden: Step 2c ADR strategy gate must be removed ────────────────────
 
@@ -236,11 +236,11 @@ forbid_in_file "$MIGRATION_SKILL" '\*\*Variant B' \
 
 # ─── Required: pre-flight check and exclusion references ──────────────────────
 
-require_in_file "$MIGRATION_SKILL" 'cairn-mcp:config' \
-    "T31b [step2]     migration SKILL.md contains cairn-mcp:config pre-flight check"
+require_in_file "$MIGRATION_SKILL" 'arkeology:config' \
+    "T31b [step2]     migration SKILL.md contains arkeology:config pre-flight check"
 
-require_in_file "$MIGRATION_SKILL" 'setting-up-cairn' \
-    "T31b [step2]     migration SKILL.md references setting-up-cairn in hard-stop message"
+require_in_file "$MIGRATION_SKILL" 'setting-up-arkeology' \
+    "T31b [step2]     migration SKILL.md references setting-up-arkeology in hard-stop message"
 
 require_in_file "$MIGRATION_SKILL" 'local_only_types' \
     "T31b [step2c]    migration SKILL.md references local_only_types (new Step 2c)"
@@ -306,8 +306,8 @@ forbid_in_file "$README" '^### Declare your ADR strategy first' \
 require_in_file "$README" 'Flexible ADR & document strategy' \
     "T31c [updated]   README Key Features has 'Flexible ADR & document strategy' bullet"
 
-require_in_file "$README" 'setting-up-cairn' \
-    "T31c [pointer]   README contains setting-up-cairn pointer (replacing removed sections)"
+require_in_file "$README" 'setting-up-arkeology' \
+    "T31c [pointer]   README contains setting-up-arkeology pointer (replacing removed sections)"
 
 
 # ═════════════════════════════════════════════════════════════════════════════

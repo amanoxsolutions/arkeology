@@ -1,4 +1,4 @@
-"""Unit tests for cairn_mcp.clients.filter.matches_filter.
+"""Unit tests for arkeology.clients.filter.matches_filter.
 
 Covers all supported operators: $eq, $in, $nin, $gte, $lte, $and, $or,
 plus the plain equality shorthand and the unsupported-operator error.
@@ -6,8 +6,8 @@ plus the plain equality shorthand and the unsupported-operator error.
 
 import pytest
 
-from cairn_mcp.clients.filter import matches_filter
-from cairn_mcp.errors import FilterEvaluationError
+from arkeology.clients.filter import matches_filter
+from arkeology.errors import FilterEvaluationError
 
 # ---------------------------------------------------------------------------
 # $eq operator

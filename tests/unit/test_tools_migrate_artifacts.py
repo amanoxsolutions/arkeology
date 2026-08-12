@@ -1,4 +1,4 @@
-"""Unit tests for cairn_mcp.tools.migrate_artifacts (Z1 — Cycle E, Red phase).
+"""Unit tests for arkeology.tools.migrate_artifacts (Z1 — Cycle E, Red phase).
 
 All tests import migrate_artifacts inside the function body and call pytest.fail if
 the module does not exist yet.  The Nova Lite call is simulated via mocker.patch.object
@@ -13,10 +13,10 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from cairn_mcp.clients.fakes.fake_bedrock import FakeBedrockClient
-from cairn_mcp.clients.s3 import S3ClientImpl
-from cairn_mcp.clients.vectors import VectorsClientImpl
-from cairn_mcp.server import _app, register_tools
+from arkeology.clients.fakes.fake_bedrock import FakeBedrockClient
+from arkeology.clients.s3 import S3ClientImpl
+from arkeology.clients.vectors import VectorsClientImpl
+from arkeology.server import _app, register_tools
 from tests.unit.conftest import _make_settings
 
 _FAKE_DESCRIPTION = "Fake generated description."
@@ -27,7 +27,7 @@ def _make_descriptor(i: int, *, with_description: bool = True, **overrides: Any)
     base: dict[str, Any] = {
         "type": "adr",
         "team": "platform",
-        "project": "cairn",
+        "project": "arkeology",
         "tier": 2,
         "date": "2026-06-03",
         "status": "active",
@@ -58,9 +58,9 @@ async def test_migrate_artifacts_dry_run_nova_lite_calls_for_missing(
     descriptions ≤ 280 chars.
     """
     try:
-        from cairn_mcp.tools.migrate_artifacts import migrate_artifacts
+        from arkeology.tools.migrate_artifacts import migrate_artifacts
     except ImportError:
-        pytest.fail("cairn_mcp.tools.migrate_artifacts is not yet implemented")
+        pytest.fail("arkeology.tools.migrate_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch, BEDROCK_TEXT_MODEL="amazon.nova-lite-v1:0")
     bedrock = FakeBedrockClient(dimension=1024)
@@ -106,9 +106,9 @@ async def test_migrate_artifacts_dry_run_no_writes(
 ) -> None:
     """dry_run=True → s3.put_object and vectors.put_vectors_batch are never called."""
     try:
-        from cairn_mcp.tools.migrate_artifacts import migrate_artifacts
+        from arkeology.tools.migrate_artifacts import migrate_artifacts
     except ImportError:
-        pytest.fail("cairn_mcp.tools.migrate_artifacts is not yet implemented")
+        pytest.fail("arkeology.tools.migrate_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch)
     bedrock = FakeBedrockClient(dimension=1024)
@@ -154,9 +154,9 @@ async def test_migrate_artifacts_dry_run_clips_long_agent_description(
     is clipped to 280 chars.
     """
     try:
-        from cairn_mcp.tools.migrate_artifacts import migrate_artifacts
+        from arkeology.tools.migrate_artifacts import migrate_artifacts
     except ImportError:
-        pytest.fail("cairn_mcp.tools.migrate_artifacts is not yet implemented")
+        pytest.fail("arkeology.tools.migrate_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch)
     bedrock = FakeBedrockClient(dimension=1024)
@@ -198,9 +198,9 @@ async def test_migrate_artifacts_false_writes_all_and_calls_nova_for_missing(
     exactly 2 Nova Lite calls and all 10 artifacts written.
     """
     try:
-        from cairn_mcp.tools.migrate_artifacts import migrate_artifacts
+        from arkeology.tools.migrate_artifacts import migrate_artifacts
     except ImportError:
-        pytest.fail("cairn_mcp.tools.migrate_artifacts is not yet implemented")
+        pytest.fail("arkeology.tools.migrate_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch, BEDROCK_TEXT_MODEL="amazon.nova-lite-v1:0")
     bedrock = FakeBedrockClient(dimension=1024)
@@ -244,9 +244,9 @@ async def test_migrate_artifacts_false_no_nova_when_all_have_descriptions(
     zero Nova Lite calls; all 10 artifacts written.
     """
     try:
-        from cairn_mcp.tools.migrate_artifacts import migrate_artifacts
+        from arkeology.tools.migrate_artifacts import migrate_artifacts
     except ImportError:
-        pytest.fail("cairn_mcp.tools.migrate_artifacts is not yet implemented")
+        pytest.fail("arkeology.tools.migrate_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch)
     bedrock = FakeBedrockClient(dimension=1024)
@@ -292,9 +292,9 @@ async def test_migrate_artifacts_idempotent(
     no duplicate artifacts and no errors.
     """
     try:
-        from cairn_mcp.tools.migrate_artifacts import migrate_artifacts
+        from arkeology.tools.migrate_artifacts import migrate_artifacts
     except ImportError:
-        pytest.fail("cairn_mcp.tools.migrate_artifacts is not yet implemented")
+        pytest.fail("arkeology.tools.migrate_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch)
     bedrock = FakeBedrockClient(dimension=1024)
@@ -345,9 +345,9 @@ async def test_migrate_artifacts_clips_long_nova_description_and_logs(
 ) -> None:
     """Nova Lite returns a description > 280 chars → it is clipped to 280 and logged at DEBUG."""
     try:
-        from cairn_mcp.tools.migrate_artifacts import migrate_artifacts
+        from arkeology.tools.migrate_artifacts import migrate_artifacts
     except ImportError:
-        pytest.fail("cairn_mcp.tools.migrate_artifacts is not yet implemented")
+        pytest.fail("arkeology.tools.migrate_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch, BEDROCK_TEXT_MODEL="amazon.nova-lite-v1:0")
     bedrock = FakeBedrockClient(dimension=1024)
@@ -398,9 +398,9 @@ async def test_migrate_artifacts_concurrency_2_limits_nova_calls(
     succeed) and the response (all 4 descriptors enriched).
     """
     try:
-        from cairn_mcp.tools.migrate_artifacts import migrate_artifacts
+        from arkeology.tools.migrate_artifacts import migrate_artifacts
     except ImportError:
-        pytest.fail("cairn_mcp.tools.migrate_artifacts is not yet implemented")
+        pytest.fail("arkeology.tools.migrate_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch, BEDROCK_TEXT_MODEL="amazon.nova-lite-v1:0")
     bedrock = FakeBedrockClient(dimension=1024)
@@ -448,9 +448,9 @@ async def test_migrate_artifacts_missing_description_no_text_model_returns_error
     invoke_text_model.
     """
     try:
-        from cairn_mcp.tools.migrate_artifacts import migrate_artifacts
+        from arkeology.tools.migrate_artifacts import migrate_artifacts
     except ImportError:
-        pytest.fail("cairn_mcp.tools.migrate_artifacts is not yet implemented")
+        pytest.fail("arkeology.tools.migrate_artifacts is not yet implemented")
 
     # Ensure BEDROCK_TEXT_MODEL is absent (None)
     monkeypatch.delenv("BEDROCK_TEXT_MODEL", raising=False)
@@ -501,9 +501,9 @@ async def test_migrate_artifacts_concurrency_above_15_capped_warns(
     warning key present; bedrock.invoke_text_model called with description semaphore of 15.
     """
     try:
-        from cairn_mcp.tools.migrate_artifacts import migrate_artifacts
+        from arkeology.tools.migrate_artifacts import migrate_artifacts
     except ImportError:
-        pytest.fail("cairn_mcp.tools.migrate_artifacts is not yet implemented")
+        pytest.fail("arkeology.tools.migrate_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch, BEDROCK_TEXT_MODEL="amazon.nova-lite-v1:0")
     bedrock = FakeBedrockClient(dimension=1024)
@@ -558,9 +558,9 @@ async def test_migrate_artifacts_concurrency_below_1_substituted_warns(
     warning key present; description semaphore constructed with 3.
     """
     try:
-        from cairn_mcp.tools.migrate_artifacts import migrate_artifacts
+        from arkeology.tools.migrate_artifacts import migrate_artifacts
     except ImportError:
-        pytest.fail("cairn_mcp.tools.migrate_artifacts is not yet implemented")
+        pytest.fail("arkeology.tools.migrate_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch, BEDROCK_TEXT_MODEL="amazon.nova-lite-v1:0")
     bedrock = FakeBedrockClient(dimension=1024)
@@ -615,9 +615,9 @@ async def test_migrate_artifacts_in_range_concurrency_5_dry_run_true_uses_semaph
     with 5; no 'warning' key in response.
     """
     try:
-        from cairn_mcp.tools.migrate_artifacts import migrate_artifacts
+        from arkeology.tools.migrate_artifacts import migrate_artifacts
     except ImportError:
-        pytest.fail("cairn_mcp.tools.migrate_artifacts is not yet implemented")
+        pytest.fail("arkeology.tools.migrate_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch, BEDROCK_TEXT_MODEL="amazon.nova-lite-v1:0")
     bedrock = FakeBedrockClient(dimension=1024)
@@ -666,9 +666,9 @@ async def test_migrate_artifacts_in_range_concurrency_5_dry_run_false_forwards_5
 ) -> None:
     """dry_run=False, artifact_concurrency=7 → write_artifacts semaphore constructed with 7."""
     try:
-        from cairn_mcp.tools.migrate_artifacts import migrate_artifacts
+        from arkeology.tools.migrate_artifacts import migrate_artifacts
     except ImportError:
-        pytest.fail("cairn_mcp.tools.migrate_artifacts is not yet implemented")
+        pytest.fail("arkeology.tools.migrate_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch)
     bedrock = FakeBedrockClient(dimension=1024)
@@ -732,9 +732,9 @@ async def test_m20_single_nova_lite_failure_does_not_abort_migration(
     is visible and the call to migrate_artifacts raises.
     """
     try:
-        from cairn_mcp.tools.migrate_artifacts import migrate_artifacts
+        from arkeology.tools.migrate_artifacts import migrate_artifacts
     except ImportError:
-        pytest.fail("cairn_mcp.tools.migrate_artifacts is not yet implemented")
+        pytest.fail("arkeology.tools.migrate_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch, BEDROCK_TEXT_MODEL="amazon.nova-lite-v1:0")
     bedrock = FakeBedrockClient(dimension=1024)
@@ -789,9 +789,9 @@ async def test_a1_migrate_writes_only_new_and_skips_pre_existing_key(
     skipped (no overwrite, no error); the other, genuinely-new descriptors are written.
     """
     try:
-        from cairn_mcp.tools.migrate_artifacts import migrate_artifacts
+        from arkeology.tools.migrate_artifacts import migrate_artifacts
     except ImportError:
-        pytest.fail("cairn_mcp.tools.migrate_artifacts is not yet implemented")
+        pytest.fail("arkeology.tools.migrate_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch)
     bedrock = FakeBedrockClient(dimension=1024)
@@ -855,9 +855,9 @@ async def test_a1_migrate_rerun_over_full_corpus_is_idempotent_and_non_destructi
     skips everything — idempotent and non-destructive, even when re-run content differs.
     """
     try:
-        from cairn_mcp.tools.migrate_artifacts import migrate_artifacts
+        from arkeology.tools.migrate_artifacts import migrate_artifacts
     except ImportError:
-        pytest.fail("cairn_mcp.tools.migrate_artifacts is not yet implemented")
+        pytest.fail("arkeology.tools.migrate_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch)
     bedrock = FakeBedrockClient(dimension=1024)
@@ -913,7 +913,7 @@ async def test_m20_server_migrate_artifacts_exposes_artifact_concurrency(
     """
     settings = _make_settings(monkeypatch)
     mock_migrate = AsyncMock(return_value={"results": []})
-    monkeypatch.setattr("cairn_mcp.server._migrate_artifacts", mock_migrate)
+    monkeypatch.setattr("arkeology.server._migrate_artifacts", mock_migrate)
 
     register_tools(
         settings=settings,
@@ -952,9 +952,9 @@ async def test_m12_failed_generation_skipped_not_written_with_empty_description(
     "generation_failed"; the other, successfully-generated descriptor still writes.
     """
     try:
-        from cairn_mcp.tools.migrate_artifacts import migrate_artifacts
+        from arkeology.tools.migrate_artifacts import migrate_artifacts
     except ImportError:
-        pytest.fail("cairn_mcp.tools.migrate_artifacts is not yet implemented")
+        pytest.fail("arkeology.tools.migrate_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch, BEDROCK_TEXT_MODEL="amazon.nova-lite-v1:0")
     bedrock = FakeBedrockClient(dimension=1024)
@@ -1016,9 +1016,9 @@ async def test_m12_dry_run_reports_generation_failed_without_empty_description_w
     but the failure is explicitly surfaced rather than silently left as an empty string.
     """
     try:
-        from cairn_mcp.tools.migrate_artifacts import migrate_artifacts
+        from arkeology.tools.migrate_artifacts import migrate_artifacts
     except ImportError:
-        pytest.fail("cairn_mcp.tools.migrate_artifacts is not yet implemented")
+        pytest.fail("arkeology.tools.migrate_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch, BEDROCK_TEXT_MODEL="amazon.nova-lite-v1:0")
     bedrock = FakeBedrockClient(dimension=1024)
@@ -1060,12 +1060,12 @@ async def test_m12_generation_prompt_content_is_bounded(
     a very large content body is truncated rather than sent to Nova Lite unbounded.
     """
     try:
-        from cairn_mcp.tools.migrate_artifacts import (
+        from arkeology.tools.migrate_artifacts import (
             _PROMPT_CONTENT_MAX_CHARS,
             migrate_artifacts,
         )
     except ImportError:
-        pytest.fail("cairn_mcp.tools.migrate_artifacts is not yet implemented")
+        pytest.fail("arkeology.tools.migrate_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch, BEDROCK_TEXT_MODEL="amazon.nova-lite-v1:0")
     bedrock = FakeBedrockClient(dimension=1024)
@@ -1104,9 +1104,9 @@ async def test_migrate_artifacts_dry_run_false_threads_references_to_vector_meta
     vector metadata when migrate_artifacts(dry_run=False) delegates to write_artifacts.
     """
     try:
-        from cairn_mcp.tools.migrate_artifacts import migrate_artifacts
+        from arkeology.tools.migrate_artifacts import migrate_artifacts
     except ImportError:
-        pytest.fail("cairn_mcp.tools.migrate_artifacts is not yet implemented")
+        pytest.fail("arkeology.tools.migrate_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch)
     bedrock = FakeBedrockClient(dimension=1024)
@@ -1138,7 +1138,7 @@ async def test_migrate_artifacts_dry_run_false_threads_references_to_vector_meta
 # ---------------------------------------------------------------------------
 
 _T56_ORIGINAL_PATH = "../decisions/B.md"
-_T56_B_ID = "platform/cairn/adr-b-decision-abcd1234.md"
+_T56_B_ID = "platform/arkeology/adr-b-decision-abcd1234.md"
 
 _T56_CONTENT = (
     "---\n"
@@ -1164,9 +1164,9 @@ async def test_t56_dry_run_false_rewrites_content_before_write_and_embed(
     already-rewritten version (no re-embed, no S3/embedding divergence).
     """
     try:
-        from cairn_mcp.tools.migrate_artifacts import migrate_artifacts
+        from arkeology.tools.migrate_artifacts import migrate_artifacts
     except ImportError:
-        pytest.fail("cairn_mcp.tools.migrate_artifacts is not yet implemented")
+        pytest.fail("arkeology.tools.migrate_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch)
     bedrock = FakeBedrockClient(dimension=1024)
@@ -1193,13 +1193,13 @@ async def test_t56_dry_run_false_rewrites_content_before_write_and_embed(
     assert results[0].get("written") is True
     artifact_id = results[0]["artifact_id"]
 
-    # S3 content is rewritten: original path gone, cairn:// URI present in both the
+    # S3 content is rewritten: original path gone, arkeology:// URI present in both the
     # frontmatter list item and the body link target.
     stored_content = s3_client.get_object(artifact_id)
     assert _T56_ORIGINAL_PATH not in stored_content
-    assert f"cairn://artifact/{_T56_B_ID}" in stored_content
-    assert f"  - cairn://artifact/{_T56_B_ID}" in stored_content
-    assert f"[the decision](cairn://artifact/{_T56_B_ID})" in stored_content
+    assert f"arkeology://artifact/{_T56_B_ID}" in stored_content
+    assert f"  - arkeology://artifact/{_T56_B_ID}" in stored_content
+    assert f"[the decision](arkeology://artifact/{_T56_B_ID})" in stored_content
 
     # put_object was called with exactly this rewritten body — proving the rewrite
     # happened before the write, not as some out-of-band patch.
@@ -1215,7 +1215,9 @@ async def test_t56_dry_run_false_rewrites_content_before_write_and_embed(
     # bedrock.embed received the rewritten text (not the original path) for the
     # section containing the link — proving no re-embed / no divergence.
     embed_texts = [c.args[0] if c.args else c.kwargs.get("text") for c in embed_spy.call_args_list]
-    assert any(text is not None and f"cairn://artifact/{_T56_B_ID}" in text for text in embed_texts)
+    assert any(
+        text is not None and f"arkeology://artifact/{_T56_B_ID}" in text for text in embed_texts
+    )
     assert all(text is None or _T56_ORIGINAL_PATH not in text for text in embed_texts)
 
 
@@ -1229,9 +1231,9 @@ async def test_t56_resolved_references_map_never_leaks_into_write_result(
     the S3 object metadata / vector metadata carry no trace of it either.
     """
     try:
-        from cairn_mcp.tools.migrate_artifacts import migrate_artifacts
+        from arkeology.tools.migrate_artifacts import migrate_artifacts
     except ImportError:
-        pytest.fail("cairn_mcp.tools.migrate_artifacts is not yet implemented")
+        pytest.fail("arkeology.tools.migrate_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch)
     bedrock = FakeBedrockClient(dimension=1024)
@@ -1275,9 +1277,9 @@ async def test_t56_dry_run_true_descriptor_echo_already_rewritten_and_key_absent
     the returned descriptor.
     """
     try:
-        from cairn_mcp.tools.migrate_artifacts import migrate_artifacts
+        from arkeology.tools.migrate_artifacts import migrate_artifacts
     except ImportError:
-        pytest.fail("cairn_mcp.tools.migrate_artifacts is not yet implemented")
+        pytest.fail("arkeology.tools.migrate_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch)
     bedrock = FakeBedrockClient(dimension=1024)
@@ -1301,7 +1303,7 @@ async def test_t56_dry_run_true_descriptor_echo_already_rewritten_and_key_absent
     assert "resolved_references_map" not in enriched[0]
     content = enriched[0]["content"]
     assert _T56_ORIGINAL_PATH not in content
-    assert f"cairn://artifact/{_T56_B_ID}" in content
+    assert f"arkeology://artifact/{_T56_B_ID}" in content
 
 
 @pytest.mark.asyncio
@@ -1314,9 +1316,9 @@ async def test_t56_descriptor_without_map_is_unaffected(
     pre-T56 migrate_artifacts — content passes through untouched in both dry_run modes.
     """
     try:
-        from cairn_mcp.tools.migrate_artifacts import migrate_artifacts
+        from arkeology.tools.migrate_artifacts import migrate_artifacts
     except ImportError:
-        pytest.fail("cairn_mcp.tools.migrate_artifacts is not yet implemented")
+        pytest.fail("arkeology.tools.migrate_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch)
     bedrock = FakeBedrockClient(dimension=1024)
@@ -1347,7 +1349,7 @@ async def test_t56_write_artifacts_direct_call_ignores_resolved_references_map(
     unrecognised resolved_references_map-shaped key has no effect — the capability is
     migrate_artifacts-only and is never wired into the general write path.
     """
-    from cairn_mcp.tools.write_artifacts import write_artifacts
+    from arkeology.tools.write_artifacts import write_artifacts
 
     settings = _make_settings(monkeypatch)
     bedrock = FakeBedrockClient(dimension=1024)
@@ -1373,4 +1375,4 @@ async def test_t56_write_artifacts_direct_call_ignores_resolved_references_map(
     stored_content = s3_client.get_object(artifact_id)
     assert stored_content == _T56_CONTENT
     assert _T56_ORIGINAL_PATH in stored_content
-    assert "cairn://artifact/" not in stored_content
+    assert "arkeology://artifact/" not in stored_content

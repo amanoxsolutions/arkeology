@@ -10,9 +10,9 @@ import json
 import botocore.exceptions
 import pytest
 
-from cairn_mcp.clients.bedrock import _RETRY_SLEEP_SECONDS, BedrockClientImpl
-from cairn_mcp.clients.fakes.fake_bedrock import FakeBedrockClient
-from cairn_mcp.errors import CredentialError
+from arkeology.clients.bedrock import _RETRY_SLEEP_SECONDS, BedrockClientImpl
+from arkeology.clients.fakes.fake_bedrock import FakeBedrockClient
+from arkeology.errors import CredentialError
 
 _MODEL_ID = "amazon.titan-embed-text-v2:0"
 
@@ -139,8 +139,8 @@ def test_retry_sleep_includes_jitter(
 
     mocker.patch.object(client._client, "invoke_model", side_effect=invoke_side_effect)
     # Patch random.uniform in bedrock module to return a known jitter value
-    mocker.patch("cairn_mcp.clients.bedrock.random.uniform", return_value=0.5)
-    sleep_mock = mocker.patch("cairn_mcp.clients.bedrock.time.sleep")
+    mocker.patch("arkeology.clients.bedrock.random.uniform", return_value=0.5)
+    sleep_mock = mocker.patch("arkeology.clients.bedrock.time.sleep")
 
     # Act
     result = client.embed("hello", _MODEL_ID, 1024)
@@ -181,7 +181,7 @@ def test_retry_sleep_jitter_varies(
     def capture_sleep(duration: float) -> None:
         sleep_durations.append(duration)
 
-    mocker.patch("cairn_mcp.clients.bedrock.time.sleep", side_effect=capture_sleep)
+    mocker.patch("arkeology.clients.bedrock.time.sleep", side_effect=capture_sleep)
 
     # Act — two separate embed calls, each with a throttle on first attempt
     client.embed("hello world", _MODEL_ID, 1024)

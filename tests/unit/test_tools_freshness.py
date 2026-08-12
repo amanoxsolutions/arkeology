@@ -1,4 +1,4 @@
-"""Unit tests for cairn_mcp.tools.freshness.
+"""Unit tests for arkeology.tools.freshness.
 
 Tests check_synthesis_freshness() using moto-backed S3ClientImpl + VectorsClientImpl.
 """
@@ -9,10 +9,10 @@ from typing import Any
 import pytest
 from pytest_mock import MockerFixture
 
-from cairn_mcp.clients.s3 import S3ClientImpl
-from cairn_mcp.clients.vectors import VectorsClientImpl
-from cairn_mcp.errors import CredentialError
-from cairn_mcp.tools.freshness import check_synthesis_freshness
+from arkeology.clients.s3 import S3ClientImpl
+from arkeology.clients.vectors import VectorsClientImpl
+from arkeology.errors import CredentialError
+from arkeology.tools.freshness import check_synthesis_freshness
 from tests.unit.conftest import _make_settings
 
 # ---------------------------------------------------------------------------
@@ -44,7 +44,7 @@ def _synthesis_meta(
         "date": date,
         "title": "Test Synthesis",
         "team": "platform",
-        "project": "cairn",
+        "project": "arkeology",
         "tier": 3,
         "visibility": "shared",
         "description": "A test synthesis artifact.",
@@ -71,7 +71,7 @@ def _source_meta(
         "date": date,
         "title": "Test Source",
         "team": "platform",
-        "project": "cairn",
+        "project": "arkeology",
         "tier": tier,
         "visibility": visibility,
         "description": "A test source artifact.",
@@ -81,7 +81,7 @@ def _source_meta(
 _MALFORMED_S3_META: dict[str, str] = {
     "type": "synthesis",
     "team": "platform",
-    "project": "cairn",
+    "project": "arkeology",
     "tier": "3",
     "date": "2026-01-01",
     "status": "active",

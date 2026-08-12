@@ -24,14 +24,14 @@ if command -v opencode &>/dev/null; then
   echo "  Add one of the following lines to ~/.config/opencode/opencode.jsonc:"
   echo
   echo '    SSH (primary):'
-  echo '    "plugin": ["cairn-mcp@git+ssh://git@github.com/amanoxsolutions/cairn-mcp.git"]'
+  echo '    "plugin": ["arkeology@git+ssh://git@github.com/amanoxsolutions/arkeology.git"]'
   echo
   echo '    HTTPS alternative (no SSH key required):'
-  echo '    "plugin": ["cairn-mcp@git+https://github.com/amanoxsolutions/cairn-mcp.git"]'
+  echo '    "plugin": ["arkeology@git+https://github.com/amanoxsolutions/arkeology.git"]'
   echo
 
-  echo "  Clearing stale cairn-mcp OpenCode plugin cache (forces fresh fetch on next restart)..."
-  rm -rf ~/.cache/opencode/packages/cairn-mcp@git+* 2>/dev/null || true
+  echo "  Clearing stale arkeology OpenCode plugin cache (forces fresh fetch on next restart)..."
+  rm -rf ~/.cache/opencode/packages/arkeology@git+* 2>/dev/null || true
   echo "  Cache cleared."
   echo
 else
@@ -43,14 +43,14 @@ if command -v claude &>/dev/null; then
   echo "✓ claude detected"
   WIRED_CLAUDE=true
 
-  echo "  Registering cairn-mcp marketplace (SSH)..."
-  claude plugin marketplace add git@github.com:amanoxsolutions/cairn-mcp.git || true
+  echo "  Registering arkeology marketplace (SSH)..."
+  claude plugin marketplace add git@github.com:amanoxsolutions/arkeology.git || true
 
-  echo "  Updating cairn-mcp marketplace cache..."
-  claude plugin marketplace update cairn-mcp || true
+  echo "  Updating arkeology marketplace cache..."
+  claude plugin marketplace update arkeology || true
 
-  echo "  Installing cairn plugin..."
-  claude plugin install cairn@cairn-mcp || true
+  echo "  Installing arkeology plugin..."
+  claude plugin install arkeology@arkeology || true
 
   echo "  Merging pre-approval rule into ~/.claude/settings.json..."
   python3 - <<'PYEOF'
@@ -96,7 +96,7 @@ if command -v copilot &>/dev/null; then
   else
     WIRED_COPILOT=true
     echo "  Installing skills via gh skill install..."
-    for skill_dir in "$REPO_DIR/plugins/cairn-mcp/skills"/*/; do
+    for skill_dir in "$REPO_DIR/plugins/arkeology/skills"/*/; do
       skill_name="$(basename "$skill_dir")"
       echo "    Installing skill: $skill_name"
       gh skill install "$REPO_DIR" "$skill_name" --from-local --agent github-copilot --scope user --force || {
@@ -119,7 +119,7 @@ echo "════════════════════════�
 echo
 
 if $WIRED_OPENCODE; then
-  echo "  OpenCode: restart OpenCode to activate the cairn-mcp plugin"
+  echo "  OpenCode: restart OpenCode to activate the arkeology plugin"
   echo
 fi
 
@@ -136,18 +136,18 @@ fi
 echo "  ── OpenCode plugin lines (add one to ~/.config/opencode/opencode.jsonc) ──"
 echo
 echo '  SSH (primary):'
-echo '  "plugin": ["cairn-mcp@git+ssh://git@github.com/amanoxsolutions/cairn-mcp.git"]'
+echo '  "plugin": ["arkeology@git+ssh://git@github.com/amanoxsolutions/arkeology.git"]'
 echo
 echo '  HTTPS alternative (no SSH key required):'
-echo '  "plugin": ["cairn-mcp@git+https://github.com/amanoxsolutions/cairn-mcp.git"]'
+echo '  "plugin": ["arkeology@git+https://github.com/amanoxsolutions/arkeology.git"]'
 echo
 echo "  ── Claude Code commands ──────────────────────────────────────────────────"
 echo
 echo "  SSH (primary):"
-echo "  claude plugin marketplace add git@github.com:amanoxsolutions/cairn-mcp.git"
-echo "  claude plugin install cairn@cairn-mcp"
+echo "  claude plugin marketplace add git@github.com:amanoxsolutions/arkeology.git"
+echo "  claude plugin install arkeology@arkeology"
 echo
 echo "  HTTPS alternative (if SSH / port 22 is blocked):"
-echo "  claude plugin marketplace add https://github.com/amanoxsolutions/cairn-mcp.git"
-echo "  claude plugin install cairn@cairn-mcp"
+echo "  claude plugin marketplace add https://github.com/amanoxsolutions/arkeology.git"
+echo "  claude plugin install arkeology@arkeology"
 echo

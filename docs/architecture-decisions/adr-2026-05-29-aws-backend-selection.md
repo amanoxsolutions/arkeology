@@ -1,7 +1,7 @@
 ---
 type: adr
 title: AWS S3 + S3 Vectors + Bedrock as the Storage and Embedding Backend
-description: Records the choice of Amazon S3, Amazon S3 Vectors, and Amazon Bedrock as the unified AWS backend for content storage, semantic vector search, and model inference in cairn-mcp.
+description: Records the choice of Amazon S3, Amazon S3 Vectors, and Amazon Bedrock as the unified AWS backend for content storage, semantic vector search, and model inference in Arkeology.
 tags: []
 timestamp: 2026-05-29T00:00:00Z
 okf_version: "0.1"
@@ -19,7 +19,7 @@ revised:
 
 ## Description
 
-cairn-mcp requires four backend capabilities: durable content storage, a semantic vector
+Arkeology requires four backend capabilities: durable content storage, a semantic vector
 index with metadata filtering, an embedding model for write and search operations, and a text
 generation model for server-side description generation during migration. This decision records
 the choice of Amazon S3, Amazon S3 Vectors, and Amazon Bedrock (Titan Text Embeddings v2 for

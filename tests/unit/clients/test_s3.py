@@ -6,10 +6,10 @@ Uses the `s3_client` / `vectors_client` fixtures from conftest (moto-backed).
 import botocore.exceptions
 import pytest
 
-from cairn_mcp.artifact import decode_metadata_value
-from cairn_mcp.clients.s3 import S3ClientImpl
-from cairn_mcp.clients.vectors import VectorsClientImpl
-from cairn_mcp.errors import ArtifactCollisionError, CredentialError
+from arkeology.artifact import decode_metadata_value
+from arkeology.clients.s3 import S3ClientImpl
+from arkeology.clients.vectors import VectorsClientImpl
+from arkeology.errors import ArtifactCollisionError, CredentialError
 
 # ---------------------------------------------------------------------------
 # S3ClientImpl — metadata transport encoding (T55: lossless, not lossy ASCII-strip)

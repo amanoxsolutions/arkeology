@@ -87,9 +87,9 @@ value where an integer is expected) produces a clear error, not a silent wrong v
 
 | File | Action | Notes |
 |------|--------|-------|
-| `src/cairn_mcp/errors.py` | Modify | Add `ConfigurationError` |
-| `src/cairn_mcp/config.py` | Create | `Settings` model and all env var definitions |
-| `src/cairn_mcp/__main__.py` | Modify | Instantiate `Settings` before calling `server.run()` |
+| `src/arkeology/errors.py` | Modify | Add `ConfigurationError` |
+| `src/arkeology/config.py` | Create | `Settings` model and all env var definitions |
+| `src/arkeology/__main__.py` | Modify | Instantiate `Settings` before calling `server.run()` |
 | `tests/unit/test_config.py` | Create | All parsing, validation, and default tests |
 
 ---

@@ -1,7 +1,7 @@
 ---
 type: spec
 title: T40 — Migration Skill commit_refs Backfill Options
-description: Spec for a new Step 5 in the migrating-to-cairn skill offering three commit-refs backfill choices after migration — skip, bulk HEAD link, or per-file git history backfill.
+description: Spec for a new Step 5 in the migrating-to-arkeology skill offering three commit-refs backfill choices after migration — skip, bulk HEAD link, or per-file git history backfill.
 tags: []
 timestamp: 2026-06-16T00:00:00Z
 okf_version: "0.1"
@@ -36,7 +36,7 @@ revised:
 
 ## TL;DR
 
-Skill-only update to `skills/migrating-to-cairn/SKILL.md`. A new Step 5 is inserted after
+Skill-only update to `skills/migrating-to-arkeology/SKILL.md`. A new Step 5 is inserted after
 verification offering the operator three commit-refs backfill choices: do not backfill
 (default), link all to the current HEAD with one git call (fast, imprecise), or backfill
 per-file from git history (accurate, O(n) git calls). No server code changes — `link_commit`
@@ -58,7 +58,7 @@ HEAD SHA, or invest O(n) git calls to attach historically accurate per-file SHAs
 **then** the skill proceeds to Step 6 (post-migration cleanup) without making any tool calls.
 
 **Acceptance criteria:**
-- Given the operator selects option 1, then no cairn-mcp tool call is made in Step 5.
+- Given the operator selects option 1, then no Arkeology tool call is made in Step 5.
 - The skill notes that unlinked migrated artifacts will surface in future
   `propose_commit_links` calls when `since_ulid` is absent or pre-dates the migration.
 
@@ -120,7 +120,7 @@ migrated file, groups artifact_ids by SHA, and calls `link_commit` once per uniq
 
 **Always:**
 - Artifact_ids passed to `link_commit` are the full S3 keys returned in the
-  `migrate_artifacts` (or `write_artifacts`) response — never re-queried from cairn-mcp.
+  `migrate_artifacts` (or `write_artifacts`) response — never re-queried from Arkeology.
 - Only artifact_ids that were written successfully (response entry has `written: true`) are
   included — failed entries are excluded from all backfill options.
 - For option 2: one `git rev-parse HEAD` call; one `link_commit` call with all artifact_ids.
@@ -148,7 +148,7 @@ migrated file, groups artifact_ids by SHA, and calls `link_commit` once per uniq
 
 | File | Action | Notes |
 |------|--------|-------|
-| `skills/migrating-to-cairn/SKILL.md` | Modify | Insert new Step 5; renumber current Step 5 → Step 6 |
+| `skills/migrating-to-arkeology/SKILL.md` | Modify | Insert new Step 5; renumber current Step 5 → Step 6 |
 
 ## Testing Approach
 

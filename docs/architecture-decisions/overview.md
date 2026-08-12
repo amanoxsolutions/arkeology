@@ -1,15 +1,15 @@
 ---
 type: adr
-title: cairn-mcp — Architecture Overview
-description: System context, internal layer diagram, and component dependency summary for the cairn-mcp MCP server backed by Amazon S3, S3 Vectors, and Bedrock.
+title: Arkeology — Architecture Overview
+description: System context, internal layer diagram, and component dependency summary for the Arkeology MCP server backed by Amazon S3, S3 Vectors, and Bedrock.
 tags: []
 timestamp: 2026-06-16T00:00:00Z
 okf_version: "0.1"
 ---
 
-# cairn-mcp — Architecture Overview
+# Arkeology — Architecture Overview
 
-cairn-mcp is a Python MCP server that gives AI agents persistent and searchable artifact memory,
+Arkeology is a Python MCP server that gives AI agents persistent and searchable artifact memory,
 backed by Amazon S3 (content storage), Amazon S3 Vectors (semantic index), and Amazon Bedrock
 (embeddings and text generation). Agents connect via the Model Context Protocol to write, search,
 and recall structured artifacts across sessions and across team boundaries.
@@ -24,19 +24,19 @@ graph LR
     ciagent["👤 CI/CD Agent\n(automated pipeline agent)"]
     admin["👤 Admin / DevOps\n(provisions AWS, configures server)"]
 
-    cairn["🖥️ cairn-mcp\nMCP server — persistent artifact memory"]
+    arkeology["🖥️ arkeology\nMCP server — persistent artifact memory"]
 
     s3["☁️ Amazon S3\nArtifact content storage"]
     s3v["☁️ Amazon S3 Vectors\nSemantic vector index"]
     bedrock["☁️ Amazon Bedrock\nTitan v2 embeddings\nNova Lite text generation"]
 
-    devagent -- "MCP tool calls (stdio)" --> cairn
-    ciagent -- "MCP tool calls (stdio)" --> cairn
-    admin -- "environment variables" --> cairn
+    devagent -- "MCP tool calls (stdio)" --> arkeology
+    ciagent -- "MCP tool calls (stdio)" --> arkeology
+    admin -- "environment variables" --> arkeology
 
-    cairn -- "PutObject / GetObject\nDeleteObject / ListObjects\n(HTTPS)" --> s3
-    cairn -- "PutVectors / QueryVectors\nDeleteVectors / ListVectors\n(HTTPS)" --> s3v
-    cairn -- "InvokeModel\n(HTTPS)" --> bedrock
+    arkeology -- "PutObject / GetObject\nDeleteObject / ListObjects\n(HTTPS)" --> s3
+    arkeology -- "PutVectors / QueryVectors\nDeleteVectors / ListVectors\n(HTTPS)" --> s3v
+    arkeology -- "InvokeModel\n(HTTPS)" --> bedrock
 ```
 
 The server is deployment-agnostic: it is given resource names via environment variables and uses
@@ -125,7 +125,7 @@ graph TD
 | In-process filter | `clients/filter.py` | Metadata filter evaluator (`$eq`, `$in`, `$nin`, `$gte`, `$lte`) for `list_vectors_by_metadata` |
 | MCP Resources | `resources.py` | Always-current schema, tier model, type catalogue, and query strategy guidance |
 | Failure log | `failure_log.py` | JSONL partial-write failure log; appended when S3 write succeeds but vector write fails |
-| Errors | `errors.py` | Typed exceptions: `CairnError`, `CredentialError`, `StartupValidationError`, `VectorIndexNotFoundError` |
+| Errors | `errors.py` | Typed exceptions: `ArkeologyError`, `CredentialError`, `StartupValidationError`, `VectorIndexNotFoundError` |
 
 ---
 
@@ -187,6 +187,6 @@ Key architectural choices are recorded as ADRs in this directory:
 | [ADR-007](adr-2026-05-29-tier-based-access-control.md) | Tier-based cross-scope access control model |
 | [ADR-008](adr-2026-06-02-async-concurrent-embedding.md) | Async semaphore-bounded concurrent embedding |
 | [ADR-009](adr-2026-06-16-artifact-commit-traceability.md) | Artifact commit traceability — ULID timestamps, vector-only commit links, agent-driven protocol *(vector-only commit-link storage superseded by ADR-011; ULID + AGENTS.md protocol still in force)* |
-| [ADR-010](adr-2026-06-24-mcp-apps-visual-reading-interface.md) | MCP Apps as the visual reading interface — `cairn_studio` tool via `fastmcp[apps]`, Direction 4 AWS-hosted SPA retired |
+| [ADR-010](adr-2026-06-24-mcp-apps-visual-reading-interface.md) | MCP Apps as the visual reading interface — `arkeology_studio` tool via `fastmcp[apps]`, Direction 4 AWS-hosted SPA retired |
 | [ADR-011](adr-2026-07-03-annotation-backed-link-storage.md) | Annotation-backed durable storage for the mutable link fields (`commit_refs` + `references`) — dual-written with vector metadata, `link_metadata` generalizes `link_commit`, reconcile rebuilds from annotations, overwrite preservation, availability handled without a startup gate |
-| [ADR-012](adr-2026-07-03-artifact-cross-referencing.md) | Artifact cross-referencing design — `references` promoted to a first-class `Artifact` field (resolved bare ids, `$eq`-queryable); frontmatter-only migration rewrite with bounded normalization; `cairn://artifact/{id}` content-rewrite format; forward-reference resolution via a manifest-wide path→id map; mutability split by representation; deferred backfill skill; unified own-scope `referenced_by` delete/archive warning *(storage mechanism recorded in ADR-011)* |
+| [ADR-012](adr-2026-07-03-artifact-cross-referencing.md) | Artifact cross-referencing design — `references` promoted to a first-class `Artifact` field (resolved bare ids, `$eq`-queryable); frontmatter-only migration rewrite with bounded normalization; `arkeology://artifact/{id}` content-rewrite format; forward-reference resolution via a manifest-wide path→id map; mutability split by representation; deferred backfill skill; unified own-scope `referenced_by` delete/archive warning *(storage mechanism recorded in ADR-011)* |

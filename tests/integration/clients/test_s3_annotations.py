@@ -21,7 +21,7 @@ import uuid
 
 import pytest
 
-from cairn_mcp.clients.s3 import S3ClientImpl
+from arkeology.clients.s3 import S3ClientImpl
 
 pytestmark = pytest.mark.integration
 
@@ -37,7 +37,7 @@ def s3_client() -> S3ClientImpl:
 @pytest.fixture
 def unique_key() -> str:
     """Generate a unique test key that won't collide with real artifacts."""
-    return f"_cairn_mcp_integration_test/{uuid.uuid4().hex}.md"
+    return f"_arkeology_integration_test/{uuid.uuid4().hex}.md"
 
 
 def test_put_get_list_delete_annotation_round_trip(

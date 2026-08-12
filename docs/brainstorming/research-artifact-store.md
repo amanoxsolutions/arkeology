@@ -1,6 +1,6 @@
 ---
 type: brainstorming
-title: Research — Artifact Store (cairn-mcp)
+title: Research — Artifact Store (Arkeology)
 description: Research notes compiled 2026-05-26 covering how the industry handles cross-session, cross-engineer agent memory and scratchpad sharing, synthesizing 13 primary and 2 secondary sources evaluated against the tier 2 artifact gap and tier 3 project documentation.
 tags: []
 timestamp: 2026-05-26T00:00:00Z
@@ -17,7 +17,7 @@ techniques_used: []
 assumptions_challenged: []
 ---
 
-# Research — Artifact Store (cairn-mcp)
+# Research — Artifact Store (Arkeology)
 
 ## Description
 
@@ -277,7 +277,7 @@ Research notes compiled 2026-05-26 for artifact store brainstorming; extended 20
 - **Useful for tier 3 (working notes):**
   - Nothing directly.
 - **Not useful:**
-  - The core PageIndex architecture (per-document tree index + LLM tree traversal at query time) is designed for documents where vector similarity fails — long, unstructured, reasoning-intensive content. cairn-mcp artifacts are short, structured, and agent-authored with explicit templates. The architecture is not directly applicable.
+  - The core PageIndex architecture (per-document tree index + LLM tree traversal at query time) is designed for documents where vector similarity fails — long, unstructured, reasoning-intensive content. Arkeology artifacts are short, structured, and agent-authored with explicit templates. The architecture is not directly applicable.
   - No performance benchmark data comparing tree-based reasoning to vector search on structured markdown artifacts — any claim about relative latency or cost would be architectural reasoning, not empirical evidence.
 
 ---
@@ -288,17 +288,17 @@ Research notes compiled 2026-05-26 for artifact store brainstorming; extended 20
 - **Date:** May 2025
 - **Summary:** Describes a pattern for LLM-maintained persistent knowledge bases. Instead of RAG (re-deriving knowledge from raw sources at query time), an LLM incrementally builds and maintains a structured wiki: one markdown page per concept, cross-referenced, updated in place when new sources arrive. Three layers: (1) raw sources — immutable inputs (files, web pages, code, PDFs); (2) wiki — the LLM-maintained synthesis, one page per concept; (3) schema — AGENTS.md / CLAUDE.md with instructions for the LLM wiki maintainer. Operations: Ingest (read new sources and update affected pages), Query (answer questions using the wiki, not the raw sources), Lint (check for contradictions, stale claims, orphaned pages). At moderate scale (~100 sources, hundreds of pages), index.md + LLM reasoning is sufficient; larger scale calls for hybrid BM25/vector search tools.
 - **Key quote:** *"The tedious part of maintaining a knowledge base is not the reading or the thinking — it's the bookkeeping. LLMs don't get bored."*
-- **Key insight:** There is a qualitative difference between *storing* knowledge (cairn-mcp's current model) and *synthesising* it. Retrieval from a synthesised wiki returns compiled understanding; retrieval from a raw artifact store returns point-in-time records. Both have value at different abstraction levels.
+- **Key insight:** There is a qualitative difference between *storing* knowledge (Arkeology's current model) and *synthesising* it. Retrieval from a synthesised wiki returns compiled understanding; retrieval from a raw artifact store returns point-in-time records. Both have value at different abstraction levels.
 - **Useful for tier 2 (artifacts):**
-  - Raw artifact store (tier 2) maps directly to Karpathy's "raw sources" layer — immutable, point-in-time records. This validates cairn-mcp's append-only tier 2 model.
-  - The wiki layer is a natural future layer above cairn-mcp: LLM-maintained synthesis pages stored as tier 3 shared artifacts, using cairn-mcp's existing `write_artifact` (overwrite semantics) for tier 3 updates.
-  - Raises the idea of a **synthesis tool** in cairn-mcp: a new MCP tool that searches for artifacts on a topic, generates a synthesis page using the LLM, and writes it back as a tier 3 artifact — implementing Karpathy's Ingest operation directly as an MCP tool call.
+  - Raw artifact store (tier 2) maps directly to Karpathy's "raw sources" layer — immutable, point-in-time records. This validates Arkeology's append-only tier 2 model.
+  - The wiki layer is a natural future layer above arkeology: LLM-maintained synthesis pages stored as tier 3 shared artifacts, using Arkeology's existing `write_artifact` (overwrite semantics) for tier 3 updates.
+  - Raises the idea of a **synthesis tool** in arkeology: a new MCP tool that searches for artifacts on a topic, generates a synthesis page using the LLM, and writes it back as a tier 3 artifact — implementing Karpathy's Ingest operation directly as an MCP tool call.
   - Karpathy's "Lint" operation — scan the wiki for contradictions, stale claims, pages whose source artifacts have been superseded — is a more sophisticated version of the reconciliation tool (FR-17, task 16). Raises the question of whether reconciliation should extend beyond index repair to knowledge quality checks.
 - **Useful for tier 3 (working notes):**
   - AGENTS.md as the schema layer (Karpathy's third layer) is exactly D13 — independently arrived at by two sources. Strong validation.
   - The "current state only" discipline for the wiki (Karpathy's pages reflect latest understanding, not historical accretion) mirrors the SCRATCHPAD.md cleanup rule: current state, not history.
 - **Not useful:**
-  - The local-file wiki model (markdown in a git repo, no backend) is designed for individuals or small teams on a single project. cairn-mcp is designed for teams, cross-project, cross-team — the shared AWS backend and semantic search at scale are requirements that the local wiki model does not address.
+  - The local-file wiki model (markdown in a git repo, no backend) is designed for individuals or small teams on a single project. Arkeology is designed for teams, cross-project, cross-team — the shared AWS backend and semantic search at scale are requirements that the local wiki model does not address.
   - No benchmark comparison of wiki-based retrieval vs vector search at team scale.
 
 ---
@@ -479,7 +479,7 @@ Ideas that are worth tracking but out of scope for the artifact store V1 directl
 **Source:** arXiv 2508.11126 (Section 6.2); Poldrack workflow
 **Idea:** A hook or slash command that an agent runs at milestone boundaries to: (a) summarize the session into SCRATCHPAD.md, (b) identify decisions ready for promotion to permanent docs, (c) flag items that need `resolving-drift`. Poldrack does this with `/summ+commit`. A tool-agnostic version would be a composite skill step or a hook trigger.
 **Why not now:** Hooks don't exist yet in our catalogue (F3.4 is still pending brainstorming). The "memory summarization" step exists as a manual Workflow step in our SCRATCHPAD.md convention, but automation requires hooks.
-**Why investigate:** This becomes the natural bridge between cairn-mcp (artifact store) and F3.4 (hooks library). A "summarize and promote" hook running at commit time would close the loop entirely.
+**Why investigate:** This becomes the natural bridge between Arkeology (artifact store) and F3.4 (hooks library). A "summarize and promote" hook running at commit time would close the loop entirely.
 
 ---
 
@@ -503,4 +503,4 @@ Ideas that are worth tracking but out of scope for the artifact store V1 directl
 **Source:** Design tension identified during this research
 **Idea:** The top of SCRATCHPAD.md is machine-readable YAML frontmatter (current_focus, active_decisions as list, blockers, last_updated) and the body is human-readable freeform. Agents can parse the frontmatter programmatically; humans read the body. `resolving-drift` can query the frontmatter directly.
 **Why not now:** Adds complexity. Our current skill format uses pure markdown. Would require defining a schema and maintaining it.
-**Why investigate:** The YAML frontmatter pattern already works well in SKILL.md files and brainstorming-V3.md. Structured frontmatter in SCRATCHPAD.md would make it machine-queryable without a vector store — a lightweight middle ground between "free-form markdown" and "vector DB". Deserves a dedicated brainstorming session if cairn-mcp adoption reveals that agents struggle to extract structured state from free-form SCRATCHPAD.md.
+**Why investigate:** The YAML frontmatter pattern already works well in SKILL.md files and brainstorming-V3.md. Structured frontmatter in SCRATCHPAD.md would make it machine-queryable without a vector store — a lightweight middle ground between "free-form markdown" and "vector DB". Deserves a dedicated brainstorming session if Arkeology adoption reveals that agents struggle to extract structured state from free-form SCRATCHPAD.md.

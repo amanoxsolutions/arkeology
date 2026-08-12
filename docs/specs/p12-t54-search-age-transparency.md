@@ -68,9 +68,9 @@ Then `last_edited_at` is `null` (and `last_edited_ulid` is `null` when absent, o
 
 | File | Action | Notes |
 |------|--------|-------|
-| `src/cairn_mcp/tools/search.py` | Modify | In the Step 6 result-builder loop (~L154), add `last_edited_ulid` (raw, `meta.get("last_edited_ulid") or None`) and derived `last_edited_at` (ISO 8601 or `null`) to each appended entry. Primary change. |
+| `src/arkeology/tools/search.py` | Modify | In the Step 6 result-builder loop (~L154), add `last_edited_ulid` (raw, `meta.get("last_edited_ulid") or None`) and derived `last_edited_at` (ISO 8601 or `null`) to each appended entry. Primary change. |
 | `tests/unit/test_tools_search.py` | Modify | Add unit tests for US-1 and US-2 (see Testing Approach). |
-| `src/cairn_mcp/resources.py` | Modify (doc) | *Uncertain / defer to Tech Writer.* The `last_edited_ulid` system-generated field table (~L88) may warrant a note that `search_artifacts` now returns it plus a derived `last_edited_at`. Flag rather than assume. |
+| `src/arkeology/resources.py` | Modify (doc) | *Uncertain / defer to Tech Writer.* The `last_edited_ulid` system-generated field table (~L88) may warrant a note that `search_artifacts` now returns it plus a derived `last_edited_at`. Flag rather than assume. |
 
 Derivation reference (do not copy verbatim — reuse or extract): `propose_commit_links.py:135-137` converts a ULID to ISO via `ULID.from_str(ulid_str).datetime.isoformat()` and sets `None` on `ValueError`; `resources.py:522` (`_derive_last_modified`) is the annotation-side equivalent.
 

@@ -1,7 +1,7 @@
 ---
 type: spec
 title: T31b — Migration Skill Exclusion Gate and ADR Gate Removal
-description: Spec to add a cairn-mcp:config pre-flight check to the migration skill, remove the ADR strategy gate, and source exclusions from the config block.
+description: Spec to add an arkeology:config pre-flight check to the migration skill, remove the ADR strategy gate, and source exclusions from the config block.
 tags: []
 timestamp: 2026-06-07T00:00:00Z
 okf_version: "0.1"
@@ -10,9 +10,9 @@ status: complete
 phase: 9
 task: 31b
 references:
-  - docs/brainstorming/brainstorming-2026-06-02-setting-up-cairn-skill.md
+  - docs/brainstorming/brainstorming-2026-06-02-setting-up-arkeology-skill.md
   - docs/brainstorming/brainstorming-2026-06-08-multi-team-multi-project-config.md
-  - docs/specs/p9-t31a-setting-up-cairn-skill.md
+  - docs/specs/p9-t31a-setting-up-arkeology-skill.md
   - docs/planning-artifacts/prd.md
 authored:
   by: "architect"
@@ -28,8 +28,8 @@ revised:
 
 ## TL;DR
 
-Modify `skills/migrating-to-cairn/SKILL.md` to: (1) add a pre-flight check at the
-start of Step 2 that reads the `cairn-mcp:config` block from AGENTS.md and hard-stops
+Modify `skills/migrating-to-arkeology/SKILL.md` to: (1) add a pre-flight check at the
+start of Step 2 that reads the `arkeology:config` block from AGENTS.md and hard-stops
 if it is absent; (2) remove Step 2c (ADR strategy gate) entirely — exclusions now come
 from the config block; (3) update Step 2d to source `local_only_paths` and
 `local_only_types` from the block; (4) update Step 5 to remove the ADR variant
@@ -40,8 +40,8 @@ in place from the installation skill.
 
 The migration skill currently asks the operator for their ADR strategy (Step 2c) and
 appends an ADR-variant snippet to AGENTS.md (Step 5). Both actions are now owned by
-the installation skill: the operator declares exclusions during `setting-up-cairn` and
-the decisions are recorded in the `cairn-mcp:config` block. Asking again during
+the installation skill: the operator declares exclusions during `setting-up-arkeology` and
+the decisions are recorded in the `arkeology:config` block. Asking again during
 migration re-opens a settled decision and risks inconsistency. The config block also
 serves as the installation sentinel — if it is absent, the operator has not completed
 setup and migration should not proceed.
@@ -53,10 +53,10 @@ setup and migration should not proceed.
 An operator who skips the installation skill and goes straight to migration is redirected.
 
 **Acceptance criteria:**
-- Given AGENTS.md has no `cairn-mcp:config` block, when the migration skill reaches the
+- Given AGENTS.md has no `arkeology:config` block, when the migration skill reaches the
   pre-flight check, then it stops immediately and tells the operator to run the
-  `setting-up-cairn` skill first before returning to migration.
-- Given AGENTS.md has a `cairn-mcp:config` block, when the migration skill reaches
+  `setting-up-arkeology` skill first before returning to migration.
+- Given AGENTS.md has a `arkeology:config` block, when the migration skill reaches
   the pre-flight check, then it proceeds without any ADR or exclusion questions.
 
 ### Story 2 — Paths in local_only_paths are never seen by the migration scan (P1)
@@ -84,16 +84,16 @@ An operator who skips the installation skill and goes straight to migration is r
 - Given the migration skill reaches Step 5, then it does not ask the operator for their
   ADR strategy.
 - Given the migration skill reaches Step 5, then the AGENTS.md update section instructs
-  the agent to verify (not write) that the `cairn-mcp:config` block and narrative
-  snippet are present, referring the operator to `setting-up-cairn` if they are absent.
+  the agent to verify (not write) that the `arkeology:config` block and narrative
+  snippet are present, referring the operator to `setting-up-arkeology` if they are absent.
 
 ## Requirements
 
-- WHEN Step 2 starts THE SYSTEM SHALL check AGENTS.md for a `<!-- cairn-mcp:config`
+- WHEN Step 2 starts THE SYSTEM SHALL check AGENTS.md for a `<!-- arkeology:config`
   block before any other Step 2 action.
 - WHEN the block is absent THE SYSTEM SHALL stop immediately with the message:
-  "cairn-mcp does not appear to be configured for this project. Run the
-  `setting-up-cairn` skill first, then return here."
+  "Arkeology does not appear to be configured for this project. Run the
+  `setting-up-arkeology` skill first, then return here."
 - WHEN the block is present THE SYSTEM SHALL parse `local_only_paths` and
   `local_only_types` from its YAML content and carry both lists through the remainder
   of the workflow.
@@ -104,9 +104,9 @@ An operator who skips the installation skill and goes straight to migration is r
   is in `local_only_types`.
 - WHEN Step 5 runs THE SYSTEM SHALL NOT ask the operator for ADR strategy and SHALL
   NOT write ADR variant text to AGENTS.md.
-- WHEN Step 5 runs THE SYSTEM SHALL verify the `cairn-mcp:config` block and the
+- WHEN Step 5 runs THE SYSTEM SHALL verify the `arkeology:config` block and the
   narrative snippet are present in AGENTS.md; if either is absent, instruct the
-  operator to run `setting-up-cairn` to write them.
+  operator to run `setting-up-arkeology` to write them.
 
 ## Boundaries
 
@@ -124,14 +124,14 @@ An operator who skips the installation skill and goes straight to migration is r
 - Step 2c is removed entirely — no remnant text, no "see installation skill" note in
   its place. The numbered steps are renumbered: current 2d becomes 2c.
 - The ADR removal guidance row in Step 5's tier 2 file removal table is updated to
-  read: "Depends on the `adr_strategy` in your `cairn-mcp:config` block."
+  read: "Depends on the `adr_strategy` in your `arkeology:config` block."
 
 **Ask First:**
 - Nothing — all constraints are defined.
 
 **Never:**
 - Do not add an inline fallback that re-asks exclusion questions if the config block is
-  absent — always hard-stop and redirect to `setting-up-cairn`.
+  absent — always hard-stop and redirect to `setting-up-arkeology`.
 - Do not change any other step (Steps 1, 3.A, 3.B, 4) — only Steps 2 and 5 are in scope.
 - Do not change the two-pass classification logic or the always-skip rules.
 
@@ -141,7 +141,7 @@ An operator who skips the installation skill and goes straight to migration is r
 
 | File | Action | Notes |
 |------|--------|-------|
-| `skills/migrating-to-cairn/SKILL.md` | Modify | Pre-flight check; remove Step 2c; update Step 2d → 2c; update Step 5 AGENTS.md section |
+| `skills/migrating-to-arkeology/SKILL.md` | Modify | Pre-flight check; remove Step 2c; update Step 2d → 2c; update Step 5 AGENTS.md section |
 
 ## Testing Approach
 
@@ -150,7 +150,7 @@ inspection against the checklist below.
 
 **Step 2 — pre-flight and discovery:**
 - [ ] Step 2 opens with a config block check section before Step 2a (manifest check)
-- [ ] Hard-stop message names `setting-up-cairn` explicitly
+- [ ] Hard-stop message names `setting-up-arkeology` explicitly
 - [ ] Step 2a (manifest check) is unchanged and follows the pre-flight check
 - [ ] Step 2b (scope) applies `local_only_paths` exclusions during scan — described
   explicitly with prefix-matching semantics
@@ -165,7 +165,7 @@ inspection against the checklist below.
 - [ ] No ADR strategy question in Step 5
 - [ ] Variant A and Variant B markdown blocks are removed
 - [ ] The AGENTS.md update section instructs the agent to verify (not write) the
-  config block and snippet and refers the operator to `setting-up-cairn` if absent
+  config block and snippet and refers the operator to `setting-up-arkeology` if absent
 - [ ] ADR row in the tier 2 file removal table references `adr_strategy` in the
   config block rather than "your strategy chosen in Step 2"
 

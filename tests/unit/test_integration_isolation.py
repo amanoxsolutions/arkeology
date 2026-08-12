@@ -11,8 +11,8 @@ import os
 
 from pytest_mock import MockerFixture
 
-from cairn_mcp.clients.s3 import S3ClientImpl
-from cairn_mcp.clients.vectors import VectorsClientImpl
+from arkeology.clients.s3 import S3ClientImpl
+from arkeology.clients.vectors import VectorsClientImpl
 from tests.integration._isolation import (
     RunScope,
     apply_run_scope_env,

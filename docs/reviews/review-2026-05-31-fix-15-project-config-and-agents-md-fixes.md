@@ -80,7 +80,7 @@ pre-commit, so developers push code that fails the hook.
 - Alter any CI workflow files or pre-commit hook definitions — only update AGENTS.md prose.
 
 **Always:**
-- Verify each of the 9 missing files exists in `src/cairn_mcp/` before adding it to the table.
+- Verify each of the 9 missing files exists in `src/arkeology/` before adding it to the table.
 - Keep AGENTS.md under its existing style and heading structure.
 
 ## Files to Touch
@@ -89,7 +89,7 @@ pre-commit, so developers push code that fails the hook.
 |------|--------|-------|
 | `pyproject.toml` | Modify | Add `"ruff>=0.11"` to `[dependency-groups] dev` |
 | `AGENTS.md` | Modify | Add 9 missing files to Repository Structure; fill Component Dependencies and High-Friction Areas; add `ruff format --check` to CI block |
-| `.env.example` | Modify | Add `# FAILURE_LOG_PATH=.cairn_failures.jsonl` with a note on when to override |
+| `.env.example` | Modify | Add `# FAILURE_LOG_PATH=.arkeology_failures.jsonl` with a note on when to override |
 
 ## Testing Approach
 
@@ -98,8 +98,8 @@ No automated tests gate documentation and config changes. Verify manually:
 | Order | Step | Verification |
 |-------|------|-------------|
 | 1 | Add `ruff` to `pyproject.toml` | Run `uv sync && uv run ruff --version` — must succeed |
-| 2 | Update AGENTS.md Repository Structure | Cross-check each added file with `ls src/cairn_mcp/` |
-| 3 | Fill AGENTS.md placeholder sections | Read `src/cairn_mcp/` source to confirm only true facts |
+| 2 | Update AGENTS.md Repository Structure | Cross-check each added file with `ls src/arkeology/` |
+| 3 | Fill AGENTS.md placeholder sections | Read `src/arkeology/` source to confirm only true facts |
 | 4 | Add `ruff format --check` to AGENTS.md CI block | Run the updated block end-to-end; all commands pass |
 | 5 | Update `.env.example` | Confirm `FAILURE_LOG_PATH` default matches `config.py` |
 

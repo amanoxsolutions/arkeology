@@ -37,11 +37,11 @@ confirmed empirically with a temporary probe test (removed after the run).
 - AGENTS.md non-negotiable rules
 
 ## Files Reviewed
-- src/cairn_mcp/tools/link_metadata.py (new) vs main:src/cairn_mcp/tools/link_commit.py (deleted)
-- src/cairn_mcp/tools/delete.py, src/cairn_mcp/tools/archive.py
-- src/cairn_mcp/tools/_search_helper.py (find_referrers), src/cairn_mcp/artifact.py (REFERENCE_FIELDS)
-- src/cairn_mcp/server.py, src/cairn_mcp/resources.py, src/cairn_mcp/annotations.py
-- src/cairn_mcp/clients/s3.py (annotation ops), src/cairn_mcp/clients/vectors.py (list_vectors_by_metadata)
+- src/arkeology/tools/link_metadata.py (new) vs main:src/arkeology/tools/link_commit.py (deleted)
+- src/arkeology/tools/delete.py, src/arkeology/tools/archive.py
+- src/arkeology/tools/_search_helper.py (find_referrers), src/arkeology/artifact.py (REFERENCE_FIELDS)
+- src/arkeology/server.py, src/arkeology/resources.py, src/arkeology/annotations.py
+- src/arkeology/clients/s3.py (annotation ops), src/arkeology/clients/vectors.py (list_vectors_by_metadata)
 - tests/unit/test_tools_link_metadata.py, test_tools_delete.py, test_tools_archive.py, test_server.py, conftest.py
 - Repo-wide grep for lingering `link_commit` references (plugins/, AGENTS.md, resources)
 
@@ -49,7 +49,7 @@ confirmed empirically with a temporary probe test (removed after the run).
 
 ### Critical
 
-1. **archive_artifact wipes the durable link annotations** — `src/cairn_mcp/tools/archive.py:113`.
+1. **archive_artifact wipes the durable link annotations** — `src/arkeology/tools/archive.py:113`.
    `s3.put_object(artifact_id, content, updated_s3_meta)` re-PUTs the object; per ADR-011 an
    overwrite clears all annotations, and archive performs no read-forward/re-apply (unlike
    write.py:530). Confirmed by probe: after `link_metadata` + `archive_artifact`, `commit_refs`
@@ -59,7 +59,7 @@ confirmed empirically with a temporary probe test (removed after the run).
    `apply_link_annotations` after (same pattern as write.py), or extract a shared re-PUT helper.
 
 2. **link_metadata can destroy durable annotation state it never read** —
-   `src/cairn_mcp/tools/link_metadata.py:169-183`. Merge input is vector metadata only
+   `src/arkeology/tools/link_metadata.py:169-183`. Merge input is vector metadata only
    (`items[0]["metadata"]`), but `apply_link_annotations` unconditionally writes/deletes BOTH
    annotations from the merged values. In the exact partial-failure state ADR-011's ordering is
    designed for (annotation written, vector write failed), a subsequent `link_metadata` call
@@ -74,7 +74,7 @@ confirmed empirically with a temporary probe test (removed after the run).
 ### Major
 
 3. **Orphaned vectors abort the whole batch with internal_error** —
-   `src/cairn_mcp/tools/link_metadata.py:178` + `src/cairn_mcp/clients/s3.py` (put_object_annotation
+   `src/arkeology/tools/link_metadata.py:178` + `src/arkeology/clients/s3.py` (put_object_annotation
    has no NoSuchKey mapping). Vectors exist, S3 object missing → `PutObjectAnnotation` raises
    NoSuchKey ClientError → not caught in the loop → whole call returns
    `{"error": "internal_error"}`; already-linked artifacts' counts are lost and remaining
@@ -95,7 +95,7 @@ confirmed empirically with a temporary probe test (removed after the run).
    drop empties, reject values containing commas.
 
 6. **Per-vector link metadata silently collapsed to items[0]** —
-   `src/cairn_mcp/tools/link_metadata.py:169`. link_commit merged per item; link_metadata merges
+   `src/arkeology/tools/link_metadata.py:169`. link_commit merged per item; link_metadata merges
    once from the first vector and stamps all sections. If section vectors ever diverge (partial
    batch write), values present only on later sections are dropped. Fix: union across all items.
 
@@ -125,7 +125,7 @@ skipped+counted; ULID cursor once after loop; find_referrers strictly own-scope 
 (spy-asserted); synthesis-prefilter behaviour preserved; warn-not-block preserved; delete
 phrasing stronger vs archive informational (tested); no pagination cap (ListVectors, not query
 top-k); link_commit fully retired — server registration removed + retirement test, resources.py,
-plugins skills, and the setting-up-cairn agents-snippet post-commit protocol all invoke
+plugins skills, and the setting-up-arkeology agents-snippet post-commit protocol all invoke
 link_metadata; propose_commit_links retained (tested).
 
 ## Recommendations

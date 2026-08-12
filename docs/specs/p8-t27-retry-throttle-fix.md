@@ -120,8 +120,8 @@ Removing the `write.py` retry block must not alter the handling of non-transient
 |------|--------|-------|
 | `tests/unit/clients/test_fake_bedrock.py` | Modify | Add jitter test: patch `random.uniform`, assert sleep uses base + jitter (written first — Red) |
 | `tests/unit/test_tools_write.py` | Modify | Add test verifying `bedrock.embed` is called exactly twice (not 3+) when `ThrottlingException` exhausts retries (written first — Red) |
-| `src/cairn_mcp/clients/bedrock.py` | Modify | Add `import random`; change `time.sleep(_RETRY_SLEEP_SECONDS)` to `time.sleep(_RETRY_SLEEP_SECONDS + random.uniform(0, 1))` |
-| `src/cairn_mcp/tools/write.py` | Modify | Remove both `except botocore.exceptions.ClientError` blocks that catch `ThrottlingException` and call `asyncio.sleep(1)` + retry `bedrock.embed` (section path and document-level fallback path); retain all `CredentialError` catches |
+| `src/arkeology/clients/bedrock.py` | Modify | Add `import random`; change `time.sleep(_RETRY_SLEEP_SECONDS)` to `time.sleep(_RETRY_SLEEP_SECONDS + random.uniform(0, 1))` |
+| `src/arkeology/tools/write.py` | Modify | Remove both `except botocore.exceptions.ClientError` blocks that catch `ThrottlingException` and call `asyncio.sleep(1)` + retry `bedrock.embed` (section path and document-level fallback path); retain all `CredentialError` catches |
 
 ## Testing Approach
 

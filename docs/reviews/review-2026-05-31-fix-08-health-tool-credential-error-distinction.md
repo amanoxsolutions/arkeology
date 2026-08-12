@@ -55,7 +55,7 @@ automated alerting and recovery impossible.
 **Always:**
 - `CredentialError` must be caught before `Exception` in each probe's except chain.
 - Each probe runs independently — a failure in one must never skip another.
-- `CredentialError` must be imported from `cairn_mcp.errors` at the top of `health.py`.
+- `CredentialError` must be imported from `arkeology.errors` at the top of `health.py`.
 
 **Ask First:**
 - Nothing — all outcomes are defined.
@@ -69,7 +69,7 @@ automated alerting and recovery impossible.
 | File | Action | Notes |
 |------|--------|-------|
 | `tests/unit/test_tools_health.py` | Modify | Add tests for `CredentialError` cause in each probe (written first — Red) |
-| `src/cairn_mcp/tools/health.py` | Modify | Import `CredentialError`; split each probe's except into `CredentialError` then `Exception` |
+| `src/arkeology/tools/health.py` | Modify | Import `CredentialError`; split each probe's except into `CredentialError` then `Exception` |
 
 ## Testing Approach
 

@@ -1,7 +1,7 @@
 ---
 type: brainstorming
-title: Visual Reading / Browsing Interface for cairn-mcp Artifacts
-description: Explores how to give humans a visual reading/browsing surface for cairn-mcp artifacts now that content lives in S3 rather than on disk, using a multi-agent adversarial approach to challenge assumptions around hosting, audience, rendering, and auth.
+title: Visual Reading / Browsing Interface for Arkeology Artifacts
+description: Explores how to give humans a visual reading/browsing surface for Arkeology artifacts now that content lives in S3 rather than on disk, using a multi-agent adversarial approach to challenge assumptions around hosting, audience, rendering, and auth.
 tags: []
 timestamp: 2026-06-14T00:00:00Z
 okf_version: "0.1"
@@ -37,7 +37,7 @@ assumptions_challenged:
   - "Rendering should happen live at read time rather than once at write/publish time"
   - "localhost-only neatly sidesteps the auth/transport question"
   - "The soft tier/visibility gate is adequate when humans read via their own broad local AWS credentials"
-  - "A containerized reader should connect to cairn AS AN MCP CLIENT (the MCP tool contract is a stable decoupling boundary)"
+  - "A containerized reader should connect to Arkeology AS AN MCP CLIENT (the MCP tool contract is a stable decoupling boundary)"
   - "A single local container can serve as a team-wide reader by changing its bind address"
   - "Auth can stay minimal for a self-hosted reader because it is local/internal"
   - "IAM Identity Center can serve as a general-purpose OIDC provider for AgentCore Gateway — disproved: IAM IC tokens carry AWS-internal audience claims rejected by AgentCore Gateway's aud validation, and the token endpoint requires SigV4 signing that Claude Code cannot perform (2026-06-23)"
@@ -46,28 +46,28 @@ assumptions_challenged:
   - "A clean auth model exists for both agent and human UI paths that avoids a Cognito user pool — disproved: every investigated alternative carries meaningful trade-offs; a self-managed Cognito user pool is the pragmatic choice (2026-06-23)"
 decisions_locked:
   - "Direction 1 (publish-on-write static site) is eliminated — sync management (CloudFront invalidation, manifest rebuilds, delete/archive/visibility triggers, backfill) deemed too complex relative to value delivered (2026-06-17)"
-  - "Any local copy mechanism must be pull-only (S3 → local); local edits must never propagate back to S3. Write-back is explicitly out of scope. This is a new feature, distinct from cairn-mcp's MCP agent tools. (2026-06-17)"
+  - "Any local copy mechanism must be pull-only (S3 → local); local edits must never propagate back to S3. Write-back is explicitly out of scope. This is a new feature, distinct from Arkeology's MCP agent tools. (2026-06-17)"
   - "Remotely Save under read-only IAM is not viable: during initial setup the plugin writes a metadata file and fails with an error if s3:PutObject is denied — IAM-layer enforcement alone cannot substitute for plugin-level configuration. Remotely Save does however support a native one-way sync option (pull-only or push-only); configuring pull-only in the plugin settings works correctly. Tested and confirmed working (2026-06-23)."
-  - "Direction 3 Surface B (cairn export CLI) is dropped: an agent can fetch any artifact from the MCP server on demand and export it to disk without a dedicated CLI. Continuous sync to Obsidian is handled by Remotely Save pull-only mode. No cairn export CLI will be built. (2026-06-23)"
+  - "Direction 3 Surface B (Arkeology export CLI) is dropped: an agent can fetch any artifact from the MCP server on demand and export it to disk without a dedicated CLI. Continuous sync to Obsidian is handled by Remotely Save pull-only mode. No Arkeology export CLI will be built. (2026-06-23)"
   - "'API Gateway MCP proxy support' is a console shortcut that registers an API Gateway stage as a target inside AgentCore Gateway; API Gateway itself does not serve MCP protocol. The MCP endpoint is always AgentCore Gateway's managed URL. The feature name is misleading. (2026-06-18)"
-  - "Direction 4 architecture: a single API Gateway + Lambda deployment (cairn read logic) serves two consumption paths — (1) AgentCore Gateway → API Gateway → Lambda for MCP agents over Streamable HTTP; (2) CloudFront → API Gateway → Lambda for the human reading UI. No code duplication across paths. (2026-06-18, updated 2026-06-23)"
+  - "Direction 4 architecture: a single API Gateway + Lambda deployment (Arkeology read logic) serves two consumption paths — (1) AgentCore Gateway → API Gateway → Lambda for MCP agents over Streamable HTTP; (2) CloudFront → API Gateway → Lambda for the human reading UI. No code duplication across paths. (2026-06-18, updated 2026-06-23)"
   - "CloudFront mTLS in Direction 4 is dropped — supersedes the 2026-06-18 lock. ACM Private CA (~$400/mo) is required for a CloudFront mTLS trust store, making it non-viable. Human readers use the same Cognito user pool as agents via Authorization Code + PKCE in the browser. (2026-06-23)"
   - "Direction 4 inbound auth for AgentCore Gateway: Cognito Authorization Code (OAuth 2.0). Developers complete a one-time browser login per machine; Claude Code stores refresh tokens and handles all subsequent auth natively via Streamable HTTP, with no local proxy. (2026-06-18)"
   - "stdio transport is fundamentally single-client: Workflow subagents are independent API calls that do not inherit the parent session's stdio MCP connections and cannot share them. This makes stdio structurally incompatible with multi-agent parallelisation. Streamable HTTP (AgentCore Gateway) resolves this because any number of independent subagents connect to the same URL concurrently. (2026-06-18)"
   - "D4 resolved — Direction 3 is the immediate first increment, shipping independently of Direction 4: MCP data resources (Surface A) + Obsidian Remotely Save pull-only + web reading interface. On-demand artifact export is handled by the agent on request; no export CLI. No TUI. (2026-06-23)"
-  - "D12 resolved — one Cognito user pool federated to IAM Identity Center (or another corporate OIDC-compatible IdP such as Entra or Okta). No users are stored in Cognito; developers authenticate via the corporate IdP. Developer lifecycle (onboarding, offboarding) is managed entirely in the corporate IdP — zero user management for the cairn team. One-time federation setup requires coordination with the IdP team. (2026-06-23)"
+  - "D12 resolved — one Cognito user pool federated to IAM Identity Center (or another corporate OIDC-compatible IdP such as Entra or Okta). No users are stored in Cognito; developers authenticate via the corporate IdP. Developer lifecycle (onboarding, offboarding) is managed entirely in the corporate IdP — zero user management for the Arkeology team. One-time federation setup requires coordination with the IdP team. (2026-06-23)"
   - "D13 resolved — human reading UI uses the same federated Cognito user pool as agents, authenticated via Authorization Code + PKCE in the browser (Amplify or equivalent). mTLS dropped. Single pool serves both consumption paths. (2026-06-23)"
 decisions_pending:
   - "D6: Partially answered — Direction 4 (hosted) independently adopts Streamable HTTP via AgentCore Gateway without forcing migration of the local stdio server. The local server can stay stdio. Whether to migrate it separately remains open in the transport strategy brainstorm."
-  - "D7: Should a self-hosted reader ship inside the cairn-mcp package or as a separate companion repo/product (e.g. cairn-lens)?"
-  - "D8: Version-sync — how does the cairn version deployed as Lambda targets stay in lockstep with the cairn version agents write with (new metadata fields / ID scheme)?"
+  - "D7: Should a self-hosted reader ship inside the Arkeology package or as a separate companion repo/product (e.g. arkeology-lens)?"
+  - "D8: Version-sync — how does the Arkeology version deployed as Lambda targets stay in lockstep with the Arkeology version agents write with (new metadata fields / ID scheme)?"
   - "D11: Scope gate under the hosted model — how does the Lambda derive the caller's scope? Options: (a) extract from the Cognito JWT claim (requires a claim→scope mapping in Cognito); (b) explicit scope parameter passed by the agent (already the case in AGENTS.md, conceptually equivalent to the current per-process WRITE_PREFIX). The right answer may differ per path. (mTLS certificate CN option dropped with D13 resolution.)"
 decisions_closed_not_applicable:
   - "D2 — closed (2026-06-24): MCP Apps is the reading surface. AWS hosting not needed. See brainstorming-2026-06-24-mcp-apps-visual-interface.md."
   - "D3 — closed (2026-06-24): live semantic search is moot. The MCP App calls search_artifacts directly; semantic search is inherited from the existing tool. See brainstorming-2026-06-24-mcp-apps-visual-interface.md."
-  - "D7 — closed (2026-06-24): MCP Apps ships as pre-built HTML assets inside cairn-mcp. No separate cairn-lens repo. See brainstorming-2026-06-24-mcp-apps-visual-interface.md."
+  - "D7 — closed (2026-06-24): MCP Apps ships as pre-built HTML assets inside Arkeology. No separate arkeology-lens repo. See brainstorming-2026-06-24-mcp-apps-visual-interface.md."
   - "D5 — closed: mTLS certificate subject as scope gate replacement is moot. CloudFront mTLS is for the UI path only; AgentCore Gateway uses Cognito OAuth (no certificate subject). Scope under the hosted model is addressed by D11. (2026-06-18)"
-  - "D9 — resolved: Remotely Save pull-only mode works when configured at the plugin level; read-only IAM is not viable (setup requires write access). No cairn export --watch CLI needed — on-demand export handled by the agent, continuous sync by Remotely Save. Tested and confirmed. (2026-06-23)"
+  - "D9 — resolved: Remotely Save pull-only mode works when configured at the plugin level; read-only IAM is not viable (setup requires write access). No Arkeology export --watch CLI needed — on-demand export handled by the agent, continuous sync by Remotely Save. Tested and confirmed. (2026-06-23)"
   - "D10 — closed: resolved by the 2026-06-18 investigation. AgentCore Gateway exposes MCP tools (from the API Gateway REST API targets) over Streamable HTTP. It collapses the agent tool access path and the hosted reader backend into one Lambda deployment, but the human UI is a separate frontend consuming the same API Gateway — not an MCP client. (2026-06-18)"
   - "IAM IC as direct OIDC provider for AgentCore Gateway — closed (2026-06-23): two hard technical blockers: (1) IAM IC access tokens carry AWS-internal audience claims that AgentCore Gateway's aud validation rejects; (2) the token endpoint (CreateTokenWithIAM) requires SigV4 signing that Claude Code cannot perform. Additionally, registering a custom application in IAM IC requires coordination with the Identity Center team — organizational friction that rules it out independently of the technical blockers. IAM IC's OIDC service is designed for AWS CLI/SDK access to AWS account entitlements, not as a general-purpose OIDC provider for arbitrary applications."
   - "IAM IC as direct OIDC provider for AgentCore Gateway (without Cognito) — closed (2026-06-23): distinct from Cognito-federated-to-IAM-IC (which is the adopted approach). Direct IAM IC has two hard technical blockers: (1) IAM IC access tokens carry AWS-internal audience claims that AgentCore Gateway rejects; (2) the token endpoint requires SigV4 signing that Claude Code cannot perform."
@@ -76,11 +76,11 @@ decisions_closed_not_applicable:
   - "Alternative Direction 4 variant (IAM/SigV4 for agents via mcp-proxy-for-aws, non-Cognito for humans) — investigated and not adopted as primary (2026-06-23): using mcp-proxy-for-aws preserves existing AWS credentials for agent auth (no Cognito user pool for agents) but the proxy is stdio — structurally incompatible with Workflow subagent parallelisation. The human UI auth problem then has no clean solution: mTLS requires ACM PCA (~$400/mo), signed cookies have a renewal gap, M2M has no per-user gate. The combination resolves the user-pool aversion but trades it for a weaker capability set. Documented below as a reference alternative for teams where parallelisation is genuinely not a requirement."
 ---
 
-# Visual Reading / Browsing Interface for cairn-mcp Artifacts
+# Visual Reading / Browsing Interface for Arkeology Artifacts
 
 ## Description
 
-cairn-mcp moved artifact content to AWS S3 and made it searchable to *agents* via S3
+Arkeology moved artifact content to AWS S3 and made it searchable to *agents* via S3
 Vectors behind an MCP server. Humans (operators) still need to **read** those artifacts —
 ADRs, specs, code reviews, session summaries — and since the files no longer live on disk,
 there is no user-friendly way to open and render them. This session explores how to give
@@ -92,16 +92,16 @@ but is hosted in AWS.
 
 ## Summary
 
-This document records the full exploration of how humans should read cairn-mcp artifacts now that content lives in S3. The problem was worked across five sessions (2026-06-14 through 2026-06-23), moving from divergent ideation to a confirmed two-stage direction.
+This document records the full exploration of how humans should read Arkeology artifacts now that content lives in S3. The problem was worked across five sessions (2026-06-14 through 2026-06-23), moving from divergent ideation to a confirmed two-stage direction.
 
 ### What was decided
 
 **Two approaches were selected and staged:**
 
-**Pull content, read with existing tools (ships first).** *(Refined from Direction 3 exploration.)* Reuses existing cairn-mcp internals and third-party tools — no new infrastructure, no new UI to build or maintain:
+**Pull content, read with existing tools (ships first).** *(Refined from Direction 3 exploration.)* Reuses existing Arkeology internals and third-party tools — no new infrastructure, no new UI to build or maintain:
 
-- **MCP data resources** — cairn-mcp already registers resource endpoints (e.g. `cairn://artifact/{id}`) in the MCP server but they currently return no data. This surface wires them to the existing `read_artifact` / `list_artifacts` logic so MCP-aware host tools (MCP Inspector, Claude Desktop) can list and open cairn artifacts natively, with no additional build beyond a few lines of code.
-- **Obsidian + Remotely Save pull-only** — continuous S3 → local vault sync via the Remotely Save plugin configured in pull-only mode. Artifacts appear in the operator's Obsidian vault automatically as S3 is updated, with full markdown and mermaid rendering, backlinks, and search — all without cairn owning any sync tooling. Tested and confirmed working.
+- **MCP data resources** — Arkeology already registers resource endpoints (e.g. `arkeology://artifact/{id}`) in the MCP server but they currently return no data. This surface wires them to the existing `read_artifact` / `list_artifacts` logic so MCP-aware host tools (MCP Inspector, Claude Desktop) can list and open Arkeology artifacts natively, with no additional build beyond a few lines of code.
+- **Obsidian + Remotely Save pull-only** — continuous S3 → local vault sync via the Remotely Save plugin configured in pull-only mode. Artifacts appear in the operator's Obsidian vault automatically as S3 is updated, with full markdown and mermaid rendering, backlinks, and search — all without Arkeology owning any sync tooling. Tested and confirmed working.
 - **Web reading interface** — a dedicated visual reading UI (browser-based, markdown + mermaid rendering). The exact delivery mechanism (MCP App vs standalone) is subject to a follow-on brainstorm. No TUI.
 - **On-demand export** — handled by the agent on request (ask the agent to fetch and write an artifact to disk). No dedicated export CLI.
 
@@ -115,7 +115,7 @@ flowchart TD
     AgentCoreGW["AgentCore Gateway\n(Streamable HTTP MCP endpoint)"]
     CF["CloudFront\n(SPA — human reading UI)"]
     APIGW["API Gateway REST API\n(one deployment, shared backend)"]
-    Lambda["Lambda\ncairn read logic\n(list / read / search / synthesise)"]
+    Lambda["Lambda\narkeology read logic\n(list / read / search / synthesise)"]
     Data["S3 + S3 Vectors + Bedrock\n(unchanged)"]
 
     Agents -->|"Streamable HTTP\nOAuth Bearer (Cognito)"| AgentCoreGW
@@ -131,7 +131,7 @@ flowchart TD
 - **AgentCore Gateway** exposes a standard Streamable HTTP MCP endpoint — agents (Claude Code, Workflow subagents) connect directly, each with its own independent HTTP connection, enabling full parallelisation.
 - **CloudFront + SPA** serves the human reading UI — developers log in once per machine via the standard browser OAuth flow; the browser handles token refresh automatically.
 - **One Cognito user pool, federated to IAM Identity Center** (or another corporate OIDC-compatible IdP). No users are stored in Cognito. Developer lifecycle (onboarding, offboarding) is managed entirely in the corporate IdP. One-time federation setup requires coordination with the IdP team; ongoing user management requires none.
-- **One Lambda deployment** containing cairn's read logic (`list`, `read`, `search`, `synthesise`) serves both paths — no code duplication.
+- **One Lambda deployment** containing Arkeology's read logic (`list`, `read`, `search`, `synthesise`) serves both paths — no code duplication.
 
 ### What was ruled out
 
@@ -139,7 +139,7 @@ flowchart TD
 |---|---|
 | Publish-on-write static site (Direction 1) | Sync management — write/delete/archive/visibility triggers and CloudFront invalidation deemed too complex |
 | Local companion web reader (anchor) | Cannot produce shareable URLs; serves only the operator running the server |
-| `cairn export` CLI | Redundant — agents handle on-demand export; Remotely Save handles continuous sync |
+| `arkeology export` CLI | Redundant — agents handle on-demand export; Remotely Save handles continuous sync |
 | CloudFront mTLS for human UI | ACM Private CA required (~$400/mo) |
 | IAM IC as OIDC provider | Token audience mismatch + SigV4 token endpoint + cross-team coordination required |
 | IAM IC federated through Cognito | Same cross-team coordination blocker; deferred to future iteration |
@@ -154,8 +154,8 @@ flowchart TD
 | D2 | Is the hosted MCP server and UI actually needed, or do the pull-and-read tools satisfy the team's reading needs? |
 | D3 | Is live semantic search a v1 requirement for the hosted UI, or is faceted + lexical search sufficient? |
 | D6 | Should the local stdio server eventually migrate to Streamable HTTP, or stay stdio permanently? |
-| D7 | Should the hosted MCP server and UI ship inside `cairn-mcp` or as a separate `cairn-lens` companion repo? |
-| D8 | How does the Lambda-packaged cairn version stay in lockstep with the version agents write with? |
+| D7 | Should the hosted MCP server and UI ship inside `arkeology` or as a separate `arkeology-lens` companion repo? |
+| D8 | How does the Lambda-packaged Arkeology version stay in lockstep with the version agents write with? |
 | D11 | How does the Lambda derive the caller's scope under the hosted model — from a Cognito JWT claim, or from an explicit scope parameter passed by the agent? |
 
 ---
@@ -164,7 +164,7 @@ flowchart TD
 
 ### Problem Statement
 
-How should humans read cairn artifacts now that content lives in S3 with no local file to
+How should humans read Arkeology artifacts now that content lives in S3 with no local file to
 open? The desired capabilities: list/search multiple documents, multi-facet listing/search
 (document type & date, plus team/project/tier/tags), select a specific document, and render
 markdown + mermaid. The method for this session: the lead analyst proposed an **anchor
@@ -177,20 +177,20 @@ promising directions.
 
 | Constraint | Source |
 |---|---|
-| cairn-mcp runs locally today, one process per project, stdio transport, scoped by `WRITE_PREFIX` | stdio-transport ADR |
+| Arkeology runs locally today, one process per project, stdio transport, scoped by `WRITE_PREFIX` | stdio-transport ADR |
 | Artifact content lives in S3; embeddings + metadata in S3 Vectors; embeddings via Bedrock Titan v2 | AGENTS.md |
 | Rich metadata already exists: type, tier (2/3), visibility (shared/hidden), team/project, date-anchored IDs, feature_tags, commit_refs | artifact model |
 | The tier+visibility cross-scope gate is a **soft** server-side control; IAM is the hard boundary | tier-based-access-control ADR |
 | HTTP transport is a one-line FastMCP change but currently undecided | transport-strategy brainstorm (in-progress) |
 | MCP resources are registered but currently **schema-only** (no AWS calls) | T18 spec + resources.py |
 | `list_artifacts` already performs server-side faceted filtering (type/tier/team/project/tags/commit_refs/status) behind the scope gate | list tool |
-| The package is already a Python CLI (`uvx cairn-mcp`); CI is pytest/ruff/mypy — no JS toolchain today | AGENTS.md |
+| The package is already a Python CLI (`uvx arkeology`); CI is pytest/ruff/mypy — no JS toolchain today | AGENTS.md |
 | Deployment-agnostic stance today: no infra owned by the project | AGENTS.md |
 
 ### Ideas Explored
 
 **Anchor (lead) — Local companion web reader.**
-A `--web` mode on the already-running cairn-mcp process. The same process reuses its
+A `--web` mode on the already-running Arkeology process. The same process reuses its
 S3/S3-Vectors/Bedrock clients and scope/tier gates and serves a read-only SPA on
 `localhost:PORT`. Lists artifacts, multi-facet filter, full-text + semantic search, select a
 doc, fetch markdown from S3, render markdown + mermaid client-side. No AWS deploy, binds to
@@ -198,10 +198,10 @@ localhost, reuses local AWS credentials. *Outcome of the session: dominated on e
 see Challenge Synthesis. Retained only as a possible component of the in-session engineer
 experience, not as the primary answer.*
 
-**Idea 1 — Serverless AWS knowledge portal ("Cairn Atlas").**
-Relocate cairn's **read path** into AWS as a durable, multi-user portal at a stable team URL.
+**Idea 1 — Serverless AWS knowledge portal ("Arkeology Atlas").**
+Relocate Arkeology's **read path** into AWS as a durable, multi-user portal at a stable team URL.
 Static React/Next SPA on S3 + CloudFront (OAC); read API on API Gateway + Lambda packaging a
-read-only subset of cairn's existing Python logic (`list`/`read`/`search`/`synthesise`/
+read-only subset of Arkeology's existing Python logic (`list`/`read`/`search`/`synthesise`/
 `freshness`), reusing the Protocol-based, dependency-injected clients, the `filter.py`
 evaluator, and the scope gate unchanged. Semantic + multi-facet search served from the *same*
 S3 Vectors index and Bedrock model agents already use — single source of truth, zero sync.
@@ -216,13 +216,13 @@ discovery, mobile, centralized audit, and it upgrades the soft gate into an enfo
 Lambda cold-start + Bedrock embed latency floor, a public (even if authenticated) attack
 surface, drift risk between the twin and the MCP server.*
 
-**Idea 2 — IDE-native reader (VS Code extension + `cairn open` CLI).**
-Render artifacts inside the editor engineers already live in. A "Cairn" activity-bar view:
+**Idea 2 — IDE-native reader (VS Code extension + `arkeology open` CLI).**
+Render artifacts inside the editor engineers already live in. A "Arkeology" activity-bar view:
 filterable tree (type/date/tags/tier) + semantic search box; selecting an artifact opens a
 webview rendering markdown + mermaid. `commit_refs` become clickable jump-to-code links — a
-structural advantage no browser tab has. Talks to cairn via the local MCP server / MCP
+structural advantage no browser tab has. Talks to Arkeology via the local MCP server / MCP
 resources (preferred: thin presentation layer, reuses the gate), with spawn-on-demand
-fallback so reading never depends on an active agent session. A `cairn open <id>` CLI covers
+fallback so reading never depends on an active agent session. A `arkeology open <id>` CLI covers
 non-VS-Code/terminal users.
 *Unique unlocks: zero context switch, code↔artifact deep-linking, reuse of editor creds,
 distribution via Marketplace/Open VSX.*
@@ -232,17 +232,17 @@ ships markdown+mermaid assets, non-engineers unserved, marketplace publishing ov
 **Idea 3 — "Reuse, don't build" (MCP data resources + on-demand export).**
 Challenge the premise of building a UI at all.
 - *Surface A — data resources (near-zero build):* upgrade the schema-only resources to
-  data resources (`cairn://artifact/{id}`, `cairn://artifacts`, `cairn://artifacts/type/{t}`)
+  data resources (`arkeology://artifact/{id}`, `arkeology://artifacts`, `arkeology://artifacts/type/{t}`)
   backed by the existing `read_artifact`/`list_artifacts` code paths. Rendered for free by
   MCP Inspector, Claude Desktop, IDE MCP panels. ~tens of lines; reuses the gate verbatim.
   Weakness: most MCP host UIs don't execute mermaid; faceting limited to host capability.
-- *Surface B — `cairn export`/`publish` (re-materialize files on demand):* a human-facing CLI
+- *Surface B — `arkeology export`/`publish` (re-materialize files on demand):* a human-facing CLI
   that walks the scope-gated listing, fetches content, and writes a folder of `.md`
   (front-matter preserved) or a static-site bundle. Open with tools that already render
   mermaid natively: **GitHub** (native since 2022), **Obsidian** (native; tags/backlinks/
   search for free; the highest-leverage target), **MkDocs Material** (pure-Python, built-in
   lunr search + mermaid via one config line), or Docusaurus.
-- *Surface C — presigned S3 + thin shim:* `cairn share <id>` returns a time-boxed presigned
+- *Surface C — presigned S3 + thin shim:* `arkeology share <id>` returns a time-boxed presigned
   URL — an escape hatch, not a product.
 *Unique unlocks: minimal code, mermaid + faceted search + full-text "for free" from mature
 renderers, stack-fit (MkDocs Material is pure Python).*
@@ -251,11 +251,11 @@ in S3"), semantic search lost (lexical only), gate applied once at export then u
 
 **Idea 4 — `` terminal-native reader (no browser, no server).**
 A read-mode subcommand set in the same Python package, reusing clients + gate in-process:
-`cairn browse` (interactive Textual TUI: filterable list pane + rendered-markdown pane),
-`cairn read <id>`, `cairn search <q> [--json]`, `cairn ls`. Markdown via Rich. The honest
+`arkeology browse` (interactive Textual TUI: filterable list pane + rendered-markdown pane),
+`arkeology read <id>`, `arkeology search <q> [--json]`, `arkeology ls`. Markdown via Rich. The honest
 mermaid story is graceful degradation: (1) show syntax-highlighted source; (2) on-demand
 render-and-open a PNG/SVG/HTML in the OS viewer; (3) inline pixels on sixel/kitty/iTerm2
-terminals; (4) `cairn export <id> --html` as the pressure-relief valve.
+terminals; (4) `arkeology export <id> --html` as the pressure-relief valve.
 *Unique unlocks: zero deploy/auth/port/CORS, headless/SSH/CI native, single Python package
 (no JS toolchain, no mermaid.js to track), one code path for the gate, pipe-composable.*
 *Costs: mermaid never renders as live pixels in a bare terminal, wide tables/diagrams clip,
@@ -342,7 +342,7 @@ change) must be handled explicitly — this last point is what ruled it out.
 semantic search** in the UI and a centrally **enforced** access gate (users hold no AWS
 creds; one read-only Lambda role; per-identity gate). Best fit if cross-team governance,
 live concept-search, or always-fresh reads prove to be hard requirements.
-**What it requires:** a read API (API Gateway + Lambda over a read-only twin of cairn's
+**What it requires:** a read API (API Gateway + Lambda over a read-only twin of Arkeology's
 logic), ~~Cognito↔SSO federation~~ → replaced by CloudFront mTLS in Direction 4, a
 per-request identity→scope mapping (D5), domain/cert, and lockstep maintenance of the
 read-only twin.
@@ -355,7 +355,7 @@ core human-reading need (D3).
 **Why promising:** near-zero build, ships now, and **de-risks the larger bets** by validating
 how often and how humans actually read before investing in hosted infra. Surface A (data
 resources backed by existing read/list code) makes the browse→select→read loop work in MCP
-Inspector / Claude Desktop today. The Idea 4 TUI (`cairn browse`/`read`/`search`) serves
+Inspector / Claude Desktop today. The Idea 4 TUI (`arkeology browse`/`read`/`search`) serves
 the terminal-first, SSH/headless engineer with no server, port, or auth surface. Continuous
 local sync to Obsidian is handled by Remotely Save pull-only mode (S3 → vault, no export CLI
 needed). On-demand export is handled by the agent itself: an agent can fetch any artifact from
@@ -383,7 +383,7 @@ proves viable. Direction 1 is ruled out.
   enabling a future "which ADRs touch this file?" lens because the editor knows the open file.
   Preferred wiring is a thin presentation layer over the local MCP server / MCP resources
   (reusing the scope gate, no duplicated logic), with spawn-on-demand fallback so reading
-  never depends on an active agent session; a `cairn open <id>` CLI covers non-VS-Code users.
+  never depends on an active agent session; a `arkeology open <id>` CLI covers non-VS-Code users.
   Why it is not the primary answer: editor lock-in (VS Code beachhead; JetBrains/Neovim/Emacs
   unserved without separate plugins), it still ships markdown+mermaid assets (inside a `.vsix`
   rather than a wheel), it does nothing for non-engineers, and it produces no shareable URL.
@@ -447,42 +447,42 @@ and code↔artifact deep-linking as a unique IDE-native advantage (Idea 2).
 ### Problem Statement
 
 The operator asked whether a small, locally-run container packaging a web frontend (SPA) +
-a FastAPI/Python backend-for-frontend (BFF) that talks to cairn is a viable reading surface,
+a FastAPI/Python backend-for-frontend (BFF) that talks to Arkeology is a viable reading surface,
 and to brainstorm it in the same adversarial-challenge format. A dedicated analyst subagent
 (grounded in `server.py` and `resources.py`) fleshed it out and challenged the lead's
 assumptions; the lead answered. This refines the deployment spectrum named in the first
 session (in-process localhost ↔ hosted AWS) by filling the **self-hosted middle**.
 
-### Idea 6 — "Cairn Lens": single self-hosted Docker image (SPA + FastAPI BFF)
+### Idea 6 — "Arkeology Lens": single self-hosted Docker image (SPA + FastAPI BFF)
 
 A single OCI image runs a static-served SPA (markdown + mermaid rendering, faceted
 list/search/read UI) and a FastAPI BFF behind one port. The operator runs `docker compose up`
-and opens `localhost:PORT`. The BFF is the only component touching cairn's data plane; the
+and opens `localhost:PORT`. The BFF is the only component touching Arkeology's data plane; the
 browser never sees AWS. Runs against the operator's local AWS credentials (mounted), with no
 AWS deployment pipeline. Intended as the **fast path to a working visual reader** that is
 portable to a small shared internal host or ECS/Fargate later.
 
-### Wiring options (how the BFF reaches cairn's data) — and the verdict
+### Wiring options (how the BFF reaches Arkeology's data) — and the verdict
 
-- **Option A — BFF spawns cairn-mcp as a stdio subprocess and acts as MCP client.** Keeps
+- **Option A — BFF spawns Arkeology as a stdio subprocess and acts as MCP client.** Keeps
   stdio (no transport decision forced) but the BFF inherits MCP session + subprocess
   lifecycle management (single session per process → serialize or pool subprocesses) that
   has nothing to do with serving a GUI.
-- **Option B — cairn-mcp runs over Streamable HTTP as a second process/container; BFF
+- **Option B — Arkeology runs over Streamable HTTP as a second process/container; BFF
   connects by URL.** The "clean decoupling" story, but it *forces the currently-undecided
   HTTP transport into a hard dependency of the human UI*, adds an authenticated network
   listener, and means two containers + a private network — no longer "a single small
   container."
-- **Option C — BFF imports cairn's read logic in-process** (S3/Vectors/Bedrock clients +
+- **Option C — BFF imports Arkeology's read logic in-process** (S3/Vectors/Bedrock clients +
   the `_inner` read/list/search functions + the metadata filter, wired as `__main__.py`
   already does). No JSON-RPC hop, no transport decision, no LLM-shaped envelope; the BFF
   shapes its own paginated/faceted/sorted human API.
 
-**Verdict (lead): Option C.** cairn's MCP tool contract is *not* a more stable boundary than
+**Verdict (lead): Option C.** Arkeology's MCP tool contract is *not* a more stable boundary than
 its Python modules — same repo, same release, same team, they change together — so
 connecting "as an MCP client" buys ~nothing and costs either fragile subprocess management
 (A) or forcing HTTP transport (B). **Consequently this idea is explicitly NOT "a web
-interface that pulls from an MCP server" — it is a reader that reuses cairn's read logic as a
+interface that pulls from an MCP server" — it is a reader that reuses Arkeology's read logic as a
 library, packaged in Docker.**
 
 A dedicated MCP-UI prior-art scan (see the *Addendum* in `research-visual-reading-interface.md`)
@@ -497,13 +497,13 @@ client — never the LLM-shaped tool layer.
 ### Lead's answers to the subagent's challenges (synthesized)
 
 1. **MCP-client coupling (challenges 1, 2, 8, 10):** dropped. Option C is correct; the
-   container's honest delta over a `cairn-mcp --web` in-process mode is **packaging +
+   container's honest delta over a `arkeology --web` in-process mode is **packaging +
    frontend-dependency isolation + portability to a shared host/ECS** — not a different data
    architecture. Assumptions 1 and 2 are retracted.
 2. **MCP-as-human-API mismatch (challenges 3, 4):** disappears under Option C — the BFF calls
    the underlying clients + filter and builds its own pagination/facet-counts/sort, so the
    **agent tool schemas are NOT polluted** with UI-only parameters. Fetch-and-count in the
-   BFF is fine at cairn's realistic per-scope corpus sizes (hundreds–low thousands).
+   BFF is fine at Arkeology's realistic per-scope corpus sizes (hundreds–low thousands).
 3. **Scope / auth / creds (challenges 5, 6, 7):** conceded. One container = one `WRITE_PREFIX`
    scope + one credential identity = one project's view (own + shared tier-3). It does **not**
    become a team reader by changing the bind address; that needs an authn/authz/per-user-scope
@@ -511,11 +511,11 @@ client — never the LLM-shaped tool layer.
    Cognito/SSO→scope) takes over. "Minimal auth" is honest only at loopback; a shared
    multi-project host reintroduces the auth/CORS/multi-tenant problem the anchor avoided.
 4. **Single image + scope creep (challenges 9, 11, 12):** a single image (SPA + FastAPI) is
-   fine; the win is that the **agents' `cairn-mcp` wheel stays lean** (frontend deps live in
+   fine; the win is that the **agents' `arkeology` wheel stays lean** (frontend deps live in
    the image, patched by rebuild), not "no JS to maintain." Two real risks: **version sync**
-   (D8 — pin the cairn dependency, read defensively, surface a version indicator) and **scope
+   (D8 — pin the Arkeology dependency, read defensively, surface a version indicator) and **scope
    creep** (D7 — shipping a frontend build + image-publish + infra into a project that "owns
-   no infra" argues for a **separate companion repo**, e.g. `cairn-lens`).
+   no infra" argues for a **separate companion repo**, e.g. `arkeology-lens`).
 
 ### Where it sits — refined deployment spectrum
 
@@ -533,8 +533,8 @@ Direction 2 (portal), not extended into it.
 
 ### Open Questions (added)
 
-- **D7** — package home: inside cairn-mcp vs a separate `cairn-lens` companion repo.
-- **D8** — version-sync between the cairn baked into the image and the cairn agents write with.
+- **D7** — package home: inside Arkeology vs a separate `arkeology-lens` companion repo.
+- **D8** — version-sync between the Arkeology baked into the image and the Arkeology agents write with.
 - ~~Does Idea 6 (Option C) make Direction 1 (static publish-on-write site) redundant for the
   single-operator case, or are they complementary?~~ *Moot — Direction 1 ruled out 2026-06-17.*
 
@@ -570,7 +570,7 @@ filling.
 
 > **Design constraint (decided 2026-06-17, updated 2026-06-23):** the local copy is
 > **pull-only** — S3 → local. Local edits must never propagate back to S3. Write-back is
-> explicitly out of scope. This is a **new feature**, distinct from cairn-mcp's MCP agent
+> explicitly out of scope. This is a **new feature**, distinct from Arkeology's MCP agent
 > tools.
 >
 > *Update (2026-06-23):* the original plan was to enforce pull-only at the IAM layer
@@ -583,7 +583,7 @@ filling.
 The operator noted that Obsidian has a sync plugin ecosystem and asked whether an
 automatic, continuous pull from S3 into a local Obsidian vault is viable. The goal is
 convenience — artifacts appear in Obsidian automatically as S3 is updated, with no manual
-re-export step — while keeping the write boundary entirely inside cairn.
+re-export step — while keeping the write boundary entirely inside Arkeology.
 
 **What it would look like:** a dedicated read-only S3 prefix (or a separate vault bucket)
 holds the exported markdown. An Obsidian sync plugin polls that prefix and materialises new
@@ -595,7 +595,7 @@ candidates:
   Blob, Dropbox, OneDrive; delta sync on a schedule or on-open; open-source; widely used.
   Designed as bidirectional; now has a native one-way sync option (pull-only or push-only).
   *Chosen approach — tested and confirmed working (2026-06-23).*
-- **`cairn export --watch`:** ~~an alternative that avoids the third-party plugin entirely~~
+- **`arkeology export --watch`:** ~~an alternative that avoids the third-party plugin entirely~~
   *Dropped (2026-06-23) — see below.*
 
 **Tested and resolved (2026-06-23) — D9 closed:**
@@ -617,7 +617,7 @@ The key findings from testing:
 Self-hosted LiveSync is not a candidate (bidirectional real-time sync is its core model,
 with no viable one-way mode).
 
-The `cairn export --watch` alternative is also **dropped** (see Direction 3 update below):
+The `arkeology export --watch` alternative is also **dropped** (see Direction 3 update below):
 on-demand export is handled by the agent directly (fetch from MCP + write to disk), and
 continuous sync is handled by Remotely Save pull-only. No export CLI will be built.
 
@@ -635,7 +635,7 @@ backend. This means:
 - Agents (Claude Desktop, IDE MCP panels) could connect to a stable team URL instead of the
   local stdio process, enabling cross-machine and cross-session artifact access without any
   agent-side config change (just a different transport URL).
-- The read Lambda packaging cairn's read logic already exists in Direction 2's design; the
+- The read Lambda packaging Arkeology's read logic already exists in Direction 2's design; the
   API Gateway MCP proxy layer would sit on top, translating MCP tool calls into Lambda
   invocations.
 - Agents and human readers share the same hosted endpoint — one deployment serves both
@@ -685,7 +685,7 @@ identified.
 - Does this direction collapse Direction 2 (hosted portal) and Direction 3 (data resources)
   into one endpoint — the same Lambda serving MCP tool calls from agents and HTTP requests
   from a human reader frontend?
-- Can a certificate subject (`CN=team-alpha/project-cairn`) replace SSO group claims for
+- Can a certificate subject (`CN=team-alpha/project-arkeology`) replace SSO group claims for
   scope gate enforcement, or is the gate meaningless without finer-grained identity?
 
 **Relationship to existing directions:**
@@ -765,7 +765,7 @@ developer tooling:
 | Inbound auth | Claude Code connects | Local proxy needed? | Cognito / IdP? | Parallelisation for Workflow subagents |
 |---|---|---|---|---|
 | **JWT / OAuth (Cognito)** | ✅ natively via Streamable HTTP | No | Yes (Cognito or any OIDC) | ✅ full — each subagent opens its own HTTP connection |
-| **IAM / SigV4** | Via `mcp-proxy-for-aws` stdio proxy | Yes | No | ⚠️ proxy is stdio — same structural problem as local cairn-mcp |
+| **IAM / SigV4** | Via `mcp-proxy-for-aws` stdio proxy | Yes | No | ⚠️ proxy is stdio — same structural problem as local Arkeology |
 | **None** | ✅ directly | No | No | ✅ full — dev/testing only |
 
 The IAM path was initially attractive (no Cognito, reuses existing AWS credentials). Two
@@ -776,7 +776,7 @@ rounds of analysis revised this:
 2. **Second revision (correct)**: Workflow subagents are **independent API calls**, not
    child processes. They do not inherit the parent session's stdio MCP connections
    and cannot share them. stdio is a point-to-point pipe (one client, one server).
-   A stdio proxy has exactly the same structural limitation as the local cairn-mcp stdio
+   A stdio proxy has exactly the same structural limitation as the local Arkeology stdio
    server. Parallelisation across independent Workflow subagents is broken for any
    stdio-based connection — including the IAM proxy.
 
@@ -804,7 +804,7 @@ flowchart TD
     AgentCoreGW["AgentCore Gateway\n(single managed MCP endpoint)"]
     CF["CloudFront\n(mTLS — certificate = team access, no user identity)"]
     APIGW["API Gateway REST API\n(one deployment, shared backend)"]
-    Lambda["Lambda functions\ncairn read logic\n(list / read / search / synthesise)"]
+    Lambda["Lambda functions\narkeology read logic\n(list / read / search / synthesise)"]
     Data["S3 + S3 Vectors + Bedrock\n(unchanged)"]
 
     Agents -->|"Streamable HTTP MCP\nOAuth Bearer token (Cognito)"| AgentCoreGW
@@ -817,7 +817,7 @@ flowchart TD
 
 **Key properties of this architecture:**
 
-- **No code duplication**: one Lambda deployment serves both consumption paths. cairn's
+- **No code duplication**: one Lambda deployment serves both consumption paths. Arkeology's
   read logic (`list`, `read`, `search`, `synthesise`) is packaged once, invoked from two
   entry points.
 - **Two independent auth layers, each appropriate to its audience**: Cognito OAuth for
@@ -829,7 +829,7 @@ flowchart TD
   (D6 partially answered — no forced migration of the local server).
 - **AgentCore Gateway pricing** (as of 2026-06-18): $0.005/1,000 API invocations
   (list/invoke/ping), $0.025/1,000 search queries, $0.02/100 tools indexed per month.
-  Negligible at cairn's realistic usage scale.
+  Negligible at Arkeology's realistic usage scale.
 
 ### Relationship to open questions
 
@@ -853,7 +853,7 @@ flowchart TD
   to the current per-process `WRITE_PREFIX`). The right answer may differ per path. The
   existing tier/visibility soft gate is unchanged; only the *source* of the scope value
   changes.
-- **D12** — Cognito user pool topology: one pool per cairn deployment or shared across
+- **D12** — Cognito user pool topology: one pool per Arkeology deployment or shared across
   projects in the same AWS account? How are new developers onboarded (self-registration vs
   admin-provisioned)? How is de-provisioning handled when a developer leaves a project?
 
@@ -867,12 +867,12 @@ The operator provided four pieces of feedback following the 2026-06-18 session:
 
 1. **Remotely Save pull-only tested and working** (resolves D9) — see updated section in Session 2026-06-17 above.
 2. **Cognito reuse for human readers** — a new trade-off question for Direction 4 (D13).
-3. **Direction 3 Surface B dropped** — no `cairn export` CLI; the agent handles on-demand export natively.
+3. **Direction 3 Surface B dropped** — no `arkeology export` CLI; the agent handles on-demand export natively.
 4. **Use mermaid for diagrams** — apply to all new and existing diagrams in this document.
 
 ### D9 — Resolved: Remotely Save pull-only mode (outcome recorded above)
 
-See the updated "Tested and resolved (2026-06-23)" block in the Session 2026-06-17 Obsidian section. D9 is closed: Remotely Save pull-only mode is the mechanism; IAM-layer enforcement is not viable for setup. No `cairn export --watch` CLI will be built.
+See the updated "Tested and resolved (2026-06-23)" block in the Session 2026-06-17 Obsidian section. D9 is closed: Remotely Save pull-only mode is the mechanism; IAM-layer enforcement is not viable for setup. No `arkeology export --watch` CLI will be built.
 
 ### D13 — New trade-off: Cognito for human readers instead of mTLS
 
@@ -900,13 +900,13 @@ The original rationale was "no concept of users" — certificate = team access, 
 
 ### Direction 3 — Surface B dropped
 
-No `cairn export` CLI will be built. The rationale: when a human wants a document, the natural workflow is to ask the agent ("pull me documents about xyz"). The agent can fetch the artifact from the MCP server and write it to disk on demand — no dedicated CLI is needed. For continuous local access, Remotely Save pull-only mode serves the same role without a cairn-owned CLI. Direction 3 now consists of:
+No `arkeology export` CLI will be built. The rationale: when a human wants a document, the natural workflow is to ask the agent ("pull me documents about xyz"). The agent can fetch the artifact from the MCP server and write it to disk on demand — no dedicated CLI is needed. For continuous local access, Remotely Save pull-only mode serves the same role without an arkeology-owned CLI. Direction 3 now consists of:
 
 - **Surface A** — MCP data resources (upgraded from schema-only, ~tens of lines, renders in MCP Inspector / Claude Desktop)
-- **TUI companion** — `cairn browse` / `cairn read` / `cairn search` (Idea 4, terminal-first, SSH/headless)
-- **Obsidian integration** — Remotely Save pull-only mode (no cairn-owned CLI, operator-configured)
+- **TUI companion** — `arkeology browse` / `arkeology read` / `arkeology search` (Idea 4, terminal-first, SSH/headless)
+- **Obsidian integration** — Remotely Save pull-only mode (no arkeology-owned CLI, operator-configured)
 
-Surface B (`cairn export` CLI, `cairn export --watch`) is eliminated.
+Surface B (`arkeology export` CLI, `arkeology export --watch`) is eliminated.
 
 ---
 
@@ -925,7 +925,7 @@ Two hard technical blockers were found:
 - **Token audience mismatch**: IAM IC access tokens carry AWS-internal audience claims (designed to access AWS account entitlements via `GetRoleCredentials`). AgentCore Gateway validates the `aud` claim against its configured allowed audiences — IAM IC tokens are rejected regardless of how the auth flow completes.
 - **Token endpoint requires SigV4**: `CreateTokenWithIAM` (the IAM IC endpoint for custom applications) requires the caller to SigV4-sign the token request. Claude Code performs Authorization Code + PKCE but cannot SigV4-sign a token endpoint call. The IAM IC OIDC service is built for AWS CLI/SDK access to AWS accounts, not for arbitrary MCP clients.
 
-A third blocker was organizational: registering a custom application in IAM IC requires coordination with the team managing Identity Center — cross-team friction that is not available to the cairn team. This rules it out independently of the technical blockers.
+A third blocker was organizational: registering a custom application in IAM IC requires coordination with the team managing Identity Center — cross-team friction that is not available to the Arkeology team. This rules it out independently of the technical blockers.
 
 **IAM IC federated through Cognito** (users authenticate via IAM IC, nothing stored in the Cognito pool) was also investigated. It eliminates user management in Cognito entirely, but registering the federation in IAM IC requires the same cross-team coordination. Closed for v1; can be revisited when self-service IAM IC access becomes available.
 
@@ -963,10 +963,10 @@ A Cognito user pool **federated to IAM Identity Center** (or another corporate O
 
 #### Direction 3 — Lean reuse baseline (immediate increment, D4 resolved)
 
-Ships first, independently of any hosted direction. Three surfaces, all built on existing cairn-mcp internals:
+Ships first, independently of any hosted direction. Three surfaces, all built on existing Arkeology internals:
 
 - **MCP data resources (Surface A)** — upgrade schema-only resources to data resources backed by the existing `read_artifact` / `list_artifacts` code paths (~tens of lines). Renders in MCP Inspector and Claude Desktop today without any additional build.
-- **Obsidian + Remotely Save pull-only** — continuous S3 → local vault sync via the Remotely Save plugin configured in pull-only mode. No cairn-owned CLI. Tested and confirmed working (2026-06-23). Developers configure the plugin themselves; cairn ships no sync tooling.
+- **Obsidian + Remotely Save pull-only** — continuous S3 → local vault sync via the Remotely Save plugin configured in pull-only mode. No arkeology-owned CLI. Tested and confirmed working (2026-06-23). Developers configure the plugin themselves; Arkeology ships no sync tooling.
 - **Web reading interface** — a dedicated reading UI (form to be determined in follow-on brainstorm). No TUI; the visual reading surface is a web interface.
 - **On-demand export** — when a human wants a document on disk, the natural workflow is to ask the agent. The agent fetches the artifact from the MCP server and writes it to disk. No dedicated CLI command.
 
@@ -976,7 +976,7 @@ Two variants are documented. The **primary variant (Cognito)** is recommended. T
 
 ##### Primary variant — single Cognito user pool (recommended)
 
-One self-managed Cognito user pool serves both consumption paths. The cairn team provisions developers directly; no external teams required. IAM IC federation can be added in a future iteration when self-service access becomes available.
+One self-managed Cognito user pool serves both consumption paths. The Arkeology team provisions developers directly; no external teams required. IAM IC federation can be added in a future iteration when self-service access becomes available.
 
 ```mermaid
 flowchart TD
@@ -986,7 +986,7 @@ flowchart TD
     AgentCoreGW["AgentCore Gateway\n(Streamable HTTP MCP endpoint)\nJWT inbound auth"]
     CF["CloudFront\n(SPA — human reading UI)\nJWT via Amplify"]
     APIGW["API Gateway REST API\n(one deployment, shared backend)"]
-    Lambda["Lambda\ncairn read logic\n(list / read / search / synthesise)"]
+    Lambda["Lambda\narkeology read logic\n(list / read / search / synthesise)"]
     Data["S3 + S3 Vectors + Bedrock\n(unchanged)"]
 
     Agents -->|"Streamable HTTP\nOAuth Bearer (Cognito)"| AgentCoreGW
@@ -1005,7 +1005,7 @@ flowchart TD
 - **Full Workflow parallelisation** — agents connect over Streamable HTTP; each subagent opens its own independent HTTP connection. No stdio bottleneck.
 - **Unified auth** — one Cognito user pool, one login per developer per machine. Claude Code stores refresh tokens; browsers handle renewal via the Amplify OAuth flow.
 - **No ACM PCA, no private CA** — Cognito handles all token issuance; no certificate infrastructure required.
-- **Zero ongoing user management** — developer lifecycle (onboarding, offboarding) is managed entirely in the corporate IdP (IAM IC or equivalent). One-time federation setup requires coordination with the IdP team; no cairn team involvement thereafter.
+- **Zero ongoing user management** — developer lifecycle (onboarding, offboarding) is managed entirely in the corporate IdP (IAM IC or equivalent). One-time federation setup requires coordination with the IdP team; no Arkeology team involvement thereafter.
 
 ##### Alternative variant — IAM/SigV4 for agents, no Cognito user pool (not recommended)
 

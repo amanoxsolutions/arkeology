@@ -33,7 +33,7 @@ The skeleton must be functional enough to start and stop cleanly, but registers 
 
 ### Story 1 — Server starts, logs, and exits cleanly (P1)
 
-When the developer runs `uv run cairn-mcp`, the server starts the stdio MCP transport, emits a
+When the developer runs `uv run arkeology`, the server starts the stdio MCP transport, emits a
 structured startup log line, and remains ready to accept MCP messages.
 
 **Acceptance criteria:**
@@ -65,7 +65,7 @@ Mixing MCP messages with log lines on stdout would corrupt the transport.
 - All log calls use Python's standard `logging` module — no `print()` calls anywhere in the server.
 - The root logger is configured once, at process start, in `__main__.py` before the server runs.
 - Logging level must be configurable at runtime via a `LOG_LEVEL` environment variable (default: `INFO`). Valid values: `DEBUG`, `INFO`, `WARNING`, `ERROR`.
-- The server name used in FastMCP must match the package name: `cairn-mcp`.
+- The server name used in FastMCP must match the package name: `arkeology`.
 
 **Ask First:**
 - Nothing — all constraints are defined by the PRD and architecture decisions.
@@ -82,17 +82,17 @@ Mixing MCP messages with log lines on stdout would corrupt the transport.
 
 | File | Action | Notes |
 |------|--------|-------|
-| `src/cairn_mcp/server.py` | Create | FastMCP app instance, transport config, signal handling |
-| `src/cairn_mcp/__main__.py` | Modify | Replace T1 stub: configure logging, call `server.run()` |
+| `src/arkeology/server.py` | Create | FastMCP app instance, transport config, signal handling |
+| `src/arkeology/__main__.py` | Modify | Replace T1 stub: configure logging, call `server.run()` |
 
 ### `server.py` responsibilities
 
 This module owns the FastMCP app object and the transport configuration. Its responsibilities:
 
-1. **Create the FastMCP app instance.** Pass `name="cairn-mcp"` and a version string. The version
-   should be read from the package metadata (`importlib.metadata.version("cairn-mcp")`), not hardcoded.
+1. **Create the FastMCP app instance.** Pass `name="arkeology"` and a version string. The version
+   should be read from the package metadata (`importlib.metadata.version("arkeology")`), not hardcoded.
 2. **Register no tools.** The tool registrations will be added in Phase 2 and 3. The file will have a clear comment: `# Tools registered in Phase 2+`.
-3. **Expose a `run()` function** that `__main__.py` calls. This function calls the FastMCP server's stdio `run()` method. It also logs `"cairn-mcp vX.Y.Z starting"` before entering the event loop.
+3. **Expose a `run()` function** that `__main__.py` calls. This function calls the FastMCP server's stdio `run()` method. It also logs `"arkeology vX.Y.Z starting"` before entering the event loop.
 4. **Handle graceful shutdown.** FastMCP handles the event loop, but the `run()` function must ensure that a clean exit (SIGTERM/SIGINT) logs a shutdown message. In practice, FastMCP's stdio transport handles SIGINT natively — verify this and add an explicit `atexit` handler or signal handler only if FastMCP does not cover it.
 
 ### `__main__.py` responsibilities
@@ -108,7 +108,7 @@ This module is the process entry point. It must:
 
 2. **Call `server.run()`.** After logging is configured, delegate entirely to the server module.
 
-3. **Expose `main()` as the entry point.** The `[project.scripts]` entry in `pyproject.toml` points to `cairn_mcp.__main__:main`.
+3. **Expose `main()` as the entry point.** The `[project.scripts]` entry in `pyproject.toml` points to `arkeology.__main__:main`.
 
 ### Logging convention
 
@@ -141,10 +141,10 @@ testable function (e.g. `configure_logging(level: str) -> None`), write the test
 Everything else in T2 (FastMCP app creation, entry point wiring, signal handling) is verified
 manually:
 
-- `uv run cairn-mcp` → server starts, logs startup line to stderr, waits for input.
-- `uv run cairn-mcp 2>/dev/null` → stdout receives only MCP wire protocol (no log contamination).
+- `uv run arkeology` → server starts, logs startup line to stderr, waits for input.
+- `uv run arkeology 2>/dev/null` → stdout receives only MCP wire protocol (no log contamination).
 - `Ctrl+C` during run → server exits with code 0, logs shutdown message.
-- `LOG_LEVEL=DEBUG uv run cairn-mcp` → verbose debug output on stderr.
+- `LOG_LEVEL=DEBUG uv run arkeology` → verbose debug output on stderr.
 
 ## Open Questions
 

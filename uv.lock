@@ -227,51 +227,6 @@ wheels = [
 ]
 
 [[package]]
-name = "cairn-mcp"
-version = "0.5.0"
-source = { editable = "." }
-dependencies = [
-    { name = "boto3" },
-    { name = "fastmcp", extra = ["apps"] },
-    { name = "pydantic" },
-    { name = "pydantic-settings" },
-    { name = "python-ulid" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "boto3-stubs", extra = ["bedrock-runtime", "s3", "s3vectors", "sts"] },
-    { name = "moto", extra = ["s3"] },
-    { name = "mypy" },
-    { name = "pre-commit" },
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-    { name = "pytest-mock" },
-    { name = "ruff" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "boto3", specifier = "~=1.43" },
-    { name = "fastmcp", extras = ["apps"], specifier = "~=3.4" },
-    { name = "pydantic", specifier = "~=2.13" },
-    { name = "pydantic-settings", specifier = "~=2.14" },
-    { name = "python-ulid", specifier = "~=3.1" },
-]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "boto3-stubs", extras = ["s3", "bedrock-runtime", "sts", "s3vectors"], specifier = "~=1.43" },
-    { name = "moto", extras = ["s3"], specifier = "~=5.2" },
-    { name = "mypy", specifier = "~=2.1" },
-    { name = "pre-commit", specifier = "~=4.6" },
-    { name = "pytest", specifier = "~=9.1" },
-    { name = "pytest-asyncio", specifier = "~=1.4" },
-    { name = "pytest-mock", specifier = "~=3.15" },
-    { name = "ruff", specifier = "~=0.15" },
-]
-
-[[package]]
 name = "certifi"
 version = "2026.7.22"
 source = { registry = "https://pypi.org/simple" }
@@ -1064,6 +1019,51 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/a2/6e/371856a3fb9d31ca8dac321cda606860fa4548858c0cc45d9d1d4ca2628b/mypy_extensions-1.1.0.tar.gz", hash = "sha256:52e68efc3284861e772bbcd66823fde5ae21fd2fdb51c62a211403730b916558", size = 6343, upload-time = "2025-04-22T14:54:24.164Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/79/7b/2c79738432f5c924bef5071f933bcc9efd0473bac3b4aa584a6f7c1c8df8/mypy_extensions-1.1.0-py3-none-any.whl", hash = "sha256:1be4cccdb0f2482337c4743e60421de3a356cd97508abadd57d47403e94f5505", size = 4963, upload-time = "2025-04-22T14:54:22.983Z" },
+]
+
+[[package]]
+name = "arkeology"
+version = "0.5.0"
+source = { editable = "." }
+dependencies = [
+    { name = "boto3" },
+    { name = "fastmcp", extra = ["apps"] },
+    { name = "pydantic" },
+    { name = "pydantic-settings" },
+    { name = "python-ulid" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "boto3-stubs", extra = ["bedrock-runtime", "s3", "s3vectors", "sts"] },
+    { name = "moto", extra = ["s3"] },
+    { name = "mypy" },
+    { name = "pre-commit" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "pytest-mock" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "boto3", specifier = "~=1.43" },
+    { name = "fastmcp", extras = ["apps"], specifier = "~=3.4" },
+    { name = "pydantic", specifier = "~=2.13" },
+    { name = "pydantic-settings", specifier = "~=2.14" },
+    { name = "python-ulid", specifier = "~=3.1" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "boto3-stubs", extras = ["s3", "bedrock-runtime", "sts", "s3vectors"], specifier = "~=1.43" },
+    { name = "moto", extras = ["s3"], specifier = "~=5.2" },
+    { name = "mypy", specifier = "~=2.1" },
+    { name = "pre-commit", specifier = "~=4.6" },
+    { name = "pytest", specifier = "~=9.1" },
+    { name = "pytest-asyncio", specifier = "~=1.4" },
+    { name = "pytest-mock", specifier = "~=3.15" },
+    { name = "ruff", specifier = "~=0.15" },
 ]
 
 [[package]]

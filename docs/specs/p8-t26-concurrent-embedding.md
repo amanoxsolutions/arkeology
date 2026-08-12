@@ -148,10 +148,10 @@ must not alter this path.
 |------|--------|-------|
 | `tests/unit/clients/test_s3.py` | Modify | Add `put_vectors_batch` tests on `VectorsClientImpl` via moto (written first — Red) |
 | `tests/unit/test_tools_write.py` | Modify | Add concurrent-embedding and batch-put tests; update existing embed/put call-count assertions (written first — Red) |
-| `src/cairn_mcp/clients/interfaces.py` | Modify | Add `put_vectors_batch` method to `VectorsClientInterface` Protocol |
-| `src/cairn_mcp/clients/vectors.py` | Modify | Implement `put_vectors_batch` (chunk at 500, delegate to `self._client.put_vectors`) |
-| `src/cairn_mcp/config.py` | Modify | Add `SECTION_CONCURRENCY` field (int, default 5) with validator ≥ 1; add `section_concurrency` property |
-| `src/cairn_mcp/tools/write.py` | Modify | Replace section `for` loop with `asyncio.to_thread` + `asyncio.gather`; call `put_vectors_batch` instead of per-section `put_vector`; propagate semaphore from settings |
+| `src/arkeology/clients/interfaces.py` | Modify | Add `put_vectors_batch` method to `VectorsClientInterface` Protocol |
+| `src/arkeology/clients/vectors.py` | Modify | Implement `put_vectors_batch` (chunk at 500, delegate to `self._client.put_vectors`) |
+| `src/arkeology/config.py` | Modify | Add `SECTION_CONCURRENCY` field (int, default 5) with validator ≥ 1; add `section_concurrency` property |
+| `src/arkeology/tools/write.py` | Modify | Replace section `for` loop with `asyncio.to_thread` + `asyncio.gather`; call `put_vectors_batch` instead of per-section `put_vector`; propagate semaphore from settings |
 
 ## Testing Approach
 

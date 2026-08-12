@@ -127,8 +127,8 @@ structured artifacts (ADRs, specs, code reviews) which have 3–15 meaningful se
 |------|--------|-------|
 | `tests/unit/test_config.py` | Modify | Add tests for new config vars (written first — Red) |
 | `tests/unit/test_tools_write.py` | Modify | Add section cap and min-length filter tests (written first — Red) |
-| `src/cairn_mcp/config.py` | Modify | Add `EMBED_MAX_SECTIONS` (int, default 20, ≥ 1) and `EMBED_MIN_SECTION_LENGTH` (int, default 50, ≥ 0) with validators; add `embed_max_sections` and `embed_min_section_length` properties |
-| `src/cairn_mcp/tools/write.py` | Modify | After `sections = parse_sections(content)`, apply length filter then cap; log dropped sections at DEBUG; fall back to document-level embed if no sections remain after filtering |
+| `src/arkeology/config.py` | Modify | Add `EMBED_MAX_SECTIONS` (int, default 20, ≥ 1) and `EMBED_MIN_SECTION_LENGTH` (int, default 50, ≥ 0) with validators; add `embed_max_sections` and `embed_min_section_length` properties |
+| `src/arkeology/tools/write.py` | Modify | After `sections = parse_sections(content)`, apply length filter then cap; log dropped sections at DEBUG; fall back to document-level embed if no sections remain after filtering |
 
 ## Testing Approach
 

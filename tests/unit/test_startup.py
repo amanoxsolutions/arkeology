@@ -9,12 +9,12 @@ import logging
 
 import pytest
 
-from cairn_mcp.clients.fakes.fake_bedrock import FakeBedrockClient
-from cairn_mcp.clients.s3 import S3ClientImpl
-from cairn_mcp.clients.vectors import VectorsClientImpl
-from cairn_mcp.config import Settings
-from cairn_mcp.errors import CredentialError, StartupValidationError
-from cairn_mcp.startup import validate_startup
+from arkeology.clients.fakes.fake_bedrock import FakeBedrockClient
+from arkeology.clients.s3 import S3ClientImpl
+from arkeology.clients.vectors import VectorsClientImpl
+from arkeology.config import Settings
+from arkeology.errors import CredentialError, StartupValidationError
+from arkeology.startup import validate_startup
 
 
 @pytest.fixture
@@ -538,9 +538,9 @@ def test_check2_delete_probe_failure_logs_warning_not_raises(
     """Delete probe failure logs a warning but does NOT raise StartupValidationError."""
     mocker.patch.object(s3_client, "delete_object", side_effect=PermissionError("delete denied"))
     bedrock = FakeBedrockClient()
-    with caplog.at_level(logging.WARNING, logger="cairn_mcp.startup"):
+    with caplog.at_level(logging.WARNING, logger="arkeology.startup"):
         validate_startup(settings=settings, s3=s3_client, vectors=vectors_client, bedrock=bedrock)
-    assert any("_cairn_mcp_startup_probe" in r.message for r in caplog.records)
+    assert any("_arkeology_startup_probe" in r.message for r in caplog.records)
 
 
 def test_check3_read_prefix_failure_chains_cause(
@@ -569,7 +569,7 @@ def test_check4_vector_index_missing_chains_cause(
     vectors_client_no_index: VectorsClientImpl,
 ) -> None:
     """VectorIndexNotFoundError → __cause__ is the original exception."""
-    from cairn_mcp.errors import VectorIndexNotFoundError
+    from arkeology.errors import VectorIndexNotFoundError
 
     bedrock = FakeBedrockClient()
     with pytest.raises(StartupValidationError) as exc_info:
@@ -780,7 +780,7 @@ def test_check2_probe_key_is_unique_per_invocation(
     (delete_object in the finally block) can delete the object out from under the
     other before its get_object runs. The probe key must be unique per invocation
     (e.g. ULID/uuid-suffixed) so concurrent invocations never collide."""
-    from cairn_mcp.startup import _check_write_prefix
+    from arkeology.startup import _check_write_prefix
 
     seen_keys: list[str] = []
     original_put = s3_client.put_object

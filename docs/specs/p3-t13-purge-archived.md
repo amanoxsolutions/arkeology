@@ -193,7 +193,7 @@ the purge continues; the response reports exactly what was deleted and what fail
 | File | Action | Notes |
 |------|--------|-------|
 | `tests/unit/test_tools_purge.py` | Modify | Update/add partial-failure tests first (Red) |
-| `src/cairn_mcp/tools/purge.py` | Modify | Implement best-effort loop + `failed` reporting (Green) |
+| `src/arkeology/tools/purge.py` | Modify | Implement best-effort loop + `failed` reporting (Green) |
 | `tests/integration/test_tools_purge.py` | Modify | Update if needed for the new response shape |
 
 ## Testing Approach

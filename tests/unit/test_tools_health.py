@@ -1,15 +1,15 @@
-"""Unit tests for cairn_mcp.tools.health.
+"""Unit tests for arkeology.tools.health.
 
 Tests health_check() using moto-backed S3 and S3 Vectors clients plus FakeBedrockClient.
 """
 
 import pytest
 
-from cairn_mcp.clients.fakes.fake_bedrock import FakeBedrockClient
-from cairn_mcp.clients.s3 import S3ClientImpl
-from cairn_mcp.clients.vectors import VectorsClientImpl
-from cairn_mcp.errors import CredentialError
-from cairn_mcp.tools.health import health_check
+from arkeology.clients.fakes.fake_bedrock import FakeBedrockClient
+from arkeology.clients.s3 import S3ClientImpl
+from arkeology.clients.vectors import VectorsClientImpl
+from arkeology.errors import CredentialError
+from arkeology.tools.health import health_check
 from tests.unit.conftest import _make_settings
 
 # ---------------------------------------------------------------------------
@@ -573,7 +573,7 @@ async def test_m22_credential_error_on_write_prefix_probe_key_present(
     bedrock = FakeBedrockClient(dimension=8)
 
     # Only fail on the probe key write; allow head_bucket to succeed normally.
-    probe_key = f"{settings.write_prefix}/_cairn_health_probe"
+    probe_key = f"{settings.write_prefix}/_arkeology_health_probe"
     original_put = s3_client.put_object
 
     def put_object_side_effect(key: str, content: str, metadata: dict) -> None:
@@ -620,7 +620,7 @@ async def test_m22_probe_object_cleaned_up_when_get_object_fails(
     settings = _make_settings(monkeypatch, READ_PREFIXES="")
     bedrock = FakeBedrockClient(dimension=8)
 
-    probe_key = f"{settings.write_prefix}/_cairn_health_probe"
+    probe_key = f"{settings.write_prefix}/_arkeology_health_probe"
 
     # put_object succeeds (default moto behaviour)
     # get_object raises for the probe key

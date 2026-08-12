@@ -86,7 +86,7 @@ After Phase 1 is complete, the repository must have this layout. The developer s
 this as the target structure — no files outside this layout should be needed for Phase 1.
 
 ```
-cairn-mcp/
+arkeology/
 ├── pyproject.toml               # Package config, dependencies, tool settings
 ├── .python-version              # uv-managed Python version pin
 ├── .pre-commit-config.yaml      # ruff + mypy pre-commit hooks
@@ -95,7 +95,7 @@ cairn-mcp/
 ├── AGENTS.md                    # (exists, not modified in Phase 1)
 │
 ├── src/
-│   └── cairn_mcp/
+│   └── arkeology/
 │       ├── __init__.py          # Package marker
 │       ├── __main__.py          # Entry point — calls server.run()
 │       ├── server.py            # FastMCP app — transport setup, signal handling
@@ -137,7 +137,7 @@ cairn-mcp/
 Before Phase 2 begins, confirm all of the following:
 
 - [ ] `uv run pytest tests/unit/` passes with no warnings
-- [ ] `uv run cairn-mcp` starts cleanly when all env vars are valid and AWS is reachable
+- [ ] `uv run arkeology` starts cleanly when all env vars are valid and AWS is reachable
 - [ ] Server refuses to start and prints a clear actionable error for each of the 5 misconfiguration scenarios (individually tested)
 - [ ] AWS client fakes fully cover their interface (every method on the abstract base class is implemented and tested)
 - [ ] Integration tests pass against a real AWS environment with provisioned resources
@@ -164,5 +164,5 @@ These are not up for re-evaluation in subsequent phases:
 Phase 1 is complete when:
 
 - The retrospective checklist above is fully checked
-- A human has manually verified that `uv run cairn-mcp` starts and logs a clear startup message
+- A human has manually verified that `uv run arkeology` starts and logs a clear startup message
 - A human has manually verified that missing `AWS_REGION` produces an actionable error before any tool prompt appears

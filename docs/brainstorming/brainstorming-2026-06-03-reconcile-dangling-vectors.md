@@ -59,7 +59,7 @@ because vectors-first deletion prevented it in the server's own failure modes.
 The vectors-first ordering prevents orphaned vectors within the server's own operations.
 However, they can still arise through external S3 changes:
 
-- S3 object manually deleted outside cairn-mcp
+- S3 object manually deleted outside Arkeology
 - S3 lifecycle rule or TTL policy deletes the backing object
 - S3 bucket migration (copy to new bucket, old objects removed)
 - Any other operation that removes S3 objects without going through the MCP delete tool

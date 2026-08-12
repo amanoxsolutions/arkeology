@@ -54,7 +54,7 @@ reaching the install path.
 
 ### Story 1 — Native Copilot install via `gh skill install` (P1)
 
-As a cairn-mcp Copilot operator, I run `./install.sh` and both skills are installed via
+As an Arkeology Copilot operator, I run `./install.sh` and both skills are installed via
 `gh skill install` without any interactive prompts.
 
 **Acceptance criteria:**
@@ -66,7 +66,7 @@ As a cairn-mcp Copilot operator, I run `./install.sh` and both skills are instal
 
 ### Story 2 — Hard failure with clear error (P1)
 
-As a cairn-mcp operator, if `gh skill install` fails I receive a clear error message and
+As an Arkeology operator, if `gh skill install` fails I receive a clear error message and
 a documentation link rather than a silent partial install.
 
 **Acceptance criteria:**
@@ -77,7 +77,7 @@ a documentation link rather than a silent partial install.
 
 ### Story 3 — Idempotent on re-run (P1)
 
-As a cairn-mcp Copilot operator, re-running `install.sh` does not produce errors or
+As an Arkeology Copilot operator, re-running `install.sh` does not produce errors or
 duplicate installs.
 
 **Acceptance criteria:**
@@ -86,7 +86,7 @@ duplicate installs.
 
 ### Story 4 — `gh` not available when `copilot` is (P1)
 
-As a cairn-mcp Copilot operator whose machine has `copilot` but not `gh`, I receive a
+As an Arkeology Copilot operator whose machine has `copilot` but not `gh`, I receive a
 clear message telling me what to install.
 
 **Acceptance criteria:**
@@ -96,11 +96,11 @@ clear message telling me what to install.
 
 ### Story 5 — SKILL.md descriptions are always `gh`-compatible (P1)
 
-As a cairn-mcp contributor, an unquoted `: ` in a SKILL.md `description` value is caught
+As an Arkeology contributor, an unquoted `: ` in a SKILL.md `description` value is caught
 at commit time, not at install time.
 
 **Acceptance criteria:**
-- Given a SKILL.md with `description: Installing cairn: the MCP server` (unquoted colon),
+- Given a SKILL.md with `description: Installing arkeology: the MCP server` (unquoted colon),
   when the contributor runs `git commit`, then the pre-commit hook calls
   `python3 scripts/validate.py` and the commit is blocked with an actionable error message.
 - Given all `description` values are correctly quoted, when the contributor commits, the
@@ -149,7 +149,7 @@ at commit time, not at install time.
   URL.
 - All `description` values in `skills/*/SKILL.md` that contain `: ` must be double-quoted;
   `scripts/validate.py` enforces this at commit time.
-- `scripts/validate.py` checks SKILL.md files only (cairn-mcp has no agents directory).
+- `scripts/validate.py` checks SKILL.md files only (Arkeology has no agents directory).
 
 **Never:**
 - No fallback path — no symlinks, no file copies if `gh skill install` fails.
@@ -168,8 +168,8 @@ at commit time, not at install time.
 | `install.sh` | Modify | Detection: `command -v copilot`; section: check `gh` + `gh skill` prerequisites; loop with all four mandatory flags; error path stops and prints docs URL |
 | `scripts/validate.py` | Create | Checks every `skills/*/SKILL.md` `description` value for unquoted `: `; exits 0 on pass, 1 on fail; actionable error messages naming the file and the problem |
 | `.pre-commit-config.yaml` | Modify | Add a `local` repo hook that runs `python3 scripts/validate.py` on every commit; stage-type `manual` or `commit` as appropriate |
-| `skills/setting-up-cairn/SKILL.md` | Verify/fix | Confirm `description` value is double-quoted if it contains `: `; fix if not |
-| `skills/migrating-to-cairn/SKILL.md` | Verify/fix | Same |
+| `skills/setting-up-arkeology/SKILL.md` | Verify/fix | Confirm `description` value is double-quoted if it contains `: `; fix if not |
+| `skills/migrating-to-arkeology/SKILL.md` | Verify/fix | Same |
 
 ## Testing Approach
 

@@ -1,4 +1,4 @@
-"""Unit tests for cairn_mcp.annotations — shared annotation encode/decode/apply/read helpers.
+"""Unit tests for arkeology.annotations — shared annotation encode/decode/apply/read helpers.
 
 These helpers centralise the annotation-backed durable storage of the mutable link
 fields (commit_refs, references) per ADR-011 (T47). They are consumed directly by
@@ -8,7 +8,7 @@ the write path (T47) and are designed to be reused, unmodified, by reconcile_ind
 
 import pytest
 
-from cairn_mcp.annotations import (
+from arkeology.annotations import (
     COMMIT_REFS_ANNOTATION,
     REFERENCES_ANNOTATION,
     apply_link_annotations,
@@ -17,9 +17,9 @@ from cairn_mcp.annotations import (
     read_current_link_fields,
     read_link_annotations,
 )
-from cairn_mcp.clients.s3 import S3ClientImpl
-from cairn_mcp.clients.vectors import VectorsClientImpl
-from cairn_mcp.errors import ArtifactConflictError, CredentialError
+from arkeology.clients.s3 import S3ClientImpl
+from arkeology.clients.vectors import VectorsClientImpl
+from arkeology.errors import ArtifactConflictError, CredentialError
 
 # ---------------------------------------------------------------------------
 # encode_link_list / decode_link_list

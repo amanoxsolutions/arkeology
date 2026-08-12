@@ -86,10 +86,10 @@ These are the only changes with runtime behaviour impact:
 
 | File | Line | Change |
 |---|---|---|
-| `src/cairn_mcp/artifact.py` | 155 | Docstring: `"shared"`` or ``"confidential"` → `"shared"`` or ``"hidden"`` |
-| `src/cairn_mcp/artifact.py` | 192 | Validator set: `{"shared", "confidential"}` → `{"shared", "hidden"}` |
-| `src/cairn_mcp/artifact.py` | 193 | Error message: `"must be 'shared' or 'confidential'"` → `"must be 'shared' or 'hidden'"` |
-| `src/cairn_mcp/tools/write.py` | 139 | Docstring: `"shared"`` or ``"confidential"` → `"shared"`` or ``"hidden"`` |
+| `src/arkeology/artifact.py` | 155 | Docstring: `"shared"`` or ``"confidential"` → `"shared"`` or ``"hidden"`` |
+| `src/arkeology/artifact.py` | 192 | Validator set: `{"shared", "confidential"}` → `{"shared", "hidden"}` |
+| `src/arkeology/artifact.py` | 193 | Error message: `"must be 'shared' or 'confidential'"` → `"must be 'shared' or 'hidden'"` |
+| `src/arkeology/tools/write.py` | 139 | Docstring: `"shared"`` or ``"confidential"` → `"shared"`` or ``"hidden"`` |
 
 No other source files have functional occurrences of `"confidential"`. All cross-scope gate
 checks use `== "shared"` (not `!= "confidential"`), so they require no change.

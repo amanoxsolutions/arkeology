@@ -82,8 +82,8 @@ scores are numerically identical, not just ranked the same.
 | File | Action | Notes |
 |------|--------|-------|
 | `tests/unit/clients/test_fake_vectors.py` | Modify | Add assertions on score values for known vectors; verify range [0, 2] |
-| `src/cairn_mcp/clients/vectors.py` | Modify | Change `score = -distance` to `score = 1.0 - distance` at lines 136–142 |
-| `src/cairn_mcp/clients/fakes/fake_vectors.py` | Modify | Verify cosine similarity formula; update comment to document range [0, 2] |
+| `src/arkeology/clients/vectors.py` | Modify | Change `score = -distance` to `score = 1.0 - distance` at lines 136–142 |
+| `src/arkeology/clients/fakes/fake_vectors.py` | Modify | Verify cosine similarity formula; update comment to document range [0, 2] |
 
 ## Testing Approach
 

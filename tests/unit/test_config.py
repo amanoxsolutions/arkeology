@@ -6,7 +6,7 @@ Tests use monkeypatch to isolate environment variables.
 
 import pytest
 
-from cairn_mcp.config import Settings
+from arkeology.config import Settings
 
 
 @pytest.fixture(autouse=True)
@@ -661,7 +661,7 @@ def test_load_settings_returns_settings_on_valid_config(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """load_settings() with valid env → returns a Settings instance."""
-    from cairn_mcp.config import load_settings
+    from arkeology.config import load_settings
 
     _required_env(monkeypatch)
     settings = load_settings()
@@ -672,8 +672,8 @@ def test_load_settings_raises_configuration_error_on_invalid_config(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """load_settings() with missing required fields → raises ConfigurationError."""
-    from cairn_mcp.config import load_settings
-    from cairn_mcp.errors import ConfigurationError
+    from arkeology.config import load_settings
+    from arkeology.errors import ConfigurationError
 
     # All required env vars are absent (autouse fixture already cleaned them)
     with pytest.raises(ConfigurationError):
@@ -684,8 +684,8 @@ def test_load_settings_configuration_error_reports_failing_fields(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """ConfigurationError from load_settings() lists the failing field name(s)."""
-    from cairn_mcp.config import load_settings
-    from cairn_mcp.errors import ConfigurationError
+    from arkeology.config import load_settings
+    from arkeology.errors import ConfigurationError
 
     # Only AWS_REGION is missing
     monkeypatch.setenv("ARTIFACT_BUCKET", "bucket")

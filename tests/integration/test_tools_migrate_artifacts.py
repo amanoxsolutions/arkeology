@@ -1,4 +1,4 @@
-"""Integration tests for cairn_mcp.tools.migrate_artifacts.
+"""Integration tests for arkeology.tools.migrate_artifacts.
 
 Requires real AWS credentials and configured .env file.
 All tests decorated with @pytest.mark.integration.
@@ -23,12 +23,12 @@ empty-description artifact — is included below.
 
 import pytest
 
-from cairn_mcp.clients.bedrock import BedrockClientImpl
-from cairn_mcp.clients.s3 import S3ClientImpl
-from cairn_mcp.clients.vectors import VectorsClientImpl
-from cairn_mcp.config import Settings
-from cairn_mcp.tools.delete import delete_artifact
-from cairn_mcp.tools.migrate_artifacts import migrate_artifacts
+from arkeology.clients.bedrock import BedrockClientImpl
+from arkeology.clients.s3 import S3ClientImpl
+from arkeology.clients.vectors import VectorsClientImpl
+from arkeology.config import Settings
+from arkeology.tools.delete import delete_artifact
+from arkeology.tools.migrate_artifacts import migrate_artifacts
 
 
 @pytest.fixture(scope="session")
@@ -66,7 +66,7 @@ def bedrock(settings: Settings) -> BedrockClientImpl:
 
 _BASE_KWARGS: dict = {
     "team": "platform",
-    "project": "cairn",
+    "project": "arkeology",
     "tier": 2,
     "date": "2026-05-30",
     "status": "active",

@@ -1,4 +1,4 @@
-"""Unit tests for cairn_mcp.resources.
+"""Unit tests for arkeology.resources.
 
 All tests verify the five schema resources are correctly registered and that
 their content functions return accurate, current information derived live from
@@ -10,9 +10,9 @@ import asyncio
 import fastmcp
 import pytest
 
-import cairn_mcp.artifact as artifact_module
-from cairn_mcp.artifact import ARTIFACT_TYPES
-from cairn_mcp.resources import (
+import arkeology.artifact as artifact_module
+from arkeology.artifact import ARTIFACT_TYPES
+from arkeology.resources import (
     _BROWSER_CDN_ORIGINS,
     artifact_schema_content,
     query_strategy_content,
@@ -28,18 +28,18 @@ from cairn_mcp.resources import (
 # ---------------------------------------------------------------------------
 
 _EXPECTED_URIS = {
-    "cairn://schema/artifact",
-    "cairn://schema/tiers",
-    "cairn://schema/visibility",
-    "cairn://schema/types",
-    "cairn://schema/query-strategy",
+    "arkeology://schema/artifact",
+    "arkeology://schema/tiers",
+    "arkeology://schema/visibility",
+    "arkeology://schema/types",
+    "arkeology://schema/query-strategy",
 }
 
 
 def test_register_resources_all_five_uris_present() -> None:
-    """After register_resources(app), all five cairn:// URIs are accessible."""
+    """After register_resources(app), all five arkeology:// URIs are accessible."""
     # Arrange
-    app = fastmcp.FastMCP(name="test-cairn", version="0.0.0")
+    app = fastmcp.FastMCP(name="test-arkeology", version="0.0.0")
 
     # Act
     register_resources(app)
@@ -54,7 +54,7 @@ def test_register_resources_all_five_uris_present() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Content correctness — cairn://schema/artifact
+# Content correctness — arkeology://schema/artifact
 # ---------------------------------------------------------------------------
 
 _REQUIRED_FIELDS = [
@@ -123,7 +123,7 @@ def test_artifact_schema_content_contains_all_artifact_types() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Content correctness — cairn://schema/tiers
+# Content correctness — arkeology://schema/tiers
 # ---------------------------------------------------------------------------
 
 
@@ -188,7 +188,7 @@ def test_tiers_schema_content_tier3_key_format_is_date_independent() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Content correctness — cairn://schema/visibility
+# Content correctness — arkeology://schema/visibility
 # ---------------------------------------------------------------------------
 
 
@@ -224,7 +224,7 @@ def test_visibility_schema_content_mentions_tier3_cross_scope_gate() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Content correctness — cairn://schema/types
+# Content correctness — arkeology://schema/types
 # ---------------------------------------------------------------------------
 
 
@@ -267,7 +267,7 @@ def test_types_schema_content_each_type_has_description() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Content correctness — cairn://schema/query-strategy
+# Content correctness — arkeology://schema/query-strategy
 # ---------------------------------------------------------------------------
 
 
@@ -326,9 +326,9 @@ def test_query_strategy_content_mentions_narrow_before_broad() -> None:
 
 
 def test_register_ui_resource_returns_non_empty_html() -> None:
-    """register_ui_resource(app) registers ui://cairn-studio/index.html returning HTML."""
+    """register_ui_resource(app) registers ui://arkeology-studio/index.html returning HTML."""
     # Arrange
-    app = fastmcp.FastMCP(name="test-cairn-ui", version="0.0.0")
+    app = fastmcp.FastMCP(name="test-arkeology-ui", version="0.0.0")
 
     # Act
     register_ui_resource(app)
@@ -336,16 +336,18 @@ def test_register_ui_resource_returns_non_empty_html() -> None:
     # Assert — the resource is registered
     resources = asyncio.run(app._list_resources())  # type: ignore[attr-defined]
     registered_uris = {str(r.uri) for r in resources}
-    assert "ui://cairn-studio/index.html" in registered_uris, (
-        f"Expected 'ui://cairn-studio/index.html' not found in: {registered_uris}"
+    assert "ui://arkeology-studio/index.html" in registered_uris, (
+        f"Expected 'ui://arkeology-studio/index.html' not found in: {registered_uris}"
     )
 
     # Assert — the handler returns a non-empty string
-    result = asyncio.run(app.read_resource("ui://cairn-studio/index.html"))
+    result = asyncio.run(app.read_resource("ui://arkeology-studio/index.html"))
     # FastMCP read_resource returns a ResourceResult with a 'contents' list.
     # Each item has a 'content' attribute (not 'text').
     contents = result.contents if hasattr(result, "contents") else []
-    assert len(contents) > 0, "Expected at least one content item from ui://cairn-studio/index.html"
+    assert len(contents) > 0, (
+        "Expected at least one content item from ui://arkeology-studio/index.html"
+    )
     text = contents[0].content if hasattr(contents[0], "content") else ""
     assert isinstance(text, str) and len(text) > 0, f"Expected non-empty HTML string, got: {text!r}"
 
@@ -356,7 +358,7 @@ def test_register_ui_resource_returns_non_empty_html() -> None:
 
 
 def test_browser_csp_origins_are_exactly_unpkg_and_jsdelivr() -> None:
-    """The cairn studio CSP declares only the two CDN origins — no web-font origins.
+    """The arkeology studio CSP declares only the two CDN origins — no web-font origins.
 
     Loading web fonts from Google's CDN leaks the user's IP to a third party and is
     disallowed on GDPR grounds (Review 2026-06-29, finding C1). The accepted set is

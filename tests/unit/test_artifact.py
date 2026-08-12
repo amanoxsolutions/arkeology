@@ -1,4 +1,4 @@
-"""Unit tests for cairn_mcp.artifact."""
+"""Unit tests for arkeology.artifact."""
 
 import json
 import re
@@ -6,7 +6,7 @@ import re
 import pytest
 from pydantic import ValidationError
 
-from cairn_mcp.artifact import (
+from arkeology.artifact import (
     NON_FILTERABLE_METADATA_KEYS,
     S3_USER_METADATA_MAX_BYTES,
     TITLE_MAX_LENGTH,
@@ -21,7 +21,7 @@ from cairn_mcp.artifact import (
     parse_sections,
     section_slug,
 )
-from cairn_mcp.errors import MetadataTooLargeError
+from arkeology.errors import MetadataTooLargeError
 
 # ---------------------------------------------------------------------------
 # Shared fixture data
@@ -30,7 +30,7 @@ from cairn_mcp.errors import MetadataTooLargeError
 VALID_ARTIFACT_KWARGS: dict = {
     "type": "code_review",
     "team": "platform",
-    "project": "cairn",
+    "project": "arkeology",
     "tier": 2,
     "date": "2026-05-30",
     "status": "active",

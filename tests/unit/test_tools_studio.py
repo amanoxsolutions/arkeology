@@ -1,6 +1,6 @@
-"""Unit tests for cairn_mcp.tools.studio.
+"""Unit tests for arkeology.tools.studio.
 
-Tests cairn_studio() — the MCP App entry-point that triggers the inline browser
+Tests arkeology_studio() — the MCP App entry-point that triggers the inline browser
 widget on supporting hosts and falls back to a structured artifact listing on
 non-supporting hosts.
 
@@ -16,7 +16,7 @@ import pytest
 from fastmcp.tools.base import ToolResult
 from pytest_mock import MockerFixture
 
-from cairn_mcp.config import Settings
+from arkeology.config import Settings
 from tests.unit.conftest import _make_settings as _make_settings_base
 
 
@@ -40,12 +40,12 @@ def settings(monkeypatch: pytest.MonkeyPatch) -> Settings:
 
 
 @pytest.mark.asyncio
-async def test_cairn_studio_non_supporting_host_returns_structured_content(
+async def test_arkeology_studio_non_supporting_host_returns_structured_content(
     settings: Settings,
     mocker: MockerFixture,
 ) -> None:
     """Non-supporting host receives structured_content with artifacts and write_prefix."""
-    from cairn_mcp.tools import studio
+    from arkeology.tools import studio
 
     mocker.patch.object(
         studio,
@@ -57,7 +57,7 @@ async def test_cairn_studio_non_supporting_host_returns_structured_content(
     ctx.client_supports_extension.return_value = False
     vectors = MagicMock()
 
-    result = await studio.cairn_studio(settings=settings, vectors=vectors, ctx=ctx)
+    result = await studio.arkeology_studio(settings=settings, vectors=vectors, ctx=ctx)
 
     assert isinstance(result, ToolResult)
     assert not result.is_error
@@ -70,14 +70,14 @@ async def test_cairn_studio_non_supporting_host_returns_structured_content(
 
 
 @pytest.mark.asyncio
-async def test_cairn_studio_non_supporting_host_credential_error_is_propagated(
+async def test_arkeology_studio_non_supporting_host_credential_error_is_propagated(
     settings: Settings,
     mocker: MockerFixture,
 ) -> None:
     """M-11(a): a credential-error dict from the inner list call must surface as a
     structured error, not be coerced into a successful empty listing — otherwise
     expired credentials read as "the store is empty" (PRD FR-12)."""
-    from cairn_mcp.tools import studio
+    from arkeology.tools import studio
 
     mocker.patch.object(
         studio,
@@ -92,7 +92,7 @@ async def test_cairn_studio_non_supporting_host_credential_error_is_propagated(
     ctx.client_supports_extension.return_value = False
     vectors = MagicMock()
 
-    result = await studio.cairn_studio(settings=settings, vectors=vectors, ctx=ctx)
+    result = await studio.arkeology_studio(settings=settings, vectors=vectors, ctx=ctx)
 
     assert isinstance(result, ToolResult)
     assert result.is_error, "A credential-error listing must not report success"
@@ -105,38 +105,38 @@ async def test_cairn_studio_non_supporting_host_credential_error_is_propagated(
 
 
 @pytest.mark.asyncio
-async def test_cairn_studio_supporting_host_omits_structured_content(
+async def test_arkeology_studio_supporting_host_omits_structured_content(
     settings: Settings,
 ) -> None:
     """Supporting host receives a short confirmation only — no structured_content."""
-    from cairn_mcp.tools.studio import cairn_studio
+    from arkeology.tools.studio import arkeology_studio
 
     ctx = MagicMock()
     ctx.client_supports_extension.return_value = True
     vectors = MagicMock()
 
-    result = await cairn_studio(settings=settings, vectors=vectors, ctx=ctx)
+    result = await arkeology_studio(settings=settings, vectors=vectors, ctx=ctx)
 
     assert isinstance(result, ToolResult)
     assert not result.is_error
     assert result.content, "Expected at least one content block"
     text = result.content[0].text  # type: ignore[attr-defined]
-    assert "Cairn Studio opened" in text
+    assert "Arkeology Studio opened" in text
     assert result.structured_content is None
 
 
 @pytest.mark.asyncio
-async def test_cairn_studio_exception_returns_error_tool_result(
+async def test_arkeology_studio_exception_returns_error_tool_result(
     settings: Settings,
 ) -> None:
-    """When an unexpected exception occurs inside cairn_studio, it returns an error ToolResult."""
-    from cairn_mcp.tools.studio import cairn_studio
+    """When an unexpected exception occurs inside arkeology_studio, it returns an error result."""
+    from arkeology.tools.studio import arkeology_studio
 
     ctx = MagicMock()
     ctx.client_supports_extension.side_effect = RuntimeError("boom")
     vectors = MagicMock()
 
-    result = await cairn_studio(settings=settings, vectors=vectors, ctx=ctx)
+    result = await arkeology_studio(settings=settings, vectors=vectors, ctx=ctx)
 
     assert isinstance(result, ToolResult)
     assert result.is_error
@@ -145,26 +145,27 @@ async def test_cairn_studio_exception_returns_error_tool_result(
 
 
 # ---------------------------------------------------------------------------
-# M21 — _cairn_studio_inner must exist (refactor to _inner convention)
+# M21 — _arkeology_studio_inner must exist (refactor to _inner convention)
 # ---------------------------------------------------------------------------
 
 
-def test_m21_cairn_studio_inner_function_exists() -> None:
+def test_m21_arkeology_studio_inner_function_exists() -> None:
     """M21: The project convention requires every tool's public function to delegate to
-    an ``_inner`` variant.  cairn_studio currently has an inline try/except and no
-    ``_cairn_studio_inner`` function.  After the refactor, ``_cairn_studio_inner`` must
-    be importable from cairn_mcp.tools.studio.
+    an ``_inner`` variant.  arkeology_studio currently has an inline try/except and no
+    ``_arkeology_studio_inner`` function.  After the refactor, ``_arkeology_studio_inner`` must
+    be importable from arkeology.tools.studio.
 
     Before the refactor this test raises ImportError / AttributeError and fails.
     """
     try:
-        from cairn_mcp.tools.studio import _cairn_studio_inner  # noqa: F401
+        from arkeology.tools.studio import _arkeology_studio_inner  # noqa: F401
     except ImportError as exc:
         raise AssertionError(
-            "M21: _cairn_studio_inner is not exported from cairn_mcp.tools.studio. "
-            "Refactor cairn_studio to delegate to _cairn_studio_inner per project convention."
+            "M21: _arkeology_studio_inner is not exported from arkeology.tools.studio. "
+            "Refactor arkeology_studio to delegate to _arkeology_studio_inner per "
+            "project convention."
         ) from exc
 
-    assert callable(_cairn_studio_inner), (
-        "M21: _cairn_studio_inner must be a callable function, not a non-callable object"
+    assert callable(_arkeology_studio_inner), (
+        "M21: _arkeology_studio_inner must be a callable function, not a non-callable object"
     )

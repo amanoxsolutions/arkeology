@@ -170,11 +170,11 @@ second so a failed vector write self-heals on the next reconcile.
 | File | Action | Notes |
 |------|--------|-------|
 | `tests/unit/test_tools_link_metadata.py` | Create | Dual-write, no-re-embed (Bedrock spy), merge/dedup, scope-gate, cursor, error tests — Red first |
-| `src/cairn_mcp/tools/link_metadata.py` | Create | Tool implementation — Green |
-| `src/cairn_mcp/server.py` | Modify | Register `link_metadata`; remove the `link_commit` registration (import + `@_app.tool()` wrapper) |
-| `src/cairn_mcp/tools/link_commit.py` | Delete | Retired — superseded by `link_metadata` |
+| `src/arkeology/tools/link_metadata.py` | Create | Tool implementation — Green |
+| `src/arkeology/server.py` | Modify | Register `link_metadata`; remove the `link_commit` registration (import + `@_app.tool()` wrapper) |
+| `src/arkeology/tools/link_commit.py` | Delete | Retired — superseded by `link_metadata` |
 | `tests/unit/test_tools_link_commit.py` | Delete | Retired with the tool |
-| `src/cairn_mcp/resources.py` | Modify | Update the tool/query-strategy resource text referencing `link_commit` → `link_metadata` |
+| `src/arkeology/resources.py` | Modify | Update the tool/query-strategy resource text referencing `link_commit` → `link_metadata` |
 | `tests/integration/test_tools_link_metadata.py` | Create | Real-AWS dual-write + reconcile-survival round-trip — Red for integration |
 
 ## Testing Approach

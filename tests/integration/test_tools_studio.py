@@ -1,10 +1,10 @@
-"""Integration tests for cairn_mcp.tools.studio (cairn_studio).
+"""Integration tests for arkeology.tools.studio (arkeology_studio).
 
 Requires real AWS credentials and configured .env file.
 All tests decorated with @pytest.mark.integration.
 
-M-16 (Phase 12 review, Cluster E): cairn_studio had zero integration
-coverage. cairn_studio's only AWS-touching branch is the non-supporting-host
+M-16 (Phase 12 review, Cluster E): arkeology_studio had zero integration
+coverage. arkeology_studio's only AWS-touching branch is the non-supporting-host
 fallback, which delegates to list_artifacts against the real vector index —
 the supporting-host branch and the exception branch are pure Python (already
 covered by the moto/mock unit suite in tests/unit/test_tools_studio.py) and
@@ -19,13 +19,13 @@ from unittest.mock import MagicMock
 import pytest
 from fastmcp.tools.base import ToolResult
 
-from cairn_mcp.clients.bedrock import BedrockClientImpl
-from cairn_mcp.clients.s3 import S3ClientImpl
-from cairn_mcp.clients.vectors import VectorsClientImpl
-from cairn_mcp.config import Settings
-from cairn_mcp.tools.delete import delete_artifact
-from cairn_mcp.tools.studio import cairn_studio
-from cairn_mcp.tools.write import write_artifact
+from arkeology.clients.bedrock import BedrockClientImpl
+from arkeology.clients.s3 import S3ClientImpl
+from arkeology.clients.vectors import VectorsClientImpl
+from arkeology.config import Settings
+from arkeology.tools.delete import delete_artifact
+from arkeology.tools.studio import arkeology_studio
+from arkeology.tools.write import write_artifact
 
 
 @pytest.fixture(scope="session")
@@ -62,7 +62,7 @@ def bedrock(settings: Settings) -> BedrockClientImpl:
 
 
 @pytest.mark.integration
-async def test_cairn_studio_non_supporting_host_lists_real_artifact(
+async def test_arkeology_studio_non_supporting_host_lists_real_artifact(
     settings: Settings,
     s3: S3ClientImpl,
     vectors: VectorsClientImpl,
@@ -78,12 +78,12 @@ async def test_cairn_studio_non_supporting_host_lists_real_artifact(
             settings=settings,
             type="code_review",
             team="platform",
-            project="cairn",
+            project="arkeology",
             tier=2,
             date="2026-05-30",
             status="active",
-            title="cairn_studio integration listing",
-            description="Artifact for cairn_studio integration test.",
+            title="arkeology_studio integration listing",
+            description="Artifact for arkeology_studio integration test.",
             content="## Summary\n\nStudio listing content.",
             visibility="shared",
         )
@@ -92,7 +92,7 @@ async def test_cairn_studio_non_supporting_host_lists_real_artifact(
         ctx = MagicMock()
         ctx.client_supports_extension.return_value = False
 
-        result = await cairn_studio(settings=settings, vectors=vectors, ctx=ctx)
+        result = await arkeology_studio(settings=settings, vectors=vectors, ctx=ctx)
 
         assert isinstance(result, ToolResult)
         assert not result.is_error

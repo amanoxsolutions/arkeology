@@ -152,14 +152,14 @@ them, restoring `commit_refs` and `references` from the object's annotations.
 | File | Action | Notes |
 |------|--------|-------|
 | `tests/unit/test_tools_reconcile.py` | Modify | Add the "reads annotations not S3 metadata" regression test (Red) + clean-state + unavailable-degrade tests |
-| `src/cairn_mcp/tools/reconcile.py` | Modify | Add `s3` param to `_reindex_artifact`; read link fields via `annotations.read_current_link_fields` (union of both stores); drop the `coerce_list_field(..., "commit_refs")` source; pass `s3` at both call sites; propagate `CredentialError` |
+| `src/arkeology/tools/reconcile.py` | Modify | Add `s3` param to `_reindex_artifact`; read link fields via `annotations.read_current_link_fields` (union of both stores); drop the `coerce_list_field(..., "commit_refs")` source; pass `s3` at both call sites; propagate `CredentialError` |
 | `tests/integration/test_tools_reconcile.py` | Modify | Real-AWS: write + backfill via `link_metadata` → drop vectors → reconcile → assert both fields restored — Red for integration |
 
 ## Testing Approach
 
 **TDD cycle — unit test first, then implementation:**
 
-`tests/unit/test_tools_reconcile.py` (Red) → `src/cairn_mcp/tools/reconcile.py` (Green). Requires the
+`tests/unit/test_tools_reconcile.py` (Red) → `src/arkeology/tools/reconcile.py` (Green). Requires the
 T45 moto annotation self-mock.
 
 New / modified unit tests:

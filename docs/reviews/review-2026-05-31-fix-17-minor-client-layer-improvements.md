@@ -82,17 +82,17 @@ resolved.
 | File | Action | Notes |
 |------|--------|-------|
 | `tests/unit/clients/test_fake_s3.py` | Modify | Add/confirm tests covering `_credential_error` parity (Red) |
-| `src/cairn_mcp/clients/interfaces.py` | Modify | Migrate from `ABC`/`abstractmethod` to `typing.Protocol`; add `VectorMetadata` alias; rename `filter` → `filter_expr`; update `list_objects` docstring; update module-level docstring to state Protocol |
-| `src/cairn_mcp/clients/s3.py` | Modify | Drop `ABC` inheritance; extract `_credential_error` helper; rename `filter` → `filter_expr` at call sites |
-| `src/cairn_mcp/clients/vectors.py` | Modify | Drop `ABC` inheritance; rename `filter` → `filter_expr` at call sites |
-| `src/cairn_mcp/clients/bedrock.py` | Modify | Drop `ABC` inheritance; narrow `request_body` to `dict[str, str \| int]` |
-| `src/cairn_mcp/clients/fakes/fake_s3.py` | Modify | Drop `ABC` inheritance; apply `VectorMetadata` alias where applicable |
-| `src/cairn_mcp/clients/fakes/fake_vectors.py` | Modify | Drop `ABC` inheritance; rename `filter` → `filter_expr`; apply `VectorMetadata` alias |
-| `src/cairn_mcp/clients/fakes/fake_bedrock.py` | Modify | Drop `ABC` inheritance |
+| `src/arkeology/clients/interfaces.py` | Modify | Migrate from `ABC`/`abstractmethod` to `typing.Protocol`; add `VectorMetadata` alias; rename `filter` → `filter_expr`; update `list_objects` docstring; update module-level docstring to state Protocol |
+| `src/arkeology/clients/s3.py` | Modify | Drop `ABC` inheritance; extract `_credential_error` helper; rename `filter` → `filter_expr` at call sites |
+| `src/arkeology/clients/vectors.py` | Modify | Drop `ABC` inheritance; rename `filter` → `filter_expr` at call sites |
+| `src/arkeology/clients/bedrock.py` | Modify | Drop `ABC` inheritance; narrow `request_body` to `dict[str, str \| int]` |
+| `src/arkeology/clients/fakes/fake_s3.py` | Modify | Drop `ABC` inheritance; apply `VectorMetadata` alias where applicable |
+| `src/arkeology/clients/fakes/fake_vectors.py` | Modify | Drop `ABC` inheritance; rename `filter` → `filter_expr`; apply `VectorMetadata` alias |
+| `src/arkeology/clients/fakes/fake_bedrock.py` | Modify | Drop `ABC` inheritance |
 | `AGENTS.md` | Modify | Add convention: client interfaces use `typing.Protocol`; implementations and fakes satisfy the structural contract without inheriting |
-| `src/cairn_mcp/tools/search.py` | Modify | Update `filter_expr` call site |
-| `src/cairn_mcp/tools/list.py` | Modify | Update `filter_expr` call site |
-| `src/cairn_mcp/tools/archive.py` | Modify | Update `filter_expr` call site if present |
+| `src/arkeology/tools/search.py` | Modify | Update `filter_expr` call site |
+| `src/arkeology/tools/list.py` | Modify | Update `filter_expr` call site |
+| `src/arkeology/tools/archive.py` | Modify | Update `filter_expr` call site if present |
 
 ## Testing Approach
 

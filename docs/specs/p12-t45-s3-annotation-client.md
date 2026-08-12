@@ -141,8 +141,8 @@ annotations — this is what T47's overwrite-preservation tests depend on.
 |------|--------|-------|
 | `tests/unit/conftest.py` | Modify | Add the moto S3-annotation self-mock extension (Red-enabling infra); model overwrite-wipe |
 | `tests/unit/clients/test_s3_annotations.py` | Create | Client-method + extension round-trip tests — written first (Red) |
-| `src/cairn_mcp/clients/interfaces.py` | Modify | Add the four annotation methods to `S3ClientInterface` Protocol |
-| `src/cairn_mcp/clients/s3.py` | Modify | Implement the four methods on `S3ClientImpl` using `wrap_credential_errors` |
+| `src/arkeology/clients/interfaces.py` | Modify | Add the four annotation methods to `S3ClientInterface` Protocol |
+| `src/arkeology/clients/s3.py` | Modify | Implement the four methods on `S3ClientImpl` using `wrap_credential_errors` |
 | `tests/integration/clients/test_s3_annotations.py` | Create | Real-AWS round-trip against a real bucket (written first for integration Red) |
 | `AGENTS.md` | Modify | Add the annotation methods to the repo-structure / testing-conventions notes (self-mocked via conftest extension, precedent: `query_vectors`) |
 

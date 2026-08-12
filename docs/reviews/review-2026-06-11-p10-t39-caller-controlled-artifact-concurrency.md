@@ -31,13 +31,13 @@ and mypy are clean.
 
 ## Files Reviewed
 
-- `src/cairn_mcp/tools/write_artifacts.py`
-- `src/cairn_mcp/tools/migrate_artifacts.py`
-- `src/cairn_mcp/config.py`
+- `src/arkeology/tools/write_artifacts.py`
+- `src/arkeology/tools/migrate_artifacts.py`
+- `src/arkeology/config.py`
 - `tests/unit/test_tools_write_artifacts.py`
 - `tests/unit/test_tools_migrate_artifacts.py`
 - `tests/unit/test_config.py`
-- `skills/migrating-to-cairn/SKILL.md`
+- `skills/migrating-to-arkeology/SKILL.md`
 
 ## Findings
 

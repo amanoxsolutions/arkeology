@@ -24,7 +24,7 @@ revised:
 
 ## Description
 
-cairn-mcp is growing a first-class `references` field (an artifact pointing to other artifacts by
+Arkeology is growing a first-class `references` field (an artifact pointing to other artifacts by
 resolved identifier) alongside the existing `commit_refs` field (an artifact pointing to the git
 commits it describes). Both are *mutable, accreting link data*: appended to after the artifact is
 first written, deduplicated, and never re-embedded. The 2026-06-16 ADR (ADR-009) stored
@@ -142,7 +142,7 @@ ADR-009 "reconcile drops commit links" limitation and OQ2.
 
 ### 4. Overwrite preservation for `commit_refs`; replace semantics for `references` (FR-55)
 
-Overwriting an S3 object **clears its annotations**. cairn's only in-place re-PUT path is a tier-3
+Overwriting an S3 object **clears its annotations**. Arkeology's only in-place re-PUT path is a tier-3
 living-document update (tier 2 is overwritten only via the explicit opt-in replacement flag). On such
 a write, `commit_refs` and `references` are treated differently, because they are not the same
 *kind* of field:
@@ -151,7 +151,7 @@ a write, `commit_refs` and `references` are treated differently, because they ar
   overwriting write, the write path **reads forward** its existing value — the union of both durable
   stores (see the authority model in Consequences) — and **merges** it with any value supplied to
   this write, writing the merged result back to both stores. "Preserve" was chosen over "accept
-  clearing" because the silent loss of an append-only link trail is precisely what cairn exists to
+  clearing" because the silent loss of an append-only link trail is precisely what Arkeology exists to
   prevent.
 - **`references`** mirrors the artifact's frontmatter `references:` list — a claim about the
   artifact's *current* outbound links, not an audit trail. On an overwriting write, it is
@@ -178,7 +178,7 @@ embedding store operates fully without them. Refusing to boot the whole memory s
 annotation problem would be disproportionate. Therefore availability and IAM are handled at two
 levels instead of a startup gate:
 
-- **One-time setup check** — the `setting-up-cairn` installation skill (FR-24) probes annotation
+- **One-time setup check** — the `setting-up-arkeology` installation skill (FR-24) probes annotation
   availability and IAM permission alongside its existing resource-reachability checks, giving the
   operator a friendly early failure with remediation guidance.
 - **Graceful runtime handling** — annotation-unavailable / `AccessDenied` errors in `link_metadata`
@@ -317,8 +317,8 @@ The line is drawn by **mutability, not by whether a field is "a reference"**: an
 
 | Option | Pros | Cons |
 |--------|------|------|
-| **Chosen** — read-forward and re-apply for `commit_refs`; replace-from-supplied-value for `references`, on overwriting writes | Preserves the append-only `commit_refs` trail across tier-3 living-document updates while keeping `references` an accurate, current mirror of the artifact's frontmatter; consistent with cairn's core purpose (never silently lose recalled context, and never claim a reference is current when it is not) | Adds a read-forward step to the `commit_refs` overwrite path; the two fields require separate write-time logic |
-| Accept clearing on overwrite for both fields | Simplest write path | Silently drops accumulated `commit_refs` on the next content update — exactly the data loss cairn exists to prevent. Rejected for `commit_refs`; the chosen design does clear `references` on a write that omits it, but only as a deliberate mirror of the frontmatter (decision 4), not as unintentional loss |
+| **Chosen** — read-forward and re-apply for `commit_refs`; replace-from-supplied-value for `references`, on overwriting writes | Preserves the append-only `commit_refs` trail across tier-3 living-document updates while keeping `references` an accurate, current mirror of the artifact's frontmatter; consistent with Arkeology's core purpose (never silently lose recalled context, and never claim a reference is current when it is not) | Adds a read-forward step to the `commit_refs` overwrite path; the two fields require separate write-time logic |
+| Accept clearing on overwrite for both fields | Simplest write path | Silently drops accumulated `commit_refs` on the next content update — exactly the data loss Arkeology exists to prevent. Rejected for `commit_refs`; the chosen design does clear `references` on a write that omits it, but only as a deliberate mirror of the frontmatter (decision 4), not as unintentional loss |
 
 ### Accepted caveats (recorded, not mitigated away)
 
@@ -328,7 +328,7 @@ The line is drawn by **mutability, not by whether a field is "a reference"**: an
   exercise the real annotation API.
 - **Overwrite wipes annotations.** Handled by decision 4 (read-forward), but it is a direct
   interaction with the tier-3 "updated in place" invariant and must be tested explicitly.
-- **Deployment-agnostic regional tension.** cairn is deployment-agnostic, yet annotations are
+- **Deployment-agnostic regional tension.** Arkeology is deployment-agnostic, yet annotations are
   region/bucket-type dependent. Handled by decision 5 (documented constraint + graceful handling)
   rather than by narrowing the server's supported footprint.
 
@@ -368,7 +368,7 @@ The line is drawn by **mutability, not by whether a field is "a reference"**: an
 
 - **No legacy re-link sweep needed (pre-launch).** In principle, `commit_refs` backfilled under the
   superseded vector-only `link_commit` would live only in vector metadata and need one-time re-linking
-  through `link_metadata` so they land in annotations. In practice cairn-mcp has no live deployment
+  through `link_metadata` so they land in annotations. In practice Arkeology has no live deployment
   with such data, so no sweep is planned; this would become relevant only if the annotation feature
   were adopted on a deployment that had already accumulated vector-only `commit_refs`.
 

@@ -1,4 +1,4 @@
-"""Unit tests for cairn_mcp.tools.list.
+"""Unit tests for arkeology.tools.list.
 
 Tests list_artifacts() using moto-backed VectorsClientImpl — no S3 or Bedrock calls.
 """
@@ -10,10 +10,10 @@ from typing import Any
 import pytest
 from pytest_mock import MockerFixture
 
-from cairn_mcp.clients.vectors import VectorsClientImpl
-from cairn_mcp.config import Settings
-from cairn_mcp.errors import CredentialError
-from cairn_mcp.tools.list import list_artifacts
+from arkeology.clients.vectors import VectorsClientImpl
+from arkeology.config import Settings
+from arkeology.errors import CredentialError
+from arkeology.tools.list import list_artifacts
 from tests.unit.conftest import _make_settings as _make_settings_base
 
 
@@ -36,7 +36,7 @@ _BASE_VECTOR_META: dict[str, Any] = {
     "scope": "artifacts",
     "type": "code_review",
     "team": "platform",
-    "project": "cairn",
+    "project": "arkeology",
     "tier": 2,
     "date": "2026-05-30",
     "status": "active",

@@ -1,7 +1,7 @@
 ---
 type: brainstorming
-title: Quality Test Harness for cairn-mcp
-description: Designs a quality evaluation harness that asks whether cairn-mcp tools work well, simulating real multi-project usage to evaluate retrieval precision, cross-scope gating, synthesis coherence, and freshness detection across different embedding configurations.
+title: Quality Test Harness for Arkeology
+description: Designs a quality evaluation harness that asks whether Arkeology tools work well, simulating real multi-project usage to evaluate retrieval precision, cross-scope gating, synthesis coherence, and freshness detection across different embedding configurations.
 tags: []
 timestamp: 2026-05-31T00:00:00Z
 okf_version: "0.1"
@@ -17,11 +17,11 @@ techniques_used: []
 assumptions_challenged: []
 ---
 
-# Quality Test Harness for cairn-mcp
+# Quality Test Harness for Arkeology
 
 ## Description
 
-Beyond functional integration tests (do the tools work?), cairn-mcp needs a quality evaluation
+Beyond functional integration tests (do the tools work?), Arkeology needs a quality evaluation
 harness that asks: *do the tools work well?* The harness simulates real multi-project usage —
 migration, writing, searching, cross-scope discovery, synthesis — and evaluates whether the right
 artifacts surface for the right queries, whether access gates hold, and whether synthesis behaves
@@ -32,7 +32,7 @@ The user's vision: two simulated project repos, each with its own AGENTS.md and 
 supervisor agent running a testing-quality skill; developer agents operating inside each project;
 and a structured evaluation pass covering retrieval precision, cross-scope gating, synthesis, and
 orphaned-reference detection. Parametric: same test run against different embedding configs.
-Potentially packaged as a cairn-mcp feature so adopting teams can benchmark their own corpus.
+Potentially packaged as an Arkeology feature so adopting teams can benchmark their own corpus.
 
 ---
 
@@ -40,9 +40,9 @@ Potentially packaged as a cairn-mcp feature so adopting teams can benchmark thei
 
 ---
 
-### Theme 1 — What "quality" means for cairn-mcp
+### Theme 1 — What "quality" means for Arkeology
 
-Quality in cairn-mcp is not a single metric. Five independent quality dimensions emerge:
+Quality in Arkeology is not a single metric. Five independent quality dimensions emerge:
 
 | Dimension | Question |
 |---|---|
@@ -289,7 +289,7 @@ Each config specifies:
 ```yaml
 bedrock_embedding_model: "amazon.titan-embed-text-v2:0"
 vector_dimension: 1024
-vectors_index: "cairn-quality-1024d"   # pre-provisioned index for this dimension
+vectors_index: "arkeology-quality-1024d"   # pre-provisioned index for this dimension
 ```
 
 Config files specify only the *deltas* from the main `.env` (see C1). The default config
@@ -317,7 +317,7 @@ Output:
 
 #### Customer self-evaluation: a separate future track
 
-A team adopting cairn-mcp who wants to find the best embedding configuration for their own
+A team adopting Arkeology who wants to find the best embedding configuration for their own
 content domain is a different use case from this harness. They need to bring their own corpus,
 define their own ground truth queries, and receive a recommendation for their deployment
 configuration. That feature — possibly a `skills/evaluating-config/` skill or a standalone
@@ -361,7 +361,7 @@ nightly or pre-release gate, not the per-commit CI. `pytest.mark.quality` separa
 
 #### Trend analysis
 
-Store reports in git (or as tier 3 artifacts in cairn-mcp itself — meta but appropriate).
+Store reports in git (or as tier 3 artifacts in Arkeology itself — meta but appropriate).
 Compare MRR across commits to detect embedding quality regressions when upgrading the model
 or changing the indexing strategy.
 
@@ -386,7 +386,7 @@ Estimated effort, ordered by dependency:
 **Total core harness (F1–F7):** ~5 days  
 **Parametric comparison (F8):** +1 day  
 **CI integration (F9):** +0.5 days  
-**Packaging as a cairn-mcp MCP tool:** +2 days (future)
+**Packaging as an Arkeology MCP tool:** +2 days (future)
 
 ---
 
@@ -429,7 +429,7 @@ not block per-commit CI. The separation makes the gate explicit.
    top-5 windows, not exact rank-1 assertions.
 
 3. **"The fixture corpus is representative"** — 20–30 synthetic software project documents are
-   the target domain for cairn-mcp. Specialized vocabularies (legal, medical, embedded systems)
+   the target domain for Arkeology. Specialized vocabularies (legal, medical, embedded systems)
    are explicitly not the target use case. Start with something; refine as real usage reveals
    retrieval gaps. See C4.
 
@@ -475,7 +475,7 @@ not block per-commit CI. The separation makes the gate explicit.
 
 #### C1 — Fixture projects do not carry their own `.env` files; purpose clarified
 
-**Purpose of the quality harness:** this harness exists to evaluate and improve the cairn-mcp
+**Purpose of the quality harness:** this harness exists to evaluate and improve the Arkeology
 tool itself using controlled, quality-specific simulated projects. It is not about testing a
 team's production configuration. There is no "production" here — the `.env` at the repo root is
 the project's test/development configuration, exactly the same file used by the integration test
@@ -510,7 +510,7 @@ For parametric runs, additionally override the embedding and index variables:
 env_256d = {**env_alpha,
             "BEDROCK_EMBEDDING_MODEL": "amazon.titan-embed-text-v2:0",
             "BEDROCK_DIMENSIONS":      "256",
-            "VECTORS_INDEX":           "cairn-quality-256d"}   # separate index per dimension
+            "VECTORS_INDEX":           "arkeology-quality-256d"}   # separate index per dimension
 ```
 
 Each config in `tests/quality/configs/` specifies only the *deltas* from the base `.env`:
@@ -524,7 +524,7 @@ label: "titan-v2 256d"
 overrides:
   BEDROCK_EMBEDDING_MODEL: "amazon.titan-embed-text-v2:0"
   BEDROCK_DIMENSIONS: "256"
-  VECTORS_INDEX: "cairn-quality-256d"
+  VECTORS_INDEX: "arkeology-quality-256d"
 ```
 
 Fixture directory structure:
@@ -596,7 +596,7 @@ the core benchmark.
 #### C4 — Corpus representativeness: software project artifacts are sufficient
 
 The fixture corpus covers software engineering artifacts: ADRs, implementation notes, code
-reviews, session summaries, specs, brainstorming docs. This is exactly the cairn-mcp target
+reviews, session summaries, specs, brainstorming docs. This is exactly the Arkeology target
 domain. Specialized domains (legal, medical, embedded systems) are explicitly not the target
 use case. The `--no-agents` fallback flag ensures the corpus can be extended by anyone who
 wants to test against a domain-specific corpus, but the default corpus is representative.
@@ -638,10 +638,10 @@ prefixes per run. No separate account or separate repository is needed.
 #### C7 — Customer self-evaluation is a separate future track
 
 The quality harness is an internal tool development concern: controlled simulated projects,
-known ground truth, software engineering artifacts, run by the cairn-mcp team to improve the
+known ground truth, software engineering artifacts, run by the Arkeology team to improve the
 tool. It is not for customer adoption evaluation.
 
-A customer wanting to evaluate cairn-mcp against their own data and content domain is a
+A customer wanting to evaluate Arkeology against their own data and content domain is a
 different use case with different requirements:
 - The corpus is the customer's own artifacts (not synthetic fixture docs)
 - The ground truth must be established by the customer (what queries matter to them)
@@ -658,7 +658,7 @@ serve different audiences and answer different questions.
 
 #### C8 — Fixture corpus: all synthetic, two simulated software teams
 
-All fixture documents are purpose-built synthetic markdown files. Using the cairn-mcp project's
+All fixture documents are purpose-built synthetic markdown files. Using the Arkeology project's
 own real documentation was considered and rejected: real docs are richer but their retrieval
 behaviour is harder to reason about (no controlled ground truth), and the test corpus would be
 coupled to this repo's own evolving content.
@@ -701,7 +701,7 @@ skill). No custom orchestration framework needs to be built into this repo.
 |---|---|
 | Orchestrating the test scenario end-to-end | AI agent running the `testing-quality` skill |
 | Spawning developer sub-agents in each project folder | AI agent (task/spawn mechanism) |
-| Calling cairn-mcp MCP tools (write, search, synthesise…) | Developer sub-agents via MCP |
+| Calling Arkeology MCP tools (write, search, synthesise…) | Developer sub-agents via MCP |
 | Objective metric computation (P@K, MRR, Hit@1) | Python helper script (called by agent) |
 | Boolean gating assertions | Python helper script (called by agent) |
 | Report generation (JSON + Markdown) | Python helper script (called by agent) |

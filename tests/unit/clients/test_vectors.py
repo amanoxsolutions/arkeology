@@ -13,12 +13,12 @@ from typing import Any
 import pytest
 from pytest_mock import MockerFixture
 
-from cairn_mcp.clients.vectors import (
+from arkeology.clients.vectors import (
     _DELETE_VECTORS_CHUNK_SIZE,
     _GET_VECTORS_CHUNK_SIZE,
     VectorsClientImpl,
 )
-from cairn_mcp.errors import CairnError, VectorDistanceMissingError
+from arkeology.errors import ArkeologyError, VectorDistanceMissingError
 
 
 def _put_n_vectors(client: VectorsClientImpl, n: int) -> list[str]:
@@ -176,7 +176,7 @@ def test_list_vectors_by_metadata_unsupported_operator_raises_typed_error(
     vectors_client_2: VectorsClientImpl,
 ) -> None:
     """An unsupported filter operator encountered while evaluating one vector's
-    metadata must surface as a typed, catchable CairnError — not a bare ValueError
+    metadata must surface as a typed, catchable ArkeologyError — not a bare ValueError
     that a caller mid-pagination has no way to classify.
 
     Uses a top-level $or so one vector (k1) fully matches via the first branch —
@@ -189,7 +189,7 @@ def test_list_vectors_by_metadata_unsupported_operator_raises_typed_error(
     vectors_client_2.put_vector("k2", [0.0, 1.0], {"type": "other"})
     filter_expr = {"$or": [{"type": {"$eq": "keep"}}, {"score": {"$gt": 3}}]}
 
-    with pytest.raises(CairnError):
+    with pytest.raises(ArkeologyError):
         vectors_client_2.list_vectors_by_metadata(filter_expr)
 
 
@@ -197,12 +197,12 @@ def test_list_vectors_by_metadata_mixed_type_comparison_raises_typed_error(
     vectors_client_2: VectorsClientImpl,
 ) -> None:
     """A $gte/$lte comparison between incomparable types (int metadata field vs str
-    operand) must surface as a typed, catchable CairnError out of the same
+    operand) must surface as a typed, catchable ArkeologyError out of the same
     pagination loop as the unsupported-operator case — not an unhandled TypeError."""
     vectors_client_2.put_vector("k1", [1.0, 0.0], {"tier": 2})
     filter_expr = {"tier": {"$gte": "not-a-number"}}
 
-    with pytest.raises(CairnError):
+    with pytest.raises(ArkeologyError):
         vectors_client_2.list_vectors_by_metadata(filter_expr)
 
 

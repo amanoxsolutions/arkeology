@@ -45,7 +45,7 @@ migrate surfaces.** (FR-51, AC-56, AC-57.)
 
 ## Problem Statement
 
-cairn-mcp has no first-class way for one artifact to point at another (ADR-012 D2). `source_artifacts`
+Arkeology has no first-class way for one artifact to point at another (ADR-012 D2). `source_artifacts`
 already establishes the exact dual-storage + `$eq` list-membership pattern needed, and `commit_refs`
 (T36) already demonstrates the same field flowing through write/read/list. Promoting `references`
 reuses 100% of that plumbing. This field is the data-model foundation the migration rewrite (T51),
@@ -116,9 +116,9 @@ An agent writes an artifact with `references=["adr-use-postgres-abc12345"]`; rea
 ## Boundaries
 
 **Always:**
-- `references` holds **only resolved full S3 keys (the operative `artifact_id`)** — no `cairn://`
+- `references` holds **only resolved full S3 keys (the operative `artifact_id`)** — no `arkeology://`
   prefix, no path text (ADR-012 D2). Validation of resolvability is out of scope (a `references`
-  entry can only ever be a real cairn artifact — no write-time cross-scope validation, ADR-012
+  entry can only ever be a real Arkeology artifact — no write-time cross-scope validation, ADR-012
   "Cross-scope reference visibility"; a *separate*, later decision filters what a foreign-scope
   reader is shown, see the forward-pointer note below).
 - Encoding mirrors `commit_refs` exactly: `list[str]` in vector metadata, key omitted when empty.
@@ -170,18 +170,18 @@ An agent writes an artifact with `references=["adr-use-postgres-abc12345"]`; rea
 | File | Action | Notes |
 |------|--------|-------|
 | `tests/unit/test_artifact.py` | Modify | Tests for `references` field on `Artifact` — Red first |
-| `src/cairn_mcp/artifact.py` | Modify | Add `references: list[str] = Field(default_factory=list)`; update docstring |
+| `src/arkeology/artifact.py` | Modify | Add `references: list[str] = Field(default_factory=list)`; update docstring |
 | `tests/unit/test_tools_write.py` | Modify | Tests: `references` in vector metadata (list, omitted when empty) — Red first |
-| `src/cairn_mcp/tools/write.py` | Modify | Accept `references` param; add to `Artifact(...)` + vector metadata (`if refs2:`); do NOT add to `s3_metadata` |
+| `src/arkeology/tools/write.py` | Modify | Accept `references` param; add to `Artifact(...)` + vector metadata (`if refs2:`); do NOT add to `s3_metadata` |
 | `tests/unit/test_tools_read.py` | Modify | Tests: `references` from vector metadata; `[]` when absent / `vectors=None` — Red first |
-| `src/cairn_mcp/tools/read.py` | Modify | Extend Step 4 to also extract `references` from the fetched section vector metadata; add to return dict |
+| `src/arkeology/tools/read.py` | Modify | Extend Step 4 to also extract `references` from the fetched section vector metadata; add to return dict |
 | `tests/unit/test_tools_list.py` | Modify | Tests: `references` filter + `references` in each entry — Red first |
-| `src/cairn_mcp/tools/list.py` | Modify | Add `references` filter parameter (`$eq` clauses); decode `references` into each result |
+| `src/arkeology/tools/list.py` | Modify | Add `references` filter parameter (`$eq` clauses); decode `references` into each result |
 | `tests/unit/test_tools_write_artifacts.py` | Modify | Test descriptor `references` threading — Red first |
-| `src/cairn_mcp/tools/write_artifacts.py` | Modify | Thread `references` from descriptor to `_write_artifact_inner` |
-| `src/cairn_mcp/tools/migrate_artifacts.py` | Modify | Thread `references` through descriptor (dry_run=False path) |
-| `src/cairn_mcp/server.py` | Modify | Add `references` param to `write_artifact` and `list_artifacts` tool wrappers |
-| `src/cairn_mcp/resources.py` | Modify | Add `references` to the artifact-schema resource field catalogue |
+| `src/arkeology/tools/write_artifacts.py` | Modify | Thread `references` from descriptor to `_write_artifact_inner` |
+| `src/arkeology/tools/migrate_artifacts.py` | Modify | Thread `references` through descriptor (dry_run=False path) |
+| `src/arkeology/server.py` | Modify | Add `references` param to `write_artifact` and `list_artifacts` tool wrappers |
+| `src/arkeology/resources.py` | Modify | Add `references` to the artifact-schema resource field catalogue |
 
 ## Testing Approach
 

@@ -29,12 +29,12 @@ revised:
 A single idempotent bash script (`install.sh`) at the repo root detects which AI tools are
 installed and applies the correct user-level wiring for each: OpenCode (prints the plugin
 snippet), Claude Code (registers marketplace + installs plugin + writes settings.json
-pre-approval for `cairn:plugin-sync`), and Copilot (via `gh skill install`, spec T33d).
+pre-approval for `arkeology:plugin-sync`), and Copilot (via `gh skill install`, spec T33d).
 The script always ends by printing a labelled session-refresh section that repeats the
 OpenCode plugin lines verbatim. Running the script twice produces the same state as
 running it once.
 
-There is no CLAUDE.md `@`-import step and no agent symlinks step — cairn-mcp has no
+There is no CLAUDE.md `@`-import step and no agent symlinks step — Arkeology has no
 agents and its AGENTS.md is server-setup documentation unsuitable for global injection
 (decision D1, documented in the brainstorming doc).
 
@@ -50,7 +50,7 @@ makes the install reproducible, and ensures every operator ends in the same stat
 
 ### Story 1 — Single-command wiring (P1)
 
-As a cairn-mcp operator, I run `./install.sh` from the repo root and all my installed AI
+As an Arkeology operator, I run `./install.sh` from the repo root and all my installed AI
 tools are wired in one step without consulting per-tool documentation.
 
 **Acceptance criteria:**
@@ -61,7 +61,7 @@ tools are wired in one step without consulting per-tool documentation.
 
 ### Story 2 — Idempotent re-run (P1)
 
-As a cairn-mcp operator, I can re-run `./install.sh` at any time without side effects.
+As an Arkeology operator, I can re-run `./install.sh` at any time without side effects.
 
 **Acceptance criteria:**
 - Given the operator has already run `install.sh` successfully, when they run it again,
@@ -69,7 +69,7 @@ As a cairn-mcp operator, I can re-run `./install.sh` at any time without side ef
 
 ### Story 3 — Session-refresh instructions always printed (P1)
 
-As a cairn-mcp operator, I always know what to do after install completes — including
+As an Arkeology operator, I always know what to do after install completes — including
 what to run manually if the automated SSH step failed silently.
 
 **Acceptance criteria:**
@@ -82,12 +82,12 @@ what to run manually if the automated SSH step failed silently.
 
 ### Story 4 — Claude Code full wiring (P1)
 
-As a cairn-mcp Claude Code operator, `install.sh` handles all Claude Code setup steps.
+As an Arkeology Claude Code operator, `install.sh` handles all Claude Code setup steps.
 
 **Acceptance criteria:**
 - Given `claude` is detected on PATH, when `install.sh` runs, then
-  `claude plugin marketplace add` and `claude plugin install cairn@cairn-mcp` have been run,
-  and `~/.claude/settings.json` contains the pre-approval rule for `cairn:plugin-sync`.
+  `claude plugin marketplace add` and `claude plugin install arkeology@arkeology` have been run,
+  and `~/.claude/settings.json` contains the pre-approval rule for `arkeology:plugin-sync`.
 
 ## Requirements
 
@@ -97,8 +97,8 @@ As a cairn-mcp Claude Code operator, `install.sh` handles all Claude Code setup 
   snippets for the operator to add to `~/.config/opencode/opencode.jsonc` — the script does
   not patch the file directly.
 - WHEN `claude` is detected THE SYSTEM SHALL run
-  `claude plugin marketplace add git@github.com:amanoxsolutions/cairn-mcp.git` and
-  `claude plugin install cairn@cairn-mcp`; both calls use `|| true` so a non-zero exit from
+  `claude plugin marketplace add git@github.com:amanoxsolutions/arkeology.git` and
+  `claude plugin install arkeology@arkeology`; both calls use `|| true` so a non-zero exit from
   an already-registered marketplace or already-installed plugin does not abort the script.
   Note: `|| true` means a silent SSH failure (e.g. port 22 blocked by firewall) does not
   abort the script — the session-refresh section mitigates this by printing the HTTPS
@@ -129,15 +129,15 @@ As a cairn-mcp Claude Code operator, `install.sh` handles all Claude Code setup 
 - `set -euo pipefail` at the top.
 - `REPO_DIR` resolved via `"$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"`.
 - SSH plugin URL uses a **forward slash** after the hostname:
-  `git+ssh://git@github.com/amanoxsolutions/cairn-mcp.git` — the SCP colon form is invalid
+  `git+ssh://git@github.com/amanoxsolutions/arkeology.git` — the SCP colon form is invalid
   in Node.js (see G1 in the brainstorming doc).
 - The session-refresh summary at the bottom repeats both plugin lines (G7 — they scroll
   off during multi-tool installs).
 
 **Never:**
-- No CLAUDE.md `@`-import step (D1 — cairn-mcp AGENTS.md is server-setup documentation,
+- No CLAUDE.md `@`-import step (D1 — Arkeology AGENTS.md is server-setup documentation,
   not general engineering conventions).
-- No agent symlinks loop (cairn-mcp has no agents).
+- No agent symlinks loop (Arkeology has no agents).
 - No interactive prompts — the script is fully non-interactive.
 - No modification of the operator's existing tool configurations beyond the specific entries
   this script manages (settings.json pre-approval block).

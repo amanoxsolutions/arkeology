@@ -126,7 +126,7 @@ A caller needs a closed interval: `{"$and": [{"f": {"$gte": lo}}, {"f": {"$lte":
 | File | Action | Notes |
 |------|--------|-------|
 | `tests/unit/clients/test_filter.py` | Create | Written first (Red); all range operator tests |
-| `src/cairn_mcp/clients/filter.py` | Modify | Add `$gte` and `$lte` branches; update module docstring |
+| `src/arkeology/clients/filter.py` | Modify | Add `$gte` and `$lte` branches; update module docstring |
 
 ## Testing Approach
 

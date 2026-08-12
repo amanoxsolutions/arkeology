@@ -1,11 +1,11 @@
-<title>cairn studio — Visual Identity</title>
+<title>arkeology studio — Visual Identity</title>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
   /* ============================================================
      DESIGN TOKENS — :root = DARK (default). [data-theme="light"]
      overrides below. Kept in sync with the implementation
-     (src/cairn_mcp/static/cairn-studio.html).
+     (src/arkeology/static/arkeology-studio.html).
      ============================================================ */
   :root {
     --base:          #09091a;
@@ -498,9 +498,9 @@
 
 <!-- ── Identity header ── -->
 <header style="margin-bottom:var(--sp-8);">
-  <p class="hd-eyebrow">Visual Identity · cairn-mcp browser</p>
+  <p class="hd-eyebrow">Visual Identity · arkeology browser</p>
   <div style="margin-bottom:28px;">
-    <span class="hd-mark g-text">cairn</span>
+    <span class="hd-mark g-text">arkeology</span>
     <span class="hd-sub">studio</span>
   </div>
   <p class="hd-desc">
@@ -642,7 +642,7 @@
       <div class="glass-card">
         <p class="gc-label">Total artifacts</p>
         <div class="gc-val g-text">142</div>
-        <p class="gc-sub">team / cairn-mcp</p>
+        <p class="gc-sub">team / arkeology</p>
       </div>
       <div class="glass-card">
         <p class="gc-label">Active</p>
@@ -684,7 +684,7 @@
 
     <!-- Titlebar -->
     <div class="tb">
-      <div class="tb-logo g-text">cairn</div>
+      <div class="tb-logo g-text">arkeology</div>
       <div class="tb-search">
         <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
           <circle cx="5" cy="5" r="3.5" stroke="currentColor" stroke-width="1.2"/>
@@ -693,7 +693,7 @@
         <span>Search artifacts…</span>
       </div>
       <div class="tb-toggle"><span class="dot" aria-hidden="true"></span>Theme</div>
-      <div class="tb-scope">team / cairn-mcp</div>
+      <div class="tb-scope">team / arkeology</div>
     </div>
 
     <div class="mb">
@@ -755,7 +755,7 @@
         <div class="rp-pills">
           <span class="rp-pill">tier 3 · shared</span>
           <span class="rp-pill">2026-05-29</span>
-          <span class="rp-pill">team / cairn-mcp</span>
+          <span class="rp-pill">team / arkeology</span>
           <span class="rp-pill">status: accepted</span>
         </div>
 
@@ -833,7 +833,7 @@
 <script>
   // Theme toggle for this identity page — default dark, persisted, honours OS scheme.
   (function () {
-    var KEY = "cairn-design-theme";
+    var KEY = "arkeology-design-theme";
     var root = document.documentElement;
     var btn = document.getElementById("themeToggle");
     function read() { try { return localStorage.getItem(KEY); } catch (e) { console.error(e); return null; } }

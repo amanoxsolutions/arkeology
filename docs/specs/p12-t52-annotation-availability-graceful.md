@@ -1,7 +1,7 @@
 ---
 type: spec
 title: T52 — Annotation Availability + IAM Probe, Runtime Graceful Handling, README + AGENTS.md
-description: Add a one-time annotation availability + IAM-permission probe to the setting-up-cairn skill (aws-cli ≥ 2.35.14 guard or boto3 uv run fallback); document the four required IAM actions and the unavailable regions/bucket types in the README; handle annotation-unavailable / AccessDenied gracefully at runtime in link_metadata and the write path; add cairn:// referencing + reference-healing guidance to the AGENTS.md snippet. Not a hard startup gate.
+description: Add a one-time annotation availability + IAM-permission probe to the setting-up-arkeology skill (aws-cli ≥ 2.35.14 guard or boto3 uv run fallback); document the four required IAM actions and the unavailable regions/bucket types in the README; handle annotation-unavailable / AccessDenied gracefully at runtime in link_metadata and the write path; add arkeology:// referencing + reference-healing guidance to the AGENTS.md snippet. Not a hard startup gate.
 tags: []
 timestamp: 2026-07-03T00:00:00Z
 okf_version: "0.1"
@@ -32,10 +32,10 @@ revised:
 
 Handle S3 object annotation availability and IAM as a **feature-level** concern, not a hard server
 startup gate (ADR-011 D15). Add a one-time availability + IAM-permission probe to the
-`setting-up-cairn` skill; document the four required IAM actions and the unavailable regions /
+`setting-up-arkeology` skill; document the four required IAM actions and the unavailable regions /
 bucket types in the README; handle annotation-unavailable / access-denied errors gracefully at
 runtime in `link_metadata` and the write path (structured, actionable, never a raw exception — the
-core content / vector / embedding store keeps working); and add the D9 `cairn://` referencing and
+core content / vector / embedding store keeps working); and add the D9 `arkeology://` referencing and
 reference-healing guidance to the AGENTS.md snippet. (FR-57, NFR-12, AC-62.)
 
 ## Problem Statement
@@ -70,7 +70,7 @@ change) a one-time check cannot catch.
 ### Story 3 — Setup probe reports availability + IAM (P1)
 
 **Acceptance criteria:**
-- Given the `setting-up-cairn` skill runs, then it probes annotation availability and IAM permission
+- Given the `setting-up-arkeology` skill runs, then it probes annotation availability and IAM permission
   (put→get→delete a throwaway annotation) and reports the result plus the four required IAM actions;
   on failure it gives friendly remediation guidance and lets the operator decide to proceed (feature
   degrades, core still works). (AC-62)
@@ -82,7 +82,7 @@ change) a one-time check cannot catch.
 **Acceptance criteria:**
 - Given the README, then it documents the four IAM actions and the regions / bucket types where
   annotations are unavailable.
-- Given the AGENTS.md snippet, then it includes (1) proactive `cairn://artifact/{id}` referencing
+- Given the AGENTS.md snippet, then it includes (1) proactive `arkeology://artifact/{id}` referencing
   guidance and (2) reference-healing guidance (search + propose a fix, never silently rewrite). (D9)
 - Given the post-commit protocol snippet, then it references `link_metadata` (not the retired
   `link_commit`).
@@ -101,7 +101,7 @@ change) a one-time check cannot catch.
   unavailable — the artifact is never lost.
 - WHEN the server starts THE SYSTEM SHALL NOT add an annotation availability startup check
   (ADR-011 D15) — the existing startup sequence is unchanged.
-- WHEN the `setting-up-cairn` skill runs its pre-flight checks THE SYSTEM SHALL add an annotation
+- WHEN the `setting-up-arkeology` skill runs its pre-flight checks THE SYSTEM SHALL add an annotation
   availability + IAM probe (CLI ≥ 2.35.14 or boto3 `uv run` fallback) that put→get→deletes a
   throwaway annotation and reports the outcome + the four IAM actions.
 - WHEN the README reference policy is updated THE SYSTEM SHALL list `s3:PutObjectAnnotation`,
@@ -134,16 +134,16 @@ change) a one-time check cannot catch.
 | File | Action | Notes |
 |------|--------|-------|
 | `tests/unit/clients/test_s3_annotations.py` | Modify | Tests: unavailable / AccessDenied codes → `AnnotationUnavailableError` — Red first |
-| `src/cairn_mcp/errors.py` | Modify | Add `AnnotationUnavailableError` (subclass of `CairnError`) |
-| `src/cairn_mcp/clients/s3.py` | Modify | Detect unavailable/access-denied codes on annotation calls; raise `AnnotationUnavailableError` |
+| `src/arkeology/errors.py` | Modify | Add `AnnotationUnavailableError` (subclass of `ArkeologyError`) |
+| `src/arkeology/clients/s3.py` | Modify | Detect unavailable/access-denied codes on annotation calls; raise `AnnotationUnavailableError` |
 | `tests/unit/test_tools_write.py` | Modify | Test: annotation-unavailable → success + `warning`, content/vectors persisted — Red first |
-| `src/cairn_mcp/tools/write.py` | Modify | Catch `AnnotationUnavailableError`; return success + `warning` |
+| `src/arkeology/tools/write.py` | Modify | Catch `AnnotationUnavailableError`; return success + `warning` |
 | `tests/unit/test_tools_link_metadata.py` | Modify | Test: annotation-unavailable → structured `annotation_unavailable` error — Red first |
-| `src/cairn_mcp/tools/link_metadata.py` | Modify | Catch `AnnotationUnavailableError`; return structured error |
-| `src/cairn_mcp/constants.py` | Modify | Add `ANNOTATION_UNAVAILABLE` to `ErrorCode` |
-| `skills/setting-up-cairn/SKILL.md` | Modify | Add the annotation availability + IAM probe as a pre-flight check (CLI ≥ 2.35.14 guard / boto3 `uv run` fallback) |
+| `src/arkeology/tools/link_metadata.py` | Modify | Catch `AnnotationUnavailableError`; return structured error |
+| `src/arkeology/constants.py` | Modify | Add `ANNOTATION_UNAVAILABLE` to `ErrorCode` |
+| `skills/setting-up-arkeology/SKILL.md` | Modify | Add the annotation availability + IAM probe as a pre-flight check (CLI ≥ 2.35.14 guard / boto3 `uv run` fallback) |
 | `README.md` | Modify | Add the four IAM actions to the reference policy; document unavailable regions / bucket types |
-| `skills/setting-up-cairn/references/agents-snippet.md` | Modify | Add D9 `cairn://` referencing + reference-healing clauses; switch post-commit protocol to `link_metadata` |
+| `skills/setting-up-arkeology/references/agents-snippet.md` | Modify | Add D9 `arkeology://` referencing + reference-healing clauses; switch post-commit protocol to `link_metadata` |
 
 ## Testing Approach
 
@@ -161,7 +161,7 @@ change) a one-time check cannot catch.
 
 Skill / README / snippet changes are prose (no unit tests); verify against the plan's done-condition
 manually (probe present, IAM actions listed, regions/bucket-types documented, AGENTS.md guidance
-present, `uv run cairn-mcp` still starts).
+present, `uv run arkeology` still starts).
 
 ## Open Questions
 

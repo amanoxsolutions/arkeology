@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "cairn-mcp"
+name = "arkeology"
 version = "0.5.0"
 description = "MCP server for persistent artifact memory powered by AWS S3, S3 Vectors, and Bedrock embeddings"
 requires-python = ">=3.14"
@@ -16,7 +16,7 @@ dependencies = [
 ]
 
 [project.scripts]
-cairn-mcp = "cairn_mcp.__main__:main"
+arkeology = "arkeology.__main__:main"
 
 [dependency-groups]
 dev = [
@@ -31,8 +31,8 @@ dev = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/cairn_mcp"]
-include = ["src/cairn_mcp/static/*"]
+packages = ["src/arkeology"]
+include = ["src/arkeology/static/*"]
 
 [tool.ruff]
 line-length = 100

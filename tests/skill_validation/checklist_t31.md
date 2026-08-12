@@ -8,7 +8,7 @@ Do not mark T31 done until every item below is ticked.
 
 ---
 
-## T31a — `skills/setting-up-cairn/SKILL.md`
+## T31a — `skills/setting-up-arkeology/SKILL.md`
 
 ### Step 1 — Parameter collection
 
@@ -37,7 +37,7 @@ Do not mark T31 done until every item below is ticked.
 
 ### Step 3 — Clone and sync
 
-- [ ] Step 3 covers only cloning the cairn-mcp repo and running `uv sync` — no IAM
+- [ ] Step 3 covers only cloning the Arkeology repo and running `uv sync` — no IAM
   policy step appears at any point in or after Step 3.
 
 ### Step 4 — IDE config file
@@ -47,12 +47,12 @@ Do not mark T31 done until every item below is ticked.
 - [ ] For each IDE, the table shows the correct config file path, top-level key name, and
   env vars key name (matching the spec: `env` vs `environment`, `mcpServers` vs `mcp`
   vs `servers`, and the Codex TOML sub-table format).
-- [ ] Step 4 instructs the agent to show the operator the complete cairn-mcp server entry
+- [ ] Step 4 instructs the agent to show the operator the complete Arkeology server entry
   it plans to write and ask explicit permission before modifying any config file.
 - [ ] Step 4 includes a fallback instruction: if the operator declines permission, display
   the complete correctly-formatted config entry for the operator to add manually, then
   continue to Step 5.
-- [ ] Step 4 shows the complete cairn-mcp server entry format for at least one
+- [ ] Step 4 shows the complete Arkeology server entry format for at least one
   representative IDE, including all required env vars: `AWS_REGION`, `ARTIFACT_BUCKET`,
   `VECTORS_BUCKET`, `VECTORS_INDEX`, `WRITE_PREFIX`, and `BEDROCK_EMBEDDING_MODEL`.
 - [ ] The example config entries in Step 4 contain no `YOUR-*` placeholders — they use
@@ -84,12 +84,12 @@ Do not mark T31 done until every item below is ticked.
   `local_only_types`.
 - [ ] Step 6B states that paths mapping to no known type are added to `local_only_paths`
   only — no new entry is added to `local_only_types` without operator confirmation.
-- [ ] Step 6 shows the exact `cairn-mcp:config` YAML structure with all four required
+- [ ] Step 6 shows the exact `arkeology:config` YAML structure with all four required
   keys: `installed` (ISO-8601 date), `adr_strategy`, `local_only_types` (list),
   `local_only_paths` (list).
 - [ ] Step 6 states that `local_only_types` and `local_only_paths` may both be empty
   lists — the config block is still written.
-- [ ] Step 6 instructs the agent to replace an existing `cairn-mcp:config` block in
+- [ ] Step 6 instructs the agent to replace an existing `arkeology:config` block in
   AGENTS.md in place; not to append a second block.
 - [ ] Step 6 instructs the agent to load `references/agents-snippet.md` and write the ADR
   variant matching the operator's strategy choice to AGENTS.md.
@@ -107,13 +107,13 @@ Do not mark T31 done until every item below is ticked.
 
 ---
 
-## T31a — `skills/setting-up-cairn/references/agents-snippet.md`
+## T31a — `skills/setting-up-arkeology/references/agents-snippet.md`
 
 - [ ] The file opens with or prominently contains a standing never-write instruction that
-  tells agents to consult the `cairn-mcp:config` block in AGENTS.md and never write
+  tells agents to consult the `arkeology:config` block in AGENTS.md and never write
   artifact types listed in `local_only_types` or files/paths listed in
-  `local_only_paths` to cairn-mcp.
-- [ ] Variant A (git-only ADR) and Variant B (cairn-mcp-only ADR) sections are clearly
+  `local_only_paths` to Arkeology.
+- [ ] Variant A (git-only ADR) and Variant B (arkeology-only ADR) sections are clearly
   labelled so Step 6 can select exactly one to copy into the project AGENTS.md.
 - [ ] The snippet contains when-to-write guidance (at minimum: start of session, end of
   session, after a key decision, after a code review).
@@ -128,17 +128,17 @@ Do not mark T31 done until every item below is ticked.
 
 ---
 
-## T31b — `skills/migrating-to-cairn/SKILL.md`
+## T31b — `skills/migrating-to-arkeology/SKILL.md`
 
 ### Step 2 — Pre-flight and discovery order
 
-- [ ] The very first action in Step 2 is the `cairn-mcp:config` block check — it appears
+- [ ] The very first action in Step 2 is the `arkeology:config` block check — it appears
   before Step 2a (manifest check) in the document. The Step 2 opening prose or sub-step
   header makes the new order explicit: config check → manifest check → scope → classify.
-- [ ] The hard-stop message is unambiguous, names `setting-up-cairn` explicitly, and
+- [ ] The hard-stop message is unambiguous, names `setting-up-arkeology` explicitly, and
   provides no inline fallback that re-asks exclusion questions — the operator is always
   redirected to the installation skill when the block is absent.
-- [ ] Step 2a (manifest check: look for `CAIRN_IMPORT.yaml`) is unchanged in content
+- [ ] Step 2a (manifest check: look for `ARKEOLOGY_IMPORT.yaml`) is unchanged in content
   from the original skill — only its position (now after the new config pre-flight
   check) has changed.
 - [ ] Step 2b (scope) explicitly describes that files/paths in `local_only_paths` are
@@ -157,11 +157,11 @@ Do not mark T31 done until every item below is ticked.
   section are fully absent — no remnant prose, no "see installation skill" substitution
   in their place.
 - [ ] The AGENTS.md update section in Step 5 instructs the agent to verify (not write)
-  that both the `cairn-mcp:config` block and the narrative snippet are already present
-  in AGENTS.md. If either is absent, the agent is directed to run `setting-up-cairn` to
+  that both the `arkeology:config` block and the narrative snippet are already present
+  in AGENTS.md. If either is absent, the agent is directed to run `setting-up-arkeology` to
   write them.
 - [ ] The ADR row in the Step 5 tier 2 file removal table now reads something equivalent
-  to "Depends on the `adr_strategy` in your `cairn-mcp:config` block" — it no longer
+  to "Depends on the `adr_strategy` in your `arkeology:config` block" — it no longer
   references "your strategy chosen in Step 2" or any step-specific ADR decision.
 
 ### Regression check
@@ -188,13 +188,13 @@ Do not mark T31 done until every item below is ticked.
 
 ### Removed sections and pointer sentences
 
-- [ ] A clear pointer to the `setting-up-cairn` skill appears in the README at or near the
+- [ ] A clear pointer to the `setting-up-arkeology` skill appears in the README at or near the
   location where `## Connecting to an MCP client` was — the pointer sentence is coherent
   in context and does not leave an orphaned sub-heading.
-- [ ] A clear pointer to the `setting-up-cairn` skill appears in the README at or near the
+- [ ] A clear pointer to the `setting-up-arkeology` skill appears in the README at or near the
   location where `## Recommended AGENTS.md Snippet` was — same coherence requirement.
 - [ ] The full AGENTS.md snippet body (from the ````markdown` fence containing
-  `## cairn-mcp — Persistent Artifact Memory` through to the closing fence) is absent.
+  `## arkeology — Persistent Artifact Memory` through to the closing fence) is absent.
 - [ ] Both IDE sub-sections that were under `## Connecting to an MCP client` (OpenCode
   and Claude Code / Desktop examples) are absent.
 - [ ] Any IAM policy JSON blocks that previously lived inside the now-removed sections are
@@ -210,7 +210,7 @@ Do not mark T31 done until every item below is ticked.
 
 - [ ] All retained sections are fully intact and unmodified except for the one Key
   Features bullet update: `## The pain point`, `## Key Features` (all other bullets),
-  `### cairn-mcp vs. other approaches`, `## Who this is for`, `## Why AWS`,
+  `### arkeology vs. other approaches`, `## Who this is for`, `## Why AWS`,
   `## How it works`, `## Status`, `## Using the Migration Skill`, `## Prerequisites`,
   `## Minimum IAM Policy`, `## Installation`, `## Configuration` table,
   `## Running the server`, `## Development`, `## License`.

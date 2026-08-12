@@ -1,6 +1,6 @@
 ---
 type: brainstorming
-title: Research — Visual Reading / Browsing Interface for cairn-mcp Artifacts
+title: Research — Visual Reading / Browsing Interface for Arkeology Artifacts
 description: Research notes compiled 2026-06-14 surveying existing projects and reference architectures comparable to a self-hosted web app for humans to read and browse a markdown corpus with semantic search via S3 Vectors and Bedrock, identifying the unoccupied middle between RAG chat apps and static doc portals.
 tags: []
 timestamp: 2026-06-14T00:00:00Z
@@ -27,7 +27,7 @@ assumptions_challenged:
   - "If we couple a web UI to MCP, coupling to the tool layer is fine (it is LLM-shaped; couple to resources, or better, decouple)"
 ---
 
-# Research — Visual Reading / Browsing Interface for cairn-mcp Artifacts
+# Research — Visual Reading / Browsing Interface for Arkeology Artifacts
 
 ## Description
 
@@ -50,7 +50,7 @@ rather than merely out-of-scope.
 
 ## Problem Summary
 
-The market splits cleanly into **two camps**, and the cairn reading concept sits in the
+The market splits cleanly into **two camps**, and the Arkeology reading concept sits in the
 **unoccupied middle**:
 
 1. **Self-hosted RAG apps** have the semantic-search backend (FastAPI + vector store +
@@ -63,7 +63,7 @@ The market splits cleanly into **two camps**, and the cairn reading concept sits
 **No maintained product matches all dimensions** — (reader-not-chat) + (semantic search) +
 (mermaid) + (S3 Vectors/Bedrock) + (self-hosted Docker) + (multi-facet filtering). The closest
 individual matches each hit only a subset. The strongest off-the-shelf "build vs. adopt"
-challenger is **Material for MkDocs**; cairn's differentiators over it are semantic search,
+challenger is **Material for MkDocs**; Arkeology's differentiators over it are semantic search,
 true multi-facet filtering, an S3-backed dynamically-growing corpus, and no static rebuild on
 every change.
 
@@ -72,7 +72,7 @@ every change.
 | Self-hosted RAG (Onyx, Khoj, Open WebUI…) | ✗ (chat) | ✓ | mostly ✗ | ✓ | ✗ |
 | Doc/ADR portals (MkDocs-Material, Log4brains…) | ✓ | ✗ (keyword) | ✗ | ✓ (static) | partial (tags) |
 | AWS RAG samples | ✗ (chat) | ✓ | rare | ✗ (serverless) | ✗ |
-| **cairn reading concept** | **✓** | **✓** | **✓** | **✓** | **✓ (the gap)** |
+| **Arkeology reading concept** | **✓** | **✓** | **✓** | **✓** | **✓ (the gap)** |
 
 ---
 
@@ -85,7 +85,7 @@ every change.
 - **Summary:** Semantic search over ~44k product images; 1024-dim embeddings via Bedrock Titan
   multimodal stored in an **S3 Vectors** cosine index with metadata; served by a **Streamlit**
   web UI with a **Dockerfile** (local / ECS / EKS).
-- **Relevance:** The only sample found combining cairn's exact backbone — S3 Vectors + Bedrock
+- **Relevance:** The only sample found combining Arkeology's exact backbone — S3 Vectors + Bedrock
   embeddings + a containerised browser UI. **Difference:** single search box over
   product/image data, not a browsable markdown corpus with mermaid; Streamlit, not SPA+FastAPI.
 
@@ -173,7 +173,7 @@ content).
 - **adr-viewer** — https://github.com/mrwilson/adr-viewer — Python; renders an ADR markdown
   folder to a browsable page; **renders mermaid**; but **no search, no tag/facet filtering**.
 - **adr-tools** — https://github.com/npryce/adr-tools — authoring CLI only (defines the ADR
-  convention cairn artifacts likely follow); dormant since 2018.
+  convention Arkeology artifacts likely follow); dormant since 2018.
 - **MADR** — https://github.com/adr/madr — a format/template standard, not a tool.
 - **Docusaurus** — https://docusaurus.io/ — front-matter tags + tag index; mermaid via
   `@docusaurus/theme-mermaid`; search via Algolia DocSearch or Lunr plugins; heavier (React/MDX/Node).
@@ -215,7 +215,7 @@ Search-index norms, three tiers by scale:
 - **Self-hosted search server** (private/dynamic, relevance tuning): **Meilisearch**
   (https://www.meilisearch.com — also offers vector/semantic search), **Typesense**
   (https://typesense.org). *Note: all client-side options are **keyword**, not semantic —
-  cairn's embeddings-based search is a step up from the doc-portal norm.*
+  Arkeology's embeddings-based search is a step up from the doc-portal norm.*
 
 ---
 
@@ -226,7 +226,7 @@ Search-index norms, three tiers by scale:
   A human-facing **document reader/browser** with semantic search as a *secondary* feature is an
   unmet niche.
 - **FastAPI + Docker + vector store is well-trodden** as a backend shape (Onyx, Khoj, Open WebUI,
-  RAGFlow, rag-web-ui, Verba, Cognita); AnythingLLM (Node) is the outlier. cairn's proposed
+  RAGFlow, rag-web-ui, Verba, Cognita); AnythingLLM (Node) is the outlier. Arkeology's proposed
   Python/FastAPI BFF is mainstream and validated.
 - **AWS RAG samples are uniformly serverless and chat-oriented** (Lambda/API Gateway/CDK;
   OpenSearch Serverless / Aurora pgvector / Kendra). A self-hosted *container* reading S3 is the
@@ -240,13 +240,13 @@ Search-index norms, three tiers by scale:
   MkDocs-Material, Docusaurus, adr-viewer, Outline; weak/absent in Log4brains, BookStack, Wiki.js,
   and PKM apps. *Corroborates Idea 5's "pre-render to SVG at publish" as a way to sidestep
   client-side mermaid.js entirely.*
-- **Client-side search at small scale = keyword, not semantic** (Pagefind default). cairn's
+- **Client-side search at small scale = keyword, not semantic** (Pagefind default). Arkeology's
   embeddings give it a capability the doc-portal norm lacks — but several tools (Meilisearch) now
   blur the line.
 - **Faceted (multi-dimension) filtering is genuinely under-served.** Static generators offer
   single-dimension tag indexes; wikis offer entity tags; AWS samples treat metadata as a vector
   filter / RBAC. **Simultaneous type + date + tag filtered browsing over a large corpus is the
-  clearest differentiator** — and cairn's `list_artifacts` already does exactly this server-side.
+  clearest differentiator** — and Arkeology's `list_artifacts` already does exactly this server-side.
 - **Watch staleness in anything borrowed:** Verba and Cognita are **archived**; Quivr and
   create-llama are stale. Actively-maintained FastAPI references are Onyx, Khoj, Open WebUI, RAGFlow.
 
@@ -254,7 +254,7 @@ Search-index norms, three tiers by scale:
 
 ## Notable Gaps / What Does NOT Seem to Exist Yet
 
-The cairn reading concept — **a self-hosted Docker web app that is a human-facing
+The Arkeology reading concept — **a self-hosted Docker web app that is a human-facing
 reader/browser for a markdown corpus (ADRs/specs/reviews), with mermaid rendering, multi-facet
 filtering, and semantic search backed by S3 + S3 Vectors + Bedrock** — does **not appear to
 exist as a maintained product**. It sits in the unoccupied middle between chat-first RAG apps
@@ -263,7 +263,7 @@ S3 Vectors + Bedrock + containerised web-UI sample (Fashion Products) is product
 
 The combination of **(reader-not-chat) + (semantic search) + (mermaid) + (S3 Vectors/Bedrock)
 + (self-hosted Docker) + (multi-facet filtering)** is a real gap. The strongest "build vs.
-adopt" challenger to justify against is **Material for MkDocs** — cairn's differentiators are
+adopt" challenger to justify against is **Material for MkDocs** — Arkeology's differentiators are
 semantic search, true multi-facet filtering, an S3-backed dynamically-growing corpus, and no
 static rebuild on every change.
 
@@ -279,7 +279,7 @@ secondary source rather than Notion's own docs.
 **Scope:** this addendum covers the category the primary scan excluded — **web UIs and GUI
 clients for MCP servers** — researched later at the operator's request to make the
 library-vs-MCP-client decision *informed*. Bottom line up front: prior art **reinforces** the
-brainstorm's verdict (Idea 6 should reuse cairn's read logic as a library, not couple to MCP),
+brainstorm's verdict (Idea 6 should reuse Arkeology's read logic as a library, not couple to MCP),
 with one nuance — *if* coupling is ever wanted, couple to MCP **resources** (spec-designed for
 human display), never to the LLM-shaped **tool** layer.
 
@@ -323,7 +323,7 @@ assistants *rendering* interactive UI, not humans *browsing* a server).
   elements ... in a tree or list view" and "allow the user to search through and filter," defines
   a **`text/markdown` mimeType**, and an **`annotations.audience: ["user"|"assistant"]`** hint
   plus `priority`/`lastModified`. The protocol *anticipates* human browsing + markdown but
-  mandates no UI and ships no reader. **Directly relevant: cairn's resources can carry
+  mandates no UI and ships no reader. **Directly relevant: Arkeology's resources can carry
   `text/markdown` + `audience:["user"]`.**
 - **Agent chat clients (tool-calling, not resource reading):** LibreChat
   (https://www.librechat.ai/docs/features/mcp — web; MCP servers in a chat dropdown/settings
@@ -340,7 +340,7 @@ assistants *rendering* interactive UI, not humans *browsing* a server).
   (https://github.com/modelcontextprotocol/typescript-sdk — ships a **Streamable HTTP client
   transport** for browser/web clients); **FastMCP Python client**
   (https://gofastmcp.com/clients/resources — `read_resource()` / `list_resources()`; relevant
-  since cairn-mcp is fastmcp); **mcp-use** (https://github.com/mcp-use/mcp-use — agent/app
+  since Arkeology is fastmcp); **mcp-use** (https://github.com/mcp-use/mcp-use — agent/app
   framework, not a reader).
 - **The "MCP UI" naming trap:** **mcp-ui / MCP Apps** (https://mcpui.dev) is the standard for
   **AI assistants to render interactive HTML/JS UI** returned by tools — server→AI-host
@@ -399,7 +399,7 @@ assistants *rendering* interactive UI, not humans *browsing* a server).
   are tool-only.
 - No mermaid rendering of MCP resource content anywhere found; markdown rendering only in one
   experimental client.
-- No semantic-search-over-resources human UI — cairn's exact niche is unoccupied here too.
+- No semantic-search-over-resources human UI — Arkeology's exact niche is unoccupied here too.
 - Almost no written discourse on "MCP server as a backend for a human web app" — little
   community consensus to lean on.
 

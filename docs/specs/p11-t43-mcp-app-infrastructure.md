@@ -1,7 +1,7 @@
 ---
 type: spec
-title: T43 — MCP App Infrastructure and cairn_studio Tool
-description: Server-side infrastructure for the MCP Apps visual reading interface — fastmcp[apps] dependency, cairn_studio tool with graceful degradation, ui://cairn-studio/index.html resource, and HTML placeholder as package data.
+title: T43 — MCP App Infrastructure and arkeology_studio Tool
+description: Server-side infrastructure for the MCP Apps visual reading interface — fastmcp[apps] dependency, arkeology_studio tool with graceful degradation, ui://arkeology-studio/index.html resource, and HTML placeholder as package data.
 tags: []
 timestamp: 2026-06-24T00:00:00Z
 okf_version: "0.1"
@@ -20,21 +20,21 @@ revised:
   date: ""
 ---
 
-# T43 — MCP App Infrastructure and cairn_studio Tool
+# T43 — MCP App Infrastructure and arkeology_studio Tool
 
 <!-- SCOPE BLOCK — frozen after approval -->
 
 ## TL;DR
 
 Establish the server-side plumbing for the MCP Apps visual reading interface: add the
-`fastmcp[apps]` dependency, register a `cairn_studio` tool that returns a `ToolResult` whose shape
+`fastmcp[apps]` dependency, register a `arkeology_studio` tool that returns a `ToolResult` whose shape
 depends on host support — supporting hosts receive a short confirmation in `content` only (the
 iframe loads its own artifact list on mount), while non-supporting hosts additionally receive the
 artifact listing in `structured_content` so they have the data without the widget — register a
-`ui://cairn-studio/index.html` resource, and create an empty HTML placeholder that T44 will
+`ui://arkeology-studio/index.html` resource, and create an empty HTML placeholder that T44 will
 populate. No HTML/JS is authored in this task.
 
-> **Design note (corrected after implementation):** on a UI-supporting host `cairn_studio`
+> **Design note (corrected after implementation):** on a UI-supporting host `arkeology_studio`
 > deliberately **omits** `structured_content`. If the listing were returned to a supporting host,
 > the model — which has no signal that the widget already rendered the data inline — would
 > re-describe the artifacts in chat, duplicating what the user already sees in the UI. Supporting
@@ -43,7 +43,7 @@ populate. No HTML/JS is authored in this task.
 
 ## Problem Statement
 
-cairn-mcp developers using Claude Desktop, claude.ai, or VS Code Copilot can only read artifacts
+Arkeology developers using Claude Desktop, claude.ai, or VS Code Copilot can only read artifacts
 by issuing tool calls and reading raw JSON responses in chat. The MCP Apps extension
 (`io.modelcontextprotocol/ui`) makes it possible for a tool to cause a supporting host to render
 a sandboxed interactive HTML application inline — no new AWS infrastructure, no separate
@@ -54,24 +54,24 @@ Without T43, T44 has nowhere to plug in and cannot be tested end-to-end.
 
 ## User Stories
 
-### Story 1 — cairn_studio in a supporting host (P1)
+### Story 1 — arkeology_studio in a supporting host (P1)
 
-A developer calls `cairn_studio` from a host that supports the `io.modelcontextprotocol/ui`
+A developer calls `arkeology_studio` from a host that supports the `io.modelcontextprotocol/ui`
 extension.
 
 **Acceptance criteria:**
 - Given a host where `ctx.client_supports_extension(UI_EXTENSION_ID)` returns `True`, when
-  `cairn_studio` is called, then the tool returns a `ToolResult` with a short text confirmation
+  `arkeology_studio` is called, then the tool returns a `ToolResult` with a short text confirmation
   in `content` and **no** `structured_content` — the iframe loads its own artifact list on mount
   via a `list_artifacts` call.
-- Given the tool returns successfully, the host renders the `ui://cairn-studio/index.html`
+- Given the tool returns successfully, the host renders the `ui://arkeology-studio/index.html`
   resource inline without error.
 - The listing is deliberately withheld from a supporting host so the model does not re-describe
   artifacts the user is already viewing in the rendered widget.
 
-### Story 2 — cairn_studio always returns a ToolResult regardless of host support (P1)
+### Story 2 — arkeology_studio always returns a ToolResult regardless of host support (P1)
 
-`cairn_studio` branches on `ctx.client_supports_extension(UI_EXTENSION_ID)` to decide the
+`arkeology_studio` branches on `ctx.client_supports_extension(UI_EXTENSION_ID)` to decide the
 `structured_content` payload, but always returns a valid `ToolResult` with a short human
 confirmation in `content`. A supporting host receives `content` only (the iframe loads its own
 list); a non-supporting host additionally receives the artifact listing in `structured_content`
@@ -80,17 +80,17 @@ render the iframe; others display the `content` text and read the listing from
 `structured_content`.
 
 **Acceptance criteria:**
-- Given any host (supporting or non-supporting), when `cairn_studio` is called, then the tool
+- Given any host (supporting or non-supporting), when `arkeology_studio` is called, then the tool
   returns a valid `ToolResult` with a short confirmation sentence in `content` and never raises.
 - Given a non-supporting host, `structured_content` carries the `{"write_prefix", "artifacts"}`
   payload; given a supporting host, `structured_content` is absent.
 
-### Story 3 — ui://cairn-studio/index.html resource serves HTML (P1)
+### Story 3 — ui://arkeology-studio/index.html resource serves HTML (P1)
 
-An MCP host fetches the `ui://cairn-studio/index.html` resource to render the browser.
+An MCP host fetches the `ui://arkeology-studio/index.html` resource to render the browser.
 
 **Acceptance criteria:**
-- Given the resource is registered, when a client reads `ui://cairn-studio/index.html`, then
+- Given the resource is registered, when a client reads `ui://arkeology-studio/index.html`, then
   the handler returns a non-empty string (the HTML placeholder content).
 - The resource is registered with `ResourceCSP` declaring the CDN origins that T44 will use.
 - The resource is registered **without** an explicit `mime_type` argument — FastMCP
@@ -99,54 +99,54 @@ An MCP host fetches the `ui://cairn-studio/index.html` resource to render the br
 
 ## Requirements
 
-- WHEN `cairn_studio` is called and `ctx.client_supports_extension(UI_EXTENSION_ID)` is `True`
+- WHEN `arkeology_studio` is called and `ctx.client_supports_extension(UI_EXTENSION_ID)` is `True`
   THE SYSTEM SHALL return a `ToolResult` with a short text confirmation in `content` and SHALL
   omit `structured_content`, so the model does not re-describe artifacts the user is already
   viewing in the rendered widget; the iframe loads its own artifact list on mount.
-- WHEN `cairn_studio` is called and `ctx.client_supports_extension(UI_EXTENSION_ID)` is `False`
+- WHEN `arkeology_studio` is called and `ctx.client_supports_extension(UI_EXTENSION_ID)` is `False`
   THE SYSTEM SHALL return a `ToolResult` with a short human confirmation in `content` and the
   artifact listing in `structured_content` so the non-supporting client has the data.
-- WHEN `cairn_studio` is called THE SYSTEM SHALL always return a valid `ToolResult` and SHALL NOT
+- WHEN `arkeology_studio` is called THE SYSTEM SHALL always return a valid `ToolResult` and SHALL NOT
   raise, regardless of whether the host supports the `io.modelcontextprotocol/ui` extension.
-- WHEN `cairn_studio` raises an unexpected exception THE SYSTEM SHALL catch it and return an
-  error `ToolResult` with `is_error=True`, consistent with all other cairn tool outer wrappers.
-- WHEN the server starts THE SYSTEM SHALL expose `ui://cairn-studio/index.html` as a resource
+- WHEN `arkeology_studio` raises an unexpected exception THE SYSTEM SHALL catch it and return an
+  error `ToolResult` with `is_error=True`, consistent with all other Arkeology tool outer wrappers.
+- WHEN the server starts THE SYSTEM SHALL expose `ui://arkeology-studio/index.html` as a resource
   registered with `ResourceCSP` declaring CDN origins for the browser application.
-- WHEN registering the `ui://cairn-studio/index.html` resource THE SYSTEM SHALL omit the
+- WHEN registering the `ui://arkeology-studio/index.html` resource THE SYSTEM SHALL omit the
   explicit `mime_type` argument so FastMCP resolves it to `text/html;profile=mcp-app`
   automatically — passing `mime_type='text/html'` removes the `profile=mcp-app` suffix and
   breaks iframe rendering in Claude Desktop.
-- WHEN `ui://cairn-studio/index.html` is read THE SYSTEM SHALL return the HTML content loaded
-  from `src/cairn_mcp/static/cairn-studio.html` via `importlib.resources`.
-- WHEN the package is installed THE SYSTEM SHALL include `src/cairn_mcp/static/` as package
-  data so `cairn-studio.html` is accessible at runtime via `importlib.resources`.
+- WHEN `ui://arkeology-studio/index.html` is read THE SYSTEM SHALL return the HTML content loaded
+  from `src/arkeology/static/arkeology-studio.html` via `importlib.resources`.
+- WHEN the package is installed THE SYSTEM SHALL include `src/arkeology/static/` as package
+  data so `arkeology-studio.html` is accessible at runtime via `importlib.resources`.
 
 ## Boundaries
 
 **Always:**
-- `cairn_studio` follows the `_inner` / outer wrapper pattern: the outer function catches all
+- `arkeology_studio` follows the `_inner` / outer wrapper pattern: the outer function catches all
   exceptions; the inner function does the work.
-- `cairn_studio` receives `settings`, `s3`, `vectors`, `bedrock` as injected dependencies,
-  following the same pattern as every other cairn tool.
-- `_cairn_studio_inner` calls `_list_artifacts_inner` (imported from `cairn_mcp.tools.list`)
+- `arkeology_studio` receives `settings`, `s3`, `vectors`, `bedrock` as injected dependencies,
+  following the same pattern as every other Arkeology tool.
+- `_arkeology_studio_inner` calls `_list_artifacts_inner` (imported from `arkeology.tools.list`)
   to build the artifact listing — do not duplicate list logic.
-- The `ui://cairn-studio/index.html` resource is registered in `resources.py` via
+- The `ui://arkeology-studio/index.html` resource is registered in `resources.py` via
   `register_ui_resource(app)`, a new function that mirrors the existing `register_resources`
   pattern; it is called from `server.py` at module load time alongside `register_resources`.
 - `ResourceCSP` must declare **only** these origins: `https://unpkg.com`,
   `https://cdn.jsdelivr.net`. **Google Fonts origins (`https://fonts.googleapis.com`,
   `https://fonts.gstatic.com`) MUST NOT be declared** — loading fonts from Google's CDN is
   disallowed on GDPR grounds (it exposes the user's IP to a third party). Typography uses the
-  `system-ui` stack or a font self-hosted under `src/cairn_mcp/static/`; no external font origin
+  `system-ui` stack or a font self-hosted under `src/arkeology/static/`; no external font origin
   is ever permitted in the CSP.
-- The HTML file is read using `importlib.resources.files("cairn_mcp").joinpath("static/cairn-studio.html")` (Python 3.9+ API), not via `__file__`-relative path manipulation.
-- `src/cairn_mcp/static/cairn-studio.html` is created as a minimal placeholder
-  (`<!doctype html><html><body><p>cairn studio placeholder</p></body></html>`) so the
+- The HTML file is read using `importlib.resources.files("arkeology").joinpath("static/arkeology-studio.html")` (Python 3.9+ API), not via `__file__`-relative path manipulation.
+- `src/arkeology/static/arkeology-studio.html` is created as a minimal placeholder
+  (`<!doctype html><html><body><p>arkeology studio placeholder</p></body></html>`) so the
   resource returns non-empty content before T44 replaces it.
 - Package data is declared in `pyproject.toml` under `[tool.hatch.build.targets.wheel]` so
-  that `src/cairn_mcp/static/` is included in the installed wheel.
-- `AGENTS.md` repository structure table gains rows for `src/cairn_mcp/static/cairn-studio.html`
-  and `src/cairn_mcp/tools/studio.py`.
+  that `src/arkeology/static/` is included in the installed wheel.
+- `AGENTS.md` repository structure table gains rows for `src/arkeology/static/arkeology-studio.html`
+  and `src/arkeology/tools/studio.py`.
 
 **Ask First:**
 - Whether the structured result shape on the supported path (Story 1) must match a specific
@@ -155,7 +155,7 @@ An MCP host fetches the `ui://cairn-studio/index.html` resource to render the br
 
 **Never:**
 - Do not author any HTML/JS browser application in this task — that is T44's scope.
-- Do not register `cairn_studio` in `resources.py` — it is a tool; register it via
+- Do not register `arkeology_studio` in `resources.py` — it is a tool; register it via
   `register_tools()` in `server.py`.
 - Do not register the `ui://` resource via `register_data_resources` — data resources require
   live AWS clients; the UI resource is static and must be available without AWS calls.
@@ -172,13 +172,13 @@ An MCP host fetches the `ui://cairn-studio/index.html` resource to render the br
 | File | Action | Notes |
 |------|--------|-------|
 | `tests/unit/test_tools_studio.py` | Create | TDD Red — three tests written and confirmed failing before any implementation; uses `aws_mock`, `settings`, `s3_client`, `vectors_client_populated` fixtures from `conftest.py`; mocks `ctx` |
-| `src/cairn_mcp/tools/studio.py` | Create | `cairn_studio` public function + `_cairn_studio_inner`; imports `_list_artifacts_inner` from `cairn_mcp.tools.list` |
-| `tests/unit/test_resources.py` | Modify | Add test asserting `ui://cairn-studio/index.html` resource returns non-empty string content |
-| `src/cairn_mcp/static/cairn-studio.html` | Create | Minimal HTML placeholder — not empty, not a full application |
-| `src/cairn_mcp/resources.py` | Modify | Add `register_ui_resource(app)` function; read HTML via `importlib.resources`; decorate with `ResourceCSP` |
-| `src/cairn_mcp/server.py` | Modify | Import `browse_artifact` from `cairn_mcp.tools.browse`; import `register_ui_resource`; call `register_ui_resource(_app)` at module load; register `cairn_studio` closure inside `register_tools()` |
-| `pyproject.toml` | Modify | Add `fastmcp[apps]` to `dependencies`; add `include` for `src/cairn_mcp/static/` under `[tool.hatch.build.targets.wheel]` |
-| `AGENTS.md` | Modify | Add rows for `src/cairn_mcp/static/cairn-studio.html` and `src/cairn_mcp/tools/studio.py` in the repository structure table |
+| `src/arkeology/tools/studio.py` | Create | `arkeology_studio` public function + `_arkeology_studio_inner`; imports `_list_artifacts_inner` from `arkeology.tools.list` |
+| `tests/unit/test_resources.py` | Modify | Add test asserting `ui://arkeology-studio/index.html` resource returns non-empty string content |
+| `src/arkeology/static/arkeology-studio.html` | Create | Minimal HTML placeholder — not empty, not a full application |
+| `src/arkeology/resources.py` | Modify | Add `register_ui_resource(app)` function; read HTML via `importlib.resources`; decorate with `ResourceCSP` |
+| `src/arkeology/server.py` | Modify | Import `browse_artifact` from `arkeology.tools.browse`; import `register_ui_resource`; call `register_ui_resource(_app)` at module load; register `arkeology_studio` closure inside `register_tools()` |
+| `pyproject.toml` | Modify | Add `fastmcp[apps]` to `dependencies`; add `include` for `src/arkeology/static/` under `[tool.hatch.build.targets.wheel]` |
+| `AGENTS.md` | Modify | Add rows for `src/arkeology/static/arkeology-studio.html` and `src/arkeology/tools/studio.py` in the repository structure table |
 
 ## Testing Approach
 
@@ -187,31 +187,31 @@ file it gates is touched.
 
 ---
 
-**1. `tests/unit/test_tools_studio.py`** — gates `src/cairn_mcp/tools/studio.py`
+**1. `tests/unit/test_tools_studio.py`** — gates `src/arkeology/tools/studio.py`
 
 Write and confirm all three tests fail (Red) before creating `studio.py`.
 
 Note: both hosting modes return a valid `ToolResult`, but the `structured_content` payload
 differs by host support. There are now three tests:
 
-- `test_cairn_studio_non_supporting_host_returns_tool_result` — constructs a mock `ctx` where
-  `ctx.client_supports_extension(UI_EXTENSION_ID)` returns `False`; calls `cairn_studio` with
+- `test_arkeology_studio_non_supporting_host_returns_tool_result` — constructs a mock `ctx` where
+  `ctx.client_supports_extension(UI_EXTENSION_ID)` returns `False`; calls `arkeology_studio` with
   the standard injected dependencies; asserts `isinstance(result, ToolResult)`,
   `not result.is_error`, `result.structured_content` contains an `"artifacts"` key, and
-  `result.content[0].text` mentions Cairn Studio.
-- `test_cairn_studio_supporting_host_omits_structured_content` — constructs a mock `ctx` where
-  `ctx.client_supports_extension(UI_EXTENSION_ID)` returns `True`; calls `cairn_studio`;
+  `result.content[0].text` mentions Arkeology Studio.
+- `test_arkeology_studio_supporting_host_omits_structured_content` — constructs a mock `ctx` where
+  `ctx.client_supports_extension(UI_EXTENSION_ID)` returns `True`; calls `arkeology_studio`;
   asserts `isinstance(result, ToolResult)`, `not result.is_error`,
   `result.structured_content` is `None` (deliberately omitted so the model does not re-render
-  the listing), and `result.content[0].text` mentions Cairn Studio.
-- `test_cairn_studio_exception_returns_error_tool_result` — patches `_cairn_studio_inner` to
-  raise an unexpected `RuntimeError`; calls `cairn_studio`; asserts
+  the listing), and `result.content[0].text` mentions Arkeology Studio.
+- `test_arkeology_studio_exception_returns_error_tool_result` — patches `_arkeology_studio_inner` to
+  raise an unexpected `RuntimeError`; calls `arkeology_studio`; asserts
   `isinstance(result, ToolResult)` and `result.is_error` is `True`, consistent with all other
-  cairn tool outer wrappers.
+  Arkeology tool outer wrappers.
 
-**2. `src/cairn_mcp/tools/studio.py`** — gated by `test_tools_studio.py`
+**2. `src/arkeology/tools/studio.py`** — gated by `test_tools_studio.py`
 
-Implement `cairn_studio(settings, s3, vectors, bedrock, ctx)` and `_cairn_studio_inner(...)`.
+Implement `arkeology_studio(settings, s3, vectors, bedrock, ctx)` and `_arkeology_studio_inner(...)`.
 The outer function catches all exceptions and returns an error `ToolResult` with `is_error=True`
 on failure. The inner function branches on `is_ui` (result of
 `ctx.client_supports_extension(UI_EXTENSION_ID)`): on a supporting host it returns a `ToolResult`
@@ -225,23 +225,23 @@ re-describe artifacts already shown in the widget.
 **3. `tests/unit/test_resources.py`** (existing file) — add one test, gates `resources.py` changes
 
 - `test_register_ui_resource_returns_non_empty_html` — calls `register_ui_resource(app)`;
-  invokes the registered `ui://cairn-studio/index.html` handler; asserts the return value
+  invokes the registered `ui://arkeology-studio/index.html` handler; asserts the return value
   is a non-empty string.
 
 Write this additional test and confirm it fails (Red) before modifying `resources.py`.
 
-**4. `src/cairn_mcp/resources.py`** — gated by the new test in `test_resources.py`
+**4. `src/arkeology/resources.py`** — gated by the new test in `test_resources.py`
 
 Add `register_ui_resource(app)`. Inside, define an async resource handler decorated with
-`@app.resource("ui://cairn-studio/index.html")` and `ResourceCSP(resource_domains=[...])`.
-The handler reads `cairn-studio.html` from the `static/` directory using
-`importlib.resources.files("cairn_mcp").joinpath("static/cairn-studio.html").read_text()`.
+`@app.resource("ui://arkeology-studio/index.html")` and `ResourceCSP(resource_domains=[...])`.
+The handler reads `arkeology-studio.html` from the `static/` directory using
+`importlib.resources.files("arkeology").joinpath("static/arkeology-studio.html").read_text()`.
 
-**5. `src/cairn_mcp/server.py`** — gated by `test_tools_studio.py` and the `test_resources.py` addition
+**5. `src/arkeology/server.py`** — gated by `test_tools_studio.py` and the `test_resources.py` addition
 
-Import `cairn_studio as _cairn_studio` from `cairn_mcp.tools.browse`. Import
-`register_ui_resource` from `cairn_mcp.resources`. Call `register_ui_resource(_app)` at module
-load time alongside the existing `register_resources(_app)` call. Add the `cairn_studio`
+Import `arkeology_studio as _arkeology_studio` from `arkeology.tools.browse`. Import
+`register_ui_resource` from `arkeology.resources`. Call `register_ui_resource(_app)` at module
+load time alongside the existing `register_resources(_app)` call. Add the `arkeology_studio`
 closure inside `register_tools()`, following the existing tool registration pattern.
 
 ---
@@ -254,8 +254,8 @@ closure inside `register_tools()`, following the existing tool registration patt
 - `uv run ruff check src/ tests/` is clean.
 - `uv run ruff format --check src/ tests/` is clean.
 - `uv run mypy src/` is clean.
-- `src/cairn_mcp/static/cairn-studio.html` exists and is non-empty.
-- `pyproject.toml` lists `fastmcp[apps]` in `dependencies` and `src/cairn_mcp/static/` in
+- `src/arkeology/static/arkeology-studio.html` exists and is non-empty.
+- `pyproject.toml` lists `fastmcp[apps]` in `dependencies` and `src/arkeology/static/` in
   `[tool.hatch.build.targets.wheel]`.
 
 ## Implementation Notes
@@ -264,8 +264,8 @@ These questions were open at spec time and resolved by inspecting the `fastmcp[a
 during T43 implementation. Recorded here for T44 and future reference.
 
 - **FastMCP `AppConfig` return shape** — unconstrained. FastMCP imposes no specific return shape
-  on the tool when `AppConfig` is active. `cairn_studio` returns a `ToolResult` (from
-  `fastmcp.tools.base`) with `content=[TextContent(text='Cairn Studio opened…')]` (a short human
+  on the tool when `AppConfig` is active. `arkeology_studio` returns a `ToolResult` (from
+  `fastmcp.tools.base`) with `content=[TextContent(text='Arkeology Studio opened…')]` (a short human
   confirmation so the model does not describe the raw JSON). On a **supporting** host
   `structured_content` is omitted — the model has no signal that the widget rendered the data, so
   returning the listing would make it re-describe the artifacts the user already sees; the iframe

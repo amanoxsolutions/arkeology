@@ -1,4 +1,4 @@
-"""Unit tests for cairn_mcp.tools.reconcile.
+"""Unit tests for arkeology.tools.reconcile.
 
 Tests reconcile_index() using moto-backed S3ClientImpl + VectorsClientImpl + FakeBedrockClient.
 All tests run without real AWS calls.
@@ -13,13 +13,13 @@ import boto3
 import pytest
 from pytest_mock import MockerFixture
 
-from cairn_mcp.annotations import apply_link_annotations
-from cairn_mcp.clients.fakes.fake_bedrock import FakeBedrockClient
-from cairn_mcp.clients.s3 import S3ClientImpl
-from cairn_mcp.clients.vectors import VectorsClientImpl
-from cairn_mcp.config import Settings
-from cairn_mcp.errors import CredentialError
-from cairn_mcp.tools.reconcile import reconcile_index
+from arkeology.annotations import apply_link_annotations
+from arkeology.clients.fakes.fake_bedrock import FakeBedrockClient
+from arkeology.clients.s3 import S3ClientImpl
+from arkeology.clients.vectors import VectorsClientImpl
+from arkeology.config import Settings
+from arkeology.errors import CredentialError
+from arkeology.tools.reconcile import reconcile_index
 from tests.unit.conftest import _make_settings as _make_settings_base
 from tests.unit.conftest import _make_vectors_client
 
@@ -92,7 +92,7 @@ def _write_failure_log(path: Path, entries: list[dict[str, Any]]) -> None:
 _BASE_S3_META: dict[str, str] = {
     "type": "implementation_note",
     "team": "platform",
-    "project": "cairn",
+    "project": "arkeology",
     "tier": "2",
     "date": "2026-01-01",
     "status": "active",
@@ -912,8 +912,8 @@ async def test_health_probe_key_excluded_from_orphans(
     s3_reconcile: S3ClientImpl,
     vectors_reconcile: VectorsClientImpl,
 ) -> None:
-    """S3 has only _cairn_health_probe key → orphans_found == 0."""
-    s3_reconcile.put_object("artifacts/_cairn_health_probe", "probe", {})
+    """S3 has only _arkeology_health_probe key → orphans_found == 0."""
+    s3_reconcile.put_object("artifacts/_arkeology_health_probe", "probe", {})
     bedrock = FakeBedrockClient(dimension=DIMENSION)
 
     result = await reconcile_index(
@@ -925,7 +925,7 @@ async def test_health_probe_key_excluded_from_orphans(
 
     assert result.get("orphans_found", 0) == 0
     reconciled = result.get("reconciled", [])
-    assert "_cairn_health_probe" not in str(reconciled)
+    assert "_arkeology_health_probe" not in str(reconciled)
 
 
 async def test_health_probe_excluded_but_real_orphan_found(
@@ -934,14 +934,14 @@ async def test_health_probe_excluded_but_real_orphan_found(
     vectors_reconcile: VectorsClientImpl,
 ) -> None:
     """S3 has probe + real orphan → orphans_found == 1, only real artifact reconciled."""
-    s3_reconcile.put_object("artifacts/_cairn_health_probe", "probe", {})
+    s3_reconcile.put_object("artifacts/_arkeology_health_probe", "probe", {})
     s3_reconcile.put_object(
         "artifacts/code-review-2026-05-30-orphan",
         "## Summary\n\nOrphan content.",
         {
             "type": "code_review",
             "team": "platform",
-            "project": "cairn",
+            "project": "arkeology",
             "tier": "2",
             "date": "2026-05-30",
             "status": "active",
@@ -961,7 +961,7 @@ async def test_health_probe_excluded_but_real_orphan_found(
 
     assert result.get("orphans_found", 0) == 1
     reconciled = result.get("reconciled", [])
-    assert "_cairn_health_probe" not in str(reconciled)
+    assert "_arkeology_health_probe" not in str(reconciled)
 
 
 async def test_nested_probe_key_also_excluded(
@@ -970,7 +970,7 @@ async def test_nested_probe_key_also_excluded(
     vectors_reconcile: VectorsClientImpl,
 ) -> None:
     """Probe key at nested path (endswith match) → excluded."""
-    s3_reconcile.put_object("artifacts/subdir/_cairn_health_probe", "probe", {})
+    s3_reconcile.put_object("artifacts/subdir/_arkeology_health_probe", "probe", {})
     bedrock = FakeBedrockClient(dimension=DIMENSION)
 
     result = await reconcile_index(
@@ -1001,7 +1001,7 @@ async def test_credential_error_on_bedrock_embed_returns_credential_error(
         {
             "type": "code_review",
             "team": "platform",
-            "project": "cairn",
+            "project": "arkeology",
             "tier": "2",
             "date": "2026-05-30",
             "status": "active",
@@ -1042,7 +1042,7 @@ async def test_credential_error_on_vectors_put_returns_credential_error(
         {
             "type": "code_review",
             "team": "platform",
-            "project": "cairn",
+            "project": "arkeology",
             "tier": "2",
             "date": "2026-05-30",
             "status": "active",
@@ -1075,7 +1075,7 @@ async def test_startup_probe_key_excluded_from_orphan_scan(
     s3_reconcile: S3ClientImpl,
     vectors_reconcile: VectorsClientImpl,
 ) -> None:
-    """Orphan scan skips S3 keys containing '_cairn_mcp_startup_probe'."""
+    """Orphan scan skips S3 keys containing '_arkeology_startup_probe'."""
     # Seed a real artifact
     s3_reconcile.put_object(
         "artifacts/code-review-2026-01-01-real",
@@ -1083,7 +1083,7 @@ async def test_startup_probe_key_excluded_from_orphan_scan(
         {
             "type": "code_review",
             "team": "platform",
-            "project": "cairn",
+            "project": "arkeology",
             "tier": "2",
             "date": "2026-01-01",
             "status": "active",
@@ -1094,7 +1094,7 @@ async def test_startup_probe_key_excluded_from_orphan_scan(
     )
     # Seed a startup probe key — must NOT be picked up as an orphan
     s3_reconcile.put_object(
-        "artifacts/_cairn_mcp_startup_probe",
+        "artifacts/_arkeology_startup_probe",
         "startup-probe",
         {},
     )
@@ -1116,7 +1116,7 @@ async def test_startup_probe_key_excluded_from_orphan_scan(
     assert "error" not in result
     # The startup probe must not appear in reconciled or failed lists
     all_ids = [e["artifact_id"] for e in result.get("reconciled", []) + result.get("failed", [])]
-    assert not any("_cairn_mcp_startup_probe" in aid for aid in all_ids)
+    assert not any("_arkeology_startup_probe" in aid for aid in all_ids)
     # orphans_found should be 0 — the real artifact is already indexed
     assert result["orphans_found"] == 0
 

@@ -14,7 +14,7 @@ import os
 
 import pytest
 
-from cairn_mcp.clients.bedrock import BedrockClientImpl
+from arkeology.clients.bedrock import BedrockClientImpl
 
 pytestmark = pytest.mark.integration
 

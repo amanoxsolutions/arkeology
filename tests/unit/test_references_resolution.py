@@ -1,4 +1,4 @@
-"""Unit tests for cairn_mcp.references — pure migration reference resolution helpers.
+"""Unit tests for arkeology.references — pure migration reference resolution helpers.
 
 Maps to AC-58 (T51) and review finding C1: bounded path normalization, forward-safe
 path->full-key map construction (the full S3 key is the operative artifact_id — see
@@ -8,9 +8,9 @@ no I/O — every helper here is pure.
 
 import pytest
 
-from cairn_mcp.artifact import generate_artifact_id
-from cairn_mcp.errors import CairnError
-from cairn_mcp.references import (
+from arkeology.artifact import generate_artifact_id
+from arkeology.errors import ArkeologyError
+from arkeology.references import (
     ManifestEntry,
     build_path_to_id_map,
     join_reference_path,
@@ -19,7 +19,7 @@ from cairn_mcp.references import (
 )
 
 # Write prefix used across tests — matches the documented WRITE_PREFIX convention
-# (see setting-up-cairn skill) but any value proves the composition is parameterised.
+# (see setting-up-arkeology skill) but any value proves the composition is parameterised.
 _WRITE_PREFIX = "myteam/myproject"
 
 # ---------------------------------------------------------------------------
@@ -199,7 +199,7 @@ def test_build_path_to_id_map_duplicate_normalized_path_signals_collision() -> N
         _entry("./docs/adr/001-use-s3.md", "spec", 3, "Second title", "2026-01-02"),
     ]
 
-    with pytest.raises(CairnError):
+    with pytest.raises(ArkeologyError):
         build_path_to_id_map(entries, write_prefix=_WRITE_PREFIX)
 
 

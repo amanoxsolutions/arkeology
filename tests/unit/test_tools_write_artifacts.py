@@ -1,4 +1,4 @@
-"""Unit tests for cairn_mcp.tools.write_artifacts (Z1 — Cycle C, Red phase).
+"""Unit tests for arkeology.tools.write_artifacts (Z1 — Cycle C, Red phase).
 
 All tests import write_artifacts inside the function body and call pytest.fail if
 the module does not exist yet, so that collection errors are avoided while the tests
@@ -12,10 +12,10 @@ from typing import Any
 
 import pytest
 
-from cairn_mcp.clients.fakes.fake_bedrock import FakeBedrockClient
-from cairn_mcp.clients.s3 import S3ClientImpl
-from cairn_mcp.clients.vectors import VectorsClientImpl
-from cairn_mcp.constants import ErrorCode
+from arkeology.clients.fakes.fake_bedrock import FakeBedrockClient
+from arkeology.clients.s3 import S3ClientImpl
+from arkeology.clients.vectors import VectorsClientImpl
+from arkeology.constants import ErrorCode
 from tests.unit.conftest import _make_settings
 
 
@@ -24,7 +24,7 @@ def _make_descriptor(i: int, **overrides: Any) -> dict[str, Any]:
     base: dict[str, Any] = {
         "type": "code_review",
         "team": "platform",
-        "project": "cairn",
+        "project": "arkeology",
         "tier": 2,
         "date": "2026-06-03",
         "status": "active",
@@ -52,9 +52,9 @@ async def test_write_artifacts_all_succeed(
     and sections_indexed.
     """
     try:
-        from cairn_mcp.tools.write_artifacts import write_artifacts
+        from arkeology.tools.write_artifacts import write_artifacts
     except ImportError:
-        pytest.fail("cairn_mcp.tools.write_artifacts is not yet implemented")
+        pytest.fail("arkeology.tools.write_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch)
     bedrock = FakeBedrockClient(dimension=1024)
@@ -93,9 +93,9 @@ async def test_write_artifacts_invalid_entry_isolated(
     all other 9 entries carry written=True.
     """
     try:
-        from cairn_mcp.tools.write_artifacts import write_artifacts
+        from arkeology.tools.write_artifacts import write_artifacts
     except ImportError:
-        pytest.fail("cairn_mcp.tools.write_artifacts is not yet implemented")
+        pytest.fail("arkeology.tools.write_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch)
     bedrock = FakeBedrockClient(dimension=1024)
@@ -142,9 +142,9 @@ async def test_write_artifacts_concurrency_1_sequential_order(
     starts. Verified by tracking which artifact's title appears in each embed text.
     """
     try:
-        from cairn_mcp.tools.write_artifacts import write_artifacts
+        from arkeology.tools.write_artifacts import write_artifacts
     except ImportError:
-        pytest.fail("cairn_mcp.tools.write_artifacts is not yet implemented")
+        pytest.fail("arkeology.tools.write_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch)
     bedrock = FakeBedrockClient(dimension=1024)
@@ -203,9 +203,9 @@ async def test_write_artifacts_partial_failure_logged_and_in_response(
     is written (consistent with write_artifact behaviour — OQ1 resolved: yes).
     """
     try:
-        from cairn_mcp.tools.write_artifacts import write_artifacts
+        from arkeology.tools.write_artifacts import write_artifacts
     except ImportError:
-        pytest.fail("cairn_mcp.tools.write_artifacts is not yet implemented")
+        pytest.fail("arkeology.tools.write_artifacts is not yet implemented")
 
     log_path = tmp_path / "failures.jsonl"
     settings = _make_settings(monkeypatch, FAILURE_LOG_PATH=str(log_path), tmp_path=tmp_path)
@@ -263,9 +263,9 @@ async def test_write_artifacts_concurrency_2_all_succeed(
     This is a smoke test verifying the semaphore does not drop or duplicate entries.
     """
     try:
-        from cairn_mcp.tools.write_artifacts import write_artifacts
+        from arkeology.tools.write_artifacts import write_artifacts
     except ImportError:
-        pytest.fail("cairn_mcp.tools.write_artifacts is not yet implemented")
+        pytest.fail("arkeology.tools.write_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch)
     bedrock = FakeBedrockClient(dimension=1024)
@@ -302,9 +302,9 @@ async def test_write_artifacts_missing_required_field_validation_error(
     a raw KeyError / internal_error — while all other entries still succeed.
     """
     try:
-        from cairn_mcp.tools.write_artifacts import write_artifacts
+        from arkeology.tools.write_artifacts import write_artifacts
     except ImportError:
-        pytest.fail("cairn_mcp.tools.write_artifacts is not yet implemented")
+        pytest.fail("arkeology.tools.write_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch)
     bedrock = FakeBedrockClient(dimension=1024)
@@ -349,9 +349,9 @@ async def test_write_artifacts_invalid_file_extension_validation_error(
     still succeed.
     """
     try:
-        from cairn_mcp.tools.write_artifacts import write_artifacts
+        from arkeology.tools.write_artifacts import write_artifacts
     except ImportError:
-        pytest.fail("cairn_mcp.tools.write_artifacts is not yet implemented")
+        pytest.fail("arkeology.tools.write_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch)
     bedrock = FakeBedrockClient(dimension=1024)
@@ -396,9 +396,9 @@ async def test_write_artifacts_wrong_type_tier_is_validation_error_not_internal(
     batch must still succeed (isolated failure).
     """
     try:
-        from cairn_mcp.tools.write_artifacts import write_artifacts
+        from arkeology.tools.write_artifacts import write_artifacts
     except ImportError:
-        pytest.fail("cairn_mcp.tools.write_artifacts is not yet implemented")
+        pytest.fail("arkeology.tools.write_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch)
     bedrock = FakeBedrockClient(dimension=1024)
@@ -442,9 +442,9 @@ async def test_write_artifacts_concurrency_15_in_range_no_warning(
 ) -> None:
     """artifact_concurrency=15 (in-range) → all artifacts written; no 'warning' key in response."""
     try:
-        from cairn_mcp.tools.write_artifacts import write_artifacts
+        from arkeology.tools.write_artifacts import write_artifacts
     except ImportError:
-        pytest.fail("cairn_mcp.tools.write_artifacts is not yet implemented")
+        pytest.fail("arkeology.tools.write_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch)
     bedrock = FakeBedrockClient(dimension=1024)
@@ -484,9 +484,9 @@ async def test_write_artifacts_concurrency_above_15_capped_warns(
     asyncio.Semaphore is constructed with the effective value 15.
     """
     try:
-        from cairn_mcp.tools.write_artifacts import write_artifacts
+        from arkeology.tools.write_artifacts import write_artifacts
     except ImportError:
-        pytest.fail("cairn_mcp.tools.write_artifacts is not yet implemented")
+        pytest.fail("arkeology.tools.write_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch)
     bedrock = FakeBedrockClient(dimension=1024)
@@ -537,9 +537,9 @@ async def test_write_artifacts_concurrency_below_1_substituted_warns(
     warning mentions 0 and 3; asyncio.Semaphore constructed with 3.
     """
     try:
-        from cairn_mcp.tools.write_artifacts import write_artifacts
+        from arkeology.tools.write_artifacts import write_artifacts
     except ImportError:
-        pytest.fail("cairn_mcp.tools.write_artifacts is not yet implemented")
+        pytest.fail("arkeology.tools.write_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch)
     bedrock = FakeBedrockClient(dimension=1024)
@@ -588,9 +588,9 @@ async def test_write_artifacts_concurrency_omitted_defaults_to_3_no_warning(
 ) -> None:
     """artifact_concurrency omitted → asyncio.Semaphore constructed with 3; no 'warning' key."""
     try:
-        from cairn_mcp.tools.write_artifacts import write_artifacts
+        from arkeology.tools.write_artifacts import write_artifacts
     except ImportError:
-        pytest.fail("cairn_mcp.tools.write_artifacts is not yet implemented")
+        pytest.fail("arkeology.tools.write_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch)
     bedrock = FakeBedrockClient(dimension=1024)
@@ -634,9 +634,9 @@ async def test_duplicate_artifact_ids_second_entry_is_validation_error(
     each deletes the other's freshly written vectors, leaving the artifact un-indexed.
     """
     try:
-        from cairn_mcp.tools.write_artifacts import write_artifacts
+        from arkeology.tools.write_artifacts import write_artifacts
     except ImportError:
-        pytest.fail("cairn_mcp.tools.write_artifacts is not yet implemented")
+        pytest.fail("arkeology.tools.write_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch)
     bedrock = FakeBedrockClient(dimension=1024)
@@ -672,9 +672,9 @@ async def test_duplicate_non_adjacent_third_entry_is_validation_error(
 ) -> None:
     """First and third entries share the same artifact ID → only third is validation_error."""
     try:
-        from cairn_mcp.tools.write_artifacts import write_artifacts
+        from arkeology.tools.write_artifacts import write_artifacts
     except ImportError:
-        pytest.fail("cairn_mcp.tools.write_artifacts is not yet implemented")
+        pytest.fail("arkeology.tools.write_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch)
     bedrock = FakeBedrockClient(dimension=1024)
@@ -715,9 +715,9 @@ async def test_write_artifacts_existing_key_without_overwrite_is_validation_erro
     overwrite → validation_error; the existing artifact is left untouched.
     """
     try:
-        from cairn_mcp.tools.write_artifacts import write_artifacts
+        from arkeology.tools.write_artifacts import write_artifacts
     except ImportError:
-        pytest.fail("cairn_mcp.tools.write_artifacts is not yet implemented")
+        pytest.fail("arkeology.tools.write_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch)
     bedrock = FakeBedrockClient(dimension=1024)
@@ -754,9 +754,9 @@ async def test_write_artifacts_batch_level_overwrite_true_allows_update(
     an existing key (mirrors the file_extension batch-default/per-descriptor shape).
     """
     try:
-        from cairn_mcp.tools.write_artifacts import write_artifacts
+        from arkeology.tools.write_artifacts import write_artifacts
     except ImportError:
-        pytest.fail("cairn_mcp.tools.write_artifacts is not yet implemented")
+        pytest.fail("arkeology.tools.write_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch)
     bedrock = FakeBedrockClient(dimension=1024)
@@ -793,9 +793,9 @@ async def test_write_artifacts_per_descriptor_overwrite_overrides_batch_default(
 ) -> None:
     """A descriptor-level "overwrite": True overrides the batch-level default (False)."""
     try:
-        from cairn_mcp.tools.write_artifacts import write_artifacts
+        from arkeology.tools.write_artifacts import write_artifacts
     except ImportError:
-        pytest.fail("cairn_mcp.tools.write_artifacts is not yet implemented")
+        pytest.fail("arkeology.tools.write_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch)
     bedrock = FakeBedrockClient(dimension=1024)
@@ -841,9 +841,9 @@ async def test_write_artifacts_descriptor_references_round_trips_to_vector_metad
 ) -> None:
     """A descriptor carrying references=['a-1'] writes references into vector metadata."""
     try:
-        from cairn_mcp.tools.write_artifacts import write_artifacts
+        from arkeology.tools.write_artifacts import write_artifacts
     except ImportError:
-        pytest.fail("cairn_mcp.tools.write_artifacts is not yet implemented")
+        pytest.fail("arkeology.tools.write_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch)
     bedrock = FakeBedrockClient(dimension=1024)
@@ -884,9 +884,9 @@ async def test_write_artifacts_top_level_error_does_not_leak_raw_aws_details(
     the pre-flight duplicate-ID detection loop) is caught only by the outer
     write_artifacts() handler, which today returns str(exc) verbatim."""
     try:
-        from cairn_mcp.tools import write_artifacts as write_artifacts_module
+        from arkeology.tools import write_artifacts as write_artifacts_module
     except ImportError:
-        pytest.fail("cairn_mcp.tools.write_artifacts is not yet implemented")
+        pytest.fail("arkeology.tools.write_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch)
     bedrock = FakeBedrockClient(dimension=1024)
@@ -932,9 +932,9 @@ async def test_write_artifacts_per_descriptor_error_does_not_leak_raw_aws_detail
     the same way the top-level handler does (07-02 #37). Only the failing descriptor
     is affected; a healthy sibling descriptor still succeeds."""
     try:
-        from cairn_mcp.tools import write_artifacts as write_artifacts_module
+        from arkeology.tools import write_artifacts as write_artifacts_module
     except ImportError:
-        pytest.fail("cairn_mcp.tools.write_artifacts is not yet implemented")
+        pytest.fail("arkeology.tools.write_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch)
     bedrock = FakeBedrockClient(dimension=1024)

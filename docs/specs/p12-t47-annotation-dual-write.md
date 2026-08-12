@@ -71,7 +71,7 @@ ADR-011 moves the durable copy of the mutable link fields to S3 object annotatio
 now write those annotations (they cannot be set during `PutObject`, only after upload); and (2)
 overwriting an object **wipes its annotations**, so a tier-3 living-document update would silently
 lose the accumulated `commit_refs` / `references` trail unless the write reads them forward and
-re-applies them. Silent loss of an append-only link trail is exactly what cairn exists to prevent.
+re-applies them. Silent loss of an append-only link trail is exactly what Arkeology exists to prevent.
 
 ## User Stories
 
@@ -173,7 +173,7 @@ An artifact was written, then had `commit_refs` backfilled. A later tier-3 conte
   `commit_refs` merge in `link_commit`. (Applies to `commit_refs` only as of 2026-07-06 — see above.)
 - Annotation encoding is comma-joined UTF-8 payload, one annotation per field
   (`AnnotationName="commit_refs"`, `AnnotationName="references"`); empty list → delete the annotation.
-  Centralise the constants + encode/decode/apply/read helpers in a new `src/cairn_mcp/annotations.py`.
+  Centralise the constants + encode/decode/apply/read helpers in a new `src/arkeology/annotations.py`.
 
 **Ask First:**
 - Nothing — mechanics are fixed by ADR-011.
@@ -194,9 +194,9 @@ An artifact was written, then had `commit_refs` backfilled. A later tier-3 conte
 | File | Action | Notes |
 |------|--------|-------|
 | `tests/unit/test_annotations.py` | Create | Tests for the `annotations.py` encode/decode/apply/read helpers — Red first |
-| `src/cairn_mcp/annotations.py` | Create | `COMMIT_REFS_ANNOTATION`, `REFERENCES_ANNOTATION`; `encode_link_list`/`decode_link_list`; `apply_link_annotations(s3, key, *, commit_refs, references)`; `read_link_annotations(s3, key)` |
+| `src/arkeology/annotations.py` | Create | `COMMIT_REFS_ANNOTATION`, `REFERENCES_ANNOTATION`; `encode_link_list`/`decode_link_list`; `apply_link_annotations(s3, key, *, commit_refs, references)`; `read_link_annotations(s3, key)` |
 | `tests/unit/test_tools_write.py` | Modify | Tests: annotations written after PutObject / before put_vectors_batch (call-order spy); overwrite read-forward + merge; empty → annotation absent; no extra embed — Red first |
-| `src/cairn_mcp/tools/write.py` | Modify | Remove `commit_refs` from `s3_metadata`; add read-forward on overwrite; write annotations between PutObject and put_vectors_batch using merged values |
+| `src/arkeology/tools/write.py` | Modify | Remove `commit_refs` from `s3_metadata`; add read-forward on overwrite; write annotations between PutObject and put_vectors_batch using merged values |
 | `tests/integration/test_tools_write.py` | Modify | Real-AWS overwrite-preservation round-trip — Red for integration |
 
 ## Testing Approach

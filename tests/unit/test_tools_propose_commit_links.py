@@ -1,4 +1,4 @@
-"""Unit tests for cairn_mcp.tools.propose_commit_links.
+"""Unit tests for arkeology.tools.propose_commit_links.
 
 Tests propose_commit_links() using moto-backed VectorsClientImpl.
 No S3 or Bedrock calls — all data is seeded directly into the vector index.
@@ -10,10 +10,10 @@ from typing import Any
 import pytest
 from pytest_mock import MockerFixture
 
-from cairn_mcp.clients.vectors import VectorsClientImpl
-from cairn_mcp.config import Settings
-from cairn_mcp.errors import CredentialError
-from cairn_mcp.tools.propose_commit_links import propose_commit_links
+from arkeology.clients.vectors import VectorsClientImpl
+from arkeology.config import Settings
+from arkeology.errors import CredentialError
+from arkeology.tools.propose_commit_links import propose_commit_links
 from tests.unit.conftest import _make_settings as _make_settings_base
 
 # ---------------------------------------------------------------------------
@@ -53,7 +53,7 @@ _BASE_META: dict[str, Any] = {
     "scope": "artifacts",
     "type": "code_review",
     "team": "platform",
-    "project": "cairn",
+    "project": "arkeology",
     "tier": 2,
     "date": "2026-05-30",
     "status": "active",

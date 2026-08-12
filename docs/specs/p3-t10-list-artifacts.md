@@ -89,7 +89,7 @@ their listing.
 > **Revised (2026-07-05).** `status="all"` is now recognised as an
 > explicit all-inclusive sentinel: the status clause is omitted entirely, so both active and
 > inactive own-scope (and eligible foreign-scope) artifacts are returned. This closed a bug in
-> `cairn_studio`'s browser UI, where the "All" status filter option sent `value=""`, which
+> `arkeology_studio`'s browser UI, where the "All" status filter option sent `value=""`, which
 > `loadList` then omitted from the call arguments — falling through to the server's
 > `status="active"` default and making "All" unreachable. Any other literal value (including
 > the default `"active"`) still filters normally; `"all"` is the only recognised sentinel.
@@ -142,9 +142,9 @@ their listing.
 | File | Action | Notes |
 |------|--------|-------|
 | `tests/unit/test_tools_list.py` | Create | Written first (Red) |
-| `src/cairn_mcp/tools/list.py` | Create | Written after unit tests (Green) |
+| `src/arkeology/tools/list.py` | Create | Written after unit tests (Green) |
 | `tests/integration/test_tools_list.py` | Create | Written before integration wiring |
-| `src/cairn_mcp/server.py` | Modify | Register `list_artifacts` tool on `_app` |
+| `src/arkeology/server.py` | Modify | Register `list_artifacts` tool on `_app` |
 
 ## Testing Approach
 

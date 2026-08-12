@@ -1,4 +1,4 @@
-"""Unit tests for cairn_mcp.references.rewrite_content_references (T56 / FR-52 extension).
+"""Unit tests for arkeology.references.rewrite_content_references (T56 / FR-52 extension).
 
 Maps to T56 Stories 1-6: deterministic, markdown-aware, server-side content rewrite of
 already-resolved frontmatter ``references:`` paths — in the frontmatter block itself AND
@@ -12,7 +12,7 @@ is dropped from the rewritten URI and preserved verbatim as a trailing
 ``("<anchor>" section)`` note. Fenced code blocks (``` ... ```) are never scanned.
 """
 
-from cairn_mcp.references import rewrite_content_references
+from arkeology.references import rewrite_content_references
 
 _B_ID = "myteam/myproject/adr-b-decision-abcd1234.md"
 
@@ -29,7 +29,7 @@ def test_rewrite_frontmatter_unquoted_entry_rewritten() -> None:
 
     result = rewrite_content_references(content, resolved_map)
 
-    assert f"  - cairn://artifact/{_B_ID}\n" in result
+    assert f"  - arkeology://artifact/{_B_ID}\n" in result
     assert "../decisions/B.md" not in result
 
 
@@ -40,7 +40,7 @@ def test_rewrite_frontmatter_double_quoted_entry_preserves_quotes() -> None:
 
     result = rewrite_content_references(content, resolved_map)
 
-    assert f'  - "cairn://artifact/{_B_ID}"\n' in result
+    assert f'  - "arkeology://artifact/{_B_ID}"\n' in result
 
 
 def test_rewrite_frontmatter_single_quoted_entry_preserves_quotes() -> None:
@@ -50,7 +50,7 @@ def test_rewrite_frontmatter_single_quoted_entry_preserves_quotes() -> None:
 
     result = rewrite_content_references(content, resolved_map)
 
-    assert f"  - 'cairn://artifact/{_B_ID}'\n" in result
+    assert f"  - 'arkeology://artifact/{_B_ID}'\n" in result
 
 
 def test_rewrite_frontmatter_mixed_list_only_matching_entry_rewritten_preserves_order() -> None:
@@ -72,7 +72,7 @@ def test_rewrite_frontmatter_mixed_list_only_matching_entry_rewritten_preserves_
     ref_lines = [line for line in lines if line.strip().startswith("- ")]
     assert ref_lines == [
         "  - ../unresolved-1.md",
-        f"  - cairn://artifact/{_B_ID}",
+        f"  - arkeology://artifact/{_B_ID}",
         "  - ../unresolved-2.md",
     ]
 
@@ -110,7 +110,7 @@ def test_rewrite_body_link_exact_match_rewritten() -> None:
 
     result = rewrite_content_references(content, resolved_map)
 
-    assert f"[the decision](cairn://artifact/{_B_ID})" in result
+    assert f"[the decision](arkeology://artifact/{_B_ID})" in result
     assert "../decisions/B.md" not in result
 
 
@@ -123,7 +123,7 @@ def test_rewrite_body_link_longer_token_not_rewritten_collision_safety() -> None
     result = rewrite_content_references(content, resolved_map)
 
     assert "[other](docs/a.md.bak)" in result
-    assert f"[ok](cairn://artifact/{_B_ID})" in result
+    assert f"[ok](arkeology://artifact/{_B_ID})" in result
 
 
 def test_rewrite_body_link_two_occurrences_both_rewritten() -> None:
@@ -138,7 +138,7 @@ def test_rewrite_body_link_two_occurrences_both_rewritten() -> None:
 
     result = rewrite_content_references(content, resolved_map)
 
-    assert result.count(f"cairn://artifact/{_B_ID}") == 2
+    assert result.count(f"arkeology://artifact/{_B_ID}") == 2
     assert "../decisions/B.md" not in result
 
 
@@ -150,7 +150,7 @@ def test_rewrite_body_link_normalization_equivalent_leading_dot_slash_rewritten(
 
     result = rewrite_content_references(content, resolved_map)
 
-    assert f"[link](cairn://artifact/{_B_ID})" in result
+    assert f"[link](arkeology://artifact/{_B_ID})" in result
 
 
 def test_rewrite_body_link_normalization_equivalent_backslash_rewritten() -> None:
@@ -161,7 +161,7 @@ def test_rewrite_body_link_normalization_equivalent_backslash_rewritten() -> Non
 
     result = rewrite_content_references(content, resolved_map)
 
-    assert f"[link](cairn://artifact/{_B_ID})" in result
+    assert f"[link](arkeology://artifact/{_B_ID})" in result
 
 
 def test_rewrite_body_link_join_only_equivalent_left_untouched() -> None:
@@ -185,7 +185,7 @@ def test_rewrite_body_link_text_never_altered_even_if_matches_key() -> None:
 
     result = rewrite_content_references(content, resolved_map)
 
-    assert f"[../decisions/B.md](cairn://artifact/{_B_ID})" in result
+    assert f"[../decisions/B.md](arkeology://artifact/{_B_ID})" in result
 
 
 def test_rewrite_body_link_url_never_candidate_even_if_text_matches_key() -> None:
@@ -212,7 +212,7 @@ def test_rewrite_body_link_with_anchor_drops_anchor_appends_note() -> None:
 
     result = rewrite_content_references(content, resolved_map)
 
-    assert f'[the decision](cairn://artifact/{_B_ID}) ("outcome" section)' in result
+    assert f'[the decision](arkeology://artifact/{_B_ID}) ("outcome" section)' in result
     assert "#outcome" not in result
 
 
@@ -224,7 +224,7 @@ def test_rewrite_body_link_hyphenated_anchor_kept_verbatim() -> None:
 
     result = rewrite_content_references(content, resolved_map)
 
-    assert f'[x](cairn://artifact/{_B_ID}) ("my-decision" section)' in result
+    assert f'[x](arkeology://artifact/{_B_ID}) ("my-decision" section)' in result
     assert "my decision" not in result
 
 
@@ -242,7 +242,7 @@ def test_rewrite_body_link_no_anchor_no_note() -> None:
 def test_rewrite_body_link_anchored_idempotent_no_double_note() -> None:
     """Running the helper twice on an already-anchor-rewritten link yields identical
     output — the note is not re-appended (the rewritten target has no '#', and
-    cairn://... is never a resolved_map key)."""
+    arkeology://... is never a resolved_map key)."""
     content = "---\ntitle: X\n---\n\n[the decision](../decisions/B.md#outcome)\n"
     resolved_map = {"../decisions/B.md": _B_ID}
 
@@ -312,7 +312,7 @@ def test_rewrite_fenced_code_block_left_untouched_byte_for_byte() -> None:
 
     assert "```\n[link](../decisions/B.md)\n```" in result
     # But the frontmatter occurrence (outside the fence) IS rewritten.
-    assert f"  - cairn://artifact/{_B_ID}" in result
+    assert f"  - arkeology://artifact/{_B_ID}" in result
 
 
 def test_rewrite_unterminated_fence_treated_as_code_to_end_of_content() -> None:
@@ -345,7 +345,7 @@ def test_rewrite_same_inputs_twice_produces_identical_output() -> None:
 
 def test_rewrite_idempotent_on_already_rewritten_content() -> None:
     """Content already rewritten once, passed through again with the same map, is
-    unchanged — no double-wrapping, no nested cairn://artifact/cairn://artifact/..."""
+    unchanged — no double-wrapping, no nested arkeology://artifact/arkeology://artifact/..."""
     content = "---\nreferences:\n  - ../decisions/B.md\n---\n\n[x](../decisions/B.md)\n"
     resolved_map = {"../decisions/B.md": _B_ID}
 
@@ -353,7 +353,7 @@ def test_rewrite_idempotent_on_already_rewritten_content() -> None:
     twice = rewrite_content_references(once, resolved_map)
 
     assert once == twice
-    assert "cairn://artifact/cairn://artifact/" not in twice
+    assert "arkeology://artifact/arkeology://artifact/" not in twice
 
 
 def test_rewrite_empty_map_returns_content_unchanged() -> None:

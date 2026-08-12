@@ -19,7 +19,7 @@ revised:
 
 ## Description
 
-Every artifact stored by cairn-mcp has a unique identifier used as its S3 object key and as
+Every artifact stored by Arkeology has a unique identifier used as its S3 object key and as
 the primary lookup key in the vector index. This decision records the choice to generate that
 identifier deterministically from the artifact's own attributes, with no random component.
 

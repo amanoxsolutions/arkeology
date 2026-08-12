@@ -3,7 +3,7 @@ type: spec
 title: "B-3 / T41: Rename feature_tags → tags"
 description: >
   Pure identifier rename of the feature_tags metadata field to tags across the entire
-  cairn-mcp codebase — model, MCP API, S3/vector metadata keys, filters, tests, AGENTS.md,
+  Arkeology codebase — model, MCP API, S3/vector metadata keys, filters, tests, AGENTS.md,
   and skills — aligning with OKF vocabulary without semantic change.
 tags: ["schema", "okf-alignment", "refactor"]
 timestamp: 2026-06-18T00:00:00Z
@@ -26,15 +26,15 @@ revised:
 
 ## TL;DR
 
-Rename the `feature_tags` metadata field to `tags` across the entire cairn-mcp codebase —
+Rename the `feature_tags` metadata field to `tags` across the entire Arkeology codebase —
 model, tool parameters (public MCP API), S3 and vector metadata keys, filter clause keys,
 tests, AGENTS.md, and skills. This is a pure identifier rename with no semantic change; it
-aligns cairn's one cleanly OKF-equivalent field with the OKF `tags` vocabulary (brainstorming
+aligns Arkeology's one cleanly OKF-equivalent field with the OKF `tags` vocabulary (brainstorming
 D2, LOCKED). No live data migration is needed.
 
 ## Problem Statement
 
-The cairn artifact model uses `feature_tags` while OKF uses `tags` for the identical concept.
+The Arkeology artifact model uses `feature_tags` while OKF uses `tags` for the identical concept.
 Brainstorming session D2 (LOCKED) identified this as the one field where OKF alignment is
 clean — same concept, no semantic loss — and decided to rename internally. Until this rename
 lands the public API and internal keys diverge from OKF vocabulary for no good reason, making
@@ -80,7 +80,7 @@ already familiar with OKF.
   from the descriptor dict.
 - WHEN AGENTS.md and SERVER-REFERENCE.md describe conventions, THE SYSTEM SHALL use `tags`
   everywhere `feature_tags` was previously named.
-- WHEN the setting-up-cairn and migrating-to-cairn skills reference the field, THE SYSTEM
+- WHEN the setting-up-arkeology and migrating-to-arkeology skills reference the field, THE SYSTEM
   SHALL use `tags`.
 
 ## Boundaries
@@ -93,7 +93,7 @@ already familiar with OKF.
 | **Always** | Rename in all unit and integration test fixtures, assertions, test names, and docstrings |
 | **Always** | Update AGENTS.md Conventions and High-Friction Areas sections |
 | **Always** | Update SERVER-REFERENCE.md, resources.py schema table and guidance text |
-| **Always** | Update setting-up-cairn (`agents-snippet.md`) and migrating-to-cairn (`SKILL.md`) |
+| **Always** | Update setting-up-arkeology (`agents-snippet.md`) and migrating-to-arkeology (`SKILL.md`) |
 | **Never** | Change the dual-encoding scheme (S3 comma-joined string vs vector list[str]) |
 | **Never** | Add any data migration tooling — no live data exists |
 | **Never** | Modify historical spec files in `docs/specs/` (completed task artefacts) |
@@ -109,16 +109,16 @@ already familiar with OKF.
 
 | File | Action | Notes |
 |---|---|---|
-| `src/cairn_mcp/artifact.py` | Rename field | `feature_tags: list[str]` → `tags: list[str]`; update Field docstring |
-| `src/cairn_mcp/server.py` | Rename params | Four tool registrations: `write_artifact`, `search_artifacts`, `list_artifacts`, `synthesise_artifacts` — param `feature_tags` → `tags` in both signature and pass-through call |
-| `src/cairn_mcp/tools/write.py` | Rename throughout | Function params in `_build_section_embedding_text`, `_build_document_embedding_text`, `write_artifact`; S3 metadata key `"feature_tags"` → `"tags"`; vector metadata key `"feature_tags"` → `"tags"`; internal normalisation variable rename |
-| `src/cairn_mcp/tools/read.py` | Rename throughout | S3 metadata parse key; response field key |
-| `src/cairn_mcp/tools/list.py` | Rename throughout | Function param; filter clause key `{"tags": {"$eq": tag}}`; response field; deserialization key |
-| `src/cairn_mcp/tools/search.py` | Rename throughout | Same pattern as list.py |
-| `src/cairn_mcp/tools/synthesise.py` | Rename throughout | Same pattern as list.py |
-| `src/cairn_mcp/tools/reconcile.py` | Rename throughout | S3 parse key; vector metadata key; Artifact constructor kwarg |
-| `src/cairn_mcp/tools/write_artifacts.py` | Rename key access | `descriptor.get("feature_tags")` → `descriptor.get("tags")` |
-| `src/cairn_mcp/resources.py` | Rename throughout | Schema table row; guidance text references |
+| `src/arkeology/artifact.py` | Rename field | `feature_tags: list[str]` → `tags: list[str]`; update Field docstring |
+| `src/arkeology/server.py` | Rename params | Four tool registrations: `write_artifact`, `search_artifacts`, `list_artifacts`, `synthesise_artifacts` — param `feature_tags` → `tags` in both signature and pass-through call |
+| `src/arkeology/tools/write.py` | Rename throughout | Function params in `_build_section_embedding_text`, `_build_document_embedding_text`, `write_artifact`; S3 metadata key `"feature_tags"` → `"tags"`; vector metadata key `"feature_tags"` → `"tags"`; internal normalisation variable rename |
+| `src/arkeology/tools/read.py` | Rename throughout | S3 metadata parse key; response field key |
+| `src/arkeology/tools/list.py` | Rename throughout | Function param; filter clause key `{"tags": {"$eq": tag}}`; response field; deserialization key |
+| `src/arkeology/tools/search.py` | Rename throughout | Same pattern as list.py |
+| `src/arkeology/tools/synthesise.py` | Rename throughout | Same pattern as list.py |
+| `src/arkeology/tools/reconcile.py` | Rename throughout | S3 parse key; vector metadata key; Artifact constructor kwarg |
+| `src/arkeology/tools/write_artifacts.py` | Rename key access | `descriptor.get("feature_tags")` → `descriptor.get("tags")` |
+| `src/arkeology/resources.py` | Rename throughout | Schema table row; guidance text references |
 | `tests/unit/test_artifact.py` | Rename | Fixture key; assertion field; test name/docstring |
 | `tests/unit/test_tools_write.py` | Rename | All fixture dicts; test names (`test_vector_metadata_feature_tags_is_list` → `test_vector_metadata_tags_is_list`, `test_s3_metadata_feature_tags_…` → `test_s3_metadata_tags_…`); all assertions |
 | `tests/unit/test_tools_read.py` | Rename | S3 fixture key; assertion field; test name/docstring |
@@ -137,8 +137,8 @@ already familiar with OKF.
 | `tests/integration/test_tools_synthesise.py` | Rename | Fixture field |
 | `AGENTS.md` | Rename | Conventions section (comma-join list note); High-Friction Areas section |
 | `SERVER-REFERENCE.md` | Rename | Tool signature lines for `search_artifacts` and `list_artifacts` |
-| `skills/setting-up-cairn/references/agents-snippet.md` | Rename | Tool call example `feature_tags=` → `tags=` |
-| `skills/migrating-to-cairn/SKILL.md` | Rename | Field mapping guidance references |
+| `skills/setting-up-arkeology/references/agents-snippet.md` | Rename | Tool call example `feature_tags=` → `tags=` |
+| `skills/migrating-to-arkeology/SKILL.md` | Rename | Field mapping guidance references |
 
 ## Testing Approach
 
@@ -184,7 +184,7 @@ fully green. Then: `uv run ruff check src/ tests/`, `uv run ruff format --check 
 **Phase 3 — Documentation and skills (no test gate)**
 
 Update `AGENTS.md`, `SERVER-REFERENCE.md`,
-`skills/setting-up-cairn/references/agents-snippet.md`, `skills/migrating-to-cairn/SKILL.md`.
+`skills/setting-up-arkeology/references/agents-snippet.md`, `skills/migrating-to-arkeology/SKILL.md`.
 
 ## Open Questions
 

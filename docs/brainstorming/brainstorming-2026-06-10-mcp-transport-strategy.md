@@ -1,7 +1,7 @@
 ---
 type: brainstorming
 title: MCP Transport Strategy — stdio vs Streamable HTTP
-description: Explores whether cairn-mcp should adopt Streamable HTTP transport alongside or instead of stdio, what it unlocks (concurrent calls, SSE progress events, multi-client), and what it costs in deployment complexity and authentication surface.
+description: Explores whether Arkeology should adopt Streamable HTTP transport alongside or instead of stdio, what it unlocks (concurrent calls, SSE progress events, multi-client), and what it costs in deployment complexity and authentication surface.
 tags: []
 timestamp: 2026-06-10T00:00:00Z
 okf_version: "0.1"
@@ -18,7 +18,7 @@ techniques_used: []
 assumptions_challenged: []
 decisions_locked: []
 decisions_pending:
-  - D1: Should cairn-mcp support Streamable HTTP transport?
+  - D1: Should Arkeology support Streamable HTTP transport?
   - D2: Should stdio remain the primary/only transport, or should HTTP become the default?
   - D3: Does Streamable HTTP eliminate the need for the description_concurrency parameter on migrate_artifacts?
 decisions_closed_not_applicable: []
@@ -28,14 +28,14 @@ decisions_closed_not_applicable: []
 
 ## Description
 
-cairn-mcp currently runs exclusively over stdio transport, which serialises all
+Arkeology currently runs exclusively over stdio transport, which serialises all
 MCP tool calls through a single pipe. This session explores whether switching to (or
 adding) Streamable HTTP transport — which FastMCP already supports with a one-line
 change — is the right move, what it unlocks (concurrent calls, SSE progress events,
 multi-client), and what it costs (deployment complexity, authentication surface,
 client config changes).
 
-The question was triggered by two concrete pain points in the `migrating-to-cairn`
+The question was triggered by two concrete pain points in the `migrating-to-arkeology`
 skill: (A) no progress feedback during long bulk operations, and (B) slow description
 generation due to low server-side concurrency. The prior write-performance brainstorm
 (Session 4) already established that sub-agent parallelism does not work over stdio
@@ -70,7 +70,7 @@ Two concrete pain points exposed a transport-level constraint:
 - Multiple clients (or multiple sub-agents acting as independent clients) can connect
   simultaneously.
 
-The question: should cairn-mcp adopt Streamable HTTP, and if so, on what terms?
+The question: should Arkeology adopt Streamable HTTP, and if so, on what terms?
 
 ### Known Constraints
 

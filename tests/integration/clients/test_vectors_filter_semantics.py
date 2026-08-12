@@ -2,7 +2,7 @@
 
 M-16 (Phase 12 review, Cluster E): the moto ``query_vectors`` extension in
 tests/unit/conftest.py filters using the exact same production
-``cairn_mcp.clients.filter.matches_filter`` function that
+``arkeology.clients.filter.matches_filter`` function that
 ``VectorsClientImpl.query_vectors`` hands to boto3 as the ``filter`` request
 parameter. That makes the unit suite circular for anything QueryVectors
 evaluates **server-side**: if ``matches_filter``'s assumptions about AWS's
@@ -24,7 +24,7 @@ semantic the codebase relies on:
      accepted and behaves as ``$eq`` (documented, same page: "When you don't
      specify an operator, S3 Vectors automatically uses the $eq operator.").
   3. ``$gte`` on a *string* field (as ``propose_commit_links`` shapes its
-     ``last_edited_ulid`` bound, via ``cairn_mcp.clients.filter.matches_filter``
+     ``last_edited_ulid`` bound, via ``arkeology.clients.filter.matches_filter``
      — see that tool's module docstring for why this filter shape never
      actually reaches QueryVectors in production today). AWS's own operator
      table documents ``$gte`` as Number-only; this test empirically pins
@@ -53,7 +53,7 @@ import uuid
 import botocore.exceptions
 import pytest
 
-from cairn_mcp.clients.vectors import VectorsClientImpl
+from arkeology.clients.vectors import VectorsClientImpl
 
 pytestmark = pytest.mark.integration
 
@@ -80,7 +80,7 @@ def vectors_client() -> VectorsClientImpl:
 
 @pytest.fixture
 def probe_key() -> str:
-    return f"_cairn_filter_semantics_{uuid.uuid4().hex}"
+    return f"_arkeology_filter_semantics_{uuid.uuid4().hex}"
 
 
 # ---------------------------------------------------------------------------
@@ -156,7 +156,7 @@ def test_gte_on_string_ulid_field_real_behaviour(
     QueryVectors REJECTS $gte with a String operand —
     ``botocore.errorfactory.ValidationException: ... Invalid filter``. This
     confirms the AWS docs' operator table ("$gte: Number" only) is accurate,
-    NOT merely conservative/incomplete documentation. cairn_mcp.clients.filter
+    NOT merely conservative/incomplete documentation. arkeology.clients.filter
     .matches_filter's $gte implementation does a plain Python string
     comparison (no type restriction) and is therefore only ever safe to use
     on a String field because its sole ULID-range caller,
@@ -168,7 +168,7 @@ def test_gte_on_string_ulid_field_real_behaviour(
     string. Do not weaken this assertion — if AWS's behaviour ever changes,
     update this docstring's finding rather than loosening the assertion.
     """
-    low_key = f"_cairn_filter_semantics_{uuid.uuid4().hex}_low"
+    low_key = f"_arkeology_filter_semantics_{uuid.uuid4().hex}_low"
     vec = _unit_vec(index_dimension)
     low_ulid = "01KDVDNA00FN74309G4MXHQ1KK"  # 2026-01-01
     mid_ulid = "01KJKB3Q00FN74309G4MXHQ1KM"  # 2026-03-01 — the $gte bound
@@ -243,8 +243,8 @@ def test_oversized_filter_expression_behaviour(
     for safety margin against a larger, undocumented cap the search re-fetch
     loop's unbounded growth could otherwise hit at scale.
     """
-    excluded_key = f"_cairn_filter_semantics_{uuid.uuid4().hex}_excluded"
-    included_key = f"_cairn_filter_semantics_{uuid.uuid4().hex}_included"
+    excluded_key = f"_arkeology_filter_semantics_{uuid.uuid4().hex}_excluded"
+    included_key = f"_arkeology_filter_semantics_{uuid.uuid4().hex}_included"
     vec = _unit_vec(index_dimension)
     # ~4 KB of JSON — comfortably over the 2 KB filterable-metadata-per-vector
     # budget the codebase's byte budget mirrors.

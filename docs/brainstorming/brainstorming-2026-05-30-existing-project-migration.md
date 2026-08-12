@@ -1,7 +1,7 @@
 ---
 type: brainstorming
 title: Existing Project Migration
-description: Explores how a team adopting cairn-mcp would migrate accumulated project documentation (ADRs, specs, brainstorming files) into cairn-mcp, covering discovery, classification, metadata enrichment, import mechanism, and post-migration strategy.
+description: Explores how a team adopting Arkeology would migrate accumulated project documentation (ADRs, specs, brainstorming files) into Arkeology, covering discovery, classification, metadata enrichment, import mechanism, and post-migration strategy.
 tags: []
 timestamp: 2026-05-30T00:00:00Z
 okf_version: "0.1"
@@ -21,11 +21,11 @@ assumptions_challenged: []
 
 ## Description
 
-cairn-mcp is designed for new or ongoing agent sessions. But every team that adopts it starts
+Arkeology is designed for new or ongoing agent sessions. But every team that adopts it starts
 from an existing project — a repo with months or years of accumulated docs: ADRs in `docs/adr/`,
 specs in `docs/specs/`, brainstorming session files, scratchpad notes, implementation notes
 committed to the repo. This session explores how a team would actually get all of that into
-cairn-mcp, and what the correct set of tools, workflows, and guidance looks like to make that
+Arkeology, and what the correct set of tools, workflows, and guidance looks like to make that
 practical.
 
 The migration problem has five distinct sub-problems: discovery (what to migrate), classification
@@ -39,10 +39,10 @@ to the originals?).
 
 ### Problem decomposition
 
-A team adopting cairn-mcp on an existing project faces five separate challenges in sequence:
+A team adopting Arkeology on an existing project faces five separate challenges in sequence:
 
 1. **Discovery** — identify which files in the repo are worth migrating
-2. **Classification** — map each file to a cairn-mcp artifact type, tier, and visibility
+2. **Classification** — map each file to an Arkeology artifact type, tier, and visibility
 3. **Metadata enrichment** — produce required fields that don't exist in most files (`description`, original `date`, `team`, `project`)
 4. **Import** — actually call `write_artifact` for each selected file
 5. **Post-migration** — decide what happens to the original files and what is the source of truth going forward
@@ -57,11 +57,11 @@ Each sub-problem has its own option space.
 
 - **Allowlist by directory**: only migrate files under known documentation directories (`docs/adr/`, `docs/specs/`, `docs/brainstorming/`, `docs/planning-artifacts/`); everything else is ignored
 - **Allowlist by filename pattern**: migrate all `*.md` files except known non-artifacts (`README.md`, `CHANGELOG.md`, `AGENTS.md`, `CONTRIBUTING.md`)
-- **Explicit manifest**: user creates a CAIRN_IMPORT.yaml that explicitly lists files → metadata; nothing is inferred
+- **Explicit manifest**: user creates an ARKEOLOGY_IMPORT.yaml that explicitly lists files → metadata; nothing is inferred
 - **Agent-guided sweep**: an agent walks the repo using `list_files` or directory traversal and makes judgment calls on each file using its understanding of the project
 - **Git-history scan**: surface all `.md` files that have been modified by a human (not just auto-generated), using `git log` to exclude files never committed by a person
-- **Gradual as-you-go**: no upfront migration; each time an agent session encounters a relevant repo file it reads it, writes it to cairn-mcp, and continues — coverage builds up naturally over time
-- **Type-guided sweep**: for each cairn-mcp artifact type, identify the conventional directory for that type in the project and sweep it; skip anything that doesn't map to a type
+- **Gradual as-you-go**: no upfront migration; each time an agent session encounters a relevant repo file it reads it, writes it to Arkeology, and continues — coverage builds up naturally over time
+- **Type-guided sweep**: for each Arkeology artifact type, identify the conventional directory for that type in the project and sweep it; skip anything that doesn't map to a type
 
 **Selected direction**
 
@@ -95,7 +95,7 @@ judgment call on ambiguous files.
   - `docs/research/` → `research`, tier 2 or 3 depending on content
 - **Filename pattern matching**: `session-summary-*.md` → `session-summary`; `adr-*.md` → `adr`; `cr-*.md` → `code-review`
 - **Frontmatter parsing**: if files contain YAML frontmatter with a `type:` field, use it directly
-- **Content-based LLM classification**: feed the first 300 words to an LLM with the cairn-mcp type catalogue (from MCP Resources) and ask it to classify — most reliable for ambiguous files
+- **Content-based LLM classification**: feed the first 300 words to an LLM with the Arkeology type catalogue (from MCP Resources) and ask it to classify — most reliable for ambiguous files
 - **User-override manifest**: user provides the final mapping as YAML; tool uses it verbatim
 - **Interactive agent dialog**: agent proposes a classification for each file, user confirms or corrects via conversational turns
 
@@ -200,11 +200,11 @@ The agent classifies, generates descriptions, recovers dates, and writes.
 
 **Option B — Manifest-driven Python migration script** (helper script in the repo)
 
-A Python script (`tools/migrate_to_cairn.py` or similar) that:
-1. Reads a CAIRN_IMPORT.yaml manifest
+A Python script (`tools/migrate_to_arkeology.py` or similar) that:
+1. Reads an ARKEOLOGY_IMPORT.yaml manifest
 2. Runs `git log` to recover dates per file
 3. Calls Bedrock (same model) to generate descriptions for files missing them
-4. Instantiates cairn_mcp clients directly and calls `write_artifact` logic
+4. Instantiates Arkeology clients directly and calls `write_artifact` logic
 5. Reports what was imported, what failed, what was skipped
 
 The manifest is either hand-written by the operator or generated by an agent in a preparation step.
@@ -228,7 +228,7 @@ calls the write path internally.
 
 **Option D — Frontmatter injection + direct write**
 
-Before migrating, an agent adds YAML frontmatter to each file with pre-filled cairn-mcp metadata
+Before migrating, an agent adds YAML frontmatter to each file with pre-filled Arkeology metadata
 (type, tier, team, project, description). Then a simple script reads frontmatter and calls
 `write_artifact`. The frontmatter becomes the source of truth for metadata.
 
@@ -239,7 +239,7 @@ Before migrating, an agent adds YAML frontmatter to each file with pre-filled ca
 **Option E — Gradual as-you-go (no upfront migration)**
 
 No batch migration at all. Agents encounter relevant repo files naturally during work, read
-them, and write them to cairn-mcp as needed. Coverage builds up organically.
+them, and write them to Arkeology as needed. Coverage builds up organically.
 
 - Pros: zero migration effort; only relevant files get migrated
 - Cons: patchy coverage; an agent starting a new session doesn't know which files have been
@@ -256,13 +256,13 @@ agentic coding IDEs (Claude Code, Codex, Copilot, and others). It is not OpenCod
 The D13 decision to reject a companion skill was about always-on general usage guidance — that
 reasoning does not apply to a one-time operational skill.
 
-**Structure of the migration skill (shipped with cairn-mcp)**:
+**Structure of the migration skill (shipped with Arkeology)**:
 
 ```
 skills/migration/
   SKILL.md          # Structured workflow for the agent
   migrate.py        # Mechanical bulk operations: git dates, Bedrock descriptions, bulk writes
-  schema.yaml       # CAIRN_IMPORT.yaml manifest schema (for large migrations)
+  schema.yaml       # ARKEOLOGY_IMPORT.yaml manifest schema (for large migrations)
 ```
 
 **Division of labour — skill vs. script:**
@@ -274,8 +274,8 @@ skills/migration/
 | Description generation: ambiguous/high-value files | Agent reads the file and writes a high-quality description in-context |
 | Date recovery | `migrate.py` runs `git log` per file |
 | Description generation: bulk clear-cut files | `migrate.py` calls Bedrock with a structured prompt |
-| Bulk `write_artifact` calls | `migrate.py` calls cairn-mcp write path directly |
-| Manifest generation (large migrations) | Agent produces the CAIRN_IMPORT.yaml, operator reviews |
+| Bulk `write_artifact` calls | `migrate.py` calls Arkeology write path directly |
+| Manifest generation (large migrations) | Agent produces the ARKEOLOGY_IMPORT.yaml, operator reviews |
 | Verification | Skill instructs agent to call `list_artifacts` + run test searches |
 
 **Two workflow paths within the skill:**
@@ -287,7 +287,7 @@ skills/migration/
 
 *Large migration (30+ files) — agent prepares manifest, script executes*:
 1. Load skill
-2. Agent reads all candidate files, produces CAIRN_IMPORT.yaml (path, type, tier, draft description for each)
+2. Agent reads all candidate files, produces ARKEOLOGY_IMPORT.yaml (path, type, tier, draft description for each)
 3. Operator reviews and edits manifest
 4. Agent runs `migrate.py` which handles git dates, Bedrock descriptions for bulk files, bulk writes
 5. Verify with `list_artifacts` and test searches
@@ -297,35 +297,35 @@ skills/migration/
 ### Sub-problem 5 — Post-migration strategy
 
 **The tension**: the existing repo files are the current "source of truth". After migrating to
-cairn-mcp, should they be removed? Left in place? What's the source of truth going forward?
+Arkeology, should they be removed? Left in place? What's the source of truth going forward?
 
 **Ideas — treatment of original files post-migration**
 
-- **Keep and leave**: files stay in the repo unchanged; cairn-mcp is an additional index; both
+- **Keep and leave**: files stay in the repo unchanged; Arkeology is an additional index; both
   exist; no single source of truth; risk of divergence
-- **Keep and mark**: add a frontmatter flag `cairn_id: <artifact_id>` to each migrated file;
+- **Keep and mark**: add a frontmatter flag `arkeology_id: <artifact_id>` to each migrated file;
   the file stays but it's clear it has been migrated; updating the file should also trigger a
-  cairn-mcp re-write
+  Arkeology re-write
 - **Keep tier 3, remove tier 2**: ADRs and specs stay in the repo (they belong there too);
   tier 2 working documents (session summaries, code reviews, impl notes) are removed after
-  migration since their value is now in cairn-mcp
+  migration since their value is now in Arkeology
 - **Move to archive branch**: migrated tier 2 files are removed from main and archived in a
   historical branch; repo stays clean, history preserved
-- **Remove all migrated files**: repo cleans up; cairn-mcp is the single source of truth for
-  artifacts; risks: cairn-mcp unavailability = no access; new contributors may expect docs in repo
-- **Dual-write going forward**: after migration, agents write all new artifacts to cairn-mcp
+- **Remove all migrated files**: repo cleans up; Arkeology is the single source of truth for
+  artifacts; risks: Arkeology unavailability = no access; new contributors may expect docs in repo
+- **Dual-write going forward**: after migration, agents write all new artifacts to Arkeology
   AND commit a copy to the repo in the appropriate directory; redundant but portable
 
 **Recommendation for each tier**
 
 | Tier | Recommended post-migration treatment | Rationale |
 |---|---|---|
-| Tier 3 (ADRs, specs, plans) | **Keep in repo, dual-write going forward** | Tier 3 artifacts are canonical — engineers expect them in the repo; cairn-mcp adds semantic searchability, not replaces the repo |
+| Tier 3 (ADRs, specs, plans) | **Keep in repo, dual-write going forward** | Tier 3 artifacts are canonical — engineers expect them in the repo; Arkeology adds semantic searchability, not replaces the repo |
 | Tier 2 (session summaries, code reviews, impl notes) | **Remove from repo after migration** | These files pollute git history and the docs folder; their value is in being searchable, not in being in the repo |
 
 This mirrors the three-tier model: code stays in git (tier 1/code), canonical decisions stay in
-both git and cairn-mcp (tier 3 dual-write), working documents live only in cairn-mcp (tier 2
-cairn-mcp only).
+both git and Arkeology (tier 3 dual-write), working documents live only in Arkeology (tier 2
+Arkeology only).
 
 ---
 
@@ -351,7 +351,7 @@ The migration script should log when the date fallback was triggered.
 
 **Description quality is the success criterion**
 
-A migration that moves files into cairn-mcp with empty or low-quality descriptions is worse
+A migration that moves files into Arkeology with empty or low-quality descriptions is worse
 than no migration. An agent searching for "authentication implementation decisions" that gets
 back five results with descriptions like "Implementation notes for auth module" is not much
 helped. The migration must invest in description quality — using LLM generation, not just
@@ -393,15 +393,15 @@ project. The candidate AGENTS.md snippet from the initial session is **withdrawn
 A SKILL.md is the correct vehicle: the operator installs it, uses it once to perform the
 migration, then uninstalls or ignores it. No permanent footprint in the project.
 
-### Resolved decision — Migration skill ships with cairn-mcp ✅
+### Resolved decision — Migration skill ships with Arkeology ✅
 
-The migration capability is delivered as a **skill bundled in the cairn-mcp repository**:
+The migration capability is delivered as a **skill bundled in the Arkeology repository**:
 
 ```
 skills/migration/
   SKILL.md          # Structured workflow: discovery, classification, description, verification
   migrate.py        # Mechanical bulk operations: git dates, Bedrock descriptions, bulk writes
-  schema.yaml       # CAIRN_IMPORT.yaml manifest schema
+  schema.yaml       # ARKEOLOGY_IMPORT.yaml manifest schema
 ```
 
 **Revised summary — key outputs for PM and architect**
@@ -413,8 +413,8 @@ skills/migration/
 | Description: ambiguous/high-value files | Agent reads file, writes description in-context | `SKILL.md` |
 | Description: bulk clear-cut files | `migrate.py` calls Bedrock | `migrate.py` |
 | Date recovery | `migrate.py` calls `git log` per file | `migrate.py` |
-| Bulk `write_artifact` | `migrate.py` calls cairn-mcp write path directly | `migrate.py` |
-| Manifest (large migrations) | Agent produces CAIRN_IMPORT.yaml, operator reviews | `SKILL.md` + `schema.yaml` |
+| Bulk `write_artifact` | `migrate.py` calls Arkeology write path directly | `migrate.py` |
+| Manifest (large migrations) | Agent produces ARKEOLOGY_IMPORT.yaml, operator reviews | `SKILL.md` + `schema.yaml` |
 | Verification | Skill instructs agent: `list_artifacts` + test searches | `SKILL.md` |
 | AGENTS.md migration snippet | **Withdrawn** — wrong vehicle for a one-time operation | — |
 | New MCP tools | None | No server changes |
@@ -429,7 +429,7 @@ Auto-detection of which IDE is in use is too fragile — skills folder locations
 across Claude Code, Codex, Copilot, OpenCode, and others. The maintenance cost of a detection
 script exceeds its value for a one-time installation.
 
-Resolved approach: the cairn-mcp README documents the skills directory path for each supported
+Resolved approach: the Arkeology README documents the skills directory path for each supported
 IDE in a single table, plus a simple `cp -r` one-liner. No detection script, no install command,
 no breakage. A user installing a one-time migration skill can copy a folder once.
 
@@ -444,13 +444,13 @@ skills/migration/
   SKILL.md
   scripts/
     migrate.py       # PEP 723 inline deps, run with: uv run scripts/migrate.py
-  schema.yaml        # CAIRN_IMPORT.yaml manifest schema
+  schema.yaml        # ARKEOLOGY_IMPORT.yaml manifest schema
 ```
 
 `migrate.py` uses PEP 723 inline dependency declarations and is run with `uv run scripts/migrate.py`
-— no separate install step, no venv management. This aligns with cairn-mcp's existing `uv` toolchain.
+— no separate install step, no venv management. This aligns with Arkeology's existing `uv` toolchain.
 
-The script does not live in the cairn-mcp project repo itself — it lives only in the skill
+The script does not live in the Arkeology project repo itself — it lives only in the skill
 bundle. Once the migration is done, the operator can uninstall the skill and the script goes
 with it.
 
@@ -463,18 +463,18 @@ with it.
 
 ### OQ3 — Post-migration: no deletion, no dual-write discipline ✅
 
-cairn-mcp does not delete anything from the user's repo. The migration skill instructs the
+Arkeology does not delete anything from the user's repo. The migration skill instructs the
 agent to tell the operator which tier 2 files may be removed — the operator decides and acts.
 
 After migration, the skill's final step updates the project's `AGENTS.md`: adding the
-recommended cairn-mcp usage snippet (when to write artifacts, which types, how to write
-descriptions) so that future agents use cairn-mcp going forward rather than committing docs
+recommended Arkeology usage snippet (when to write artifacts, which types, how to write
+descriptions) so that future agents use Arkeology going forward rather than committing docs
 to the repo. This is the only post-migration write the skill makes to the project.
 
 No dual-write discipline for tier 3 artifacts. Tier 3 files (ADRs, specs, plans) remain in the
-repo as-is — they were already there and belong there. cairn-mcp adds searchability; it does
+repo as-is — they were already there and belong there. Arkeology adds searchability; it does
 not replace the repo copy. The AGENTS.md guidance instructs future agents to write new tier 3
-artifacts to cairn-mcp; updating existing tier 3 files in the repo is a separate human concern.
+artifacts to Arkeology; updating existing tier 3 files in the repo is a separate human concern.
 
 ### OQ4 — V1 scope: migration skill ships with V1 ✅
 

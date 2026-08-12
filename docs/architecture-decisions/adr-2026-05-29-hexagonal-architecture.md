@@ -19,7 +19,7 @@ revised:
 
 ## Description
 
-This decision records the structural pattern chosen for cairn-mcp: a layered architecture
+This decision records the structural pattern chosen for arkeology: a layered architecture
 that isolates the domain model and tool logic from all AWS service calls behind
 `typing.Protocol` interfaces, with concrete clients injected as dependencies.
 

@@ -72,8 +72,8 @@ transient failure should not abort a write or search operation.
 | File | Action | Notes |
 |------|--------|-------|
 | `tests/unit/clients/test_fake_bedrock.py` | Modify | Add tests for throttle-retry behaviour (written first — Red) |
-| `src/cairn_mcp/clients/fakes/fake_bedrock.py` | Modify | Add `throttle_on_next_call: bool` flag to simulate throttle → retry → success |
-| `src/cairn_mcp/clients/bedrock.py` | Modify | Add retry logic for transient errors after `CredentialError` check |
+| `src/arkeology/clients/fakes/fake_bedrock.py` | Modify | Add `throttle_on_next_call: bool` flag to simulate throttle → retry → success |
+| `src/arkeology/clients/bedrock.py` | Modify | Add retry logic for transient errors after `CredentialError` check |
 
 ## Testing Approach
 

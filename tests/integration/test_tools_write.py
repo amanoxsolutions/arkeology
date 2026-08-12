@@ -1,4 +1,4 @@
-"""Integration tests for cairn_mcp.tools.write.
+"""Integration tests for arkeology.tools.write.
 
 Requires real AWS credentials and configured .env file.
 All tests are decorated with @pytest.mark.integration.
@@ -6,13 +6,13 @@ All tests are decorated with @pytest.mark.integration.
 
 import pytest
 
-from cairn_mcp.clients.bedrock import BedrockClientImpl
-from cairn_mcp.clients.s3 import S3ClientImpl
-from cairn_mcp.clients.vectors import VectorsClientImpl
-from cairn_mcp.config import Settings
-from cairn_mcp.tools.delete import delete_artifact
-from cairn_mcp.tools.link_metadata import link_metadata
-from cairn_mcp.tools.write import write_artifact
+from arkeology.clients.bedrock import BedrockClientImpl
+from arkeology.clients.s3 import S3ClientImpl
+from arkeology.clients.vectors import VectorsClientImpl
+from arkeology.config import Settings
+from arkeology.tools.delete import delete_artifact
+from arkeology.tools.link_metadata import link_metadata
+from arkeology.tools.write import write_artifact
 
 
 @pytest.fixture(scope="session")
@@ -54,7 +54,7 @@ def bedrock(settings: Settings) -> BedrockClientImpl:
 _BASE_KWARGS: dict = {
     "type": "code_review",
     "team": "platform",
-    "project": "cairn",
+    "project": "arkeology",
     "tier": 2,
     "date": "2026-05-30",
     "status": "active",

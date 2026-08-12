@@ -18,8 +18,8 @@ import botocore.exceptions
 import pytest
 from pytest_mock import MockerFixture
 
-from cairn_mcp.__main__ import configure_logging, main
-from cairn_mcp.config import Settings
+from arkeology.__main__ import configure_logging, main
+from arkeology.config import Settings
 
 _NOISY_LOGGERS: tuple[str, ...] = ("botocore", "boto3", "urllib3", "s3transfer")
 
@@ -149,7 +149,7 @@ def test_main_bad_profile_exits_cleanly_not_raw_traceback(
     fails because a different exception type escapes instead.
     """
     mocker.patch(
-        "cairn_mcp.__main__.load_settings",
+        "arkeology.__main__.load_settings",
         return_value=_settings_with_bad_profile(),
     )
     mocker.patch(
@@ -172,14 +172,14 @@ def test_main_bad_profile_does_not_reach_startup_validation(
     """A ProfileNotFound during client construction must prevent startup validation
     (and therefore any AWS call) from ever running."""
     mocker.patch(
-        "cairn_mcp.__main__.load_settings",
+        "arkeology.__main__.load_settings",
         return_value=_settings_with_bad_profile(),
     )
     mocker.patch(
         "boto3.Session",
         side_effect=botocore.exceptions.ProfileNotFound(profile="does-not-exist-profile"),
     )
-    spy = mocker.patch("cairn_mcp.__main__.validate_startup")
+    spy = mocker.patch("arkeology.__main__.validate_startup")
 
     with pytest.raises(SystemExit):
         main()

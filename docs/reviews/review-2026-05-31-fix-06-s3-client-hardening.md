@@ -71,8 +71,8 @@ Tests that rely on ordering pass locally but fail in production.
 | File | Action | Notes |
 |------|--------|-------|
 | `tests/unit/clients/test_fake_s3.py` | Modify | Add tests for lexicographic order and 403-not-KeyError (written first — Red) |
-| `src/cairn_mcp/clients/s3.py` | Modify | Remove `"403"` from the `("NoSuchKey", "404", "403")` tuple in `head_object` |
-| `src/cairn_mcp/clients/fakes/fake_s3.py` | Modify | Wrap `list_objects` return in `sorted(...)` |
+| `src/arkeology/clients/s3.py` | Modify | Remove `"403"` from the `("NoSuchKey", "404", "403")` tuple in `head_object` |
+| `src/arkeology/clients/fakes/fake_s3.py` | Modify | Wrap `list_objects` return in `sorted(...)` |
 
 ## Testing Approach
 

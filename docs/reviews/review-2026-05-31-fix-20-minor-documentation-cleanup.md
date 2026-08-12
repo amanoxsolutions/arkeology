@@ -70,16 +70,16 @@ needed — all three are documentation-only fixes.
   AWS-adjacent open-source code), is widely accepted in enterprise settings, and is the
   licence used by Amazon for most of its own open-source tooling. A `LICENSE` file with
   the Apache 2.0 text must be created in the repo root and the README updated accordingly.
-- **Repository URL:** `https://github.com/amanoxsolutions/cairn-mcp`. Replace the
-  `your-org/cairn-mcp` placeholder with this URL.
+- **Repository URL:** `https://github.com/amanoxsolutions/arkeology`. Replace the
+  `your-org/arkeology` placeholder with this URL.
 
 ## Files to Touch
 
 | File | Action | Notes |
 |------|--------|-------|
 | `LICENSE` | Create | Apache 2.0 full text (SPDX: `Apache-2.0`); copyright line: `Copyright 2026 Amanox Solutions` |
-| `README.md` | Modify | Replace `<!-- TODO -->` License placeholder with Apache 2.0 badge/statement; replace `your-org/cairn-mcp` clone URL with `https://github.com/amanoxsolutions/cairn-mcp` |
-| `src/cairn_mcp/config.py` | Modify | Add comment block above the snake_case alias section explaining the `alias_generator` trade-off |
+| `README.md` | Modify | Replace `<!-- TODO -->` License placeholder with Apache 2.0 badge/statement; replace `your-org/arkeology` clone URL with `https://github.com/amanoxsolutions/arkeology` |
+| `src/arkeology/config.py` | Modify | Add comment block above the snake_case alias section explaining the `alias_generator` trade-off |
 
 ## Testing Approach
 
@@ -89,7 +89,7 @@ Documentation-only changes — no source code or test files are modified.
 - Open `README.md` and confirm the License section is readable without an HTML comment
   blocker.
 - Open `README.md` and confirm the `git clone` URL is either real or clearly labelled.
-- Open `src/cairn_mcp/config.py` and confirm the comment block is present above the
+- Open `src/arkeology/config.py` and confirm the comment block is present above the
   alias block.
 - Run `uv run ruff check src/` and `uv run mypy src/` to confirm the comment addition
   in `config.py` did not introduce any lint or type errors.
@@ -97,5 +97,5 @@ Documentation-only changes — no source code or test files are modified.
 ## Open Questions
 
 - **License — RESOLVED (2026-05-31):** Apache 2.0. Create `LICENSE` file and update README.
-- **Repository URL — RESOLVED (2026-05-31):** `https://github.com/amanoxsolutions/cairn-mcp`.
-  Replace `your-org/cairn-mcp` placeholder.
+- **Repository URL — RESOLVED (2026-05-31):** `https://github.com/amanoxsolutions/arkeology`.
+  Replace `your-org/arkeology` placeholder.

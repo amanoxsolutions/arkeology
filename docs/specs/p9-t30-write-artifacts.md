@@ -110,11 +110,11 @@ truncates the body before calling Bedrock but stores the full body in S3 unchang
 - Given `EMBED_MAX_SECTION_LENGTH` set to a negative integer, when the server starts, then it
   exits with a clear validation error.
 
-### Story 5 — Partial-failure recovery via CAIRN_IMPORT.yaml status tracking (FR-27)
+### Story 5 — Partial-failure recovery via ARKEOLOGY_IMPORT.yaml status tracking (FR-27)
 
 An operator runs a > 10 file migration. During the `migrate_artifacts(dry_run=False)` call, 2 of
 10 artifacts fail due to a transient Bedrock throttle. The per-artifact response identifies the
-2 failures. The agent updates the CAIRN_IMPORT.yaml manifest: 8 entries become `written`, 2
+2 failures. The agent updates the ARKEOLOGY_IMPORT.yaml manifest: 8 entries become `written`, 2
 become `failed` with the error detail. On re-run, the agent reads the manifest, filters to only
 `pending` and `failed` entries, and calls `migrate_artifacts` again with only those 2. Both are
 written successfully. The agent updates the manifest to mark all entries `written` and reports
@@ -123,7 +123,7 @@ migration complete.
 **Acceptance criteria:**
 - Given 10 manifest entries with `status: pending` and a fully successful
   `migrate_artifacts(dry_run=False)` response, when the agent processes the response, then all
-  10 entries in CAIRN_IMPORT.yaml are updated to `status: written`.
+  10 entries in ARKEOLOGY_IMPORT.yaml are updated to `status: written`.
 - Given a partial failure where 2 of 10 entries fail, when the agent processes the response,
   then the 8 successful entries have `status: written` and the 2 failed entries have
   `status: failed` with the error message populated in the manifest.
@@ -174,11 +174,11 @@ migration complete.
 - WHEN `BEDROCK_TEXT_MODEL` is absent from the environment THE SYSTEM SHALL skip the text model
   startup check entirely.
 - WHEN `migrate_artifacts` returns a per-artifact result list THE AGENT SHALL update each
-  corresponding entry in CAIRN_IMPORT.yaml: `status: written` for successful entries;
+  corresponding entry in ARKEOLOGY_IMPORT.yaml: `status: written` for successful entries;
   `status: failed` with the error message populated for failed entries.
 - WHEN the agent prepares a `migrate_artifacts` call THE AGENT SHALL include only entries with
   `status: pending` or `status: failed`; entries with `status: written` SHALL be skipped.
-- WHEN all entries in CAIRN_IMPORT.yaml carry `status: written` THE AGENT SHALL report
+- WHEN all entries in ARKEOLOGY_IMPORT.yaml carry `status: written` THE AGENT SHALL report
   migration complete without calling `migrate_artifacts`.
 - IF any entries carry `status: failed` after a run THE AGENT SHALL list every failed entry by
   path and error message before concluding the session.
@@ -245,51 +245,51 @@ migration complete.
 | `tests/unit/test_tools_migrate_artifacts.py` | Create | Tests for `migrate_artifacts`: Nova Lite calls for missing descriptions, description clipping (both dry_run modes), dry_run=True writes nothing, dry_run=False delegates to write_artifacts, concurrency bound — written first (Red) |
 | `tests/unit/clients/test_bedrock.py` | Modify | Add `invoke_text_model` tests: returns string, credential error → CredentialError — written first (Red) |
 | `tests/unit/test_startup.py` | Modify | Tests for 6th startup check: BEDROCK_TEXT_MODEL configured + reachable → passes; unreachable → hard fail; absent → check skipped — written first (Red) |
-| `src/cairn_mcp/config.py` | Modify | Add `ARTIFACT_CONCURRENCY` (int, default 3, validator ≥ 1), `BEDROCK_TEXT_MODEL` (str \| None, default `amazon.nova-lite-v1:0`), `EMBED_MAX_SECTION_LENGTH` (int, default 24000, validator ≥ 0) |
-| `src/cairn_mcp/clients/interfaces.py` | Modify | Add `invoke_text_model(model_id: str, prompt: str) -> str` to `BedrockClientInterface` Protocol |
-| `src/cairn_mcp/clients/bedrock.py` | Modify | Implement `invoke_text_model` using `bedrock:InvokeModel` with Nova Lite request/response shape |
-| `src/cairn_mcp/clients/fakes/fake_bedrock.py` | Modify | Add `invoke_text_model` stub returning a deterministic short string (e.g. `"Fake description."`) |
-| `src/cairn_mcp/startup.py` | Modify | Add 6th check: when `settings.bedrock_text_model` is set, call `bedrock.invoke_text_model` with a minimal probe prompt; fail hard on any error |
-| `src/cairn_mcp/tools/write.py` | Modify | Apply P4: before calling `bedrock.embed`, truncate section body to `settings.embed_max_section_length` when non-zero; log truncation at DEBUG |
-| `src/cairn_mcp/tools/write_artifacts.py` | Create | `write_artifacts` MCP tool: accept list of descriptors; `asyncio.gather` + `asyncio.Semaphore(ARTIFACT_CONCURRENCY)`; delegate to `_write_artifact_inner` per entry; return per-artifact result list |
-| `src/cairn_mcp/tools/migrate_artifacts.py` | Create | `migrate_artifacts` MCP tool: generate missing descriptions via Nova Lite (bounded by `ARTIFACT_CONCURRENCY` semaphore); clip all descriptions to 280 chars; `dry_run=True` returns enriched list; `dry_run=False` delegates to `write_artifacts` |
-| `src/cairn_mcp/server.py` | Modify | Register `write_artifacts` and `migrate_artifacts` tools via `register_tools()` |
-| `skills/migrating-to-cairn/scripts/migrate.py` | Delete | Script eliminated — all logic now server-side |
-| `skills/migrating-to-cairn/scripts/validate_manifest.py` | Create | PEP 723 standalone script; validates all required fields in `CAIRN_IMPORT.yaml` before step 3.B5; exits non-zero if any `status: pending` entry is missing a required field |
-| `skills/migrating-to-cairn/schema.yaml` | Modify | Add `status` field (`pending` \| `written` \| `failed`) with optional `error` string per artifact entry; update header comment to remove `migrate.py` script reference |
+| `src/arkeology/config.py` | Modify | Add `ARTIFACT_CONCURRENCY` (int, default 3, validator ≥ 1), `BEDROCK_TEXT_MODEL` (str \| None, default `amazon.nova-lite-v1:0`), `EMBED_MAX_SECTION_LENGTH` (int, default 24000, validator ≥ 0) |
+| `src/arkeology/clients/interfaces.py` | Modify | Add `invoke_text_model(model_id: str, prompt: str) -> str` to `BedrockClientInterface` Protocol |
+| `src/arkeology/clients/bedrock.py` | Modify | Implement `invoke_text_model` using `bedrock:InvokeModel` with Nova Lite request/response shape |
+| `src/arkeology/clients/fakes/fake_bedrock.py` | Modify | Add `invoke_text_model` stub returning a deterministic short string (e.g. `"Fake description."`) |
+| `src/arkeology/startup.py` | Modify | Add 6th check: when `settings.bedrock_text_model` is set, call `bedrock.invoke_text_model` with a minimal probe prompt; fail hard on any error |
+| `src/arkeology/tools/write.py` | Modify | Apply P4: before calling `bedrock.embed`, truncate section body to `settings.embed_max_section_length` when non-zero; log truncation at DEBUG |
+| `src/arkeology/tools/write_artifacts.py` | Create | `write_artifacts` MCP tool: accept list of descriptors; `asyncio.gather` + `asyncio.Semaphore(ARTIFACT_CONCURRENCY)`; delegate to `_write_artifact_inner` per entry; return per-artifact result list |
+| `src/arkeology/tools/migrate_artifacts.py` | Create | `migrate_artifacts` MCP tool: generate missing descriptions via Nova Lite (bounded by `ARTIFACT_CONCURRENCY` semaphore); clip all descriptions to 280 chars; `dry_run=True` returns enriched list; `dry_run=False` delegates to `write_artifacts` |
+| `src/arkeology/server.py` | Modify | Register `write_artifacts` and `migrate_artifacts` tools via `register_tools()` |
+| `skills/migrating-to-arkeology/scripts/migrate.py` | Delete | Script eliminated — all logic now server-side |
+| `skills/migrating-to-arkeology/scripts/validate_manifest.py` | Create | PEP 723 standalone script; validates all required fields in `ARKEOLOGY_IMPORT.yaml` before step 3.B5; exits non-zero if any `status: pending` entry is missing a required field |
+| `skills/migrating-to-arkeology/schema.yaml` | Modify | Add `status` field (`pending` \| `written` \| `failed`) with optional `error` string per artifact entry; update header comment to remove `migrate.py` script reference |
 
 ## Testing Approach
 
 **TDD cycle A — config layer:**
-- `tests/unit/test_config.py` (Red) → `src/cairn_mcp/config.py` (Green)
+- `tests/unit/test_config.py` (Red) → `src/arkeology/config.py` (Green)
 - `ARTIFACT_CONCURRENCY` default=3, zero → ValidationError; `EMBED_MAX_SECTION_LENGTH` default=24000,
   negative → ValidationError, zero accepted; `BEDROCK_TEXT_MODEL` absent → None, set → string.
 
 **TDD cycle B — P4 section truncation:**
-- `tests/unit/test_tools_write.py` (Red) → `src/cairn_mcp/tools/write.py` (Green)
+- `tests/unit/test_tools_write.py` (Red) → `src/arkeology/tools/write.py` (Green)
 - Section body > limit → `bedrock.embed` spy receives truncated body; `read_artifact` returns full
   body; limit=0 → body unchanged; truncation logged at DEBUG.
 
 **TDD cycle C — `write_artifacts` tool:**
-- `tests/unit/test_tools_write_artifacts.py` (Red) → `src/cairn_mcp/tools/write_artifacts.py` (Green)
+- `tests/unit/test_tools_write_artifacts.py` (Red) → `src/arkeology/tools/write_artifacts.py` (Green)
 - 10-entry list → all written; entry with invalid field → error entry in response, others succeed;
   `ARTIFACT_CONCURRENCY=1` → sequential (spy call order); response fields (`written`, `sections_indexed`,
   `error`).
 
 **TDD cycle D — Bedrock text model client:**
-- `tests/unit/clients/test_bedrock.py` (Red) → `src/cairn_mcp/clients/bedrock.py` + `fake_bedrock.py` (Green)
+- `tests/unit/clients/test_bedrock.py` (Red) → `src/arkeology/clients/bedrock.py` + `fake_bedrock.py` (Green)
 - `invoke_text_model` returns a string; credential error → `CredentialError`; fake returns
   deterministic string.
 
 **TDD cycle E — `migrate_artifacts` tool:**
-- `tests/unit/test_tools_migrate_artifacts.py` (Red) → `src/cairn_mcp/tools/migrate_artifacts.py` (Green)
+- `tests/unit/test_tools_migrate_artifacts.py` (Red) → `src/arkeology/tools/migrate_artifacts.py` (Green)
 - `dry_run=True` → Nova Lite called for missing descriptions only, no S3/vectors writes (spy);
   description > 280 chars → clipped to 280; `dry_run=False` → `write_artifacts` called with
   enriched descriptors; existing description ≤ 280 → unchanged; `ARTIFACT_CONCURRENCY=2` → at
   most 2 concurrent Nova Lite calls (spy + semaphore).
 
 **TDD cycle F — startup check:**
-- `tests/unit/test_startup.py` (Red) → `src/cairn_mcp/startup.py` (Green)
+- `tests/unit/test_startup.py` (Red) → `src/arkeology/startup.py` (Green)
 - `BEDROCK_TEXT_MODEL` configured + `invoke_text_model` succeeds → check passes; raises → startup
   fails with actionable error; `BEDROCK_TEXT_MODEL` absent → `invoke_text_model` never called.
 

@@ -224,15 +224,15 @@ from the JSON/byte approximation.
 | File | Action | Notes |
 |------|--------|-------|
 | `tests/unit/test_artifact.py` | Modify | Title over `TITLE_MAX_LENGTH` rejected; control char in each metadata-bound field rejected; non-Latin title accepted and preserved — Red first |
-| `src/cairn_mcp/artifact.py` | Modify | Add `TITLE_MAX_LENGTH`, the three byte-budget constants, `NON_FILTERABLE_METADATA_KEYS` (single source of truth); add title max-length + control-char field validators; add a pure `check_metadata_budgets(s3_metadata, vector_metadata) -> None` helper raising a typed error |
-| `src/cairn_mcp/errors.py` | Modify | Add `MetadataTooLargeError(CairnError)` (and reuse for charset if desired) so `write._inner` maps it to `validation_error` |
+| `src/arkeology/artifact.py` | Modify | Add `TITLE_MAX_LENGTH`, the three byte-budget constants, `NON_FILTERABLE_METADATA_KEYS` (single source of truth); add title max-length + control-char field validators; add a pure `check_metadata_budgets(s3_metadata, vector_metadata) -> None` helper raising a typed error |
+| `src/arkeology/errors.py` | Modify | Add `MetadataTooLargeError(ArkeologyError)` (and reuse for charset if desired) so `write._inner` maps it to `validation_error` |
 | `tests/unit/test_tools_write.py` | Modify | Oversize S3 / oversize filterable / oversize total each rejected before any `put_object`/`put_vectors_batch`/failure-log append (spy asserts zero calls); control char → `validation_error` not raw exception — Red first |
-| `src/cairn_mcp/tools/write.py` | Modify | Build the filterable+total vector_metadata dict *before* the collision/put step; call `check_metadata_budgets` before `head_object`; ensure the branch returns `validation_error` and skips all writes and the failure-log append; call `check_metadata_budgets` a second time after the T47 overwrite read-forward union-merge enlarges `vector_metadata`, before `put_object`/`put_vectors_batch` |
+| `src/arkeology/tools/write.py` | Modify | Build the filterable+total vector_metadata dict *before* the collision/put step; call `check_metadata_budgets` before `head_object`; ensure the branch returns `validation_error` and skips all writes and the failure-log append; call `check_metadata_budgets` a second time after the T47 overwrite read-forward union-merge enlarges `vector_metadata`, before `put_object`/`put_vectors_batch` |
 | `tests/unit/test_clients_s3.py` | Modify | Lossless round-trip of a non-ASCII value through encode→decode; header-safe output — Red first |
-| `src/cairn_mcp/clients/s3.py` | Modify | Replace NFKD-ASCII-strip in `_ascii_safe_metadata` with lossless reversible transport encoding; add the symmetric decoder |
+| `src/arkeology/clients/s3.py` | Modify | Replace NFKD-ASCII-strip in `_ascii_safe_metadata` with lossless reversible transport encoding; add the symmetric decoder |
 | `tests/unit/test_tools_read.py` | Modify | `read_artifact` returns the true non-ASCII title (decoded / vector-sourced) — Red first |
-| `src/cairn_mcp/tools/read.py` | Modify (flag) | Ensure the title returned matches `search_artifacts` — source from vector metadata or decode the S3 copy; confirm which path currently reads the stripped value |
-| `src/cairn_mcp/tools/reconcile.py` | Modify (flag) | Decode the S3-metadata title when rebuilding vector metadata so the round-trip stays lossless (verify reconcile reads title from S3 object metadata) |
+| `src/arkeology/tools/read.py` | Modify (flag) | Ensure the title returned matches `search_artifacts` — source from vector metadata or decode the S3 copy; confirm which path currently reads the stripped value |
+| `src/arkeology/tools/reconcile.py` | Modify (flag) | Decode the S3-metadata title when rebuilding vector metadata so the round-trip stays lossless (verify reconcile reads title from S3 object metadata) |
 | `tests/integration/test_tools_write.py` | Modify (flag) | Real-AWS: oversize rejected pre-write; non-ASCII title round-trips through read + search |
 
 ## Testing Approach

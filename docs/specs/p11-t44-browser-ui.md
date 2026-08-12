@@ -1,7 +1,7 @@
 ---
 type: spec
 title: T44 — Browser UI (HTML/JS)
-description: Feature spec for cairn-studio.html — a self-contained HTML/JS single-pane view-switching artifact browser shipped as a static MCP App asset. The primary deliverable is the cairn_studio non-supporting host path (structured artifact listing in structured_content). The MCP App iframe is registered and served but discovered post-implementation to have practical rendering constraints in supporting hosts.
+description: Feature spec for arkeology-studio.html — a self-contained HTML/JS single-pane view-switching artifact browser shipped as a static MCP App asset. The primary deliverable is the arkeology_studio non-supporting host path (structured artifact listing in structured_content). The MCP App iframe is registered and served but discovered post-implementation to have practical rendering constraints in supporting hosts.
 tags: []
 timestamp: 2026-06-24T00:00:00Z
 okf_version: "0.1"
@@ -34,12 +34,12 @@ revised:
 
 This task delivered two things:
 
-1. `src/cairn_mcp/static/cairn-studio.html` — a self-contained HTML/JS single-pane
+1. `src/arkeology/static/arkeology-studio.html` — a self-contained HTML/JS single-pane
    view-switching application shipped as a static asset and served over
-   `ui://cairn-studio/index.html`. It uses the ext-apps SDK, marked.js, and mermaid.js
+   `ui://arkeology-studio/index.html`. It uses the ext-apps SDK, marked.js, and mermaid.js
    loaded from CDN (`unpkg.com`, `cdn.jsdelivr.net`); no web fonts; no build step.
 
-2. The `cairn_studio` tool's non-supporting host path — when called from Claude Code or
+2. The `arkeology_studio` tool's non-supporting host path — when called from Claude Code or
    MCP Inspector, returns a structured artifact listing in `structured_content` with shape
    `{ "write_prefix": string, "artifacts": [...] }`. This is the primary interface for the team.
 
@@ -52,7 +52,7 @@ The non-supporting host structured listing path is the interface the team uses.
 
 Developers using raw tool calls (`list_artifacts`, `search_artifacts`, `read_artifact`) to
 browse the artifact store receive verbose, context-consuming output. T44 addressed this in
-two ways: a structured listing returned directly by `cairn_studio` on non-supporting hosts
+two ways: a structured listing returned directly by `arkeology_studio` on non-supporting hosts
 (Claude Code), and an MCP App iframe browser for supporting hosts. The structured listing
 path delivers value immediately; the iframe path was implemented and shipped but found to be
 constrained by the iframe rendering environment in practice.
@@ -61,31 +61,31 @@ constrained by the iframe rendering environment in practice.
 
 ### Story 1 — Developer on a non-supporting host gets a structured listing (P1)
 
-A developer using Claude Code calls `cairn_studio` and receives a structured artifact listing
+A developer using Claude Code calls `arkeology_studio` and receives a structured artifact listing
 without issuing separate `list_artifacts` calls.
 
 **Acceptance criteria:**
 - Given the host does not support the `io.modelcontextprotocol/ui` extension, when
-  `cairn_studio` is called, then `structured_content` carries `{ "write_prefix": string,
+  `arkeology_studio` is called, then `structured_content` carries `{ "write_prefix": string,
   "artifacts": [...] }` covering all active artifacts in the write scope.
 - The listing is returned without error and is machine-readable by the calling agent.
 
 ### Story 2 — Developer on a supporting host gets an MCP App iframe (P2)
 
-A developer using Claude Desktop or claude.ai calls `cairn_studio` and the host renders the
+A developer using Claude Desktop or claude.ai calls `arkeology_studio` and the host renders the
 MCP App iframe.
 
 **Acceptance criteria:**
-- Given the host supports the `io.modelcontextprotocol/ui` extension, when `cairn_studio` is
+- Given the host supports the `io.modelcontextprotocol/ui` extension, when `arkeology_studio` is
   called, then `ToolResult` contains a text confirmation and the host receives the
-  `_meta.ui.resourceUri` pointer to `ui://cairn-studio/index.html`.
+  `_meta.ui.resourceUri` pointer to `ui://arkeology-studio/index.html`.
 - Note: post-implementation testing found the iframe rendering environment too small for
   the view-switching interface to be practical. The iframe is served correctly; the
   rendering constraint is a host environment limitation, not a bug in the implementation.
 
 ## Requirements
 
-The tool contract for `cairn_studio`:
+The tool contract for `arkeology_studio`:
 
 - WHEN called from a non-supporting host THE SYSTEM SHALL return `ToolResult` with
   `structured_content = { "write_prefix": settings.write_prefix, "artifacts": [...] }`
@@ -93,15 +93,15 @@ The tool contract for `cairn_studio`:
 - WHEN called from a supporting host THE SYSTEM SHALL return `ToolResult` with a short text
   confirmation in `content` and no `structured_content` — the iframe loads its own artifact
   list on mount via `list_artifacts`.
-- The `ui://cairn-studio/index.html` resource SHALL be registered with
+- The `ui://arkeology-studio/index.html` resource SHALL be registered with
   `ResourceCSP(["https://unpkg.com", "https://cdn.jsdelivr.net"])`.
-- `cairn-studio.html` SHALL be a self-contained HTML/JS file with no companion `.css` or
+- `arkeology-studio.html` SHALL be a self-contained HTML/JS file with no companion `.css` or
   `.js` files and no JS build step.
 
 ## Boundaries
 
 **Always:**
-- All CSS and JS live in the single `src/cairn_mcp/static/cairn-studio.html` file.
+- All CSS and JS live in the single `src/arkeology/static/arkeology-studio.html` file.
 - External dependencies loaded only from `unpkg.com` (ext-apps SDK) and `cdn.jsdelivr.net`
   (marked.js, mermaid.js). No web-font origins.
 - No JS build step, no `package.json`, no Node.js artefacts.
@@ -116,12 +116,12 @@ The tool contract for `cairn_studio`:
 
 | File | Action | Status |
 |------|--------|--------|
-| `src/cairn_mcp/tools/studio.py` | Updated `_cairn_studio_inner`: supporting-host path returns text-only `ToolResult`; non-supporting host returns `{ "write_prefix": ..., "artifacts": [...] }` in `structured_content` | Done |
-| `src/cairn_mcp/static/cairn-studio.html` | Replaced placeholder with full single-pane view-switching application | Done |
-| `src/cairn_mcp/resources.py` | `ResourceCSP(["https://unpkg.com", "https://cdn.jsdelivr.net"])` registered | Done |
-| `src/cairn_mcp/server.py` | `cairn_studio` tool registered via `register_tools()` | Done |
+| `src/arkeology/tools/studio.py` | Updated `_arkeology_studio_inner`: supporting-host path returns text-only `ToolResult`; non-supporting host returns `{ "write_prefix": ..., "artifacts": [...] }` in `structured_content` | Done |
+| `src/arkeology/static/arkeology-studio.html` | Replaced placeholder with full single-pane view-switching application | Done |
+| `src/arkeology/resources.py` | `ResourceCSP(["https://unpkg.com", "https://cdn.jsdelivr.net"])` registered | Done |
+| `src/arkeology/server.py` | `arkeology_studio` tool registered via `register_tools()` | Done |
 | `pyproject.toml` | `fastmcp[apps]` dependency and static asset inclusion | Done |
-| `AGENTS.md` | `cairn_studio` documented as the human reading entry point | Done |
+| `AGENTS.md` | `arkeology_studio` documented as the human reading entry point | Done |
 
 ## Testing Approach
 
@@ -140,7 +140,7 @@ Quality gates (all passing):
 
 ## Implementation Notes
 
-`cairn-studio.html` is a self-contained HTML/JS application using:
+`arkeology-studio.html` is a self-contained HTML/JS application using:
 - System-UI font stack (no web fonts; GDPR constraint)
 - CDN deps: `@modelcontextprotocol/ext-apps` from `unpkg.com`; `marked.js` and `mermaid.js`
   from `cdn.jsdelivr.net`
@@ -158,14 +158,14 @@ constraint; the structured listing path serves the team's needs.
 The MCP App iframe was registered and served successfully. Post-implementation testing
 revealed that the iframe rendering environment in supporting hosts (Claude Desktop, claude.ai)
 is too small for the view-switching interface to be practical. The primary value delivered by
-`cairn_studio` is the non-supporting host path (structured artifact listing in
+`arkeology_studio` is the non-supporting host path (structured artifact listing in
 `structured_content`), which is the interface used by the team via Claude Code.
 
 ## Revised (2026-07-05)
 
 Four defects were found and fixed in the non-supporting-host and iframe paths:
 
-- **(a) `studio.py` error masking.** `_cairn_studio_inner` previously did
+- **(a) `studio.py` error masking.** `_arkeology_studio_inner` previously did
   `listing.get("artifacts", [])` on the inner `list_artifacts` call's result, so a
   credential-error dict was silently coerced into a successful empty listing — expired
   credentials read as "the store is empty" instead of "the store could not be reached" (PRD
@@ -177,7 +177,7 @@ Four defects were found and fixed in the non-supporting-host and iframe paths:
   `data.message || data.error` in the empty-state `<p>`.
 - **(c) `app.ontoolresult` crashed on every render.** This iframe only ever runs in a
   *supporting* host, so every plain-text confirmation it receives — including
-  `cairn_studio`'s own "Cairn Studio opened…" text — carries no `structuredContent`. The
+  `arkeology_studio`'s own "Arkeology Studio opened…" text — carries no `structuredContent`. The
   handler unconditionally did `JSON.parse(content?.find(...)?.text ?? "{}")`, which threw on
   that plain text every time. It also read `data.write_prefix` into a `#scope-label` element,
   but `write_prefix` is sent only to non-supporting hosts (see (a) above) and can never reach
@@ -192,11 +192,11 @@ Four defects were found and fixed in the non-supporting-host and iframe paths:
   both changed from `""` to `"all"`, which is always sent (never omitted).
 
 Verification: (a) has unit test coverage
-(`tests/unit/test_tools_studio.py::test_cairn_studio_non_supporting_host_credential_error_is_propagated`).
+(`tests/unit/test_tools_studio.py::test_arkeology_studio_non_supporting_host_credential_error_is_propagated`).
 (b)/(c)/(d)'s client-side JS have no unit test harness in this project (matching prior
 precedent for untested client-side JS fixes in this codebase) —
 verified with a throwaway Node + jsdom script that extracts the actual shipped `loadList`,
-`doSearch`, and `app.ontoolresult` function bodies from `cairn-studio.html` via string slicing
+`doSearch`, and `app.ontoolresult` function bodies from `arkeology-studio.html` via string slicing
 (not retyped) and exercises them against mocked `app.callServerTool` responses and a jsdom DOM;
 all branches (error-message rendering, no-throw on plain-text confirmation, no accidental
 list-wipe on unrelated tool results, `status="all"` sent by default) passed. The script is not

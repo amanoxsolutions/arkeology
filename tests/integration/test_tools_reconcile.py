@@ -1,4 +1,4 @@
-"""Integration tests for cairn_mcp.tools.reconcile.
+"""Integration tests for arkeology.tools.reconcile.
 
 Requires real AWS credentials and configured .env file.
 All tests decorated with @pytest.mark.integration. Teardown uses delete_artifact
@@ -9,18 +9,18 @@ from pathlib import Path
 
 import pytest
 
-from cairn_mcp.clients.bedrock import BedrockClientImpl
-from cairn_mcp.clients.s3 import S3ClientImpl
-from cairn_mcp.clients.vectors import VectorsClientImpl
-from cairn_mcp.config import Settings
-from cairn_mcp.failure_log import append_failure_entry
-from cairn_mcp.tools.delete import delete_artifact
-from cairn_mcp.tools.link_metadata import link_metadata
+from arkeology.clients.bedrock import BedrockClientImpl
+from arkeology.clients.s3 import S3ClientImpl
+from arkeology.clients.vectors import VectorsClientImpl
+from arkeology.config import Settings
+from arkeology.failure_log import append_failure_entry
+from arkeology.tools.delete import delete_artifact
+from arkeology.tools.link_metadata import link_metadata
 
-# Implementation import — will fail until src/cairn_mcp/tools/reconcile.py is created
-from cairn_mcp.tools.reconcile import reconcile_index
-from cairn_mcp.tools.search import search_artifacts
-from cairn_mcp.tools.write import write_artifact
+# Implementation import — will fail until src/arkeology/tools/reconcile.py is created
+from arkeology.tools.reconcile import reconcile_index
+from arkeology.tools.search import search_artifacts
+from arkeology.tools.write import write_artifact
 
 # ---------------------------------------------------------------------------
 # Session-scoped AWS fixtures
@@ -73,7 +73,7 @@ def settings_with_tmp_log(settings: Settings, tmp_path: Path) -> Settings:
         VECTORS_BUCKET=settings.vectors_bucket,
         VECTORS_INDEX=settings.vectors_index,
         WRITE_PREFIX=settings.write_prefix,
-        FAILURE_LOG_PATH=str(tmp_path / ".cairn_failures.jsonl"),
+        FAILURE_LOG_PATH=str(tmp_path / ".arkeology_failures.jsonl"),
     )
 
 
@@ -84,7 +84,7 @@ def settings_with_tmp_log(settings: Settings, tmp_path: Path) -> Settings:
 _BASE_KWARGS: dict = {
     "type": "implementation_note",
     "team": "platform",
-    "project": "cairn",
+    "project": "arkeology",
     "tier": 2,
     "date": "2026-05-31",
     "status": "active",

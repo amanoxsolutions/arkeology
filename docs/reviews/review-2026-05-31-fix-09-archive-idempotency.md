@@ -67,7 +67,7 @@ inconsistency; it also wastes S3 and S3 Vectors API calls unnecessarily.
 | File | Action | Notes |
 |------|--------|-------|
 | `tests/unit/test_tools_archive.py` | Modify | Add idempotency test (written first — Red) |
-| `src/cairn_mcp/tools/archive.py` | Modify | Add early-return guard after `head_object` when `status == "inactive"` |
+| `src/arkeology/tools/archive.py` | Modify | Add early-return guard after `head_object` when `status == "inactive"` |
 
 ## Testing Approach
 

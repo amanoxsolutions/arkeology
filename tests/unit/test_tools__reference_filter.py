@@ -1,4 +1,4 @@
-"""Unit tests for cairn_mcp.tools._reference_filter.
+"""Unit tests for arkeology.tools._reference_filter.
 
 Tests resolve_readable_targets() in isolation, using a moto-backed VectorsClientImpl.
 This predicate is the single source of truth reused by read.py and list.py to filter
@@ -8,9 +8,9 @@ This predicate is the single source of truth reused by read.py and list.py to fi
 import pytest
 from pytest_mock import MockerFixture
 
-from cairn_mcp.clients.vectors import VectorsClientImpl
-from cairn_mcp.config import Settings
-from cairn_mcp.tools._reference_filter import resolve_readable_targets
+from arkeology.clients.vectors import VectorsClientImpl
+from arkeology.config import Settings
+from arkeology.tools._reference_filter import resolve_readable_targets
 from tests.unit.conftest import _make_settings as _make_settings_base
 
 

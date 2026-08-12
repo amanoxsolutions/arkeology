@@ -1,7 +1,7 @@
 ---
 type: adr
 title: stdio as the Primary MCP Transport
-description: Records the choice of stdio (stdin/stdout) as the primary MCP transport for cairn-mcp and its implications for deployment topology and future extensibility.
+description: Records the choice of stdio (stdin/stdout) as the primary MCP transport for Arkeology and its implications for deployment topology and future extensibility.
 tags: []
 timestamp: 2026-05-29T00:00:00Z
 okf_version: "0.1"
@@ -20,7 +20,7 @@ revised:
 ## Description
 
 The MCP protocol supports multiple transport mechanisms. This decision records the choice of
-stdio (stdin/stdout) as the primary transport for cairn-mcp and documents the implications
+stdio (stdin/stdout) as the primary transport for Arkeology and documents the implications
 for deployment topology and future extensibility.
 
 ## Status
@@ -42,7 +42,7 @@ The alternative transports available in `fastmcp` at project inception were:
   simultaneously.
 - **WebSocket** — similar to HTTP/SSE for shared deployments.
 
-For cairn-mcp's primary use case — an AI coding agent running interactively on a developer's
+For Arkeology's primary use case — an AI coding agent running interactively on a developer's
 machine — the agent and the server are co-located. HTTP/SSE would add a TCP port, TLS
 management, and authentication that provide no value in this topology.
 
@@ -88,5 +88,5 @@ selector in `__main__.py`.
   `opencode.json` and OpenAI Codex uses `.codex/config.toml`. All
   four clients support per-project config files that supply project-specific environment
   variables (e.g. `WRITE_PREFIX`) to the child process. This means a developer working
-  across multiple projects runs multiple cairn-mcp processes, one per active project
+  across multiple projects runs multiple Arkeology processes, one per active project
   session, each correctly scoped to its own write prefix by the client.

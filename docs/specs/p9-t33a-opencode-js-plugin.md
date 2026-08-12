@@ -1,7 +1,7 @@
 ---
 type: spec
 title: T33a — OpenCode JS Plugin
-description: Spec to add a package.json and OpenCode JS plugin file so cairn-mcp becomes a self-installing OpenCode plugin with one-line install.
+description: Spec to add a package.json and OpenCode JS plugin file so Arkeology becomes a self-installing OpenCode plugin with one-line install.
 tags: []
 timestamp: 2026-06-09T00:00:00Z
 okf_version: "0.1"
@@ -26,14 +26,14 @@ revised:
 
 ## TL;DR
 
-Add a `package.json` and `.opencode/plugins/cairn.js` to the repo so it becomes a
-self-installing OpenCode plugin. Engineers make both cairn-mcp skills (`setting-up-cairn`,
-`migrating-to-cairn`) discoverable in any OpenCode session by adding one line to their
+Add a `package.json` and `.opencode/plugins/arkeology.js` to the repo so it becomes a
+self-installing OpenCode plugin. Engineers make both Arkeology skills (`setting-up-arkeology`,
+`migrating-to-arkeology`) discoverable in any OpenCode session by adding one line to their
 global `~/.config/opencode/opencode.jsonc` — no file copying, no env vars.
 
 ## Problem Statement
 
-Engineers who adopt cairn-mcp currently have to manually locate the `skills/` path and add
+Engineers who adopt Arkeology currently have to manually locate the `skills/` path and add
 it to `config.skills.paths` in their OpenCode config. The OpenCode JS plugin system —
 specifically the `config` hook and Bun's git package resolver — allows the repo itself to
 self-register: one line in the global config installs and activates both skills, and
@@ -43,17 +43,17 @@ OpenCode's Bun plugin manager handles caching and update checks on restart.
 
 ### Story 1 — One-line install (P1)
 
-As a cairn-mcp operator, I add one line to `~/.config/opencode/opencode.jsonc` and both
-cairn-mcp skills are available to the agent in my next OpenCode session.
+As an Arkeology operator, I add one line to `~/.config/opencode/opencode.jsonc` and both
+Arkeology skills are available to the agent in my next OpenCode session.
 
 **Acceptance criteria:**
 - Given the plugin line is present in `opencode.jsonc` and OpenCode has been restarted,
-  when the engineer invokes the `skill` tool, then both `setting-up-cairn` and
-  `migrating-to-cairn` appear and are loadable.
+  when the engineer invokes the `skill` tool, then both `setting-up-arkeology` and
+  `migrating-to-arkeology` appear and are loadable.
 
 ### Story 2 — Automatic updates on restart (P1)
 
-As a cairn-mcp operator, after a new skill release I get the updated skill without any
+As an Arkeology operator, after a new skill release I get the updated skill without any
 manual action other than restarting OpenCode.
 
 **Acceptance criteria:**
@@ -62,7 +62,7 @@ manual action other than restarting OpenCode.
 
 ### Story 3 — HTTPS alternative (P1)
 
-As a cairn-mcp operator without SSH configured for GitHub, I can use `git+https://` instead
+As an Arkeology operator without SSH configured for GitHub, I can use `git+https://` instead
 of `git+ssh://` and the plugin installs and works identically.
 
 **Acceptance criteria:**
@@ -83,13 +83,13 @@ of `git+ssh://` and the plugin installs and works identically.
 
 **Always:**
 - Plugin file is ESM format (`"type": "module"` in `package.json`).
-- `package.json` is at the repo root with `"name": "cairn-mcp"` and
-  `"main": ".opencode/plugins/cairn.js"`.
+- `package.json` is at the repo root with `"name": "arkeology"` and
+  `"main": ".opencode/plugins/arkeology.js"`.
 - The git+ssh URL uses a **forward slash** after the hostname:
-  `git+ssh://git@github.com/amanoxsolutions/cairn-mcp.git` — the SCP colon form
+  `git+ssh://git@github.com/amanoxsolutions/arkeology.git` — the SCP colon form
   (`git+ssh://git@github.com:...`) is invalid in Node.js and causes the plugin to
   silently never install.
-- Plugin registers `skills/` only — cairn-mcp has no agents directory.
+- Plugin registers `skills/` only — Arkeology has no agents directory.
 - Installation is user-level: the plugin line goes in `~/.config/opencode/opencode.jsonc`.
 - The plugin default export must follow the **named-hook pattern**: the outer function
   receives the OpenCode context `{ project, client, $, directory, worktree }` and returns
@@ -98,10 +98,10 @@ of `git+ssh://` and the plugin installs and works identically.
   Do **not** treat the first argument as the config object and do **not** return the config
   from the default export — OpenCode silently ignores that shape and no skills are registered.
   Use `amanox-ai-agents/.opencode/plugins/amanox.js` as the canonical reference.
-- OpenCode **never auto-updates** the plugin cache (`~/.cache/opencode/packages/cairn-mcp@git+*/`).
+- OpenCode **never auto-updates** the plugin cache (`~/.cache/opencode/packages/arkeology@git+*/`).
   Once installed, the cache entry is reused on every restart without checking for new commits
   (upstream limitation: opencode#6159, unresolved). `install.sh` must delete
-  `~/.cache/opencode/packages/cairn-mcp@git+*` so the next restart re-fetches from GitHub.
+  `~/.cache/opencode/packages/arkeology@git+*` so the next restart re-fetches from GitHub.
 
 **Never:**
 - No hardcoded absolute paths inside the plugin file.
@@ -116,8 +116,8 @@ of `git+ssh://` and the plugin installs and works identically.
 
 | File | Action | Notes |
 |------|--------|-------|
-| `package.json` | Create | Repo root; `name: cairn-mcp`, `version` kept in sync with `pyproject.toml`, `type: module`, `main: .opencode/plugins/cairn.js`, `description` |
-| `.opencode/plugins/cairn.js` | Create | ESM module; named-hook pattern: `export default function(context) { return { config: (cfg) => { … } } }`; mutates `cfg.skills.paths`; path resolved via `fileURLToPath(new URL('.', import.meta.url))` + `path.resolve(__dirname, '../../skills')`; errors caught and logged via `console.error`, never thrown |
+| `package.json` | Create | Repo root; `name: arkeology`, `version` kept in sync with `pyproject.toml`, `type: module`, `main: .opencode/plugins/arkeology.js`, `description` |
+| `.opencode/plugins/arkeology.js` | Create | ESM module; named-hook pattern: `export default function(context) { return { config: (cfg) => { … } } }`; mutates `cfg.skills.paths`; path resolved via `fileURLToPath(new URL('.', import.meta.url))` + `path.resolve(__dirname, '../../skills')`; errors caught and logged via `console.error`, never thrown |
 | `README.md` | Modify | Add OpenCode plugin line (SSH primary, HTTPS alternative) to the Quick Install section added by T33e |
 | `CONTRIBUTING.md` | Modify | Reference the plugin line and `install.sh` for OpenCode setup |
 
@@ -127,7 +127,7 @@ Testing is manual smoke tests (no TDD for non-server files).
 
 1. **Plugin loads:** Add a local `file://` or `git+ssh://` plugin line to a test
    `opencode.jsonc`; start OpenCode; invoke the `skill` tool and verify both
-   `setting-up-cairn` and `migrating-to-cairn` are loadable.
+   `setting-up-arkeology` and `migrating-to-arkeology` are loadable.
 2. **Path resolution:** Confirm the plugin works correctly when Bun resolves it to its cache
    directory (different from the repo clone path).
 3. **HTTPS path:** Substitute `git+https://` in the plugin line; restart OpenCode; confirm

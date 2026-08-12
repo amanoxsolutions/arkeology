@@ -21,7 +21,7 @@ assumptions_challenged: []
 
 ## Description
 
-The cairn-mcp PRD defines an archive mechanism (FR-05, FR-14) that marks an artifact inactive
+The Arkeology PRD defines an archive mechanism (FR-05, FR-14) that marks an artifact inactive
 and excludes it from search and listing. Archive does not remove content from storage. The
 question explored here is whether a true deletion capability — permanently removing an artifact
 from S3 and the vector index — is needed, and if so, what shape it should take.

@@ -1,7 +1,7 @@
 ---
 type: spec
 title: T56 — Deterministic Server-Side Content Reference Rewrite (Frontmatter + Body)
-description: Extend the migration content rewrite so a path already resolved from a file's frontmatter references: list is rewritten to cairn://artifact/{id} everywhere it occurs in stored content — the frontmatter block AND markdown link targets in the body — executed as a deterministic, server-side pure helper inside migrate_artifacts instead of the current agent-in-context frontmatter-only rewrite. Does not reopen in-body link discovery.
+description: Extend the migration content rewrite so a path already resolved from a file's frontmatter references: list is rewritten to arkeology://artifact/{id} everywhere it occurs in stored content — the frontmatter block AND markdown link targets in the body — executed as a deterministic, server-side pure helper inside migrate_artifacts instead of the current agent-in-context frontmatter-only rewrite. Does not reopen in-body link discovery.
 tags: []
 timestamp: 2026-07-06T00:00:00Z
 okf_version: "0.1"
@@ -14,8 +14,8 @@ references:
   - docs/specs/p12-t51-migration-reference-rewrite.md
   - docs/brainstorming/brainstorming-2026-07-01-artifact-cross-referencing.md
   - docs/specs/p9-t30-write-artifacts.md
-  - src/cairn_mcp/references.py
-  - plugins/cairn-mcp/skills/migrating-to-cairn/SKILL.md
+  - src/arkeology/references.py
+  - plugins/arkeology/skills/migrating-to-arkeology/SKILL.md
 authored:
   by: "architect"
   date: "2026-07-06"
@@ -30,11 +30,11 @@ authored:
 Give migration's content rewrite (T51/FR-52) a deterministic, server-side implementation, and
 extend it to also rewrite the body: for any path already resolved from a file's frontmatter
 `references:` list, replace every literal occurrence of that path — in the frontmatter block AND
-in markdown link targets in the body — with `cairn://artifact/{id}`. Add one new pure,
-unit-testable helper (`rewrite_content_references`) to `src/cairn_mcp/references.py`; apply it
+in markdown link targets in the body — with `arkeology://artifact/{id}`. Add one new pure,
+unit-testable helper (`rewrite_content_references`) to `src/arkeology/references.py`; apply it
 inside `migrate_artifacts`, driven by a new transient descriptor key
 (`resolved_references_map`) the agent threads per file; remove the current agent-in-context
-hand-rewrite instructions from the `migrating-to-cairn` skill. In-body link **discovery** —
+hand-rewrite instructions from the `migrating-to-arkeology` skill. In-body link **discovery** —
 resolving a path that was never declared in a file's own frontmatter `references:` list — remains
 explicitly out of scope (ADR-012 D1, reaffirmed in the ADR-012 Revision, 2026-07-06).
 
@@ -43,7 +43,7 @@ explicitly out of scope (ADR-012 D1, reaffirmed in the ADR-012 Revision, 2026-07
 T51 gave migration a deterministic *resolution* algorithm (the path→id map, `references.py`) but
 left the *content rewrite* itself as agent-in-context text editing: the skill instructs the agent
 to "rewrite that entry, in the stored content's frontmatter `references:` list only, to
-`cairn://artifact/{id}`" by hand. Two gaps follow from this. First, an LLM performing find/replace
+`arkeology://artifact/{id}`" by hand. Two gaps follow from this. First, an LLM performing find/replace
 over arbitrary markdown text has no byte-exact, idempotent guarantee — "deterministic" is not a
 property the current mechanism can claim, and the skill runs no local scripts to make it one.
 Second, this project's own house documentation style frequently echoes a frontmatter reference as
@@ -62,10 +62,10 @@ that file's own frontmatter.
 **Acceptance criteria:**
 - Given a file whose frontmatter `references:` list contains `- "../decisions/B.md"` and this
   entry already resolved (per T51/D4) to B's artifact_id, when `migrate_artifacts` writes the
-  file, then the stored content's frontmatter entry reads `- "cairn://artifact/{B-id}"` — double
+  file, then the stored content's frontmatter entry reads `- "arkeology://artifact/{B-id}"` — double
   quotes preserved, list position unchanged. (FR-52 extension)
 - Given the same entry written unquoted (`- ../decisions/B.md`), then the rewritten entry is
-  unquoted (`- cairn://artifact/{B-id}`). (FR-52 extension)
+  unquoted (`- arkeology://artifact/{B-id}`). (FR-52 extension)
 - Given a `references:` list with three entries where only the second resolves, when the file is
   written, then only the second entry is rewritten; the first and third are left completely
   untouched and the list still has three entries in the same order. (FR-52 extension)
@@ -75,19 +75,19 @@ that file's own frontmatter.
 **Acceptance criteria:**
 - Given a file whose body contains an inline markdown link `[the decision](../decisions/B.md)`
   using the exact path text already resolved from frontmatter, when `migrate_artifacts` writes the
-  file, then the body link target is rewritten to `cairn://artifact/{B-id}` and the link *text*
+  file, then the body link target is rewritten to `arkeology://artifact/{B-id}` and the link *text*
   (`the decision`) is left unchanged. (FR-52 extension)
 - Given the body link is `[the decision](../decisions/B.md#outcome)` (carrying an anchor), then
   the rewritten target drops the anchor from the URI AND a human-readable note is appended
-  immediately after the link's closing `)`: `[the decision](cairn://artifact/{B-id}) ("outcome"
+  immediately after the link's closing `)`: `[the decision](arkeology://artifact/{B-id}) ("outcome"
   section)`. The note text is the raw fragment after `#`, verbatim. (anchor decision — FROZEN)
 - Given a hyphenated / multi-word anchor `[x](../decisions/B.md#my-decision)`, then the note is
   `("my-decision" section)` — the fragment is preserved verbatim, never de-slugified to
   `"my decision"`.
-- Given the already-rewritten anchored link `[the decision](cairn://artifact/{B-id}) ("outcome"
+- Given the already-rewritten anchored link `[the decision](arkeology://artifact/{B-id}) ("outcome"
   section)` is passed through the helper a second time, then the output is identical — the note is
-  not re-appended (the rewritten target is `cairn://artifact/{B-id}` with no `#`, and
-  `cairn://…` is not a key in `resolved_map`, so the second pass matches nothing).
+  not re-appended (the rewritten target is `arkeology://artifact/{B-id}` with no `#`, and
+  `arkeology://…` is not a key in `resolved_map`, so the second pass matches nothing).
 - Given the same resolved path appears as two separate body links in the same file, when the file
   is written, then both occurrences are rewritten, not just the first.
 - Given a body link `[other](../decisions/B.md.bak)` — NOT an exact match to the resolved path
@@ -137,7 +137,7 @@ that file's own frontmatter.
   then both calls return byte-identical output.
 - Given content that has already been rewritten once, when the helper is called again with the
   same map, then the output is unchanged — no double-wrapping, no
-  `cairn://artifact/cairn://artifact/...` nesting.
+  `arkeology://artifact/arkeology://artifact/...` nesting.
 - Given an empty or absent `resolved_map`, when the helper runs, then `content` is returned
   completely unchanged, including whitespace and formatting in the frontmatter block.
 
@@ -163,25 +163,25 @@ that file's own frontmatter.
 - WHEN a `migrate_artifacts` descriptor carries a non-empty `resolved_references_map` THE SYSTEM
   SHALL rewrite every literal occurrence of each map key in the descriptor's `content` — both
   within the frontmatter `references:` YAML list and within markdown link targets in the body —
-  to `cairn://artifact/{id}`, before any write, applied identically in both `dry_run` modes.
+  to `arkeology://artifact/{id}`, before any write, applied identically in both `dry_run` modes.
 - WHEN a frontmatter `references:` list item's unquoted value exactly equals a
-  `resolved_references_map` key THE SYSTEM SHALL replace it with `cairn://artifact/{id}`,
+  `resolved_references_map` key THE SYSTEM SHALL replace it with `arkeology://artifact/{id}`,
   preserving the item's original quote style (unquoted, single-, or double-quoted) and its
   position in the list.
 - WHEN a markdown inline link target (`[text](target)`) — split on the first `#` into a path
   portion and an optional anchor — has a path portion that equals a `resolved_references_map` key
   after applying `normalize_reference_path` (`references.py`) to both sides THE SYSTEM SHALL
-  replace the target with `cairn://artifact/{id}` (dropping the anchor from the URI).
+  replace the target with `arkeology://artifact/{id}` (dropping the anchor from the URI).
 - WHEN such a matched link carried a non-empty anchor (text after the first `#`) THE SYSTEM SHALL
   append a human-readable note immediately after the rewritten link's closing `)`, in the exact
   form `<space>("<anchor>" section)`, where `<anchor>` is the raw fragment text after `#`,
   verbatim and un-de-slugified (e.g. `my-decision` stays `my-decision`) — so
-  `[text](../adr.md#my-decision)` becomes `[text](cairn://artifact/{id}) ("my-decision" section)`.
+  `[text](../adr.md#my-decision)` becomes `[text](arkeology://artifact/{id}) ("my-decision" section)`.
 - WHEN such a matched link carried no anchor THE SYSTEM SHALL rewrite the target with no appended
   note.
 - WHEN already-rewritten content is passed through `rewrite_content_references` again THE SYSTEM
-  SHALL NOT re-append or duplicate the anchor note: the rewritten target is `cairn://artifact/{id}`
-  with no `#`, and `cairn://…` is never a key in `resolved_references_map`, so a second pass finds
+  SHALL NOT re-append or duplicate the anchor note: the rewritten target is `arkeology://artifact/{id}`
+  with no `#`, and `arkeology://…` is never a key in `resolved_references_map`, so a second pass finds
   no match and appends nothing.
 - WHEN a candidate path portion or frontmatter list value does not match any
   `resolved_references_map` key — exactly for frontmatter, or via `normalize_reference_path` for
@@ -259,17 +259,17 @@ that file's own frontmatter.
 | File | Action | Notes |
 |------|--------|-------|
 | `tests/unit/test_references_content_rewrite.py` | Create | Pure-helper tests for `rewrite_content_references` — frontmatter quote-style variants, body markdown-link rewrite, anchor drop-from-URI + note appended (incl. anchored idempotency), substring-collision safety, fenced-code-block skip, URL passthrough, unresolved-entry passthrough, idempotency, empty/absent-map no-op — Red first |
-| `src/cairn_mcp/references.py` | Modify | Add `rewrite_content_references(content: str, resolved_map: dict[str, str]) -> str` pure helper alongside the existing T51 helpers; reuse `normalize_reference_path`; no new module-level state |
+| `src/arkeology/references.py` | Modify | Add `rewrite_content_references(content: str, resolved_map: dict[str, str]) -> str` pure helper alongside the existing T51 helpers; reuse `normalize_reference_path`; no new module-level state |
 | `tests/unit/test_tools_migrate_artifacts.py` | Modify | Add tests: a descriptor's `resolved_references_map` rewrites `content` before the skip-existing check and before delegation to `write_artifacts`; the key never appears in the `dry_run=True` descriptor echo or the `dry_run=False` result; absent/empty map is a no-op; content stored in S3 matches content embedded (assert via the existing write-path spies) |
-| `src/cairn_mcp/tools/migrate_artifacts.py` | Modify | New step between description clipping (current Step 3) and the `dry_run` branch (current Step 4): for each `enriched` descriptor carrying `resolved_references_map`, call `rewrite_content_references` on its `content` and pop the key before the descriptor is returned or written |
-| `plugins/cairn-mcp/skills/migrating-to-cairn/SKILL.md` | Modify | Replace the hand-rewrite instruction in "Resolving a `references:` entry against the map" (Step 3, "Match found" bullet) with: populate the descriptor's `references` field AND `resolved_references_map` ({original text: id}); remove the "rewrite that entry... to `cairn://artifact/{id}`" instruction. Update 3.A1b and 3.B5 ("rewrite resolved entries in that file's content... to `cairn://artifact/{id}`") to say the map is passed in the descriptor and the server performs the frontmatter+body rewrite. Update the "Only the frontmatter `references:` YAML list is touched" paragraph (end of Step 3) to state the server now also rewrites matching markdown link targets in the body, while in-body link *discovery* remains out of scope (ADR-012 D1) |
+| `src/arkeology/tools/migrate_artifacts.py` | Modify | New step between description clipping (current Step 3) and the `dry_run` branch (current Step 4): for each `enriched` descriptor carrying `resolved_references_map`, call `rewrite_content_references` on its `content` and pop the key before the descriptor is returned or written |
+| `plugins/arkeology/skills/migrating-to-arkeology/SKILL.md` | Modify | Replace the hand-rewrite instruction in "Resolving a `references:` entry against the map" (Step 3, "Match found" bullet) with: populate the descriptor's `references` field AND `resolved_references_map` ({original text: id}); remove the "rewrite that entry... to `arkeology://artifact/{id}`" instruction. Update 3.A1b and 3.B5 ("rewrite resolved entries in that file's content... to `arkeology://artifact/{id}`") to say the map is passed in the descriptor and the server performs the frontmatter+body rewrite. Update the "Only the frontmatter `references:` YAML list is touched" paragraph (end of Step 3) to state the server now also rewrites matching markdown link targets in the body, while in-body link *discovery* remains out of scope (ADR-012 D1) |
 | `docs/architecture-decisions/adr-2026-07-03-artifact-cross-referencing.md` | Already modified (architect) | Revision section (2026-07-06) reversing the no-server-side-rewrite call for this bounded case |
 | `docs/brainstorming/brainstorming-2026-07-01-artifact-cross-referencing.md` | Already modified (architect) | D16 addendum (Session 2026-07-06) recording the decision |
 
 ## Testing Approach
 
 **Project uses TDD.** Write `tests/unit/test_references_content_rewrite.py` first (Red), then
-implement `rewrite_content_references` in `src/cairn_mcp/references.py` (Green). Then add the
+implement `rewrite_content_references` in `src/arkeology/references.py` (Green). Then add the
 `migrate_artifacts` integration-level unit tests (Red → Green) for the descriptor-threading and
 placement contract.
 
@@ -288,7 +288,7 @@ placement contract.
   the note ` ("anchor" section)` appended after the closing `)`; a hyphenated/multi-word anchor
   (`#my-decision`) is kept verbatim in the note (`("my-decision" section)`), never de-slugified; a
   matched link with no anchor gets no note; anchored idempotency — running twice on
-  `[x](cairn://artifact/{id}) ("outcome" section)` yields identical output (no double note); a `#`
+  `[x](arkeology://artifact/{id}) ("outcome" section)` yields identical output (no double note); a `#`
   appearing inside a fenced code block is still skipped (the whole fenced region is untouched,
   anchor logic never runs on it).
 - Non-goals (explicit negative tests): a body link to a path never declared in this file's
@@ -314,7 +314,7 @@ placement contract.
 **Integration test** (`tests/integration/`, `@pytest.mark.integration`): a two-file migration where
 file A's frontmatter references file B (with a matching body link) round-trips through
 `migrate_artifacts(dry_run=False)` against real AWS; `read_artifact` on A returns content with both
-the frontmatter and body occurrences rewritten to `cairn://artifact/{B-id}`.
+the frontmatter and body occurrences rewritten to `arkeology://artifact/{B-id}`.
 
 ## Open Questions
 
@@ -323,14 +323,14 @@ The resolved decisions and their (implementation-note) limitations are recorded 
 
 - **OQ-T56-a — Anchor handling (FROZEN 2026-07-06).** A body link `[text](path#anchor)` is
   rewritten with the anchor dropped from the URI, and the anchor is preserved as a human-readable
-  note appended immediately after the rewritten link: `[text](cairn://artifact/{id}) ("anchor"
+  note appended immediately after the rewritten link: `[text](arkeology://artifact/{id}) ("anchor"
   section)`. `<anchor>` is the raw fragment text after `#`, verbatim (never de-slugified). A link
-  with no anchor gets no note. Rationale: the `cairn://artifact/{id*}` template matches the id
+  with no anchor gets no note. Rationale: the `arkeology://artifact/{id*}` template matches the id
   verbatim with no fragment-aware resolution today (and URI fragments are commonly stripped
   client-side before a resource read), so keeping `#anchor` in the URI risks breaking id resolution
   on hosts that pass the fragment through — while the appended note retains the human pointing
   precision the anchor conveyed. Idempotency holds because the rewritten target has no `#` and
-  `cairn://…` is never a `resolved_references_map` key, so a second pass appends nothing (explicit
+  `arkeology://…` is never a `resolved_references_map` key, so a second pass appends nothing (explicit
   test required — see Testing Approach).
 - **OQ-T56-b — Reference-style markdown links: OUT OF SCOPE for v1 (FROZEN 2026-07-06).**
   `[text][ref]` + a separate `[ref]: path "title"` definition is a different Markdown construct

@@ -25,7 +25,7 @@ revised:
 ## Problem Statement
 
 Storage without retrieval is archiving, not memory. The search tool is where the value of
-cairn-mcp becomes real: an agent starting a new session issues a natural language query and
+Arkeology becomes real: an agent starting a new session issues a natural language query and
 receives the most relevant artifacts from its own scope plus any shared artifacts from
 subscribed foreign scopes — without fetching full content. The re-fetch loop handles the
 fundamental mismatch between section-level vector granularity and artifact-level result
@@ -158,9 +158,9 @@ other types and feature tags.
 | File | Action | Notes |
 |------|--------|-------|
 | `tests/unit/test_tools_search.py` | Create | Written first (Red) |
-| `src/cairn_mcp/tools/search.py` | Create | Written after unit tests (Green) |
+| `src/arkeology/tools/search.py` | Create | Written after unit tests (Green) |
 | `tests/integration/test_tools_search.py` | Create | Written before integration wiring |
-| `src/cairn_mcp/server.py` | Modify | Register `search_artifacts` tool on `_app` |
+| `src/arkeology/server.py` | Modify | Register `search_artifacts` tool on `_app` |
 
 ## Testing Approach
 

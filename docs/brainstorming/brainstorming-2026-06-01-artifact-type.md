@@ -69,15 +69,15 @@ directory wants files in that directory classified as `brainstorming`, not `sess
 
 ### Story 3 — Schema resources reflect the new type (P1)
 
-A connected agent reading cairn-mcp's MCP resources sees `brainstorming` in the type
+A connected agent reading Arkeology's MCP resources sees `brainstorming` in the type
 catalogue and artifact schema.
 
 **Acceptance criteria:**
-- Given a call to `cairn://schema/types`, when the resource is read, then `brainstorming`
+- Given a call to `arkeology://schema/types`, when the resource is read, then `brainstorming`
   appears with a usage description.
-- Given a call to `cairn://schema/artifact`, when the resource is read, then `brainstorming`
+- Given a call to `arkeology://schema/artifact`, when the resource is read, then `brainstorming`
   is listed as a valid type value.
-- Given a call to `cairn://schema/tiers`, when the resource is read, then `brainstorming`
+- Given a call to `arkeology://schema/tiers`, when the resource is read, then `brainstorming`
   appears in the tier 2 "Use for" guidance.
 
 ## Requirements
@@ -87,9 +87,9 @@ catalogue and artifact schema.
 - WHEN `write_artifact` is called with `type="brainstorming"` THE SYSTEM SHALL treat the
   artifact as tier 2 in guidance (the tier parameter is still caller-controlled, but the
   type catalogue documents it as tier 2).
-- WHEN `cairn://schema/types` is read THE SYSTEM SHALL include a description for
+- WHEN `arkeology://schema/types` is read THE SYSTEM SHALL include a description for
   `brainstorming`.
-- WHEN `cairn://schema/tiers` is read THE SYSTEM SHALL list `brainstorming` alongside
+- WHEN `arkeology://schema/tiers` is read THE SYSTEM SHALL list `brainstorming` alongside
   other tier 2 types in the "Use for" guidance.
 - WHEN the migration skill Step 2 directory scan encounters `docs/brainstorming/` THE
   SYSTEM SHALL map it to `type=brainstorming`, `tier=2` (not `session_summary`).
@@ -118,11 +118,11 @@ catalogue and artifact schema.
 | File | Action | Notes |
 |------|--------|-------|
 | `tests/unit/test_artifact.py` | Modify | Add `"brainstorming"` to parametrized type list; update docstring "All 8" → "All 9" |
-| `src/cairn_mcp/artifact.py` | Modify | Add `"brainstorming"` to `ARTIFACT_TYPES`; update docstring "eight" → "nine" |
-| `src/cairn_mcp/resources.py` | Modify | Add `"brainstorming"` entry to `_descriptions` in `types_schema_content()`; add `brainstorming` to "Use for" line in `tiers_schema_content()` |
+| `src/arkeology/artifact.py` | Modify | Add `"brainstorming"` to `ARTIFACT_TYPES`; update docstring "eight" → "nine" |
+| `src/arkeology/resources.py` | Modify | Add `"brainstorming"` entry to `_descriptions` in `types_schema_content()`; add `brainstorming` to "Use for" line in `tiers_schema_content()` |
 | `README.md` | Modify | Add `brainstorming` row to the artifact type table in the AGENTS.md snippet; add `brainstorming` to the tier 2 list in the Tier selection section |
-| `skills/migrating-to-cairn/SKILL.md` | Modify | Split `docs/brainstorming/` into its own row mapping to `brainstorming` tier 2; add `brainstorming` row to Step 7 removal guidance table |
-| `skills/migrating-to-cairn/schema.yaml` | Modify | Add `brainstorming` to the inline type comment listing the valid `ARTIFACT_TYPES` values |
+| `skills/migrating-to-arkeology/SKILL.md` | Modify | Split `docs/brainstorming/` into its own row mapping to `brainstorming` tier 2; add `brainstorming` row to Step 7 removal guidance table |
+| `skills/migrating-to-arkeology/schema.yaml` | Modify | Add `brainstorming` to the inline type comment listing the valid `ARTIFACT_TYPES` values |
 
 ## Testing Approach
 
@@ -136,21 +136,21 @@ This project uses TDD. Each test file is listed before the implementation file i
 
 **Green — implement to make the test pass:**
 
-2. `src/cairn_mcp/artifact.py` — add `"brainstorming"` to `ARTIFACT_TYPES`; update
+2. `src/arkeology/artifact.py` — add `"brainstorming"` to `ARTIFACT_TYPES`; update
    docstring on `Artifact` class from "eight valid artifact types" to "nine valid
    artifact types". The parametrized test now passes.
 
 **Documentation (no failing test gates these, update after green):**
 
-3. `src/cairn_mcp/resources.py` — add `brainstorming` description entry; update tier 2
+3. `src/arkeology/resources.py` — add `brainstorming` description entry; update tier 2
    "Use for" line. Verified by existing `test_resources.py` dynamic iteration over
    `ARTIFACT_TYPES` (no new test needed — the loop already covers every type in the set).
 
 4. `README.md` — add `brainstorming` row; update tier 2 list.
 
-5. `skills/migrating-to-cairn/SKILL.md` — split directory mapping row; add step 7 row.
+5. `skills/migrating-to-arkeology/SKILL.md` — split directory mapping row; add step 7 row.
 
-6. `skills/migrating-to-cairn/schema.yaml` — add type to comment.
+6. `skills/migrating-to-arkeology/schema.yaml` — add type to comment.
 
 **Verify after all changes:**
 

@@ -6,7 +6,7 @@ search over moto's in-memory vector store, matching VectorsClientImpl semantics.
 
 import math
 
-from cairn_mcp.clients.vectors import VectorsClientImpl
+from arkeology.clients.vectors import VectorsClientImpl
 
 
 def _unit_vec(values: list[float]) -> list[float]:

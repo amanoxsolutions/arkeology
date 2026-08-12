@@ -90,7 +90,7 @@ via extension, and know `FakeBedrockClient` is kept intentionally.
   instance backed by moto (with `query_vectors` patched) via a shared pytest fixture.
 - WHEN `query_vectors` is called on the moto-backed client THE SYSTEM SHALL return results
   ordered by `score = 1.0 − cosine_distance` descending, applying the `filter_expr` via
-  `cairn_mcp.clients.filter.matches_filter`.
+  `arkeology.clients.filter.matches_filter`.
 - WHEN a test needs to simulate a credential error on S3 or Vectors THE SYSTEM SHALL use
   `mocker.patch.object` to raise `CredentialError` on the specific client method under test.
 - WHEN a test needs to track call counts on a client method THE SYSTEM SHALL use
@@ -104,7 +104,7 @@ via extension, and know `FakeBedrockClient` is kept intentionally.
 - `FakeBedrockClient` is kept — moto's `invoke_model` returns a generic stub, not
   deterministic per-text embedding vectors; the hash-derived unit vectors in `FakeBedrockClient`
   are required for search ordering assertions.
-- `src/cairn_mcp/clients/filter.py` is kept — reused by both the `query_vectors` moto
+- `src/arkeology/clients/filter.py` is kept — reused by both the `query_vectors` moto
   extension and `VectorsClientImpl.list_vectors_by_metadata`.
 - All tests must pass `uv run pytest tests/unit/ -q -m 'not integration'` after migration.
 - ruff check, ruff format, and mypy must all be clean after migration.
@@ -120,7 +120,7 @@ via extension, and know `FakeBedrockClient` is kept intentionally.
 - Do not use `unittest.mock.MagicMock` as a drop-in for entire client objects — use
   `mocker.patch.object` on specific methods only.
 - Do not modify any integration test — this spec covers unit tests only.
-- Do not change any tool source code in `src/cairn_mcp/` — this is a test infrastructure
+- Do not change any tool source code in `src/arkeology/` — this is a test infrastructure
   change only.
 
 <!-- IMPLEMENTATION BLOCK — agent-owned -->
@@ -134,8 +134,8 @@ via extension, and know `FakeBedrockClient` is kept intentionally.
 | `tests/unit/clients/test_fake_vectors.py` | Delete | Replaced by `test_moto_query_vectors_extension.py` |
 | `tests/unit/clients/test_fake_s3.py` | Delete | moto is maintained by its own test suite; no value in re-testing it here |
 | `tests/unit/clients/test_moto_query_vectors_extension.py` | Create | Tests for the `query_vectors` extension: score for identical vectors = 1.0, score for orthogonal vectors = 0.0, results ranked descending, filter_expr respected, top_k respected |
-| `src/cairn_mcp/clients/fakes/fake_s3.py` | Delete | Replaced by moto |
-| `src/cairn_mcp/clients/fakes/fake_vectors.py` | Delete | Replaced by moto + extension |
+| `src/arkeology/clients/fakes/fake_s3.py` | Delete | Replaced by moto |
+| `src/arkeology/clients/fakes/fake_vectors.py` | Delete | Replaced by moto + extension |
 | `tests/unit/test_startup.py` | Modify | Replace `FakeS3Client` / `FakeVectorsClient` with moto-backed clients from fixtures; replace `set_credential_failure(True)` with `mocker.patch.object`; replace `FakeVectorsClient(index_missing=True)` by not creating the index in the fixture |
 | `tests/unit/test_tools_write.py` | Modify | Replace `FakeS3Client` / `FakeVectorsClient` with moto-backed clients; replace `TrackingVectors` subclass with `mocker.spy`; replace credential failure simulation with `mocker.patch.object` |
 | `tests/unit/test_tools_search.py` | Modify | Replace `FakeVectorsClient` with moto-backed client; update any score assertions to `[−1, 1]` range |
@@ -205,9 +205,9 @@ import boto3
 import pytest
 from moto import mock_aws
 
-from cairn_mcp.clients.filter import matches_filter
-from cairn_mcp.clients.s3 import S3ClientImpl
-from cairn_mcp.clients.vectors import VectorsClientImpl
+from arkeology.clients.filter import matches_filter
+from arkeology.clients.s3 import S3ClientImpl
+from arkeology.clients.vectors import VectorsClientImpl
 
 
 def _cosine_similarity(a: list[float], b: list[float]) -> float:
@@ -309,7 +309,7 @@ s3 = FakeS3Client()
 s3.set_credential_failure(True)
 
 # After — patch the specific method under test
-from cairn_mcp.errors import CredentialError
+from arkeology.errors import CredentialError
 
 def test_credential_error_on_head_bucket(mocker, s3_client, vectors_client, bedrock, settings):
     mocker.patch.object(

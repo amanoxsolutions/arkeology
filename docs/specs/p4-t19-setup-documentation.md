@@ -1,7 +1,7 @@
 ---
 type: spec
 title: T19 — Setup Documentation and AGENTS.md Snippet
-description: Adds actionable AWS provisioning steps, minimum IAM policy, index immutability warnings, and a copy-paste AGENTS.md snippet to the README so operators can deploy and configure cairn-mcp from scratch.
+description: Adds actionable AWS provisioning steps, minimum IAM policy, index immutability warnings, and a copy-paste AGENTS.md snippet to the README so operators can deploy and configure Arkeology from scratch.
 tags: []
 timestamp: 2026-05-31T00:00:00Z
 okf_version: "0.1"
@@ -32,14 +32,14 @@ policy; and an explicit immutability warning (dimension, distance metric, and
 non-filterable keys cannot be changed after index creation — a new index is required).
 Also absent is the recommended AGENTS.md snippet — the copy-paste block that operators
 paste into their project `AGENTS.md` so that every future agent session writes, searches,
-and synthesises using cairn-mcp correctly. T17 must complete before this task so that
+and synthesises using Arkeology correctly. T17 must complete before this task so that
 every statement in the documentation reflects empirically verified, not assumed, behaviour.
 
 ## User Stories
 
 ### Story 1 — Admin provisions all AWS resources following only the README (P1)
 
-An admin unfamiliar with cairn-mcp internals follows the README and creates a working
+An admin unfamiliar with Arkeology internals follows the README and creates a working
 deployment from scratch.
 
 **Acceptance criteria:**
@@ -47,7 +47,7 @@ deployment from scratch.
   bucket, S3 Vectors bucket, and S3 Vectors index with the correct configuration using
   only the README steps — no other documentation required.
 - Given the provisioning steps are complete and `.env` is filled in, when the admin runs
-  `uv run cairn-mcp`, then the server starts without validation errors.
+  `uv run arkeology`, then the server starts without validation errors.
 - Given the README provisioning steps, when an admin creates the S3 Vectors index, then
   they have declared both `description` and `source_artifacts` as non-filterable key slots
   and selected a dimension that matches their configured embedding model.
@@ -65,7 +65,7 @@ deployment from scratch.
 
 **Acceptance criteria:**
 - Given an admin applies the minimum IAM policy from the README to a service account,
-  then all cairn-mcp tools operate correctly with no permission errors.
+  then all Arkeology tools operate correctly with no permission errors.
 - The policy document in the README covers: S3 (`s3:GetObject`, `s3:PutObject`,
   `s3:DeleteObject`, `s3:ListObjectsV2`, `s3:HeadBucket`), S3 Vectors
   (`s3vectors:PutVectors`, `s3vectors:GetVectors`, `s3vectors:QueryVectors`,
@@ -102,14 +102,14 @@ deployment from scratch.
 - THE README SHALL include a "Recommended AGENTS.md Snippet" section containing a
   fenced copy-paste block covering: when to write artifacts (at session close, after
   key decisions, after code reviews), artifact type selection guidance for all artifact
-  types (the full catalogue lives in `cairn://schema/types`), description quality
+  types (the full catalogue lives in `arkeology://schema/types`), description quality
   guidance (tweet-length, search-optimised, not a file
   heading), tier 2 vs tier 3 selection (point-in-time record vs living document),
   query strategy (start with type + tags filters; issue a pure semantic query
   only if filters return insufficient results; use `list_artifacts` to browse without a
   query), synthesise guidance (when to synthesise, how to call `synthesise_artifacts`,
   how to write the result back as `type="synthesis"`, `tier=3` with `source_artifacts`),
-  and a pointer to `cairn://schema/*` MCP Resources for runtime schema precision.
+  and a pointer to `arkeology://schema/*` MCP Resources for runtime schema precision.
 - All documented behaviours SHALL reflect empirically verified results from T17.
 
 ## Boundaries
@@ -118,7 +118,7 @@ deployment from scratch.
 - This is a documentation-only task — no new code is written.
 - All existing README content is preserved and extended, not replaced.
 - The AGENTS.md snippet lives in the README as a copy-paste reference — it is NOT added
-  to the cairn-mcp repository's own `AGENTS.md`.
+  to the Arkeology repository's own `AGENTS.md`.
 - The IAM policy must be minimum-viable — no wildcard actions, no extra permissions.
 - The provisioning steps use AWS CLI commands or console steps as prose — no CDK,
   CloudFormation, or Terraform is included.
@@ -131,7 +131,7 @@ deployment from scratch.
   empirical results.
 - Do not include infrastructure-as-code provisioning (CDK, Terraform, CloudFormation) —
   manual CLI steps only.
-- Do not add the AGENTS.md snippet to `cairn-mcp/AGENTS.md` — it is for operators'
+- Do not add the AGENTS.md snippet to `arkeology/AGENTS.md` — it is for operators'
   projects, not this repo.
 - Do not exceed the README's existing register — match the existing tone and structure.
 
@@ -148,7 +148,7 @@ deployment from scratch.
 Documentation task — no automated tests. Acceptance is manual:
 
 - Follow the "AWS Provisioning" steps in a clean environment; verify the server starts
-  with `uv run cairn-mcp` and the startup validation sequence completes without errors.
+  with `uv run arkeology` and the startup validation sequence completes without errors.
 - Apply the minimum IAM policy to a test role; run the integration test suite; verify no
   permission-denied errors occur.
 - Copy the AGENTS.md snippet into a scratch `AGENTS.md`; review it against all items

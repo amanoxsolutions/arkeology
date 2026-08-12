@@ -24,7 +24,7 @@ revised:
 
 ## Problem Statement
 
-When cairn-mcp misbehaves mid-session — an artifact write fails, search returns nothing,
+When Arkeology misbehaves mid-session — an artifact write fails, search returns nothing,
 the server seems unresponsive — an admin needs to diagnose which component is at fault
 without reading raw server logs. The health check tool performs an independent connectivity
 and accessibility probe for each configured component (S3, S3 Vectors, Bedrock, write
@@ -124,9 +124,9 @@ A single failing component must not suppress the results of other checks.
 | File | Action | Notes |
 |------|--------|-------|
 | `tests/unit/test_tools_health.py` | Create | Written first (Red) |
-| `src/cairn_mcp/tools/health.py` | Create | Written after unit tests (Green) |
+| `src/arkeology/tools/health.py` | Create | Written after unit tests (Green) |
 | `tests/integration/test_tools_health.py` | Create | Written before integration wiring |
-| `src/cairn_mcp/server.py` | Modify | Register `health_check` tool on `_app` |
+| `src/arkeology/server.py` | Modify | Register `health_check` tool on `_app` |
 
 ## Testing Approach
 

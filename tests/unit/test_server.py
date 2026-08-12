@@ -6,8 +6,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from cairn_mcp.__main__ import configure_logging
-from cairn_mcp.server import _app, register_tools
+from arkeology.__main__ import configure_logging
+from arkeology.server import _app, register_tools
 from tests.unit.conftest import _make_settings
 
 
@@ -79,7 +79,7 @@ async def test_write_artifact_mcp_layer_forwards_commit_refs(
     """write_artifact MCP tool forwards commit_refs to the underlying _write_artifact."""
     settings = _make_settings(monkeypatch)
     mock_write = AsyncMock(return_value={"artifact_id": "artifacts/test"})
-    monkeypatch.setattr("cairn_mcp.server._write_artifact", mock_write)
+    monkeypatch.setattr("arkeology.server._write_artifact", mock_write)
 
     register_tools(
         settings=settings,
@@ -91,7 +91,7 @@ async def test_write_artifact_mcp_layer_forwards_commit_refs(
     await tool.fn(
         type="code_review",
         team="platform",
-        project="cairn",
+        project="arkeology",
         tier=2,
         date="2026-06-12",
         title="Test",
@@ -117,7 +117,7 @@ async def test_write_artifact_mcp_layer_forwards_references(
     """write_artifact MCP tool forwards references to the underlying _write_artifact."""
     settings = _make_settings(monkeypatch)
     mock_write = AsyncMock(return_value={"artifact_id": "artifacts/test"})
-    monkeypatch.setattr("cairn_mcp.server._write_artifact", mock_write)
+    monkeypatch.setattr("arkeology.server._write_artifact", mock_write)
 
     register_tools(
         settings=settings,
@@ -129,7 +129,7 @@ async def test_write_artifact_mcp_layer_forwards_references(
     await tool.fn(
         type="code_review",
         team="platform",
-        project="cairn",
+        project="arkeology",
         tier=2,
         date="2026-06-12",
         title="Test",
@@ -155,7 +155,7 @@ async def test_write_artifact_mcp_layer_forwards_overwrite(
     """write_artifact MCP tool forwards overwrite to the underlying _write_artifact."""
     settings = _make_settings(monkeypatch)
     mock_write = AsyncMock(return_value={"artifact_id": "artifacts/test"})
-    monkeypatch.setattr("cairn_mcp.server._write_artifact", mock_write)
+    monkeypatch.setattr("arkeology.server._write_artifact", mock_write)
 
     register_tools(
         settings=settings,
@@ -167,7 +167,7 @@ async def test_write_artifact_mcp_layer_forwards_overwrite(
     await tool.fn(
         type="code_review",
         team="platform",
-        project="cairn",
+        project="arkeology",
         tier=2,
         date="2026-06-12",
         title="Test",
@@ -188,7 +188,7 @@ async def test_write_artifact_mcp_layer_overwrite_defaults_false(
     """write_artifact MCP tool defaults overwrite to False when the caller omits it."""
     settings = _make_settings(monkeypatch)
     mock_write = AsyncMock(return_value={"artifact_id": "artifacts/test"})
-    monkeypatch.setattr("cairn_mcp.server._write_artifact", mock_write)
+    monkeypatch.setattr("arkeology.server._write_artifact", mock_write)
 
     register_tools(
         settings=settings,
@@ -200,7 +200,7 @@ async def test_write_artifact_mcp_layer_overwrite_defaults_false(
     await tool.fn(
         type="code_review",
         team="platform",
-        project="cairn",
+        project="arkeology",
         tier=2,
         date="2026-06-12",
         title="Test",
@@ -220,7 +220,7 @@ async def test_write_artifacts_mcp_layer_forwards_overwrite(
     """write_artifacts MCP tool forwards the batch-level overwrite to _write_artifacts."""
     settings = _make_settings(monkeypatch)
     mock_write_batch = AsyncMock(return_value={"results": []})
-    monkeypatch.setattr("cairn_mcp.server._write_artifacts", mock_write_batch)
+    monkeypatch.setattr("arkeology.server._write_artifacts", mock_write_batch)
 
     register_tools(
         settings=settings,
@@ -249,7 +249,7 @@ async def test_write_artifacts_mcp_layer_forwards_artifact_concurrency(
     with PRD FR-25 / p10-t39, which document it as caller-controllable)."""
     settings = _make_settings(monkeypatch)
     mock_write_batch = AsyncMock(return_value={"results": []})
-    monkeypatch.setattr("cairn_mcp.server._write_artifacts", mock_write_batch)
+    monkeypatch.setattr("arkeology.server._write_artifacts", mock_write_batch)
 
     register_tools(
         settings=settings,
@@ -272,7 +272,7 @@ async def test_write_artifacts_mcp_layer_artifact_concurrency_defaults_to_three(
     omits it, matching the inner function's default (M-10)."""
     settings = _make_settings(monkeypatch)
     mock_write_batch = AsyncMock(return_value={"results": []})
-    monkeypatch.setattr("cairn_mcp.server._write_artifacts", mock_write_batch)
+    monkeypatch.setattr("arkeology.server._write_artifacts", mock_write_batch)
 
     register_tools(
         settings=settings,
@@ -296,7 +296,7 @@ async def test_write_artifacts_mcp_layer_out_of_range_artifact_concurrency_forwa
     MCP layer must not silently reinterpret or reject it (M-10)."""
     settings = _make_settings(monkeypatch)
     mock_write_batch = AsyncMock(return_value={"results": [], "warning": "capped"})
-    monkeypatch.setattr("cairn_mcp.server._write_artifacts", mock_write_batch)
+    monkeypatch.setattr("arkeology.server._write_artifacts", mock_write_batch)
 
     register_tools(
         settings=settings,
@@ -324,7 +324,7 @@ async def test_list_artifacts_mcp_layer_forwards_commit_refs(
     """list_artifacts MCP tool forwards commit_refs to the underlying _list_artifacts."""
     settings = _make_settings(monkeypatch)
     mock_list: AsyncMock = AsyncMock(return_value={"artifacts": []})
-    monkeypatch.setattr("cairn_mcp.server._list_artifacts", mock_list)
+    monkeypatch.setattr("arkeology.server._list_artifacts", mock_list)
 
     register_tools(
         settings=settings,
@@ -346,7 +346,7 @@ async def test_list_artifacts_mcp_layer_forwards_references(
     """list_artifacts MCP tool forwards references to the underlying _list_artifacts."""
     settings = _make_settings(monkeypatch)
     mock_list: AsyncMock = AsyncMock(return_value={"artifacts": []})
-    monkeypatch.setattr("cairn_mcp.server._list_artifacts", mock_list)
+    monkeypatch.setattr("arkeology.server._list_artifacts", mock_list)
 
     register_tools(
         settings=settings,
@@ -393,7 +393,7 @@ async def test_link_metadata_registered_and_forwards_arguments(
     mock_link: AsyncMock = AsyncMock(
         return_value={"linked": 1, "skipped": 0, "next_since_ulid": "01ABC"}
     )
-    monkeypatch.setattr("cairn_mcp.server._link_metadata", mock_link)
+    monkeypatch.setattr("arkeology.server._link_metadata", mock_link)
 
     register_tools(
         settings=settings,
@@ -419,7 +419,7 @@ async def test_propose_commit_links_still_registered_and_functional(
     and still forwards its arguments to the underlying implementation."""
     settings = _make_settings(monkeypatch)
     mock_propose: AsyncMock = AsyncMock(return_value={"proposed": []})
-    monkeypatch.setattr("cairn_mcp.server._propose_commit_links", mock_propose)
+    monkeypatch.setattr("arkeology.server._propose_commit_links", mock_propose)
 
     register_tools(
         settings=settings,
@@ -469,5 +469,5 @@ async def test_register_tools_registers_full_tool_set(
         "migrate_artifacts",
         "propose_commit_links",
         "link_metadata",
-        "cairn_studio",
+        "arkeology_studio",
     }

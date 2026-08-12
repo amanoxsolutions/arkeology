@@ -111,7 +111,7 @@ No automated tests — this spec covers documentation only. Verification is manu
 2. Confirm `s3vectors:CreateIndex` and `s3vectors:DeleteIndex` do not appear in the
    runtime policy block and appear only in a provisioning-labelled section.
 3. Confirm the status paragraph contains "Phase 5" and lists exactly 11 tools; cross-check
-   against `src/cairn_mcp/server.py` `register_tools()`.
+   against `src/arkeology/server.py` `register_tools()`.
 4. Confirm `limit` does not appear in the `list_artifacts` row of the tools table.
 
 ## Open Questions

@@ -1,4 +1,4 @@
-"""Unit tests for cairn_mcp.tools.delete.
+"""Unit tests for arkeology.tools.delete.
 
 Tests delete_artifact() using moto-backed S3ClientImpl + VectorsClientImpl.
 """
@@ -8,13 +8,13 @@ from typing import Any
 import pytest
 from pytest_mock import MockerFixture
 
-from cairn_mcp.clients.s3 import S3ClientImpl
-from cairn_mcp.clients.vectors import VectorsClientImpl
-from cairn_mcp.config import Settings
-from cairn_mcp.errors import CredentialError
-from cairn_mcp.tools._search_helper import find_referrers
-from cairn_mcp.tools.archive import archive_artifact
-from cairn_mcp.tools.delete import delete_artifact
+from arkeology.clients.s3 import S3ClientImpl
+from arkeology.clients.vectors import VectorsClientImpl
+from arkeology.config import Settings
+from arkeology.errors import CredentialError
+from arkeology.tools._search_helper import find_referrers
+from arkeology.tools.archive import archive_artifact
+from arkeology.tools.delete import delete_artifact
 from tests.unit.conftest import _make_settings as _make_settings_base
 
 
@@ -55,7 +55,7 @@ def _find_eq_clauses(expr: Any, field: str) -> list[Any]:
 _BASE_S3_META: dict[str, str] = {
     "type": "code_review",
     "team": "platform",
-    "project": "cairn",
+    "project": "arkeology",
     "tier": "2",
     "date": "2026-05-30",
     "status": "active",
@@ -70,7 +70,7 @@ _BASE_VECTOR_META: dict[str, Any] = {
     "scope": "artifacts",
     "type": "code_review",
     "team": "platform",
-    "project": "cairn",
+    "project": "arkeology",
     "tier": 2,
     "date": "2026-05-30",
     "status": "active",

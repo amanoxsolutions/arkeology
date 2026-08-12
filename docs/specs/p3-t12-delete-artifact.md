@@ -145,9 +145,9 @@ S3 object. The caller receives a structured partial-failure error.
 | File | Action | Notes |
 |------|--------|-------|
 | `tests/unit/test_tools_delete.py` | Create | Written first (Red) |
-| `src/cairn_mcp/tools/delete.py` | Create | Written after unit tests (Green) |
+| `src/arkeology/tools/delete.py` | Create | Written after unit tests (Green) |
 | `tests/integration/test_tools_delete.py` | Create | Written before integration wiring |
-| `src/cairn_mcp/server.py` | Modify | Register `delete_artifact` tool on `_app` |
+| `src/arkeology/server.py` | Modify | Register `delete_artifact` tool on `_app` |
 | `tests/integration/test_tools_write.py` | Modify | Update teardown to call `delete_artifact` |
 | `tests/integration/test_tools_search.py` | Modify | Update teardown to call `delete_artifact` |
 | `tests/integration/test_tools_read.py` | Modify | Update teardown to call `delete_artifact` |

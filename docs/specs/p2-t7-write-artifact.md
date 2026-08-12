@@ -24,7 +24,7 @@ revised:
 
 ## Problem Statement
 
-Writing is the entry point for all value in cairn-mcp. An agent that cannot persistently
+Writing is the entry point for all value in Arkeology. An agent that cannot persistently
 store an artifact mid-session — immediately and idempotently — gets nothing from the server.
 This tool stores the artifact content in S3, generates one embedding per `##` section via
 Bedrock, and writes the corresponding section vectors to S3 Vectors. The write → search →
@@ -160,11 +160,11 @@ exception.
 | File | Action | Notes |
 |------|--------|-------|
 | `tests/unit/test_tools_write.py` | Create | Written first (Red) |
-| `src/cairn_mcp/tools/__init__.py` | Create | Empty package marker |
-| `src/cairn_mcp/tools/write.py` | Create | Written after unit tests (Green) |
+| `src/arkeology/tools/__init__.py` | Create | Empty package marker |
+| `src/arkeology/tools/write.py` | Create | Written after unit tests (Green) |
 | `tests/integration/test_tools_write.py` | Create | Written before integration wiring |
-| `src/cairn_mcp/server.py` | Modify | Register `write_artifact` tool on `_app` |
-| `src/cairn_mcp/__main__.py` | Modify | Pass `settings`, `s3`, `vectors`, `bedrock` to tool registration |
+| `src/arkeology/server.py` | Modify | Register `write_artifact` tool on `_app` |
+| `src/arkeology/__main__.py` | Modify | Pass `settings`, `s3`, `vectors`, `bedrock` to tool registration |
 
 ## Testing Approach
 

@@ -77,7 +77,7 @@ inspects the traceback and sees both the `StartupValidationError` message and th
 | File | Action | Notes |
 |------|--------|-------|
 | `tests/unit/test_startup.py` | Modify | Add assertions that `exc.__cause__` is set on the 5 affected raises |
-| `src/cairn_mcp/startup.py` | Modify | Add `from exc` to raises at lines 69, 90, 103, 136, 162; rename bare `except` clauses to `except ... as exc:` where needed |
+| `src/arkeology/startup.py` | Modify | Add `from exc` to raises at lines 69, 90, 103, 136, 162; rename bare `except` clauses to `except ... as exc:` where needed |
 
 ## Testing Approach
 

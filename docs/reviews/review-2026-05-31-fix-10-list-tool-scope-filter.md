@@ -71,9 +71,9 @@ increasing latency.
 | File | Action | Notes |
 |------|--------|-------|
 | `tests/unit/test_tools_list.py` | Modify | Add test asserting scope clause in vector query (written first — Red) |
-| `src/cairn_mcp/tools/list.py` | Modify | Add scope `$or` filter to `clauses` before calling `list_vectors_by_metadata` |
-| `src/cairn_mcp/tools/search.py` | Modify (maybe) | Extract scope filter to shared helper if duplication arises |
-| `src/cairn_mcp/clients/filter.py` | Modify (maybe) | Candidate location for shared scope filter builder |
+| `src/arkeology/tools/list.py` | Modify | Add scope `$or` filter to `clauses` before calling `list_vectors_by_metadata` |
+| `src/arkeology/tools/search.py` | Modify (maybe) | Extract scope filter to shared helper if duplication arises |
+| `src/arkeology/clients/filter.py` | Modify (maybe) | Candidate location for shared scope filter builder |
 
 ## Testing Approach
 

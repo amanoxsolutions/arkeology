@@ -117,7 +117,7 @@ overwrite path is broken and must be fixed before the suite can pass green.
 | `tests/integration/test_tools_write.py` | Verify | Confirm T7–T9 teardown uses `delete_artifact` |
 | `tests/integration/test_tools_search.py` | Verify | Same teardown check |
 | `tests/integration/test_tools_read.py` | Verify | Same teardown check |
-| `src/cairn_mcp/tools/write.py` | Modify (conditional) | Only if upsert NOT confirmed — add explicit delete-then-re-put for tier 3 section vectors |
+| `src/arkeology/tools/write.py` | Modify (conditional) | Only if upsert NOT confirmed — add explicit delete-then-re-put for tier 3 section vectors |
 | `tests/unit/test_tools_write.py` | Modify (conditional) | Only if write.py changes — update or add tier 3 overwrite tests written first |
 | `tests/integration/test_tools_write.py` | Modify (conditional) | Only if write.py changes — add/update test asserting no duplicate section vectors after tier 3 re-write |
 | `docs/planning-artifacts/plan.md` | Modify | Update Learnings (Q1 result), remove Phase 3 retrospective flag from Status, close Q1 in Risks |
