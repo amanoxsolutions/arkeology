@@ -121,7 +121,11 @@ def register_tools(
         tier: int | None = None,
         status: str | None = None,
     ) -> dict[str, Any]:
-        """Search artifacts by semantic similarity."""
+        """Search artifacts by semantic similarity.
+
+        status defaults to "active"; pass the explicit sentinel status="all" to
+        search regardless of status.
+        """
         return await _search_artifacts(
             settings=settings,
             s3=s3,

@@ -6,8 +6,11 @@
 <title>arkeology studio</title>
 <script type="module">
 import { App } from "https://unpkg.com/@modelcontextprotocol/ext-apps@1.7.4/app-with-deps";
-import { marked } from "https://cdn.jsdelivr.net/npm/marked/+esm";
-import mermaid from "https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.esm.min.mjs";
+// Pinned, like every other import here: an unpinned CDN specifier resolves to
+// whatever the registry publishes at load time, so an upstream release would land in
+// this app — parsing and rendering untrusted artifact content — without review.
+import { marked } from "https://cdn.jsdelivr.net/npm/marked@18.0.9/+esm";
+import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11.16.1/dist/mermaid.esm.min.mjs";
 // marked.parse() passes raw HTML through unchanged. Artifact content (including
 // cross-scope tier-3 "shared" artifacts written by other teams) is untrusted input, so
 // the rendered HTML is sanitised with DOMPurify before it ever reaches innerHTML. Pinned
@@ -70,7 +73,12 @@ mermaid.initialize({
 // ── Type configuration ─────────────────────────────────────────────────────
 // --c-*  : identity colour (4px stripe). --bt-* : AA-safe badge/eyebrow text.
 // Both are theme-aware CSS custom properties; we reference them by var() name.
+// __proto__: null — the lookup key is an artifact's `type`, which comes from stored
+// metadata. On a normal object, a type of "constructor" or "toString" would resolve up
+// the prototype chain to a truthy Object.prototype member instead of missing, so an
+// unknown type would silently skip its fallback. A null-prototype object has no chain.
 const TYPE_VARS = {
+  __proto__: null,
   adr:                 { c: "--c-adr",       bt: "--bt-adr" },
   prd:                 { c: "--c-prd",       bt: "--bt-prd" },
   spec:                { c: "--c-spec",      bt: "--bt-spec" },
@@ -89,6 +97,7 @@ const TYPE_VARS = {
 };
 
 const TYPE_LABELS = {
+  __proto__: null,    // see TYPE_VARS above — same untrusted lookup key
   adr:                "ADR",
   prd:                "PRD",
   spec:               "Spec",
@@ -131,8 +140,16 @@ function escHtml(str) {
 }
 
 // ── State ──────────────────────────────────────────────────────────────────
-let currentArtifacts = [];
+// Rows rendered per page. A fixed client-side constant, not a server setting: the tool
+// call already returns the whole result set, so this bounds DOM and render cost only.
+const PAGE_SIZE = 50;
+
+let currentArtifacts = [];   // the full result set, sorted — not just what is rendered
+let renderedCount = 0;       // how many of currentArtifacts are currently in the DOM
 let selectedId = null;
+// Raw markdown of the artifact currently in the detail view, kept so a theme change can
+// repaint it (mermaid re-themes only on re-run) without a second read_artifact call.
+let detailContent = null;
 let filterType = "";
 let filterTier = "";
 // "all" is an explicit all-inclusive sentinel recognised server-side by
@@ -150,6 +167,9 @@ const selType      = document.getElementById("sel-type");
 const selTier      = document.getElementById("sel-tier");
 const selStatus    = document.getElementById("sel-status");
 const artifactList = document.getElementById("artifact-list");
+const listFooter   = document.getElementById("list-footer");
+const listCount    = document.getElementById("list-count");
+const showMore     = document.getElementById("show-more");
 const listView     = document.getElementById("list-view");
 const detailView   = document.getElementById("detail-view");
 const detailBack   = document.getElementById("detail-back");
@@ -163,6 +183,7 @@ function openDetail() { appEl.classList.add("showing-detail"); }
 function openList()   {
   appEl.classList.remove("showing-detail");
   selectedId = null;
+  detailContent = null;
   document.querySelectorAll(".li").forEach(el => {
     el.classList.remove("active");
     el.setAttribute("aria-selected", "false");
@@ -170,6 +191,59 @@ function openList()   {
 }
 
 // ── Render helpers ─────────────────────────────────────────────────────────
+// Replace the list with a single message (empty result, or a server error). Clears the
+// paging state too, so the boundary line never keeps reporting counts for a list that
+// is no longer on screen.
+function showListMessage(msg) {
+  currentArtifacts = [];
+  renderedCount = 0;
+  artifactList.innerHTML = `<p class="empty-msg">${escHtml(msg)}</p>`;
+  renderFooter();
+}
+
+function renderFooter() {
+  const total = currentArtifacts.length;
+  listFooter.hidden = total === 0;
+  listCount.textContent =
+    `Showing ${renderedCount} of ${total} artifact${total === 1 ? "" : "s"}`;
+  showMore.hidden = renderedCount >= total;
+}
+
+function buildRow(a) {
+  const id      = a.artifact_id || "";
+  const type    = a.type || "";
+  const title   = a.title || id;
+  const date    = a.date || "";
+  const tier    = a.tier || "";
+  const isActive = id === selectedId;
+
+  // Each row is a real <button> inside the listbox so it is keyboard-operable.
+  const item = document.createElement("button");
+  item.type = "button";
+  item.className = "li" + (isActive ? " active" : "");
+  item.dataset.id = id;
+  item.setAttribute("role", "option");
+  item.setAttribute("aria-selected", isActive ? "true" : "false");
+  item.innerHTML = `
+    <div class="li-stripe" style="background:${stripeColor(type)};"></div>
+    <div class="li-badge" style="background:${badgeBg(type)};color:${badgeTextColor(type)};">${escHtml(typeLabel(type))}</div>
+    <div class="li-title">${escHtml(title)}</div>
+    <div class="li-meta">${escHtml(date)}${tier ? " · tier " + escHtml(tier) : ""}</div>
+  `;
+  item.addEventListener("click", () => selectArtifact(id));
+  return item;
+}
+
+// Append the next PAGE_SIZE rows. Never touches rows already in the DOM, so the
+// selection and scroll position survive a "Show more".
+function appendPage() {
+  for (const a of currentArtifacts.slice(renderedCount, renderedCount + PAGE_SIZE)) {
+    artifactList.appendChild(buildRow(a));
+  }
+  renderedCount = Math.min(renderedCount + PAGE_SIZE, currentArtifacts.length);
+  renderFooter();
+}
+
 function renderList(artifacts) {
   // Sort: type ascending (A→Z), then date descending (newest first)
   const sorted = [...(artifacts || [])].sort((a, b) => {
@@ -179,36 +253,17 @@ function renderList(artifacts) {
   });
   currentArtifacts = sorted;
   artifactList.innerHTML = "";
+  renderedCount = 0;
+  // Every caller of renderList is a fresh result set (filter change, search, reload),
+  // so the list goes back to page one at the top.
+  artifactList.scrollTop = 0;
 
-  if (!sorted || sorted.length === 0) {
-    artifactList.innerHTML = '<p class="empty-msg">No artifacts found.</p>';
+  if (sorted.length === 0) {
+    showListMessage("No artifacts found.");
     return;
   }
 
-  for (const a of sorted) {
-    const id      = a.artifact_id || "";
-    const type    = a.type || "";
-    const title   = a.title || id;
-    const date    = a.date || "";
-    const tier    = a.tier || "";
-    const isActive = id === selectedId;
-
-    // Each row is a real <button> inside the listbox so it is keyboard-operable.
-    const item = document.createElement("button");
-    item.type = "button";
-    item.className = "li" + (isActive ? " active" : "");
-    item.dataset.id = id;
-    item.setAttribute("role", "option");
-    item.setAttribute("aria-selected", isActive ? "true" : "false");
-    item.innerHTML = `
-      <div class="li-stripe" style="background:${stripeColor(type)};"></div>
-      <div class="li-badge" style="background:${badgeBg(type)};color:${badgeTextColor(type)};">${escHtml(typeLabel(type))}</div>
-      <div class="li-title">${escHtml(title)}</div>
-      <div class="li-meta">${escHtml(date)}${tier ? " · tier " + tier : ""}</div>
-    `;
-    item.addEventListener("click", () => selectArtifact(id));
-    artifactList.appendChild(item);
-  }
+  appendPage();
 }
 
 // Roving keyboard navigation across list rows (Up/Down move; Enter/Space open).
@@ -237,19 +292,26 @@ artifactList.addEventListener("keydown", e => {
 // ── Tool calls ─────────────────────────────────────────────────────────────
 let app;
 
-async function loadList() {
+// The facet filters, as tool arguments. Shared by both read paths so a search can never
+// drift out of step with the filter state the operator can see: search_artifacts takes
+// the same type/tier/status arguments as list_artifacts, including the "all" status
+// sentinel, so both are forwarded identically.
+function filterArgs() {
   const args = {};
   if (filterType)   args.type   = filterType;
   if (filterTier)   args.tier   = parseInt(filterTier, 10);
   if (filterStatus) args.status = filterStatus;
+  return args;
+}
 
+async function loadList() {
   try {
-    const result = await app.callServerTool({ name: "list_artifacts", arguments: args });
+    const result = await app.callServerTool({ name: "list_artifacts", arguments: filterArgs() });
     const data = result.structuredContent ?? JSON.parse(result.content?.find(c => c.type === "text")?.text ?? "{}");
     // A server error dict must render its own message, not be treated as an
     // empty successful listing (a credential failure must never read as "no artifacts").
     if (data.error) {
-      artifactList.innerHTML = `<p class="empty-msg">${escHtml(data.message || data.error)}</p>`;
+      showListMessage(data.message || data.error);
       return;
     }
     renderList(data.artifacts || []);
@@ -257,12 +319,123 @@ async function loadList() {
       openList();
     }
   } catch {
-    artifactList.innerHTML = '<p class="empty-msg">Failed to load artifacts.</p>';
+    showListMessage("Failed to load artifacts.");
   }
+}
+
+// ── arkeology:// links in rendered artifact content ────────────────────────
+const ARTIFACT_URI_PREFIX = "arkeology://artifact/";
+
+// The artifact id addressed by an arkeology://artifact/{id} target, or null if the target
+// is anything else. The id is a full S3 key: it is passed to read_artifact verbatim, and
+// nothing is derived or decided from it here — the server's scope gate is the only
+// authority on whether the read is permitted.
+function artifactTarget(href) {
+  if (!href || !href.startsWith(ARTIFACT_URI_PREFIX)) return null;
+  const raw = href.slice(ARTIFACT_URI_PREFIX.length).split("#")[0].split("?")[0];
+  if (!raw) return null;
+  try {
+    return decodeURIComponent(raw) || null;
+  } catch {
+    return null;   // malformed percent-encoding — unresolvable, so it renders inert
+  }
+}
+
+// Classify every anchor in freshly rendered artifact content. Three outcomes:
+//
+//   artifact target  → activatable control carrying the id in a data attribute. The
+//                      arkeology: scheme is never admitted to an href: widening the
+//                      sanitiser's URI allow-list to make the scheme "work" would relax a
+//                      security control to solve a display problem, so the target rides
+//                      past the sanitiser as inert data that the click handler reads.
+//   http(s) target   → left alone, so it stays a link; it is sent out of the application
+//                      frame after sanitising (see renderDetailContent).
+//   everything else  → stripped of every navigation and focus affordance. This covers
+//                      non-artifact arkeology:// resources, malformed URIs, and the raw
+//                      repository paths migration deliberately leaves untouched — those
+//                      render as relative URLs the browser really would follow, taking
+//                      the iframe with them. Text is kept; a target the studio cannot
+//                      open is never presented as one.
+//
+// Runs before the sanitiser, never after: the sanitiser has the last word on what reaches
+// the DOM.
+function classifyContentLinks(html) {
+  // DOMParser documents have no browsing context, so nothing here loads or executes.
+  const doc = new DOMParser().parseFromString(html, "text/html");
+
+  for (const a of doc.querySelectorAll("a")) {
+    const href = a.getAttribute("href") || "";
+    // Artifact content is untrusted — drop any affordance it supplied itself, so the only
+    // activatable anchors are the ones classified below.
+    a.removeAttribute("data-artifact-id");
+
+    const id = artifactTarget(href);
+    if (id) {
+      a.removeAttribute("href");
+      a.setAttribute("data-artifact-id", id);
+      a.setAttribute("role", "link");
+      a.setAttribute("tabindex", "0");
+      continue;
+    }
+    if (/^https?:\/\//i.test(href)) continue;
+    a.removeAttribute("href");
+    a.removeAttribute("role");
+    a.removeAttribute("tabindex");
+  }
+  return doc.body.innerHTML;
+}
+
+// Delegated on the detail body: it covers content replaced on every load, and only
+// content — the app's own controls live outside this element. Enter is handled explicitly
+// because a resolvable anchor carries no href and so is not a native link.
+function activateArtifactLink(event) {
+  const link = event.target.closest?.("a[data-artifact-id]");
+  if (!link) return;
+  event.preventDefault();
+  selectArtifact(link.getAttribute("data-artifact-id"));
+}
+detailBody.addEventListener("click", activateArtifactLink);
+detailBody.addEventListener("keydown", (e) => { if (e.key === "Enter") activateArtifactLink(e); });
+
+// Render markdown into the open detail view. Split out of selectArtifact so a theme
+// change can repaint the artifact already in hand — mermaid only picks up a new theme on
+// re-run — without issuing a second read_artifact call for content it already has.
+async function renderDetailContent(content) {
+  const contentArea = document.getElementById("rp-content-area");
+  if (!contentArea) return;
+
+  let rendered;
+  try { rendered = marked.parse(content); }
+  catch { rendered = `<pre style="white-space:pre-wrap;">${escHtml(content)}</pre>`; }
+  // Content is untrusted (cross-scope tier-3 "shared" artifacts may come from a
+  // different, possibly compromised, team) — sanitise the rendered HTML before it
+  // reaches innerHTML so a stored payload like <img src=x onerror=...> cannot execute
+  // and reach app.callServerTool with this reader's credentials.
+  contentArea.innerHTML = DOMPurify.sanitize(classifyContentLinks(rendered));
+
+  // Every anchor still holding an href is an http(s) one the sanitiser's own URI
+  // allow-list admitted — send those outside the application frame so following one never
+  // replaces the studio. Applied after sanitising, not before, because the sanitiser drops
+  // `target`: adding it to the attribute allow-list to get it back would relax the
+  // sanitiser for a presentational detail.
+  for (const link of contentArea.querySelectorAll("a[href]")) {
+    link.setAttribute("target", "_blank");
+    link.setAttribute("rel", "noopener noreferrer");
+  }
+
+  try {
+    contentArea.querySelectorAll("code.language-mermaid").forEach(el => {
+      const pre = el.parentElement;
+      pre.className = "mermaid";
+      pre.textContent = el.textContent;
+    });
+    await mermaid.run({ querySelector: "#rp-content-area pre.mermaid" });
+  } catch (err) { console.error("Mermaid rendering failed:", err); }
 }
 
 async function selectArtifact(id) {
   selectedId = id;
+  detailContent = null;
 
   document.querySelectorAll(".li").forEach(el => {
     const isActive = el.dataset.id === id;
@@ -299,30 +472,26 @@ async function selectArtifact(id) {
 
   try {
     const result = await app.callServerTool({ name: "read_artifact", arguments: { artifact_id: id } });
+    // Selection may have moved on while this call was in flight — a slower earlier
+    // response must not overwrite a newer one, or paint into a closed detail view.
+    if (selectedId !== id) return;
     const data = result.structuredContent ?? JSON.parse(result.content?.find(c => c.type === "text")?.text ?? "{}");
-    const content = data.content || "";
-    const contentArea = document.getElementById("rp-content-area");
-    if (!contentArea) return;
-
-    let rendered;
-    try { rendered = marked.parse(content); }
-    catch { rendered = `<pre style="white-space:pre-wrap;">${escHtml(content)}</pre>`; }
-    // Content is untrusted (cross-scope tier-3 "shared" artifacts may come from a
-    // different, possibly compromised, team) — sanitise the rendered HTML before it
-    // reaches innerHTML so a stored payload like <img src=x onerror=...> cannot execute
-    // and reach app.callServerTool with this reader's credentials.
-    contentArea.innerHTML = DOMPurify.sanitize(rendered);
-
-    try {
-      contentArea.querySelectorAll("code.language-mermaid").forEach(el => {
-        const pre = el.parentElement;
-        pre.className = "mermaid";
-        pre.textContent = el.textContent;
-      });
-      await mermaid.run({ querySelector: "#rp-content-area pre.mermaid" });
-    } catch (err) { console.error("Mermaid rendering failed:", err); }
+    // A server error payload is shown with the view still open, rather than rendered as
+    // empty content. This sits on the shared load path, so it covers a row click and a
+    // followed cross-reference alike — the latter is how a reader reaches a target they
+    // may not read or that no longer exists. The server distinguishes those cases and its
+    // wording is used as-is: no paraphrase, no re-classification, and no client-side
+    // scope, tier, visibility, or existence check ahead of the call.
+    if (data.error) {
+      const errArea = document.getElementById("rp-content-area");
+      if (errArea) errArea.innerHTML = `<p style="color:var(--t2);">${escHtml(data.message || data.error)}</p>`;
+      return;
+    }
+    detailContent = data.content || "";
+    await renderDetailContent(detailContent);
   } catch (err) {
     console.error("read_artifact failed:", err);
+    if (selectedId !== id) return;
     const contentArea = document.getElementById("rp-content-area");
     if (contentArea) contentArea.innerHTML = `<p style="color:var(--t2);">Failed to load content.</p>`;
   }
@@ -331,29 +500,45 @@ async function selectArtifact(id) {
 async function doSearch(query) {
   openList();
   try {
-    const result = await app.callServerTool({ name: "search_artifacts", arguments: { query } });
+    const result = await app.callServerTool({
+      name: "search_artifacts",
+      arguments: { query, ...filterArgs() },
+    });
     const data = result.structuredContent ?? JSON.parse(result.content?.find(c => c.type === "text")?.text ?? "{}");
     // Render the server-provided error message instead of a generic
     // "Search failed." — the catch block below still covers transport-level failures.
     if (data.error) {
-      artifactList.innerHTML = `<p class="empty-msg">${escHtml(data.message || data.error)}</p>`;
+      showListMessage(data.message || data.error);
       return;
     }
-    renderList(data.artifacts || data || []);
+    renderList(data.artifacts || []);
   } catch {
-    artifactList.innerHTML = '<p class="empty-msg">Search failed.</p>';
+    showListMessage("Search failed.");
   }
 }
 
 // ── Event handlers ───────────────────────────────────────────────────────────
 detailBack.addEventListener("click", openList);
 
-themeToggle.addEventListener("click", () => {
+themeToggle.addEventListener("click", async () => {
   currentTheme = currentTheme === "light" ? "dark" : "light";
   applyTheme(currentTheme);
   storeTheme(currentTheme);
-  // Re-render the open artifact so mermaid diagrams pick up the new theme.
-  if (selectedId) selectArtifact(selectedId);
+  // Repaint the open artifact so mermaid diagrams pick up the new theme. Everything
+  // else is CSS custom properties and re-themes on the data-theme attribute alone, so
+  // this repaints from the content already in hand — no read_artifact round-trip.
+  if (detailContent !== null) await renderDetailContent(detailContent);
+});
+
+showMore.addEventListener("click", () => {
+  const firstNewIndex = renderedCount;
+  appendPage();
+  // The button disappears once the last page is rendered — move focus into the list
+  // rather than letting it fall back to <body>.
+  if (showMore.hidden) {
+    const rows = artifactList.querySelectorAll(".li");
+    if (rows[firstNewIndex]) rows[firstNewIndex].focus();
+  }
 });
 
 searchForm.addEventListener("submit", async e => {
@@ -758,6 +943,42 @@ html {
   padding: var(--sp-5) var(--sp-4);
 }
 
+/* ── List footer: boundary line + "Show more" ───────────────────────────── */
+
+#list-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  flex-shrink: 0;
+  padding: var(--sp-2) var(--sp-3);
+  border-top: 1px solid var(--bd-faint);
+  background: var(--surface);
+}
+
+/* [hidden] alone loses to the display:flex above — restate it. */
+#list-footer[hidden] { display: none; }
+
+#list-count {
+  font-size: var(--text-label);
+  color: var(--t3);     /* brightened --t3 is AA on base */
+}
+
+#show-more {
+  flex-shrink: 0;
+  background: var(--base);
+  color: var(--t1);
+  border: 1px solid var(--bd);
+  border-radius: var(--r-pill);
+  font: 600 var(--text-label)/1 inherit;
+  padding: 9px 14px;
+  cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
+}
+
+#show-more:hover  { border-color: var(--bd-strong); background: var(--surface-up); }
+#show-more[hidden] { display: none; }
+
 .li {
   padding: 14px 14px 14px 18px;
   border-radius: var(--r-lg);
@@ -1019,12 +1240,25 @@ html {
   font-style: italic;
 }
 
-.rp-content a {
+/* Only anchors the reader can actually act on carry link affordance: an http(s) link, or
+   a resolved artifact reference (which has no href by design, so it needs the styling
+   stated explicitly). Anything else had its href stripped during classification and must
+   read as body text — an unresolvable reference is plain text, never a dead link. */
+.rp-content a[href],
+.rp-content a[data-artifact-id] {
   color: var(--bt-spec);
   text-decoration: none;
+  cursor: pointer;
 }
 
-.rp-content a:hover { text-decoration: underline; }
+.rp-content a[href]:hover,
+.rp-content a[data-artifact-id]:hover { text-decoration: underline; }
+
+.rp-content a[data-artifact-id]:focus-visible {
+  outline: 2px solid var(--bt-spec);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
 
 .rp-content pre.mermaid {
   background: var(--surface);
@@ -1048,6 +1282,7 @@ html {
   #theme-toggle { height: 44px; }
   #filters select { min-height: 44px; }
   #detail-back { min-height: 44px; }
+  #show-more { min-height: 44px; }
   .li { padding-top: 16px; padding-bottom: 16px; min-height: 44px; }
 }
 </style>
@@ -1112,6 +1347,13 @@ html {
       </select>
     </div>
     <div id="artifact-list" role="listbox" aria-label="Artifacts"></div>
+    <!-- Boundary line + paging control. A sibling of the listbox, never a child:
+         role="listbox" may only contain options, and this keeps the button in tab
+         order directly after the rows. -->
+    <div id="list-footer" hidden>
+      <p id="list-count" aria-live="polite"></p>
+      <button id="show-more" type="button" hidden>Show more</button>
+    </div>
   </div>
 
   <!-- ── Detail view ─────────────────────────────────────────────────── -->

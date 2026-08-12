@@ -149,7 +149,7 @@ async def run_search_loop(
     vectors: VectorsClientInterface,
     query_vector: list[float],
     user_filters: list[dict[str, Any]],
-    status_filter: dict[str, Any],
+    status_filter: dict[str, Any] | None,
     effective_top_k: int,
 ) -> tuple[list[dict[str, Any]], bool] | dict[str, Any]:
     """Execute the deduplicating re-fetch loop over the vector index.
@@ -184,7 +184,9 @@ async def run_search_loop(
         vectors: S3 Vectors client.
         query_vector: Embedded query vector.
         user_filters: Caller-supplied metadata filter clauses (type, team, tier, etc.).
-        status_filter: Status gate filter (e.g. ``{"status": {"$eq": "active"}}``).
+        status_filter: Status gate filter (e.g. ``{"status": {"$eq": "active"}}``), or
+            ``None`` to omit the status clause entirely (the caller's ``status="all"``
+            sentinel).
         effective_top_k: Maximum number of distinct artifacts to collect.
 
     Returns:
@@ -204,7 +206,9 @@ async def run_search_loop(
     fetch_exhausted = False
 
     for _ in range(settings.search_max_iterations):
-        and_clauses: list[dict[str, Any]] = [*user_filters, status_filter, scope_filter]
+        and_clauses: list[dict[str, Any]] = [*user_filters, scope_filter]
+        if status_filter is not None:
+            and_clauses.append(status_filter)
 
         if seen_ids:
             nin_bytes = _nin_list_byte_size(seen_ids)

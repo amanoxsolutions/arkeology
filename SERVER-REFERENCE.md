@@ -15,7 +15,7 @@ serve browsable artifact content to humans — see [Resources](#resources) below
 | `write_artifact` | Store an artifact in S3 and index it in S3 Vectors | `type`, `team`, `project`, `tier`, `title`, `content`, `visibility`, optional filters | `artifact_id`, `sections_indexed` |
 | `write_artifacts` | Bulk-write multiple artifacts in a single call with per-entry success/error reporting | list of artifact descriptors; optional `artifact_concurrency` (default `3`, max `15`) | per-artifact list of `artifact_id` + `written: true` or `error`; top-level `warning` if `artifact_concurrency` was out of range |
 | `migrate_artifacts` | Migration-specific bulk write; generates descriptions server-side via Bedrock when omitted; `dry_run=True` previews enriched descriptors without writing | list of artifact descriptors, `dry_run`; optional `artifact_concurrency` (default `3`, max `15`) | enriched descriptor list (dry run) or per-artifact write results; top-level `warning` if `artifact_concurrency` was out of range |
-| `search_artifacts` | Semantic search over the vector index with optional metadata filters | `query`, optional: `type`, `tags`, `team`, `project`, `tier`, `status`, `top_k` | List of artifact metadata (no content) |
+| `search_artifacts` | Semantic search over the vector index with optional metadata filters | `query`, optional: `type`, `tags`, `team`, `project`, `tier`, `status` (pass `"all"` to search regardless of status), `top_k` | List of artifact metadata (no content) |
 | `read_artifact` | Fetch the full content of an artifact by ID | `artifact_id` | Full artifact dict including `content` |
 | `list_artifacts` | List artifact metadata with optional filters; defaults to active artifacts | optional: `type`, `team`, `project`, `tier`, `status` (pass `"all"` to return artifacts regardless of status), `tags`, `commit_refs`, `references` | List of artifact metadata records |
 | `archive_artifact` | Set an artifact's status to inactive (own scope only) | `artifact_id` | Confirmation with updated `artifact_id` |
@@ -96,8 +96,12 @@ leaks the caller's IP address and was rejected on GDPR grounds; the browser uses
   `structured_content`. The iframe loads the artifact list itself on mount, over the same MCP
   connection.
 - **Non-supporting hosts** (e.g. MCP Inspector, headless agents): a one-line text confirmation
-  plus `structured_content` carrying `{ "write_prefix": string, "artifacts": [...] }` —
-  equivalent to calling `list_artifacts` with `status="active"`.
+  plus `structured_content` carrying
+  `{ "write_prefix": string, "artifacts": [...], "total_count": int }` — equivalent to calling
+  `list_artifacts` with `status="active"`. The listing is bounded at the 50 most recent
+  artifacts (newest first, ties broken by `artifact_id`) so it cannot fill an agent's context
+  window; `total_count` is the full pre-cap match count, and when the cap truncates, the text
+  confirmation states both numbers and points at `list_artifacts` for the remainder.
 - **On failure** (non-supporting hosts only — e.g. the inner `list_artifacts` call fails
   because of expired credentials): `is_error=True` with `structured_content` carrying
   `{ "error": string, "message": string }` instead of being coerced into an empty listing.
@@ -111,7 +115,9 @@ arkeology_studio
 ```
 
 The host renders the browser inline. From there you can:
-- Browse and filter the active artifact list by type, tier, and status
+- Browse and filter the active artifact list by type, tier, and status — rendered 50 rows at a
+  time, with a boundary line stating how many of how many artifacts are on screen and a
+  "Show more" control for the next page
 - Select any artifact to read its full markdown content (with mermaid diagram rendering)
 - Enter a search query for semantic artifact discovery
 - Clear the search to restore the filter-based listing

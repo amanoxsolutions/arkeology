@@ -61,7 +61,9 @@ async def search_artifacts(
         team: Optional team filter.
         project: Optional project filter.
         tier: Optional tier filter (2 or 3).
-        status: Optional status filter. Defaults to ``"active"``.
+        status: Optional status filter. Defaults to ``"active"``. Pass the explicit
+            sentinel ``"all"`` (as ``list_artifacts`` accepts) to search regardless
+            of status.
 
     Returns:
         On success: ``{"artifacts": [...]}`` or
@@ -141,17 +143,22 @@ async def _search_artifacts_inner(  # noqa: PLR0913
         return {"error": ErrorCode.VALIDATION_ERROR, "message": str(exc)}
 
     # ── Step 4: Status gate ───────────────────────────────────────────────────
-    if status is not None:
-        try:
-            ArtifactStatus(status)
-        except ValueError:
-            return {
-                "error": ErrorCode.VALIDATION_ERROR,
-                "message": f"invalid status filter value: {status!r}",
-            }
-    status_filter: dict[str, Any] = {
-        "status": {"$eq": status if status is not None else ArtifactStatus.ACTIVE}
-    }
+    # status="all" is the same explicit all-inclusive sentinel list_artifacts recognises:
+    # drop the status clause entirely rather than filtering on the literal string "all",
+    # which matches no stored status and would silently return zero results. Any other
+    # value, including the "active" default, must be a recognised status — a typo must
+    # not fall through to a clause that legitimately matches nothing.
+    status_filter: dict[str, Any] | None = None
+    if status != "all":
+        if status is not None:
+            try:
+                ArtifactStatus(status)
+            except ValueError:
+                return {
+                    "error": ErrorCode.VALIDATION_ERROR,
+                    "message": f"invalid status filter value: {status!r}",
+                }
+        status_filter = {"status": {"$eq": status if status is not None else ArtifactStatus.ACTIVE}}
 
     # ── Step 5: Run shared re-fetch loop ──────────────────────────────────────
     loop_result = await run_search_loop(

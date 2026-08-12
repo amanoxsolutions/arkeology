@@ -553,6 +553,32 @@ async def test_inactive_artifacts_excluded_by_default(
     assert "artifacts/inactive-review" not in artifact_ids
 
 
+async def test_status_all_includes_inactive(
+    monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
+) -> None:
+    """status='all' is the same all-inclusive sentinel list_artifacts recognises: it
+    omits the status clause rather than matching the literal string 'all' (which would
+    match nothing). Without it, a caller holding an explicit "any status" filter — the
+    studio's default — cannot express it on the search path."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=8)
+    _seed_vectors(vectors_client_8)
+
+    result = await search_artifacts(
+        vectors=vectors_client_8,
+        bedrock=bedrock,
+        settings=settings,
+        query="review",
+        top_k=20,
+        status="all",
+    )
+
+    assert "error" not in result, f"status='all' must be accepted, got: {result}"
+    artifact_ids = [a["artifact_id"] for a in result["artifacts"]]
+    assert "artifacts/inactive-review" in artifact_ids
+
+
 # ---------------------------------------------------------------------------
 # Cross-scope gate
 # ---------------------------------------------------------------------------
