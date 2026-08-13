@@ -32,7 +32,7 @@ from fastmcp.server.context import Context
 from fastmcp.tools.base import ToolResult
 from mcp.types import TextContent
 
-from arkeology.clients.interfaces import VectorsClientInterface
+from arkeology.clients.interfaces import S3ClientInterface, VectorsClientInterface
 from arkeology.config import Settings
 from arkeology.tools.list import _list_artifacts_inner
 
@@ -48,6 +48,7 @@ FALLBACK_LISTING_CAP = 50
 async def _arkeology_studio_inner(
     *,
     settings: Settings,
+    s3: S3ClientInterface,
     vectors: VectorsClientInterface,
     ctx: Context,
 ) -> ToolResult:
@@ -69,7 +70,7 @@ async def _arkeology_studio_inner(
         )
 
     # Non-supporting host: include the artifact listing so the client has the data.
-    listing = await _list_artifacts_inner(settings=settings, vectors=vectors)
+    listing = await _list_artifacts_inner(settings=settings, s3=s3, vectors=vectors)
     if "error" in listing:
         # An error dict from the inner list call (e.g. expired credentials)
         # must never be coerced into a successful empty listing — that would read as
@@ -127,6 +128,7 @@ async def _arkeology_studio_inner(
 async def arkeology_studio(
     *,
     settings: Settings,
+    s3: S3ClientInterface,
     vectors: VectorsClientInterface,
     ctx: Context,
 ) -> ToolResult:
@@ -145,6 +147,8 @@ async def arkeology_studio(
 
     Args:
         settings: Validated server configuration.
+        s3: S3 client — used by the inner list_artifacts call to read the durable
+            commit_refs/references annotation copy for the non-UI fallback path.
         vectors: S3 Vectors client — used to fetch the artifact list for the
             non-UI fallback path.
         ctx: FastMCP request context — used to detect UI extension support.
@@ -154,7 +158,7 @@ async def arkeology_studio(
         On unexpected error, returns an error ``ToolResult``.
     """
     try:
-        return await _arkeology_studio_inner(settings=settings, vectors=vectors, ctx=ctx)
+        return await _arkeology_studio_inner(settings=settings, s3=s3, vectors=vectors, ctx=ctx)
     except Exception as exc:
         logger.exception("Unexpected error in arkeology_studio")
         return ToolResult(

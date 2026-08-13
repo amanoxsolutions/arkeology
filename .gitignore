@@ -13,3 +13,4 @@ dev_server.py
 .claude/
 .serena/
 .tokensave/
+node_modules/

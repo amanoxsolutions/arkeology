@@ -1,7 +1,7 @@
 """Integration tests for arkeology.tools.search.
 
 Requires real AWS credentials and configured .env file.
-Depends on T7 integration write tests having already seeded data.
+Each test seeds its own data via write_artifact and cleans up via delete_artifact.
 All tests decorated with @pytest.mark.integration.
 """
 
@@ -112,18 +112,60 @@ async def test_type_filter_reduces_results(
     vectors: VectorsClientImpl,
     bedrock: BedrockClientImpl,
 ) -> None:
-    """type filter reduces results correctly — all returned artifacts match the type."""
-    result = await search_artifacts(
-        vectors=vectors,
-        bedrock=bedrock,
-        settings=settings,
-        query="auth review",
-        top_k=10,
-        type="code_review",
-    )
+    """type filter reduces results — matching-type artifact found, other-type artifact excluded."""
+    base_kwargs = {
+        "team": "platform",
+        "project": "arkeology",
+        "tier": 2,
+        "date": "2026-05-30",
+        "status": "active",
+        "description": "Integration search type-filter test artifact.",
+        "visibility": "shared",
+    }
 
-    for artifact in result["artifacts"]:
-        assert artifact["type"] == "code_review"
+    titles = [
+        ("code_review", "Type filter test auth review"),
+        ("adr", "Type filter test auth review decision"),
+    ]
+
+    written_ids: dict[str, str] = {}
+    try:
+        for artifact_type, title in titles:
+            kwargs = {
+                **base_kwargs,
+                "type": artifact_type,
+                "title": title,
+                "content": f"## Summary\n\n{title} content.",
+            }
+            result = await write_artifact(
+                s3=s3, vectors=vectors, bedrock=bedrock, settings=settings, **kwargs
+            )
+            written_ids[artifact_type] = result["artifact_id"]
+
+        search_result = await search_artifacts(
+            vectors=vectors,
+            bedrock=bedrock,
+            settings=settings,
+            query="auth review",
+            top_k=10,
+            type="code_review",
+        )
+
+        found_ids = [a["artifact_id"] for a in search_result["artifacts"]]
+        for artifact in search_result["artifacts"]:
+            assert artifact["type"] == "code_review"
+        assert written_ids["code_review"] in found_ids
+        assert written_ids["adr"] not in found_ids
+    finally:
+        for aid in written_ids.values():
+            await delete_artifact(
+                settings=settings,
+                s3=s3,
+                vectors=vectors,
+                bedrock=bedrock,
+                artifact_id=aid,
+                confirm=True,
+            )
 
 
 @pytest.mark.integration
@@ -154,17 +196,52 @@ async def test_own_scope_and_foreign_tier3_shared_present_tier2_absent(
 ) -> None:
     """Combined scope: own-scope result present; foreign-scope tier 2 absent."""
     # We cannot easily control foreign-scope data in integration tests, so
-    # this test verifies that own-scope results appear and that the response
-    # structure is valid.
-    result = await search_artifacts(
-        vectors=vectors, bedrock=bedrock, settings=settings, query="auth review", top_k=10
-    )
+    # the foreign-scope-tier2-absent half is only covered indirectly: no
+    # foreign tier 2 artifact is ever seeded, and the scope-membership
+    # assertion below fails if one were ever to leak into the results. The
+    # own-scope-result-present half is seeded and verified directly.
+    base_kwargs = {
+        "team": "platform",
+        "project": "arkeology",
+        "tier": 2,
+        "date": "2026-05-30",
+        "status": "active",
+        "description": "Integration search own-scope test artifact.",
+        "visibility": "shared",
+        "type": "code_review",
+        "title": "Own scope test auth review",
+        "content": "## Summary\n\nOwn scope test auth review content.",
+    }
 
-    # All returned artifact_ids must come from allowed scopes
-    allowed_scopes = settings.effective_read_scopes
-    for artifact in result["artifacts"]:
-        artifact_id = artifact["artifact_id"]
-        # artifact must start with one of the allowed scopes
-        assert any(artifact_id.startswith(scope + "/") for scope in allowed_scopes), (
-            f"Artifact {artifact_id!r} not in any allowed scope: {allowed_scopes}"
+    written_ids: list[str] = []
+    try:
+        write_result = await write_artifact(
+            s3=s3, vectors=vectors, bedrock=bedrock, settings=settings, **base_kwargs
         )
+        written_ids.append(write_result["artifact_id"])
+
+        result = await search_artifacts(
+            vectors=vectors, bedrock=bedrock, settings=settings, query="auth review", top_k=10
+        )
+
+        found_ids = [a["artifact_id"] for a in result["artifacts"]]
+        assert write_result["artifact_id"] in found_ids
+
+        # All returned artifact_ids must come from allowed scopes
+        allowed_scopes = settings.effective_read_scopes
+        for artifact in result["artifacts"]:
+            artifact_id = artifact["artifact_id"]
+            # artifact must start with one of the allowed scopes
+            assert any(artifact_id.startswith(scope + "/") for scope in allowed_scopes), (
+                f"Artifact {artifact_id!r} not in any allowed scope: {allowed_scopes}"
+            )
+    finally:
+        for aid in written_ids:
+            await delete_artifact(
+                settings=settings,
+                s3=s3,
+                vectors=vectors,
+                bedrock=bedrock,
+                artifact_id=aid,
+                confirm=True,
+            )

@@ -57,7 +57,9 @@ async def test_arkeology_studio_non_supporting_host_returns_structured_content(
     ctx.client_supports_extension.return_value = False
     vectors = MagicMock()
 
-    result = await studio.arkeology_studio(settings=settings, vectors=vectors, ctx=ctx)
+    result = await studio.arkeology_studio(
+        settings=settings, s3=MagicMock(), vectors=vectors, ctx=ctx
+    )
 
     assert isinstance(result, ToolResult)
     assert not result.is_error
@@ -92,7 +94,9 @@ async def test_arkeology_studio_non_supporting_host_credential_error_is_propagat
     ctx.client_supports_extension.return_value = False
     vectors = MagicMock()
 
-    result = await studio.arkeology_studio(settings=settings, vectors=vectors, ctx=ctx)
+    result = await studio.arkeology_studio(
+        settings=settings, s3=MagicMock(), vectors=vectors, ctx=ctx
+    )
 
     assert isinstance(result, ToolResult)
     assert result.is_error, "A credential-error listing must not report success"
@@ -117,7 +121,7 @@ async def test_arkeology_studio_supporting_host_omits_structured_content(
     ctx.client_supports_extension.return_value = True
     vectors = MagicMock()
 
-    result = await arkeology_studio(settings=settings, vectors=vectors, ctx=ctx)
+    result = await arkeology_studio(settings=settings, s3=MagicMock(), vectors=vectors, ctx=ctx)
 
     assert isinstance(result, ToolResult)
     assert not result.is_error
@@ -138,7 +142,7 @@ async def test_arkeology_studio_exception_returns_error_tool_result(
     ctx.client_supports_extension.side_effect = RuntimeError("boom")
     vectors = MagicMock()
 
-    result = await arkeology_studio(settings=settings, vectors=vectors, ctx=ctx)
+    result = await arkeology_studio(settings=settings, s3=MagicMock(), vectors=vectors, ctx=ctx)
 
     assert isinstance(result, ToolResult)
     assert result.is_error
@@ -166,7 +170,9 @@ async def _run_fallback(
     mocker.patch.object(studio, "_list_artifacts_inner", return_value={"artifacts": artifacts})
     ctx = MagicMock()
     ctx.client_supports_extension.return_value = False
-    return await studio.arkeology_studio(settings=settings, vectors=MagicMock(), ctx=ctx)
+    return await studio.arkeology_studio(
+        settings=settings, s3=MagicMock(), vectors=MagicMock(), ctx=ctx
+    )
 
 
 @pytest.mark.asyncio

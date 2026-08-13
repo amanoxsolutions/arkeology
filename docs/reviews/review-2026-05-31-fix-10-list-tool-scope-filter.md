@@ -11,10 +11,36 @@ authored:
   by: "developer"
   date: "2026-05-31"
 revised:
-  by: ""
-  date: ""
+  by: "developer"
+  date: "2026-08-12"
 ---
 # Review Fix 10 — List Tool Scope Filter (M11)
+
+## Verification — 2026-08-12
+
+Re-verified against current `main`. Resolved the same day this spec was authored, in
+`f642725` ("production hardening — 20 review-fix specs (76 findings resolved)"), the single
+commit that landed all 20 `fix-01`..`fix-20` specs together — this document's tracking was
+never updated afterward.
+
+- **Still resolved, still valid, and since consolidated exactly as this spec's Boundaries
+  required.** `list_artifacts` in `list.py` appends `build_scope_filter(settings)` to its
+  vector-query clauses before calling the vectors client, and `search_artifacts` (via
+  `run_search_loop`) calls the same `build_scope_filter`. Both now route through one shared
+  function in `_search_helper.py` rather than two independently-written filter builders —
+  this is precisely the "extract to a shared location rather than duplicating it" boundary
+  the spec set, satisfying it more strongly than a spec-minimal fix would have (no risk of
+  the two schemes drifting apart later). The `$or` shape matches the spec's Story 2
+  requirement exactly: own-scope unrestricted, foreign-scope restricted to `tier == 3` and
+  `visibility == "shared"`.
+  The Python-side cross-scope gate the spec required to remain in place as a
+  defence-in-depth safety net is still present in `list.py` (own-scope entries always
+  allowed, foreign-scope entries re-checked after the vector query returns) — it was not
+  removed when the vector-side filter was added, matching the "Never remove" boundary.
+- Test coverage: `tests/unit/test_tools_list.py` asserts the vector query is issued with a
+  scope-related filter clause.
+
+Aggregate: 1 resolved (still valid).
 
 ## Problem Statement
 

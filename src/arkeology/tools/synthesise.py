@@ -17,6 +17,7 @@ from arkeology.clients.interfaces import (
 from arkeology.config import Settings
 from arkeology.constants import ArtifactStatus, ErrorCode
 from arkeology.errors import CredentialError, InvalidFilterValueError
+from arkeology.tools._errors import credential_error_response
 from arkeology.tools._search_helper import (
     build_user_filters,
     coerce_list_field,
@@ -108,7 +109,7 @@ async def _synthesise_artifacts_inner(
             settings.bedrock_embedding_dimensions,
         )
     except CredentialError as exc:
-        return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
+        return credential_error_response(exc)
 
     # ── Step 3: Build user filters (no tier filter for synthesise) ────────────
     try:
@@ -161,7 +162,7 @@ async def _synthesise_artifacts_inner(
         try:
             content = await asyncio.to_thread(s3.get_object, artifact_id)
         except CredentialError as exc:
-            return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
+            return credential_error_response(exc)
         except Exception:
             logger.warning("Skipping artifact '%s': S3 read failed", artifact_id)
             skipped_count += 1

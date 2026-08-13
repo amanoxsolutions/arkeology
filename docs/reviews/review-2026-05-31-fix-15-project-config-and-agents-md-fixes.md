@@ -11,10 +11,46 @@ authored:
   by: "developer"
   date: "2026-05-31"
 revised:
-  by: ""
-  date: ""
+  by: "developer"
+  date: "2026-08-12"
 ---
 # Review Fix 15 — Project Config and AGENTS.md Fixes
+
+## Verification — 2026-08-12
+
+Re-verified story-by-story against current `main`. All five stories hold.
+
+- **Story 1 (`ruff` declared dev dependency) — ✅ RESOLVED.** `pyproject.toml`
+  `[dependency-groups] dev` lists `"ruff~=0.15"` (a newer pin than the spec's suggested
+  `>=0.11`, but the story only required declaration, not a specific pin).
+- **Story 2 (AGENTS.md file inventory) — ✅ RESOLVED (for the 9 files this story named).**
+  Every source file checked was found in the Repository Structure table. The table has grown far
+  past its 2026-05-31 shape as phases 9–12 added many new tool files (`archive.py`, `delete.py`,
+  `freshness.py`, `health.py`, `link_metadata.py`, `list.py`, `migrate_artifacts.py`,
+  `propose_commit_links.py`, `purge.py`, `read.py`, `reconcile.py`, `search.py`, `studio.py`,
+  `synthesise.py`, `write.py`, `write_artifacts.py`, `_search_helper.py`,
+  `_section_pipeline.py`, `static/arkeology-studio.html`, `clients/*`), all present. Two files
+  now exist that aren't in the table — `src/arkeology/tools/_errors.py` and
+  `src/arkeology/tools/_reference_filter.py` — but both were added much later (the FC-3 /
+  M5-CA-5 cluster, well after this 2026-05-31 review), so this is unrelated post-fix drift, not
+  a failure of this story.
+- **Story 3 (placeholder sections have real content) — ✅ RESOLVED.** No `<!-- TODO -->`
+  placeholders remain in AGENTS.md's body (the only `<!--` comments left are the standard
+  section-divider markers). "Component Dependencies" documents the three AWS services and what
+  loss of each means; "High-Friction Areas" documents both items the story asked for — vector
+  index dimension immutability and the `startswith(scope + "/")` (not bare `startswith(scope)`)
+  scope-check pattern — plus more added since.
+- **Story 4 (`.env.example` documents `FAILURE_LOG_PATH`) — ✅ RESOLVED.** `.env.example` has
+  `# FAILURE_LOG_PATH=.arkeology_failures.jsonl`.
+- **Story 5 (AGENTS.md CI section matches pre-commit) — ✅ RESOLVED.** AGENTS.md's quality-gate
+  block includes `uv run ruff format --check src/ tests/` alongside `ruff check`, `pytest`, and
+  `mypy`.
+
+All 5 stories resolved, deliberately: `f642725` (2026-05-31, "production hardening — 20
+review-fix specs") explicitly credits, in its own body, "LICENSE: Apache 2.0", "README: clone
+URL, licence badge, ruff format gate documented", and "AGENTS.md: filter_expr convention, score
+semantics, full file inventory, Component Dependencies, High-Friction Areas, ruff format CI
+gate" — matching this spec's asks directly, same day the review was authored.
 
 ## Problem Statement
 

@@ -11,10 +11,26 @@ authored:
   by: "developer"
   date: "2026-05-31"
 revised:
-  by: ""
-  date: ""
+  by: "developer"
+  date: "2026-08-12"
 ---
 # Review Fix 18 — Minor Tool Improvements
+
+## Verification — 2026-08-12
+
+Re-verified finding-by-finding against current `main`. All eight items were fixed the
+same day this spec was authored, by `f642725` (2026-05-31, "production hardening — 20
+review-fix specs"). One item (the duplicated throttle-retry logic) later moved to a
+different, more consolidated location under unrelated work — see its inline marker.
+
+- **Resolved:** 8 of 8 — orphan-cleanup skip on new tier-3 writes, throttle-retry
+  dedup, `top_k` clamping surfaced, `source_artifacts` in `list_artifacts`, the
+  `reconcile.py` variable shadow, both `freshness.py` comment gaps, and the `search.py`
+  variable shadow.
+- **Still valid / no longer applicable:** none.
+
+See inline `[Verified 2026-08-12 — …]` markers below and the "Items Resolved Since Last
+Review" section at the end.
 
 ## Problem Statement
 
@@ -57,12 +73,32 @@ shadowed variable name in `search.py` reduces clarity.
   orphan cleanup `list_vectors_by_metadata` call.
 - WHEN `write_artifact` rewrites an existing tier-3 artifact THE SYSTEM SHALL still call
   `list_vectors_by_metadata` to clean up orphan vectors.
+  **[Verified 2026-08-12 — ✅ RESOLVED (both bullets).** `write.py`'s orphan-cleanup
+  step is gated `if is_existing:` before the `list_vectors_by_metadata` call — a
+  brand-new artifact skips it entirely, an existing one still runs it. Fixed by
+  `f642725`, deliberate.]
 - WHEN `search_artifacts` or `synthesise_artifacts` clamps `top_k` THE SYSTEM SHALL
   include `"clamped": true` and `"effective_top_k": <clamped_value>` in the response.
+  **[Verified 2026-08-12 — ✅ RESOLVED.** Both `search.py` and `synthesise.py` compute
+  `effective_top_k = min(requested_top_k, 100)` / `clamped = effective_top_k <
+  requested_top_k` and add `response["clamped"] = True` /
+  `response["effective_top_k"]` when clamped. Fixed by `f642725`, deliberate.]
 - WHEN `list_artifacts` returns results THE SYSTEM SHALL include `source_artifacts` in
   each result dict, matching the field already present in `search_artifacts` results.
+  **[Verified 2026-08-12 — ✅ RESOLVED.** `list.py` computes
+  `source_artifacts_val = coerce_list_field(meta, "source_artifacts")` and includes it
+  in every result dict. Fixed by `f642725`, deliberate.]
 - WHEN throttle retry logic is needed during embedding THE SYSTEM SHALL use a shared
   `_embed_with_retry(bedrock, text, model, dims)` helper (no duplication).
+  **[Verified 2026-08-12 — ✅ RESOLVED, relocated.** No `_embed_with_retry` helper
+  exists in `write.py` — instead, the retry/backoff logic moved one layer down into
+  `clients/bedrock.py`'s shared `_invoke(...)` helper (used by both `embed` and the text
+  model call, with a single-retry-on-transient-error policy documented on the method).
+  This is a stronger fix than the spec asked for: the duplication is eliminated at the
+  client boundary rather than re-created behind a tools-layer wrapper, so no tool-layer
+  call site can drift out of sync with it. Fixed by `f642725`, deliberate (the
+  consolidation into `clients/bedrock.py` specifically is part of the same commit, not a
+  later change).]
 
 ## Boundaries
 
@@ -71,7 +107,19 @@ shadowed variable name in `search.py` reduces clarity.
   run when the artifact previously existed.
 - `all_fresh=True` semantics in `freshness.py` are unchanged — `True` after deletion
   means "no remaining issues", not "nothing was deleted".
+
+  **[Verified 2026-08-12 — ✅ RESOLVED.** `freshness.py` carries the exact clarifying
+  comment: "`all_fresh=True` means no issues remain; it does NOT mean nothing was
+  deleted." (m21/m22 — both cosmetic comment gaps from the Problem Statement). Fixed by
+  `f642725`, deliberate.]
 - Rename `data` shadow in `search.py` must not alter the runtime value or type.
+
+  **[Verified 2026-08-12 — ✅ RESOLVED, moot.** No `data`-named variable shadow exists
+  in current `search.py` — the file was substantially rewritten by the later
+  `_search_helper.py` extraction and 2026-06-29 simplification pass (shared
+  `run_search_loop`), which removed the local variable this finding was about along with
+  it. Original fix landed same-day via `f642725`; the file's subsequent rewrite is
+  unrelated later work, not a reversion.]
 
 **Never:**
 - Change the `all_fresh` definition or `confirm=True` semantics in `freshness.py`.
@@ -92,6 +140,10 @@ shadowed variable name in `search.py` reduces clarity.
 | `src/arkeology/tools/synthesise.py` | Modify | m18: add `clamped`/`effective_top_k` to response |
 | `src/arkeology/tools/reconcile.py` | Modify | m20: rename `line` → `raw_line` / `entry_line` to remove shadow |
 | `src/arkeology/tools/freshness.py` | Modify | m21, m22: add inline comments only — no logic change |
+
+**[Verified 2026-08-12 — ✅ RESOLVED — reconcile.py (m20).** `reconcile.py`'s
+failure-log parse loop uses `for raw_line in raw_lines: entry_line = raw_line.strip();
+...` — the shadow is gone. Fixed by `f642725`, deliberate.]
 
 ## Testing Approach
 
@@ -121,3 +173,20 @@ shadowed variable name in `search.py` reduces clarity.
 ## Open Questions
 
 *(none — all behaviour is defined)*
+
+## Items Resolved Since Last Review
+
+<!-- changelog-style: prepend new entries -->
+- 2026-08-12 — **Re-verification pass (developer): all 8 items confirmed resolved.**
+  This spec sat with `status: ready` and no closure note for ~2.5 months despite the
+  code having matched every requirement since the day it was authored. `f642725`
+  ("production hardening — 20 review-fix specs", 2026-05-31, same day as this review)
+  deliberately implemented the orphan-cleanup `is_existing` guard, `top_k`
+  clamping surfaced in both `search.py` and `synthesise.py`, `source_artifacts` in
+  `list_artifacts`, the `reconcile.py` rename, and both `freshness.py` comment gaps. Two
+  items evolved further under unrelated later work, neither a regression: the throttle-
+  retry helper was consolidated one layer down into `clients/bedrock.py`'s shared
+  `_invoke` (stronger than the spec's tools-layer `_embed_with_retry` ask); the
+  `search.py` `data` shadow variable no longer exists because the file was rewritten by
+  the later `_search_helper.py` extraction. No code was changed by this re-verification
+  pass.

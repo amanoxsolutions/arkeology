@@ -11,10 +11,28 @@ authored:
   by: "developer"
   date: "2026-05-31"
 revised:
-  by: ""
-  date: ""
+  by: "developer"
+  date: "2026-08-12"
 ---
 # Review Fix 16 — Minor Foundation Improvements
+
+## Verification — 2026-08-12
+
+Re-verified finding-by-finding against current `main`. All seven items were fixed the
+same day this spec was authored, by `f642725` (2026-05-31, "production hardening — 20
+review-fix specs"), which deliberately implemented this spec alongside fix-01 through
+fix-20 in one PR (486 unit tests passing at the time; ruff/mypy clean). This spec's
+`status: ready` frontmatter was never flipped to `done` and no closure note was added,
+but the code has matched every requirement below since that commit.
+
+- **Resolved:** 7 of 7 — `print()` calls, the `check_required_non_empty` isinstance
+  guard, the `date` field validator, the version-lookup fallback, `ArkeologyError`, the
+  `startup.py` dimension `try/except`, and the `# type: ignore` boundary (see inline
+  markers below for the last one's nuance).
+- **Still valid / no longer applicable / changed enough to restate:** none.
+
+See inline `[Verified 2026-08-12 — …]` markers on each requirement below, and the
+"Items Resolved Since Last Review" section at the end.
 
 ## Problem Statement
 
@@ -51,18 +69,42 @@ known Pydantic boundary. All are low-risk, non-breaking, and safe to ship as one
 
 - WHEN the `arkeology` package is not installed THE SYSTEM SHALL report version as
   `"0.0.0-dev"` instead of raising `PackageNotFoundError`.
+  **[Verified 2026-08-12 — ✅ RESOLVED.** `server.py` wraps
+  `importlib.metadata.version("arkeology")` in `try/except PackageNotFoundError`,
+  falling back to `"0.0.0-dev"`. Fixed by `f642725`, deliberate.]
 - WHEN `startup.py` receives a non-numeric dimension value from `describe_index` THE
   SYSTEM SHALL raise `StartupValidationError` with a message including the bad value.
+  **[Verified 2026-08-12 — ✅ RESOLVED.** `_check_model_dimension` wraps
+  `int(raw_dim)` in `try/except (TypeError, ValueError)`, re-raising a
+  `StartupValidationError` that names the bad value, chained with `from exc`. Fixed by
+  `f642725`, deliberate.]
 - WHEN an `Artifact` is constructed with a date that does not parse as ISO-8601 THE
   SYSTEM SHALL raise `ValidationError` immediately.
+  **[Verified 2026-08-12 — ✅ RESOLVED.** `Artifact` has a `@field_validator("date")`
+  that calls `_require_valid_date`, which calls `datetime.date.fromisoformat` and
+  re-raises `ValueError` (→ pydantic `ValidationError`) on failure. Fixed by `f642725`,
+  deliberate.]
 - WHEN `__main__.py` needs to emit a critical/error message before the process exits THE
   SYSTEM SHALL use `logger.critical(...)` or `logger.error(...)`, never `print(...,
   file=sys.stderr)`.
+  **[Verified 2026-08-12 — ✅ RESOLVED.** No `print()` calls remain in `__main__.py`;
+  all exit-path messages use `logger.critical(...)`. Fixed by `f642725`, deliberate.]
 - WHEN `check_required_non_empty` receives a non-dict `values` THE SYSTEM SHALL log a
   warning and return `values` unchanged (never raise).
+  **[Verified 2026-08-12 — ✅ RESOLVED.** `check_required_non_empty` in `config.py`
+  opens with `if not isinstance(values, dict): _config_logger.warning(...); return
+  values`, exactly as specified. Fixed by `f642725`, deliberate.]
 - WHEN `ArkeologyError` is defined THE SYSTEM SHALL be the base class of `CredentialError`,
   `StartupValidationError`, and `VectorIndexNotFoundError`; existing `except` clauses
   that catch the concrete subclasses SHALL continue to work unchanged.
+  **[Verified 2026-08-12 — ✅ RESOLVED.** `errors.py` defines `ArkeologyError(Exception)`
+  as the base class of every domain exception (`CredentialError`,
+  `StartupValidationError`, `VectorIndexNotFoundError`, and — added since, following the
+  same convention — `ConfigurationError`, `AnnotationUnavailableError`,
+  `ArtifactCollisionError`, `ArtifactConflictError`, `MetadataTooLargeError`,
+  `InvalidFilterValueError`, `FilterEvaluationError`, `NonUtf8PayloadError`,
+  `DuplicateManifestPathError`, `VectorDistanceMissingError`). Fixed by `f642725`,
+  deliberate; the pattern was carried forward into every exception added since.]
 
 ## Boundaries
 
@@ -77,6 +119,16 @@ known Pydantic boundary. All are low-risk, non-breaking, and safe to ship as one
 - Change the public interface of any exception class.
 - Remove the `Any` annotation on the `model_validator(mode="before")` in `config.py` —
   add a suppression comment only.
+
+  **[Verified 2026-08-12 — ✅ RESOLVED, no comment needed.** `check_required_non_empty`
+  still types `values: Any` and no `# type: ignore` comment was ever added near it — but
+  `uv run mypy --strict src/arkeology/config.py` reports zero issues today. `pyproject.toml`
+  has configured `plugins = ["pydantic.mypy"]` since the very first commit
+  (`f35cd08`, pre-dating this review), so the mypy boundary this finding warned about
+  never actually surfaced under this project's mypy config — the literal "add a
+  suppression comment" fix was not applied, but the underlying requirement ("compile
+  cleanly under mypy") was already satisfied and remains satisfied. Not a regression risk;
+  no action needed unless a future mypy/pydantic upgrade reintroduces the error.]
 
 ## Files to Touch
 
@@ -118,3 +170,20 @@ and `uv run arkeology --help` does not raise `PackageNotFoundError`.
 ## Open Questions
 
 *(none — all behaviour is defined)*
+
+## Items Resolved Since Last Review
+
+<!-- changelog-style: prepend new entries -->
+- 2026-08-12 — **Re-verification pass (developer): all 7 items confirmed resolved.**
+  This spec sat with `status: ready` and no closure note for ~2.5 months despite the
+  code having matched every requirement since the day it was authored. `f642725`
+  ("production hardening — 20 review-fix specs", 2026-05-31, same day as this review)
+  deliberately implemented `print()` → `logger.critical`, the `check_required_non_empty`
+  isinstance guard, the `Artifact.date` ISO-8601 field validator, the
+  `importlib.metadata.version` `PackageNotFoundError` fallback, the `ArkeologyError`
+  base class, and the `startup.py` dimension `try/except`. The seventh item (a
+  `# type: ignore` comment at the `model_validator(mode="before")` boundary) was never
+  literally added, but `mypy --strict` has been clean there since the project's first
+  commit thanks to the `pydantic.mypy` plugin already being configured — the underlying
+  requirement was already met by a different mechanism than the one the spec proposed.
+  No code was changed by this re-verification pass.

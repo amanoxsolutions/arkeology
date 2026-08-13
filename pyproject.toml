@@ -13,6 +13,7 @@ dependencies = [
     "pydantic~=2.13",
     "pydantic-settings~=2.14",
     "python-ulid~=3.1",
+    "pyyaml~=6.0",
 ]
 
 [project.scripts]
@@ -28,6 +29,7 @@ dev = [
     "moto[s3]~=5.2",
     "boto3-stubs[s3,bedrock-runtime,sts,s3vectors]~=1.43",
     "pre-commit~=4.6",
+    "types-pyyaml~=6.0",
 ]
 
 [tool.hatch.build.targets.wheel]

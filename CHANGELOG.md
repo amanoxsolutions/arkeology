@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- The `AnnotationUnavailableError` message's bucket-type guidance now correctly
+  describes directory buckets and Outposts buckets as the two affected bucket
+  types, with S3 Express One Zone named as the storage class directory buckets
+  use rather than a third, separately-counted bucket type
 - **Breaking:** the project is renamed from `cairn-mcp` to `arkeology`, because
   `cairn-mcp` collided with several unrelated existing projects on GitHub and PyPI.
   The Python package, CLI entrypoint, plugin and skill assets, and the MCP resource
@@ -69,6 +73,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Previously two specific probe names were hard-coded, so the setup skill's annotation
   probe could be reported as an orphaned artifact. No generated artifact id can collide
   with the prefix
+
+### Security
+- Bumped the pinned DOMPurify dependency used by `arkeology_studio`'s browser-side
+  sanitisation (both the CDN import in `arkeology-studio.html` and the `package.json`
+  devDependency backing the sanitisation regression test) from `3.4.11` to `3.4.13`,
+  addressing two moderate-severity advisories in hook and custom-element handling.
+  Neither advisory is reachable through the studio's actual usage, which calls
+  `DOMPurify.sanitize(html)` with no config object, no custom elements, and no hooks
+  registered
 
 ### Added
 - `search_artifacts` now accepts `status="all"`, the same all-inclusive sentinel

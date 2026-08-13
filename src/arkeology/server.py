@@ -170,7 +170,7 @@ def register_tools(
         """
         return await _list_artifacts(
             settings=settings,
-            s3=None,
+            s3=s3,
             vectors=vectors,
             bedrock=None,
             type=type,
@@ -365,6 +365,7 @@ def register_tools(
         """Browse artifacts in Arkeology Studio — triggers the inline MCP App browser."""
         return await _arkeology_studio(
             settings=settings,
+            s3=s3,
             vectors=vectors,
             ctx=ctx,
         )

@@ -11,10 +11,35 @@ authored:
   by: "developer"
   date: "2026-05-31"
 revised:
-  by: ""
-  date: ""
+  by: "developer"
+  date: "2026-08-12"
 ---
 # Review Fix 06 — S3 Client Hardening (M5, M8)
+
+## Verification — 2026-08-12
+
+Re-verified against current `main`. Both stories were implemented the same day this spec
+was authored, in `f642725` ("production hardening — 20 review-fix specs (76 findings
+resolved)"), the single commit that landed all 20 `fix-01`..`fix-20` specs together — this
+document's "Items Resolved" tracking was simply never updated afterward.
+
+- **Story 1 — 403 surfaces as credential error, not `KeyError` (M5): still resolved, still
+  valid.** `S3ClientImpl.head_object` in `s3.py` no longer includes `"403"` in the
+  `NoSuchKey`/`404` → `KeyError` branch; a `403` response now raises `CredentialError`
+  explicitly (going further than the spec's minimum bar, which allowed a bare re-raised
+  `ClientError` as an acceptable alternative). Covered by
+  `test_head_object_403_raises_credential_error_not_key_error` in
+  `tests/unit/clients/test_s3.py`.
+- **Story 2 — Fake `list_objects` returns lexicographic order (M8): no longer applicable.**
+  `FakeS3Client` (the file this story targeted) no longer exists — `76358a8` ("migrate unit
+  tests from hand-rolled fakes to moto") replaced all hand-rolled S3/S3 Vectors fakes with
+  moto-backed mocking across the unit suite. There is nothing left to patch: moto's
+  `list_objects_v2` implementation follows real S3's lexicographic ordering natively, so the
+  ordering guarantee this story asked for is now provided by the mocking library itself
+  rather than by project code. (`FakeBedrockClient` is the sole surviving hand-rolled fake,
+  per `AGENTS.md`'s Testing Conventions — it is deterministic-embedding, not S3-related.)
+
+Aggregate: 1 resolved (still valid), 1 no longer applicable (targeted a file since deleted).
 
 ## Problem Statement
 

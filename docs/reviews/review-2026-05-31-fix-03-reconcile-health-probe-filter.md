@@ -11,12 +11,48 @@ authored:
   by: "developer"
   date: "2026-05-31"
 revised:
-  by: ""
-  date: ""
+  by: "developer"
+  date: "2026-08-12"
 ---
 # Review Fix 03 — Reconcile Health Probe Filter
 
 <!-- SCOPE BLOCK — frozen after approval -->
+
+## Verification — 2026-08-12
+
+Re-verified against current `main`. This spec was fixed the same day it was authored —
+commit `f642725` ("production hardening — 20 review-fix specs", 2026-05-31) — but this
+document was never annotated to reflect that.
+
+- **Story 1 (health probe sentinel ignored by reconcile) — RESOLVED, implementation
+  generalised beyond the spec.** `reconcile.py` defines `_PROBE_KEY_MARKER = "_arkeology_"`
+  and filters any key whose *final path segment* starts with that marker
+  (`k.rsplit("/", 1)[-1].startswith(_PROBE_KEY_MARKER)`) out of the orphan candidate set
+  before the vector-index comparison — not the exact `key.endswith("/_arkeology_health_probe")`
+  suffix match this spec's Boundaries section specifies. The broader marker now also
+  excludes the `startup.py` connectivity probe and the setting-up-arkeology skill's
+  annotation probe (added in later phases), all documented in a shared comment above the
+  constant. The acceptance criteria (probe key excluded, `orphans_found` unaffected, a
+  real orphan alongside the probe still gets reconciled, nested-path probes excluded) all
+  hold under the broader filter — it is a superset of what was asked for, not a
+  divergence in behaviour for this spec's own scenarios.
+- **`health.py` sentinel-naming comment — RESOLVED, comment lives in `reconcile.py`
+  instead.** The Files-to-Touch table asked for a comment in `health.py` documenting the
+  naming convention. `health.py` itself has no such comment at its
+  `probe_key = f"{settings.write_prefix}/_arkeology_health_probe"` line, but
+  `reconcile.py`'s `_PROBE_KEY_MARKER` docstring-comment explicitly cross-references
+  `tools/health.py`, `startup.py`, and the setting-up-arkeology skill by name — the
+  documentation the spec wanted exists, just at the consuming site rather than the
+  producing one.
+
+Test coverage exceeds the spec: `tests/unit/test_tools_reconcile.py` has probe-exclusion
+tests for the health probe (bare and nested-path), the startup probe, the annotation
+probe, and a forward-compatibility test (`test_future_probe_key_excluded_without_code_change`)
+proving the marker-based filter needs no code change for new probe types.
+
+**Aggregate:** 1 story, resolved (marker-based filter is a superset of the specified
+suffix-match filter; the sentinel-naming documentation exists at a different file than
+requested). No open work.
 
 ## Problem Statement
 
@@ -93,3 +129,15 @@ embedding is attempted.
 ## Open Questions
 
 *(none — all behaviour is defined)*
+
+## Items Resolved Since Last Review
+
+<!-- changelog-style: prepend new entries -->
+- 2026-08-12 — **Re-verification pass (developer): confirmed resolved, filter later
+  generalised.** Fixed same-day by `f642725` (2026-05-31). `reconcile.py` now excludes
+  any key whose last path segment starts with `_arkeology_` (`_PROBE_KEY_MARKER`) rather
+  than the exact `/_arkeology_health_probe` suffix this spec specifies — a superset that
+  also covers the startup and annotation probes added in later phases. The
+  `health.py`-side documentation comment this spec asked for lives on the `reconcile.py`
+  constant instead, cross-referencing `health.py` by name. See inline
+  `## Verification — 2026-08-12` note above.

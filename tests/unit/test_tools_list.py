@@ -10,6 +10,8 @@ from typing import Any
 import pytest
 from pytest_mock import MockerFixture
 
+from arkeology.annotations import apply_link_annotations
+from arkeology.clients.s3 import S3ClientImpl
 from arkeology.clients.vectors import VectorsClientImpl
 from arkeology.config import Settings
 from arkeology.errors import CredentialError
@@ -1260,8 +1262,11 @@ async def test_list_cross_scope_reference_filtering_batched_across_page(
     artifacts = {a["artifact_id"]: a for a in result.get("artifacts", [])}
     assert artifacts["other-team/t3-with-refs-a"]["references"] == []
     assert artifacts["other-team/t3-with-refs-b"]["references"] == ["other-team/t3-target"]
-    # One call for the main page query + one batched call for reference resolution.
-    assert spy.call_count == 2
+    # One call for the main page query, one per distinct gated artifact for the
+    # commit_refs/references union fetch (Step 4b: t3-with-refs-a, t3-with-refs-b,
+    # t3-target — the N+1 cost of the union-of-both-durable-stores read), plus one
+    # batched call for cross-scope reference resolution (Step 5).
+    assert spy.call_count == 5
 
 
 async def test_list_own_scope_reference_filtering_issues_no_extra_vector_query(
@@ -1269,9 +1274,10 @@ async def test_list_own_scope_reference_filtering_issues_no_extra_vector_query(
     vectors_client_8: VectorsClientImpl,
     mocker: MockerFixture,
 ) -> None:
-    """A page containing only own-scope entries never triggers reference filtering —
-    references are returned unfiltered and no additional vector-client query is
-    issued beyond the main page query."""
+    """A page containing only own-scope entries never triggers cross-scope reference
+    filtering (Step 5) — references are returned unfiltered and no batched
+    resolve_readable_targets query is issued. The only calls are the main page query
+    and the one-per-distinct-artifact commit_refs/references union fetch (Step 4b)."""
     settings = _make_settings(monkeypatch)
     vectors_client_8.put_vector(
         "artifacts/own-with-refs-spy#summary",
@@ -1290,7 +1296,8 @@ async def test_list_own_scope_reference_filtering_issues_no_extra_vector_query(
 
     artifacts = {a["artifact_id"]: a for a in result.get("artifacts", [])}
     assert artifacts["artifacts/own-with-refs-spy"]["references"] == ["other-team/does-not-exist"]
-    assert spy.call_count == 1
+    # Main page query (1) + Step 4b's per-artifact link-field fetch (1) — no Step 5 call.
+    assert spy.call_count == 2
 
 
 async def test_list_cross_scope_reference_missing_target_stripped(
@@ -1347,3 +1354,87 @@ async def test_list_cross_scope_reference_resolving_into_own_scope_kept(
 
     artifacts = {a["artifact_id"]: a for a in result.get("artifacts", [])}
     assert artifacts["other-team/t3-with-own-ref"]["references"] == ["artifacts/own-hidden-target"]
+
+
+# ---------------------------------------------------------------------------
+# commit_refs/references — union of both durable stores (ADR-011), regression
+# tests for the bug where list_artifacts read an arbitrary single section
+# vector's metadata instead of delegating to read_current_link_fields.
+# ---------------------------------------------------------------------------
+
+
+async def test_list_commit_refs_references_union_across_diverging_section_vectors(
+    monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
+) -> None:
+    """Two section vectors for the same artifact_id carry DIFFERENT commit_refs/
+    references (simulating a partial-write/CAS-retry divergence) — list_artifacts
+    must return the union of both, not an arbitrary single section vector's value."""
+    settings = _make_settings(monkeypatch)
+    vectors_client_8.put_vector(
+        "artifacts/diverging-sections#summary",
+        _unit_vec(5.5),
+        {
+            **_BASE_VECTOR_META,
+            "artifact_id": "artifacts/diverging-sections",
+            "commit_refs": ["sha-summary"],
+            "references": ["ref-summary"],
+        },
+    )
+    vectors_client_8.put_vector(
+        "artifacts/diverging-sections#details",
+        _unit_vec(5.6),
+        {
+            **_BASE_VECTOR_META,
+            "artifact_id": "artifacts/diverging-sections",
+            "commit_refs": ["sha-details"],
+            "references": ["ref-details"],
+        },
+    )
+
+    result = await list_artifacts(
+        settings=settings, vectors=vectors_client_8, s3=None, bedrock=None
+    )
+
+    artifacts = {a["artifact_id"]: a for a in result.get("artifacts", [])}
+    entry = artifacts["artifacts/diverging-sections"]
+    assert set(entry["commit_refs"]) == {"sha-summary", "sha-details"}
+    assert set(entry["references"]) == {"ref-summary", "ref-details"}
+
+
+async def test_list_commit_refs_references_union_of_annotation_and_vector_stores(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
+) -> None:
+    """commit_refs/references present only as an S3 annotation (not in vector
+    metadata) must still surface in list_artifacts's response — proves list_artifacts
+    delegates to annotations.read_current_link_fields's union-of-both-durable-stores
+    model rather than reading vector metadata alone."""
+    settings = _make_settings(monkeypatch)
+    s3_client.put_object("artifacts/list-annotation-only-ref", "Content.", {"title": "x"})
+    apply_link_annotations(
+        s3_client,
+        "artifacts/list-annotation-only-ref",
+        commit_refs=["sha-annotation"],
+        references=["ref-annotation"],
+    )
+    vectors_client_8.put_vector(
+        "artifacts/list-annotation-only-ref#summary",
+        _unit_vec(5.7),
+        {
+            **_BASE_VECTOR_META,
+            "artifact_id": "artifacts/list-annotation-only-ref",
+            "commit_refs": ["sha-vector"],
+            "references": ["ref-vector"],
+        },
+    )
+
+    result = await list_artifacts(
+        settings=settings, vectors=vectors_client_8, s3=s3_client, bedrock=None
+    )
+
+    artifacts = {a["artifact_id"]: a for a in result.get("artifacts", [])}
+    entry = artifacts["artifacts/list-annotation-only-ref"]
+    assert set(entry["commit_refs"]) == {"sha-annotation", "sha-vector"}
+    assert set(entry["references"]) == {"ref-annotation", "ref-vector"}

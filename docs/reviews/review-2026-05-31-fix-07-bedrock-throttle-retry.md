@@ -11,10 +11,35 @@ authored:
   by: "developer"
   date: "2026-05-31"
 revised:
-  by: ""
-  date: ""
+  by: "developer"
+  date: "2026-08-12"
 ---
 # Review Fix 07 — Bedrock Throttle Retry (M6)
+
+## Verification — 2026-08-12
+
+Re-verified against current `main`. Resolved the same day this spec was authored, in
+`f642725` ("production hardening — 20 review-fix specs (76 findings resolved)"), the single
+commit that landed all 20 `fix-01`..`fix-20` specs together — this document's tracking was
+never updated afterward.
+
+- **Still resolved, still valid.** `bedrock.py` defines `_TRANSIENT_ERROR_CODES` (`{
+  "ThrottlingException", "ModelTimeoutException", "ServiceUnavailableException" }`) and a
+  named `_RETRY_SLEEP_SECONDS = 2.0` constant, matching the spec's requirement for a named
+  constant rather than a magic number. The retry now lives in a shared `_invoke` helper
+  used by both `embed()` and `invoke_text_model()` — the spec only asked for `embed()`, but
+  `invoke_text_model()` (added later, for `synthesise_artifacts`) reuses the same
+  retry-once-then-raise logic rather than duplicating it, which is consistent with the
+  spec's intent even though the surface grew beyond its original scope.
+  `test_invoke_retries_once_on_throttling_exception` and related cases in
+  `tests/unit/clients/test_bedrock.py` cover retry-then-succeed, two-consecutive-throttle
+  failure, and non-transient errors propagating without retry.
+- One deliberate deviation from the spec text, not a defect: the sleep is
+  `_RETRY_SLEEP_SECONDS + random.uniform(0, 1)` (jittered), not a bare fixed 2s sleep. The
+  spec's "Open Questions" section explicitly left the exact duration adjustable without
+  changing spec behaviour, so this is within the spec's own stated tolerance.
+
+Aggregate: 1 resolved (still valid).
 
 ## Problem Statement
 

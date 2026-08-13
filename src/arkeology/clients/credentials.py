@@ -94,7 +94,8 @@ _ANNOTATION_UNAVAILABLE_MESSAGE = (
     "Verify the deployment's IAM policy grants s3:PutObjectAnnotation, "
     "s3:GetObjectAnnotation, s3:ListObjectAnnotations, and s3:DeleteObjectAnnotation, "
     "and that the bucket is not in an unsupported region (UAE, Bahrain) or bucket type "
-    "(S3 Express One Zone, Outposts, directory buckets)."
+    "(directory buckets, the bucket type the S3 Express One Zone storage class uses, "
+    "or Outposts buckets)."
 )
 
 

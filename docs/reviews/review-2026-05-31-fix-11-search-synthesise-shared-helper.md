@@ -11,10 +11,25 @@ authored:
   by: "developer"
   date: "2026-05-31"
 revised:
-  by: ""
-  date: ""
+  by: "developer"
+  date: "2026-08-12"
 ---
 # Review Fix 11 — Extract Shared Re-Fetch Helper for Search and Synthesise
+
+## Verification — 2026-08-12
+
+**Status: ✅ RESOLVED.** Re-verified against current `main`. `src/arkeology/tools/_search_helper.py`
+exists exactly as decided (Boundaries, "Decision (2026-05-31)"): a new private module, not a
+`search.py`-hosted helper. `search.py` and `synthesise.py` both `from arkeology.tools._search_helper
+import run_search_loop` and call it (`await run_search_loop(...)`) rather than carrying their own
+copies of the re-fetch loop. `_search_helper.py` also now hosts `build_scope_filter`,
+`build_user_filters`, and `find_referrers` — the shared module grew beyond the original re-fetch
+loop as later phases (9–12) added more cross-tool shared logic, consistent with the spec's intent
+rather than contradicting it. Behavioral differences called out in Story 2 are preserved: `search.py`
+passes a caller-supplied `tier` clause via `build_user_filters`, `synthesise.py` always passes
+`status="active"` with no `tier` filter. Resolved deliberately, same day the review was authored:
+commit `f642725` ("production hardening — 20 review-fix specs") explicitly credits "`_search_helper.py`:
+shared re-fetch loop extracted from search + synthesise" in its body. No regression since.
 
 ## Problem Statement
 
@@ -106,3 +121,6 @@ All existing unit tests must remain green after every step.
 
 - **Shared helper location — RESOLVED (2026-05-31):** Use `_search_helper.py` (new
   private module). See the decision note in Boundaries above.
+
+**[Verified 2026-08-12 — ✅ RESOLVED.** Confirmed still in effect: `_search_helper.py` is the
+live shared module `search.py` and `synthesise.py` both delegate to; no drift found.]

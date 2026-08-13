@@ -40,6 +40,55 @@ wheels = [
 ]
 
 [[package]]
+name = "arkeology"
+version = "0.5.0"
+source = { editable = "." }
+dependencies = [
+    { name = "boto3" },
+    { name = "fastmcp", extra = ["apps"] },
+    { name = "pydantic" },
+    { name = "pydantic-settings" },
+    { name = "python-ulid" },
+    { name = "pyyaml" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "boto3-stubs", extra = ["bedrock-runtime", "s3", "s3vectors", "sts"] },
+    { name = "moto", extra = ["s3"] },
+    { name = "mypy" },
+    { name = "pre-commit" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "pytest-mock" },
+    { name = "ruff" },
+    { name = "types-pyyaml" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "boto3", specifier = "~=1.43" },
+    { name = "fastmcp", extras = ["apps"], specifier = "~=3.4" },
+    { name = "pydantic", specifier = "~=2.13" },
+    { name = "pydantic-settings", specifier = "~=2.14" },
+    { name = "python-ulid", specifier = "~=3.1" },
+    { name = "pyyaml", specifier = "~=6.0" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "boto3-stubs", extras = ["s3", "bedrock-runtime", "sts", "s3vectors"], specifier = "~=1.43" },
+    { name = "moto", extras = ["s3"], specifier = "~=5.2" },
+    { name = "mypy", specifier = "~=2.1" },
+    { name = "pre-commit", specifier = "~=4.6" },
+    { name = "pytest", specifier = "~=9.1" },
+    { name = "pytest-asyncio", specifier = "~=1.4" },
+    { name = "pytest-mock", specifier = "~=3.15" },
+    { name = "ruff", specifier = "~=0.15" },
+    { name = "types-pyyaml", specifier = "~=6.0" },
+]
+
+[[package]]
 name = "ast-serialize"
 version = "0.8.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1022,51 +1071,6 @@ wheels = [
 ]
 
 [[package]]
-name = "arkeology"
-version = "0.5.0"
-source = { editable = "." }
-dependencies = [
-    { name = "boto3" },
-    { name = "fastmcp", extra = ["apps"] },
-    { name = "pydantic" },
-    { name = "pydantic-settings" },
-    { name = "python-ulid" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "boto3-stubs", extra = ["bedrock-runtime", "s3", "s3vectors", "sts"] },
-    { name = "moto", extra = ["s3"] },
-    { name = "mypy" },
-    { name = "pre-commit" },
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-    { name = "pytest-mock" },
-    { name = "ruff" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "boto3", specifier = "~=1.43" },
-    { name = "fastmcp", extras = ["apps"], specifier = "~=3.4" },
-    { name = "pydantic", specifier = "~=2.13" },
-    { name = "pydantic-settings", specifier = "~=2.14" },
-    { name = "python-ulid", specifier = "~=3.1" },
-]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "boto3-stubs", extras = ["s3", "bedrock-runtime", "sts", "s3vectors"], specifier = "~=1.43" },
-    { name = "moto", extras = ["s3"], specifier = "~=5.2" },
-    { name = "mypy", specifier = "~=2.1" },
-    { name = "pre-commit", specifier = "~=4.6" },
-    { name = "pytest", specifier = "~=9.1" },
-    { name = "pytest-asyncio", specifier = "~=1.4" },
-    { name = "pytest-mock", specifier = "~=3.15" },
-    { name = "ruff", specifier = "~=0.15" },
-]
-
-[[package]]
 name = "nodeenv"
 version = "1.10.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1679,6 +1683,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/b5/b4/205b0d5241d934e8add0c38aa924c4f9fb7330834ff11e5444db964ec3f9/starlette-1.6.0.tar.gz", hash = "sha256:d4e3ac5e546444960c710297a3c9fc3f7ebae1b7e963f3d36173b49da535be9b", size = 2716969, upload-time = "2026-08-08T18:27:57.512Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/c8/cb/6a6a47d5b464bd08695d254f3da6e7986cc70c9fa5d778eda57538edfe56/starlette-1.6.0-py3-none-any.whl", hash = "sha256:a86dd39d14bb45f85a3d18525215a9ef0cfd1f192ac793220e72598c90335f0c", size = 75969, upload-time = "2026-08-08T18:27:56.196Z" },
+]
+
+[[package]]
+name = "types-pyyaml"
+version = "6.0.12.20260724"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/3f/6f/a28f44bcd56bebed42b028a2894c79853e2f5e6b5279e633cb3f287a05e7/types_pyyaml-6.0.12.20260724.tar.gz", hash = "sha256:3c1ce1bb73cd5ec02e90390c2b1f00e810d241d8825fd73ff359696839271b6b", size = 17893, upload-time = "2026-07-24T04:58:43.453Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/8b/42/0337fefc615e20ee55d1c8f71b774a9b2b734a04669139c20753b27a2a3a/types_pyyaml-6.0.12.20260724-py3-none-any.whl", hash = "sha256:d57db930a4b2efbc57cf430ec8882765d246929432fa253092f383902329a453", size = 20312, upload-time = "2026-07-24T04:58:42.486Z" },
 ]
 
 [[package]]

@@ -9,6 +9,7 @@ from typing import Any
 import pytest
 from pytest_mock import MockerFixture
 
+from arkeology.annotations import apply_link_annotations
 from arkeology.clients.s3 import S3ClientImpl
 from arkeology.clients.vectors import VectorsClientImpl
 from arkeology.config import Settings
@@ -1073,3 +1074,88 @@ async def test_read_own_scope_reference_filtering_issues_no_extra_vector_query(
 
     assert result["references"] == ["other-team/some-target"]
     assert spy.call_count == 1
+
+
+# ---------------------------------------------------------------------------
+# commit_refs/references — union of both durable stores (ADR-011), regression
+# tests for the bug where read_artifact read an arbitrary single section vector's
+# metadata instead of delegating to read_current_link_fields.
+# ---------------------------------------------------------------------------
+
+
+async def test_read_commit_refs_references_union_across_diverging_section_vectors(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+) -> None:
+    """Two section vectors for the same artifact_id carry DIFFERENT commit_refs/
+    references (simulating a partial-write/CAS-retry divergence) — read_artifact
+    must return the union of both, not an arbitrary single section vector's value."""
+    settings = _make_settings(monkeypatch)
+    s3_client.put_object("artifacts/diverging-sections", "Content.", {**_BASE_METADATA})
+    vectors_client_2.put_vector(
+        key="artifacts/diverging-sections#section-a",
+        vector=[1.0, 0.0],
+        metadata={
+            "artifact_id": "artifacts/diverging-sections",
+            "commit_refs": ["sha-a"],
+            "references": ["ref-a"],
+        },
+    )
+    vectors_client_2.put_vector(
+        key="artifacts/diverging-sections#section-b",
+        vector=[0.0, 1.0],
+        metadata={
+            "artifact_id": "artifacts/diverging-sections",
+            "commit_refs": ["sha-b"],
+            "references": ["ref-b"],
+        },
+    )
+
+    result = await read_artifact(
+        s3=s3_client,
+        vectors=vectors_client_2,
+        settings=settings,
+        artifact_id="artifacts/diverging-sections",
+    )
+
+    assert set(result["commit_refs"]) == {"sha-a", "sha-b"}
+    assert set(result["references"]) == {"ref-a", "ref-b"}
+
+
+async def test_read_commit_refs_references_union_of_annotation_and_vector_stores(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+) -> None:
+    """commit_refs/references present only as an S3 annotation (not in vector
+    metadata) must still surface in read_artifact's response — proves read_artifact
+    delegates to annotations.read_current_link_fields's union-of-both-durable-stores
+    model rather than reading vector metadata alone."""
+    settings = _make_settings(monkeypatch)
+    s3_client.put_object("artifacts/annotation-only-ref", "Content.", {**_BASE_METADATA})
+    apply_link_annotations(
+        s3_client,
+        "artifacts/annotation-only-ref",
+        commit_refs=["sha-annotation"],
+        references=["ref-annotation"],
+    )
+    vectors_client_2.put_vector(
+        key="artifacts/annotation-only-ref#section-0",
+        vector=[1.0, 0.0],
+        metadata={
+            "artifact_id": "artifacts/annotation-only-ref",
+            "commit_refs": ["sha-vector"],
+            "references": ["ref-vector"],
+        },
+    )
+
+    result = await read_artifact(
+        s3=s3_client,
+        vectors=vectors_client_2,
+        settings=settings,
+        artifact_id="artifacts/annotation-only-ref",
+    )
+
+    assert set(result["commit_refs"]) == {"sha-annotation", "sha-vector"}
+    assert set(result["references"]) == {"ref-annotation", "ref-vector"}

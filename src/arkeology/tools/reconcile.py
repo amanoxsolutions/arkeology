@@ -21,6 +21,7 @@ from arkeology.clients.interfaces import (
 from arkeology.config import Settings
 from arkeology.constants import ArtifactStatus, ErrorCode
 from arkeology.errors import CredentialError
+from arkeology.tools._errors import credential_error_response
 from arkeology.tools._search_helper import coerce_list_field
 from arkeology.tools._section_pipeline import (
     build_document_embedding_text,
@@ -256,7 +257,7 @@ async def _reconcile_index_inner(
                 # Off the event loop — blocking boto3 call.
                 raw_meta = await asyncio.to_thread(s3.head_object, artifact_id)
             except CredentialError as exc:
-                return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
+                return credential_error_response(exc)
             except KeyError:
                 failed.append({"artifact_id": artifact_id, "reason": "S3 object not found"})
                 failed_ids.add(artifact_id)
@@ -291,7 +292,7 @@ async def _reconcile_index_inner(
                 )
                 resolved_ids.add(artifact_id)
             except CredentialError as exc:
-                return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
+                return credential_error_response(exc)
             except Exception as exc:
                 failed.append({"artifact_id": artifact_id, "reason": str(exc)})
                 failed_ids.add(artifact_id)
@@ -322,7 +323,7 @@ async def _reconcile_index_inner(
             vectors.list_vectors_by_metadata, {"scope": {"$eq": settings.write_prefix}}
         )
     except CredentialError as exc:
-        return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
+        return credential_error_response(exc)
     # Build vectors_by_artifact: maps artifact_id → list of its vector keys.
     # Splitting on '#' extracts the artifact_id from keys like "{artifact_id}#{section_slug}".
     # This single pass serves both Scenario 2 (indexed_artifact_ids) and
@@ -360,7 +361,7 @@ async def _reconcile_index_inner(
                 }
             )
         except CredentialError as exc:
-            return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
+            return credential_error_response(exc)
         except Exception as exc:
             failed.append({"artifact_id": orphan_key, "reason": str(exc)})
 
@@ -398,7 +399,7 @@ async def _reconcile_index_inner(
             dangling_artifacts_found += 1
             dangling_vectors_pruned += len(keys_to_delete)
         except CredentialError as exc:
-            return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
+            return credential_error_response(exc)
         except Exception as exc:
             failed.append({"artifact_id": dangling_id, "reason": str(exc)})
 

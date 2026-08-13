@@ -13,6 +13,7 @@ from arkeology.errors import ArkeologyError
 from arkeology.references import (
     ManifestEntry,
     build_path_to_id_map,
+    extract_references_list,
     join_reference_path,
     normalize_reference_path,
     resolve_reference,
@@ -29,6 +30,83 @@ _WRITE_PREFIX = "myteam/myproject"
 
 def _entry(path: str, artifact_type: str, tier: int, title: str, date: str) -> ManifestEntry:
     return {"path": path, "type": artifact_type, "tier": tier, "title": title, "date": date}
+
+
+# ---------------------------------------------------------------------------
+# extract_references_list — frontmatter parsing (primary yaml.safe_load path,
+# regex+comment-strip fallback for outright-malformed frontmatter)
+# ---------------------------------------------------------------------------
+
+
+def test_extract_references_list_returns_block_style_list() -> None:
+    """A normal block-style 'references:' list is returned in source order."""
+    frontmatter = "title: Foo\nreferences:\n  - docs/a.md\n  - docs/b.md\n"
+
+    result = extract_references_list(frontmatter)
+
+    assert result == ["docs/a.md", "docs/b.md"]
+
+
+def test_extract_references_list_returns_empty_list_for_inline_empty_form() -> None:
+    """The inline empty-list form 'references: []' resolves to []."""
+    frontmatter = "title: Foo\nreferences: []\n"
+
+    result = extract_references_list(frontmatter)
+
+    assert result == []
+
+
+def test_extract_references_list_returns_empty_list_when_key_is_absent() -> None:
+    """Frontmatter with no 'references:' key at all resolves to [], not an error."""
+    frontmatter = "title: Foo\n"
+
+    result = extract_references_list(frontmatter)
+
+    assert result == []
+
+
+def test_extract_references_list_strips_inline_comment_from_unquoted_item() -> None:
+    """A trailing '# comment' on an unquoted list item is not part of the path."""
+    frontmatter = "title: Foo\nreferences:\n  - docs/a.md  # migrated later\n"
+
+    result = extract_references_list(frontmatter)
+
+    assert result == ["docs/a.md"]
+
+
+def test_extract_references_list_preserves_literal_hash_inside_quoted_item() -> None:
+    """A literal '#' inside a quoted item is data, never a comment start — this is
+    the exact corruption class the transcript's naive regex scanner introduced."""
+    frontmatter = 'title: Foo\nreferences:\n  - "docs/a#1.md"\n'
+
+    result = extract_references_list(frontmatter)
+
+    assert result == ["docs/a#1.md"]
+
+
+def test_extract_references_list_returns_flow_style_list() -> None:
+    """A flow-style 'references: [a.md, b.md]' list is parsed natively by YAML."""
+    frontmatter = 'title: Foo\nreferences: [docs/a.md, "docs/b.md"]\n'
+
+    result = extract_references_list(frontmatter)
+
+    assert result == ["docs/a.md", "docs/b.md"]
+
+
+def test_extract_references_list_falls_back_to_manual_scan_on_malformed_yaml() -> None:
+    """Frontmatter that fails to parse as YAML outright (an unterminated quote on an
+    unrelated key here) still yields the references list via the manual-scan
+    fallback — including correct comment/quote handling on that fallback path."""
+    frontmatter = (
+        'title: "Unterminated\n'
+        "references:\n"
+        "  - docs/a.md  # trailing note\n"
+        '  - "docs/b#2.md"  # another note\n'
+    )
+
+    result = extract_references_list(frontmatter)
+
+    assert result == ["docs/a.md", "docs/b#2.md"]
 
 
 # ---------------------------------------------------------------------------

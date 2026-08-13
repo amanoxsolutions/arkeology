@@ -11,12 +11,39 @@ authored:
   by: "developer"
   date: "2026-05-31"
 revised:
-  by: ""
-  date: ""
+  by: "developer"
+  date: "2026-08-12"
 ---
 # Review Fix 05 — Startup Exception Chaining
 
 <!-- SCOPE BLOCK — frozen after approval -->
+
+## Verification — 2026-08-12
+
+Re-verified against current `main`. This spec was fixed the same day it was authored —
+commit `f642725` ("production hardening — 20 review-fix specs", 2026-05-31) — but this
+document was never annotated to reflect that.
+
+- **Story 1 (startup failure traceback shows original cause) — RESOLVED, and generalised
+  to every raise site added since.** `startup.py` has grown from the five/six checks in
+  scope when this spec was written to a seven-check sequence (Phase 12 added check 7,
+  the text-model probe was check 6 at review time). Every `raise StartupValidationError(...)`
+  that sits inside an `except` block across all seven checks (`_check_credentials`,
+  `_check_write_prefix`, `_check_read_prefixes`, `_check_vector_index`,
+  `_check_model_dimension`, `_check_embedding_probe`, `_check_text_model`) uses
+  `from exc`, and every enclosing `except` clause names its exception variable. The
+  Boundaries' "Never" clause (no `from exc` on the two non-`except`-block guard raises)
+  also still holds — `_check_model_dimension`'s dimension-mismatch raise has no `from`
+  clause because it isn't chained from a caught exception.
+
+Test coverage matches: `tests/unit/test_startup.py` has a dedicated "Spec 05: Exception
+chaining (`__cause__`)" section asserting `exc_info.value.__cause__` on the write-probe,
+read-prefix, and vector-index-missing failure paths, plus a credential-failure chaining
+assertion.
+
+**Aggregate:** 1 story, resolved — the fix was applied at all five original locations and
+has scaled correctly to the two additional raise sites startup.py gained since. No open
+work.
 
 ## Problem Statement
 
@@ -97,3 +124,13 @@ For each case, use `pytest.raises` as a context manager and assert on
 ## Open Questions
 
 *(none — all five locations are identified and the fix is mechanical)*
+
+## Items Resolved Since Last Review
+
+<!-- changelog-style: prepend new entries -->
+- 2026-08-12 — **Re-verification pass (developer): confirmed resolved and scaled to
+  later growth.** Fixed same-day by `f642725` (2026-05-31). All `except`-block
+  `StartupValidationError` raises across `startup.py`'s now-seven-check sequence use
+  `raise ... from exc`; the non-`except`-block guard raise this spec explicitly
+  excluded from the fix (dimension mismatch) correctly still has no `from` clause. See
+  inline `## Verification — 2026-08-12` note above.

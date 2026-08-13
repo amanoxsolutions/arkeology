@@ -14,6 +14,10 @@ those surfaces.
 Every helper in this module that produces or consumes an identifier uses that same
 full-key form:
 
+0. Extract the raw ``references:`` entries from a file's frontmatter text
+   (:func:`extract_references_list`), before any normalization, joining, or map
+   lookup — this is the parsing step every later step in this list assumes has
+   already happened.
 1. Build a single authoritative path -> full-key map from the FULL migration
    manifest, before any writes, using the pure :func:`arkeology.artifact.generate_artifact_id`
    (:func:`build_path_to_id_map`). Because id generation is a pure function of
@@ -52,19 +56,25 @@ The ``migrating-to-arkeology`` and ``backfilling-references`` skills document an
 exact algorithm — this module is the authoritative, unit-tested reference implementation;
 do not reimplement it in server code.
 
-Those two skills are the one deliberate exception: each documents a standalone ``python3``
-snippet that recomputes the identifier offline, because a migration or backfill run
-computes identifiers before the server is necessarily installed, configured, or reachable,
-so importing this module is not available to them. That duplication is accepted and
-guarded, not removed — ``tests/unit/test_skill_artifact_id_drift.py`` executes each skill's
-documented snippet over a shared input table and fails if it diverges from
-:func:`arkeology.artifact.generate_artifact_id`. A new skill that computes identifiers
-offline belongs in that test's skill list.
+Those two skills are the deliberate exception: each documents standalone ``python3``
+snippets that recompute the identifier, and extract the ``references:`` list, offline,
+because a migration or backfill run does this before the server is necessarily
+installed, configured, or reachable (and before PyYAML is guaranteed to be installed
+in an arbitrary target repo's environment), so importing this module is not available
+to them. That duplication is accepted and guarded, not removed —
+``tests/unit/test_skill_artifact_id_drift.py`` executes each skill's documented
+snippets over shared input tables and fails if either diverges from
+:func:`arkeology.artifact.generate_artifact_id` or :func:`extract_references_list`
+(via its stdlib-only :func:`_extract_references_list_manual` fallback, which the
+skill snippet mirrors exactly). A new skill that computes identifiers or extracts
+references offline belongs in that test's skill list.
 """
 
 import posixpath
 import re
 from typing import TypedDict
+
+import yaml
 
 from arkeology.artifact import generate_artifact_id
 from arkeology.errors import DuplicateManifestPathError
@@ -94,6 +104,118 @@ class ManifestEntry(TypedDict):
     tier: int
     title: str
     date: str
+
+
+def extract_references_list(frontmatter_text: str) -> list[str]:
+    """Extract the frontmatter ``references:`` list from raw frontmatter YAML text.
+
+    Primary path parses ``frontmatter_text`` with :func:`yaml.safe_load` and reads the
+    top-level ``references`` key: absent, or present but not a list, resolves to
+    ``[]``; otherwise every entry is returned as a string. Block style (``references:``
+    followed by indented ``- item`` lines), flow style (``references: [a.md, b.md]``,
+    including the empty ``references: []`` form), quoted and unquoted items, and
+    inline ``# comment`` text are all handled correctly and natively by the YAML
+    parser — including a literal ``#`` inside a quoted item, which YAML syntax never
+    treats as a comment start.
+
+    Fallback path — :func:`_extract_references_list_manual` — runs only when
+    ``frontmatter_text`` fails to parse as YAML *outright* (a ``yaml.YAMLError``, e.g.
+    a syntax error elsewhere in the frontmatter block). This is a manual, stdlib-only
+    scan for a block- or flow-style ``references:`` list that strips a trailing
+    ``# comment`` (only when it appears outside quotes) and surrounding quote
+    characters from each item — the exact algorithm the ``migrating-to-arkeology`` and
+    ``backfilling-references`` skills document as a dependency-free ``python3``
+    snippet, because PyYAML is not guaranteed to be installed in an arbitrary target
+    repo's environment (see this module's docstring on the skills' one deliberate
+    duplication exception).
+
+    Args:
+        frontmatter_text: The YAML body of the frontmatter block — the text between
+            the opening and closing ``---`` fence lines, fences excluded.
+
+    Returns:
+        The ``references:`` entries in source order, as raw (still-unresolved,
+        still-unnormalized) path or URL text. Empty when the key is absent, not a
+        list, or the list itself is empty.
+    """
+    try:
+        data = yaml.safe_load(frontmatter_text)
+    except yaml.YAMLError:
+        return _extract_references_list_manual(frontmatter_text)
+    if not isinstance(data, dict):
+        return []
+    references = data.get("references")
+    if not isinstance(references, list):
+        return []
+    return [str(item) for item in references]
+
+
+def _strip_quotes(value: str) -> str:
+    """Strip a single matching pair of surrounding quote characters from ``value``,
+    if present; otherwise return it unchanged."""
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
+        return value[1:-1]
+    return value
+
+
+def _strip_inline_comment(value: str) -> str:
+    """Strip a trailing ``# comment`` from a manually-scanned list-item value.
+
+    A value opening with a quote character is returned verbatim through its closing
+    quote (including the quote characters) — a ``#`` inside quotes is data, never a
+    comment start, matching YAML's own rule. An unquoted value is truncated at the
+    first `` #`` (space then hash), which is also never present as a data character in
+    a well-formed reference path.
+    """
+    stripped = value.strip()
+    if stripped[:1] in ('"', "'"):
+        quote = stripped[0]
+        end = stripped.find(quote, 1)
+        return stripped if end == -1 else stripped[: end + 1]
+    hash_index = stripped.find(" #")
+    return stripped if hash_index == -1 else stripped[:hash_index].rstrip()
+
+
+def _split_inline_list(items_text: str) -> list[str]:
+    """Split a flow-style YAML list body (the text between ``[`` and ``]``) on
+    top-level commas, stripping whitespace and surrounding quotes from each item. A
+    blank (whitespace-only) body — the ``references: []`` empty-list form — is ``[]``.
+    """
+    if not items_text.strip():
+        return []
+    return [_strip_quotes(part.strip()) for part in items_text.split(",")]
+
+
+# A flow-style `references:` key with its value on the same line, e.g.
+# `references: [a.md, "b.md"]` or the empty-list form `references: []`.
+_REFERENCES_INLINE_LIST_RE = re.compile(r"^references:\s*\[(?P<items>.*)\]\s*(?:#.*)?$")
+
+
+def _extract_references_list_manual(frontmatter_text: str) -> list[str]:
+    """Stdlib-only fallback for :func:`extract_references_list`, used only when
+    ``frontmatter_text`` fails to parse as YAML outright. Scans for a block-style
+    ``references:`` key opener (:data:`_REFERENCES_BLOCK_KEY_RE`) followed by indented
+    list items (:data:`_LIST_ITEM_RE`), or a flow-style same-line list
+    (:data:`_REFERENCES_INLINE_LIST_RE`), stripping inline comments and quotes from
+    each item. This mirrors the exact snippet the ``migrating-to-arkeology`` and
+    ``backfilling-references`` skills document — see :func:`extract_references_list`.
+    """
+    items: list[str] = []
+    in_block_list = False
+    for line in frontmatter_text.split("\n"):
+        inline_match = _REFERENCES_INLINE_LIST_RE.match(line.strip())
+        if inline_match:
+            return _split_inline_list(inline_match.group("items"))
+        if _REFERENCES_BLOCK_KEY_RE.match(line.rstrip()):
+            in_block_list = True
+            continue
+        if in_block_list:
+            item_match = _LIST_ITEM_RE.match(line)
+            if item_match:
+                items.append(_strip_quotes(_strip_inline_comment(item_match.group("value"))))
+                continue
+            in_block_list = False
+    return items
 
 
 def normalize_reference_path(path: str) -> str:

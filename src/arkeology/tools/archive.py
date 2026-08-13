@@ -33,6 +33,7 @@ from arkeology.config import Settings
 from arkeology.constants import ArtifactStatus, ErrorCode
 from arkeology.errors import AnnotationUnavailableError, ArtifactConflictError, CredentialError
 from arkeology.failure_log import append_failure_entry
+from arkeology.tools._errors import credential_error_response
 from arkeology.tools._search_helper import find_referrers
 
 logger = logging.getLogger(__name__)
@@ -147,7 +148,7 @@ async def _archive_artifact_inner(
     try:
         s3_meta = s3.head_object(artifact_id)
     except CredentialError as exc:
-        return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
+        return credential_error_response(exc)
     except KeyError:
         return {
             "error": ErrorCode.NOT_FOUND,
@@ -174,7 +175,7 @@ async def _archive_artifact_inner(
                     for item in existing_vec_items
                 )
         except CredentialError as exc:
-            return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
+            return credential_error_response(exc)
 
         if not vectors_need_flip:
             return {
@@ -190,7 +191,7 @@ async def _archive_artifact_inner(
     try:
         referrers = find_referrers(vectors=vectors, settings=settings, artifact_id=artifact_id)
     except CredentialError as exc:
-        return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
+        return credential_error_response(exc)
 
     def _conflict_response() -> dict[str, Any]:
         return {
@@ -238,7 +239,7 @@ async def _archive_artifact_inner(
             try:
                 current_s3_meta = s3.head_object(artifact_id)
             except CredentialError as exc:
-                return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
+                return credential_error_response(exc)
             current_etag = current_s3_meta.get("ETag")
 
         try:
@@ -246,7 +247,7 @@ async def _archive_artifact_inner(
                 s3, vectors, artifact_id
             )
         except CredentialError as exc:
-            return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
+            return credential_error_response(exc)
 
         # Strip the reserved "ETag" sentinel key (added by head_object for the CAS
         # token) before reusing this dict as the literal metadata for put_object —
@@ -258,7 +259,7 @@ async def _archive_artifact_inner(
         try:
             content = s3.get_object(artifact_id)
         except CredentialError as exc:
-            return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
+            return credential_error_response(exc)
 
         try:
             new_etag = s3.put_object(artifact_id, content, updated_s3_meta, if_match=current_etag)
@@ -267,7 +268,7 @@ async def _archive_artifact_inner(
             # whole cycle (re-read, re-merge, re-write).
             continue
         except CredentialError as exc:
-            return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
+            return credential_error_response(exc)
         last_attempt_object_written = True
 
         try:

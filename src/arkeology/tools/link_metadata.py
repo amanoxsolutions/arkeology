@@ -41,6 +41,7 @@ from arkeology.clients.interfaces import (
 from arkeology.config import Settings
 from arkeology.constants import ErrorCode
 from arkeology.errors import AnnotationUnavailableError, ArtifactConflictError, CredentialError
+from arkeology.tools._errors import credential_error_response
 
 logger = logging.getLogger(__name__)
 
@@ -350,7 +351,7 @@ async def _link_metadata_inner(
                 "artifact_id": exc.key,
             }
         except CredentialError as exc:
-            return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
+            return credential_error_response(exc)
 
         linked += 1
         logger.info("link_metadata linked artifact_id=%s", artifact_id)

@@ -11,12 +11,53 @@ authored:
   by: "developer"
   date: "2026-05-31"
 revised:
-  by: ""
-  date: ""
+  by: "developer"
+  date: "2026-08-12"
 ---
 # Review Fix 01 — Credential Error Hardening
 
 <!-- SCOPE BLOCK — frozen after approval -->
+
+## Verification — 2026-08-12
+
+Re-verified finding-by-finding against current `main`. This spec was fixed the same day
+it was authored — commit `f642725` ("production hardening — 20 review-fix specs, 76
+findings resolved", 2026-05-31) implements all four stories, but this document was never
+annotated to reflect that. Two remediation cycles (Phase 9–12) landed since without
+touching the credential-handling shape described here.
+
+- **Story 1 (missing error codes) — RESOLVED.** `CREDENTIAL_ERROR_CODES` in
+  `clients/credentials.py` includes `ExpiredToken`, `InvalidAccessKeyId`, and
+  `SignatureDoesNotMatch` alongside the originally-recognised codes.
+- **Story 2 (missing credentials raise CredentialError) — RESOLVED, superseded by a
+  centralised helper.** The fix no longer catches `NoCredentialsError` ad hoc at each
+  client entry point as the spec's Boundaries prescribed; instead every public method on
+  `S3ClientImpl`, `VectorsClientImpl`, and the Bedrock client wraps its boto3 call in
+  `wrap_credential_errors(service)` (`clients/credentials.py`), a context manager added
+  in a later simplification pass that catches `NoCredentialsError`, `SSOError`, and
+  `TokenRetrievalError` in one place and translates classified `ClientError` codes the
+  same way. The acceptance criterion holds; the mechanism is a shared helper rather than
+  per-file duplication.
+- **Story 3 (delete_artifact / purge_archived report credential_error correctly) —
+  RESOLVED.** `delete.py` and `purge.py` use separate `except CredentialError as exc:` /
+  `except Exception as exc:` clauses at every S3/vectors call site — no combined
+  `except (CredentialError, Exception)` tuple remains anywhere in either file.
+- **Story 4 (reconcile_index guards list_objects) — RESOLVED.** The `s3.list_objects()`
+  call in `reconcile.py`'s orphan scan is inside a `try`/`except CredentialError` that
+  returns `{"error": ErrorCode.CREDENTIAL_ERROR, ...}`.
+
+Test coverage for all four stories is current: `tests/unit/clients/test_credentials.py`
+(new-code classification, `NoCredentialsError`/SSO/token-exception coverage),
+`tests/unit/test_tools_delete.py`, `tests/unit/test_tools_purge.py`, and
+`tests/unit/test_tools_reconcile.py` all assert the `credential_error` response shape.
+The `test_fake_s3.py` / `test_fake_vectors.py` / `test_fake_bedrock.py` files this
+spec's own Files-to-Touch table names no longer exist — unit tests moved from hand-rolled
+fakes to moto (`76358a8`, landed just before the fix commit); `FakeBedrockClient` is the
+sole surviving hand-rolled fake, per `AGENTS.md`'s Testing Conventions.
+
+**Aggregate:** 4 stories, all resolved (3 as originally specified, 1 — Story 2 — via a
+later consolidation into a shared `wrap_credential_errors` helper rather than per-file
+duplication). No open work.
 
 ## Problem Statement
 
@@ -152,3 +193,13 @@ The server starts with no credentials configured. Every AWS call raises
 ## Open Questions
 
 *(none — all behaviour is defined)*
+
+## Items Resolved Since Last Review
+
+<!-- changelog-style: prepend new entries -->
+- 2026-08-12 — **Re-verification pass (developer): all 4 stories confirmed resolved.**
+  Fixed same-day by `f642725` (2026-05-31); Story 2's per-client `NoCredentialsError`
+  handling was later consolidated into the shared `wrap_credential_errors(service)`
+  context manager (`clients/credentials.py`) rather than remaining duplicated across
+  `s3.py`/`vectors.py`/`bedrock.py` as originally specified — the acceptance criterion
+  still holds. See inline `## Verification — 2026-08-12` note above.

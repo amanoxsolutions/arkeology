@@ -131,7 +131,93 @@ path→full-key map (Step 2 below). The map's values are the full S3 key — the
    For each own-scope `artifact_id` from Step 4, call `read_artifact(artifact_id)` and read its
    `content` and its already-populated structured `references` field.
 
-   - Parse the frontmatter `references:` YAML list from `content` (if present). For each entry:
+   First extract the frontmatter `references:` list from `content` — the exact algorithm
+   implemented and unit-tested as `extract_references_list` in `src/arkeology/references.py`,
+   the authoritative reference implementation. **Do not hand-roll a line scanner for this** — a
+   naive regex that does not distinguish a trailing `# comment` from a `#` inside a quoted path
+   silently corrupts the extracted text (a real migration session hit exactly this bug). Use the
+   script below instead of extracting entries by hand. `$FRONTMATTER_TEXT` is the YAML body of
+   `content`'s frontmatter block — the text between (but not including) the opening and closing
+   `---` fence lines:
+
+   ```bash
+   python3 - "$FRONTMATTER_TEXT" <<'PY'
+   import re, sys
+
+
+   def manual_scan(text):
+       inline_re = re.compile(r"^references:\s*\[(?P<items>.*)\]\s*(?:#.*)?$")
+       block_key_re = re.compile(r"^references:\s*$")
+       item_re = re.compile(r"^[ \t]*-[ \t]+(?P<value>.*)$")
+
+       def strip_quotes(value):
+           if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
+               return value[1:-1]
+           return value
+
+       def strip_comment(value):
+           stripped = value.strip()
+           if stripped[:1] in ('"', "'"):
+               quote = stripped[0]
+               end = stripped.find(quote, 1)
+               return stripped if end == -1 else stripped[: end + 1]
+           hash_index = stripped.find(" #")
+           return stripped if hash_index == -1 else stripped[:hash_index].rstrip()
+
+       def split_inline_list(items_text):
+           if not items_text.strip():
+               return []
+           return [strip_quotes(part.strip()) for part in items_text.split(",")]
+
+       items = []
+       in_block_list = False
+       for line in text.split("\n"):
+           inline_match = inline_re.match(line.strip())
+           if inline_match:
+               return split_inline_list(inline_match.group("items"))
+           if block_key_re.match(line.rstrip()):
+               in_block_list = True
+               continue
+           if in_block_list:
+               item_match = item_re.match(line)
+               if item_match:
+                   items.append(strip_quotes(strip_comment(item_match.group("value"))))
+                   continue
+               in_block_list = False
+       return items
+
+
+   frontmatter_text = sys.argv[1]
+   try:
+       import yaml
+   except ImportError:
+       references = manual_scan(frontmatter_text)
+   else:
+       try:
+           data = yaml.safe_load(frontmatter_text)
+       except yaml.YAMLError:
+           references = manual_scan(frontmatter_text)
+       else:
+           references = (
+               [str(item) for item in data["references"]]
+               if isinstance(data, dict) and isinstance(data.get("references"), list)
+               else []
+           )
+
+   for reference in references:
+       print(reference)
+   PY
+   ```
+
+   This prints each raw (still-unresolved) `references:` entry on its own line, in source order
+   — block style, flow style (including the empty `references: []` form), and quoted or
+   unquoted items are all handled, with inline `# comment` text stripped correctly (a `#` inside
+   a quoted item is never mistaken for a comment). When PyYAML is not installed on the machine
+   running this script, it falls back automatically to an equivalent stdlib-only scan — never
+   hand-roll a replacement for either path. No output means the artifact has no `references:`
+   entries — not an error.
+
+   - For each entry in the extracted `references:` list:
      - Skip it if it already starts with `arkeology://` (already resolved at first-write time) or
        `http://` / `https://` (never a path candidate, ADR-012 D5).
      - Otherwise, if the entry is a well-formed relative path (starts with `./` or `../`), join

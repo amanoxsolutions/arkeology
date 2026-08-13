@@ -11,10 +11,25 @@ authored:
   by: "developer"
   date: "2026-05-31"
 revised:
-  by: ""
-  date: ""
+  by: "developer"
+  date: "2026-08-12"
 ---
 # Review Fix 17 — Minor Client Layer Improvements
+
+## Verification — 2026-08-12
+
+Re-verified finding-by-finding against current `main`. All six items were fixed the
+same day this spec was authored, by `f642725` (2026-05-31, "production hardening — 20
+review-fix specs"). One item (the duplicated credential-error string / helper) was
+carried further by a later, unrelated simplification pass — see its inline marker.
+
+- **Resolved:** 6 of 6 — `VectorMetadata` alias, credential-error dedup, `filter` →
+  `filter_expr`, `list_objects` ordering docstring, `ABC` → `Protocol` migration, and
+  the narrowed `bedrock.py` request body.
+- **Still valid / no longer applicable:** none.
+
+See inline `[Verified 2026-08-12 — …]` markers below and the "Items Resolved Since Last
+Review" section at the end.
 
 ## Problem Statement
 
@@ -46,14 +61,38 @@ resolved.
 
 - WHEN `VectorMetadata` type alias is introduced THE SYSTEM SHALL be used in all
   interface method signatures that previously used `Any` for metadata.
+  **[Verified 2026-08-12 — ✅ RESOLVED.** `interfaces.py` defines
+  `VectorMetadata = dict[str, str | int | float | list[str]]` and `put_vector` takes
+  `metadata: VectorMetadata`. Remaining `Any` usages in the file (`filter_expr`,
+  `head_object`/`describe_index` return dicts, `put_vectors_batch`/`get_vectors` item
+  dicts) are genuinely heterogeneous shapes, not metadata specifically — in scope for
+  neither this finding nor its acceptance criteria. Fixed by `f642725`, deliberate.]
 - WHEN the `filter` → `filter_expr` rename is applied THE SYSTEM SHALL compile cleanly
   with `mypy --strict` and pass `ruff check` with no `A002` (shadowed built-in) warnings.
+  **[Verified 2026-08-12 — ✅ RESOLVED.** Every vector-client method signature and call
+  site (`interfaces.py`, `vectors.py`, `search.py`, `list.py`) uses `filter_expr`; no
+  bare `filter` keyword remains. Fixed by `f642725`, deliberate.]
 - WHEN `_credential_error` helper is extracted THE SYSTEM SHALL produce an identical
   `CredentialError` message to the six duplicated call sites it replaces.
+  **[Verified 2026-08-12 — ✅ RESOLVED, mechanism evolved.** `f642725` extracted the
+  `_credential_error` helper as specified. A later, unrelated architect-authored
+  simplification pass (`329614c`, 2026-06-29, tracked as M3 in
+  `review-2026-06-29-simplification.md`) went further and replaced it with a shared
+  `wrap_credential_errors(service)` context manager in `clients/credentials.py`, used
+  identically by `s3.py`, `vectors.py`, and `bedrock.py` — the same de-duplication goal,
+  via a more DRY mechanism than this spec asked for. Not a regression.]
 - WHEN `list_objects` docstring is updated THE SYSTEM SHALL state that keys are returned
   in lexicographic order.
+  **[Verified 2026-08-12 — ✅ RESOLVED.** `S3ClientInterface.list_objects`'s docstring
+  states "List matching object keys in lexicographic order." Fixed by `f642725`,
+  deliberate.]
 - WHEN `bedrock.py` request body is narrowed THE SYSTEM SHALL use
   `dict[str, str | int]` instead of `dict[str, Any]`.
+  **[Verified 2026-08-12 — ✅ RESOLVED.** The `embed` method's `request_body` is
+  `dict[str, str | int] = {"inputText": text, "dimensions": dimensions}`. (The shared
+  `_invoke` helper added later still accepts `dict[str, Any]` generically since it wraps
+  multiple differently-shaped request bodies — out of this finding's scope.) Fixed by
+  `f642725`, deliberate.]
 
 ## Boundaries
 
@@ -72,6 +111,14 @@ resolved.
   `ABC`/`abstractmethod` imports; concrete classes and fakes drop the inheritance
   declaration; no runtime behaviour changes.
 - AGENTS.md is updated in the same PR to record the Protocol convention.
+
+  **[Verified 2026-08-12 — ✅ RESOLVED.** `interfaces.py`'s module docstring reads
+  "Protocol interfaces for all AWS service clients... Each interface uses
+  `typing.Protocol`..."; `S3ClientInterface`, `VectorsClientInterface`, and
+  `BedrockClientInterface` all subclass `Protocol`, not `ABC`. `AGENTS.md`'s
+  Non-Negotiable Rules document the convention (client interfaces use
+  `typing.Protocol`; concrete implementations and fakes satisfy the structural contract
+  without inheriting). Fixed by `f642725`, deliberate.]
 
 **Never:**
 - Change the runtime behavior of any client method.
@@ -118,3 +165,20 @@ parameters remain in interface signatures.
   migration: `interfaces.py` drops `ABC`; all concrete clients and fakes drop the
   inheritance declaration; `AGENTS.md` updated to record the convention. See decision
   note in Boundaries above.
+
+  **[Verified 2026-08-12 — decision confirmed and still in effect on `main`.]**
+
+## Items Resolved Since Last Review
+
+<!-- changelog-style: prepend new entries -->
+- 2026-08-12 — **Re-verification pass (developer): all 6 items confirmed resolved.**
+  This spec sat with `status: ready` and no closure note for ~2.5 months despite the
+  code having matched every requirement since the day it was authored. `f642725`
+  ("production hardening — 20 review-fix specs", 2026-05-31, same day as this review)
+  deliberately implemented the `VectorMetadata` alias, the `filter` → `filter_expr`
+  rename, the `_credential_error` extraction, the `list_objects` ordering docstring, the
+  `ABC` → `Protocol` migration, and the narrowed `bedrock.py` request body. One item
+  evolved further under unrelated later work: `_credential_error` was superseded by a
+  shared `wrap_credential_errors(service)` context manager (`329614c`, 2026-06-29, M3 in
+  `review-2026-06-29-simplification.md`) — same de-duplication goal, more DRY mechanism,
+  not a regression. No code was changed by this re-verification pass.

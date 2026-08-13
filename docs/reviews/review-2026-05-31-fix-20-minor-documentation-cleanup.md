@@ -11,10 +11,26 @@ authored:
   by: "developer"
   date: "2026-05-31"
 revised:
-  by: ""
-  date: ""
+  by: "developer"
+  date: "2026-08-12"
 ---
 # Review Fix 20 — Minor Documentation Cleanup
+
+## Verification — 2026-08-12
+
+Re-verified all three items against current `main` and the actual `README.md`,
+`LICENSE`, and `config.py` state (not just source code). All three were resolved the
+same day this spec was authored, by `f642725` (2026-05-31, "production hardening — 20
+review-fix specs"), which explicitly lists "LICENSE: Apache 2.0", "README: clone URL,
+licence badge...", and "config.py: alias block comment" in its own commit message.
+
+- **Resolved:** 3 of 3 — `LICENSE` file present (Apache 2.0, `Copyright 2026 Amanox
+  Solutions`), `README.md` License section and clone URL both fixed, `config.py` alias
+  block has the explanatory comment.
+- **Still valid / no longer applicable:** none.
+
+See inline `[Verified 2026-08-12 — …]` markers below and the "Items Resolved Since Last
+Review" section at the end.
 
 ## Problem Statement
 
@@ -53,11 +69,23 @@ needed — all three are documentation-only fixes.
 - WHEN a user reads `README.md` THE SYSTEM SHALL show an actual license statement or an
   explicit `<!-- TODO: replace with license text — see AGENTS.md -->` visible note, not
   a silent HTML comment placeholder.
+  **[Verified 2026-08-12 — ✅ RESOLVED.** `README.md`'s License section reads "Apache
+  License 2.0 — see [LICENSE](LICENSE) for the full text."; a real `LICENSE` file
+  (Apache 2.0, `Copyright 2026 Amanox Solutions`) exists at the repo root. Fixed by
+  `f642725`, deliberate — matches the "License — RESOLVED" decision below exactly.]
 - WHEN a user reads the quick-start section THE SYSTEM SHALL see a real repository URL
   or a clearly labelled `<YOUR_REPO_URL>` placeholder with a human-readable comment.
+  **[Verified 2026-08-12 — ✅ RESOLVED.** The quick-start `git clone` command (and every
+  other repo-URL reference in `README.md`) uses the real
+  `https://github.com/amanoxsolutions/arkeology` URL, matching the "Repository URL —
+  RESOLVED" decision below. Fixed by `f642725`, deliberate.]
 - WHEN a maintainer reads the alias block in `config.py` THE SYSTEM SHALL find a comment
   explaining the ergonomic trade-off and noting that `alias_generator` was considered
   and rejected for explicit IDE autocomplete.
+  **[Verified 2026-08-12 — ✅ RESOLVED.** `config.py`'s "Computed properties" section
+  has the exact comment block: "We use explicit properties rather than an
+  alias_generator because alias_generator produces aliases on all fields... and loses
+  IDE autocomplete on the property names." Fixed by `f642725`, deliberate.]
 
 ## Boundaries
 
@@ -99,3 +127,16 @@ Documentation-only changes — no source code or test files are modified.
 - **License — RESOLVED (2026-05-31):** Apache 2.0. Create `LICENSE` file and update README.
 - **Repository URL — RESOLVED (2026-05-31):** `https://github.com/amanoxsolutions/arkeology`.
   Replace `your-org/arkeology` placeholder.
+
+## Items Resolved Since Last Review
+
+<!-- changelog-style: prepend new entries -->
+- 2026-08-12 — **Re-verification pass (developer): all 3 items confirmed resolved.**
+  This spec sat with `status: ready` and no closure note for ~2.5 months despite the
+  documentation having matched every requirement since the day it was authored.
+  `f642725` ("production hardening — 20 review-fix specs", 2026-05-31, same day as this
+  review) added the `LICENSE` file, fixed the README License section and clone URL, and
+  added the `config.py` alias explanatory comment — all exactly per the decisions
+  recorded in this document's own Open Questions section. Verified directly against
+  `README.md`, `LICENSE`, and `config.py` on `main`, not just inferred from source.
+  No changes were made by this re-verification pass.

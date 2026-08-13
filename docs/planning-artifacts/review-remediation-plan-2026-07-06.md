@@ -16,9 +16,11 @@ dependency-aware backlog so a future session can pick it up without re-deriving 
 findings were **re-verified against merged `main` (`a4cf881`) on 2026-07-06** by three read-only
 agents; only the confirmed-still-valid items are listed here.
 
-- **Verification: complete.** **Fixes: in progress** — all four design-gated findings (M3, M4, M5,
-  CA-5), FC-1, FC-2, FC-3, and FC-5 are landed; FC-4/FC-6 remain. Per-finding status is tracked in the
+- **Verification: complete. Fixes: complete (2026-08-12).** All four design-gated findings (M3, M4,
+  M5, CA-5) and all six clusters (FC-1 through FC-6) are landed. Per-finding status is tracked in the
   `Status` column of each cluster table below, and per-cluster status in each section's `Status` line.
+  Two items surfaced during FC-4/FC-6 that this plan does not cover are recorded in the closing
+  section rather than left implicit.
 - Work now lands directly on `main` (trunk-based, per AGENTS.md), commit-per-cluster — the earlier
   `review-followup-2026-07-06` branch noted below was merged and deleted:
   - `7a697dd` — M3 (ETag compare-and-swap) + M4 (`references` replace / `commit_refs` union).
@@ -174,18 +176,21 @@ write_artifacts.py per-descriptor error sanitisation).
 
 ### FC-4 — Studio UI hardening  *(developer; part enhancement — `static/arkeology-studio.html`)*
 
-**Status: ⬜ todo** — 0/8 findings fixed.
+**Status: ✅ done (2026-08-12)** — 8/8 findings fixed in `3bc4810`, alongside the studio-side
+`arkeology://` link resolution specified by ADR-013. Full quality gate green (1162 unit tests);
+client-side behaviour verified with a throwaway jsdom harness against the real pinned `marked` and
+`dompurify`, mutation-tested to confirm the checks are not vacuous.
 
 | Finding | Item | Status |
 |---------|------|--------|
-| **#23** | `tier` unescaped in list rows — `renderList` | ⬜ todo |
-| **#24** | prototype-chain type-map lookups → `Object.create(null)`/`Map` | ⬜ todo |
-| **#25** | pin `marked`/`mermaid` CDN versions like the SDK/DOMPurify | ⬜ todo |
-| **#26** | stale-response race — guard `selectArtifact` with `if (selectedId !== id) return` | ⬜ todo |
-| **#27** | `doSearch` ignores active facet filters — forward `filterType/Tier/Status` | ⬜ todo |
-| **#28** | no pagination for large stores | ⬜ todo |
-| **#29** | theme toggle re-downloads the artifact | ⬜ todo |
-| **#30** | `studio.py` fallback `structured_content` returns the whole unbounded listing | ⬜ todo |
+| **#23** | `tier` unescaped in list rows — `renderList` | ✅ done (`3bc4810`) |
+| **#24** | prototype-chain type-map lookups → `Object.create(null)`/`Map` | ✅ done (`3bc4810`) |
+| **#25** | pin `marked`/`mermaid` CDN versions like the SDK/DOMPurify | ✅ done (`3bc4810`) |
+| **#26** | stale-response race — guard `selectArtifact` with `if (selectedId !== id) return` | ✅ done (`3bc4810`) |
+| **#27** | `doSearch` ignores active facet filters — forward `filterType/Tier/Status` | ✅ done (`3bc4810`) |
+| **#28** | no pagination for large stores | ✅ done (`3bc4810`) |
+| **#29** | theme toggle re-downloads the artifact | ✅ done (`3bc4810`) |
+| **#30** | `studio.py` fallback `structured_content` returns the whole unbounded listing | ✅ done (`3bc4810`) |
 
 ### FC-5 — Missing tests  *(developer; some need real AWS)*
 
@@ -206,24 +211,26 @@ integration tests green; ruff/format/mypy clean.
 
 ### FC-6 — Docs / hygiene  *(tech-writer)*
 
-**Status: ⬜ todo** — 0/13 findings fixed. Now also owns the CHANGELOG entries for the three landed code
-commits (`7a697dd`, `63e5665`, `2aa1633`), which deliberately left `CHANGELOG.md` untouched — see #10.
+**Status: ✅ done (2026-08-12)** — 12/13 findings fixed, 1 verified already resolved. Landed across
+`2adbf84` (spec amendments, probe keys, skill ID drift), `dec9426` (state, taxonomy and citation
+hygiene) and `ad91fe3` (FR-51–58 behaviour rewrite). CHANGELOG `[Unreleased]` audited against every
+commit since `v0.5.0` and the gaps filled. Full quality gate green (1162 unit tests).
 
 | Finding | Item | Status |
 |---------|------|--------|
-| Phase-12 **#1** | brainstorming still lists OQ3 pending + retired sweep item | ⬜ todo |
-| Phase-12 **#3** | `plan.md` "open — planning" vs "all implemented"; T55 "Spec: to be written" though the spec exists | ⬜ todo |
-| Phase-12 **#4** | T53 Files-to-Touch describes the pre-consolidation symlink layout | ⬜ todo |
-| Phase-12 **#5** | T54/T55 cite gitignored `.docs/` as provenance | ⬜ todo |
-| Phase-12 **#7** | T55 lists `title`/`author_role` in both filterable and non-filterable | ⬜ todo |
-| Phase-12 **#9** | stale `link_commit` comment in `tests/unit/test_tools_read.py` | ⬜ todo |
-| Phase-12 **#10** | CHANGELOG `[Unreleased]` empty despite the breaking `link_commit`→`link_metadata` removal | ⬜ todo — must now also cover M3/M4 (`7a697dd`), FC-1 (`63e5665`), M5/CA-5 + new `SYNTHESISE_MAX_RESPONSE_BYTES` setting (`2aa1633`) |
-| Phase-12 **#12** | "S3 Express One Zone" double-counts "directory buckets" across README/SERVER-REFERENCE/ADR/credentials.py/PRD/brainstorming | ⬜ todo |
-| Phase-12 **#14** | FR-51–58 what-not-how violations + FR-54 duplicates ADR-011 §1 → dual-maintenance | ⬜ todo |
-| Phase-12 **#22** | skills reimplement `generate_artifact_id` twice with no drift test — add a drift test or single-source it | ⬜ todo |
-| Phase-12 **#8** | style residue ("D4" shorthand vs "decision 5") | ⬜ todo |
-| **M8** | straddles code+doc: the `setting-up-arkeology` aws-cli probe path has no always-run cleanup, and the probe key isn't excluded by `reconcile.py`'s orphan scan (only `_arkeology_health_probe`/`_arkeology_startup_probe` are). Fix = reserved non-artifact prefix + reconcile exclusion (code) + always-run cleanup instruction (skill) | ⬜ todo |
-| **#13** (concept) | mixed addressing (D3) has no documented consumer — `arkeology://` links render dead in the studio app; specify read-surface treatment (or make the studio resolve `arkeology://` — overlaps FC-4) | ⬜ todo |
+| Phase-12 **#1** | brainstorming still lists OQ3 pending + retired sweep item | ✅ done (`dec9426`) |
+| Phase-12 **#3** | `plan.md` "open — planning" vs "all implemented"; T55 "Spec: to be written" though the spec exists | ✅ done (`2adbf84`) |
+| Phase-12 **#4** | T53 Files-to-Touch describes the pre-consolidation symlink layout | ✅ done (`2adbf84`) |
+| Phase-12 **#5** | T54/T55 cite gitignored `.docs/` as provenance | ⛔ not applicable — verified already fixed: both specs cite durable paths |
+| Phase-12 **#7** | T55 lists `title`/`author_role` in both filterable and non-filterable | ✅ done (`2adbf84`) |
+| Phase-12 **#9** | stale `link_commit` comment in `tests/unit/test_tools_read.py` | ✅ done (`dec9426`) |
+| Phase-12 **#10** | CHANGELOG `[Unreleased]` empty despite the breaking `link_commit`→`link_metadata` removal | ✅ done (`dec9426`) — must now also cover M3/M4 (`7a697dd`), FC-1 (`63e5665`), M5/CA-5 + new `SYNTHESISE_MAX_RESPONSE_BYTES` setting (`2aa1633`) |
+| Phase-12 **#12** | "S3 Express One Zone" double-counts "directory buckets" across README/SERVER-REFERENCE/ADR/credentials.py/PRD/brainstorming | ✅ done (`dec9426`) |
+| Phase-12 **#14** | FR-51–58 what-not-how violations + FR-54 duplicates ADR-011 §1 → dual-maintenance | ✅ done (`ad91fe3`) |
+| Phase-12 **#22** | skills reimplement `generate_artifact_id` twice with no drift test — add a drift test or single-source it | ✅ done (`2adbf84`) |
+| Phase-12 **#8** | style residue ("D4" shorthand vs "decision 5") | ✅ done (`dec9426`) |
+| **M8** | straddles code+doc: the `setting-up-arkeology` aws-cli probe path has no always-run cleanup, and the probe key isn't excluded by `reconcile.py`'s orphan scan (only `_arkeology_health_probe`/`_arkeology_startup_probe` are). Fix = reserved non-artifact prefix + reconcile exclusion (code) + always-run cleanup instruction (skill) | ✅ done (`2adbf84`) |
+| **#13** (concept) | mixed addressing (D3) has no documented consumer — `arkeology://` links render dead in the studio app; specify read-surface treatment (or make the studio resolve `arkeology://` — overlaps FC-4) | ✅ done (`3bc4810`) |
 
 ## Suggested order when resumed
 
@@ -233,8 +240,28 @@ commits (`7a697dd`, `63e5665`, `2aa1633`), which deliberately left `CHANGELOG.md
 3. ✅ **done** — **FC-2** (search/write validation). `1d554c2`.
 4. ✅ **done** — **FC-3** (robustness minors). `05321c4`.
 5. ✅ **done** — **FC-5** (missing tests, incl. both SA-3 real-AWS integration round-trips). `6060f1d`.
-6. ⬜ **next** — **FC-4** (studio) and **FC-6** (docs) — parallelisable, lower risk. FC-6 now also owns the
-   CHANGELOG entries for the five landed code commits (M3/M4, FC-1, M5/CA-5, FC-2, FC-3).
+6. ✅ **done** — **FC-4** (studio) and **FC-6** (docs). `3bc4810`, `2adbf84`, `dec9426`, `ad91fe3`,
+   plus `2bf5e3e` and `3bfb10f` for work these clusters surfaced. **This plan is now closed.**
+
+## Surfaced during FC-4/FC-6, not covered by this plan
+
+Recorded here because they were discovered by this remediation but are outside its findings; each
+needs an operator decision rather than silent adoption.
+
+- **`search_artifacts` gained the `status="all"` sentinel** (`3bc4810`), because the studio's status
+  facet defaults to it and neither forwarding nor omitting it was honest. The cross-tool convention
+  is recorded in ADR-014 and specified in the search and list specs. This is a user-visible widening
+  of a tool contract.
+- **Dangling review citations were swept repo-wide** (`3bfb10f`) — 297 sites across 84 files, since
+  reviews are not guaranteed to be retained. `AGENTS.md` now forbids citing review findings and line
+  numbers. Note this plan is the deliberate exception: it is the register *of* findings.
+- **The PRD's what-not-how convention is breached well beyond FR-51–58.** The rewrite of those eight
+  (`ad91fe3`) was run as a pilot; every one had a confirmed ADR home. FR-01–FR-50 predate most ADRs,
+  so a higher rate of mechanism recorded *only* in the PRD is expected there, and the pilot's cost
+  should not be extrapolated to them. The PRD's Deployment Prerequisites prose has the same problem.
+- **`credentials.py` carries a user-visible error string** that still double-counts the S3 Express
+  One Zone / directory-bucket categories corrected everywhere else in `dec9426`. Left unchanged
+  because it is a message, not a comment; no test asserts on it.
 
 ## Cross-references
 

@@ -11,12 +11,55 @@ authored:
   by: "developer"
   date: "2026-05-31"
 revised:
-  by: ""
-  date: ""
+  by: "developer"
+  date: "2026-08-12"
 ---
 # Review Fix 04 — README Critical Documentation Fixes
 
 <!-- SCOPE BLOCK — frozen after approval -->
+
+## Verification — 2026-08-12
+
+Re-verified against current `main`. This spec was fixed the same day it was authored —
+commit `f642725` ("production hardening — 20 review-fix specs", 2026-05-31) applied all
+four text corrections to `README.md` — but this document was never annotated to reflect
+that. Since then, the IAM policy and the tools table this spec edited were both moved
+out of `README.md` into a dedicated `SERVER-REFERENCE.md` (the `installing-cairn` →
+`setting-up-cairn` skill rename commit, and later doc-restructuring commits), so the
+fixes now live in a different file than the one this spec names throughout.
+
+- **C9 (`s3:ListObjectsV2` → `s3:ListBucket`) — RESOLVED.** The "Minimum IAM Policy" in
+  `SERVER-REFERENCE.md` uses `s3:ListBucket`; `s3:ListObjectsV2` does not appear anywhere
+  in the repository's documentation.
+- **C10 (`CreateIndex`/`DeleteIndex` removed from the runtime policy) — RESOLVED,
+  differently from the recommended remediation.** Neither `s3vectors:CreateIndex` nor
+  `s3vectors:DeleteIndex` appears in the runtime "Minimum IAM Policy" in
+  `SERVER-REFERENCE.md` — but this spec's own repo-wide grep confirms they don't appear
+  in a labelled "Provisioning IAM policy" subsection either, because no such section was
+  written; the provisioning actions were dropped from the documented policy entirely
+  rather than relocated. The acceptance criterion ("do not appear in the runtime policy")
+  is satisfied; Story 2's second criterion ("provisioning actions appear in a clearly
+  labelled separate section") is not met as literally specified, though index
+  provisioning is a one-time step the project now expects to happen outside a
+  copy-pasted IAM block (via the `setting-up-arkeology` skill / infra tooling), so the
+  gap is not a live documentation defect.
+- **C11 (stale phase/tool count) — RESOLVED, restructured rather than restated.** The
+  spec asked for "Phase 5 complete" and a count of 11 tools. `README.md`'s Status section
+  no longer uses phase numbers or a bare tool count at all — the project switched to
+  semver (`> **v0.5.0**`) and now lists all 16 tool names explicitly (matching
+  `server.py::register_tools()` at time of writing). The underlying accuracy concern this
+  finding raised is resolved; the specific phrasing recommended is no longer applicable
+  because the versioning convention changed.
+- **C12 (`list_artifacts` `limit` parameter) — RESOLVED.** The tools table (now in
+  `SERVER-REFERENCE.md`) documents `list_artifacts`' actual optional parameters (`type`,
+  `team`, `project`, `tier`, `status`, `tags`, `commit_refs`, `references`); `limit` does
+  not appear.
+
+**Aggregate:** 4 findings, all resolved for their underlying user-facing concern; C10 and
+C11 diverge from the letter of the recommended remediation (provisioning actions dropped
+rather than relocated to a labelled section; status rewritten around semver rather than
+phase count) without leaving a live defect. Nothing here requires further documentation
+work.
 
 ## Problem Statement
 
@@ -120,3 +163,17 @@ No automated tests — this spec covers documentation only. Verification is manu
   policy should appear as a subsection of the existing IAM section or in a separate
   "Deployment" section. Either is acceptable — default to a subsection unless directed
   otherwise.
+
+## Items Resolved Since Last Review
+
+<!-- changelog-style: prepend new entries -->
+- 2026-08-12 — **Re-verification pass (developer): all 4 findings confirmed resolved for
+  their underlying concern.** Fixed same-day by `f642725` (2026-05-31); the IAM policy
+  and tools table have since moved from `README.md` to `SERVER-REFERENCE.md`. **C9**
+  `s3:ListBucket` in place of `s3:ListObjectsV2`. **C10** `CreateIndex`/`DeleteIndex`
+  absent from the runtime policy, though dropped rather than relocated to a labelled
+  provisioning subsection as literally recommended. **C11** the phase/tool-count status
+  line was replaced by a semver tag (`v0.5.0`) plus an explicit tool-name list, not
+  restated as "Phase 5, 11 tools" — the accuracy concern is moot under the new
+  convention. **C12** `list_artifacts`' documented parameters no longer include `limit`.
+  See inline `## Verification — 2026-08-12` note above.

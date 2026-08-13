@@ -599,7 +599,7 @@ def _render_artifacts_markdown(artifacts: list[dict[str, Any]]) -> str:
 async def _artifacts_listing_content(
     *,
     settings: Settings,
-    s3: S3ClientInterface | None,
+    s3: S3ClientInterface,
     vectors: VectorsClientInterface,
     bedrock: BedrockClientInterface | None,
 ) -> str:

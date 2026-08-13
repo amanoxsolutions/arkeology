@@ -1,13 +1,17 @@
 """arkeology.tools.list — list_artifacts MCP tool implementation.
 
 Returns metadata-only listings from the vector index with metadata filtering
-and cross-scope gate enforcement. No S3 reads — all data comes from vector metadata.
+and cross-scope gate enforcement. Vector metadata supplies every field except
+commit_refs/references, which are read via the union-of-both-durable-stores
+model (``annotations.read_current_link_fields``) so a multi-section artifact
+never surfaces an arbitrary single section vector's possibly-stale copy.
 """
 
 import asyncio
 import logging
 from typing import Any
 
+from arkeology.annotations import read_current_link_fields
 from arkeology.clients.interfaces import (
     BedrockClientInterface,
     S3ClientInterface,
@@ -16,6 +20,7 @@ from arkeology.clients.interfaces import (
 from arkeology.config import Settings
 from arkeology.constants import ArtifactStatus, ErrorCode
 from arkeology.errors import CredentialError, InvalidFilterValueError
+from arkeology.tools._errors import credential_error_response
 from arkeology.tools._reference_filter import resolve_readable_targets
 from arkeology.tools._search_helper import (
     build_scope_filter,
@@ -29,7 +34,7 @@ logger = logging.getLogger(__name__)
 async def list_artifacts(
     *,
     settings: Settings,
-    s3: S3ClientInterface | None = None,
+    s3: S3ClientInterface,
     vectors: VectorsClientInterface,
     bedrock: BedrockClientInterface | None = None,
     type: str | None = None,  # noqa: A002
@@ -48,7 +53,9 @@ async def list_artifacts(
 
         Args:
             settings: Server configuration.
-            s3: S3 client (unused; injected for interface consistency).
+            s3: S3 client, used to read the durable commit_refs/references
+                annotation copy per distinct artifact in the page (see
+                annotations.read_current_link_fields).
             vectors: S3 Vectors client.
             bedrock: Bedrock client (unused; injected for interface consistency).
             type: Optional artifact type filter.
@@ -93,7 +100,7 @@ async def list_artifacts(
 async def _list_artifacts_inner(
     *,
     settings: Settings,
-    s3: S3ClientInterface | None = None,
+    s3: S3ClientInterface,
     vectors: VectorsClientInterface,
     bedrock: BedrockClientInterface | None = None,
     type: str | None = None,  # noqa: A002
@@ -107,7 +114,6 @@ async def _list_artifacts_inner(
 ) -> dict[str, Any]:
     """Inner implementation of list_artifacts (separated to enable top-level catch-all)."""
     # Suppress "unused parameter" linting
-    _ = s3
     _ = bedrock
 
     # ── Step 1: Build metadata filter ────────────────────────────────────────
@@ -148,7 +154,7 @@ async def _list_artifacts_inner(
     try:
         keys = await asyncio.to_thread(vectors.list_vectors_by_metadata, combined_filter)
     except CredentialError as exc:
-        return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
+        return credential_error_response(exc)
 
     if not keys:
         return {"artifacts": []}
@@ -158,7 +164,7 @@ async def _list_artifacts_inner(
     try:
         items = await asyncio.to_thread(vectors.get_vectors, keys, False)
     except CredentialError as exc:
-        return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
+        return credential_error_response(exc)
 
     # ── Step 4: Deduplicate by artifact_id (first occurrence wins) and apply the
     # cross-scope gate ──────────────────────────────────────────────────────────
@@ -187,29 +193,66 @@ async def _list_artifacts_inner(
 
         gated_entries.append((artifact_id, is_own_scope, meta))
 
+    # ── Step 4b: commit_refs/references — union of both durable stores ────────
+    # Fetched only for entries that survived the cross-scope gate above (never
+    # for foreign-scope entries that failed it) and only once per distinct
+    # artifact_id (gated_entries is already deduplicated). Each fetch is a
+    # blocking S3 + S3 Vectors round trip via read_current_link_fields, so this
+    # is N sequential-cost lookups for a page of N distinct artifacts — there is
+    # no batched alternative (unlike the single-query resolve_readable_targets
+    # below), so they run off the event loop and in parallel via asyncio.gather
+    # rather than one at a time. No new bounded-concurrency setting (compare
+    # write.py's SECTION_CONCURRENCY): a listing page is small relative to a
+    # single artifact's section count, so an unbounded gather is the
+    # proportionate choice here.
+    async def _fetch_link_fields(artifact_id: str) -> tuple[list[str], list[str]]:
+        return await asyncio.to_thread(read_current_link_fields, s3, vectors, artifact_id)
+
+    distinct_ids = [artifact_id for artifact_id, _, _ in gated_entries]
+    link_fields_by_id: dict[str, tuple[list[str], list[str]]] = {}
+    if distinct_ids:
+        link_field_results = await asyncio.gather(
+            *(_fetch_link_fields(artifact_id) for artifact_id in distinct_ids),
+            return_exceptions=True,
+        )
+        for artifact_id, result in zip(distinct_ids, link_field_results, strict=True):
+            if isinstance(result, CredentialError):
+                return credential_error_response(result)
+            if isinstance(result, BaseException):
+                # commit_refs / references are supplementary — degrade this one
+                # artifact to [] rather than aborting the whole page on a
+                # transient per-artifact vector/annotation error.
+                logger.warning(
+                    "Failed to read commit_refs/references for %s; degrading to []",
+                    artifact_id,
+                    exc_info=result,
+                )
+                link_fields_by_id[artifact_id] = ([], [])
+            else:
+                link_fields_by_id[artifact_id] = result
+
     # ── Step 5: Cross-scope reference filtering (ADR-012) ─────────────────────
     # Own-scope entries are never filtered. Foreign entries' references are
     # resolved with a single batched query covering the whole page, regardless
     # of how many distinct foreign entries or reference ids are involved.
     candidate_ids: set[str] = set()
-    for artifact_id, is_own_scope, meta in gated_entries:
+    for artifact_id, is_own_scope, _meta in gated_entries:
         if not is_own_scope:
-            candidate_ids.update(coerce_list_field(meta, "references"))
+            candidate_ids.update(link_fields_by_id[artifact_id][1])
 
     readable_targets: set[str] = set()
     if candidate_ids:
         try:
             readable_targets = await resolve_readable_targets(vectors, settings, candidate_ids)
         except CredentialError as exc:
-            return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
+            return credential_error_response(exc)
 
     # ── Step 6: Build result dicts ──────────────────────────────────────────
     artifacts: list[dict[str, Any]] = []
     for artifact_id, is_own_scope, meta in gated_entries:
         tags_val = coerce_list_field(meta, "tags")
         source_artifacts_val = coerce_list_field(meta, "source_artifacts")
-        commit_refs_val = coerce_list_field(meta, "commit_refs")
-        references_val = coerce_list_field(meta, "references")
+        commit_refs_val, references_val = link_fields_by_id[artifact_id]
         if not is_own_scope:
             references_val = [r for r in references_val if r in readable_targets]
         last_edited_ulid_val: str | None = meta.get("last_edited_ulid") or None

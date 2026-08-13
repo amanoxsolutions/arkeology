@@ -19,6 +19,7 @@ from arkeology.clients.interfaces import (
 from arkeology.config import Settings
 from arkeology.constants import ErrorCode
 from arkeology.errors import CredentialError
+from arkeology.tools._errors import credential_error_response
 from arkeology.tools._search_helper import find_referrers
 
 logger = logging.getLogger(__name__)
@@ -99,7 +100,7 @@ async def _delete_artifact_inner(
     try:
         s3.head_object(artifact_id)
     except CredentialError as exc:
-        return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
+        return credential_error_response(exc)
     except KeyError:
         return {
             "error": ErrorCode.NOT_FOUND,
@@ -110,20 +111,20 @@ async def _delete_artifact_inner(
     try:
         referrers = find_referrers(vectors=vectors, settings=settings, artifact_id=artifact_id)
     except CredentialError as exc:
-        return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
+        return credential_error_response(exc)
 
     # ── Step 5: Find all vector keys for this artifact ────────────────────────
     try:
         vec_keys = vectors.list_vectors_by_metadata({"artifact_id": {"$eq": artifact_id}})
     except CredentialError as exc:
-        return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
+        return credential_error_response(exc)
 
     # ── Step 6: Delete vectors first ─────────────────────────────────────────
     if vec_keys:
         try:
             vectors.delete_vectors(vec_keys)
         except CredentialError as exc:
-            return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
+            return credential_error_response(exc)
         except Exception as exc:
             return {"error": ErrorCode.DELETE_VECTORS_FAILED, "message": str(exc)}
 

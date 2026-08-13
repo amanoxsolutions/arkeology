@@ -11,12 +11,59 @@ authored:
   by: "developer"
   date: "2026-05-31"
 revised:
-  by: ""
-  date: ""
+  by: "developer"
+  date: "2026-08-12"
 ---
 # Review Fix 02 — Vector Score Semantics
 
 <!-- SCOPE BLOCK — frozen after approval -->
+
+## Verification — 2026-08-12
+
+Re-verified against current `main`. This spec was fixed the same day it was authored —
+commit `f642725` ("production hardening — 20 review-fix specs", 2026-05-31) applied the
+`score = 1.0 - distance` formula this spec requires — but this document was never
+annotated to reflect that.
+
+- **Core fix (formula alignment) — RESOLVED.** `VectorsClientImpl.query_vectors` in
+  `clients/vectors.py` computes `"score": 1.0 - distance`. The moto `query_vectors`
+  extension in `tests/unit/conftest.py` (which replaced the hand-rolled
+  `FakeVectorsClient` referenced throughout this spec — see below) uses the identical
+  `1.0 - cosine_distance` formula, so real and test-path scores are numerically
+  equivalent as Story 1 and the Requirements section require.
+- **Range claims — CHANGED ENOUGH TO NEED RESTATING.** This spec's own arithmetic is
+  wrong: it states the fix yields range `[0, 2]` ("2 means identical, 0 means
+  orthogonal") and that an identical query/stored vector pair should score `2.0`
+  (Story 1's acceptance criteria, the Requirements section, and the Testing Approach all
+  repeat this). That does not follow from the stated formula — cosine distance for
+  normalised vectors is `1 - cosine_similarity` (range `[0, 2]`), so
+  `1.0 - distance = cosine_similarity`, range **`[-1, 1]`**, not `[0, 2]`. Under the
+  actually-implemented (and correct) formula, identical vectors score `1.0`, not `2.0`;
+  orthogonal vectors score `0.0` as stated (the one case where the arithmetic error
+  happens to cancel out). Current code, the moto extension's own docstring, and
+  `AGENTS.md`'s High-Friction Areas entry ("Vector scores are `1.0 - distance` ... scores
+  in `[−1, 1]`") all agree with the corrected range, confirming this is a defect in the
+  review document's own numbers, not in the shipped code. No action needed on the code;
+  restated here so the acceptance criteria aren't taken at face value if this spec is
+  ever consulted again.
+- **`fake_vectors.py` references — NO LONGER APPLICABLE.** The Files-to-Touch and Testing
+  Approach sections name `src/arkeology/clients/fakes/fake_vectors.py` and
+  `tests/unit/clients/test_fake_vectors.py`. Neither exists: S3 Vectors is mocked via
+  moto (`aws_mock`/`vectors_client_*` fixtures) with a cosine-similarity extension
+  patched once in `tests/unit/conftest.py`
+  (`tests/unit/clients/test_moto_query_vectors_extension.py` verifies it directly), per
+  `AGENTS.md`'s Testing Conventions. This predates the fix commit (`76358a8`, landed
+  just before `f642725` on 2026-05-31) and is unrelated to this spec — the equivalent
+  formula-alignment guarantee now lives in the moto extension instead.
+- **Story 2 (score ordering preserved) — RESOLVED.** Ordering is unaffected by an affine
+  transform of distance (`1.0 - distance` is monotonically decreasing in `distance`
+  regardless of the constant), and both the real client and the moto extension sort
+  descending by the same `score` field.
+
+**Aggregate:** formula-alignment fix resolved (same-day, `f642725`); the spec's own
+stated numeric range and Story 1's `2.0`/`0.0` acceptance values are wrong and need
+restating; the `fake_vectors.py` file references are no longer applicable following the
+moto migration. No open work — the code is correct and self-consistent with `AGENTS.md`.
 
 ## Problem Statement
 
@@ -103,3 +150,17 @@ scores are numerically identical, not just ranked the same.
   Both only use relative comparisons (`score > best_by_id[aid][0]`) for deduplication.
   Changing from `-distance` (range [-2, 0]) to `1.0 - distance` (range [0, 2]) is safe
   — no threshold values require updating. Implement as specified.
+
+## Items Resolved Since Last Review
+
+<!-- changelog-style: prepend new entries -->
+- 2026-08-12 — **Re-verification pass (developer): formula-alignment fix confirmed
+  resolved, but the spec's own range/score-value claims are wrong and restated.** Fixed
+  same-day by `f642725` (2026-05-31). `vectors.py` and the moto `query_vectors`
+  extension (which superseded the `fake_vectors.py` this spec references — moto
+  migration `76358a8` landed first) both compute `score = 1.0 - distance`. That formula
+  actually produces range `[-1, 1]` (cosine similarity), not the `[0, 2]` this document
+  claims throughout — identical vectors score `1.0`, not the `2.0` Story 1 and the
+  Testing Approach assert. `AGENTS.md` and the current code agree with the corrected
+  range; only this document's arithmetic was wrong. See inline
+  `## Verification — 2026-08-12` note above.

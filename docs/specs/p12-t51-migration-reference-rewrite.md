@@ -19,8 +19,8 @@ authored:
   by: "architect"
   date: "2026-07-03"
 revised:
-  by: "tech-writer"
-  date: "2026-08-12"
+  by: "architect"
+  date: "2026-08-13"
 ---
 
 # T51 — Migration Frontmatter Reference Rewriting + `arkeology://` Content Rewrite
@@ -60,6 +60,19 @@ markdown links are out of scope. (FR-52, AC-58.)
 > single-source.** The skills must compute identifiers *offline*, during a migration or backfill
 > run, before the server is necessarily reachable or even installed, so importing `references.py`
 > is not available to them. Story 5 and the requirements below pin the two copies behaviourally.
+
+> **Revised 2026-08-13 (architect).** The reference-extraction step this rewrite depends on —
+> "parse the frontmatter `references:` list" — had the same unguarded-duplication problem as
+> OQ-T51-b: no canonical algorithm was documented for it, unlike the adjacent path→id-map step,
+> and a real migration run hand-rolled a naive regex line-scanner instead that silently corrupted
+> resolution by capturing a YAML inline comment as part of an extracted path. Shipped fix: a pure
+> `extract_references_list` helper added to `src/arkeology/references.py` (`yaml.safe_load`
+> primary path, stdlib-only manual-scan fallback for outright-malformed frontmatter), the matching
+> canonical snippet documented in both skill files in the same style/location as the existing
+> ID-computation snippet, and `tests/unit/test_skill_artifact_id_drift.py` extended with a second
+> parameterised drift test guarding it. Same decision as OQ-T51-b applies: guard by drift test,
+> do not attempt to single-source. See Story 6, the "Skill-side reference extraction"
+> requirements below, and the OQ-T51-b addendum.
 
 ## Problem Statement
 
@@ -143,6 +156,39 @@ rewrite silently produces dead links, and nothing fails.
   moved, renamed, or deleted), when the test runs, then it fails — an unlocatable algorithm is
   itself drift, not a reason to skip.
 
+### Story 6 — The skills' offline reference-extraction algorithm cannot drift from the server's (P1)
+
+A migration or backfill run must extract an artifact's frontmatter `references:` list before
+resolving any entry against the path→id map, from a `python3` snippet documented in the skill —
+the same offline-computation shape as Story 5's ID snippet, and the same failure mode: if
+`extract_references_list` changes and the snippets do not, or if an agent hand-rolls the
+extraction instead of using the documented snippet, the extracted path text can be silently
+corrupted (a YAML inline comment folded into the path text) and every reference downstream fails
+to resolve without anything failing loudly.
+
+**Acceptance criteria:**
+- Given the reference-extraction snippet documented in
+  `plugins/arkeology/skills/migrating-to-arkeology/SKILL.md`, when it is executed over a shared
+  table of representative frontmatter texts, then for every input it produces exactly the same
+  ordered list of entries as `extract_references_list`.
+- Given the same for `plugins/arkeology/skills/backfilling-references/SKILL.md`, then the same
+  equality holds — both skills are covered, neither by transitive assumption from the other.
+- Given a change to `extract_references_list`'s YAML-primary parsing or its stdlib-only
+  manual-scan fallback that is not mirrored in a skill snippet, when the suite runs, then the
+  drift test fails and names the diverging case.
+- Given the input table, then it exercises at minimum: a block-style list; a flow-style list,
+  including the empty `references: []` form; a `references:` key absent from the frontmatter; an
+  inline `# comment` trailing an unquoted item; a quoted item containing a literal `#`; and
+  frontmatter that fails to parse as YAML outright, exercising the manual-scan fallback.
+- Given the test, then it makes **no assertion about the skill's source text** — no substring
+  match, no `inspect.getsource` comparison. It asserts only on computed output.
+- Given a skill file whose documented reference-extraction snippet can no longer be located for
+  execution (block moved, renamed, or deleted), when the test runs, then it fails — an
+  unlocatable algorithm is itself drift, not a reason to skip.
+- Given a SKILL.md that documents both the ID-computation and reference-extraction snippets side
+  by side, then the test disambiguates which heredoc it is executing rather than assuming a
+  single offline snippet per file.
+
 ## Requirements
 
 - WHEN migration begins THE SYSTEM (skill flow) SHALL build a single path→`artifact_id` map from the
@@ -186,6 +232,26 @@ rewrite silently produces dead links, and nothing fails.
 - WHEN a new skill introduces its own offline identifier computation THE SYSTEM SHALL add it to
   the same parameterised drift test rather than leaving it unguarded.
 
+**Skill-side reference extraction:**
+
+- WHEN a skill documents the offline reference-extraction algorithm THE SYSTEM SHALL keep that
+  documented algorithm behaviourally identical to
+  `src/arkeology/references.py::extract_references_list` (`yaml.safe_load` primary path,
+  stdlib-only manual-scan fallback for outright-malformed frontmatter).
+- WHEN the unit suite runs THE SYSTEM SHALL execute each skill's documented reference-extraction
+  snippet — extracted from the SKILL.md file itself, never retyped into the test — over a shared
+  frontmatter-text input table and SHALL fail if any produced entry list differs from the
+  server's for the same input.
+- WHEN a SKILL.md documents more than one offline snippet (identifier computation and reference
+  extraction) THE SYSTEM SHALL disambiguate which snippet it is extracting rather than assuming a
+  single heredoc per file.
+- WHEN the drift test cannot locate a skill's documented reference-extraction snippet THE SYSTEM
+  SHALL fail rather than skip.
+- WHEN the drift test asserts THE SYSTEM SHALL assert on computed output only and SHALL NOT
+  assert on the skill's source text (no substring or `inspect.getsource` comparison).
+- WHEN a new skill introduces its own offline reference-extraction computation THE SYSTEM SHALL
+  add it to the same parameterised drift test rather than leaving it unguarded.
+
 ## Boundaries
 
 **Always:**
@@ -197,9 +263,9 @@ rewrite silently produces dead links, and nothing fails.
   the D6 normalization ceiling — this is resolution, not repair: an escaping
   `../` still falls through to unresolved, it does not raise or get special-cased.
 - Mixed addressing (`arkeology://…` next to raw `/docs/…`) is the correct permanent steady state (D3).
-- The skills keep their own offline copy of the ID algorithm — they must compute identifiers
-  before the server is reachable — and that copy is held to the server's behaviour by a drift
-  test, not by import.
+- The skills keep their own offline copy of the ID algorithm and of the reference-extraction
+  algorithm — they must compute both before the server is reachable — and both copies are held
+  to the server's behaviour by a drift test, not by import.
 
 **Ask First:**
 - Nothing — scope and ceiling fixed by ADR-012.
@@ -311,3 +377,13 @@ have already drifted, which is a defect in them, not in the test).
   extraction mechanism (regex on the fenced block vs. an explicit marker added to the skill) and
   execution mechanism (subprocess vs. `exec`) — both are implementation choices, provided the test
   never asserts on source text and never silently skips.
+  **Addendum (decided/shipped 2026-08-13, architect):** a second offline algorithm turned up
+  with the identical unguarded-duplication shape — the skills' frontmatter `references:`
+  extraction step had no canonical algorithm to follow at all (unlike the ID step, which already
+  had one), and a real migration session hand-rolled a naive regex scanner for it that silently
+  corrupted resolution by capturing a YAML inline comment as part of an extracted path. The same
+  decision applies without re-litigation: single-sourcing remains unavailable (the skills still
+  compute offline, before the server is necessarily reachable), so the fix is the same shape —
+  a canonical `extract_references_list` reference implementation, a matching documented snippet
+  in both skill files, and a second parameterised case in the same drift test module rather than
+  a new one. See Story 6 and the "Skill-side reference extraction" requirements above.

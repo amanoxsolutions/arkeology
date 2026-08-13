@@ -11,10 +11,60 @@ authored:
   by: "developer"
   date: "2026-05-31"
 revised:
-  by: ""
-  date: ""
+  by: "developer"
+  date: "2026-08-12"
 ---
 # Review Fix 14 — Integration Test Isolation and Safety
+
+## Verification — 2026-08-12
+
+Re-verified story-by-story against current `main`. The literal "Decision (2026-05-31)" (UUID
+suffix on `title`) was implemented same-day per `f642725`'s summary ("integration tests:
+`unique_run_id` fixture prevents parallel-run collisions") but was later **superseded** by a
+structurally stronger mechanism, added in `a770bb8` (2026-07-02, "isolate integration suite under
+run-scoped ephemeral prefix"): `tests/integration/_isolation.py` now overrides `WRITE_PREFIX` and
+`READ_PREFIXES` for the whole session with an ephemeral `integration-tests/<ULID>` pair before any
+`Settings()` is built, and best-effort deletes everything under both prefixes at session end. This
+changes the shape of several stories below.
+
+- **Story 1 (unique artifact IDs across parallel runs) — ✅ RESOLVED, VIA A DIFFERENT MECHANISM.**
+  Two parallel runs now get disjoint `WRITE_PREFIX` values (each keyed by its own ULID), not just
+  disjoint titles within a shared prefix — collision is impossible at the scope level, which is a
+  strictly stronger guarantee than the spec asked for. The originally-implemented `unique_run_id`
+  title-suffix fixture from `f642725` was removed/superseded by this later work.
+- **Story 2 (cleanup deletes are independent) — 🔄 CHANGED ENOUGH TO NEED RESTATING, RESOLVED AT A
+  DIFFERENT LAYER.** Per-test `finally` blocks (`test_tools_purge.py` and others) still do NOT wrap
+  each `delete_artifact` call in its own `try/except Exception: pass` — e.g.
+  `test_purge_two_archived_artifacts_both_absent`'s `finally` loops over `[id1, id2]` with a bare
+  `await delete_artifact(...)`; a failure on `id1` still skips `id2`'s cleanup at that layer, exactly
+  the M21 problem. However, `_isolation.py`'s session-end `teardown_run_scope` independently wraps
+  each S3 object delete and each vector-scope delete in its own `try/except Exception` (see
+  `_delete_s3_objects_under_prefix`, `_delete_vectors_for_scope`) and runs regardless of per-test
+  cleanup outcome — so anything a failed per-test cleanup leaves behind is still swept up at session
+  end. The story's literal acceptance criterion (per-test `finally` block) is unmet; its underlying
+  safety goal (no leaked non-test data from a failed delete) is met at the session level instead.
+- **Story 3 (search tests assert on seeded data) — ❌ STILL VALID, NOT RESOLVED.**
+  `test_type_filter_reduces_results` and `test_own_scope_and_foreign_tier3_shared_present_tier2_absent`
+  in `tests/integration/test_tools_search.py` still call `search_artifacts` with no seeding step and
+  iterate `result["artifacts"]` with no `assert len(...) > 0` guard beforehand — the exact M19/M20
+  vacuous-pass shape the review described. This is now arguably a live bug, not just a latent one:
+  because of the run-scoped isolation added in `a770bb8`, the write scope is guaranteed empty at the
+  start of every run unless a test seeds it itself, so these two tests will now *always* run their
+  loop bodies zero times and pass vacuously, every run — the isolation work that fixed Story 1
+  incidentally made Story 3's gap unconditional rather than incidental.
+- **Story 4 (destructive tests documented as requiring isolation) — ⭕ NO LONGER APPLICABLE.**
+  No such comment exists in `test_tools_purge.py` or `test_tools_freshness.py`, but the premise
+  Story 4 was hedging against — running destructive `confirm=True` operations against a shared,
+  real, operator-configured environment — no longer holds. `_isolation.py`'s own module docstring
+  states the intent directly: "The integration suite must be safe to run against ANY configured
+  store, including one already holding real team memory... replaced unconditionally with an
+  ephemeral prefix." `purge_archived`/`check_synthesis_freshness(confirm=True)` now only ever see
+  the ephemeral run-scoped prefix, never the operator's real data — so the dedicated-isolated-
+  environment requirement Story 4 asked to document is now structurally false, not just undocumented.
+
+Net: 1 of 4 stories cleanly resolved, 1 resolved at a different architectural layer than specified,
+1 still valid (and arguably sharper now), 1 no longer applicable because the premise it warned about
+was eliminated outright rather than documented.
 
 ## Problem Statement
 
@@ -117,3 +167,7 @@ Run `uv run pytest tests/integration/ -q` after all changes against a dedicated 
 
 - **Uniqueness strategy — RESOLVED (2026-05-31):** UUID suffix on `title`. See the
   decision note in Boundaries above.
+
+**[Verified 2026-08-12 — SUPERSEDED.** The `title`-suffix strategy was implemented same-day, then
+replaced on 2026-07-02 by whole-prefix run-scoped isolation (`tests/integration/_isolation.py`),
+which achieves uniqueness (and more) at the scope level instead. See Verification section above.]

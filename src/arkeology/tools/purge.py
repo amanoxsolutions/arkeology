@@ -15,6 +15,7 @@ from arkeology.clients.interfaces import (
 from arkeology.config import Settings
 from arkeology.constants import ArtifactStatus, ErrorCode
 from arkeology.errors import CredentialError
+from arkeology.tools._errors import credential_error_response
 
 logger = logging.getLogger(__name__)
 
@@ -108,7 +109,7 @@ async def _purge_archived_inner(
 
         inactive_items = vectors.get_vectors(inactive_keys, include_data=False)
     except CredentialError as exc:
-        return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
+        return credential_error_response(exc)
 
     purge_set: set[str] = set()
     for item in inactive_items:
@@ -148,7 +149,7 @@ async def _purge_archived_inner(
                 if all(src in purge_set for src in source_arts):
                     cascade_set.add(synth_id)
     except CredentialError as exc:
-        return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
+        return credential_error_response(exc)
 
     # ── Step 5: Best-effort deletion of purge_set + cascade_set ──────────────
     # The deletion phase is best-effort: a non-credential failure on one artifact

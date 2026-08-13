@@ -18,6 +18,7 @@ from arkeology.clients.interfaces import (
 from arkeology.config import Settings
 from arkeology.constants import ArtifactStatus, ErrorCode
 from arkeology.errors import CredentialError, InvalidFilterValueError
+from arkeology.tools._errors import credential_error_response
 from arkeology.tools._search_helper import (
     build_user_filters,
     coerce_list_field,
@@ -132,7 +133,7 @@ async def _search_artifacts_inner(  # noqa: PLR0913
             settings.bedrock_embedding_dimensions,
         )
     except CredentialError as exc:
-        return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
+        return credential_error_response(exc)
 
     # ── Step 3: Build user filters ────────────────────────────────────────────
     try:

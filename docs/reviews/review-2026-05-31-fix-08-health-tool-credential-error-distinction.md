@@ -11,10 +11,32 @@ authored:
   by: "developer"
   date: "2026-05-31"
 revised:
-  by: ""
-  date: ""
+  by: "developer"
+  date: "2026-08-12"
 ---
 # Review Fix 08 — Health Tool Credential Error Distinction (M9)
+
+## Verification — 2026-08-12
+
+Re-verified against current `main`. Resolved the same day this spec was authored, in
+`f642725` ("production hardening — 20 review-fix specs (76 findings resolved)"), the single
+commit that landed all 20 `fix-01`..`fix-20` specs together — this document's tracking was
+never updated afterward.
+
+- **Still resolved, still valid, and since consolidated.** `health.py` imports
+  `CredentialError` from `arkeology.errors` and every probe distinguishes it from a generic
+  `Exception`, returning `{"status": "error", "message": ..., "cause": "credential_error"}`
+  (via the `ErrorCode.CREDENTIAL_ERROR` constant) versus a plain `{"status": "error",
+  "message": ...}` with no `"cause"` key. Each probe still runs independently — one probe's
+  `CredentialError` cannot skip another. The per-probe `try`/`except CredentialError`/
+  `except Exception` pattern this spec introduced was later factored into a single shared
+  `_probe(fn)` helper used by the S3, vectors, and Bedrock probes (the write-prefix probe
+  keeps its own inline version because it also needs cleanup-on-failure semantics) — a later
+  simplification pass, not a re-opening of this finding.
+- Test coverage (per-probe `CredentialError` → `"cause"`, generic error → no `"cause"`,
+  independence across probes) is present in `tests/unit/test_tools_health.py`.
+
+Aggregate: 1 resolved (still valid).
 
 ## Problem Statement
 

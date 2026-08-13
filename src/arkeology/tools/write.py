@@ -40,6 +40,7 @@ from arkeology.errors import (
     MetadataTooLargeError,
 )
 from arkeology.failure_log import append_failure_entry
+from arkeology.tools._errors import credential_error_response
 from arkeology.tools._section_pipeline import (
     build_document_embedding_text,
     disambiguate_section_slugs,
@@ -447,7 +448,7 @@ async def _write_artifact_inner(  # noqa: PLR0913
     except KeyError:
         pass
     except CredentialError as exc:
-        return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
+        return credential_error_response(exc)
 
     if is_existing and not overwrite:
         return _collision_response()
@@ -545,7 +546,7 @@ async def _write_artifact_inner(  # noqa: PLR0913
                 # whole cycle (re-read, re-merge, re-write).
                 continue
             except CredentialError as exc:
-                return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
+                return credential_error_response(exc)
             last_attempt_object_written = True
 
             try:
@@ -642,7 +643,7 @@ async def _write_artifact_inner(  # noqa: PLR0913
             # conditional put is what actually caught the collision.
             return _collision_response()
         except CredentialError as exc:
-            return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
+            return credential_error_response(exc)
 
         # ── Durable annotation write (ADR-011) ────────────────────────────────
         # Written after PutObject (annotations cannot be set during PutObject — they

@@ -19,6 +19,7 @@ from arkeology.clients.interfaces import (
 from arkeology.config import Settings
 from arkeology.constants import ErrorCode
 from arkeology.errors import CredentialError
+from arkeology.tools._errors import credential_error_response
 
 logger = logging.getLogger(__name__)
 
@@ -102,7 +103,7 @@ async def _propose_commit_links_inner(
 
         items = vectors.get_vectors(keys, include_data=False)
     except CredentialError as exc:
-        return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
+        return credential_error_response(exc)
 
     # ── Step 4: Deduplicate by artifact_id ────────────────────────────────────
     seen_ids: set[str] = set()

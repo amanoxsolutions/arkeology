@@ -19,8 +19,8 @@ authored:
   by: "architect"
   date: "2026-07-03"
 revised:
-  by: "tech-writer"
-  date: "2026-08-12"
+  by: "architect"
+  date: "2026-08-13"
 ---
 
 # T53 — Reference-Backfill Cleanup Skill (optional, decoupled, dry-run-first)
@@ -129,11 +129,20 @@ content rules (ADR-012 D8).
 
 ## Testing Approach
 
-Skill-only — no unit tests (ruff + mypy unaffected). Validate against the plan's done-condition
-manually: the skill presents a dry-run batch report before any write; confirmed backfills route
-through `link_metadata`; declining leaves all artifacts unchanged; no stored content is rewritten;
-skill text is consistent with existing skill style; the skill is discoverable through each plugin
-channel.
+Skill-only — no unit tests written as part of this task (ruff + mypy unaffected). Validate
+against the plan's done-condition manually: the skill presents a dry-run batch report before any
+write; confirmed backfills route through `link_metadata`; declining leaves all artifacts
+unchanged; no stored content is rewritten; skill text is consistent with existing skill style;
+the skill is discoverable through each plugin channel.
+
+> **Note (2026-08-13, architect).** This skill's two offline snippets — ID computation and
+> frontmatter `references:` extraction — are covered, but by a drift-guard suite owned by T51,
+> not by this task: `tests/unit/test_skill_artifact_id_drift.py` executes both of
+> `backfilling-references/SKILL.md`'s documented snippets against the server's
+> `generate_artifact_id` and `extract_references_list` (see
+> `docs/specs/p12-t51-migration-reference-rewrite.md`, Story 5 and Story 6). No action is needed
+> here; noted so "no unit tests written as part of this task" isn't misread as "this skill has no
+> test coverage at all."
 
 ## Open Questions
 

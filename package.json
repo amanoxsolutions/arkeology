@@ -3,5 +3,12 @@
   "version": "0.3.0",
   "type": "module",
   "main": ".opencode/plugins/arkeology.js",
-  "description": "MCP server for persistent artifact memory powered by AWS S3, S3 Vectors, and Bedrock embeddings"
+  "description": "MCP server for persistent artifact memory powered by AWS S3, S3 Vectors, and Bedrock embeddings",
+  "scripts": {
+    "test": "node --test tests/static/*.test.js"
+  },
+  "devDependencies": {
+    "dompurify": "3.4.13",
+    "jsdom": "^30.0.1"
+  }
 }

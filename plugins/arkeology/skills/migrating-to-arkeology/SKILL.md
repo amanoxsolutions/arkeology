@@ -285,6 +285,99 @@ PY
 Keep the resulting `{path: full_key}` map in memory for the rest of this
 migration run — it is not written to disk.
 
+### Extracting the `references:` list from frontmatter (ADR-012)
+
+Before an entry's `references:` values can be resolved against the map, they must
+first be extracted from the file's raw frontmatter text — the exact algorithm
+implemented and unit-tested as `extract_references_list` in
+`src/arkeology/references.py`, the authoritative reference implementation. **Do not
+hand-roll a line scanner for this** — a naive regex that does not distinguish a
+trailing `# comment` from a `#` inside a quoted path silently corrupts the extracted
+text (a real migration session hit exactly this bug). Use the script below instead of
+extracting entries by hand.
+
+`$FRONTMATTER_TEXT` is the YAML body of the file's frontmatter block — the text
+between (but not including) the opening and closing `---` fence lines, exactly as
+already read into `content` (no re-read needed):
+
+```bash
+python3 - "$FRONTMATTER_TEXT" <<'PY'
+import re, sys
+
+
+def manual_scan(text):
+    inline_re = re.compile(r"^references:\s*\[(?P<items>.*)\]\s*(?:#.*)?$")
+    block_key_re = re.compile(r"^references:\s*$")
+    item_re = re.compile(r"^[ \t]*-[ \t]+(?P<value>.*)$")
+
+    def strip_quotes(value):
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
+            return value[1:-1]
+        return value
+
+    def strip_comment(value):
+        stripped = value.strip()
+        if stripped[:1] in ('"', "'"):
+            quote = stripped[0]
+            end = stripped.find(quote, 1)
+            return stripped if end == -1 else stripped[: end + 1]
+        hash_index = stripped.find(" #")
+        return stripped if hash_index == -1 else stripped[:hash_index].rstrip()
+
+    def split_inline_list(items_text):
+        if not items_text.strip():
+            return []
+        return [strip_quotes(part.strip()) for part in items_text.split(",")]
+
+    items = []
+    in_block_list = False
+    for line in text.split("\n"):
+        inline_match = inline_re.match(line.strip())
+        if inline_match:
+            return split_inline_list(inline_match.group("items"))
+        if block_key_re.match(line.rstrip()):
+            in_block_list = True
+            continue
+        if in_block_list:
+            item_match = item_re.match(line)
+            if item_match:
+                items.append(strip_quotes(strip_comment(item_match.group("value"))))
+                continue
+            in_block_list = False
+    return items
+
+
+frontmatter_text = sys.argv[1]
+try:
+    import yaml
+except ImportError:
+    references = manual_scan(frontmatter_text)
+else:
+    try:
+        data = yaml.safe_load(frontmatter_text)
+    except yaml.YAMLError:
+        references = manual_scan(frontmatter_text)
+    else:
+        references = (
+            [str(item) for item in data["references"]]
+            if isinstance(data, dict) and isinstance(data.get("references"), list)
+            else []
+        )
+
+for reference in references:
+    print(reference)
+PY
+```
+
+This prints each raw (still-unresolved) `references:` entry on its own line, in
+source order — block style (`references:` followed by indented `- item` lines), flow
+style (`references: [a.md, b.md]`, including the empty `references: []` form), and
+quoted or unquoted items are all handled, with inline `# comment` text stripped
+correctly (a `#` inside a quoted item is never mistaken for a comment). When PyYAML
+is not installed on the machine running this script, it falls back automatically to
+an equivalent stdlib-only scan — never hand-roll a replacement for either path. No
+output means the key is absent, not a list, or an empty list — not an error.
+
 ### Resolving a `references:` entry against the map
 
 Once the map is built, resolve each frontmatter `references:` entry from every
@@ -387,8 +480,9 @@ above — this **is** the full manifest for a ≤ 10-file run, so it satisfies D
 without any extra file reads. Determine `write_prefix` per "Determining
 `write_prefix`" (Step 3) and build the path→full-key map per "Building the
 path→full-key map" (Step 3), then, for each file, extract its frontmatter
-`references:` list (already present in the `content` read above — no re-read
-needed) and resolve each entry per "Resolving a `references:` entry against the
+`references:` list per "Extracting the `references:` list from frontmatter" (Step 3)
+(already present in the `content` read above — no re-read needed) and resolve each
+entry per "Resolving a `references:` entry against the
 map" (Step 3): populate that file's descriptor `references` field with the
 resolved full S3 keys, and populate that file's descriptor
 `resolved_references_map` field with `{original_reference_text: artifact_id}` for
@@ -576,8 +670,9 @@ Re-read `ARKEOLOGY_IMPORT.yaml`. For every `status: pending` entry, read the fil
 generation is not triggered.
 
 **This is first-write time — resolve `references:` here, not in 3.B3.** For each
-file, extract its frontmatter `references:` list from the now-fully-read content
-and resolve each entry per "Resolving a `references:` entry against the map"
+file, extract its frontmatter `references:` list from the now-fully-read content per
+"Extracting the `references:` list from frontmatter" (Step 3) and resolve each entry
+per "Resolving a `references:` entry against the map"
 (Step 3), using the map built in 3.B1b: populate the descriptor's `references`
 field with the resolved full S3 keys (the operative `artifact_id`s), and
 populate the descriptor's `resolved_references_map` field with

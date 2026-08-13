@@ -107,7 +107,8 @@ change) a one-time check cannot catch.
   throwaway annotation and reports the outcome + the four IAM actions.
 - WHEN the README reference policy is updated THE SYSTEM SHALL list `s3:PutObjectAnnotation`,
   `s3:GetObjectAnnotation`, `s3:ListObjectAnnotations`, `s3:DeleteObjectAnnotation` and the
-  unavailable regions (UAE, Bahrain) and bucket types (directory / S3 Express One Zone, Outposts).
+  unavailable regions (UAE, Bahrain) and bucket types (directory buckets, which use the S3 Express
+  One Zone storage class, and Outposts buckets).
 - WHEN the AGENTS.md snippet is updated THE SYSTEM SHALL add the two D9 guidance clauses and switch
   the post-commit protocol to `link_metadata`.
 

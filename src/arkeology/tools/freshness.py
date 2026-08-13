@@ -18,6 +18,7 @@ from arkeology.clients.interfaces import (
 from arkeology.config import Settings
 from arkeology.constants import ArtifactStatus, ErrorCode
 from arkeology.errors import CredentialError
+from arkeology.tools._errors import credential_error_response
 
 logger = logging.getLogger(__name__)
 
@@ -97,7 +98,7 @@ async def _check_synthesis_freshness_inner(
         # ── Step 2: Fetch vector metadata for all synthesis keys (off the loop) ──
         synth_items = await asyncio.to_thread(vectors.get_vectors, synth_keys, False)
     except CredentialError as exc:
-        return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
+        return credential_error_response(exc)
 
     # ── Step 3: Deduplicate by artifact_id (first occurrence wins) ────────────
     syntheses: dict[str, dict[str, Any]] = {}
@@ -143,14 +144,14 @@ async def _check_synthesis_freshness_inner(
                 {"artifact_id": {"$in": sorted(all_source_ids)}},
             )
         except CredentialError as exc:
-            return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
+            return credential_error_response(exc)
 
         if src_keys:
             try:
                 # Off the event loop — blocking boto3 call.
                 src_items = await asyncio.to_thread(vectors.get_vectors, src_keys, False)
             except CredentialError as exc:
-                return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
+                return credential_error_response(exc)
 
             # No vector index entries for a given source → it stays missing (T22),
             # already defaulted to None above. Multi-section sources may yield
@@ -238,7 +239,7 @@ async def _check_synthesis_freshness_inner(
                     vectors.list_vectors_by_metadata, {"artifact_id": {"$eq": aid}}
                 )
             except CredentialError as exc:
-                return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
+                return credential_error_response(exc)
             except Exception:
                 logger.warning(
                     "Failed to list vectors for malformed synthesis %s; "
@@ -253,7 +254,7 @@ async def _check_synthesis_freshness_inner(
                     # Off the event loop — blocking boto3 call.
                     await asyncio.to_thread(vectors.delete_vectors, vec_keys)
                 except CredentialError as exc:
-                    return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
+                    return credential_error_response(exc)
                 except Exception:
                     logger.warning(
                         "Failed to delete vectors for malformed synthesis %s; "
@@ -274,12 +275,12 @@ async def _check_synthesis_freshness_inner(
                 deleted.append(aid)  # still report in deleted_malformed
                 continue
             except CredentialError as exc:
-                return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
+                return credential_error_response(exc)
             try:
                 # Off the event loop — blocking boto3 call.
                 await asyncio.to_thread(s3.delete_object, aid)
             except CredentialError as exc:
-                return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
+                return credential_error_response(exc)
             except Exception:
                 logger.warning(
                     "Failed to delete S3 object for malformed synthesis %s; "

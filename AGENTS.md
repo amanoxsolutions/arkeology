@@ -212,6 +212,7 @@ uv run ruff check src/ tests/                        # must be clean
 uv run ruff format --check src/ tests/               # must be clean
 uv run mypy src/                                     # must be clean
 uv run arkeology                                     # must start without error (requires .env)
+npm test                                             # must pass (arkeology-studio.html link-sanitisation guard)
 ```
 
 Integration tests (require real AWS credentials in `.env`):
