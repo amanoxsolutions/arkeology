@@ -1,7 +1,7 @@
 ---
 type: brainstorming
 title: Artifact Metadata Budget Overflow — Guard Coverage, Calibration, and Migration Self-Heal
-description: Explores why an artifact's references/commit_refs metadata can pass this project's local pre-write size approximation yet still be rejected by AWS's real accounting, why two of the codebase's three metadata-writing paths skip that check entirely, why the resulting stuck artifact was un-retryable through normal migration tooling, and resolves the deeper product question by removing references/commit_refs from the size-limited vector store entirely rather than trying to fit them inside it.
+description: Explores why an artifact's references/commit_refs metadata can pass this project's local pre-write size approximation yet still be rejected by AWS's real accounting, why two of the codebase's three metadata-writing paths skip that check entirely, why the resulting stuck artifact was un-retryable through normal migration tooling, and resolves the deeper product question with a per-field split — references removed from the size-limited vector store entirely (annotation-only going forward), commit_refs retained as a capped, real-AWS-calibrated filterable copy (20 entries) since its $eq filtering is load-bearing, not a nice-to-have.
 tags: []
 timestamp: 2026-08-13T00:00:00Z
 okf_version: "0.1"
@@ -31,31 +31,32 @@ project's own local size check but was rejected once it actually reached AWS, le
 permanently stuck, un-indexed artifact that normal tooling could neither detect nor repair. This
 session explores the full failure surface that produced that outcome, the options for closing it,
 and resolves the deeper question of what should happen when an artifact's genuine reference list
-structurally exceeds the size-limited store's ceiling by removing that field from the size-limited
-store entirely, rather than trying to make it fit.
+structurally exceeds the size-limited store's ceiling — not with one answer applied to both fields, but
+a per-field split: `references` is removed from the size-limited store entirely (native filtering on it
+was judged a nice-to-have); `commit_refs` stays, capped at a real-AWS-calibrated 20 entries, because its
+`$eq` filtering (`list_artifacts(commit_refs=[...])`) is a shipped, load-bearing capability. See the
+2026-08-13 correction session below for how this session's own first pass initially conflated the two
+fields before the operator caught it.
 
 ## Decisions
 
 ### Locked
 
 - D1 — The existing metadata-size guard must run at every point in the codebase that durably writes vector-filterable metadata (not just the primary write path), and — for any path writing more than one durable store in sequence — before each write, not only the last. Unaffected by D2 below; still needed for the fields that remain vector-filterable (e.g. tags, type) and, defensively, for the annotation store's own (much larger) ceiling.
-- D2 — commit_refs and references are removed from S3 Vectors metadata entirely. The S3 object annotation copy becomes the sole durable store and sole read surface for both fields (already the union-of-both-stores read helper's job today; it becomes a single-store read once the vector-side copy is gone). This eliminates the metadata-budget-overflow failure mode for these two fields outright — the annotation ceiling (~1 MiB / 1,000 entries per object) is not a realistic constraint for a reference list — and retires the entire calibration/capping trade-off debate (the five previously-weighed representations) as moot for this data.
-- D2b — Native $eq/$in filterable search on commit_refs/references (list_artifacts(references=[...]), list_artifacts(commit_refs=[...]), and the vector-metadata half of the delete/archive reverse-lookup warning) is intentionally descoped. This is a deliberate, accepted capability loss, not an oversight: the operator judged it a nice-to-have today. If genuine reference-graph search (e.g. full transitive 'what references this, and what references those') is wanted later, it should be pursued as a dedicated graph-technology capability, not forced into a 2 KB per-vector metadata budget.
-- D3 — Migration self-heal: teach migrate_artifacts's 'already migrated' check to also confirm the artifact is actually indexed (not just that its content object exists), and route anything that isn't through the existing repair tool rather than building new repair logic. Unaffected by D2/D2b.
-- D4 — Give the repair tool's automatic retry loop a give-up threshold (reusing the existing retry-count precedent already used elsewhere in this codebase) so a genuinely unfixable entry fails loudly once instead of retrying forever. Unaffected by D2/D2b.
+- D2 (corrected 2026-08-13 — see correction session below) — Per-field split, not uniform removal. `references` is removed from S3 Vectors metadata entirely; the S3 object annotation copy becomes its sole durable store and sole read surface (already the union-of-both-stores read helper's job today; single-store read once the vector-side copy is gone). This structurally removes native `$eq`/`$in` filterable search on `references` (`list_artifacts(references=[...])`, and the `references`-half of the delete/archive reverse-lookup warning) — a deliberate, accepted capability loss, not an oversight; if genuine reference-graph search is wanted later, it should be pursued as a dedicated graph-technology capability, not forced into a 2 KB per-vector metadata budget. `commit_refs` **stays** in S3 Vectors metadata, filterable, capped at the most-recent **20 entries** — real-AWS-calibrated (a live test found AWS accepts up to 36 entries, rejects 37; 20 leaves deliberate margin for future filterable-field growth) — so its equivalent filtering (`list_artifacts(commit_refs=[...])`, already shipped at `list.py:141-143`) is **retained**, not descoped: it was judged load-bearing, not a nice-to-have, unlike `references`. (This was originally tracked as two decisions, D2 and D2b — the storage split and its filtering consequence — but the filtering fate for each field is a mechanical consequence of its storage location, not an independent choice, so the two were merged into one D2 on 2026-08-13; see correction session below.) Full measured evidence lives in `adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal.md`'s Decision section, not duplicated here.
+- D3 — Migration self-heal: teach migrate_artifacts's 'already migrated' check to also confirm the artifact is actually indexed (not just that its content object exists), and route anything that isn't through the existing repair tool rather than building new repair logic. Confirmed: per-candidate existence check, not a bulk pre-scan (OQ3 resolved). Unaffected by D2.
+- D4 — Give the repair tool's automatic retry loop a give-up threshold, reusing the existing `CAS_MAX_ATTEMPTS = 3` precedent (`annotations.py`) — confirmed, not made independently configurable (OQ4 resolved) — so a genuinely unfixable entry fails loudly, once, via a new `stuck_failures` field, instead of retrying forever. Unaffected by D2.
+- D6 (OQ6 resolved) — API surface fate: `references=` filter parameters are removed outright from `list_artifacts`/`search_artifacts` (breaking change, documented before shipped) since the field is no longer vector-filterable; `commit_refs=` filter parameters are **kept unchanged** — the field remains filterable, per D2. The delete/archive reverse-lookup warning keeps scanning `source_artifacts` only; the `references`-half is dropped with no fallback, and the gap is documented rather than silently absorbed.
+- D7 (OQ7 resolved) — D2's revision was routed through the Architect rather than implemented directly. `adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal.md` has been revised to carry the corrected split and the calibration evidence, and its status is now Accepted. `adr-2026-07-03-annotation-backed-link-storage.md` and `adr-2026-07-03-artifact-cross-referencing.md` — the two prior ADRs whose described behaviour D2 changes — each now carry a brief `## Revision — 2026-08-13` backward-link to this decision (verified) so they don't sit silently stale.
 
 ### Pending
 
-- OQ2 — A real-AWS verification test for the size-guard's calibration is still worth writing (it was scoped and never completed), but is no longer motivated by references/commit_refs specifically — it now matters only for fields that remain vector-filterable (tags, type, and any future filterable field). Lower urgency than before this session; not blocking D1–D4.
-- OQ3 — Should the migration tool's self-heal existence check (D3) run once per already-migrated candidate, or as a single bulk listing up front? Pure performance question.
-- OQ4 — Is the existing 3-attempt retry-count precedent the right give-up threshold for D4, or should it be independently configurable?
-- OQ6 — Exact fate of the now-orphaned API surface: remove the `references=`/`commit_refs=` filter parameters from `list_artifacts`/`search_artifacts` outright (a breaking change to a shipped, documented, P1-priority capability), or deprecate them with a clear error naming the removal? And the delete/archive reverse-lookup warning: does it keep scanning on `source_artifacts` alone (unaffected — different field, stays in S3 user metadata) and simply drop the `references` half, or is that half missed enough to need a slower, explicitly-opt-in annotation-scan fallback?
-- OQ7 — This reverses a shipped, documented capability across two existing ADRs and three specs. Recommend routing D2/D2b through the Architect for a formal amendment/supersession of the relevant ADRs before any implementation, per this project's own design-before-spec precedent — PM recommends yes, operator to confirm before dispatch.
+None — OQ2, OQ3, OQ4, OQ6, and OQ7 were all resolved this session; see Locked above.
 
 ### Closed — Not Applicable
 
-- OQ1 (original framing: is 'never reject a legitimate write' more important than 'never miss a filter match'?) — superseded by D2/D2b. The question assumed both properties had to trade off against each other inside the same store; removing the field from the size-limited store entirely dissolves the trade-off instead of picking a side of it.
-- OQ5 (open a backlog entry now, pointing at the pending architecture decision) — premature until OQ7 is resolved and a (possibly revised) ADR exists to point at.
+- OQ1 (original framing: is 'never reject a legitimate write' more important than 'never miss a filter match'?) — superseded by D2. The question assumed both properties had to trade off against each other inside the same store; removing the field from the size-limited store entirely dissolves the trade-off instead of picking a side of it.
+- OQ5 (open a backlog entry now, pointing at the pending architecture decision) — resolved as not applicable in its original form: OQ7 is now resolved and the ADR is Accepted, but rather than parking D1–D4/D6 in `backlog.md`, the PM is promoting them directly into the plan's current open Phase 12 as T57–T62 in this same session — per `backlog.md`'s own stated convention, work promoted straight to an open phase is not also given a backlog row.
 
 ## Session 2026-08-13
 
@@ -219,6 +220,67 @@ See `### Pending` under `## Decisions` above (OQ2, OQ3, OQ4, OQ6, OQ7) — each 
 genuine open question direct investigation could not resolve on its own. OQ7 in particular: this
 session's decision reverses a shipped, documented capability described across two existing
 architecture decisions and three specs, so — consistent with this project's own precedent of
-designing before speccing — the PM recommends routing D2/D2b back through the Architect for a
+designing before speccing — the PM recommends routing D2 back through the Architect for a
 formal amendment/supersession before any implementation begins, rather than proceeding straight
 to a backlog entry.
+
+## Session 2026-08-13 (Correction and Calibration)
+
+Continuation of the same day's session above, not a separate day — recorded as its own section
+because it corrects a real error in that session's own output and adds evidence (the real-AWS
+calibration) that didn't exist yet when the section above was written.
+
+### Correction
+
+While reviewing this document's `decisions_locked` for staleness, the PM's restatement of D2
+mis-described it as removing **both** `references` and `commit_refs` from S3 Vectors metadata
+entirely. The operator caught this directly, quoting the PM's own earlier words back — the
+original session had explicitly discussed calibrating `commit_refs`'s cap *upward* (from a
+conservative 4–6 towards a 20–30 range), which only makes sense if `commit_refs` was staying in
+the filterable store, not being removed. The two fields were conflated in the restatement.
+
+Corrected: the decision is a **per-field split**, not a uniform removal —
+- `references` — removed from S3 Vectors metadata entirely (annotation-only, unbounded, no `$eq`
+  filtering). This part of the original restatement was correct.
+- `commit_refs` — **stays** in S3 Vectors metadata, filterable, capped. It backs a real, shipped
+  server-side `$eq` filter (`list_artifacts(commit_refs=[...])`, `list.py:141-143`) — load-bearing,
+  not a nice-to-have, unlike `references`. This part was dropped in error and is now restored.
+- The S3 object annotation copy stays the sole full, uncapped durable record for both fields
+  regardless, per D1's durability guarantee — unaffected by the correction either way.
+
+See `### Locked` under `## Decisions` above for the corrected D2 text.
+
+### Calibration
+
+The correction reopened OQ2 as genuinely important rather than low-urgency: with `references` no
+longer sharing the 2 KB filterable budget, `commit_refs`'s cap had real headroom to raise from the
+old conservative estimate — but the actual safe number required real-AWS measurement, not a guess.
+A calibration test (`tests/integration/test_calibration_vector_metadata_budget.py`) was written and
+run against a live index: AWS accepts up to **36** `commit_refs` entries and rejects **37**, for a
+realistic tier-2 payload shape. Both figures are recorded with full detail in
+[adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal.md](../architecture-decisions/adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal.md)'s
+Decision section and in `docs/learnings.md` (payload-shape-specific re-calibration caveat), not
+duplicated here.
+
+### Final Decisions
+
+The operator set `commit_refs`'s cap at **20 entries** — deliberately well under the measured
+36-entry boundary, for headroom against future filterable-field growth — and confirmed OQ3
+(per-candidate self-heal check, not bulk pre-scan) and OQ4 (reuse `CAS_MAX_ATTEMPTS = 3`, fail
+loudly via a new `stuck_failures` field) as originally proposed. OQ6 and OQ7 were resolved in the
+same exchange (API surface: only `references=` is removed, `commit_refs=` is kept; D2 routed
+through the Architect for a formal ADR revision). See `### Locked` under `## Decisions` above for
+all final text.
+
+### Techniques Used
+
+- Direct operator challenge against the PM's own prior stated words, rather than the document —
+  caught a real analytical error (field conflation) that re-reading the document alone would not
+  have surfaced, since the document's own decisions_locked text repeated the same error.
+
+### Assumptions Challenged
+
+- The PM's own restated summary of a locked decision is a reliable source of truth equal to the
+  operator's original words. Overturned: it was not, in this instance — the operator's direct
+  quote-back of an earlier statement was the correction mechanism, not a fresh re-reading of the
+  document.

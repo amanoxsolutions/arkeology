@@ -17,7 +17,7 @@ authored:
   date: "2026-07-03"
 revised:
   by: "architect"
-  date: "2026-07-06"
+  date: "2026-08-13"
 ---
 
 # Annotation-Backed Durable Storage for Mutable Link Fields (commit_refs + references)
@@ -394,3 +394,15 @@ The line is drawn by **mutability, not by whether a field is "a reference"**: an
 - **ADR-009 is partially superseded, not retired.** Its ULID and AGENTS.md-protocol decisions stay in
   force; only the vector-only `commit_refs` storage decision and its reconcile consequence are
   replaced by this ADR.
+
+## Revision — 2026-08-13
+
+The Decision above (decision 1's table, and decision 2) described `commit_refs` and `references` as
+dual-written to vector metadata (filterable copy) and annotations, uniformly.
+[adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal.md](adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal.md)
+changes this: `references` is now annotation-only — no vector-metadata copy exists at all, not merely a
+capped one — the S3 object annotation is its sole durable store and read surface. `commit_refs` remains
+dual-written, but its vector-metadata copy is now capped at the most-recent 20 entries (calibrated
+against a real-AWS-measured rejection boundary); the annotation copy stays the complete, uncapped record
+for both fields. See that ADR for the full rationale and the descoped `references`-filtering and
+reverse-lookup consequences.

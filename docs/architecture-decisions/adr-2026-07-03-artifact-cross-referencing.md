@@ -18,7 +18,7 @@ authored:
   date: "2026-07-03"
 revised:
   by: "architect"
-  date: "2026-07-06"
+  date: "2026-08-13"
 ---
 
 # Artifact Cross-Referencing — First-Class references Field, Migration Rewrite, and referenced_by Warning
@@ -498,4 +498,15 @@ graph TD
   where the durable copy lives, how the dual-write is ordered, how reconcile rebuilds it, or how
   overwrite is preserved — all of that is ADR-011. Future revisions must keep the storage mechanism
   in ADR-011 and the cross-referencing design here, and cross-reference rather than duplicate.
+
+## Revision — 2026-08-13
+
+D13's `references` half — the server-side `$eq` list-membership query (`{"references": {"$eq": target}}`)
+used to resolve the own-scope `referenced_by` warning — no longer exists.
+[adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal.md](adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal.md)
+removes `references` from S3 Vectors metadata entirely, so there is no vector-filterable copy left to
+query; this half of the warning is dropped with no fallback (a documented capability loss, not a bug,
+per that ADR's D2). The `source_artifacts` half of D13 — the `type = synthesis` prefilter plus
+in-process membership check — is unaffected, since `source_artifacts` was never stored in vector
+metadata.
 
