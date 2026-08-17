@@ -166,7 +166,8 @@ Alternatives Considered below for the options weighed and why each was not adopt
   ([adr-2026-07-03-annotation-backed-link-storage.md](adr-2026-07-03-annotation-backed-link-storage.md))
   is now the sole durable store and read surface for this field, unbounded (comfortably inside the
   ~1 MiB / 1,000-annotations-per-object ceiling verified above). Accepted, deliberate cost:
-  `list_artifacts(references=[...])` / `search_artifacts` filtering on `references`, and the
+  `list_artifacts(references=[...])` filtering on `references` (`search_artifacts` has no
+  `references` parameter and is unaffected), and the
   `references`-half of the delete/archive reverse-lookup warning (`find_referrers`,
   [adr-2026-07-03-artifact-cross-referencing.md](adr-2026-07-03-artifact-cross-referencing.md) D13), are
   descoped — a deliberate, operator-confirmed capability loss (brainstorming doc OQ6), not an oversight.
@@ -251,7 +252,7 @@ permanent-un-retryable state the incident left behind.
 
 | Option | Pros | Cons |
 |--------|------|------|
-| **Chosen** — split by field: `references` removed from S3 Vectors metadata entirely (annotation-only, unbounded); `commit_refs` stays filterable, capped at the most-recent 20 entries | Retires the overflow failure mode for `references` outright; `commit_refs`'s cap is evidence-based (well under the measured 36-entry real boundary) and keeps its load-bearing `$eq` filter (`list.py:141-143`) working | Descopes `list_artifacts(references=[...])`/`search_artifacts` filtering and the `references`-half of the delete/archive reverse-lookup warning; `commit_refs` entries older than the most-recent 20 no longer match `$eq` filters |
+| **Chosen** — split by field: `references` removed from S3 Vectors metadata entirely (annotation-only, unbounded); `commit_refs` stays filterable, capped at the most-recent 20 entries | Retires the overflow failure mode for `references` outright; `commit_refs`'s cap is evidence-based (well under the measured 36-entry real boundary) and keeps its load-bearing `$eq` filter (`list.py:141-143`) working | Descopes `list_artifacts(references=[...])` filtering (`search_artifacts` has no `references` parameter and is unaffected) and the `references`-half of the delete/archive reverse-lookup warning; `commit_refs` entries older than the most-recent 20 no longer match `$eq` filters |
 | A — Tighten the local byte threshold with a calibrated safety margin (closes the deferred `p12-t55` integration test) | Smallest diff; keeps the current one-representation architecture | Closes the bug, not the capability gap — a legitimately-large list (this incident's own 14-entry `references`) still gets rejected outright |
 | B — Cap a filterable subset for *both* fields, keep the full list in annotations | A write is never rejected for "too many" entries | Silent false negatives on `references`'s `$eq` filtering and the delete/archive reverse-lookup warning — a completeness regression against this project's own "never silently lose a link" principle ([adr-2026-07-03-annotation-backed-link-storage.md](adr-2026-07-03-annotation-backed-link-storage.md)) |
 | C — Upstream guidance + actionable rejection messaging | Zero data-integrity risk; cheap, consistent with existing AGENTS.md guidance | Doesn't solve the legitimately-large-artifact case alone — hub-style artifacts (`plan.md`, `backlog.md`) are a real, legitimate pattern this project's own docs exhibit |
@@ -289,8 +290,9 @@ permanent-un-retryable state the incident left behind.
   `$eq` filtering to match a `commit_refs` entry older than the most-recent 20, and should be called out
   in the changelog once implemented.
 - **`references` is no longer stored in S3 Vectors metadata at all.** This is a breaking change to a
-  shipped, documented capability: `list_artifacts(references=[...])` / `search_artifacts` server-side
-  filtering on `references`, and the `references`-half of the delete/archive reverse-lookup warning, are
+  shipped, documented capability: `list_artifacts(references=[...])` server-side filtering on
+  `references` (`search_artifacts` has no `references` parameter and is unaffected), and the
+  `references`-half of the delete/archive reverse-lookup warning, are
   both descoped (see D2 above and brainstorming doc OQ6). This belongs in the changelog as a breaking
   change, not merely a behavior tweak.
 - **The local `VECTOR_FILTERABLE_METADATA_MAX_BYTES = 2048` threshold itself is unchanged by this

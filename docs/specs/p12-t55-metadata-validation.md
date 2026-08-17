@@ -19,11 +19,42 @@ authored:
   by: "architect"
   date: "2026-07-03"
 revised:
-  by: "tech-writer"
-  date: "2026-08-12"
+  by: "architect"
+  date: "2026-08-17"
 ---
 
 # T55 — Write-Path Metadata Size + Charset Validation
+
+> **Amended 2026-08-17 (architect, `adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal.md`
+> D1/D2, implemented in T57/T58).** Two amendments, neither of which changes `check_metadata_budgets`
+> itself or its byte-budget constants:
+>
+> 1. **Guard coverage closed (T57).** This spec's check was originally called from only two places
+>    (`write.py`'s fresh-create and overwrite-CAS paths). A real 57-file migration incident surfaced
+>    that `link_metadata.py` and `reconcile.py` independently assemble and write vector metadata with
+>    no call to this check at all (review findings B-1/B-2) — exactly the "self-perpetuating
+>    failure-log replay" this spec's own TL;DR states must never happen. T57 adds the missing calls at
+>    both sites, immediately before their respective vector writes. See `docs/specs/p12-t57-guard-coverage.md`.
+> 2. **Real-AWS calibration closed the deferred Open Question below, and led to a structural fix
+>    rather than a threshold change (T58).** The "Budget nominal units (KiB vs decimal)" Open Question
+>    at the end of this spec deferred to integration testing whether AWS's real accounting matches the
+>    local `json.dumps`-based approximation. It does not: the 2026-08-13 calibration
+>    (`tests/integration/test_calibration_vector_metadata_budget.py`) found AWS rejects a `commit_refs`
+>    payload the local approximation measures at 2,037 bytes — still under the local 2,048-byte
+>    `VECTOR_FILTERABLE_METADATA_MAX_BYTES` threshold — reproducing the original incident exactly. The
+>    operator's chosen fix (T58) is structural, not a threshold tightening: `references` is removed
+>    from vector metadata entirely, and `commit_refs`'s vector-metadata copy is capped to the
+>    most-recently-appended 20 entries (annotations stay complete/uncapped for both fields). This
+>    spec's byte-budget constants (`S3_USER_METADATA_MAX_BYTES`, `VECTOR_FILTERABLE_METADATA_MAX_BYTES`,
+>    `VECTOR_TOTAL_METADATA_MAX_BYTES`) are **unchanged** by T58 — see ADR Consequences, "The local
+>    `VECTOR_FILTERABLE_METADATA_MAX_BYTES = 2048` threshold itself is not changed by this decision."
+>    Because this spec's own check is representation-driven, not field-list-driven (see the existing
+>    "Always" boundary below), it required **zero code changes** for T58 to take effect correctly —
+>    it automatically measures whatever ends up in the assembled `vector_metadata` dict, so once T58
+>    stops writing `references` and caps `commit_refs`, the check simply measures a smaller payload.
+>    The "Byte Budgets and Classification" table below still lists `references` among the filterable
+>    vector-metadata keys; as of T58 it is never present in that dict at all (not merely small), so it
+>    no longer counts against either budget in practice — see `docs/specs/p12-t58-commit-refs-cap-references-removal.md`.
 
 <!-- SCOPE BLOCK — frozen after approval -->
 

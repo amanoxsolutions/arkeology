@@ -19,11 +19,24 @@ authored:
   by: "architect"
   date: "2026-07-03"
 revised:
-  by: "tech-writer"
-  date: "2026-07-04"
+  by: "architect"
+  date: "2026-08-17"
 ---
 
 # T48 — `reconcile_index` Rebuilds `commit_refs` + `references` from Annotations
+
+> **Superseded 2026-08-17 (architect, `adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal.md`
+> D2, implemented in T58).** This spec's TL;DR, Story 1, and Requirements describe
+> `_reindex_artifact` restoring **both** `commit_refs` and `references` into the rebuilt vector
+> metadata. As of T58, this is narrowed: `_reindex_artifact` still calls
+> `read_current_link_fields` and still reads the union of both durable stores for **both** fields
+> (unchanged — the union-read itself is not superseded, since a legacy vector written before T58
+> may still carry a stale `references` value that must not be silently dropped from the read side),
+> but it now writes only `commit_refs` (capped to the most-recently-appended 20 entries, per T58)
+> into the rebuilt vector metadata — `references` is read but never re-written into vector metadata.
+> The T57 guard-coverage addition (a `check_metadata_budgets` call before this spec's `put_vector`
+> calls) is layered on top of this spec's rebuild logic and is unaffected by it. See
+> `docs/specs/p12-t57-guard-coverage.md` and `docs/specs/p12-t58-commit-refs-cap-references-removal.md`.
 
 <!-- SCOPE BLOCK — frozen after approval -->
 
@@ -74,8 +87,11 @@ them, restoring `commit_refs` and `references` from the object's annotations.
 **Acceptance criteria:**
 - Given an own-scope artifact whose S3 object carries `commit_refs` and `references` annotations and
   whose vectors are absent from the index, when `reconcile_index` runs then the rebuilt vector
-  metadata carries both `commit_refs` and `references` sourced from the union of the annotations and
-  any existing vector metadata. (AC-59)
+  metadata carries `commit_refs` (capped to the most-recently-appended 20 entries, per T58) sourced
+  from the union of the annotations and any existing vector metadata. `[SUPERSEDED by T58]` — the
+  rebuilt vector metadata no longer carries `references` at all; `references` is still read as part
+  of the same union (for internal consistency and because reconcile never re-writes content), it is
+  simply never placed into the vector-metadata output. (AC-59, narrowed)
 - Given an artifact re-indexed via failure-log replay (Phase 1) or orphan scan (Phase 2), then both
   paths restore the link fields identically (they share `_reindex_artifact`).
 

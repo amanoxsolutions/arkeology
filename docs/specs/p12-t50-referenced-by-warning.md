@@ -24,6 +24,21 @@ revised:
 
 # T50 — Unified Own-Scope `referenced_by` Warning on Delete + Archive
 
+> **Superseded 2026-08-17 (architect, `adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal.md`
+> D2, narrowed in T60).** This spec's central design is a two-way branch: `references` is resolved
+> with a server-side `$eq` list-membership filter (the "filterable" branch), while `source_artifacts`
+> is resolved with a `type = synthesis` prefilter plus in-process membership check (the
+> "non-filterable" branch), and the two are unioned. Once T58 removes `references` from vector
+> metadata entirely, the filterable branch's `$eq` clause can no longer match anything — the
+> `references`-half of this warning silently stops finding referrers rather than erroring, which is
+> the same class of drift T59 closes for `list_artifacts`'s `references=` filter. T60 closes it here
+> by narrowing `REFERENCE_FIELDS` to `("source_artifacts",)` — `find_referrers`'s mechanism (own-scope
+> gate, warn-but-don't-block, delete/archive phrasing, `REFERENCE_FIELDS` as single source of truth)
+> is otherwise unaffected, but the filterable branch described throughout Story 4, the two branching
+> Requirements bullets, and the corresponding Boundaries bullets no longer has a live member to act
+> on. See `docs/specs/p12-t58-commit-refs-cap-references-removal.md` and
+> `docs/specs/p12-t60-narrow-reverse-lookup-warning.md` for the current, authoritative contract.
+
 <!-- SCOPE BLOCK — frozen after approval -->
 
 ## TL;DR
@@ -86,7 +101,13 @@ in-process membership check `delete_artifact` already performs.
 
 ### Story 4 — Filterability-aware reverse-lookup (P1)
 
-**Acceptance criteria:**
+> **Superseded 2026-08-17 (T60).** This story's acceptance criteria describe the pre-T60 two-branch
+> contract, where `references` was `REFERENCE_FIELDS`'s one filterable member. As of T60,
+> `REFERENCE_FIELDS = ("source_artifacts",)` — there is no filterable member left, so only the
+> `source_artifacts` bullet below still applies; the `references` server-side `$eq` bullet describes
+> retired behaviour. See `docs/specs/p12-t60-narrow-reverse-lookup-warning.md`.
+
+**Acceptance criteria (pre-T60, superseded — retained for decision history):**
 - Given a **filterable** reference field (`references` — a `REFERENCE_FIELDS` member NOT in
   `NON_FILTERABLE_METADATA_KEYS`), when the reverse-lookup runs then it is resolved with a
   server-side `$eq` list-membership filter (`{"references": {"$eq": T}}`) ANDed with the own-scope +
@@ -236,3 +257,9 @@ Use `aws_mock`, `s3_client`, `vectors_client_2` fixtures; pre-seed referrer vect
   canonical *future filterable reference field* the branch would cover automatically, not a current
   member. Confirm with the operator whether `commit_refs` should nonetheless be added; if so it is a
   one-line addition and no code-path change (it lands in the filterable branch).
+
+  > **Closed 2026-08-17 (T60).** Moot: T60 narrows `REFERENCE_FIELDS` to `("source_artifacts",)` and
+  > removes the filterable branch entirely — its one filterable member, `references`, no longer
+  > resolves anything once T58 removes `references` from vector metadata. There is no longer a
+  > filterable branch for `commit_refs` to join by addition. See
+  > `docs/specs/p12-t60-narrow-reverse-lookup-warning.md`.

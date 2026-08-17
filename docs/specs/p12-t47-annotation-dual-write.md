@@ -19,11 +19,23 @@ authored:
   by: "architect"
   date: "2026-07-03"
 revised:
-  by: "tech-writer"
-  date: "2026-07-04"
+  by: "architect"
+  date: "2026-08-17"
 ---
 
 # T47 — Annotation Dual-Write in the Write Path + Tier-3 Overwrite Preservation
+
+> **Superseded 2026-08-17 (architect, `adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal.md`
+> D2, implemented in T58).** This spec's Story 1 and its "Files to Touch" table describe
+> `references` as dual-written to **both** the S3 annotation and vector metadata. As of T58, the
+> vector-metadata mirror of `references` is removed — the annotation write behaviour described
+> throughout this spec (durable-first ordering, CAS-guarded overwrite, `apply_link_annotations`
+> always receiving the full, uncapped value) is **completely unaffected and remains authoritative**;
+> only the corresponding vector-metadata assignment (in `write.py`, downstream of this spec's own
+> `vector_metadata["references"] = references` line) is removed. `commit_refs`'s annotation write is
+> also unaffected, but its vector-metadata mirror is now capped to the most-recently-appended 20
+> entries (T58) — the annotation copy stays complete/uncapped exactly as this spec always specified.
+> See `docs/specs/p12-t58-commit-refs-cap-references-removal.md`.
 
 > **Dependency note (T55):** moving `commit_refs`/`references` off S3 user-defined metadata to
 > annotations *shrinks* the S3 user-metadata size budget consumption, but both fields remain
@@ -80,7 +92,9 @@ re-applies them. Silent loss of an append-only link trail is exactly what Arkeol
 **Acceptance criteria:**
 - Given `write_artifact(commit_refs=["abc1234"], references=["a-1"])`, when it succeeds then the
   S3 object carries a `commit_refs` annotation decoding to `["abc1234"]` and a `references`
-  annotation decoding to `["a-1"]`, and vector metadata carries both as `list[str]`.
+  annotation decoding to `["a-1"]`. `[SUPERSEDED by T58]` — pre-T58, vector metadata also carried
+  both as `list[str]`; as of T58, vector metadata carries `commit_refs` only (capped to the most
+  recent 20 entries) and never carries `references`.
 - Given `commit_refs=[]` and `references=[]`, when the write succeeds then no `commit_refs` /
   `references` annotation is present (empty → annotation absent, mirroring the omit-when-empty rule).
 - Given a successful write, then Bedrock `embed` is called only for content embedding — the

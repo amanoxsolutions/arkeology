@@ -20,10 +20,29 @@ authored:
   date: "2026-07-03"
 revised:
   by: "architect"
-  date: "2026-07-03"
+  date: "2026-08-17"
 ---
 
 # T46 — `references` First-Class Field on `Artifact` + write / read / list Surfacing
+
+> **Superseded 2026-08-17 (architect, `adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal.md`
+> D2, implemented in T58/T59).** This spec's original scope stored `references` as a filterable
+> `list[str]` in S3 Vectors metadata and exposed a `list_artifacts(references=[...])` server-side
+> `$eq` filter (Story 2, Story 3, and the corresponding Requirements bullets below). Both are now
+> **superseded**: T58 removed `references` from S3 Vectors metadata entirely — the S3 object
+> annotation copy (`p12-t47-annotation-dual-write.md`) is now the field's **sole** durable store and
+> sole read surface — and T59 removed the `references=` filter parameter from `list_artifacts`
+> outright rather than leaving it silently unable to match anything. This was a deliberate,
+> operator-approved capability narrowing (a real-AWS calibration proved the local byte-budget
+> approximation this task originally relied on under-measures AWS's real accounting for this exact
+> field shape), not a defect in this spec's original design. What is **unaffected**: `references:
+> list[str]` remains a first-class `Artifact` field; `write_artifact` still accepts it;
+> `read_artifact` and `list_artifacts` still return it (both already source it via
+> `read_current_link_fields`, the annotation-backed union helper — see the T47 forward-pointer note
+> below — so the *returned* value round-trips exactly as originally specified, unaffected by the
+> vector-metadata removal). Only the vector-metadata storage and the filter parameter are gone. See
+> `docs/specs/p12-t58-commit-refs-cap-references-removal.md` and
+> `docs/specs/p12-t59-remove-references-filter-param.md` for the current, authoritative contract.
 
 > **Dependency note (T55):** `references` is a *filterable* vector-metadata list field, so it counts
 > against the S3 Vectors **2 KB filterable-metadata budget** validated by the write-path size check
@@ -69,7 +88,11 @@ An agent writes an artifact with `references=["adr-use-postgres-abc12345"]`; rea
 
 ### Story 2 — `references` stored correctly in vector metadata (P1)
 
-**Acceptance criteria:**
+> **Superseded 2026-08-17 (T58).** This story's acceptance criteria describe the pre-T58 contract.
+> As of T58, `references` is never written to vector metadata under any circumstance — the S3
+> object annotation (T47) is its sole store. See `docs/specs/p12-t58-commit-refs-cap-references-removal.md`.
+
+**Acceptance criteria (pre-T58, superseded — retained for decision history):**
 - Given `references=["a-1", "b-2"]`, when stored in vector metadata then `references` is the
   `list[str]` `["a-1", "b-2"]` (enables `$eq` element-in-list filtering).
 - Given `references=[]`, when stored in vector metadata then the `references` key is omitted
@@ -77,7 +100,12 @@ An agent writes an artifact with `references=["adr-use-postgres-abc12345"]`; rea
 
 ### Story 3 — `references` filter in `list_artifacts` (AND semantics) (P1)
 
-**Acceptance criteria:**
+> **Superseded 2026-08-17 (T59).** The `references=` filter parameter described in this story was
+> removed from `list_artifacts` outright (it can no longer match anything once T58 removed
+> `references` from vector metadata). See `docs/specs/p12-t59-remove-references-filter-param.md`.
+> `commit_refs=` filtering is unaffected and is not part of this supersession.
+
+**Acceptance criteria (pre-T59, superseded — retained for decision history):**
 - Given artifacts with `references=["a-1"]` and others without, when `list_artifacts` is called with
   `references=["a-1"]` then only matching artifacts are returned. (AC-57)
 - Given the `references` filter is omitted, when `list_artifacts` is called then artifacts are
@@ -95,9 +123,14 @@ An agent writes an artifact with `references=["adr-use-postgres-abc12345"]`; rea
 
 ## Requirements
 
+> **Superseded 2026-08-17 (T58/T59).** The two Requirements bullets below marked `[SUPERSEDED]`
+> describe the pre-T58/T59 vector-metadata storage and filter contract; see the note at the top of
+> this document and `docs/specs/p12-t58-commit-refs-cap-references-removal.md` /
+> `docs/specs/p12-t59-remove-references-filter-param.md` for the current, authoritative behaviour.
+
 - WHEN the `Artifact` model is constructed THE SYSTEM SHALL accept `references: list[str]` with
   `Field(default_factory=list)`, placed alongside `commit_refs`.
-- WHEN `write_artifact` is called with `references` THE SYSTEM SHALL store it as `list[str]` in
+- `[SUPERSEDED by T58]` WHEN `write_artifact` is called with `references` THE SYSTEM SHALL store it as `list[str]` in
   vector metadata, omitting the key when the list is empty (same guard as `tags` / `commit_refs`).
 - WHEN `write_artifact` returns THE SYSTEM SHALL NOT be required to add `references` to the success
   dict beyond existing keys, but the value SHALL be recoverable via `read_artifact` / `list_artifacts`.
@@ -107,7 +140,7 @@ An agent writes an artifact with `references=["adr-use-postgres-abc12345"]`; rea
   and return `references: list[str]`, defaulting to `[]` when absent or when `vectors is None`.
 - WHEN `list_artifacts` returns THE SYSTEM SHALL include `references: list[str]` in each entry,
   decoded via `coerce_list_field`.
-- WHEN `list_artifacts` is called with a `references` filter THE SYSTEM SHALL add one
+- `[SUPERSEDED by T59]` WHEN `list_artifacts` is called with a `references` filter THE SYSTEM SHALL add one
   `{"references": {"$eq": ref}}` clause per supplied identifier (AND semantics, mirroring `commit_refs`).
 - WHEN `references` is absent from metadata THE SYSTEM SHALL return `[]` — never an error. (FR-51)
 - WHEN `write_artifacts` / `migrate_artifacts` process a descriptor THE SYSTEM SHALL thread a

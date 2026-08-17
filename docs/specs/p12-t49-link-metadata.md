@@ -25,6 +25,26 @@ revised:
 
 # T49 — `link_metadata` Tool (generalizes and supersedes `link_commit`)
 
+> **Amended 2026-08-17 (architect, `adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal.md`
+> D1/D2, implemented in T57/T58).** Two amendments to this spec's dual-write mechanics; the
+> fetch → union-read → merge → dual-write shape itself is unaffected:
+>
+> 1. **Guard call added to the dual-write (T57).** The Requirements bullet describing the dual-write
+>    (`apply_link_annotations` then `put_vectors_batch`) called neither store's write through a
+>    budget guard. T57 adds a `check_metadata_budgets` call inside this tool's per-`artifact_id` CAS
+>    retry loop, before the annotation write — so an oversize merge is rejected before either store
+>    is touched, not just before `put_vectors_batch`. See `docs/specs/p12-t57-guard-coverage.md`.
+> 2. **Vector-metadata payload narrowed (T58).** Story 1's second acceptance-criteria bullet
+>    (`references` annotation **and vector metadata** both carry `["a-1"]`) is superseded:
+>    `references` is no longer written to vector metadata by any path, so only the annotation carries
+>    it after this tool runs — the vector metadata this tool writes for a `references`-only call now
+>    carries no `references` key at all. Story 1's first bullet (`commit_refs` → both stores become
+>    `["abc1234"]`) still holds for lists at or below 20 entries, but the vector-metadata copy this
+>    tool writes is now capped to the most-recently-appended 20 entries
+>    (`cap_commit_refs_for_vectors`); the annotation copy (`apply_link_annotations`) stays the full,
+>    uncapped merged list regardless of length. See
+>    `docs/specs/p12-t58-commit-refs-cap-references-removal.md`.
+
 <!-- SCOPE BLOCK — frozen after approval -->
 
 ## TL;DR
@@ -79,8 +99,14 @@ second so a failed vector write self-heals on the next reconcile.
   `["abc1234"]`, and `linked=1`. (AC-59)
 - Given the same, when `link_metadata(artifact_ids=[id], references=["a-1"])` is called then the
   `references` annotation and vector metadata both carry `["a-1"]`.
+
+  > **Superseded 2026-08-17 (T58).** `references` is no longer written to vector metadata — only
+  > the annotation carries `["a-1"]` after this call. See the top-of-file note.
 - Given both `commit_refs` and `references` supplied in one call, then both fields are backfilled to
   both stores.
+
+  > **Amended 2026-08-17 (T58).** "Both stores" now means: the annotation carries both fields
+  > (uncapped); vector metadata carries only `commit_refs` (capped at 20 entries), never `references`.
 
 ### Story 2 — No re-embed, no timestamp shift (P1)
 
@@ -130,6 +156,13 @@ second so a failed vector write self-heals on the next reconcile.
   first `apply_link_annotations(s3, artifact_id, ...)` with the merged values for BOTH fields (a
   field with no supplied values re-writes its existing unioned value unchanged, never `[]`), then
   `put_vectors_batch` reusing each vector's `data["float32"]` with updated metadata.
+
+  > **Amended 2026-08-17 (T57/T58, see top-of-file note).** Before the `apply_link_annotations` call,
+  > THE SYSTEM SHALL call `check_metadata_budgets` on the merged values and reject with a structured
+  > error before writing either store on failure (T57). The metadata passed to `put_vectors_batch`
+  > SHALL NOT include a `references` key and SHALL cap `commit_refs` to its most-recently-appended 20
+  > entries via `cap_commit_refs_for_vectors`; the metadata passed to `apply_link_annotations` is
+  > unaffected by either change (T58).
 - WHEN writing THE SYSTEM SHALL make no Bedrock call and SHALL NOT alter `last_edited_ulid`.
 - WHEN all artifacts are processed THE SYSTEM SHALL generate `next_since_ulid` once and return
   `{"linked", "skipped", "next_since_ulid"}`.
@@ -191,8 +224,10 @@ Seed data mirrors p10-t38: `artifact-own-A` (own, two section vectors, no link f
 
 Cases:
 - `commit_refs` backfill → annotation + vector metadata both `["abc1234"]`; `linked=1`.
-- `references` backfill → both stores carry `["a-1"]`.
-- Both fields in one call → both backfilled.
+- `references` backfill → both stores carry `["a-1"]`. *(Superseded 2026-08-17, T58: annotation only —
+  vector metadata never carries `references`; see the top-of-file note.)*
+- Both fields in one call → both backfilled (annotation carries both, uncapped; vector metadata
+  carries only the capped `commit_refs`, per T58).
 - Append + dedup on `artifact-own-B`; duplicate value not appended twice (idempotent).
 - Bedrock `embed` call_count == 0 (`mocker.spy(bedrock, "embed")`).
 - Float32 vectors unchanged before/after.
