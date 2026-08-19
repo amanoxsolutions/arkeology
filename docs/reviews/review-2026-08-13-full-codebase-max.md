@@ -123,7 +123,7 @@ appear nowhere in `link_metadata.py`; verified the S3-annotation-write-then-vect
 ordering; verified none of the file's `except` clauses would catch a raw
 `ValidationException`).
 
-**[2026-08-17 — T57 half implemented, T58 half still pending.** Root-caused and designed in `adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal.md` (Accepted), which also folds in a real-AWS calibration finding (`commit_refs` cap of 20, see `docs/learnings.md`). `docs/specs/p12-t57-guard-coverage.md` (Phase 12 T57, `plan.md`, now `✅`) threads `check_metadata_budgets` into `link_metadata.py`'s CAS loop before the annotation write — an oversize payload is now rejected up front instead of durably desyncing the annotation and vector stores. The structural root cause — an unbounded `commit_refs`/`references` list can still grow past what any budget threshold tolerates — is not yet closed: that is the split-store fix (`references` removed from vector metadata entirely, `commit_refs` capped) in `docs/specs/p12-t58-commit-refs-cap-references-removal.md` (Phase 12 T58, `plan.md`, still `⬜ pending`).]
+**[2026-08-17 — ✅ RESOLVED.** Root-caused and designed in `adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal.md` (Accepted), which also folds in a real-AWS calibration finding (`commit_refs` cap of 20, see `docs/learnings.md`). `docs/specs/p12-t57-guard-coverage.md` (Phase 12 T57) threads `check_metadata_budgets` into `link_metadata.py`'s CAS loop before the annotation write — an oversize payload is now rejected up front instead of durably desyncing the annotation and vector stores. `docs/specs/p12-t58-commit-refs-cap-references-removal.md` (Phase 12 T58) closes the structural root cause: `references` is removed from vector metadata entirely (annotation-only), `commit_refs` in vector metadata is capped to the most-recently-appended 20 entries (annotation copy stays complete), so the list can no longer grow past what the budget tolerates. Both landed on `main`, `plan.md` T57/T58 now `✅`.]
 
 **B-2 — `reconcile_index`'s own repair path (`_reindex_artifact`) has the same missing `check_metadata_budgets` guard, making an over-budget artifact un-reconcilable and stuck in an infinite failure-log replay loop.**
 
@@ -843,15 +843,15 @@ and are marked resolved in place above; the remaining 30 are open.
 - **B-1 / B-2** — missing `check_metadata_budgets` guard on the
   `link_metadata` and `reconcile_index` write paths can permanently desync
   the S3-annotation and vector stores for an artifact, with no self-healing
-  path (B-2 made B-1 non-recoverable). *Guard coverage (T57) and bounded
-  reconcile retry (T62) are done — see the inline notes above. B-2's
-  non-recoverability is resolved; B-1's structural root cause (an unbounded
-  `commit_refs`/`references` list can still overflow the budget) still needs
-  T58, tracked `⬜ pending` in `plan.md`.*
+  path (B-2 made B-1 non-recoverable). *Resolved — guard coverage (T57),
+  bounded reconcile retry (T62), and the split-store/cap structural fix
+  (T58) are all done, see the inline notes above.*
 - **I-4** — `link_metadata.py`'s hand-rolled validation omits the
   control-character check `Artifact` enforces everywhere else, giving
   `commit_refs`/`references` exactly one bypass door for an invariant the
-  model treats as unconditional.
+  model treats as unconditional. *Resolved by T57 — `link_metadata.py` now
+  delegates to `Artifact.validate_commit_refs`/`validate_references`
+  directly instead of a hand-rolled parallel check.*
 - **J-1** — `write_artifact`'s Step 8 orphan-cleanup failure path doesn't
   write a failure-log entry, so `reconcile_index` can never actually
   recover the "leftover orphan vectors" the code comment promises it will.
@@ -866,6 +866,9 @@ and are marked resolved in place above; the remaining 30 are open.
 - **I-2** (+ **A-1**/**B-3**, now fixed) — the "first-vector-only"
   `commit_refs`/`references` sourcing bug class, still open in
   `propose_commit_links.py` after being fixed in `read.py`/`list.py`.
+  *Resolved by T58 — `propose_commit_links.py` now sources `commit_refs`
+  via `read_current_link_fields`, the same union-of-both-stores helper
+  `read.py`/`list.py` use.*
 
 **Convention/architecture findings worth acting on even though no live bug exists today:**
 

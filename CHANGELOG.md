@@ -26,10 +26,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   union-merge accretive field, since it is a git-derived audit trail rather than a
   claim about current state. Callers relying on the old union-merge behaviour for
   `references` must now resend the full desired list on every write.
-- `link_metadata` tool replaces the retired `link_commit` tool — appends both
-  `commit_refs` and `references` to an artifact's vector metadata (and durable S3
-  annotation copy) without re-embedding, where `link_commit` only handled
-  `commit_refs`
+- `link_metadata` tool replaces the retired `link_commit` tool — appends
+  `commit_refs` and `references` to an artifact's durable S3 annotation copy
+  without re-embedding, where `link_commit` only handled `commit_refs`.
+  `commit_refs` in vector metadata is capped to the most-recently-appended 20
+  entries (the complete list stays in the durable annotation); `references` is
+  no longer written to vector metadata at all
 - Durable read-modify-write cycles (`write_artifact` overwrite, `link_metadata`,
   `archive_artifact` status re-PUT) are now guarded by ETag compare-and-swap:
   `PutObject` / `PutObjectAnnotation` / `DeleteObjectAnnotation` calls are made
