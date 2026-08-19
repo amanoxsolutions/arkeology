@@ -378,6 +378,15 @@ async def _migrate_artifacts_inner(
             continue
 
         ext = str(descriptor.get("file_extension") or ".md")
+        if not ext.startswith("."):
+            # Mirror write.py's own guard exactly (same error shape) so this
+            # pre-check enforces the identical invariant instead of silently
+            # probing a key write_artifacts/write.py would refuse to construct.
+            combined_results[idx] = {
+                "error": ErrorCode.VALIDATION_ERROR,
+                "message": "file_extension must start with '.'",
+            }
+            continue
         candidate_keys[idx] = f"{settings.write_prefix}/{slug}{ext}"
 
     # Second pass: bounded-concurrency existence + indexing check for every
