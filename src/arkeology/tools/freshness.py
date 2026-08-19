@@ -326,7 +326,11 @@ async def _check_synthesis_freshness_inner(
     # A run with confirm=True that deletes all malformed syntheses yields all_fresh=True
     # if no stale/archived/missing issues remain after deletion.
     all_fresh = not (
-        stale or archived_sources_report or missing_sources_report or malformed_reported
+        stale
+        or archived_sources_report
+        or missing_sources_report
+        or malformed_reported
+        or delete_failed
     )
 
     logger.info(
