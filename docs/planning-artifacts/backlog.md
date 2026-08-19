@@ -90,3 +90,18 @@ Items that were promoted to a phase are **not** listed here — see the phase hi
   `type` onto Arkeology's enum with a fallback for unmapped types (OKF consumers must not reject
   unknown types). In scope per the first-class OKF commitment (D6).
   Source: [`brainstorming-2026-06-15-okf-alignment.md`](../brainstorming/brainstorming-2026-06-15-okf-alignment.md) (D6).
+
+## Operational tuning
+
+- **B-7 — Unify per-tool concurrency bounds under one configurable mechanism.** `write_artifacts.py`
+  is the only tool whose bounded-concurrency fan-out is caller-configurable (`artifact_concurrency`,
+  default 3, clamped to `[1, 15]`). The Phase 12 T63 codebase-hygiene pass converted four more tools'
+  sequential per-artifact loops to the same bounded-concurrency pattern
+  (`purge.py`, `freshness.py`, `link_metadata.py`, `reconcile.py`) but each hardcodes its own fixed
+  bound (`5`, matching `SECTION_CONCURRENCY`'s default) with no caller or operator override —
+  reviewed and accepted as non-blocking for T63 itself, but the inconsistency is worth resolving.
+  Propose a single, simple mechanism instead of five independent bounds — e.g. one shared setting/
+  constant, or extending `artifact_concurrency`-style per-call override to all five tools — design-first:
+  decide whether this should be a global server setting (env var, one source of truth, no per-call
+  tuning) or a per-call parameter matching `write_artifacts.py`'s existing shape.
+  Source: Phase 12 T63 review (2026-08-19).
