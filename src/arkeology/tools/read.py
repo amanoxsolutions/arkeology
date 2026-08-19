@@ -20,6 +20,7 @@ from arkeology.constants import ErrorCode
 from arkeology.errors import CredentialError
 from arkeology.tools._errors import credential_error_response
 from arkeology.tools._reference_filter import resolve_readable_targets
+from arkeology.tools._scope import is_cross_scope_readable, is_own_scope
 from arkeology.tools._search_helper import coerce_list_field
 
 logger = logging.getLogger(__name__)
@@ -79,9 +80,9 @@ async def _read_artifact_inner(
     _ = bedrock
 
     # ── Step 1: Determine scope ───────────────────────────────────────────────
-    own_scope = artifact_id.startswith(settings.write_prefix + "/")
+    own_scope = is_own_scope(artifact_id, settings.write_prefix)
     foreign_prefix: str | None = next(
-        (p for p in settings.read_prefixes_list if artifact_id.startswith(p + "/")),
+        (p for p in settings.read_prefixes_list if is_own_scope(artifact_id, p)),
         None,
     )
 
@@ -113,7 +114,10 @@ async def _read_artifact_inner(
     # Foreign scope: gate on tier == 3 and visibility == "shared".
     # Own scope: no gate — existence is already confirmed above.
     if foreign_prefix is not None and not own_scope:
-        if int(meta["tier"]) != 3 or meta.get("visibility") != "shared":
+        readable = is_cross_scope_readable(
+            meta, artifact_id, settings.write_prefix, settings.read_prefixes_list
+        )
+        if not readable:
             return {
                 "error": ErrorCode.ACCESS_DENIED,
                 "message": (

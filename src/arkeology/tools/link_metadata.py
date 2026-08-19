@@ -23,6 +23,7 @@ where the same condition degrades to a warning because the artifact's content
 and vectors must never be lost.
 """
 
+import asyncio
 import logging
 from typing import Any
 
@@ -48,8 +49,15 @@ from arkeology.errors import (
     MetadataTooLargeError,
 )
 from arkeology.tools._errors import credential_error_response
+from arkeology.tools._scope import is_own_scope
+from arkeology.tools._search_helper import fetch_vectors_by_metadata
 
 logger = logging.getLogger(__name__)
+
+# Bounded concurrency for the per-artifact_id loop, mirroring write_artifacts.py's
+# asyncio.Semaphore-gated asyncio.gather pattern (H-1). Each artifact_id's CAS-guarded
+# annotation + vector dual-write is independent of every other's.
+_LINK_CONCURRENCY = 5
 
 
 def _apply_link_metadata_with_cas(
@@ -280,130 +288,167 @@ async def _link_metadata_inner(
             return {"error": ErrorCode.VALIDATION_ERROR, "message": message}
 
     write_prefix = settings.write_prefix
-    linked = 0
-    skipped = 0
 
-    for artifact_id in artifact_ids:
+    # Bounded concurrency (H-1): each artifact_id's fetch-merge-CAS-reput cycle is
+    # independent of every other's, mirroring write_artifacts.py's
+    # asyncio.Semaphore-gated asyncio.gather pattern. Each task never raises — it
+    # returns an outcome marker — so one artifact_id's failure never leaves
+    # concurrently-dispatched sibling tasks in an unobserved state.
+    #
+    # Accepted trade-off (reviewed, not a defect): the prior sequential loop
+    # stopped at a deterministic prefix on the first CredentialError; here up to
+    # _LINK_CONCURRENCY already-in-flight artifact_ids may complete before the
+    # abort is noticed. Low-risk: credential_error_response() never reported
+    # which artifact_ids had already succeeded in either version, and each
+    # completed link is individually correct (CAS-guarded), so retrying the same
+    # call after fixing credentials reprocesses the full input idempotently.
+    semaphore = asyncio.Semaphore(_LINK_CONCURRENCY)
+
+    async def _process_one(artifact_id: str) -> dict[str, Any]:
         # ── Scope gate ────────────────────────────────────────────────────────
-        if not artifact_id.startswith(write_prefix + "/"):
+        if not is_own_scope(artifact_id, write_prefix):
             logger.debug("link_metadata scope gate rejected artifact_id=%s", artifact_id)
-            skipped += 1
-            continue
+            return {"kind": "skip"}
 
-        try:
-            # ── Fetch all vector keys for this artifact ───────────────────────
-            keys = vectors.list_vectors_by_metadata({"artifact_id": {"$eq": artifact_id}})
-
-            if not keys:
-                logger.debug("link_metadata no vectors found for artifact_id=%s", artifact_id)
-                skipped += 1
-                continue
-
-            # ── Retrieve current vectors (metadata + float32 data) ────────────
-            items = vectors.get_vectors(keys)
-            if not items:
-                skipped += 1
-                continue
-
-            # ── Read-forward + merge, guarded by an ETag compare-and-swap (ADR-011
-            # decision 6) ─────────────────────────────────────────────────────────
-            # Read-forward the current state as the union of BOTH durable stores —
-            # never vector metadata alone. A vector-only
-            # read misses a value that lives only in the S3 annotation (e.g. a prior
-            # link_metadata call whose annotation write succeeded but whose vector
-            # write failed), and merging supplied=[] against that missing value would
-            # make the annotation write delete the annotation instead of healing it.
-            # See ``annotations.read_current_link_fields``. The whole fetch-merge-reput
-            # cycle races every other read-modify-write cycle on the same artifact's
-            # durable link-field state, so it is guarded by a bounded ETag
-            # compare-and-swap retry (``_apply_link_metadata_with_cas``): on a detected
-            # concurrent change (a content-changing write altered the object between
-            # this call's read and its annotation write), re-read and retry the whole
-            # cycle, re-merging this call's *original* supplied values into the fresh
-            # state — never a previous attempt's already-merged output.
-            merged_commit_refs, merged_references = _apply_link_metadata_with_cas(
-                s3,
-                vectors,
-                artifact_id,
-                supplied_commit_refs,
-                supplied_references,
-                items[0]["metadata"],
-            )
-
-            # ── Vector metadata write SECOND, reusing existing embeddings ─────
-            # commit_refs is capped to the most-recently-appended
-            # COMMIT_REFS_VECTOR_METADATA_MAX_ENTRIES entries for this vector-metadata
-            # copy only (T58) — the annotation write above already carried the
-            # complete, uncapped merged_commit_refs. references is never written to
-            # vector metadata (T58) — the annotation write above is its sole durable
-            # store; unconditionally drop any stale pre-T58 key here.
-            batch: list[dict[str, Any]] = []
-            for item in items:
-                meta: dict[str, Any] = dict(item["metadata"])
-                if merged_commit_refs:
-                    meta["commit_refs"] = cap_commit_refs_for_vectors(merged_commit_refs)
-                else:
-                    meta.pop("commit_refs", None)
-                meta.pop("references", None)
-
-                batch.append(
-                    {
-                        "key": item["key"],
-                        "vector": item["data"]["float32"],
-                        "metadata": meta,
-                    }
+        async with semaphore:
+            try:
+                # ── Fetch all vector keys + current vectors (metadata + float32 data) ──
+                items = await asyncio.to_thread(
+                    fetch_vectors_by_metadata,
+                    vectors,
+                    {"artifact_id": {"$eq": artifact_id}},
+                    include_data=True,
                 )
 
-            vectors.put_vectors_batch(batch)
-        except KeyError:
-            # M10: the vector index still carries this artifact_id (an orphaned
-            # vector — e.g. a prior write's S3 put succeeded but a later delete or a
-            # failed reconcile left the S3 object gone) but head_object/put_object_annotation
-            # inside _apply_link_metadata_with_cas found no matching S3 object. This is
-            # skip-and-continue, not an aborting internal_error: the rest of this call's
-            # artifact_ids must still be processed.
-            logger.debug(
-                "link_metadata skipped orphaned-vector artifact_id=%s (S3 object missing)",
-                artifact_id,
-            )
-            skipped += 1
-            continue
-        except AnnotationUnavailableError as exc:
+                if not items:
+                    logger.debug("link_metadata no vectors found for artifact_id=%s", artifact_id)
+                    return {"kind": "skip"}
+
+                # ── Read-forward + merge, guarded by an ETag compare-and-swap (ADR-011
+                # decision 6) ─────────────────────────────────────────────────────────
+                # Read-forward the current state as the union of BOTH durable stores —
+                # never vector metadata alone. A vector-only
+                # read misses a value that lives only in the S3 annotation (e.g. a prior
+                # link_metadata call whose annotation write succeeded but whose vector
+                # write failed), and merging supplied=[] against that missing value would
+                # make the annotation write delete the annotation instead of healing it.
+                # See ``annotations.read_current_link_fields``. The whole fetch-merge-reput
+                # cycle races every other read-modify-write cycle on the same artifact's
+                # durable link-field state, so it is guarded by a bounded ETag
+                # compare-and-swap retry (``_apply_link_metadata_with_cas``): on a detected
+                # concurrent change (a content-changing write altered the object between
+                # this call's read and its annotation write), re-read and retry the whole
+                # cycle, re-merging this call's *original* supplied values into the fresh
+                # state — never a previous attempt's already-merged output.
+                merged_commit_refs, merged_references = await asyncio.to_thread(
+                    _apply_link_metadata_with_cas,
+                    s3,
+                    vectors,
+                    artifact_id,
+                    supplied_commit_refs,
+                    supplied_references,
+                    items[0]["metadata"],
+                )
+
+                # ── Vector metadata write SECOND, reusing existing embeddings ─────
+                # commit_refs is capped to the most-recently-appended
+                # COMMIT_REFS_VECTOR_METADATA_MAX_ENTRIES entries for this vector-metadata
+                # copy only (T58) — the annotation write above already carried the
+                # complete, uncapped merged_commit_refs. references is never written to
+                # vector metadata (T58) — the annotation write above is its sole durable
+                # store; unconditionally drop any stale pre-T58 key here.
+                batch: list[dict[str, Any]] = []
+                for item in items:
+                    meta: dict[str, Any] = dict(item["metadata"])
+                    if merged_commit_refs:
+                        meta["commit_refs"] = cap_commit_refs_for_vectors(merged_commit_refs)
+                    else:
+                        meta.pop("commit_refs", None)
+                    meta.pop("references", None)
+
+                    batch.append(
+                        {
+                            "key": item["key"],
+                            "vector": item["data"]["float32"],
+                            "metadata": meta,
+                        }
+                    )
+
+                await asyncio.to_thread(vectors.put_vectors_batch, batch)
+            except KeyError:
+                # M10: the vector index still carries this artifact_id (an orphaned
+                # vector — e.g. a prior write's S3 put succeeded but a later delete or a
+                # failed reconcile left the S3 object gone) but head_object/put_object_annotation
+                # inside _apply_link_metadata_with_cas found no matching S3 object. This is
+                # skip-and-continue, not an aborting internal_error: the rest of this call's
+                # artifact_ids must still be processed.
+                logger.debug(
+                    "link_metadata skipped orphaned-vector artifact_id=%s (S3 object missing)",
+                    artifact_id,
+                )
+                return {"kind": "skip"}
+            except AnnotationUnavailableError as exc:
+                return {"kind": "annotation_unavailable", "exc": exc}
+            except MetadataTooLargeError as exc:
+                return {"kind": "metadata_too_large", "exc": exc}
+            except ArtifactConflictError as exc:
+                return {"kind": "conflict", "exc": exc}
+            except CredentialError as exc:
+                return {"kind": "credential_error", "exc": exc}
+
+            logger.info("link_metadata linked artifact_id=%s", artifact_id)
+            return {"kind": "linked"}
+
+    results = await asyncio.gather(*[_process_one(aid) for aid in artifact_ids])
+
+    linked = sum(1 for r in results if r["kind"] == "linked")
+    skipped = sum(1 for r in results if r["kind"] == "skip")
+
+    # ── Abort-worthy outcomes take priority over the normal linked/skipped summary,
+    # decided deterministically in original artifact_ids order (matches the exact
+    # response a single such failure would have produced; only relevant as a
+    # tie-breaker in the pathological case of two DIFFERENT abort-worthy outcomes
+    # occurring in the same concurrent batch) ─────────────────────────────────────
+    for r in results:
+        kind = r["kind"]
+        if kind == "credential_error":
+            return credential_error_response(r["exc"])
+        if kind == "annotation_unavailable":
             # T52 / ADR-011 decision 5: the durable annotation write is link_metadata's
             # contract (it exists precisely to make commit_refs/references durable), so
             # unlike the write path's graceful degrade, this is not silently absorbed —
             # it is reported as a structured, actionable error and this artifact_id is
             # never counted as linked.
             #
-            # linked/skipped progress accumulated on earlier artifact_ids
-            # in this same call must not be discarded — only included when non-zero, so
-            # a failure on the very first artifact_id (nothing done yet) keeps the
-            # response shape unchanged.
+            # linked/skipped progress accumulated on other artifact_ids in this same
+            # call must not be discarded — only included when non-zero, so a call
+            # where nothing else succeeded keeps the response shape unchanged.
             error_response: dict[str, Any] = {
                 "error": ErrorCode.ANNOTATION_UNAVAILABLE,
-                "message": str(exc),
+                "message": str(r["exc"]),
             }
             if linked or skipped:
                 error_response["linked"] = linked
                 error_response["skipped"] = skipped
             return error_response
-        except MetadataTooLargeError as exc:
+        if kind == "metadata_too_large":
             # T57: the merged commit_refs/references would breach a metadata size
             # budget — rejected before the annotation write, so nothing durable is
             # left half-written. Same partial-progress convention as
-            # AnnotationUnavailableError above: linked/skipped only when non-zero.
+            # annotation_unavailable above: linked/skipped only when non-zero.
             budget_error_response: dict[str, Any] = {
                 "error": ErrorCode.VALIDATION_ERROR,
-                "message": str(exc),
+                "message": str(r["exc"]),
             }
             if linked or skipped:
                 budget_error_response["linked"] = linked
                 budget_error_response["skipped"] = skipped
             return budget_error_response
-        except ArtifactConflictError as exc:
+        if kind == "conflict":
             # ADR-011 decision 6: the bounded CAS retry cycle in
             # _apply_link_metadata_with_cas was exhausted without a successful
             # conditional write — never a raw exception, never a silent partial write.
+            exc = r["exc"]
             return {
                 "error": ErrorCode.CONFLICT,
                 "message": (
@@ -413,11 +458,6 @@ async def _link_metadata_inner(
                 ),
                 "artifact_id": exc.key,
             }
-        except CredentialError as exc:
-            return credential_error_response(exc)
-
-        linked += 1
-        logger.info("link_metadata linked artifact_id=%s", artifact_id)
 
     # ── Generate cursor ONCE after processing all artifacts ──────────────────
     next_since_ulid = str(ULID())

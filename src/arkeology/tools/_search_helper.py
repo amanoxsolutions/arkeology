@@ -39,6 +39,36 @@ def _nin_list_byte_size(seen_ids: set[str]) -> int:
     return len(json.dumps(list(seen_ids)).encode("utf-8"))
 
 
+def fetch_vectors_by_metadata(
+    vectors: VectorsClientInterface,
+    filter_expr: dict[str, Any],
+    *,
+    include_data: bool = False,
+) -> list[dict[str, Any]]:
+    """Fetch vector entries matching a metadata filter (F-3): the ``list_vectors_by_metadata``
+    → ``get_vectors`` two-step idiom, consolidated so every call site short-circuits
+    identically on an empty key list rather than issuing a pointless ``get_vectors([])``
+    call.
+
+    Args:
+        vectors: S3 Vectors client.
+        filter_expr: Metadata filter expression passed to ``list_vectors_by_metadata``.
+        include_data: Whether to include each vector's float32 embedding in the result
+            (passed through to ``get_vectors``). Defaults to False.
+
+    Returns:
+        The list of matching vector entries (``{"key", "metadata", ...}``, plus
+        ``"data"`` when ``include_data=True``). Empty when no keys match.
+
+    Raises:
+        CredentialError: Propagated unchanged from either underlying call.
+    """
+    keys = vectors.list_vectors_by_metadata(filter_expr)
+    if not keys:
+        return []
+    return vectors.get_vectors(keys, include_data=include_data)
+
+
 def build_scope_filter(settings: Settings) -> dict[str, Any]:
     """Build the S3 Vectors scope filter for the current deployment.
 
@@ -341,18 +371,16 @@ def find_referrers(
             {"$or": or_clauses},
         ]
     }
-    keys = vectors.list_vectors_by_metadata(filter_expr)
     referrers: set[str] = set()
-    if keys:
-        for item in vectors.get_vectors(keys, include_data=False):
-            meta = item["metadata"]
-            referrer_id = str(meta.get("artifact_id", ""))
-            if not referrer_id or referrer_id == artifact_id:
-                continue
-            if any(artifact_id in coerce_list_field(meta, field) for field in filterable_fields):
+    for item in fetch_vectors_by_metadata(vectors, filter_expr, include_data=False):
+        meta = item["metadata"]
+        referrer_id = str(meta.get("artifact_id", ""))
+        if not referrer_id or referrer_id == artifact_id:
+            continue
+        if any(artifact_id in coerce_list_field(meta, field) for field in filterable_fields):
+            referrers.add(referrer_id)
+        elif check_source_artifacts and meta.get("type") == "synthesis":
+            if artifact_id in coerce_list_field(meta, "source_artifacts"):
                 referrers.add(referrer_id)
-            elif check_source_artifacts and meta.get("type") == "synthesis":
-                if artifact_id in coerce_list_field(meta, "source_artifacts"):
-                    referrers.add(referrer_id)
 
     return sorted(referrers)

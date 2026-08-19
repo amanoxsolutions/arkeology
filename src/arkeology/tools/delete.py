@@ -28,6 +28,7 @@ from arkeology.config import Settings
 from arkeology.constants import ErrorCode
 from arkeology.errors import CredentialError
 from arkeology.tools._errors import credential_error_response
+from arkeology.tools._scope import is_own_scope
 from arkeology.tools._search_helper import find_referrers
 
 logger = logging.getLogger(__name__)
@@ -97,7 +98,7 @@ async def _delete_artifact_inner(
         }
 
     # ── Step 2: Scope check ───────────────────────────────────────────────────
-    if not artifact_id.startswith(settings.write_prefix + "/"):
+    if not is_own_scope(artifact_id, settings.write_prefix):
         return {
             "error": ErrorCode.ACCESS_DENIED,
             "message": (

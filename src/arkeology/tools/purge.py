@@ -4,6 +4,7 @@ Hard-deletes all inactive artifacts in the deployment's own scope, with cascade
 deletion of synthesis artifacts whose every source_artifact is in the purge set.
 """
 
+import asyncio
 import logging
 from typing import Any
 
@@ -16,8 +17,14 @@ from arkeology.config import Settings
 from arkeology.constants import ArtifactStatus, ErrorCode
 from arkeology.errors import CredentialError
 from arkeology.tools._errors import credential_error_response
+from arkeology.tools._scope import is_own_scope
+from arkeology.tools._search_helper import fetch_vectors_by_metadata
 
 logger = logging.getLogger(__name__)
+
+# Bounded concurrency for the Step 5 per-artifact deletion loop, mirroring
+# write_artifacts.py's asyncio.Semaphore-gated asyncio.gather pattern (H-1).
+_DELETE_CONCURRENCY = 5
 
 
 async def purge_archived(
@@ -96,25 +103,26 @@ async def _purge_archived_inner(
     # ── Steps 2–3: Find inactive vectors, fetch metadata, deduplicate by id ───
     own_scope = settings.write_prefix
     try:
-        inactive_keys = vectors.list_vectors_by_metadata(
+        inactive_items = fetch_vectors_by_metadata(
+            vectors,
             {
                 "$and": [
                     {"scope": {"$eq": own_scope}},
                     {"status": {"$eq": ArtifactStatus.INACTIVE}},
                 ]
-            }
+            },
+            include_data=False,
         )
-        if not inactive_keys:
-            return empty_result
-
-        inactive_items = vectors.get_vectors(inactive_keys, include_data=False)
     except CredentialError as exc:
         return credential_error_response(exc)
+
+    if not inactive_items:
+        return empty_result
 
     purge_set: set[str] = set()
     for item in inactive_items:
         aid = str(item["metadata"].get("artifact_id", ""))
-        if aid and aid.startswith(own_scope + "/"):
+        if aid and is_own_scope(aid, own_scope):
             purge_set.add(aid)
 
     if not purge_set:
@@ -123,31 +131,31 @@ async def _purge_archived_inner(
     # ── Step 4: Cascade check — active synthesis in own scope ────────────────
     cascade_set: set[str] = set()
     try:
-        synthesis_keys = vectors.list_vectors_by_metadata(
+        synthesis_items = fetch_vectors_by_metadata(
+            vectors,
             {
                 "$and": [
                     {"scope": {"$eq": own_scope}},
                     {"type": {"$eq": "synthesis"}},
                     {"status": {"$eq": ArtifactStatus.ACTIVE}},
                 ]
-            }
+            },
+            include_data=False,
         )
-        if synthesis_keys:
-            synthesis_items = vectors.get_vectors(synthesis_keys, include_data=False)
 
-            seen_synth: set[str] = set()
-            for item in synthesis_items:
-                meta = item["metadata"]
-                synth_id: str = str(meta.get("artifact_id", ""))
-                if synth_id in seen_synth:
-                    continue
-                seen_synth.add(synth_id)
-                source_arts = meta.get("source_artifacts", [])
-                if not isinstance(source_arts, list) or not source_arts:
-                    continue
-                # Cascade only when ALL sources are in the purge set
-                if all(src in purge_set for src in source_arts):
-                    cascade_set.add(synth_id)
+        seen_synth: set[str] = set()
+        for item in synthesis_items:
+            meta = item["metadata"]
+            synth_id: str = str(meta.get("artifact_id", ""))
+            if synth_id in seen_synth:
+                continue
+            seen_synth.add(synth_id)
+            source_arts = meta.get("source_artifacts", [])
+            if not isinstance(source_arts, list) or not source_arts:
+                continue
+            # Cascade only when ALL sources are in the purge set
+            if all(src in purge_set for src in source_arts):
+                cascade_set.add(synth_id)
     except CredentialError as exc:
         return credential_error_response(exc)
 
@@ -171,50 +179,92 @@ async def _purge_archived_inner(
     def _record_failure(artifact_id: str, error: str, message: str) -> None:
         failed.append({"artifact_id": artifact_id, "error": error, "message": message})
 
-    try:
-        for artifact_id in all_to_delete:
+    # Bounded concurrency (H-1): each artifact's vectors-first-then-S3 deletion is
+    # independent of every other's, mirroring write_artifacts.py's
+    # asyncio.Semaphore-gated asyncio.gather pattern. Each task never raises — it
+    # returns an outcome marker — so a credential failure on one task never leaves
+    # concurrently-dispatched sibling tasks in an unobserved state.
+    #
+    # Accepted trade-off (reviewed, not a defect): unlike the old sequential
+    # version, this loop no longer aborts at a deterministic prefix on the first
+    # CredentialError — up to _DELETE_CONCURRENCY already-in-flight deletions may
+    # finish before the abort is noticed. Low-risk because (1)
+    # credential_error_response() never reported which items succeeded either
+    # way, so no caller-visible information changes, and (2) every completed
+    # deletion is individually correct, so a post-fix retry over the same input
+    # reaches the same end state regardless of completion order.
+    semaphore = asyncio.Semaphore(_DELETE_CONCURRENCY)
+
+    async def _delete_one(artifact_id: str) -> dict[str, Any]:
+        async with semaphore:
             # Find this artifact's vector keys; a non-credential failure here
             # leaves the artifact fully intact — record and continue.
             try:
-                artifact_vec_keys = vectors.list_vectors_by_metadata(
-                    {"artifact_id": {"$eq": artifact_id}}
+                artifact_vec_keys = await asyncio.to_thread(
+                    vectors.list_vectors_by_metadata, {"artifact_id": {"$eq": artifact_id}}
                 )
-            except CredentialError:
-                raise
+            except CredentialError as exc:
+                return {"artifact_id": artifact_id, "outcome": "credential_error", "exc": exc}
             except Exception as exc:
-                _record_failure(artifact_id, ErrorCode.DELETE_VECTORS_FAILED, str(exc))
-                continue
+                return {
+                    "artifact_id": artifact_id,
+                    "outcome": "failed",
+                    "error": ErrorCode.DELETE_VECTORS_FAILED,
+                    "message": str(exc),
+                }
 
             # Delete vectors first; a non-credential failure leaves the artifact
             # fully intact (vectors + S3 both present) — record and continue.
             if artifact_vec_keys:
                 try:
-                    vectors.delete_vectors(artifact_vec_keys)
-                except CredentialError:
-                    raise
+                    await asyncio.to_thread(vectors.delete_vectors, artifact_vec_keys)
+                except CredentialError as exc:
+                    return {"artifact_id": artifact_id, "outcome": "credential_error", "exc": exc}
                 except Exception as exc:
-                    _record_failure(artifact_id, ErrorCode.DELETE_VECTORS_FAILED, str(exc))
-                    continue
+                    return {
+                        "artifact_id": artifact_id,
+                        "outcome": "failed",
+                        "error": ErrorCode.DELETE_VECTORS_FAILED,
+                        "message": str(exc),
+                    }
 
             # Delete the S3 object; a non-credential failure here leaves a
             # recoverable S3 orphan (per T12 / FR-17) — record and continue.
             try:
-                s3.delete_object(artifact_id)
-            except CredentialError:
-                raise
+                await asyncio.to_thread(s3.delete_object, artifact_id)
+            except CredentialError as exc:
+                return {"artifact_id": artifact_id, "outcome": "credential_error", "exc": exc}
             except Exception as exc:
-                _record_failure(artifact_id, ErrorCode.PARTIAL_DELETE, str(exc))
-                continue
+                return {
+                    "artifact_id": artifact_id,
+                    "outcome": "failed",
+                    "error": ErrorCode.PARTIAL_DELETE,
+                    "message": str(exc),
+                }
 
-            _record_success(artifact_id)
-    except CredentialError as exc:
+            return {"artifact_id": artifact_id, "outcome": "success"}
+
+    delete_results = await asyncio.gather(*[_delete_one(aid) for aid in all_to_delete])
+
+    credential_exc: CredentialError | None = None
+    for r in delete_results:
+        outcome = r["outcome"]
+        if outcome == "credential_error":
+            if credential_exc is None:
+                credential_exc = r["exc"]
+        elif outcome == "success":
+            _record_success(r["artifact_id"])
+        else:
+            _record_failure(r["artifact_id"], r["error"], r["message"])
+
+    if credential_exc is not None:
         logger.warning(
             "purge_archived aborted by credential error after purging %d artifact(s)",
             len(purged_ids),
         )
         return {
             "error": ErrorCode.CREDENTIAL_ERROR,
-            "message": str(exc),
+            "message": str(credential_exc),
             "purged_count": len(purged_ids),
             "purged_ids": sorted(purged_ids),
             "cascade_deleted": sorted(cascade_deleted),

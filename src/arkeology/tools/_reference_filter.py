@@ -11,6 +11,8 @@ from typing import Any
 
 from arkeology.clients.interfaces import VectorsClientInterface
 from arkeology.config import Settings
+from arkeology.tools._scope import is_cross_scope_readable, is_own_scope
+from arkeology.tools._search_helper import fetch_vectors_by_metadata
 
 
 async def resolve_readable_targets(
@@ -53,7 +55,7 @@ async def resolve_readable_targets(
     readable: set[str] = set()
     unresolved: set[str] = set()
     for candidate_id in candidate_ids:
-        if candidate_id.startswith(own_scope + "/"):
+        if is_own_scope(candidate_id, own_scope):
             readable.add(candidate_id)
         else:
             unresolved.add(candidate_id)
@@ -62,23 +64,19 @@ async def resolve_readable_targets(
         return readable
 
     # Off the event loop — blocking boto3 calls.
-    keys = await asyncio.to_thread(
-        vectors.list_vectors_by_metadata, {"artifact_id": {"$in": sorted(unresolved)}}
+    items = await asyncio.to_thread(
+        fetch_vectors_by_metadata,
+        vectors,
+        {"artifact_id": {"$in": sorted(unresolved)}},
+        include_data=False,
     )
-    if not keys:
-        return readable
-
-    items = await asyncio.to_thread(vectors.get_vectors, keys, False)
     for item in items:
         meta: dict[str, Any] = item.get("metadata", {})
         candidate_id = str(meta.get("artifact_id", ""))
         if candidate_id not in unresolved:
             continue
 
-        is_foreign = any(candidate_id.startswith(p + "/") for p in read_prefixes)
-        tier = int(meta.get("tier", 0))
-        visibility = str(meta.get("visibility", ""))
-        if is_foreign and tier == 3 and visibility == "shared":
+        if is_cross_scope_readable(meta, candidate_id, own_scope, read_prefixes):
             readable.add(candidate_id)
 
     return readable

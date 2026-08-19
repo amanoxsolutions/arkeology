@@ -26,6 +26,7 @@ from arkeology.config import Settings
 from arkeology.constants import ArtifactStatus, ErrorCode
 from arkeology.errors import CredentialError
 from arkeology.tools._errors import credential_error_response
+from arkeology.tools._scope import is_own_scope
 from arkeology.tools._search_helper import coerce_list_field
 from arkeology.tools._section_pipeline import (
     build_document_embedding_text,
@@ -34,6 +35,11 @@ from arkeology.tools._section_pipeline import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Bounded concurrency for each phase's per-artifact loop, mirroring write_artifacts.py's
+# asyncio.Semaphore-gated asyncio.gather pattern (H-1). Each phase's per-artifact work is
+# independent (re-indexing/pruning one artifact never depends on another's outcome).
+_RECONCILE_CONCURRENCY = 5
 
 # Reserved marker for throwaway connectivity-probe objects written into a deployment's own
 # WRITE_PREFIX (the health-check probe in ``tools/health.py``, the startup probe in
@@ -344,13 +350,30 @@ async def _reconcile_index_inner(
 
         resolved_ids: set[str] = set()
 
-        for entry in unique_entries:
+        # Bounded concurrency (H-1): each entry's head_object + re-index is independent
+        # of every other's, mirroring write_artifacts.py's asyncio.Semaphore-gated
+        # asyncio.gather pattern. Each task never raises — it returns an outcome
+        # marker — so a credential failure on one entry never leaves
+        # concurrently-dispatched sibling tasks in an unobserved state.
+        #
+        # Accepted trade-off (reviewed, not a defect), applies to all three phases'
+        # asyncio.gather loops in this module: the old sequential loop aborted at a
+        # deterministic prefix on the first CredentialError; concurrent loops may
+        # let up to _RECONCILE_CONCURRENCY already-in-flight items finish before the
+        # abort is noticed. Low-risk: credential_error_response() never reported
+        # which items had already succeeded in either version (see the "discards
+        # the whole reconcile_index run" comments below), and every completed item
+        # is individually correct, so a retry after fixing credentials reprocesses
+        # the full input idempotently regardless of completion order.
+        semaphore = asyncio.Semaphore(_RECONCILE_CONCURRENCY)
+
+        async def _process_failure_log_entry(entry: dict[str, Any]) -> dict[str, Any]:
             artifact_id = entry.get("artifact_id", "")
             if not artifact_id:
-                continue
-            if not artifact_id.startswith(settings.write_prefix + "/"):
+                return {"kind": "invalid"}
+            if not is_own_scope(artifact_id, settings.write_prefix):
                 logger.warning("Skipping out-of-scope failure log entry: %s", artifact_id)
-                continue
+                return {"kind": "invalid"}
 
             # Bounded retry (T62): an entry that has already failed to replay
             # CAS_MAX_ATTEMPTS times is never attempted again — it is reported once,
@@ -358,51 +381,99 @@ async def _reconcile_index_inner(
             # failed. Its counter does not grow further while stuck.
             prior_attempts = entry.get("reconcile_attempts", 0)
             if prior_attempts >= CAS_MAX_ATTEMPTS:
-                stuck_failures.append(
-                    {
+                return {
+                    "kind": "stuck_already",
+                    "artifact_id": artifact_id,
+                    "reason": entry.get("reason", ""),
+                    "reconcile_attempts": prior_attempts,
+                }
+
+            async with semaphore:
+                try:
+                    # Off the event loop — blocking boto3 call.
+                    raw_meta = await asyncio.to_thread(s3.head_object, artifact_id)
+                except CredentialError as exc:
+                    return {"kind": "credential_error", "exc": exc}
+                except KeyError:
+                    return {
+                        "kind": "failed",
                         "artifact_id": artifact_id,
-                        "reason": entry.get("reason", ""),
-                        "reconcile_attempts": prior_attempts,
+                        "reason": "S3 object not found",
                     }
-                )
-                failed_ids.add(artifact_id)
-                continue
+                except Exception as exc:
+                    return {"kind": "failed", "artifact_id": artifact_id, "reason": str(exc)}
 
-            try:
-                # Off the event loop — blocking boto3 call.
-                raw_meta = await asyncio.to_thread(s3.head_object, artifact_id)
-            except CredentialError as exc:
-                return credential_error_response(exc)
-            except KeyError:
-                failed.append({"artifact_id": artifact_id, "reason": "S3 object not found"})
-                failed_ids.add(artifact_id)
-                continue
-            except Exception as exc:
-                failed.append({"artifact_id": artifact_id, "reason": str(exc)})
-                failed_ids.add(artifact_id)
-                continue
-
-            try:
-                reconciled_entry = await _fetch_and_reindex(
-                    artifact_id, raw_meta, "failure_log", settings, s3, vectors, bedrock
-                )
-                reconciled.append(reconciled_entry)
-                resolved_ids.add(artifact_id)
-            except CredentialError as exc:
-                return credential_error_response(exc)
-            except Exception as exc:
-                entry["reconcile_attempts"] = prior_attempts + 1
-                failed_ids.add(artifact_id)
-                if entry["reconcile_attempts"] >= CAS_MAX_ATTEMPTS:
-                    stuck_failures.append(
-                        {
+                try:
+                    reconciled_entry = await _fetch_and_reindex(
+                        artifact_id, raw_meta, "failure_log", settings, s3, vectors, bedrock
+                    )
+                    return {
+                        "kind": "resolved",
+                        "artifact_id": artifact_id,
+                        "entry": reconciled_entry,
+                    }
+                except CredentialError as exc:
+                    return {"kind": "credential_error", "exc": exc}
+                except Exception as exc:
+                    new_attempts = prior_attempts + 1
+                    if new_attempts >= CAS_MAX_ATTEMPTS:
+                        return {
+                            "kind": "stuck_new",
                             "artifact_id": artifact_id,
                             "reason": str(exc),
-                            "reconcile_attempts": entry["reconcile_attempts"],
+                            "reconcile_attempts": new_attempts,
                         }
-                    )
-                else:
-                    failed.append({"artifact_id": artifact_id, "reason": str(exc)})
+                    return {
+                        "kind": "failed_new",
+                        "artifact_id": artifact_id,
+                        "reason": str(exc),
+                        "reconcile_attempts": new_attempts,
+                    }
+
+        entry_results = await asyncio.gather(
+            *[_process_failure_log_entry(entry) for entry in unique_entries]
+        )
+
+        # A credential failure discards the whole reconcile_index run (matching the
+        # original sequential loop's immediate `return credential_error_response(exc)`,
+        # which never reported partial progress from any phase either).
+        for r in entry_results:
+            if r["kind"] == "credential_error":
+                return credential_error_response(r["exc"])
+
+        for entry, r in zip(unique_entries, entry_results, strict=True):
+            kind = r["kind"]
+            if kind == "invalid":
+                continue
+            if kind == "resolved":
+                reconciled.append(r["entry"])
+                resolved_ids.add(r["artifact_id"])
+            elif kind == "failed":
+                failed.append({"artifact_id": r["artifact_id"], "reason": r["reason"]})
+                failed_ids.add(r["artifact_id"])
+            elif kind == "stuck_already":
+                stuck_failures.append(
+                    {
+                        "artifact_id": r["artifact_id"],
+                        "reason": r["reason"],
+                        "reconcile_attempts": r["reconcile_attempts"],
+                    }
+                )
+                failed_ids.add(r["artifact_id"])
+            elif kind == "stuck_new":
+                entry["reconcile_attempts"] = r["reconcile_attempts"]
+                stuck_failures.append(
+                    {
+                        "artifact_id": r["artifact_id"],
+                        "reason": r["reason"],
+                        "reconcile_attempts": r["reconcile_attempts"],
+                    }
+                )
+                failed_ids.add(r["artifact_id"])
+            elif kind == "failed_new":
+                entry["reconcile_attempts"] = r["reconcile_attempts"]
+                failed.append({"artifact_id": r["artifact_id"], "reason": r["reason"]})
+                failed_ids.add(r["artifact_id"])
 
         # Rewrite the failure log — retain only entries whose artifact_id was NOT resolved.
         remaining_entries = [e for e in entries if e.get("artifact_id", "") not in resolved_ids]
@@ -417,14 +488,14 @@ async def _reconcile_index_inner(
             log_path.unlink(missing_ok=True)
 
     # ── Phase 2: Orphan scan ──────────────────────────────────────────────────
-    own_prefix = settings.write_prefix + "/"
     try:
         # Off the event loop — blocking boto3 calls.
         all_s3_keys = await asyncio.to_thread(s3.list_objects, settings.write_prefix)
         own_keys = [
             k
             for k in all_s3_keys
-            if k.startswith(own_prefix) and not k.rsplit("/", 1)[-1].startswith(_PROBE_KEY_MARKER)
+            if is_own_scope(k, settings.write_prefix)
+            and not k.rsplit("/", 1)[-1].startswith(_PROBE_KEY_MARKER)
         ]
         indexed_keys_raw = await asyncio.to_thread(
             vectors.list_vectors_by_metadata, {"scope": {"$eq": settings.write_prefix}}
@@ -444,18 +515,38 @@ async def _reconcile_index_inner(
     orphans = [k for k in own_keys if k not in indexed_artifact_ids and k not in failed_ids]
     orphans_found = len(orphans)
 
-    for orphan_key in orphans:
-        try:
-            # Off the event loop — see the equivalent failure-log-replay comment above.
-            raw_meta = await asyncio.to_thread(s3.head_object, orphan_key)
-            reconciled_entry = await _fetch_and_reindex(
-                orphan_key, raw_meta, "orphan_scan", settings, s3, vectors, bedrock
-            )
-            reconciled.append(reconciled_entry)
-        except CredentialError as exc:
-            return credential_error_response(exc)
-        except Exception as exc:
-            failed.append({"artifact_id": orphan_key, "reason": str(exc)})
+    # Bounded concurrency (H-1): each orphan's head_object + re-index is independent
+    # of every other's. Each task never raises — it returns an outcome marker.
+    # See the Phase 1 semaphore comment above for the accepted non-deterministic-
+    # abort-prefix trade-off, which applies here too.
+    orphan_semaphore = asyncio.Semaphore(_RECONCILE_CONCURRENCY)
+
+    async def _process_orphan(orphan_key: str) -> dict[str, Any]:
+        async with orphan_semaphore:
+            try:
+                # Off the event loop — see the equivalent failure-log-replay comment above.
+                raw_meta = await asyncio.to_thread(s3.head_object, orphan_key)
+                reconciled_entry = await _fetch_and_reindex(
+                    orphan_key, raw_meta, "orphan_scan", settings, s3, vectors, bedrock
+                )
+                return {"kind": "resolved", "artifact_id": orphan_key, "entry": reconciled_entry}
+            except CredentialError as exc:
+                return {"kind": "credential_error", "exc": exc}
+            except Exception as exc:
+                return {"kind": "failed", "artifact_id": orphan_key, "reason": str(exc)}
+
+    orphan_results = await asyncio.gather(*[_process_orphan(k) for k in orphans])
+
+    # A credential failure discards the whole reconcile_index run, matching the
+    # original sequential loop's immediate `return credential_error_response(exc)`.
+    for r in orphan_results:
+        if r["kind"] == "credential_error":
+            return credential_error_response(r["exc"])
+    for r in orphan_results:
+        if r["kind"] == "resolved":
+            reconciled.append(r["entry"])
+        else:
+            failed.append({"artifact_id": r["artifact_id"], "reason": r["reason"]})
 
     # ── Phase 3: Dangling vector pruning ─────────────────────────────────────
     # Dangling vectors are index entries whose S3 object no longer exists.
@@ -468,32 +559,56 @@ async def _reconcile_index_inner(
     dangling_artifacts_found = 0
     dangling_vectors_pruned = 0
 
-    for dangling_id in dangling_artifact_ids:
-        keys_to_delete = vectors_by_artifact[dangling_id]
-        try:
-            # An artifact fully written between the S3 listing and the vector
-            # listing above would otherwise be misclassified dangling here and have
-            # its brand-new vectors pruned. Re-confirm S3 absence immediately before
-            # deleting — only prune when the object is actually gone right now.
-            # Off the event loop — blocking boto3 call.
-            try:
-                await asyncio.to_thread(s3.head_object, dangling_id)
-            except KeyError:
-                pass  # confirmed absent at prune time — safe to prune
-            else:
-                # A concurrent write raced the initial listings; not dangling after
-                # all. Leave its vectors untouched.
-                continue
+    # Bounded concurrency (H-1): each dangling artifact's race-recheck + prune is
+    # independent of every other's. Each task never raises — it returns an outcome
+    # marker. See the Phase 1 semaphore comment above for the accepted
+    # non-deterministic-abort-prefix trade-off, which applies here too.
+    dangling_semaphore = asyncio.Semaphore(_RECONCILE_CONCURRENCY)
 
-            # Off the event loop — blocking boto3 call.
-            await asyncio.to_thread(vectors.delete_vectors, keys_to_delete)
-            dangling_artifacts.append(dangling_id)
+    async def _process_dangling(dangling_id: str) -> dict[str, Any]:
+        keys_to_delete = vectors_by_artifact[dangling_id]
+        async with dangling_semaphore:
+            try:
+                # An artifact fully written between the S3 listing and the vector
+                # listing above would otherwise be misclassified dangling here and have
+                # its brand-new vectors pruned. Re-confirm S3 absence immediately before
+                # deleting — only prune when the object is actually gone right now.
+                # Off the event loop — blocking boto3 call.
+                try:
+                    await asyncio.to_thread(s3.head_object, dangling_id)
+                except KeyError:
+                    pass  # confirmed absent at prune time — safe to prune
+                else:
+                    # A concurrent write raced the initial listings; not dangling
+                    # after all. Leave its vectors untouched.
+                    return {"kind": "race_not_dangling"}
+
+                # Off the event loop — blocking boto3 call.
+                await asyncio.to_thread(vectors.delete_vectors, keys_to_delete)
+                return {
+                    "kind": "pruned",
+                    "artifact_id": dangling_id,
+                    "count": len(keys_to_delete),
+                }
+            except CredentialError as exc:
+                return {"kind": "credential_error", "exc": exc}
+            except Exception as exc:
+                return {"kind": "failed", "artifact_id": dangling_id, "reason": str(exc)}
+
+    dangling_results = await asyncio.gather(*[_process_dangling(d) for d in dangling_artifact_ids])
+
+    # A credential failure discards the whole reconcile_index run, matching the
+    # original sequential loop's immediate `return credential_error_response(exc)`.
+    for r in dangling_results:
+        if r["kind"] == "credential_error":
+            return credential_error_response(r["exc"])
+    for r in dangling_results:
+        if r["kind"] == "pruned":
+            dangling_artifacts.append(r["artifact_id"])
             dangling_artifacts_found += 1
-            dangling_vectors_pruned += len(keys_to_delete)
-        except CredentialError as exc:
-            return credential_error_response(exc)
-        except Exception as exc:
-            failed.append({"artifact_id": dangling_id, "reason": str(exc)})
+            dangling_vectors_pruned += r["count"]
+        elif r["kind"] == "failed":
+            failed.append({"artifact_id": r["artifact_id"], "reason": r["reason"]})
 
     logger.info(
         "reconcile_index complete: reconciled=%d failed=%d stuck=%d orphans=%d dangling=%d",

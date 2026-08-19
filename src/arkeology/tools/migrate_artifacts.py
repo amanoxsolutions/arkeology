@@ -348,6 +348,10 @@ async def _migrate_artifacts_inner(
     skipped_unindexed: list[dict[str, Any]] = []
     combined_results: list[dict[str, Any] | None] = [None] * len(enriched)
 
+    # First pass (synchronous, CPU-only): resolve each descriptor's candidate S3
+    # key, or route it straight to to_write_indices / combined_results when no I/O
+    # check is needed (generation-failed, malformed descriptor).
+    candidate_keys: dict[int, str] = {}
     for idx, descriptor in enumerate(enriched):
         # A generation-failed descriptor is never written with an empty
         # description — skip it before any key computation or existence check,
@@ -374,31 +378,61 @@ async def _migrate_artifacts_inner(
             continue
 
         ext = str(descriptor.get("file_extension") or ".md")
-        candidate_key = f"{settings.write_prefix}/{slug}{ext}"
-        try:
-            s3.head_object(candidate_key)
-        except KeyError:
+        candidate_keys[idx] = f"{settings.write_prefix}/{slug}{ext}"
+
+    # Second pass: bounded-concurrency existence + indexing check for every
+    # candidate key (H-1), reusing the same artifact_concurrency semaphore as the
+    # description-generation phase above. Read-only (head_object,
+    # list_vectors_by_metadata) — no side effects — so dispatching every check
+    # concurrently and then deciding in original index order below reproduces the
+    # exact sequential response deterministically, including which candidate's
+    # CredentialError (if any) is surfaced.
+    check_semaphore = asyncio.Semaphore(effective)
+
+    async def _check_candidate(idx: int, candidate_key: str) -> tuple[int, str, Any]:
+        async with check_semaphore:
+            try:
+                await asyncio.to_thread(s3.head_object, candidate_key)
+            except KeyError:
+                return idx, "new", None
+            except CredentialError as exc:
+                return idx, "credential_error", exc
+
+            # T61 self-heal detection: "S3 object exists" and "fully migrated" are
+            # not the same fact — a prior attempt can have written S3 successfully
+            # and then failed on the vector write (the incident's exact
+            # partial-write shape). One bounded, per-candidate existence query
+            # distinguishes the two so an unindexed candidate is reported
+            # distinctly instead of silently folded into skipped_existing forever.
+            # This is detection-and-reporting only: the skip-existing guard still
+            # applies and no write happens for either case; remediation is
+            # reconcile_index's job, not migrate_artifacts'.
+            try:
+                indexed_vector_keys = await asyncio.to_thread(
+                    vectors.list_vectors_by_metadata, {"artifact_id": {"$eq": candidate_key}}
+                )
+            except CredentialError as exc:
+                return idx, "credential_error", exc
+
+            return idx, ("indexed" if indexed_vector_keys else "unindexed"), None
+
+    check_results = await asyncio.gather(
+        *[_check_candidate(idx, key) for idx, key in candidate_keys.items()]
+    )
+
+    # asyncio.gather preserves input order, and candidate_keys was populated in
+    # ascending idx order above, so this walk is deterministic — the same
+    # CredentialError a sequential scan would hit first is the one surfaced.
+    for idx, outcome, payload in check_results:
+        if outcome == "credential_error":
+            return _with_warning({"error": ErrorCode.CREDENTIAL_ERROR, "message": str(payload)})
+
+    for idx, outcome, _payload in check_results:
+        descriptor = enriched[idx]
+        candidate_key = candidate_keys[idx]
+        if outcome == "new":
             to_write_indices.append(idx)
-            continue
-        except CredentialError as exc:
-            return _with_warning({"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)})
-
-        # T61 self-heal detection: "S3 object exists" and "fully migrated" are not
-        # the same fact — a prior attempt can have written S3 successfully and then
-        # failed on the vector write (the incident's exact partial-write shape). One
-        # bounded, per-candidate existence query distinguishes the two so an
-        # unindexed candidate is reported distinctly instead of silently folded into
-        # skipped_existing forever. This is detection-and-reporting only: the
-        # skip-existing guard still applies and no write happens for either case;
-        # remediation is reconcile_index's job, not migrate_artifacts'.
-        try:
-            indexed_vector_keys = vectors.list_vectors_by_metadata(
-                {"artifact_id": {"$eq": candidate_key}}
-            )
-        except CredentialError as exc:
-            return _with_warning({"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)})
-
-        if indexed_vector_keys:
+        elif outcome == "indexed":
             combined_results[idx] = {
                 "written": False,
                 "skipped": True,
@@ -411,7 +445,7 @@ async def _migrate_artifacts_inner(
                     "title": descriptor.get("title", ""),
                 }
             )
-        else:
+        else:  # "unindexed"
             message = (
                 f"Artifact '{candidate_key}' exists in S3 but has no indexed vectors "
                 "(a partial write). Run reconcile_index to re-index it."
@@ -431,6 +465,14 @@ async def _migrate_artifacts_inner(
                     "message": message,
                 }
             )
+
+    # Restore ascending idx order: malformed-descriptor indices (added in the first,
+    # synchronous pass) and freshly-discovered "new" indices (added in the second,
+    # concurrent pass) can otherwise interleave in a way a single sequential loop
+    # never would. write_artifacts' response is matched back to combined_results
+    # positionally below, so this keeps that mapping identical to the original
+    # strictly-sequential loop's.
+    to_write_indices.sort()
 
     # ── Step 6: delegate to write_artifacts for the genuinely-new candidates ──────
     if to_write_indices:

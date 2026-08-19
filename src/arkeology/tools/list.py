@@ -22,10 +22,12 @@ from arkeology.constants import ArtifactStatus, ErrorCode
 from arkeology.errors import CredentialError, InvalidFilterValueError
 from arkeology.tools._errors import credential_error_response
 from arkeology.tools._reference_filter import resolve_readable_targets
+from arkeology.tools._scope import is_cross_scope_readable, is_own_scope
 from arkeology.tools._search_helper import (
     build_scope_filter,
     build_user_filters,
     coerce_list_field,
+    fetch_vectors_by_metadata,
 )
 
 logger = logging.getLogger(__name__)
@@ -142,21 +144,17 @@ async def _list_artifacts_inner(
 
     combined_filter: dict[str, Any] = {"$and": clauses} if len(clauses) > 1 else clauses[0]
 
-    # ── Step 2: Query vector index (off the event loop) ───────────────────────
+    # ── Steps 2-3: Query vector index, then fetch vector metadata (the client
+    # chunks to the GetVectors limit; off the event loop) ─────────────────────
     try:
-        keys = await asyncio.to_thread(vectors.list_vectors_by_metadata, combined_filter)
+        items = await asyncio.to_thread(
+            fetch_vectors_by_metadata, vectors, combined_filter, include_data=False
+        )
     except CredentialError as exc:
         return credential_error_response(exc)
 
-    if not keys:
+    if not items:
         return {"artifacts": []}
-
-    # ── Step 3: Fetch vector metadata (the client chunks to the GetVectors limit;
-    # off the event loop) ──────────────────────────────────────────────────────
-    try:
-        items = await asyncio.to_thread(vectors.get_vectors, keys, False)
-    except CredentialError as exc:
-        return credential_error_response(exc)
 
     # ── Step 4: Deduplicate by artifact_id (first occurrence wins) and apply the
     # cross-scope gate ──────────────────────────────────────────────────────────
@@ -173,17 +171,11 @@ async def _list_artifacts_inner(
             continue
         seen_ids.add(artifact_id)
 
-        is_own_scope = artifact_id.startswith(own_scope + "/")
-        if is_own_scope:
-            pass  # own scope — always allowed
-        else:
-            is_foreign = any(artifact_id.startswith(p + "/") for p in read_prefixes)
-            item_tier = int(meta.get("tier", 0))
-            item_visibility = str(meta.get("visibility", ""))
-            if not (is_foreign and item_tier == 3 and item_visibility == "shared"):
-                continue
+        is_own = is_own_scope(artifact_id, own_scope)
+        if not is_own and not is_cross_scope_readable(meta, artifact_id, own_scope, read_prefixes):
+            continue
 
-        gated_entries.append((artifact_id, is_own_scope, meta))
+        gated_entries.append((artifact_id, is_own, meta))
 
     # ── Step 4b: commit_refs/references — union of both durable stores ────────
     # Fetched only for entries that survived the cross-scope gate above (never
@@ -228,8 +220,8 @@ async def _list_artifacts_inner(
     # resolved with a single batched query covering the whole page, regardless
     # of how many distinct foreign entries or reference ids are involved.
     candidate_ids: set[str] = set()
-    for artifact_id, is_own_scope, _meta in gated_entries:
-        if not is_own_scope:
+    for artifact_id, is_own, _meta in gated_entries:
+        if not is_own:
             candidate_ids.update(link_fields_by_id[artifact_id][1])
 
     readable_targets: set[str] = set()
@@ -241,11 +233,11 @@ async def _list_artifacts_inner(
 
     # ── Step 6: Build result dicts ──────────────────────────────────────────
     artifacts: list[dict[str, Any]] = []
-    for artifact_id, is_own_scope, meta in gated_entries:
+    for artifact_id, is_own, meta in gated_entries:
         tags_val = coerce_list_field(meta, "tags")
         source_artifacts_val = coerce_list_field(meta, "source_artifacts")
         commit_refs_val, references_val = link_fields_by_id[artifact_id]
-        if not is_own_scope:
+        if not is_own:
             references_val = [r for r in references_val if r in readable_targets]
         last_edited_ulid_val: str | None = meta.get("last_edited_ulid") or None
 

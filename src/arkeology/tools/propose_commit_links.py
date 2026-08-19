@@ -26,6 +26,7 @@ from arkeology.config import Settings
 from arkeology.constants import ErrorCode
 from arkeology.errors import CredentialError
 from arkeology.tools._errors import credential_error_response
+from arkeology.tools._search_helper import fetch_vectors_by_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -102,14 +103,12 @@ async def _propose_commit_links_inner(
 
     # ── Steps 2–3: List matching vector keys, then fetch their metadata ───────
     try:
-        keys = vectors.list_vectors_by_metadata(combined_filter)
-
-        if not keys:
-            return {"proposed": [], "commit_sha": commit_sha}
-
-        items = vectors.get_vectors(keys, include_data=False)
+        items = fetch_vectors_by_metadata(vectors, combined_filter, include_data=False)
     except CredentialError as exc:
         return credential_error_response(exc)
+
+    if not items:
+        return {"proposed": [], "commit_sha": commit_sha}
 
     # ── Step 4: Deduplicate by artifact_id ────────────────────────────────────
     seen_ids: set[str] = set()

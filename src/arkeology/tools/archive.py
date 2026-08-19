@@ -41,7 +41,8 @@ from arkeology.constants import ArtifactStatus, ErrorCode
 from arkeology.errors import AnnotationUnavailableError, ArtifactConflictError, CredentialError
 from arkeology.failure_log import append_failure_entry
 from arkeology.tools._errors import credential_error_response
-from arkeology.tools._search_helper import find_referrers
+from arkeology.tools._scope import is_own_scope
+from arkeology.tools._search_helper import fetch_vectors_by_metadata, find_referrers
 
 logger = logging.getLogger(__name__)
 
@@ -143,7 +144,7 @@ async def _archive_artifact_inner(
     _ = bedrock
 
     # ── Step 1: Scope check ───────────────────────────────────────────────────
-    if not artifact_id.startswith(settings.write_prefix + "/"):
+    if not is_own_scope(artifact_id, settings.write_prefix):
         return {
             "error": ErrorCode.ACCESS_DENIED,
             "message": (
@@ -172,16 +173,13 @@ async def _archive_artifact_inner(
     # short-circuit when S3 is inactive AND every existing vector already agrees.
     if s3_meta.get("status") == ArtifactStatus.INACTIVE:
         try:
-            existing_vec_keys = vectors.list_vectors_by_metadata(
-                {"artifact_id": {"$eq": artifact_id}}
+            existing_vec_items = fetch_vectors_by_metadata(
+                vectors, {"artifact_id": {"$eq": artifact_id}}, include_data=False
             )
-            vectors_need_flip = False
-            if existing_vec_keys:
-                existing_vec_items = vectors.get_vectors(existing_vec_keys, include_data=False)
-                vectors_need_flip = any(
-                    item["metadata"].get("status") != ArtifactStatus.INACTIVE
-                    for item in existing_vec_items
-                )
+            vectors_need_flip = any(
+                item["metadata"].get("status") != ArtifactStatus.INACTIVE
+                for item in existing_vec_items
+            )
         except CredentialError as exc:
             return credential_error_response(exc)
 
@@ -340,17 +338,17 @@ async def _archive_artifact_inner(
     # can find and repair it and a retried archive_artifact call is not blocked by
     # the Step 2b idempotency check.
     try:
-        vec_keys = vectors.list_vectors_by_metadata({"artifact_id": {"$eq": artifact_id}})
-        if vec_keys:
-            vec_items = vectors.get_vectors(vec_keys)
-            for item in vec_items:
-                key = item["key"]
-                vector_data: list[float] = item["data"]["float32"]
-                updated_meta: dict[str, Any] = {
-                    **item["metadata"],
-                    "status": ArtifactStatus.INACTIVE,
-                }
-                vectors.put_vector(key, vector_data, updated_meta)
+        vec_items = fetch_vectors_by_metadata(
+            vectors, {"artifact_id": {"$eq": artifact_id}}, include_data=True
+        )
+        for item in vec_items:
+            key = item["key"]
+            vector_data: list[float] = item["data"]["float32"]
+            updated_meta: dict[str, Any] = {
+                **item["metadata"],
+                "status": ArtifactStatus.INACTIVE,
+            }
+            vectors.put_vector(key, vector_data, updated_meta)
     except CredentialError as exc:
         _record_partial_archive_failure(
             settings, artifact_id=artifact_id, s3_meta=updated_s3_meta, reason=str(exc)

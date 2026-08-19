@@ -19,8 +19,14 @@ from arkeology.config import Settings
 from arkeology.constants import ArtifactStatus, ErrorCode
 from arkeology.errors import CredentialError
 from arkeology.tools._errors import credential_error_response
+from arkeology.tools._scope import is_cross_scope_readable, is_own_scope
+from arkeology.tools._search_helper import fetch_vectors_by_metadata
 
 logger = logging.getLogger(__name__)
+
+# Bounded concurrency for the malformed-synthesis deletion loop (Step 8), mirroring
+# write_artifacts.py's asyncio.Semaphore-gated asyncio.gather pattern (H-1).
+_DELETE_CONCURRENCY = 5
 
 
 async def check_synthesis_freshness(
@@ -80,25 +86,25 @@ async def _check_synthesis_freshness_inner(
         ]
     }
     try:
-        # Off the event loop — blocking boto3 call.
-        synth_keys = await asyncio.to_thread(vectors.list_vectors_by_metadata, synth_filter)
-
-        if not synth_keys:
-            return {
-                "stale": [],
-                "archived_sources": [],
-                "missing_sources": [],
-                "malformed": [],
-                "deleted_malformed": [],
-                "delete_failed": [],
-                "total_checked": 0,
-                "all_fresh": True,
-            }
-
-        # ── Step 2: Fetch vector metadata for all synthesis keys (off the loop) ──
-        synth_items = await asyncio.to_thread(vectors.get_vectors, synth_keys, False)
+        # ── Steps 1-2: list, then fetch vector metadata for all synthesis keys
+        # (off the event loop) ─────────────────────────────────────────────────
+        synth_items = await asyncio.to_thread(
+            fetch_vectors_by_metadata, vectors, synth_filter, include_data=False
+        )
     except CredentialError as exc:
         return credential_error_response(exc)
+
+    if not synth_items:
+        return {
+            "stale": [],
+            "archived_sources": [],
+            "missing_sources": [],
+            "malformed": [],
+            "deleted_malformed": [],
+            "delete_failed": [],
+            "total_checked": 0,
+            "all_fresh": True,
+        }
 
     # ── Step 3: Deduplicate by artifact_id (first occurrence wins) ────────────
     syntheses: dict[str, dict[str, Any]] = {}
@@ -138,41 +144,29 @@ async def _check_synthesis_freshness_inner(
 
     if all_source_ids:
         try:
-            # Off the event loop — blocking boto3 call.
-            src_keys = await asyncio.to_thread(
-                vectors.list_vectors_by_metadata,
+            # Off the event loop — blocking boto3 calls.
+            src_items = await asyncio.to_thread(
+                fetch_vectors_by_metadata,
+                vectors,
                 {"artifact_id": {"$in": sorted(all_source_ids)}},
+                include_data=False,
             )
         except CredentialError as exc:
             return credential_error_response(exc)
 
-        if src_keys:
-            try:
-                # Off the event loop — blocking boto3 call.
-                src_items = await asyncio.to_thread(vectors.get_vectors, src_keys, False)
-            except CredentialError as exc:
-                return credential_error_response(exc)
+        # No vector index entries for a given source → it stays missing (T22),
+        # already defaulted to None above. Multi-section sources may yield
+        # several keys per source_id — first occurrence wins.
+        seen_source_ids: set[str] = set()
+        for item in src_items:
+            meta = item["metadata"]
+            source_id = str(meta.get("artifact_id", ""))
+            if source_id not in all_source_ids or source_id in seen_source_ids:
+                continue
+            seen_source_ids.add(source_id)
 
-            # No vector index entries for a given source → it stays missing (T22),
-            # already defaulted to None above. Multi-section sources may yield
-            # several keys per source_id — first occurrence wins.
-            seen_source_ids: set[str] = set()
-            for item in src_items:
-                meta = item["metadata"]
-                source_id = str(meta.get("artifact_id", ""))
-                if source_id not in all_source_ids or source_id in seen_source_ids:
-                    continue
-                seen_source_ids.add(source_id)
-
-                if source_id.startswith(own_scope + "/"):
-                    source_meta[source_id] = meta  # own scope — always allowed
-                    continue
-
-                is_foreign_readable = any(source_id.startswith(p + "/") for p in read_prefixes)
-                item_tier = int(meta.get("tier", 0))
-                item_visibility = str(meta.get("visibility", ""))
-                if is_foreign_readable and item_tier == 3 and item_visibility == "shared":
-                    source_meta[source_id] = meta
+            if is_cross_scope_readable(meta, source_id, own_scope, read_prefixes):
+                source_meta[source_id] = meta
 
     # ── Step 7: Build stale, archived_sources, missing_sources per synthesis ──
     stale: list[dict[str, Any]] = []
@@ -226,71 +220,102 @@ async def _check_synthesis_freshness_inner(
     malformed_reported: list[str] = []
 
     if confirm:
-        for aid in malformed_ids:
-            if not aid.startswith(settings.write_prefix + "/"):
+        # Bounded concurrency (H-1): each malformed synthesis's vectors-first-then-S3
+        # deletion is independent of every other's, mirroring write_artifacts.py's
+        # asyncio.Semaphore-gated asyncio.gather pattern. Each task never raises — it
+        # returns an outcome marker — so a credential failure on one task never leaves
+        # concurrently-dispatched sibling tasks in an unobserved state.
+        #
+        # Accepted trade-off (reviewed, not a defect): the old sequential loop
+        # aborted at a deterministic prefix on the first CredentialError; this one
+        # may let up to _DELETE_CONCURRENCY in-flight deletions finish before the
+        # abort is noticed. Low-risk: credential_error_response() never surfaced
+        # which items succeeded in either version, and every completed deletion is
+        # individually correct, so a retry after fixing credentials reprocesses
+        # the same input to the same end state regardless of ordering.
+        semaphore = asyncio.Semaphore(_DELETE_CONCURRENCY)
+
+        async def _delete_one_malformed(aid: str) -> dict[str, Any]:
+            if not is_own_scope(aid, settings.write_prefix):
                 logger.warning("Skipping out-of-scope malformed synthesis: %s", aid)
-                continue
-            # Vectors-first, then S3 (same ordering as delete_artifact).
-            # Non-credential errors at any step → report in delete_failed and continue
-            # (T22 Boundary: a partial delete leaves a recoverable S3 orphan).
-            try:
-                # Off the event loop — blocking boto3 call.
-                vec_keys = await asyncio.to_thread(
-                    vectors.list_vectors_by_metadata, {"artifact_id": {"$eq": aid}}
-                )
-            except CredentialError as exc:
-                return credential_error_response(exc)
-            except Exception:
-                logger.warning(
-                    "Failed to list vectors for malformed synthesis %s; "
-                    "skipping deletion — recorded in delete_failed",
-                    aid,
-                    exc_info=True,
-                )
-                delete_failed.append(aid)
-                continue
-            if vec_keys:
+                return {"artifact_id": aid, "outcome": "skipped"}
+            async with semaphore:
+                # Vectors-first, then S3 (same ordering as delete_artifact).
+                # Non-credential errors at any step → report in delete_failed
+                # (T22 Boundary: a partial delete leaves a recoverable S3 orphan).
                 try:
                     # Off the event loop — blocking boto3 call.
-                    await asyncio.to_thread(vectors.delete_vectors, vec_keys)
+                    vec_keys = await asyncio.to_thread(
+                        vectors.list_vectors_by_metadata, {"artifact_id": {"$eq": aid}}
+                    )
                 except CredentialError as exc:
-                    return credential_error_response(exc)
+                    return {"artifact_id": aid, "outcome": "credential_error", "exc": exc}
                 except Exception:
                     logger.warning(
-                        "Failed to delete vectors for malformed synthesis %s; "
+                        "Failed to list vectors for malformed synthesis %s; "
                         "skipping deletion — recorded in delete_failed",
                         aid,
                         exc_info=True,
                     )
-                    delete_failed.append(aid)
-                    continue
-            try:
-                # Off the event loop — blocking boto3 call.
-                await asyncio.to_thread(s3.head_object, aid)
-            except KeyError:
-                logger.warning(
-                    "Malformed synthesis S3 object not found, skipping S3 delete: %s", aid
-                )
-                # vectors were already deleted above — artifact is fully gone
-                deleted.append(aid)  # still report in deleted_malformed
-                continue
-            except CredentialError as exc:
-                return credential_error_response(exc)
-            try:
-                # Off the event loop — blocking boto3 call.
-                await asyncio.to_thread(s3.delete_object, aid)
-            except CredentialError as exc:
-                return credential_error_response(exc)
-            except Exception:
-                logger.warning(
-                    "Failed to delete S3 object for malformed synthesis %s; "
-                    "vectors already deleted — S3 orphan left; recorded in delete_failed",
-                    aid,
-                    exc_info=True,
-                )
-                delete_failed.append(aid)
-                continue
-            deleted.append(aid)
+                    return {"artifact_id": aid, "outcome": "delete_failed"}
+
+                if vec_keys:
+                    try:
+                        # Off the event loop — blocking boto3 call.
+                        await asyncio.to_thread(vectors.delete_vectors, vec_keys)
+                    except CredentialError as exc:
+                        return {"artifact_id": aid, "outcome": "credential_error", "exc": exc}
+                    except Exception:
+                        logger.warning(
+                            "Failed to delete vectors for malformed synthesis %s; "
+                            "skipping deletion — recorded in delete_failed",
+                            aid,
+                            exc_info=True,
+                        )
+                        return {"artifact_id": aid, "outcome": "delete_failed"}
+
+                try:
+                    # Off the event loop — blocking boto3 call.
+                    await asyncio.to_thread(s3.head_object, aid)
+                except KeyError:
+                    logger.warning(
+                        "Malformed synthesis S3 object not found, skipping S3 delete: %s", aid
+                    )
+                    # vectors were already deleted above — artifact is fully gone
+                    return {"artifact_id": aid, "outcome": "deleted"}
+                except CredentialError as exc:
+                    return {"artifact_id": aid, "outcome": "credential_error", "exc": exc}
+
+                try:
+                    # Off the event loop — blocking boto3 call.
+                    await asyncio.to_thread(s3.delete_object, aid)
+                except CredentialError as exc:
+                    return {"artifact_id": aid, "outcome": "credential_error", "exc": exc}
+                except Exception:
+                    logger.warning(
+                        "Failed to delete S3 object for malformed synthesis %s; "
+                        "vectors already deleted — S3 orphan left; recorded in delete_failed",
+                        aid,
+                        exc_info=True,
+                    )
+                    return {"artifact_id": aid, "outcome": "delete_failed"}
+
+                return {"artifact_id": aid, "outcome": "deleted"}
+
+        delete_results = await asyncio.gather(
+            *[_delete_one_malformed(aid) for aid in malformed_ids]
+        )
+        # A credential failure discards the whole audit (matching the original
+        # sequential loop's immediate `return credential_error_response(exc)`, which
+        # never reported partial deletion/audit progress either).
+        for r in delete_results:
+            if r["outcome"] == "credential_error":
+                return credential_error_response(r["exc"])
+        for r in delete_results:
+            if r["outcome"] == "deleted":
+                deleted.append(r["artifact_id"])
+            elif r["outcome"] == "delete_failed":
+                delete_failed.append(r["artifact_id"])
         malformed_reported = []
     else:
         malformed_reported = list(malformed_ids)
