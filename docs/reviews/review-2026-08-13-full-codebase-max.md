@@ -829,6 +829,8 @@ artifact with duplicate/stale section content.
 Confidence: confirmed (verified all three `reconcile.py` phases plus the
 `write.py:915-922` except block directly).
 
+**[2026-08-19 — ✅ RESOLVED.** Operator decision: (b) inline retry first, (c) real self-heal repair as fallback. Step 8's `delete_vectors` now gets a bounded inline retry (2 total attempts, mirroring `bedrock.py`'s exact retry shape) for the three documented transient error codes; on retry exhaustion, a new failure-log entry kind (discriminated by an `orphan_keys` field) is logged, and `reconcile_index`'s Phase 1 recognises and repairs it with a direct `delete_vectors` call — no re-indexing — bounded by T62's `reconcile_attempts`/`stuck_failures` mechanism. Phase 1's dedup/resolution key changed from bare `artifact_id` to `(artifact_id, kind)`, fixing a latent defect this task's own change would otherwise introduce. Phase 13 T67, `plan.md` now `✅`. Spec: `docs/specs/p13-t67-orphan-vector-retry-and-selfheal.md`.]
+
 **J-2 — `check_synthesis_freshness(confirm=True)` can report `all_fresh: True` while a malformed synthesis artifact still exists, undeleted.**
 
 `freshness.py:294` unconditionally sets `malformed_reported = []` after the
@@ -881,9 +883,7 @@ and are marked resolved in place above; the remaining 30 are open.
 - **J-1** — `write_artifact`'s Step 8 orphan-cleanup failure path doesn't
   write a failure-log entry, so `reconcile_index` can never actually
   recover the "leftover orphan vectors" the code comment promises it will.
-  *Phase 13 T67 — spec ready, implementation in progress: (b) bounded
-  inline retry on Step 8's `delete_vectors` call; (c) on retry exhaustion,
-  a new failure-log entry kind `reconcile_index` repairs directly.*
+  *Resolved by T67 — see inline note above.*
 - **J-2** — `check_synthesis_freshness(confirm=True)` can report
   `all_fresh: True` while a malformed synthesis artifact is still
   undeleted, because `delete_failed` isn't consulted by the `all_fresh`
