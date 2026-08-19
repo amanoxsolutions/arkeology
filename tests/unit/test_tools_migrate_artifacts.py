@@ -1616,3 +1616,70 @@ async def test_t61_credential_error_from_vector_existence_query(
     )
 
     assert result.get("error") == ErrorCode.CREDENTIAL_ERROR
+
+
+# ---------------------------------------------------------------------------
+# I-6 — skip-existing pre-check must validate file_extension starts with "."
+# before building a candidate key, mirroring write.py's own guard.
+# ---------------------------------------------------------------------------
+
+
+async def test_i6_malformed_file_extension_rejected_at_pre_check_no_head_object(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """A descriptor with a file_extension not starting with "." is rejected at the
+    Step 5 pre-check — the same validation_error write.py's own guard produces —
+    without ever probing a candidate key via head_object.
+    """
+    from arkeology.tools.migrate_artifacts import migrate_artifacts
+
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+    descriptor = _make_descriptor(0, file_extension="txt")
+    head_spy = mocker.spy(s3_client, "head_object")
+
+    result = await migrate_artifacts(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        descriptors=[descriptor],
+        dry_run=False,
+    )
+
+    assert result["results"][0] == {
+        "error": ErrorCode.VALIDATION_ERROR,
+        "message": "file_extension must start with '.'",
+    }
+    assert head_spy.call_count == 0, "malformed file_extension must never reach head_object"
+
+
+async def test_i6_well_formed_file_extension_unaffected(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+) -> None:
+    """A correctly-formed file_extension (leading '.') is completely unaffected by
+    the I-6 guard: it is still written and keyed with the extension as given.
+    """
+    from arkeology.tools.migrate_artifacts import migrate_artifacts
+
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+    descriptor = _make_descriptor(0, file_extension=".txt")
+
+    result = await migrate_artifacts(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        descriptors=[descriptor],
+        dry_run=False,
+    )
+
+    entry = result["results"][0]
+    assert entry.get("written") is True
+    assert entry["artifact_id"].endswith(".txt")
