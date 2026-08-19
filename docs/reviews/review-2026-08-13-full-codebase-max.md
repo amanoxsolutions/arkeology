@@ -784,6 +784,8 @@ would refuse to construct.
 
 Confidence: confirmed.
 
+**[2026-08-19 — ✅ RESOLVED.** `migrate_artifacts.py`'s Step 5 pre-check now validates `file_extension` starts with `.` before building any candidate key or issuing `head_object`, mirroring `write.py`'s exact check and error shape. Phase 13 T64, `plan.md` now `✅`.]
+
 ### Angle J — CLAUDE.md / AGENTS.md conventions
 
 Exhaustive grepping across `src/arkeology/` for AGENTS.md's explicit rules
@@ -847,6 +849,8 @@ check when `all_fresh` is already `True`.
 Confidence: confirmed (verified `delete_failed` and `malformed_reported`
 are disjoint accumulator lists and `all_fresh`'s boolean expression omits
 `delete_failed` entirely).
+
+**[2026-08-19 — ✅ RESOLVED.** `all_fresh` now also requires `delete_failed` to be empty, alongside the existing `stale`/`archived_sources`/`missing_sources`/`malformed_reported` checks — a strict addition, no change to the other four conditions. Phase 13 T65, `plan.md` now `✅`.]
 
 ## Summary
 

@@ -499,11 +499,11 @@ below (with the review finding's own failure-scenario prose) is the scope of rec
 AGENTS.md's working convention on when a spec is/isn't needed; neither introduces a new tool,
 parameter, or response field, just corrects an existing one to match its own documented intent.
 
-64. ⬜ **I-6 — Validate `file_extension` starts with `.` in `migrate_artifacts.py`'s skip-existing pre-check** — mirror `write.py`'s existing check (reject with the same validation error shape `write.py` uses, before any `head_object` probe is issued) so the two paths enforce the identical invariant instead of the pre-check silently probing a key `write_artifacts`/`write.py` would refuse to construct.
+64. ✅ **I-6 — Validate `file_extension` starts with `.` in `migrate_artifacts.py`'s skip-existing pre-check** — mirror `write.py`'s existing check (reject with the same validation error shape `write.py` uses, before any `head_object` probe is issued) so the two paths enforce the identical invariant instead of the pre-check silently probing a key `write_artifacts`/`write.py` would refuse to construct.
     - Done when: a descriptor with a `file_extension` not starting with `.` is rejected at the pre-check step (not silently routed to `to_write_indices` to fail later at the real write); a descriptor with a correctly-formed `file_extension` is unaffected; no `head_object` call is issued for a malformed `file_extension`.
     - Depends on: nothing new.
 
-65. ⬜ **J-2 — `check_synthesis_freshness(confirm=True)`'s `all_fresh` must also require `delete_failed` empty** — `all_fresh` currently only inspects `malformed_reported`, never the separately-tracked `delete_failed` list, so a malformed synthesis whose S3 `delete_object` call fails (vector deletion succeeded) is silently omitted from both `malformed` and the `all_fresh` calculation, even though it's still present in S3.
+65. ✅ **J-2 — `check_synthesis_freshness(confirm=True)`'s `all_fresh` must also require `delete_failed` empty** — `all_fresh` currently only inspects `malformed_reported`, never the separately-tracked `delete_failed` list, so a malformed synthesis whose S3 `delete_object` call fails (vector deletion succeeded) is silently omitted from both `malformed` and the `all_fresh` calculation, even though it's still present in S3.
     - Done when: `all_fresh` is `True` only when `stale`, `archived_sources`, `missing_sources`, `malformed_reported`, and `delete_failed` are all empty; a synthesis whose deletion partially fails (vector deleted, S3 delete fails) is reflected in `all_fresh: False` even though it's absent from `malformed`.
     - Depends on: nothing new.
 
