@@ -665,6 +665,8 @@ the same `read_current_link_fields` fix.
 
 Confidence: confirmed.
 
+**[2026-08-19 — ✅ RESOLVED.** `propose_commit_links.py` now sources each candidate's `commit_refs` via `annotations.read_current_link_fields` (the same union-of-both-stores helper `read.py`/`list.py` use), concurrently across candidates via `asyncio.gather`/`asyncio.to_thread`. Folded into Phase 12 T58 (`docs/specs/p12-t58-commit-refs-cap-references-removal.md`), since T58's `commit_refs` vector-metadata cap would otherwise have silently worsened this exact bug. `plan.md` T58 now `✅`.]
+
 **I-3 — The mandatory `artifact_id.startswith(scope + "/")` scope check has no shared function; it is manually re-typed at ten-plus call sites across eight tool modules, with no structural guard against a future omitted `"/"`.**
 
 `delete.py:90`, `read.py:82,84`, `list.py:184,188`, `archive.py:138`,
@@ -730,6 +732,8 @@ Confidence: confirmed (verified `_validate_supplied_link_values`'s two
 checks against `Artifact.validate_commit_refs`/`validate_references`'s
 actual two checks directly — they diverge on both ends: one check each is
 present that the other lacks).
+
+**[2026-08-19 — ✅ RESOLVED.** `_validate_supplied_link_values` now delegates the control-character and comma checks to `Artifact.validate_commit_refs`/`validate_references` directly instead of a hand-rolled parallel implementation. Folded into Phase 12 T57 (`docs/specs/p12-t57-guard-coverage.md`), which was already reopening `link_metadata.py`'s per-attempt validation dispatch for the guard-coverage fix. `plan.md` T57 now `✅`.]
 
 **I-5 — Root cause of F-1 above: `_reference_filter.py` only exposes the set-returning form of the cross-scope readability predicate (`resolve_readable_targets(candidate_ids) -> set[str]`), not a single-artifact boolean form — so every new single-artifact caller is structurally forced to reimplement the three clauses inline rather than call a shared function.**
 
