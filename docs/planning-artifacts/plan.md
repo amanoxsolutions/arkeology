@@ -490,6 +490,23 @@ framing. Testing approach: **TDD** (NFR-07), matching T45–T56.
 
 Review findings **F-1**, **F-3**, **H-1**, **H-2**, **I-3** (shared scope-check/cross-scope/fetch-vector helpers, reconcile's duplicated fetch-and-reindex sequence, bounded concurrency for sequential per-artifact loops — see `docs/reviews/review-2026-08-13-full-codebase-max.md`) were considered for the T57–T62 wave and deliberately **not** folded into those specs: none describes currently-broken behavior (confirmed duplication with zero behavioral difference, or a plausible-but-unmeasured/never-wrong gap). **H-2 is now resolved** (T62's `_fetch_and_reindex` extraction). **F-1/F-3/H-1/I-3 are T63**, above, dispatched now that T57–T62 have landed.
 
+## Phase 13 — Further review-2026-08-13 remediation
+
+Correctness-class findings from `docs/reviews/review-2026-08-13-full-codebase-max.md` not
+covered by the T57–T63 wave. Each is small and independent (no file overlap with the others);
+dispatched individually rather than batched. No dedicated spec file for T64/T65 — each entry
+below (with the review finding's own failure-scenario prose) is the scope of record, per
+AGENTS.md's working convention on when a spec is/isn't needed; neither introduces a new tool,
+parameter, or response field, just corrects an existing one to match its own documented intent.
+
+64. ⬜ **I-6 — Validate `file_extension` starts with `.` in `migrate_artifacts.py`'s skip-existing pre-check** — mirror `write.py`'s existing check (reject with the same validation error shape `write.py` uses, before any `head_object` probe is issued) so the two paths enforce the identical invariant instead of the pre-check silently probing a key `write_artifacts`/`write.py` would refuse to construct.
+    - Done when: a descriptor with a `file_extension` not starting with `.` is rejected at the pre-check step (not silently routed to `to_write_indices` to fail later at the real write); a descriptor with a correctly-formed `file_extension` is unaffected; no `head_object` call is issued for a malformed `file_extension`.
+    - Depends on: nothing new.
+
+65. ⬜ **J-2 — `check_synthesis_freshness(confirm=True)`'s `all_fresh` must also require `delete_failed` empty** — `all_fresh` currently only inspects `malformed_reported`, never the separately-tracked `delete_failed` list, so a malformed synthesis whose S3 `delete_object` call fails (vector deletion succeeded) is silently omitted from both `malformed` and the `all_fresh` calculation, even though it's still present in S3.
+    - Done when: `all_fresh` is `True` only when `stale`, `archived_sources`, `missing_sources`, `malformed_reported`, and `delete_failed` are all empty; a synthesis whose deletion partially fails (vector deleted, S3 delete fails) is reflected in `all_fresh: False` even though it's absent from `malformed`.
+    - Depends on: nothing new.
+
 ---
 
 ## Risks and Open Questions
