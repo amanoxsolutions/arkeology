@@ -218,6 +218,8 @@ case visible.
 
 Confidence: confirmed.
 
+**[2026-08-19 — ✅ RESOLVED.** Operator decision: soft signal, not a hard abort. `run_search_loop` now catches `VectorDistanceMissingError` in a dedicated clause (before the generic `except Exception:`), logs it distinctly at `ERROR` instead of blending into the generic transient-error `WARNING`, and adds `index_corruption_detected: true` to the response (present only when it occurred) on both `search_artifacts` and `synthesise_artifacts`. Partial results already collected are still returned; the call is never aborted. Phase 13 T66, `plan.md` now `✅`.]
+
 **C-2 — `archive.py`'s partial-failure log entries store the still-percent-encoded title, while `write.py`'s equivalent entries store the plain decoded title — same failure log, inconsistent encoding per writer.**
 
 `src/arkeology/tools/archive.py:78` (`_record_partial_archive_failure`) reads
@@ -877,14 +879,18 @@ and are marked resolved in place above; the remaining 30 are open.
 - **J-1** — `write_artifact`'s Step 8 orphan-cleanup failure path doesn't
   write a failure-log entry, so `reconcile_index` can never actually
   recover the "leftover orphan vectors" the code comment promises it will.
+  *Phase 13 T67 — spec ready, implementation in progress: (b) bounded
+  inline retry on Step 8's `delete_vectors` call; (c) on retry exhaustion,
+  a new failure-log entry kind `reconcile_index` repairs directly.*
 - **J-2** — `check_synthesis_freshness(confirm=True)` can report
   `all_fresh: True` while a malformed synthesis artifact is still
   undeleted, because `delete_failed` isn't consulted by the `all_fresh`
-  calculation.
+  calculation. *Resolved by T65 — see inline note above.*
 - **C-1** — `VectorDistanceMissingError`, a deliberate hard-fail for index
   corruption, is swallowed by the same blanket `except Exception:` used for
   ordinary transient network errors — corruption and transient blips become
-  indistinguishable to the caller.
+  indistinguishable to the caller. *Resolved by T66 (operator decision:
+  soft signal) — see inline note above.*
 - **I-2** (+ **A-1**/**B-3**, now fixed) — the "first-vector-only"
   `commit_refs`/`references` sourcing bug class, still open in
   `propose_commit_links.py` after being fixed in `read.py`/`list.py`.
