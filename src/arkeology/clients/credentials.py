@@ -99,17 +99,25 @@ _ANNOTATION_UNAVAILABLE_MESSAGE = (
 )
 
 
+def _error_code(exc: botocore.exceptions.ClientError) -> str:
+    """Extract the boto3 "Error"/"Code" value from a ClientError's response.
+
+    Returns "" if the response has no "Error" key or no "Code" key — never raises.
+    Shared by every credential/error-code classifier in the client layer (F-2);
+    do not hand-roll ``exc.response.get("Error", {}).get("Code", "")`` again.
+    """
+    return exc.response.get("Error", {}).get("Code", "")
+
+
 def is_credential_error(exc: botocore.exceptions.ClientError) -> bool:
     """Return True if the ClientError indicates an auth/credential problem."""
-    code = exc.response.get("Error", {}).get("Code", "")
-    return code in CREDENTIAL_ERROR_CODES
+    return _error_code(exc) in CREDENTIAL_ERROR_CODES
 
 
 def is_annotation_unavailable_error(exc: botocore.exceptions.ClientError) -> bool:
     """Return True if the ClientError indicates S3 annotations are unavailable
     (unsupported region/bucket type) or access to the annotation API is denied."""
-    code = exc.response.get("Error", {}).get("Code", "")
-    return code in ANNOTATION_UNAVAILABLE_ERROR_CODES
+    return _error_code(exc) in ANNOTATION_UNAVAILABLE_ERROR_CODES
 
 
 @contextmanager

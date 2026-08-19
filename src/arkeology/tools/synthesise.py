@@ -20,6 +20,7 @@ from arkeology.errors import CredentialError, InvalidFilterValueError
 from arkeology.tools._errors import credential_error_response
 from arkeology.tools._search_helper import (
     build_user_filters,
+    clamp_top_k,
     coerce_list_field,
     run_search_loop,
 )
@@ -96,13 +97,10 @@ async def _synthesise_artifacts_inner(
 ) -> dict[str, Any]:
     """Inner implementation of synthesise_artifacts (separated to enable top-level catch-all)."""
     # ── Step 1: Clamp top_k ───────────────────────────────────────────────────
-    if top_k <= 0:
-        return {
-            "error": ErrorCode.VALIDATION_ERROR,
-            "message": f"top_k must be a positive integer, got {top_k}",
-        }
-    effective_top_k = min(top_k, 100)
-    clamped = effective_top_k < top_k
+    clamp_result = clamp_top_k(top_k)
+    if isinstance(clamp_result, dict):
+        return clamp_result
+    effective_top_k, clamped = clamp_result
 
     # ── Step 2: Embed the query (off the event loop — blocking boto3 call) ───────
     try:

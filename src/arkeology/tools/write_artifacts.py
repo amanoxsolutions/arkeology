@@ -23,6 +23,7 @@ from arkeology.clients.interfaces import (
 )
 from arkeology.config import Settings
 from arkeology.constants import ArtifactStatus, ErrorCode
+from arkeology.tools._concurrency import _clamp_concurrency
 from arkeology.tools.write import _write_artifact_inner
 
 logger = logging.getLogger(__name__)
@@ -128,23 +129,9 @@ async def _write_artifacts_inner(
 ) -> dict[str, Any]:
     """Inner implementation: concurrent writes bounded by artifact_concurrency."""
     # ── Clamp artifact_concurrency to [1, 15] ────────────────────────────────
-    warning: str | None = None
-    if artifact_concurrency > _ARTIFACT_CONCURRENCY_MAX:
-        warning = (
-            f"artifact_concurrency={artifact_concurrency} exceeds the maximum of "
-            f"{_ARTIFACT_CONCURRENCY_MAX}; effective concurrency capped to "
-            f"{_ARTIFACT_CONCURRENCY_MAX}."
-        )
-        effective = _ARTIFACT_CONCURRENCY_MAX
-    elif artifact_concurrency < 1:
-        warning = (
-            f"artifact_concurrency={artifact_concurrency} is below the minimum of 1; "
-            f"effective concurrency substituted with the default "
-            f"{_ARTIFACT_CONCURRENCY_DEFAULT}."
-        )
-        effective = _ARTIFACT_CONCURRENCY_DEFAULT
-    else:
-        effective = artifact_concurrency
+    effective, warning = _clamp_concurrency(
+        artifact_concurrency, default=_ARTIFACT_CONCURRENCY_DEFAULT, max_=_ARTIFACT_CONCURRENCY_MAX
+    )
 
     semaphore = asyncio.Semaphore(effective)
 

@@ -63,6 +63,7 @@ from arkeology.config import Settings
 from arkeology.constants import ErrorCode
 from arkeology.errors import CredentialError
 from arkeology.references import rewrite_content_references
+from arkeology.tools._concurrency import _clamp_concurrency
 from arkeology.tools.write_artifacts import write_artifacts as _write_artifacts
 
 logger = logging.getLogger(__name__)
@@ -211,7 +212,9 @@ async def _migrate_artifacts_inner(
 ) -> dict[str, Any]:
     """Inner implementation: enrich descriptions, then write or return."""
     # ── Clamp artifact_concurrency to [1, 15] ────────────────────────────────
-    warning: str | None = None
+    effective, warning = _clamp_concurrency(
+        artifact_concurrency, default=_ARTIFACT_CONCURRENCY_DEFAULT, max_=_ARTIFACT_CONCURRENCY_MAX
+    )
 
     def _with_warning(resp: dict[str, Any]) -> dict[str, Any]:
         """Append the clamp warning to a response only when one was raised.
@@ -223,23 +226,6 @@ async def _migrate_artifacts_inner(
         if warning is not None:
             resp["warning"] = warning
         return resp
-
-    if artifact_concurrency > _ARTIFACT_CONCURRENCY_MAX:
-        warning = (
-            f"artifact_concurrency={artifact_concurrency} exceeds the maximum of "
-            f"{_ARTIFACT_CONCURRENCY_MAX}; effective concurrency capped to "
-            f"{_ARTIFACT_CONCURRENCY_MAX}."
-        )
-        effective = _ARTIFACT_CONCURRENCY_MAX
-    elif artifact_concurrency < 1:
-        warning = (
-            f"artifact_concurrency={artifact_concurrency} is below the minimum of 1; "
-            f"effective concurrency substituted with the default "
-            f"{_ARTIFACT_CONCURRENCY_DEFAULT}."
-        )
-        effective = _ARTIFACT_CONCURRENCY_DEFAULT
-    else:
-        effective = artifact_concurrency
 
     # Defensive copy — never mutate the caller's list
     descriptors = [dict(d) for d in descriptors]

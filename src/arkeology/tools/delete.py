@@ -16,6 +16,7 @@ that references the deleted artifact only via its `references` field will NOT ap
 in the warning.
 """
 
+import asyncio
 import logging
 from typing import Any
 
@@ -118,15 +119,18 @@ async def _delete_artifact_inner(
             "message": f"Artifact '{artifact_id}' not found.",
         }
 
-    # ── Step 4: Unified own-scope referenced_by check (T50, ADR-012 D13) ──────
+    # ── Steps 4+5: Unified own-scope referenced_by check (T50, ADR-012 D13) and
+    # find all vector keys for this artifact — two independent read-only vector-index
+    # queries, neither depending on the other's result, issued concurrently (H-3).
     try:
-        referrers = find_referrers(vectors=vectors, settings=settings, artifact_id=artifact_id)
-    except CredentialError as exc:
-        return credential_error_response(exc)
-
-    # ── Step 5: Find all vector keys for this artifact ────────────────────────
-    try:
-        vec_keys = vectors.list_vectors_by_metadata({"artifact_id": {"$eq": artifact_id}})
+        referrers, vec_keys = await asyncio.gather(
+            asyncio.to_thread(
+                find_referrers, vectors=vectors, settings=settings, artifact_id=artifact_id
+            ),
+            asyncio.to_thread(
+                vectors.list_vectors_by_metadata, {"artifact_id": {"$eq": artifact_id}}
+            ),
+        )
     except CredentialError as exc:
         return credential_error_response(exc)
 

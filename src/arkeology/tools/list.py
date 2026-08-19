@@ -24,6 +24,7 @@ from arkeology.tools._errors import credential_error_response
 from arkeology.tools._reference_filter import resolve_readable_targets
 from arkeology.tools._scope import is_cross_scope_readable, is_own_scope
 from arkeology.tools._search_helper import (
+    build_artifact_summary,
     build_scope_filter,
     build_user_filters,
     coerce_list_field,
@@ -239,28 +240,11 @@ async def _list_artifacts_inner(
         commit_refs_val, references_val = link_fields_by_id[artifact_id]
         if not is_own:
             references_val = [r for r in references_val if r in readable_targets]
-        last_edited_ulid_val: str | None = meta.get("last_edited_ulid") or None
 
-        artifacts.append(
-            {
-                "artifact_id": artifact_id,
-                "type": meta.get("type"),
-                "team": meta.get("team"),
-                "project": meta.get("project"),
-                "tier": int(meta.get("tier", 0)),
-                "date": meta.get("date"),
-                "status": meta.get("status"),
-                "title": meta.get("title"),
-                "visibility": meta.get("visibility"),
-                "tags": tags_val,
-                "author_role": meta.get("author_role") or None,
-                "description": meta.get("description"),
-                "source_artifacts": source_artifacts_val,
-                "commit_refs": commit_refs_val,
-                "references": references_val,
-                "last_edited_ulid": last_edited_ulid_val,
-            }
-        )
+        summary = build_artifact_summary(meta, artifact_id, tags_val, source_artifacts_val)
+        summary["commit_refs"] = commit_refs_val
+        summary["references"] = references_val
+        artifacts.append(summary)
 
     logger.info("list_artifacts returned %d artifacts", len(artifacts))
     return {"artifacts": artifacts}

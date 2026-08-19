@@ -14,8 +14,6 @@ import asyncio
 import logging
 from typing import Any
 
-from ulid import ULID
-
 from arkeology.annotations import read_current_link_fields
 from arkeology.clients.interfaces import (
     BedrockClientInterface,
@@ -26,7 +24,7 @@ from arkeology.config import Settings
 from arkeology.constants import ErrorCode
 from arkeology.errors import CredentialError
 from arkeology.tools._errors import credential_error_response
-from arkeology.tools._search_helper import fetch_vectors_by_metadata
+from arkeology.tools._search_helper import derive_last_edited_at, fetch_vectors_by_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -174,15 +172,7 @@ async def _propose_commit_links_inner(
             continue
 
         last_edited_ulid: str | None = meta.get("last_edited_ulid") or None
-        last_edited_at: str | None = None
-        if last_edited_ulid:
-            try:
-                last_edited_at = ULID.from_str(last_edited_ulid).datetime.isoformat()
-            except Exception:
-                logger.warning(
-                    "Malformed last_edited_ulid %r — timestamp will be null", last_edited_ulid
-                )
-                last_edited_at = None
+        last_edited_at = derive_last_edited_at(last_edited_ulid)
 
         candidates.append(
             {
