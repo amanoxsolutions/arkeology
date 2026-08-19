@@ -11,7 +11,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from arkeology.annotations import read_current_link_fields
+from arkeology.annotations import CAS_MAX_ATTEMPTS, read_current_link_fields
 from arkeology.artifact import check_metadata_budgets, decode_metadata_value
 from arkeology.clients.interfaces import (
     BedrockClientInterface,
@@ -177,6 +177,65 @@ def _reindex_artifact(
     return len(new_keys)
 
 
+async def _fetch_and_reindex(
+    artifact_id: str,
+    raw_meta: dict[str, Any],
+    source: str,
+    settings: Settings,
+    s3: S3ClientInterface,
+    vectors: VectorsClientInterface,
+    bedrock: BedrockClientInterface,
+) -> dict[str, Any]:
+    """Fetch an artifact's content and re-index it into the vector store.
+
+    Shared by Phase 1 (failure-log replay) and Phase 2 (orphan scan), both of which
+    already have ``raw_meta`` fetched via ``head_object`` before calling this helper —
+    it never re-fetches it. Exceptions from ``get_object`` or ``_reindex_artifact``
+    (including ``CredentialError``) propagate unchanged to the caller: this helper only
+    fetches and re-indexes, it never classifies a failure — Phase 1 keeps its
+    ``reconcile_attempts``/``stuck_failures`` routing and Phase 2 keeps its existing
+    generic ``failed`` handling, both in their own call sites.
+
+    Args:
+        artifact_id: Full S3 key of the artifact.
+        raw_meta: Metadata dict already fetched by the caller via ``head_object``.
+        source: Label recorded on the returned entry — ``"failure_log"`` or
+            ``"orphan_scan"``.
+        settings: Server configuration.
+        s3: S3 client.
+        vectors: Vectors client.
+        bedrock: Bedrock client for embedding.
+
+    Returns:
+        The ``reconciled``-list entry: ``{"artifact_id", "title", "sections_indexed",
+        "source"}``.
+
+    Raises:
+        CredentialError: Propagated unchanged from ``get_object`` or
+            ``_reindex_artifact``.
+    """
+    # Off the event loop — both the S3 read and _reindex_artifact (which embeds via
+    # bedrock.embed, including its blocking retry sleep, and writes vectors) are
+    # blocking; run each via asyncio.to_thread.
+    content = await asyncio.to_thread(s3.get_object, artifact_id)
+    n = await asyncio.to_thread(
+        _reindex_artifact,
+        artifact_id,
+        content,
+        raw_meta,
+        settings,
+        s3,
+        vectors,
+        bedrock,
+    )
+    return {
+        "artifact_id": artifact_id,
+        "title": decode_metadata_value(raw_meta.get("title", "")),
+        "sections_indexed": n,
+        "source": source,
+    }
+
+
 async def reconcile_index(
     *,
     settings: Settings,
@@ -196,7 +255,10 @@ async def reconcile_index(
         On success: dict with keys ``reconciled``, ``failed``,
             ``failure_log_entries_before``, ``failure_log_entries_after``,
             ``orphans_found``, ``total_reconciled``, ``dangling_artifacts_found``,
-            ``dangling_vectors_pruned``, ``dangling_artifacts``.
+            ``dangling_vectors_pruned``, ``dangling_artifacts``, and, only when
+            non-empty, ``stuck_failures`` — failure-log entries whose
+            ``reconcile_attempts`` has reached ``CAS_MAX_ATTEMPTS`` and are no longer
+            auto-retried.
         On error: ``{"error": "credential_error" | "internal_error", "message": str(exc)}``.
     """
     try:
@@ -224,12 +286,16 @@ async def _reconcile_index_inner(
         On success: dict with keys ``reconciled``, ``failed``,
             ``failure_log_entries_before``, ``failure_log_entries_after``,
             ``orphans_found``, ``total_reconciled``, ``dangling_artifacts_found``,
-            ``dangling_vectors_pruned``, ``dangling_artifacts``.
+            ``dangling_vectors_pruned``, ``dangling_artifacts``, and, only when
+            non-empty, ``stuck_failures`` — failure-log entries whose
+            ``reconcile_attempts`` has reached ``CAS_MAX_ATTEMPTS`` and are no longer
+            auto-retried.
         On error: ``{"error": "credential_error" | "internal_error", "message": str(exc)}``.
     """
     reconciled: list[dict[str, Any]] = []
     failed: list[dict[str, Any]] = []
     failed_ids: set[str] = set()
+    stuck_failures: list[dict[str, Any]] = []
 
     # ── Phase 1: Failure log replay ───────────────────────────────────────────
     log_path: Path = settings.failure_log_path
@@ -267,6 +333,23 @@ async def _reconcile_index_inner(
             if not artifact_id.startswith(settings.write_prefix + "/"):
                 logger.warning("Skipping out-of-scope failure log entry: %s", artifact_id)
                 continue
+
+            # Bounded retry (T62): an entry that has already failed to replay
+            # CAS_MAX_ATTEMPTS times is never attempted again — it is reported once,
+            # loudly, in stuck_failures instead of blending indistinguishably into
+            # failed. Its counter does not grow further while stuck.
+            prior_attempts = entry.get("reconcile_attempts", 0)
+            if prior_attempts >= CAS_MAX_ATTEMPTS:
+                stuck_failures.append(
+                    {
+                        "artifact_id": artifact_id,
+                        "reason": entry.get("reason", ""),
+                        "reconcile_attempts": prior_attempts,
+                    }
+                )
+                failed_ids.add(artifact_id)
+                continue
+
             try:
                 # Off the event loop — blocking boto3 call.
                 raw_meta = await asyncio.to_thread(s3.head_object, artifact_id)
@@ -282,34 +365,26 @@ async def _reconcile_index_inner(
                 continue
 
             try:
-                # Off the event loop — both the S3 read and _reindex_artifact
-                # (which embeds via bedrock.embed, including its blocking retry sleep,
-                # and writes vectors) are blocking; run each via asyncio.to_thread.
-                content = await asyncio.to_thread(s3.get_object, artifact_id)
-                n = await asyncio.to_thread(
-                    _reindex_artifact,
-                    artifact_id,
-                    content,
-                    raw_meta,
-                    settings,
-                    s3,
-                    vectors,
-                    bedrock,
+                reconciled_entry = await _fetch_and_reindex(
+                    artifact_id, raw_meta, "failure_log", settings, s3, vectors, bedrock
                 )
-                reconciled.append(
-                    {
-                        "artifact_id": artifact_id,
-                        "title": decode_metadata_value(raw_meta.get("title", "")),
-                        "sections_indexed": n,
-                        "source": "failure_log",
-                    }
-                )
+                reconciled.append(reconciled_entry)
                 resolved_ids.add(artifact_id)
             except CredentialError as exc:
                 return credential_error_response(exc)
             except Exception as exc:
-                failed.append({"artifact_id": artifact_id, "reason": str(exc)})
+                entry["reconcile_attempts"] = prior_attempts + 1
                 failed_ids.add(artifact_id)
+                if entry["reconcile_attempts"] >= CAS_MAX_ATTEMPTS:
+                    stuck_failures.append(
+                        {
+                            "artifact_id": artifact_id,
+                            "reason": str(exc),
+                            "reconcile_attempts": entry["reconcile_attempts"],
+                        }
+                    )
+                else:
+                    failed.append({"artifact_id": artifact_id, "reason": str(exc)})
 
         # Rewrite the failure log — retain only entries whose artifact_id was NOT resolved.
         remaining_entries = [e for e in entries if e.get("artifact_id", "") not in resolved_ids]
@@ -354,26 +429,11 @@ async def _reconcile_index_inner(
     for orphan_key in orphans:
         try:
             # Off the event loop — see the equivalent failure-log-replay comment above.
-            content = await asyncio.to_thread(s3.get_object, orphan_key)
             raw_meta = await asyncio.to_thread(s3.head_object, orphan_key)
-            n = await asyncio.to_thread(
-                _reindex_artifact,
-                orphan_key,
-                content,
-                raw_meta,
-                settings,
-                s3,
-                vectors,
-                bedrock,
+            reconciled_entry = await _fetch_and_reindex(
+                orphan_key, raw_meta, "orphan_scan", settings, s3, vectors, bedrock
             )
-            reconciled.append(
-                {
-                    "artifact_id": orphan_key,
-                    "title": decode_metadata_value(raw_meta.get("title", "")),
-                    "sections_indexed": n,
-                    "source": "orphan_scan",
-                }
-            )
+            reconciled.append(reconciled_entry)
         except CredentialError as exc:
             return credential_error_response(exc)
         except Exception as exc:
@@ -418,13 +478,14 @@ async def _reconcile_index_inner(
             failed.append({"artifact_id": dangling_id, "reason": str(exc)})
 
     logger.info(
-        "reconcile_index complete: reconciled=%d failed=%d orphans=%d dangling=%d",
+        "reconcile_index complete: reconciled=%d failed=%d stuck=%d orphans=%d dangling=%d",
         len(reconciled),
         len(failed),
+        len(stuck_failures),
         orphans_found,
         dangling_artifacts_found,
     )
-    return {
+    response: dict[str, Any] = {
         "reconciled": reconciled,
         "failed": failed,
         "failure_log_entries_before": failure_log_entries_before,
@@ -435,3 +496,6 @@ async def _reconcile_index_inner(
         "dangling_vectors_pruned": dangling_vectors_pruned,
         "dangling_artifacts": dangling_artifacts,
     }
+    if stuck_failures:
+        response["stuck_failures"] = stuck_failures
+    return response
