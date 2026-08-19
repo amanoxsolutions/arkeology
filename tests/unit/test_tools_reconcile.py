@@ -14,6 +14,7 @@ import pytest
 from pytest_mock import MockerFixture
 
 from arkeology.annotations import apply_link_annotations
+from arkeology.artifact import VECTOR_FILTERABLE_METADATA_MAX_BYTES
 from arkeology.clients.fakes.fake_bedrock import FakeBedrockClient
 from arkeology.clients.s3 import S3ClientImpl
 from arkeology.clients.vectors import VectorsClientImpl
@@ -1761,3 +1762,92 @@ async def test_reconcile_dangling_prune_calls_run_off_event_loop(
     assert all(t is not main_thread for t in seen_threads), (
         "Dangling-prune calls ran on the event-loop thread — they must be offloaded"
     )
+
+
+# ---------------------------------------------------------------------------
+# T57 — check_metadata_budgets guard coverage in reconcile.py's _reindex_artifact
+# (docs/specs/p12-t57-guard-coverage.md, Story 2). An artifact whose rebuilt
+# vector_metadata (including commit_refs/references restored from
+# read_current_link_fields) would breach a metadata size budget must be rejected
+# BEFORE any put_vector call, and reported in `failed` rather than crashing or
+# silently succeeding.
+# ---------------------------------------------------------------------------
+
+_HUGE_COMMIT_REF = "a" * (VECTOR_FILTERABLE_METADATA_MAX_BYTES + 200)
+
+
+async def test_failure_log_entry_oversize_link_fields_rejected_reported_in_failed(
+    reconcile_settings: Settings,
+    s3_reconcile: S3ClientImpl,
+    vectors_reconcile: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """A failure-log-replayed artifact whose durable commit_refs annotation is oversize
+    breaches the vector filterable-metadata budget once rebuilt into vector_metadata —
+    _reindex_artifact raises MetadataTooLargeError, reconcile_index reports it in
+    `failed` (not a crash), makes zero put_vector calls for that artifact, and a
+    normal artifact in the same run still reconciles successfully."""
+    oversize_id = "artifacts/implementation-note-2026-01-01-oversize"
+    normal_id = "artifacts/implementation-note-2026-01-01-normal"
+    s3_reconcile.put_object(oversize_id, _CONTENT_NO_SECTIONS, {**_BASE_S3_META})
+    s3_reconcile.put_object(normal_id, _CONTENT_NO_SECTIONS, {**_BASE_S3_META})
+    apply_link_annotations(s3_reconcile, oversize_id, commit_refs=[_HUGE_COMMIT_REF], references=[])
+    bedrock = FakeBedrockClient(dimension=DIMENSION)
+    put_vector_spy = mocker.spy(vectors_reconcile, "put_vector")
+
+    _write_failure_log(
+        reconcile_settings.failure_log_path,
+        [
+            {**_BASE_LOG_ENTRY, "artifact_id": oversize_id},
+            {**_BASE_LOG_ENTRY, "artifact_id": normal_id},
+        ],
+    )
+
+    result = await reconcile_index(
+        settings=reconcile_settings,
+        s3=s3_reconcile,
+        vectors=vectors_reconcile,
+        bedrock=bedrock,
+    )
+
+    assert "error" not in result
+    failed_ids = [e["artifact_id"] for e in result["failed"]]
+    assert oversize_id in failed_ids
+    reconciled_ids = [e["artifact_id"] for e in result["reconciled"]]
+    assert normal_id in reconciled_ids
+    assert oversize_id not in reconciled_ids
+    assert all(call.args[0] != oversize_id for call in put_vector_spy.call_args_list)
+
+
+async def test_orphan_scan_oversize_link_fields_rejected_reported_in_failed(
+    reconcile_settings: Settings,
+    s3_reconcile: S3ClientImpl,
+    vectors_reconcile: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """An orphan-scan-discovered artifact (indexed nowhere, so picked up by Phase 2)
+    whose durable references annotation is oversize is rejected identically to the
+    failure-log-replay path — both share _reindex_artifact — reported in `failed`,
+    zero put_vector calls, a normal orphan in the same run still reconciles."""
+    oversize_id = "artifacts/implementation-note-2026-01-01-orphan-oversize"
+    normal_id = "artifacts/implementation-note-2026-01-01-orphan-normal"
+    s3_reconcile.put_object(oversize_id, _CONTENT_NO_SECTIONS, {**_BASE_S3_META})
+    s3_reconcile.put_object(normal_id, _CONTENT_NO_SECTIONS, {**_BASE_S3_META})
+    apply_link_annotations(s3_reconcile, oversize_id, commit_refs=[], references=[_HUGE_COMMIT_REF])
+    bedrock = FakeBedrockClient(dimension=DIMENSION)
+    put_vector_spy = mocker.spy(vectors_reconcile, "put_vector")
+
+    result = await reconcile_index(
+        settings=reconcile_settings,
+        s3=s3_reconcile,
+        vectors=vectors_reconcile,
+        bedrock=bedrock,
+    )
+
+    assert "error" not in result
+    failed_ids = [e["artifact_id"] for e in result["failed"]]
+    assert oversize_id in failed_ids
+    reconciled_ids = [e["artifact_id"] for e in result["reconciled"]]
+    assert normal_id in reconciled_ids
+    assert oversize_id not in reconciled_ids
+    assert all(call.args[0] != oversize_id for call in put_vector_spy.call_args_list)

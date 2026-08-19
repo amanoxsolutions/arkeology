@@ -33,6 +33,7 @@ from arkeology.annotations import (
     apply_link_annotations,
     read_current_link_fields,
 )
+from arkeology.artifact import Artifact, check_metadata_budgets
 from arkeology.clients.interfaces import (
     BedrockClientInterface,
     S3ClientInterface,
@@ -40,7 +41,12 @@ from arkeology.clients.interfaces import (
 )
 from arkeology.config import Settings
 from arkeology.constants import ErrorCode
-from arkeology.errors import AnnotationUnavailableError, ArtifactConflictError, CredentialError
+from arkeology.errors import (
+    AnnotationUnavailableError,
+    ArtifactConflictError,
+    CredentialError,
+    MetadataTooLargeError,
+)
 from arkeology.tools._errors import credential_error_response
 
 logger = logging.getLogger(__name__)
@@ -52,16 +58,19 @@ def _apply_link_metadata_with_cas(
     artifact_id: str,
     supplied_commit_refs: list[str],
     supplied_references: list[str],
+    existing_vector_metadata: dict[str, Any],
 ) -> tuple[list[str], list[str]]:
     """Apply the CAS-guarded annotation dual-write for one artifact_id (ADR-011
     decision 6): capture the object's current ETag, read-forward + merge the current
-    link-field state (union of both durable stores), and write the merged annotations
+    link-field state (union of both durable stores), check the merged state against
+    the write-path metadata size budgets (T57), and write the merged annotations
     conditionally on that ETag. On a detected concurrent change (``ArtifactConflictError``
     from the annotation write — a content-changing operation, e.g. an overwriting
     ``write_artifact`` call, changed the object between this call's read and its
     annotation write), re-read and retry the whole cycle for up to ``CAS_MAX_ATTEMPTS``
     attempts, re-merging this call's *original* supplied values into the fresh state each
-    time (never a previous attempt's already-merged output).
+    time (never a previous attempt's already-merged output) — the budget check re-runs
+    against the freshly merged state on every attempt.
 
     Accepted residual (ADR-011 decision 6): two concurrent calls touching the *same*
     field are not detected, because annotation writes are deliberately ETag-stable
@@ -73,6 +82,11 @@ def _apply_link_metadata_with_cas(
         artifact_id: The artifact's S3 key.
         supplied_commit_refs: This call's supplied commit_refs values (merged in).
         supplied_references: This call's supplied references values (merged in).
+        existing_vector_metadata: The currently indexed vector metadata for one
+            representative vector of this artifact — all of an artifact's vectors
+            carry identical metadata content apart from the vector key, so any one
+            is an accurate base for the candidate budget check. Already fetched by
+            the caller (``vectors.get_vectors``); no new vector fetch is introduced.
 
     Returns:
         The merged ``(commit_refs, references)`` actually written to the durable
@@ -83,6 +97,9 @@ def _apply_link_metadata_with_cas(
             conditional write.
         AnnotationUnavailableError: As raised by the underlying annotation write.
         CredentialError: If credentials are invalid or expired.
+        MetadataTooLargeError: If the merged commit_refs/references would breach any
+            of the three metadata size budgets — raised BEFORE the annotation write,
+            so nothing is left durably half-written (T57).
     """
     current_etag = s3.head_object(artifact_id).get("ETag")
     for attempt in range(CAS_MAX_ATTEMPTS):
@@ -94,6 +111,17 @@ def _apply_link_metadata_with_cas(
         )
         merged_commit_refs = _merge_link_field(existing_commit_refs, supplied_commit_refs)
         merged_references = _merge_link_field(existing_references, supplied_references)
+
+        candidate_metadata: dict[str, Any] = dict(existing_vector_metadata)
+        if merged_commit_refs:
+            candidate_metadata["commit_refs"] = merged_commit_refs
+        else:
+            candidate_metadata.pop("commit_refs", None)
+        if merged_references:
+            candidate_metadata["references"] = merged_references
+        else:
+            candidate_metadata.pop("references", None)
+        check_metadata_budgets(s3_metadata={}, vector_metadata=candidate_metadata)
 
         try:
             apply_link_annotations(
@@ -111,25 +139,37 @@ def _apply_link_metadata_with_cas(
 
 
 def _validate_supplied_link_values(values: list[str], field: str) -> str | None:
-    """Reject empty/whitespace-only/comma-bearing elements in a supplied link-field
-    list, matching the same per-element constraints ``Artifact.validate_commit_refs``
-    / ``validate_references`` enforce on write — a value link_metadata accepted here
-    but the Artifact model would later reject would desync the annotation and vector
-    stores or silently corrupt the comma-joined annotation payload.
+    """Reject empty/whitespace-only elements, then delegate the control-character and
+    comma checks to ``Artifact.validate_commit_refs`` / ``validate_references`` — the
+    same per-element constraints the Artifact model enforces on every other write
+    path (T57). Delegating directly, rather than re-implementing
+    ``_require_no_control_chars``/``_require_no_comma`` a second time, closes the
+    exact drift risk a hand-rolled parallel implementation carries: this function
+    previously never checked for control characters, letting one bypass the Artifact
+    model's invariant entirely via link_metadata.
 
     Args:
         values: The supplied ``commit_refs`` or ``references`` list for this call.
-        field: The field name, used only for the returned message.
+        field: The field being checked — ``"commit_refs"`` or ``"references"``,
+            selects which Artifact classmethod to delegate to and is used in the
+            empty/whitespace-only message.
 
     Returns:
-        A validation-error message if any element is empty, whitespace-only, or
-        contains a comma; ``None`` when every element is acceptable.
+        A validation-error message if any element is empty, whitespace-only,
+        contains a control character, or contains a comma; ``None`` when every
+        element is acceptable.
     """
     for item in values:
         if not item.strip():
             return f"{field} elements must not be empty or whitespace-only, found {item!r}"
-        if "," in item:
-            return f"{field} elements must not contain a comma, found {item!r}"
+
+    validator = (
+        Artifact.validate_commit_refs if field == "commit_refs" else Artifact.validate_references
+    )
+    try:
+        validator(values)
+    except ValueError as exc:
+        return str(exc)
     return None
 
 
@@ -280,7 +320,12 @@ async def _link_metadata_inner(
             # cycle, re-merging this call's *original* supplied values into the fresh
             # state — never a previous attempt's already-merged output.
             merged_commit_refs, merged_references = _apply_link_metadata_with_cas(
-                s3, vectors, artifact_id, supplied_commit_refs, supplied_references
+                s3,
+                vectors,
+                artifact_id,
+                supplied_commit_refs,
+                supplied_references,
+                items[0]["metadata"],
             )
 
             # ── Vector metadata write SECOND, reusing existing embeddings ─────
@@ -337,6 +382,19 @@ async def _link_metadata_inner(
                 error_response["linked"] = linked
                 error_response["skipped"] = skipped
             return error_response
+        except MetadataTooLargeError as exc:
+            # T57: the merged commit_refs/references would breach a metadata size
+            # budget — rejected before the annotation write, so nothing durable is
+            # left half-written. Same partial-progress convention as
+            # AnnotationUnavailableError above: linked/skipped only when non-zero.
+            budget_error_response: dict[str, Any] = {
+                "error": ErrorCode.VALIDATION_ERROR,
+                "message": str(exc),
+            }
+            if linked or skipped:
+                budget_error_response["linked"] = linked
+                budget_error_response["skipped"] = skipped
+            return budget_error_response
         except ArtifactConflictError as exc:
             # ADR-011 decision 6: the bounded CAS retry cycle in
             # _apply_link_metadata_with_cas was exhausted without a successful

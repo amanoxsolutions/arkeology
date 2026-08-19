@@ -239,3 +239,62 @@ async def test_link_metadata_foreign_scope_artifact_is_skipped(
 
     assert result["linked"] == 0
     assert result["skipped"] == 1
+
+
+@pytest.mark.integration
+async def test_link_metadata_oversize_merge_rejected_no_annotation_or_vector_write(
+    settings: Settings,
+    s3: S3ClientImpl,
+    vectors: VectorsClientImpl,
+    bedrock: BedrockClientImpl,
+) -> None:
+    """A supplied commit_refs value that breaches the real vector filterable-metadata
+    budget (T57, ADR vector-metadata-budget-hardening-and-self-heal) is rejected with
+    validation_error, and neither the durable S3 annotation nor the vector index is
+    touched — real-AWS confirmation that check_metadata_budgets runs before either
+    write on this path, not just against moto's approximation."""
+    artifact_id: str = ""
+    try:
+        write_result = await write_artifact(
+            s3=s3,
+            vectors=vectors,
+            bedrock=bedrock,
+            settings=settings,
+            title="link_metadata integration oversize rejection",
+            description="Artifact for link_metadata oversize-rejection integration test.",
+            content="## Summary\n\nContent that must never be linked with an oversize ref.",
+            **_BASE_KWARGS,
+        )
+        artifact_id = write_result["artifact_id"]
+
+        huge_ref = "a" * 3000  # comfortably past VECTOR_FILTERABLE_METADATA_MAX_BYTES (2048)
+
+        result = await link_metadata(
+            settings=settings,
+            s3=s3,
+            vectors=vectors,
+            artifact_ids=[artifact_id],
+            commit_refs=[huge_ref],
+        )
+
+        assert result.get("error") == "validation_error"
+
+        with pytest.raises(KeyError):
+            s3.get_object_annotation(artifact_id, "commit_refs")
+
+        vector_entries = vectors.get_vectors(
+            vectors.list_vectors_by_metadata({"artifact_id": {"$eq": artifact_id}})
+        )
+        assert vector_entries
+        for entry in vector_entries:
+            assert "commit_refs" not in entry["metadata"]
+    finally:
+        if artifact_id:
+            await delete_artifact(
+                settings=settings,
+                s3=s3,
+                vectors=vectors,
+                bedrock=bedrock,
+                artifact_id=artifact_id,
+                confirm=True,
+            )
