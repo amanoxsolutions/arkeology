@@ -548,6 +548,8 @@ This is exactly `coerce_list_field(meta, "commit_refs")`. One-line fix.
 
 Confidence: confirmed.
 
+**[2026-08-19 — ✅ RESOLVED (byproduct, not explicitly targeted).** `propose_commit_links.py`'s `raw_commit_refs = meta.get("commit_refs")` inline-coercion block no longer exists — T58 (`docs/specs/p12-t58-commit-refs-cap-references-removal.md`) rewrote this function to source `commit_refs` via `annotations.read_current_link_fields` instead (closing I-2), which removed the reimplemented `coerce_list_field` logic entirely as a side effect.]
+
 **G-3 — `artifact_concurrency` clamp logic + constants duplicated verbatim across two files.**
 
 `_ARTIFACT_CONCURRENCY_DEFAULT = 3` / `_ARTIFACT_CONCURRENCY_MAX = 15` and
@@ -919,9 +921,9 @@ helpers (`coerce_list_field`, `credential_error_response`, the boto3
 CAS retry skeletons) plus one concrete efficiency win applicable in five
 files (H-1: bounded-concurrency batch processing, already proven out in
 `write_artifacts.py`). **F-1, F-3, H-1, and H-2 are now resolved (Phase 12
-T62/T63)** — see the inline notes above; **9 remain open** (F-2, F-4
-through F-7, G-1 through G-3, H-3), none describing currently-broken
-behavior.
+T62/T63)**, and **G-2 is resolved as a T58 byproduct** — see the inline
+notes above; **8 remain open** (F-2, F-4 through F-7, G-1, G-3, H-3), none
+describing currently-broken behavior.
 
 No violations of AGENTS.md's explicit, checkable rules (stdout printing,
 bare `startswith(scope)`, `filter=` shadowing, UUID/random keys,
