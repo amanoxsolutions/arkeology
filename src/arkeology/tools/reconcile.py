@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from arkeology.annotations import read_current_link_fields
-from arkeology.artifact import decode_metadata_value
+from arkeology.artifact import check_metadata_budgets, decode_metadata_value
 from arkeology.clients.interfaces import (
     BedrockClientInterface,
     S3ClientInterface,
@@ -79,6 +79,9 @@ def _reindex_artifact(
             invalid credentials — propagated to the caller rather than swallowed,
             aborting the reconcile run with a structured credential error instead of
             silently continuing without link fields.
+        MetadataTooLargeError: If the rebuilt vector_metadata breaches any of the
+            three metadata size budgets (T57) — propagated to the caller, which
+            reports it as a structured `failed` entry rather than crashing.
     """
     # Decode transport-encoded S3 user-metadata values (see
     # arkeology.artifact.encode_metadata_value) so a non-ASCII title (and any other
@@ -118,6 +121,17 @@ def _reindex_artifact(
         vector_metadata["commit_refs"] = commit_refs_list
     if references_list:
         vector_metadata["references"] = references_list
+
+    # T57: reject a rebuilt vector_metadata that would breach a metadata size budget
+    # BEFORE any embed/put_vector call — otherwise an artifact stuck by an oversize
+    # commit_refs/references payload (see the T57 spec's Problem Statement) would
+    # never be self-healed by reconcile: it would re-derive the identical oversize
+    # payload and fail identically on every replay. s3_metadata={} — this function
+    # writes no S3 user-defined object metadata, so there is nothing to measure there.
+    # Propagates MetadataTooLargeError to the caller unchanged; both call sites
+    # (failure-log replay and orphan scan) already convert any exception raised here
+    # into a structured `failed` entry via their generic except Exception handling.
+    check_metadata_budgets(s3_metadata={}, vector_metadata=vector_metadata)
 
     # Use the same shared pipeline write_artifact uses — min-length filtering,
     # max-sections capping, and per-section truncation — so a section that write-time

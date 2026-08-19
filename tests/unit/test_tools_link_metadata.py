@@ -12,6 +12,7 @@ from typing import Any
 import pytest
 from pytest_mock import MockerFixture
 
+from arkeology.artifact import VECTOR_FILTERABLE_METADATA_MAX_BYTES
 from arkeology.clients.fakes.fake_bedrock import FakeBedrockClient
 from arkeology.clients.s3 import S3ClientImpl
 from arkeology.clients.vectors import VectorsClientImpl
@@ -1334,3 +1335,235 @@ async def test_link_metadata_orphaned_vector_missing_s3_object_skipped_not_abort
     assert result.get("error") is None
     assert result.get("linked") == 1
     assert result.get("skipped") == 1
+
+
+# ---------------------------------------------------------------------------
+# T57 — check_metadata_budgets guard coverage in link_metadata
+# (docs/specs/p12-t57-guard-coverage.md, Story 1). An oversize merged
+# commit_refs/references payload must be rejected BEFORE the annotation write —
+# not only before put_vectors_batch — so nothing is left durably half-written.
+# ---------------------------------------------------------------------------
+
+
+async def test_link_metadata_oversize_supplied_value_rejected_before_any_write(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """A single supplied commit_refs element that alone breaches the vector
+    filterable-metadata budget → validation_error, zero put_object_annotation calls,
+    zero put_vectors_batch calls."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient()
+    _seed_all(s3_client, vectors_client_2)
+
+    annotation_spy = mocker.spy(s3_client, "put_object_annotation")
+    batch_spy = mocker.spy(vectors_client_2, "put_vectors_batch")
+
+    huge_ref = "a" * (VECTOR_FILTERABLE_METADATA_MAX_BYTES + 200)
+
+    result = await link_metadata(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=bedrock,
+        artifact_ids=[ID_A],
+        commit_refs=[huge_ref],
+    )
+
+    assert result.get("error") == "validation_error"
+    assert annotation_spy.call_count == 0
+    assert batch_spy.call_count == 0
+
+
+async def test_link_metadata_oversize_only_after_merge_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """Supplied commit_refs alone would pass the budget check, but the merge with the
+    already-indexed existing commit_refs breaches it — the check measures the merged,
+    about-to-be-written state, not the caller's raw input, so this is still rejected
+    with zero writes."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient()
+    _seed_all(s3_client, vectors_client_2)
+
+    # Existing indexed commit_refs on artifact-own-A: large but individually under
+    # budget on its own.
+    existing_refs = [f"existing{i:04d}" + "x" * 40 for i in range(22)]
+    meta_a: dict[str, Any] = {
+        **_BASE_META,
+        "artifact_id": ID_A,
+        "title": "Artifact Own A",
+        "commit_refs": existing_refs,
+    }
+    vectors_client_2.put_vector(KEY_A1, _unit_vec(1.0), meta_a)
+    vectors_client_2.put_vector(KEY_A2, _unit_vec(1.1), meta_a)
+
+    # Supplied commit_refs — also individually under budget — but the union of both
+    # breaches VECTOR_FILTERABLE_METADATA_MAX_BYTES.
+    supplied_refs = [f"supplied{i:04d}" + "x" * 40 for i in range(22)]
+
+    annotation_spy = mocker.spy(s3_client, "put_object_annotation")
+    batch_spy = mocker.spy(vectors_client_2, "put_vectors_batch")
+
+    result = await link_metadata(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=bedrock,
+        artifact_ids=[ID_A],
+        commit_refs=supplied_refs,
+    )
+
+    assert result.get("error") == "validation_error"
+    assert annotation_spy.call_count == 0
+    assert batch_spy.call_count == 0
+
+
+async def test_link_metadata_cas_retry_re_checks_budget_on_every_attempt(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """A CAS conflict on the first attempt is caused by a concurrent writer that lands
+    an oversize commit_refs value in the annotation store. The first attempt's merge
+    (existing=[] + supplied=[small]) passes the budget check, but the retry's fresh
+    re-read + re-merge (existing=[huge] + supplied=[small]) breaches it — proving the
+    budget check re-runs on every CAS attempt, not only the first."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient()
+    _seed_all(s3_client, vectors_client_2)
+
+    huge_ref = "a" * (VECTOR_FILTERABLE_METADATA_MAX_BYTES + 200)
+    original_put_annotation = s3_client.put_object_annotation
+    call_count = {"n": 0}
+
+    def _concurrent_write_then_conflict(*args: object, **kwargs: object) -> None:
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            # A concurrent writer's own (already-durable) annotation write lands an
+            # oversize commit_refs value between this call's read and its own write.
+            original_put_annotation(ID_A, "commit_refs", huge_ref)
+            raise ArtifactConflictError(ID_A)
+        return original_put_annotation(*args, **kwargs)  # type: ignore[arg-type]
+
+    mocker.patch.object(
+        s3_client, "put_object_annotation", side_effect=_concurrent_write_then_conflict
+    )
+    batch_spy = mocker.spy(vectors_client_2, "put_vectors_batch")
+
+    result = await link_metadata(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=bedrock,
+        artifact_ids=[ID_A],
+        commit_refs=["small-sha"],
+    )
+
+    assert result.get("error") == "validation_error"
+    # Only the concurrent writer's own call (attempt 1's side effect) reached
+    # put_object_annotation — the retry's budget check rejected before its own
+    # apply_link_annotations call, so no second real annotation write happened.
+    assert call_count["n"] == 1
+    assert batch_spy.call_count == 0
+
+
+# ---------------------------------------------------------------------------
+# T57 — control-character validation delegated to Artifact.validate_commit_refs /
+# validate_references (docs/specs/p12-t57-guard-coverage.md, Story 3).
+# ---------------------------------------------------------------------------
+
+
+async def test_link_metadata_control_char_in_commit_ref_returns_validation_error(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """A supplied commit_refs element with a control character (no comma, not empty)
+    → validation_error, zero put_object_annotation, zero put_vectors_batch calls —
+    proves the delegated Artifact.validate_commit_refs call is exercised, not just the
+    pre-existing empty/whitespace/comma checks."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient()
+    _seed_all(s3_client, vectors_client_2)
+
+    annotation_spy = mocker.spy(s3_client, "put_object_annotation")
+    batch_spy = mocker.spy(vectors_client_2, "put_vectors_batch")
+
+    result = await link_metadata(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=bedrock,
+        artifact_ids=[ID_A],
+        commit_refs=["abc\x01def"],
+    )
+
+    assert result.get("error") == "validation_error"
+    assert annotation_spy.call_count == 0
+    assert batch_spy.call_count == 0
+
+
+async def test_link_metadata_control_char_in_reference_returns_validation_error(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """A supplied references element with a control character → validation_error, zero
+    writes (mirrors the commit_refs case for the references field)."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient()
+    _seed_all(s3_client, vectors_client_2)
+
+    annotation_spy = mocker.spy(s3_client, "put_object_annotation")
+    batch_spy = mocker.spy(vectors_client_2, "put_vectors_batch")
+
+    result = await link_metadata(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=bedrock,
+        artifact_ids=[ID_A],
+        references=["ref\x01erence"],
+    )
+
+    assert result.get("error") == "validation_error"
+    assert annotation_spy.call_count == 0
+    assert batch_spy.call_count == 0
+
+
+async def test_link_metadata_clean_value_still_succeeds_after_delegation_change(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+) -> None:
+    """Regression guard: a supplied value with no control character, no comma, and no
+    empty/whitespace-only content still succeeds unchanged after
+    _validate_supplied_link_values delegates to Artifact.validate_commit_refs /
+    validate_references."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient()
+    _seed_all(s3_client, vectors_client_2)
+
+    result = await link_metadata(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=bedrock,
+        artifact_ids=[ID_A],
+        commit_refs=["clean-sha"],
+        references=["clean-ref"],
+    )
+
+    assert result.get("error") is None
+    assert result.get("linked") == 1
+    assert s3_client.get_object_annotation(ID_A, "commit_refs") == "clean-sha"
+    assert s3_client.get_object_annotation(ID_A, "references") == "clean-ref"
