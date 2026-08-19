@@ -49,7 +49,7 @@ _ONE_SECTION_KWARGS: dict = {
 # ---------------------------------------------------------------------------
 #
 # Direct unit test for the newly extracted helper — mirrors _record_partial_write's
-# shared shape but for the CredentialError-after-S3-success case (five duplicated
+# shared shape but for the CredentialError-after-S3-success case (six duplicated
 # call sites collapsed into one-liners against this helper).
 
 
@@ -3346,7 +3346,7 @@ def test_embed_executor_has_adequate_max_workers() -> None:
     semaphore slots across all concurrent artifact writes can all run simultaneously.
     """
     import arkeology.tools.write as write_module
-    from arkeology.tools.write_artifacts import _ARTIFACT_CONCURRENCY_MAX
+    from arkeology.tools._concurrency import _ARTIFACT_CONCURRENCY_MAX
 
     expected_min = _ARTIFACT_CONCURRENCY_MAX * 5  # 5 = SECTION_CONCURRENCY default
     assert write_module._EMBED_EXECUTOR._max_workers >= expected_min

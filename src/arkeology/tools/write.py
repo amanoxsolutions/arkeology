@@ -67,7 +67,7 @@ _ORPHAN_DELETE_TRANSIENT_ERROR_CODES = frozenset(
 # serialise embed calls below the configured SECTION_CONCURRENCY when multiple
 # artifacts are written concurrently via write_artifacts.
 #
-# Sizing: artifact_concurrency_max (15, see write_artifacts._ARTIFACT_CONCURRENCY_MAX)
+# Sizing: artifact_concurrency_max (15, see _concurrency._ARTIFACT_CONCURRENCY_MAX)
 # × EMBED_MAX_SECTIONS default (20) = 300.  All embed calls in this module use
 # run_in_executor(_EMBED_EXECUTOR, ...) rather than asyncio.to_thread() so the
 # pool is not shared with other blocking work on the default executor.

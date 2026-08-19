@@ -4,6 +4,9 @@ Extracted (G-3, Task 68) from the byte-for-byte-identical clamp-with-warning
 logic previously duplicated in write_artifacts.py and migrate_artifacts.py.
 """
 
+_ARTIFACT_CONCURRENCY_DEFAULT: int = 3
+_ARTIFACT_CONCURRENCY_MAX: int = 15
+
 
 def _clamp_concurrency(value: int, default: int, max_: int) -> tuple[int, str | None]:
     """Clamp a caller-supplied ``artifact_concurrency`` value to ``[1, max_]``.

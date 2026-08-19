@@ -23,7 +23,11 @@ from arkeology.clients.interfaces import (
 )
 from arkeology.config import Settings
 from arkeology.constants import ArtifactStatus, ErrorCode
-from arkeology.tools._concurrency import _clamp_concurrency
+from arkeology.tools._concurrency import (
+    _ARTIFACT_CONCURRENCY_DEFAULT,
+    _ARTIFACT_CONCURRENCY_MAX,
+    _clamp_concurrency,
+)
 from arkeology.tools.write import _write_artifact_inner
 
 logger = logging.getLogger(__name__)
@@ -47,10 +51,6 @@ def _validate_descriptor(descriptor: dict[str, Any]) -> str | None:
         if field not in descriptor:
             return f"missing required field: {field}"
     return None
-
-
-_ARTIFACT_CONCURRENCY_DEFAULT: int = 3
-_ARTIFACT_CONCURRENCY_MAX: int = 15
 
 
 async def write_artifacts(

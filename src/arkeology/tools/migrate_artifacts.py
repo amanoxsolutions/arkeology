@@ -63,7 +63,11 @@ from arkeology.config import Settings
 from arkeology.constants import ErrorCode
 from arkeology.errors import CredentialError
 from arkeology.references import rewrite_content_references
-from arkeology.tools._concurrency import _clamp_concurrency
+from arkeology.tools._concurrency import (
+    _ARTIFACT_CONCURRENCY_DEFAULT,
+    _ARTIFACT_CONCURRENCY_MAX,
+    _clamp_concurrency,
+)
 from arkeology.tools.write_artifacts import write_artifacts as _write_artifacts
 
 logger = logging.getLogger(__name__)
@@ -83,8 +87,6 @@ _DESCRIPTION_PROMPT = (
 )
 
 _MAX_DESCRIPTION_LENGTH = 280
-_ARTIFACT_CONCURRENCY_DEFAULT: int = 3
-_ARTIFACT_CONCURRENCY_MAX: int = 15
 
 # Bound the artifact content interpolated into the Nova Lite prompt. A
 # single-sentence summary never needs the full body of a multi-thousand-line spec
