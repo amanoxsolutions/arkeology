@@ -1008,6 +1008,43 @@ async def test_non_credential_vector_delete_error_reports_failed(
 
 
 @pytest.mark.asyncio
+async def test_delete_failed_makes_all_fresh_false(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """A malformed synthesis whose vector deletion succeeds but whose S3 delete_object
+    fails (J-2) must yield all_fresh=False, even though malformed is empty and the
+    artifact is absent from malformed and present in delete_failed instead."""
+    settings = _make_settings(monkeypatch)
+    synth_id = "artifacts/synthesis-malformed-delete-failed-fresh-check"
+
+    s3_client.put_object(synth_id, "Malformed content.", {**_MALFORMED_S3_META})
+    vectors_client_8.put_vector(
+        f"{synth_id}#section", DUMMY_VEC, _synthesis_meta(synth_id, "2026-01-01", [])
+    )
+
+    mocker.patch.object(
+        s3_client,
+        "delete_object",
+        side_effect=RuntimeError("simulated S3 delete failure"),
+    )
+
+    result = await check_synthesis_freshness(
+        settings=settings, s3=s3_client, vectors=vectors_client_8, confirm=True
+    )
+
+    assert "error" not in result
+    assert synth_id in result["delete_failed"]
+    assert synth_id not in result["malformed"]
+    assert result["malformed"] == []
+    assert result["all_fresh"] is False, (
+        f"all_fresh must be False when delete_failed is non-empty: {result}"
+    )
+
+
+@pytest.mark.asyncio
 async def test_delete_failed_always_present_in_response(
     monkeypatch: pytest.MonkeyPatch,
     s3_client: S3ClientImpl,
