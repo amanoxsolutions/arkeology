@@ -4,8 +4,16 @@ Hard-deletes a single artifact (S3 object + all section vectors) from the
 deployment's own scope. Requires explicit confirm=True. Deletion ordering is
 vectors-first, S3-second to ensure worst-case partial failure leaves a
 recoverable S3 orphan rather than orphaned vectors. Before deleting, performs
-a unified own-scope referenced_by check (T50, ADR-012 D13) covering both
-source_artifacts and references — warn-but-don't-block, permanent-action phrasing.
+a unified own-scope referenced_by check (T50, ADR-012 D13) — warn-but-don't-block,
+permanent-action phrasing.
+
+As of T60, the referenced_by check covers `source_artifacts` only — `references` is
+NOT checked. T58 stopped writing `references` into S3 Vectors metadata, so the
+`references`-half of this check could no longer match anything; an unbounded
+full-corpus S3-annotation scan was evaluated as a substitute and rejected (ADR
+"vector-metadata-budget-hardening-and-self-heal" decision D6). An own-scope artifact
+that references the deleted artifact only via its `references` field will NOT appear
+in the warning.
 """
 
 import logging
@@ -48,6 +56,8 @@ async def delete_artifact(
         On success: ``{"artifact_id": str, "deleted": True}`` plus optional
             ``"warnings"`` (list of referring artifact ids) and ``"warning_message"``
             (stronger, permanent-action phrasing) if own-scope referrers were found.
+            As of T60, referrers are detected via ``source_artifacts`` only —
+            ``references``-based referrers are not detected (see module docstring).
         On error: ``{"error": str, "message": str}``
     """
     try:

@@ -357,21 +357,27 @@ async def test_delete_with_two_synthesis_references_warns_both(
 
 
 # ---------------------------------------------------------------------------
-# T50 — unified own-scope referenced_by check (references + source_artifacts)
+# T50 — unified own-scope referenced_by check (source_artifacts only, as of T60 —
+# see the T60 block below for why `references` was narrowed out)
 # ---------------------------------------------------------------------------
 
 
-async def test_delete_referenced_via_references_field_warns_via_server_side_eq(
+async def test_delete_referenced_via_references_field_no_longer_warns(
     monkeypatch: pytest.MonkeyPatch,
     s3_client: S3ClientImpl,
     vectors_client_2: VectorsClientImpl,
     mocker: MockerFixture,
 ) -> None:
-    """T referenced by another own-scope artifact's `references` field → warned,
-    resolved via a server-side $eq list-membership filter (spied)."""
+    """T60: an own-scope artifact referencing the delete target only via `references`
+    is NO LONGER reported in the warning — the `references`-half of the reverse-lookup
+    was narrowed out (T58 stopped writing `references` to vector metadata). The
+    `source_artifacts`-based mechanism (the pre-existing synthesis referrers seeded by
+    `_seed_all`) is unaffected, proving the two mechanisms are independent and only one
+    was narrowed."""
     settings = _make_settings(monkeypatch)
     _seed_all(s3_client, vectors_client_2)
-    # Own-scope referrer whose `references` field points at the delete target.
+    # Own-scope referrer whose `references` field points at the delete target — must
+    # NOT be found post-T60.
     s3_client.put_object(
         "artifacts/referrer-via-refs",
         _CONTENT,
@@ -400,18 +406,16 @@ async def test_delete_referenced_via_references_field_warns_via_server_side_eq(
 
     assert result.get("deleted") is True
     warnings = result.get("warnings", [])
-    assert "artifacts/referrer-via-refs" in warnings
+    assert "artifacts/referrer-via-refs" not in warnings
+    # source_artifacts-based referrers (seeded by _seed_all) are still found.
+    assert "artifacts/synthesis-one" in warnings
+    assert "artifacts/synthesis-two" in warnings
 
-    # At least one list_vectors_by_metadata call carried a server-side $eq on
-    # "references" for the target artifact_id.
-    eq_values = [
-        value
-        for call in spy_list.call_args_list
-        for value in _find_eq_clauses(
-            call.args[0] if call.args else call.kwargs["filter_expr"], "references"
-        )
-    ]
-    assert "artifacts/t2-active" in eq_values
+    # No list_vectors_by_metadata call ever carries a server-side $eq on "references" —
+    # REFERENCE_FIELDS no longer contains it.
+    for call in spy_list.call_args_list:
+        filter_expr = call.args[0] if call.args else call.kwargs["filter_expr"]
+        assert _find_eq_clauses(filter_expr, "references") == []
 
 
 async def test_delete_never_issues_server_side_eq_on_source_artifacts(
@@ -473,13 +477,21 @@ def test_find_referrers_issues_single_list_vectors_by_metadata_call(
     assert spy_list.call_count == 1
 
 
-async def test_delete_unions_and_dedupes_referrers_from_both_mechanisms(
+# ---------------------------------------------------------------------------
+# T60 — narrow the reverse-lookup warning to source_artifacts only
+# ---------------------------------------------------------------------------
+
+
+async def test_delete_source_artifacts_dedupe_unaffected_by_references_narrowing(
     monkeypatch: pytest.MonkeyPatch,
     s3_client: S3ClientImpl,
     vectors_client_2: VectorsClientImpl,
 ) -> None:
-    """T referenced via both `references` and `source_artifacts` (different
-    referrers) → all referrers appear, deduplicated."""
+    """T60: with `references` narrowed out, a `references`-only referrer never appears
+    in the warning, while the remaining `source_artifacts`-based referrers are still
+    found and still deduplicated (each appears exactly once, even with multiple
+    section vectors) — the narrowing removes one mechanism entirely rather than
+    degrading the one that remains."""
     settings = _make_settings(monkeypatch)
     _seed_all(s3_client, vectors_client_2)
     s3_client.put_object(
@@ -510,7 +522,7 @@ async def test_delete_unions_and_dedupes_referrers_from_both_mechanisms(
     warnings = result.get("warnings", [])
     assert "artifacts/synthesis-one" in warnings
     assert "artifacts/synthesis-two" in warnings
-    assert "artifacts/referrer-via-refs-2" in warnings
+    assert "artifacts/referrer-via-refs-2" not in warnings
     # Deduplicated — each referrer appears exactly once even though it may have
     # multiple section vectors.
     assert len(warnings) == len(set(warnings))

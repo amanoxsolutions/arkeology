@@ -26,6 +26,32 @@ def _make_settings(
     )
 
 
+def _find_eq_clauses(expr: Any, field: str) -> list[Any]:
+    """Recursively collect every ``{field: {"$eq": value}}`` clause's value in ``expr``.
+
+    Walks ``$and``/``$or`` lists and nested dicts so assertions can be made against
+    the exact filter shapes built by ``find_referrers`` without over-specifying
+    clause ordering. Mirrors the identical helper in ``test_tools_delete.py``.
+    """
+    found: list[Any] = []
+
+    def _walk(node: Any) -> None:
+        if not isinstance(node, dict):
+            return
+        clause = node.get(field)
+        if isinstance(clause, dict) and "$eq" in clause:
+            found.append(clause["$eq"])
+        for value in node.values():
+            if isinstance(value, list):
+                for item in value:
+                    _walk(item)
+            elif isinstance(value, dict):
+                _walk(value)
+
+    _walk(expr)
+    return found
+
+
 # ---------------------------------------------------------------------------
 # Seed helpers
 # ---------------------------------------------------------------------------
@@ -245,17 +271,23 @@ async def test_archive_doc_level_vector_updated(
 
 
 # ---------------------------------------------------------------------------
-# T50 — unified own-scope referenced_by check (references + source_artifacts)
+# T50 — unified own-scope referenced_by check (source_artifacts only, as of T60 —
+# see the T60 block below for why `references` was narrowed out)
 # ---------------------------------------------------------------------------
 
 
-async def test_archive_referenced_via_references_field_warns_informationally(
+async def test_archive_referenced_via_references_field_no_longer_warns(
     monkeypatch: pytest.MonkeyPatch,
     s3_client: S3ClientImpl,
     vectors_client_2: VectorsClientImpl,
+    mocker: MockerFixture,
 ) -> None:
-    """Archiving an artifact referenced via another own-scope artifact's `references`
-    field → archived AND response includes an informational warning listing it."""
+    """T60: an own-scope artifact referencing the archive target only via `references`
+    is NO LONGER reported in the warning — the `references`-half of the reverse-lookup
+    was narrowed out (T58 stopped writing `references` to vector metadata). A
+    `source_artifacts`-based referrer (an active synthesis) seeded in the same test run
+    is still found, proving the two mechanisms are independent and only one was
+    narrowed."""
     settings = _make_settings(monkeypatch)
     _seed_all(s3_client, vectors_client_2)
     s3_client.put_object(
@@ -274,6 +306,28 @@ async def test_archive_referenced_via_references_field_warns_informationally(
             "references": ["artifacts/active-review"],
         },
     )
+    s3_client.put_object(
+        "artifacts/synthesis-archived-refs-narrowing",
+        _CONTENT,
+        {
+            **_BASE_S3_META,
+            "type": "synthesis",
+            "source_artifacts": "artifacts/active-review",
+            "status": "active",
+        },
+    )
+    vectors_client_2.put_vector(
+        "artifacts/synthesis-archived-refs-narrowing#summary",
+        [0.6, 0.4],
+        {
+            **_BASE_VECTOR_META,
+            "artifact_id": "artifacts/synthesis-archived-refs-narrowing",
+            "type": "synthesis",
+            "source_artifacts": ["artifacts/active-review"],
+            "status": "active",
+        },
+    )
+    spy_list = mocker.spy(vectors_client_2, "list_vectors_by_metadata")
 
     result = await archive_artifact(
         settings=settings,
@@ -285,9 +339,16 @@ async def test_archive_referenced_via_references_field_warns_informationally(
 
     assert result["status"] == "inactive"
     warning = result.get("warning", [])
-    assert "artifacts/referrer-via-refs" in warning
+    assert "artifacts/referrer-via-refs" not in warning
+    assert "artifacts/synthesis-archived-refs-narrowing" in warning
     message = result.get("warning_message", "").lower()
     assert "revers" in message
+
+    # No list_vectors_by_metadata call ever carries a server-side $eq on "references" —
+    # REFERENCE_FIELDS no longer contains it.
+    for call in spy_list.call_args_list:
+        filter_expr = call.args[0] if call.args else call.kwargs["filter_expr"]
+        assert _find_eq_clauses(filter_expr, "references") == []
 
 
 async def test_archive_referenced_via_source_artifacts_warns(

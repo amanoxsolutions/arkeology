@@ -3,8 +3,15 @@
 Sets an artifact's status to "inactive" in both S3 object metadata and all
 corresponding vector metadata entries. Scoped to the deployment's own prefix.
 Before archiving, performs a unified own-scope referenced_by check (T50,
-ADR-012 D13) covering both source_artifacts and references — warn-but-don't-block,
-informational (reversible) phrasing.
+ADR-012 D13) — warn-but-don't-block, informational (reversible) phrasing.
+
+As of T60, the referenced_by check covers `source_artifacts` only — `references` is
+NOT checked. T58 stopped writing `references` into S3 Vectors metadata, so the
+`references`-half of this check could no longer match anything; an unbounded
+full-corpus S3-annotation scan was evaluated as a substitute and rejected (ADR
+"vector-metadata-budget-hardening-and-self-heal" decision D6). An own-scope artifact
+that references the archived artifact only via its `references` field will NOT
+appear in the warning.
 
 The status flip is an in-place S3 re-PUT, which clears the object's S3 annotations
 (ADR-011). This tool therefore reads the current
@@ -107,7 +114,8 @@ async def archive_artifact(
         On success: ``{"artifact_id": str, "status": "inactive"}`` plus optional
             ``"warning"`` (list of referring artifact ids) and ``"warning_message"``
             (informational, reversible-action phrasing) if own-scope referrers were
-            found.
+            found. As of T60, referrers are detected via ``source_artifacts`` only —
+            ``references``-based referrers are not detected (see module docstring).
         On error: ``{"error": str, "message": str}``
     """
     try:

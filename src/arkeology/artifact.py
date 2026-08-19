@@ -135,7 +135,17 @@ def cap_commit_refs_for_vectors(commit_refs: list[str]) -> list[str]:
 # archive_artifact (see find_referrers in tools/_search_helper.py). Never duplicate this
 # list elsewhere. The filterable/non-filterable branch of that check is driven by each
 # field's membership in NON_FILTERABLE_METADATA_KEYS above, not hardcoded per tool.
-REFERENCE_FIELDS: tuple[str, ...] = ("source_artifacts", "references")
+#
+# "references" was removed here (T60): T58 stopped writing "references" into S3 Vectors
+# metadata at all, so find_referrers' server-side $eq clause for it could never match
+# anything going forward — a silent, ever-growing gap rather than a bug that fails
+# loudly. The only remaining complete copy of "references" is the S3 annotation, and
+# scanning annotations across the whole own-scope corpus to answer "who references this
+# artifact?" would be an unbounded full-corpus scan, which this project's design
+# principles reject as a substitute (ADR "vector-metadata-budget-hardening-and-self-heal"
+# decision D6). Do not re-add "references" here without re-deriving that same trade-off;
+# delete_artifact's and archive_artifact's docstrings document the resulting gap.
+REFERENCE_FIELDS: tuple[str, ...] = ("source_artifacts",)
 
 # Printable ASCII characters (space through tilde) that pass through
 # encode_metadata_value() unchanged. '%' is excluded because it is the escape character
