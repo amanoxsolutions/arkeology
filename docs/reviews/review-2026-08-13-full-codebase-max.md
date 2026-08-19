@@ -418,6 +418,8 @@ read_prefixes) -> bool`) into a shared module, with `list.py`, `freshness.py`,
 Confidence: confirmed (verified all four sites independently implement the
 identical three-clause condition).
 
+**[2026-08-19 — ✅ RESOLVED.** Extracted into `is_cross_scope_readable(meta, artifact_id, own_scope, read_prefixes)` in the new `src/arkeology/tools/_scope.py`, used consistently by `read.py`, `list.py`, `freshness.py`, and `_reference_filter.py::resolve_readable_targets`. Phase 12 T63, `plan.md` now `✅`; landed alongside I-3 in the same task.]
+
 **F-2 — Hand-rolled boto3 `Error`/`Code` extraction repeated at 11 call sites across the client layer.**
 
 `code = exc.response.get("Error", {}).get("Code", "")` appears verbatim in
@@ -445,6 +447,8 @@ include_data=False)` helper alongside the existing `_search_helper.py`/
 `_reference_filter.py` module.
 
 Confidence: confirmed.
+
+**[2026-08-19 — ✅ RESOLVED.** Extracted into `fetch_vectors_by_metadata(vectors, filter_expr, *, include_data=False)` in `src/arkeology/tools/_search_helper.py`, used consistently across all ~10 call sites (`archive.py`, `list.py`, `purge.py`, `propose_commit_links.py`, `_reference_filter.py`, `freshness.py`, `find_referrers`), with the empty-`keys` short-circuit unified. Phase 12 T63, `plan.md` now `✅`. `write.py`'s one `list_vectors_by_metadata` call is list-then-*delete*, not list-then-get, so it's out of scope for this helper and was correctly left untouched.]
 
 **F-4 — Artifact "summary" response dict is built field-by-field, byte-for-byte identically, in both `list.py` and `search.py`.**
 
@@ -584,6 +588,8 @@ Confidence: plausible (mechanism confirmed at all cited line ranges; actual
 wall-clock benefit depends on typical batch sizes in production usage, which
 wasn't measured).
 
+**[2026-08-19 — ✅ RESOLVED.** `write_artifacts.py`'s `asyncio.Semaphore` + `asyncio.gather` pattern applied to `purge.py`, `freshness.py`, `migrate_artifacts.py` (Step 5), `reconcile.py` (all three phases), and `link_metadata.py`'s main loop. Phase 12 T63, `plan.md` now `✅`. Reviewed accepted trade-off, documented inline at each site: converting an abort-on-first-`CredentialError` sequential loop to bounded concurrency means the abort no longer stops at a deterministic prefix — low-risk, since the credential-error response never reported partial progress in either version and every completed item stays individually correct. `reconcile.py`'s call sites here are T62's already-restructured Phase 1/2/3 loops, not this finding's original (pre-T62) line ranges.]
+
 **H-2 — `reconcile.py`: duplicated fetch-and-reindex sequence between Phase 1 and Phase 2.**
 
 Phase 1 (`reconcile.py:270-292`) and Phase 2 (`340-362`) both do:
@@ -683,6 +689,8 @@ a scope-security decision.
 Confidence: plausible (real gap, but no current call site is actually
 wrong — the cost is entirely about the next one).
 
+**[2026-08-19 — ✅ RESOLVED.** Extracted into `is_own_scope(artifact_id, scope) -> bool` in the new `src/arkeology/tools/_scope.py`, used consistently across `delete.py`, `read.py`, `list.py`, `archive.py`, `link_metadata.py`, `purge.py`, and `reconcile.py`. New tests (`tests/unit/test_tools__scope.py`) explicitly pin the exact false-prefix-match case this finding names (`"team-a"` vs `"team-abc/..."`). Phase 12 T63, `plan.md` now `✅`; landed alongside F-1 in the same task.]
+
 **I-4 — `link_metadata.py` reimplements `Artifact.validate_commit_refs`/`validate_references`'s per-element constraint by hand instead of calling it, and the reimplementation has already drifted from the real rule: it never checks for control characters.**
 
 `link_metadata.py:112-131` (`_validate_supplied_link_values`) checks each
@@ -741,6 +749,8 @@ rewritten in terms of it too.
 
 Confidence: plausible (correctly identifies why F-1 recurs, but is a
 design-surface argument rather than a new observed bug).
+
+**[2026-08-19 — ✅ RESOLVED.** `is_cross_scope_readable(meta, artifact_id, own_scope, read_prefixes) -> bool` added to the new `src/arkeology/tools/_scope.py`, exactly as recommended; `_reference_filter.py::resolve_readable_targets` now composes it internally rather than duplicating the three clauses. Phase 12 T63 (same fix as F-1), `plan.md` now `✅`.]
 
 **I-6 — `migrate_artifacts.py`'s skip-existing pre-check builds a candidate S3 key from a hand-built `file_extension` without the same `"."`-prefix validation `write.py` enforces, so the two paths can silently probe different keys for the same descriptor.**
 
@@ -875,22 +885,25 @@ and are marked resolved in place above; the remaining 30 are open.
 - **F-1 / I-5** — the cross-scope readability predicate is hand-rolled in
   four+ places with no shared boolean function to call, and AGENTS.md
   explicitly calls this predicate the entire cross-scope security gate.
+  *Resolved by T63 — see inline notes above.*
 - **I-3** — the `startswith(scope + "/")` scope-check pattern that AGENTS.md
   dedicates a paragraph to has no shared function either; correct today at
   every site, one dropped `"/"` away from reopening a security hole at the
-  next site.
+  next site. *Resolved by T63 — see inline note above.*
 - **D-1** — 7 tool modules skip `asyncio.to_thread` around blocking boto3
   calls, contradicting an otherwise-consistent codebase convention.
 
-**Cleanup backlog (F, G, H — reuse/simplification/efficiency):** 13
-findings, mostly small hand-rolled duplications of existing shared helpers
-(`coerce_list_field`, `credential_error_response`, the boto3
+**Cleanup backlog (F, G, H — reuse/simplification/efficiency):** originally
+13 findings, mostly small hand-rolled duplications of existing shared
+helpers (`coerce_list_field`, `credential_error_response`, the boto3
 `Error`/`Code` extraction idiom, the `list_vectors_by_metadata` →
 `get_vectors` idiom, `top_k` clamping, artifact-summary dict construction,
 CAS retry skeletons) plus one concrete efficiency win applicable in five
 files (H-1: bounded-concurrency batch processing, already proven out in
-`write_artifacts.py`, not yet applied to `reconcile.py`, `link_metadata.py`,
-`purge.py`, `freshness.py`, `migrate_artifacts.py`).
+`write_artifacts.py`). **F-1, F-3, H-1, and H-2 are now resolved (Phase 12
+T62/T63)** — see the inline notes above; **9 remain open** (F-2, F-4
+through F-7, G-1 through G-3, H-3), none describing currently-broken
+behavior.
 
 No violations of AGENTS.md's explicit, checkable rules (stdout printing,
 bare `startswith(scope)`, `filter=` shadowing, UUID/random keys,
