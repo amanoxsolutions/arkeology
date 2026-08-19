@@ -74,6 +74,10 @@ async def search_artifacts(
         True`` is included when the re-fetch loop's own fetch budget (not the true
         number of matching artifacts) is what limited the result count below
         ``top_k`` — more matches may exist beyond what was returned.
+        ``"index_corruption_detected": True`` is included when the re-fetch loop
+        stopped because a vector result was missing its ``distance`` field — a
+        soft signal of possible S3 Vectors index corruption; whatever results
+        were already collected are still returned, never a hard error.
         On error: ``{"error": str, "message": str}``
     """
     try:
@@ -175,7 +179,7 @@ async def _search_artifacts_inner(  # noqa: PLR0913
     if isinstance(loop_result, dict):
         return loop_result
 
-    raw_results, fetch_exhausted = loop_result
+    raw_results, fetch_exhausted, index_corruption_detected = loop_result
 
     # ── Step 6: Build response entries ───────────────────────────────────────
     results: list[dict[str, Any]] = []
@@ -223,7 +227,10 @@ async def _search_artifacts_inner(  # noqa: PLR0913
         )
 
     if not results:
-        return {"artifacts": [], "zero_results": True}
+        zero_response: dict[str, Any] = {"artifacts": [], "zero_results": True}
+        if index_corruption_detected:
+            zero_response["index_corruption_detected"] = True
+        return zero_response
 
     logger.info("Search returned %d artifacts for query=%r", len(results), query)
     response: dict[str, Any] = {"artifacts": results}
@@ -232,4 +239,6 @@ async def _search_artifacts_inner(  # noqa: PLR0913
         response["effective_top_k"] = effective_top_k
     if fetch_exhausted:
         response["fetch_exhausted"] = True
+    if index_corruption_detected:
+        response["index_corruption_detected"] = True
     return response

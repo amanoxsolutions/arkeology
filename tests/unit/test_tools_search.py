@@ -16,7 +16,7 @@ from ulid import ULID
 from arkeology.clients.fakes.fake_bedrock import FakeBedrockClient
 from arkeology.clients.vectors import VectorsClientImpl
 from arkeology.config import Settings
-from arkeology.errors import CredentialError
+from arkeology.errors import CredentialError, VectorDistanceMissingError
 from arkeology.tools.search import search_artifacts
 from tests.unit.conftest import _make_settings as _make_settings_base
 
@@ -999,6 +999,58 @@ async def test_non_credential_failure_mid_loop_returns_partial_results(
     assert result.get("fetch_exhausted") is True, (
         f"Expected fetch_exhausted=True for a mid-loop failure returning fewer than "
         f"top_k results, got: {result}"
+    )
+
+
+async def test_vector_distance_missing_mid_loop_returns_partial_results_with_signal(
+    monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
+    mocker: MockerFixture,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """T66/C-1: a VectorDistanceMissingError raised by query_vectors after the first
+    iteration already collected results is a soft signal, not a hard abort — the call
+    still returns whatever partial results were already collected (never the
+    structured error response CredentialError gets), the response carries a distinct
+    `index_corruption_detected` flag, and the failure is logged distinctly (ERROR,
+    not the generic WARNING) from an ordinary non-credential blip.
+    """
+    settings = _make_settings(monkeypatch, SEARCH_MAX_ITERATIONS="5", SEARCH_FETCH_TOP_K="1")
+    bedrock = FakeBedrockClient(dimension=8)
+    _seed_vectors(vectors_client_8)
+
+    original_query_vectors = vectors_client_8.query_vectors
+    call_count = 0
+
+    def flaky_query_vectors(*args: Any, **kwargs: Any) -> Any:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return original_query_vectors(*args, **kwargs)
+        raise VectorDistanceMissingError(key="artifacts/some-key#section")
+
+    mocker.patch.object(vectors_client_8, "query_vectors", side_effect=flaky_query_vectors)
+
+    with caplog.at_level(logging.WARNING, logger="arkeology.tools._search_helper"):
+        result = await search_artifacts(
+            vectors=vectors_client_8, bedrock=bedrock, settings=settings, query="review", top_k=10
+        )
+
+    assert "error" not in result, f"Expected partial success, got error response: {result}"
+    assert len(result["artifacts"]) == 1
+    assert call_count == 2
+    assert result.get("index_corruption_detected") is True, (
+        f"Expected index_corruption_detected=True, got: {result}"
+    )
+
+    error_records = [r for r in caplog.records if r.levelno == logging.ERROR]
+    warning_records = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert any("index corruption" in r.getMessage() for r in error_records), (
+        f"Expected a distinct ERROR-level index-corruption log line, got: {caplog.records}"
+    )
+    assert not any("Non-credential error" in r.getMessage() for r in warning_records), (
+        "VectorDistanceMissingError must not be logged via the generic "
+        "non-credential-failure WARNING message"
     )
 
 

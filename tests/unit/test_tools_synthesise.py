@@ -3,6 +3,7 @@
 Tests synthesise_artifacts() using moto-backed S3 + Vectors clients and FakeBedrockClient.
 """
 
+import logging
 import math
 from typing import Any
 from unittest.mock import AsyncMock
@@ -14,7 +15,7 @@ from arkeology.clients.fakes.fake_bedrock import FakeBedrockClient
 from arkeology.clients.s3 import S3ClientImpl
 from arkeology.clients.vectors import VectorsClientImpl
 from arkeology.config import Settings
-from arkeology.errors import CredentialError
+from arkeology.errors import CredentialError, VectorDistanceMissingError
 from arkeology.tools.synthesise import synthesise_artifacts
 from tests.unit.conftest import _make_settings as _make_settings_base
 
@@ -757,6 +758,57 @@ async def test_synthesise_get_object_credential_error_is_hard_failure(
     assert "error" in result or result.get("error_type") is not None
 
 
+async def test_synthesise_vector_distance_missing_mid_loop_returns_partial_with_signal(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
+    mocker: MockerFixture,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """T66/C-1: a VectorDistanceMissingError raised by query_vectors after the first
+    iteration already collected results is a soft signal, not a hard abort — the
+    call still returns whatever partial results were already collected (never the
+    structured error response CredentialError gets) and the response carries a
+    distinct `index_corruption_detected` flag. Confirms the flag surfaces through
+    synthesise_artifacts's own response assembly, not just search_artifacts's.
+    """
+    settings = _make_settings(monkeypatch, SEARCH_MAX_ITERATIONS="5", SEARCH_FETCH_TOP_K="1")
+    bedrock = FakeBedrockClient(dimension=8)
+    _seed_all(s3_client, vectors_client_8)
+
+    original_query_vectors = vectors_client_8.query_vectors
+    call_count = 0
+
+    def flaky_query_vectors(*args: Any, **kwargs: Any) -> Any:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return original_query_vectors(*args, **kwargs)
+        raise VectorDistanceMissingError(key="artifacts/some-key#section")
+
+    mocker.patch.object(vectors_client_8, "query_vectors", side_effect=flaky_query_vectors)
+
+    with caplog.at_level(logging.WARNING, logger="arkeology.tools._search_helper"):
+        result = await synthesise_artifacts(
+            settings=settings,
+            s3=s3_client,
+            vectors=vectors_client_8,
+            bedrock=bedrock,
+            query="review",
+            top_k=5,
+        )
+
+    assert "error" not in result, f"Expected partial success, got error response: {result}"
+    assert len(result["artifacts"]) == 1
+    assert call_count == 2
+    assert result.get("index_corruption_detected") is True, (
+        f"Expected index_corruption_detected=True, got: {result}"
+    )
+    assert any(
+        r.levelno == logging.ERROR and "index corruption" in r.getMessage() for r in caplog.records
+    ), f"Expected a distinct ERROR-level index-corruption log line, got: {caplog.records}"
+
+
 # ---------------------------------------------------------------------------
 # Spec 18 — top_k clamping
 # ---------------------------------------------------------------------------
@@ -833,10 +885,11 @@ def _entry(artifact_id: str, score: float) -> dict[str, Any]:
 
 
 def _mock_search_loop(mocker: MockerFixture, entries: list[dict[str, Any]]) -> None:
-    # run_search_loop returns (results, fetch_exhausted) on success.
+    # run_search_loop returns (results, fetch_exhausted, index_corruption_detected)
+    # on success.
     mocker.patch(
         "arkeology.tools.synthesise.run_search_loop",
-        new=AsyncMock(return_value=(entries, False)),
+        new=AsyncMock(return_value=(entries, False, False)),
     )
 
 
