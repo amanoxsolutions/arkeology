@@ -16,7 +16,7 @@ from typing import Any, cast
 import boto3
 import botocore.exceptions
 
-from arkeology.clients.credentials import wrap_credential_errors
+from arkeology.clients.credentials import _error_code, wrap_credential_errors
 from arkeology.clients.filter import matches_filter
 from arkeology.clients.interfaces import VectorsClientInterface  # noqa: F401 (structural only)
 from arkeology.errors import VectorDistanceMissingError, VectorIndexNotFoundError
@@ -44,8 +44,7 @@ _INDEX_NOT_FOUND_CODES = frozenset(
 
 
 def _is_index_not_found(exc: botocore.exceptions.ClientError) -> bool:
-    code = exc.response.get("Error", {}).get("Code", "")
-    return code in _INDEX_NOT_FOUND_CODES
+    return _error_code(exc) in _INDEX_NOT_FOUND_CODES
 
 
 def _chunked[T](seq: Sequence[T], size: int) -> Iterator[Sequence[T]]:

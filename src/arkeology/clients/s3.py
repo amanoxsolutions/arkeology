@@ -14,6 +14,7 @@ from arkeology.artifact import encode_metadata_value
 from arkeology.clients.credentials import (
     _ANNOTATION_UNAVAILABLE_MESSAGE,
     _CREDENTIAL_ERROR_MESSAGE,
+    _error_code,
     is_annotation_unavailable_error,
     wrap_credential_errors,
 )
@@ -98,7 +99,7 @@ class S3ClientImpl:
             try:
                 response = self._s3.put_object(**kwargs)
             except botocore.exceptions.ClientError as exc:
-                code = exc.response.get("Error", {}).get("Code", "")
+                code = _error_code(exc)
                 if code == "PreconditionFailed":
                     if if_none_match:
                         raise ArtifactCollisionError(key) from exc
@@ -119,7 +120,7 @@ class S3ClientImpl:
                 except UnicodeDecodeError as exc:
                     raise NonUtf8PayloadError(key, exc) from exc
             except botocore.exceptions.ClientError as exc:
-                code = exc.response.get("Error", {}).get("Code", "")
+                code = _error_code(exc)
                 if code in ("NoSuchKey", "404"):
                     raise KeyError(key) from exc
                 raise
@@ -137,7 +138,7 @@ class S3ClientImpl:
                 metadata["ETag"] = response["ETag"]
                 return metadata
             except botocore.exceptions.ClientError as exc:
-                code = exc.response.get("Error", {}).get("Code", "")
+                code = _error_code(exc)
                 if code == "403":
                     # S3 HEAD requests return HTTP 403 with no body when the caller
                     # lacks s3:GetObject permission — treat as a credential/permission error.
@@ -200,7 +201,7 @@ class S3ClientImpl:
                     raise AnnotationUnavailableError(
                         _ANNOTATION_UNAVAILABLE_MESSAGE, "s3", exc
                     ) from exc
-                code = exc.response.get("Error", {}).get("Code", "")
+                code = _error_code(exc)
                 if if_match is not None and code == "PreconditionFailed":
                     raise ArtifactConflictError(key) from exc
                 if code in ("NoSuchKey", "404"):
@@ -224,7 +225,7 @@ class S3ClientImpl:
                     raise AnnotationUnavailableError(
                         _ANNOTATION_UNAVAILABLE_MESSAGE, "s3", exc
                     ) from exc
-                code = exc.response.get("Error", {}).get("Code", "")
+                code = _error_code(exc)
                 if code in ("NoSuchKey", "NoSuchAnnotation", "404"):
                     raise KeyError(key) from exc
                 raise
@@ -245,7 +246,7 @@ class S3ClientImpl:
                         raise AnnotationUnavailableError(
                             _ANNOTATION_UNAVAILABLE_MESSAGE, "s3", exc
                         ) from exc
-                    code = exc.response.get("Error", {}).get("Code", "")
+                    code = _error_code(exc)
                     if code in ("NoSuchKey", "404"):
                         raise KeyError(key) from exc
                     raise
@@ -285,7 +286,7 @@ class S3ClientImpl:
                     raise AnnotationUnavailableError(
                         _ANNOTATION_UNAVAILABLE_MESSAGE, "s3", exc
                     ) from exc
-                code = exc.response.get("Error", {}).get("Code", "")
+                code = _error_code(exc)
                 if if_match is not None and code == "PreconditionFailed":
                     raise ArtifactConflictError(key) from exc
                 if code in ("NoSuchKey", "NoSuchAnnotation", "404"):

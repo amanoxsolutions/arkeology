@@ -11,6 +11,8 @@ import json
 import logging
 from typing import Any
 
+from ulid import ULID
+
 from arkeology.artifact import (
     ARTIFACT_TYPES,
     NON_FILTERABLE_METADATA_KEYS,
@@ -27,6 +29,10 @@ from arkeology.errors import (
 )
 
 logger = logging.getLogger(__name__)
+
+# S3 Vectors query_vectors topK request ceiling — a requested top_k above this is
+# clamped down rather than rejected outright.
+_TOP_K_CEILING = 100
 
 # Conservative half of the ~2 KB S3 Vectors metadata-filter expression size limit
 # (mirrors the order of magnitude of VECTOR_FILTERABLE_METADATA_MAX_BYTES in
@@ -125,6 +131,29 @@ def coerce_list_field(meta: dict[str, Any], key: str) -> list[str]:
     return [item for item in str(value if value is not None else "").split(",") if item]
 
 
+def derive_last_edited_at(last_edited_ulid: str | None) -> str | None:
+    """Derive an ISO 8601 timestamp from a ``last_edited_ulid`` (F-6).
+
+    A ULID encodes its creation timestamp in its first 48 bits — this decodes it.
+    Returns ``None`` for a falsy input (no ULID recorded) or a malformed ULID that
+    fails to parse (logged as a warning; the caller degrades to a null timestamp
+    rather than failing the whole call over a transparency-only field).
+
+    Args:
+        last_edited_ulid: The raw ULID string, or ``None``/empty.
+
+    Returns:
+        An ISO 8601 timestamp string, or ``None``.
+    """
+    if not last_edited_ulid:
+        return None
+    try:
+        return ULID.from_str(last_edited_ulid).datetime.isoformat()
+    except Exception:
+        logger.warning("Malformed last_edited_ulid %r — timestamp will be null", last_edited_ulid)
+        return None
+
+
 def build_user_filters(
     *,
     type: str | None = None,  # noqa: A002
@@ -175,6 +204,72 @@ def build_user_filters(
         for tag in tags:
             clauses.append({"tags": {"$eq": tag}})
     return clauses
+
+
+def build_artifact_summary(
+    meta: dict[str, Any],
+    artifact_id: str,
+    tags_val: list[str],
+    source_artifacts_val: list[str],
+) -> dict[str, Any]:
+    """Build the ~14-key artifact summary dict shared by ``list_artifacts`` and
+    ``search_artifacts`` (F-4).
+
+    Both tools construct this same set of fields from vector metadata; each layers
+    its own extra keys on top (``list_artifacts`` adds ``commit_refs``/``references``;
+    ``search_artifacts`` adds ``score``/``last_edited_at``).
+
+    Args:
+        meta: Raw vector metadata for the artifact.
+        artifact_id: The artifact's id.
+        tags_val: Already-coerced ``tags`` list (see ``coerce_list_field``).
+        source_artifacts_val: Already-coerced ``source_artifacts`` list.
+
+    Returns:
+        A dict with the 14 shared summary keys.
+    """
+    return {
+        "artifact_id": artifact_id,
+        "type": meta.get("type"),
+        "team": meta.get("team"),
+        "project": meta.get("project"),
+        "tier": int(meta.get("tier", 0)),
+        "date": meta.get("date"),
+        "status": meta.get("status"),
+        "title": meta.get("title"),
+        "visibility": meta.get("visibility"),
+        "tags": tags_val,
+        "author_role": meta.get("author_role") or None,
+        "description": meta.get("description"),
+        "source_artifacts": source_artifacts_val,
+        "last_edited_ulid": meta.get("last_edited_ulid") or None,
+    }
+
+
+def clamp_top_k(top_k: int) -> tuple[int, bool] | dict[str, Any]:
+    """Validate and clamp a caller-supplied ``top_k`` (F-5).
+
+    Mirrors the identical rejection-and-clamp logic previously duplicated in
+    ``search.py`` and ``synthesise.py``: a non-positive ``top_k`` is rejected; any
+    other value is capped at the S3 Vectors ``query_vectors`` topK ceiling.
+
+    Args:
+        top_k: The caller-requested top_k (already defaulted by the caller).
+
+    Returns:
+        On success: ``(effective_top_k, clamped)`` where ``clamped`` is True when
+        the requested value exceeded the ceiling. On rejection (``top_k <= 0``):
+        the same ``{"error": ErrorCode.VALIDATION_ERROR, "message": str}`` dict
+        shape callers already return directly to the MCP caller.
+    """
+    if top_k <= 0:
+        return {
+            "error": ErrorCode.VALIDATION_ERROR,
+            "message": f"top_k must be a positive integer, got {top_k}",
+        }
+    effective_top_k = min(top_k, _TOP_K_CEILING)
+    clamped = effective_top_k < top_k
+    return effective_top_k, clamped
 
 
 async def run_search_loop(

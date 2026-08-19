@@ -478,6 +478,48 @@ def test_find_referrers_issues_single_list_vectors_by_metadata_call(
 
 
 # ---------------------------------------------------------------------------
+# H-3 — Step 4 (find_referrers) and Step 5 (list_vectors_by_metadata) run
+# concurrently via asyncio.gather, not sequentially.
+# ---------------------------------------------------------------------------
+
+
+async def test_delete_issues_both_referrer_and_vector_lookup_calls(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """H-3: both Step 4's find_referrers lookup and Step 5's own direct
+    list_vectors_by_metadata({"artifact_id": {"$eq": ...}}) call still fire —
+    now concurrently — and the result (referrers + deleted vectors/object) is
+    unchanged from the pre-H-3 sequential behaviour."""
+    settings = _make_settings(monkeypatch)
+    _seed_all(s3_client, vectors_client_2)
+    spy_list = mocker.spy(vectors_client_2, "list_vectors_by_metadata")
+    spy_delete_vectors = mocker.spy(vectors_client_2, "delete_vectors")
+    spy_delete_object = mocker.spy(s3_client, "delete_object")
+
+    result = await delete_artifact(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=None,
+        artifact_id="artifacts/t2-active",
+        confirm=True,
+    )
+
+    assert result.get("deleted") is True
+    warnings = result.get("warnings", [])
+    assert "artifacts/synthesis-one" in warnings
+    assert "artifacts/synthesis-two" in warnings
+    # find_referrers issues one list_vectors_by_metadata call (T50/H-3 merge), Step
+    # 5's own direct call is a second — both independent queries actually ran.
+    assert spy_list.call_count == 2
+    spy_delete_vectors.assert_called_once()
+    spy_delete_object.assert_called_once_with("artifacts/t2-active")
+
+
+# ---------------------------------------------------------------------------
 # T60 — narrow the reverse-lookup warning to source_artifacts only
 # ---------------------------------------------------------------------------
 

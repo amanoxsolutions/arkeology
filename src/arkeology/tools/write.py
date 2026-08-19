@@ -199,6 +199,57 @@ def _record_partial_write(
     }
 
 
+def _record_partial_write_credential_error(
+    settings: Settings,
+    *,
+    artifact_id: str,
+    title: str,
+    artifact_type: str,
+    tier: int,
+    date: str,
+    failure_step: str,
+    exc: CredentialError,
+) -> dict[str, Any]:
+    """Append a failure-log entry and build the standard ``credential_error`` response
+    for a ``CredentialError`` raised after S3 has already been written durably (G-1).
+
+    Mirrors :func:`_record_partial_write` exactly, but for the credential-error case
+    (which returns ``ErrorCode.CREDENTIAL_ERROR``, not ``ErrorCode.PARTIAL_WRITE`` —
+    the CredentialError branches intentionally surface the credential failure itself
+    to the caller rather than the generic partial-write message, even though both
+    cases equally require a failure-log entry for ``reconcile_index`` to repair later).
+
+    Args:
+        settings: Server configuration (for ``failure_log_path``).
+        artifact_id: S3 key of the partially written artifact.
+        title: Artifact title.
+        artifact_type: Artifact type string.
+        tier: Artifact tier.
+        date: ISO-8601 date string.
+        failure_step: Stage that failed (e.g. ``"bedrock_embed"``, ``"put_vector"``,
+            ``"annotation_write"``).
+        exc: The ``CredentialError`` that was raised.
+
+    Returns:
+        The ``credential_error`` response dict (includes ``artifact_id``).
+    """
+    _log_partial_write_failure(
+        settings,
+        artifact_id=artifact_id,
+        title=title,
+        artifact_type=artifact_type,
+        tier=tier,
+        date=date,
+        failure_step=failure_step,
+        reason=str(exc),
+    )
+    return {
+        "error": ErrorCode.CREDENTIAL_ERROR,
+        "message": str(exc),
+        "artifact_id": artifact_id,
+    }
+
+
 def _delete_orphan_vectors_with_retry(
     vectors: VectorsClientInterface, orphan_keys: list[str]
 ) -> Exception | None:
@@ -643,7 +694,7 @@ async def _write_artifact_inner(  # noqa: PLR0913
             except CredentialError as exc:
                 # The S3 put above has already succeeded — this is a partial
                 # write, not a clean failure.
-                _log_partial_write_failure(
+                return _record_partial_write_credential_error(
                     settings,
                     artifact_id=s3_key,
                     title=title,
@@ -651,13 +702,8 @@ async def _write_artifact_inner(  # noqa: PLR0913
                     tier=tier,
                     date=date,
                     failure_step="annotation_write",
-                    reason=str(exc),
+                    exc=exc,
                 )
-                return {
-                    "error": ErrorCode.CREDENTIAL_ERROR,
-                    "message": str(exc),
-                    "artifact_id": s3_key,
-                }
             except Exception as exc:
                 # An unknown/transient annotation failure (e.g. SlowDown,
                 # RequestTimeout — not a conflict, not annotation-unavailable, not a
@@ -754,7 +800,7 @@ async def _write_artifact_inner(  # noqa: PLR0913
             # failure after S3 success leaves no repairable trace, and for an
             # overwrite=True rewrite the pre-overwrite vectors would silently
             # survive forever (reconcile never sees a reason to touch this artifact).
-            _log_partial_write_failure(
+            return _record_partial_write_credential_error(
                 settings,
                 artifact_id=s3_key,
                 title=title,
@@ -762,13 +808,8 @@ async def _write_artifact_inner(  # noqa: PLR0913
                 tier=tier,
                 date=date,
                 failure_step="annotation_write",
-                reason=str(exc),
+                exc=exc,
             )
-            return {
-                "error": ErrorCode.CREDENTIAL_ERROR,
-                "message": str(exc),
-                "artifact_id": s3_key,
-            }
         except Exception as exc:
             # Same unknown/transient-failure gap as the overwrite/CAS path above
             # — the S3 put has already succeeded by this point, so this is a partial
@@ -837,7 +878,7 @@ async def _write_artifact_inner(  # noqa: PLR0913
                 first_other_error = r
 
         if first_cred_error is not None:
-            _log_partial_write_failure(
+            return _record_partial_write_credential_error(
                 settings,
                 artifact_id=s3_key,
                 title=title,
@@ -845,13 +886,8 @@ async def _write_artifact_inner(  # noqa: PLR0913
                 tier=tier,
                 date=date,
                 failure_step="bedrock_embed",
-                reason=str(first_cred_error),
+                exc=first_cred_error,
             )
-            return {
-                "error": ErrorCode.CREDENTIAL_ERROR,
-                "message": str(first_cred_error),
-                "artifact_id": s3_key,
-            }
 
         if first_other_error is not None:
             return _record_partial_write(
@@ -876,7 +912,7 @@ async def _write_artifact_inner(  # noqa: PLR0913
         try:
             vectors.put_vectors_batch(items)
         except CredentialError as exc:
-            _log_partial_write_failure(
+            return _record_partial_write_credential_error(
                 settings,
                 artifact_id=s3_key,
                 title=title,
@@ -884,9 +920,8 @@ async def _write_artifact_inner(  # noqa: PLR0913
                 tier=tier,
                 date=date,
                 failure_step="put_vector",
-                reason=str(exc),
+                exc=exc,
             )
-            return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc), "artifact_id": s3_key}
         except Exception as exc:
             return _record_partial_write(
                 settings,
@@ -916,7 +951,7 @@ async def _write_artifact_inner(  # noqa: PLR0913
                 settings.bedrock_embedding_dimensions,
             )
         except CredentialError as exc:
-            _log_partial_write_failure(
+            return _record_partial_write_credential_error(
                 settings,
                 artifact_id=s3_key,
                 title=title,
@@ -924,9 +959,8 @@ async def _write_artifact_inner(  # noqa: PLR0913
                 tier=tier,
                 date=date,
                 failure_step="bedrock_embed",
-                reason=str(exc),
+                exc=exc,
             )
-            return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc), "artifact_id": s3_key}
         except Exception as exc:
             return _record_partial_write(
                 settings,
@@ -943,7 +977,7 @@ async def _write_artifact_inner(  # noqa: PLR0913
         try:
             vectors.put_vectors_batch(doc_item)
         except CredentialError as exc:
-            _log_partial_write_failure(
+            return _record_partial_write_credential_error(
                 settings,
                 artifact_id=s3_key,
                 title=title,
@@ -951,9 +985,8 @@ async def _write_artifact_inner(  # noqa: PLR0913
                 tier=tier,
                 date=date,
                 failure_step="put_vector",
-                reason=str(exc),
+                exc=exc,
             )
-            return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc), "artifact_id": s3_key}
         except Exception as exc:
             return _record_partial_write(
                 settings,

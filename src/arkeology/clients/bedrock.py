@@ -14,7 +14,7 @@ from typing import Any
 import boto3
 import botocore.exceptions
 
-from arkeology.clients.credentials import wrap_credential_errors
+from arkeology.clients.credentials import _error_code, wrap_credential_errors
 from arkeology.clients.interfaces import BedrockClientInterface  # noqa: F401 (structural only)
 
 logger = logging.getLogger(__name__)
@@ -84,7 +84,7 @@ class BedrockClientImpl:
                     response_body = json.loads(response["body"].read())
                     return extract(response_body)
                 except botocore.exceptions.ClientError as exc:
-                    code = exc.response.get("Error", {}).get("Code", "")
+                    code = _error_code(exc)
                     if code in _TRANSIENT_ERROR_CODES and attempt == 0:
                         logger.warning(
                             "Bedrock transient error %s on attempt 1; retrying after %.1fs",

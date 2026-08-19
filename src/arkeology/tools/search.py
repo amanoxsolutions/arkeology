@@ -8,8 +8,6 @@ import asyncio
 import logging
 from typing import Any
 
-from ulid import ULID
-
 from arkeology.clients.interfaces import (
     BedrockClientInterface,
     S3ClientInterface,
@@ -20,8 +18,11 @@ from arkeology.constants import ArtifactStatus, ErrorCode
 from arkeology.errors import CredentialError, InvalidFilterValueError
 from arkeology.tools._errors import credential_error_response
 from arkeology.tools._search_helper import (
+    build_artifact_summary,
     build_user_filters,
+    clamp_top_k,
     coerce_list_field,
+    derive_last_edited_at,
     run_search_loop,
 )
 
@@ -120,13 +121,10 @@ async def _search_artifacts_inner(  # noqa: PLR0913
 
     # ── Step 1: Resolve top_k ─────────────────────────────────────────────────
     requested_top_k = top_k if top_k is not None else settings.search_default_top_k
-    if requested_top_k <= 0:
-        return {
-            "error": ErrorCode.VALIDATION_ERROR,
-            "message": f"top_k must be a positive integer, got {requested_top_k}",
-        }
-    effective_top_k = min(requested_top_k, 100)
-    clamped = effective_top_k < requested_top_k
+    clamp_result = clamp_top_k(requested_top_k)
+    if isinstance(clamp_result, dict):
+        return clamp_result
+    effective_top_k, clamped = clamp_result
 
     # ── Step 2: Embed the query (off the event loop — blocking boto3 call) ───────
     try:
@@ -191,40 +189,13 @@ async def _search_artifacts_inner(  # noqa: PLR0913
         tags_val = coerce_list_field(meta, "tags")
         source_artifacts_val = coerce_list_field(meta, "source_artifacts")
 
+        summary = build_artifact_summary(meta, aid, tags_val, source_artifacts_val)
+        summary["score"] = score
         # Last-edited age transparency: surface the raw ULID and a derived ISO 8601
         # timestamp so agents can discount stale hits themselves. This is transparency
         # only — age never influences result ordering, which stays purely semantic.
-        last_edited_ulid: str | None = meta.get("last_edited_ulid") or None
-        last_edited_at: str | None = None
-        if last_edited_ulid:
-            try:
-                last_edited_at = ULID.from_str(last_edited_ulid).datetime.isoformat()
-            except Exception:
-                logger.warning(
-                    "Malformed last_edited_ulid %r — timestamp will be null", last_edited_ulid
-                )
-                last_edited_at = None
-
-        results.append(
-            {
-                "artifact_id": aid,
-                "score": score,
-                "type": meta.get("type"),
-                "team": meta.get("team"),
-                "project": meta.get("project"),
-                "tier": int(meta.get("tier", 0)),
-                "date": meta.get("date"),
-                "status": meta.get("status"),
-                "title": meta.get("title"),
-                "visibility": meta.get("visibility"),
-                "tags": tags_val,
-                "author_role": meta.get("author_role") or None,
-                "description": meta.get("description"),
-                "source_artifacts": source_artifacts_val,
-                "last_edited_ulid": last_edited_ulid,
-                "last_edited_at": last_edited_at,
-            }
-        )
+        summary["last_edited_at"] = derive_last_edited_at(summary["last_edited_ulid"])
+        results.append(summary)
 
     if not results:
         zero_response: dict[str, Any] = {"artifacts": [], "zero_results": True}

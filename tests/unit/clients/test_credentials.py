@@ -14,12 +14,32 @@ import pytest
 
 from arkeology.clients.credentials import (
     CREDENTIAL_ERROR_CODES,
+    _error_code,
     is_annotation_unavailable_error,
     is_credential_error,
     wrap_credential_errors,
 )
 from arkeology.clients.s3 import S3ClientImpl
 from arkeology.errors import AnnotationUnavailableError, CredentialError
+
+# ---------------------------------------------------------------------------
+# _error_code (F-2)
+# ---------------------------------------------------------------------------
+
+
+def test_error_code_extracts_code_from_client_error() -> None:
+    """_error_code returns the "Error"/"Code" value from a ClientError's response."""
+    exc = botocore.exceptions.ClientError(
+        {"Error": {"Code": "SomeCode", "Message": "x"}}, "GetObject"
+    )
+    assert _error_code(exc) == "SomeCode"
+
+
+def test_error_code_returns_empty_string_when_error_key_absent() -> None:
+    """_error_code returns "" (never raises) when the response has no "Error" key."""
+    exc = botocore.exceptions.ClientError({}, "GetObject")
+    assert _error_code(exc) == ""
+
 
 # ---------------------------------------------------------------------------
 # Credential error codes

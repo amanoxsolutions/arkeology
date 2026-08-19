@@ -17,7 +17,7 @@ from arkeology.clients.vectors import VectorsClientImpl
 from arkeology.errors import AnnotationUnavailableError, ArtifactConflictError, CredentialError
 from arkeology.tools.link_metadata import link_metadata
 from arkeology.tools.reconcile import reconcile_index
-from arkeology.tools.write import write_artifact
+from arkeology.tools.write import _record_partial_write_credential_error, write_artifact
 from tests.unit.conftest import _make_settings
 
 # Base write kwargs
@@ -42,6 +42,46 @@ _ONE_SECTION_KWARGS: dict = {
     **_BASE_WRITE_KWARGS,
     "content": "No headings here — just plain content.",
 }
+
+
+# ---------------------------------------------------------------------------
+# _record_partial_write_credential_error (G-1, Task 68)
+# ---------------------------------------------------------------------------
+#
+# Direct unit test for the newly extracted helper — mirrors _record_partial_write's
+# shared shape but for the CredentialError-after-S3-success case (five duplicated
+# call sites collapsed into one-liners against this helper).
+
+
+def test_record_partial_write_credential_error_logs_and_returns_credential_dict(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: pytest.TempPathFactory,
+) -> None:
+    log_path = tmp_path / "failures.jsonl"
+    settings = _make_settings(monkeypatch, FAILURE_LOG_PATH=str(log_path))
+    exc = CredentialError("simulated", "bedrock", Exception("simulated"))
+
+    result = _record_partial_write_credential_error(
+        settings,
+        artifact_id="artifacts/a1.md",
+        title="A Title",
+        artifact_type="code_review",
+        tier=2,
+        date="2026-08-19",
+        failure_step="bedrock_embed",
+        exc=exc,
+    )
+
+    assert result == {
+        "error": "credential_error",
+        "message": str(exc),
+        "artifact_id": "artifacts/a1.md",
+    }
+    logged = [json.loads(line) for line in log_path.read_text().splitlines()]
+    assert len(logged) == 1
+    assert logged[0]["artifact_id"] == "artifacts/a1.md"
+    assert logged[0]["failure_step"] == "bedrock_embed"
+    assert logged[0]["reason"] == str(exc)
 
 
 # ---------------------------------------------------------------------------
