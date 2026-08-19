@@ -1095,13 +1095,15 @@ async def test_generation_prompt_content_is_bounded(
 
 
 @pytest.mark.asyncio
-async def test_migrate_artifacts_dry_run_false_threads_references_to_vector_metadata(
+async def test_migrate_artifacts_dry_run_false_threads_references_to_annotation_only(
     monkeypatch: pytest.MonkeyPatch,
     s3_client: S3ClientImpl,
     vectors_client: VectorsClientImpl,
 ) -> None:
     """A descriptor carrying references=['a-1'] round-trips into the written artifact's
-    vector metadata when migrate_artifacts(dry_run=False) delegates to write_artifacts.
+    S3 annotation (its sole durable store as of T58) when
+    migrate_artifacts(dry_run=False) delegates to write_artifacts — and never into
+    vector metadata.
     """
     try:
         from arkeology.tools.migrate_artifacts import migrate_artifacts
@@ -1126,11 +1128,12 @@ async def test_migrate_artifacts_dry_run_false_threads_references_to_vector_meta
     assert results[0].get("written") is True
     artifact_id = results[0]["artifact_id"]
 
+    assert s3_client.get_object_annotation(artifact_id, "references") == "a-1"
     keys = vectors_client.list_vectors_by_metadata({"artifact_id": {"$eq": artifact_id}})
     assert keys
     entries = vectors_client.get_vectors(keys)
     for entry in entries:
-        assert entry["metadata"]["references"] == ["a-1"]
+        assert "references" not in entry["metadata"]
 
 
 # ---------------------------------------------------------------------------

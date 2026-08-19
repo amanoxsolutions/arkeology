@@ -21,6 +21,7 @@ from arkeology.annotations import (
 )
 from arkeology.artifact import (
     Artifact,
+    cap_commit_refs_for_vectors,
     check_metadata_budgets,
     encode_metadata_value,
     generate_artifact_id,
@@ -385,14 +386,19 @@ async def _write_artifact_inner(  # noqa: PLR0913
     }
     # S3 Vectors rejects empty arrays in metadata — omit list fields when empty.
     # Non-empty lists are stored as list[str] so $eq filters can match individual elements.
+    #
+    # commit_refs is capped to the most-recently-appended
+    # COMMIT_REFS_VECTOR_METADATA_MAX_ENTRIES entries for the vector-metadata copy only
+    # (T58) — the S3 annotation write below always carries the complete, uncapped list.
+    #
+    # references is never written to vector metadata (T58) — the S3 annotation copy
+    # (apply_link_annotations below) is its sole durable store and sole read surface.
     if tags:
         vector_metadata["tags"] = tags
     if sources:
         vector_metadata["source_artifacts"] = sources
     if refs:
-        vector_metadata["commit_refs"] = refs
-    if references:
-        vector_metadata["references"] = references
+        vector_metadata["commit_refs"] = cap_commit_refs_for_vectors(refs)
 
     # ── Step 3c: Metadata size budgets — fail fast, before any write ─────────
     # Measures the actual assembled representations: the S3 aggregate against the
@@ -520,7 +526,7 @@ async def _write_artifact_inner(  # noqa: PLR0913
             final_commit_refs = list(dict.fromkeys(existing_commit_refs + refs))
 
             if final_commit_refs:
-                vector_metadata["commit_refs"] = final_commit_refs
+                vector_metadata["commit_refs"] = cap_commit_refs_for_vectors(final_commit_refs)
             else:
                 vector_metadata.pop("commit_refs", None)
 

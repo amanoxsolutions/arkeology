@@ -7,6 +7,7 @@ import pytest
 from pydantic import ValidationError
 
 from arkeology.artifact import (
+    COMMIT_REFS_VECTOR_METADATA_MAX_ENTRIES,
     NON_FILTERABLE_METADATA_KEYS,
     S3_USER_METADATA_MAX_BYTES,
     TITLE_MAX_LENGTH,
@@ -14,6 +15,7 @@ from arkeology.artifact import (
     VECTOR_TOTAL_METADATA_MAX_BYTES,
     Artifact,
     ArtifactSection,
+    cap_commit_refs_for_vectors,
     check_metadata_budgets,
     decode_metadata_value,
     encode_metadata_value,
@@ -979,3 +981,50 @@ def test_check_metadata_budgets_cjk_filterable_field_under_true_byte_budget_pass
     vector_meta = {"title": "ok", "type": "adr", "tags": [cjk_tag]}
 
     check_metadata_budgets(_MINIMAL_S3_METADATA, vector_meta)
+
+
+# ---------------------------------------------------------------------------
+# T58 — cap_commit_refs_for_vectors
+# ---------------------------------------------------------------------------
+
+
+def test_cap_commit_refs_for_vectors_empty_list_returns_empty() -> None:
+    """An empty commit_refs list caps to an empty list."""
+    assert cap_commit_refs_for_vectors([]) == []
+
+
+def test_cap_commit_refs_for_vectors_under_limit_returned_unchanged() -> None:
+    """A list with fewer entries than the cap is returned unchanged, same order."""
+    refs = [f"sha{i:02d}" for i in range(5)]
+    assert cap_commit_refs_for_vectors(refs) == refs
+
+
+def test_cap_commit_refs_for_vectors_exactly_at_limit_returned_unchanged() -> None:
+    """A list with exactly COMMIT_REFS_VECTOR_METADATA_MAX_ENTRIES entries is never
+    truncated — the cap only trims lists that exceed it."""
+    refs = [f"sha{i:03d}" for i in range(COMMIT_REFS_VECTOR_METADATA_MAX_ENTRIES)]
+    result = cap_commit_refs_for_vectors(refs)
+    assert result == refs
+    assert len(result) == COMMIT_REFS_VECTOR_METADATA_MAX_ENTRIES
+
+
+def test_cap_commit_refs_for_vectors_over_limit_returns_last_n_entries() -> None:
+    """A list with one more entry than the cap returns exactly the last
+    COMMIT_REFS_VECTOR_METADATA_MAX_ENTRIES entries (the most-recently-appended ones),
+    dropping the oldest — never fewer than min(len(full_list), cap) entries."""
+    refs = [f"sha{i:03d}" for i in range(COMMIT_REFS_VECTOR_METADATA_MAX_ENTRIES + 1)]
+    result = cap_commit_refs_for_vectors(refs)
+    assert result == refs[-COMMIT_REFS_VECTOR_METADATA_MAX_ENTRIES:]
+    assert len(result) == COMMIT_REFS_VECTOR_METADATA_MAX_ENTRIES
+    assert result[0] == "sha001"  # oldest entry (sha000) dropped
+    assert result[-1] == f"sha{COMMIT_REFS_VECTOR_METADATA_MAX_ENTRIES:03d}"
+
+
+def test_cap_commit_refs_for_vectors_well_over_limit_still_returns_last_n() -> None:
+    """A list far exceeding the cap (e.g. after many link_metadata backfills) still
+    returns exactly the last N entries — the write must never be rejected for entry
+    count alone."""
+    refs = [f"sha{i:04d}" for i in range(50)]
+    result = cap_commit_refs_for_vectors(refs)
+    assert result == refs[-COMMIT_REFS_VECTOR_METADATA_MAX_ENTRIES:]
+    assert len(result) == COMMIT_REFS_VECTOR_METADATA_MAX_ENTRIES

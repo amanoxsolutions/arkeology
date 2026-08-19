@@ -372,7 +372,9 @@ async def test_reconcile_restores_link_fields_backfilled_via_link_metadata(
         entries = vectors.get_vectors(re_indexed_keys)
         for entry in entries:
             assert entry["metadata"]["commit_refs"] == ["abc1234"]
-            assert entry["metadata"]["references"] == ["implementation-note-2026-01-01-other"]
+            # T58: references is never re-written into vector metadata — it remains
+            # readable only via the S3 annotation.
+            assert "references" not in entry["metadata"]
     finally:
         if artifact_id:
             await delete_artifact(

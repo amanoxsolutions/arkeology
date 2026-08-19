@@ -101,6 +101,7 @@ async def test_propose_commit_links_finds_unlinked_artifact(
 
         proposal = await propose_commit_links(
             settings=settings,
+            s3=s3,
             vectors=vectors,
             commit_sha="deadbeef1234",
         )
@@ -154,6 +155,7 @@ async def test_propose_commit_links_excludes_linked_artifact(
 
         proposal = await propose_commit_links(
             settings=settings,
+            s3=s3,
             vectors=vectors,
             commit_sha="deadbeef1234",
         )
@@ -227,6 +229,7 @@ async def test_propose_commit_links_since_ulid_excludes_earlier_artifact(
 
         proposal = await propose_commit_links(
             settings=settings,
+            s3=s3,
             vectors=vectors,
             commit_sha="deadbeef1234",
             since_ulid=cursor_ulid,

@@ -12,7 +12,11 @@ from pathlib import Path
 from typing import Any
 
 from arkeology.annotations import CAS_MAX_ATTEMPTS, read_current_link_fields
-from arkeology.artifact import check_metadata_budgets, decode_metadata_value
+from arkeology.artifact import (
+    cap_commit_refs_for_vectors,
+    check_metadata_budgets,
+    decode_metadata_value,
+)
 from arkeology.clients.interfaces import (
     BedrockClientInterface,
     S3ClientInterface,
@@ -96,7 +100,11 @@ def _reindex_artifact(
     tier = int(tier_raw)
     tags = coerce_list_field(raw_s3_meta, "tags")
     source_artifacts_list = coerce_list_field(raw_s3_meta, "source_artifacts")
-    commit_refs_list, references_list = read_current_link_fields(s3, vectors, artifact_id)
+    # references (second element) is read for backward-read compatibility only — T58
+    # removes it from the rebuilt vector metadata below; it is never referenced again in
+    # this function. Mirrors write.py's `_existing_references` naming for the same
+    # deliberately-unused-tuple-element pattern.
+    commit_refs_list, _references_list = read_current_link_fields(s3, vectors, artifact_id)
 
     vector_metadata: dict[str, Any] = {
         "artifact_id": artifact_id,
@@ -115,14 +123,22 @@ def _reindex_artifact(
         "last_edited_ulid": raw_s3_meta.get("last_edited_ulid", ""),
     }
     # S3 Vectors rejects empty arrays — omit list fields when empty.
+    #
+    # commit_refs is capped to the most-recently-appended
+    # COMMIT_REFS_VECTOR_METADATA_MAX_ENTRIES entries for this vector-metadata copy only
+    # (T58) — the annotation-backed commit_refs_list read above (via
+    # read_current_link_fields) is already the complete, uncapped union.
+    #
+    # references is never written to vector metadata (T58) — read_current_link_fields
+    # still reads it (for backward-read compatibility with pre-T58 vectors, and to
+    # surface it via read_artifact/list_artifacts), but the rebuilt vector metadata here
+    # must never carry it: the annotation is its sole durable store going forward.
     if tags:
         vector_metadata["tags"] = tags
     if source_artifacts_list:
         vector_metadata["source_artifacts"] = source_artifacts_list
     if commit_refs_list:
-        vector_metadata["commit_refs"] = commit_refs_list
-    if references_list:
-        vector_metadata["references"] = references_list
+        vector_metadata["commit_refs"] = cap_commit_refs_for_vectors(commit_refs_list)
 
     # T57: reject a rebuilt vector_metadata that would breach a metadata size budget
     # BEFORE any embed/put_vector call — otherwise an artifact stuck by an oversize

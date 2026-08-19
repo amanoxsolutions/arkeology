@@ -86,6 +86,50 @@ NON_FILTERABLE_METADATA_KEYS: tuple[str, ...] = (
     "author_role",
 )
 
+# Cap on the number of commit_refs entries carried in the vector-metadata copy of the
+# field (T58 / ADR "vector-metadata-budget-hardening-and-self-heal", decision D2).
+# commit_refs is append-only and unbounded over an artifact's lifetime (backfilled
+# repeatedly by link_metadata), and the 2026-08-13 real-AWS calibration proved the local
+# byte-budget approximation (VECTOR_FILTERABLE_METADATA_MAX_BYTES above) under-measures
+# AWS's real per-entry accounting for this exact field shape by enough to make an
+# unbounded list a real, repeatable write-rejection failure mode — real AWS accepts up
+# to 36 entries for the calibrated payload shape and rejects 37 (see
+# tests/integration/test_calibration_vector_metadata_budget.py and docs/learnings.md,
+# 2026-08-13). 20 leaves deliberate headroom below that measured boundary.
+#
+# This number is payload-shape-specific, not a universal constant: it was measured
+# against today's specific filterable-metadata field mix and must be re-calibrated (a
+# fresh run of the calibration integration test) if the set of filterable vector-metadata
+# keys ever changes.
+#
+# The cap applies to the vector-metadata representation ONLY — the S3 annotation copy
+# (see arkeology.annotations) is always the complete, uncapped list and is the sole
+# authoritative store for commit_refs; the vector-metadata copy is a bounded, most-recent-N
+# view for filtering purposes only, never a completeness guarantee.
+COMMIT_REFS_VECTOR_METADATA_MAX_ENTRIES = 20
+
+
+def cap_commit_refs_for_vectors(commit_refs: list[str]) -> list[str]:
+    """Return the most-recently-appended entries of ``commit_refs``, bounded for
+    vector-metadata storage.
+
+    The vector-metadata copy of ``commit_refs`` is a bounded, most-recent-N view of the
+    field — it is NOT a completeness guarantee. The annotation-backed copy
+    (:func:`arkeology.annotations.read_current_link_fields`) is the only complete,
+    authoritative representation of ``commit_refs``; callers that need the full list
+    (e.g. before writing the durable annotation) must never call this helper.
+
+    Args:
+        commit_refs: The full, already-merged/read-forwarded commit_refs list, in
+            append order (oldest first).
+
+    Returns:
+        The last :data:`COMMIT_REFS_VECTOR_METADATA_MAX_ENTRIES` elements of
+        ``commit_refs`` — the whole list unchanged when it already fits.
+    """
+    return commit_refs[-COMMIT_REFS_VECTOR_METADATA_MAX_ENTRIES:]
+
+
 # Single source of truth for reverse-lookup-bearing metadata fields
 # consumed by the unified own-scope referenced_by check on delete_artifact and
 # archive_artifact (see find_referrers in tools/_search_helper.py). Never duplicate this
@@ -448,7 +492,11 @@ class Artifact(BaseModel):
             overwriting write, the supplied value is MERGED (union, dedup) with the
             artifact's existing commit_refs rather than replacing it — accretive by
             design, since the append-only link trail must never be silently dropped
-            (ADR-011 decision 4).
+            (ADR-011 decision 4). The S3 annotation copy always holds the complete,
+            uncapped list; the S3 Vectors metadata copy is capped to the most recent
+            :data:`COMMIT_REFS_VECTOR_METADATA_MAX_ENTRIES` entries
+            (:func:`cap_commit_refs_for_vectors`, T58) — a bounded, most-recent-N view
+            for filtering purposes only, NOT a completeness guarantee.
         references: Optional list of resolved bare artifact IDs this artifact points
             at (ADR-012 D2). Holds only resolved identifiers — no ``arkeology://`` prefix,
             no path text. Mirrors the artifact's frontmatter ``references:`` list — a
@@ -456,7 +504,13 @@ class Artifact(BaseModel):
             On an overwriting write, the supplied value REPLACES the artifact's
             existing references outright (no merge, no read-forward): additions,
             removals, and swaps in the frontmatter are all reflected one-for-one, and
-            a write supplying no references clears the field (ADR-011 decision 4).
+            a write supplying no references clears the field (ADR-011 decision 4). The
+            S3 annotation copy is the sole durable store for this field: as of T58,
+            references is never written to S3 Vectors metadata under any code path
+            (``read_artifact``/``list_artifacts`` source it exclusively from the
+            annotation via the union-of-both-stores helper, which still reads a
+            vector-metadata copy for backward compatibility with vectors written
+            before T58 shipped).
     """
 
     type: str  # noqa: A003

@@ -834,12 +834,14 @@ async def test_write_artifacts_per_descriptor_overwrite_overrides_batch_default(
 
 
 @pytest.mark.asyncio
-async def test_write_artifacts_descriptor_references_round_trips_to_vector_metadata(
+async def test_write_artifacts_descriptor_references_round_trips_to_annotation_only(
     monkeypatch: pytest.MonkeyPatch,
     s3_client: S3ClientImpl,
     vectors_client: VectorsClientImpl,
 ) -> None:
-    """A descriptor carrying references=['a-1'] writes references into vector metadata."""
+    """A descriptor carrying references=['a-1'] writes references into the S3
+    annotation (its sole durable store as of T58) and never into vector metadata —
+    write_artifacts delegates to _write_artifact_inner, which this contract governs."""
     try:
         from arkeology.tools.write_artifacts import write_artifacts
     except ImportError:
@@ -859,11 +861,12 @@ async def test_write_artifacts_descriptor_references_round_trips_to_vector_metad
 
     assert result["results"][0].get("written") is True
     artifact_id = result["results"][0]["artifact_id"]
+    assert s3_client.get_object_annotation(artifact_id, "references") == "a-1"
     keys = vectors_client.list_vectors_by_metadata({"artifact_id": {"$eq": artifact_id}})
     assert keys
     entries = vectors_client.get_vectors(keys)
     for entry in entries:
-        assert entry["metadata"]["references"] == ["a-1"]
+        assert "references" not in entry["metadata"]
 
 
 # ---------------------------------------------------------------------------

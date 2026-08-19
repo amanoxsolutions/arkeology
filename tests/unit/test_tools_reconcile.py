@@ -526,10 +526,10 @@ async def test_reindex_restores_link_fields_from_annotations(
 ) -> None:
     """RED proof (ADR-011 / T48, Story 2): an object whose S3 user-defined metadata has
     NO commit_refs/references keys at all (the post-T47 reality) but whose durable
-    annotations carry both fields — reconcile must source the rebuilt vector metadata
-    from the annotations, not from S3 metadata. Fails before the fix because the
-    current implementation only ever reads commit_refs from S3 metadata (which is
-    absent here) and never reads references at all.
+    annotations carry both fields — reconcile must source the rebuilt commit_refs from
+    the annotations, not from S3 metadata; references is read from the annotation too
+    (union-of-both-stores) but, as of T58, is never re-written into vector metadata —
+    it remains readable only via the annotation.
     """
     artifact_id = "artifacts/implementation-note-2026-01-01-from-annotations"
     s3_reconcile.put_object(artifact_id, _CONTENT_TWO_SECTIONS, {**_BASE_S3_META})
@@ -554,7 +554,9 @@ async def test_reindex_restores_link_fields_from_annotations(
     assert items, "reconcile should have indexed vectors for the artifact"
     vmeta = items[0]["metadata"]
     assert vmeta.get("commit_refs") == ["abc123", "def456"]
-    assert vmeta.get("references") == ["implementation-note-2026-01-01-other"]
+    # T58: references is never re-written into vector metadata, even though it was
+    # read (union-of-both-stores) from the annotation above.
+    assert "references" not in vmeta
 
 
 async def test_reindex_clean_state_omits_empty_link_fields(
@@ -682,10 +684,12 @@ async def test_reindex_from_failure_log_preserves_vector_only_link_fields(
     """RED: an artifact whose commit_refs/references live ONLY in vector metadata
     (e.g. a T52 annotation-unavailable deployment, where the annotation write degraded
     but the vector write still carried the fields) must survive a reconcile re-index
-    with those fields intact. Re-index is forced here via a failure-log entry so
+    with commit_refs intact. Re-index is forced here via a failure-log entry so
     ``_reindex_artifact`` runs even though a vector is already indexed. Before the fix,
     reconcile read annotations only (empty, since none were ever written), and
     overwrote vector metadata from that — erasing the only durable copy of the fields.
+    As of T58, references is read (union-of-both-stores, for backward-read
+    compatibility with this pre-T58 vector) but never re-written into vector metadata.
     """
     artifact_id = "artifacts/implementation-note-2026-01-01-vector-only-links"
     s3_reconcile.put_object(artifact_id, _CONTENT_NO_SECTIONS, {**_BASE_S3_META})
@@ -720,7 +724,9 @@ async def test_reindex_from_failure_log_preserves_vector_only_link_fields(
     assert items, "reconcile should have re-indexed vectors for the artifact"
     vmeta = items[0]["metadata"]
     assert vmeta.get("commit_refs") == ["abc123"]
-    assert vmeta.get("references") == ["implementation-note-2026-01-01-other"]
+    # T58: references is never re-written into vector metadata, even when it was
+    # present on the pre-existing vector and read via the union.
+    assert "references" not in vmeta
 
 
 async def test_reindex_credential_error_from_annotation_read_propagates(
@@ -1827,14 +1833,21 @@ async def test_orphan_scan_oversize_link_fields_rejected_reported_in_failed(
     mocker: MockerFixture,
 ) -> None:
     """An orphan-scan-discovered artifact (indexed nowhere, so picked up by Phase 2)
-    whose durable references annotation is oversize is rejected identically to the
+    whose durable commit_refs annotation is oversize is rejected identically to the
     failure-log-replay path — both share _reindex_artifact — reported in `failed`,
-    zero put_vector calls, a normal orphan in the same run still reconciles."""
+    zero put_vector calls, a normal orphan in the same run still reconciles.
+
+    Uses commit_refs (not references) as the oversize field: as of T58, references is
+    never written into vector metadata under any code path, so an oversize references
+    annotation alone can no longer breach the vector-metadata budget — only commit_refs
+    (still vector-metadata-filterable, now capped at 20 entries but not at byte size per
+    entry) can.
+    """
     oversize_id = "artifacts/implementation-note-2026-01-01-orphan-oversize"
     normal_id = "artifacts/implementation-note-2026-01-01-orphan-normal"
     s3_reconcile.put_object(oversize_id, _CONTENT_NO_SECTIONS, {**_BASE_S3_META})
     s3_reconcile.put_object(normal_id, _CONTENT_NO_SECTIONS, {**_BASE_S3_META})
-    apply_link_annotations(s3_reconcile, oversize_id, commit_refs=[], references=[_HUGE_COMMIT_REF])
+    apply_link_annotations(s3_reconcile, oversize_id, commit_refs=[_HUGE_COMMIT_REF], references=[])
     bedrock = FakeBedrockClient(dimension=DIMENSION)
     put_vector_spy = mocker.spy(vectors_reconcile, "put_vector")
 
@@ -1852,6 +1865,52 @@ async def test_orphan_scan_oversize_link_fields_rejected_reported_in_failed(
     assert normal_id in reconciled_ids
     assert oversize_id not in reconciled_ids
     assert all(call.args[0] != oversize_id for call in put_vector_spy.call_args_list)
+
+
+# ---------------------------------------------------------------------------
+# T58 — commit_refs vector-metadata cap (20) + references vector-metadata removal
+# ---------------------------------------------------------------------------
+
+
+async def test_reindex_commit_refs_over_cap_truncated_references_omitted(
+    reconcile_settings: Settings,
+    s3_reconcile: S3ClientImpl,
+    vectors_reconcile: VectorsClientImpl,
+) -> None:
+    """An artifact whose durable commit_refs annotation carries more than 20 (short,
+    well-under-budget) entries, plus a non-empty references annotation: after
+    reconcile, the rebuilt vector metadata carries only the last 20 commit_refs and no
+    references key — the annotation itself remains the complete, uncapped source."""
+    artifact_id = "artifacts/implementation-note-2026-01-01-over-cap"
+    s3_reconcile.put_object(artifact_id, _CONTENT_NO_SECTIONS, {**_BASE_S3_META})
+    full_commit_refs = [f"sha{i:04d}" for i in range(25)]
+    apply_link_annotations(
+        s3_reconcile,
+        artifact_id,
+        commit_refs=full_commit_refs,
+        references=["implementation-note-2026-01-01-other"],
+    )
+    bedrock = FakeBedrockClient(dimension=DIMENSION)
+
+    result = await reconcile_index(
+        settings=reconcile_settings,
+        s3=s3_reconcile,
+        vectors=vectors_reconcile,
+        bedrock=bedrock,
+    )
+
+    assert "error" not in result
+    keys = vectors_reconcile.list_vectors_by_metadata({"artifact_id": {"$eq": artifact_id}})
+    items = vectors_reconcile.get_vectors(keys)
+    assert items, "reconcile should have indexed vectors for the artifact"
+    vmeta = items[0]["metadata"]
+    assert vmeta.get("commit_refs") == full_commit_refs[-20:]
+    assert len(vmeta["commit_refs"]) == 20
+    assert "references" not in vmeta
+    # The annotation itself remains the complete, uncapped list.
+    assert s3_reconcile.get_object_annotation(artifact_id, "commit_refs") == ",".join(
+        full_commit_refs
+    )
 
 
 # T62 — Bounded failure-log retry: reconcile_attempts / stuck_failures

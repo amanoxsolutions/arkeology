@@ -2386,13 +2386,15 @@ async def test_write_empty_commit_refs_annotation_absent(
 
 
 @pytest.mark.asyncio
-async def test_write_references_stored_as_list_in_vector_metadata(
+async def test_write_references_never_stored_in_vector_metadata(
     monkeypatch: pytest.MonkeyPatch,
     s3_client: S3ClientImpl,
     vectors_client: VectorsClientImpl,
     mocker: pytest.MonkeyPatch,
 ) -> None:
-    """references=['a-1', 'b-2'] stored as list[str] in vector metadata."""
+    """T58: references=['a-1', 'b-2'] is never written into vector metadata, even
+    though non-empty — the S3 annotation is its sole durable store and sole read
+    surface as of T58."""
     settings = _make_settings(monkeypatch)
     bedrock = FakeBedrockClient(dimension=1024)
     vec_spy = mocker.spy(vectors_client, "put_vectors_batch")
@@ -2407,7 +2409,7 @@ async def test_write_references_stored_as_list_in_vector_metadata(
 
     vec_items = vec_spy.call_args.args[0]
     for item in vec_items:
-        assert item["metadata"]["references"] == ["a-1", "b-2"]
+        assert "references" not in item["metadata"]
 
 
 @pytest.mark.asyncio
@@ -2470,14 +2472,14 @@ async def test_write_references_not_stored_in_s3_metadata(
 
 
 @pytest.mark.asyncio
-async def test_write_references_stored_in_annotation_and_vector_metadata(
+async def test_write_references_stored_in_annotation_not_vector_metadata(
     monkeypatch: pytest.MonkeyPatch,
     s3_client: S3ClientImpl,
     vectors_client: VectorsClientImpl,
     mocker: pytest.MonkeyPatch,
 ) -> None:
-    """references=['a-1', 'b-2'] is written as a comma-joined S3 annotation and as
-    list[str] in vector metadata."""
+    """references=['a-1', 'b-2'] is written as a comma-joined S3 annotation — its sole
+    durable store as of T58 — and never appears in vector metadata."""
     settings = _make_settings(monkeypatch)
     bedrock = FakeBedrockClient(dimension=1024)
     vec_spy = mocker.spy(vectors_client, "put_vectors_batch")
@@ -2493,7 +2495,7 @@ async def test_write_references_stored_in_annotation_and_vector_metadata(
     assert s3_client.get_object_annotation(result["artifact_id"], "references") == "a-1,b-2"
     vec_items = vec_spy.call_args.args[0]
     for item in vec_items:
-        assert item["metadata"]["references"] == ["a-1", "b-2"]
+        assert "references" not in item["metadata"]
 
 
 @pytest.mark.asyncio
@@ -2678,7 +2680,8 @@ async def test_tier3_overwrite_preserves_commit_refs_and_replaces_references(
     assert entries, "expected at least one vector for the overwritten artifact"
     for entry in entries:
         assert entry["metadata"]["commit_refs"] == ["abc1234"]
-        assert entry["metadata"]["references"] == ["b-2"]
+        # T58: references is never written to vector metadata, regardless of value.
+        assert "references" not in entry["metadata"]
 
 
 @pytest.mark.asyncio
@@ -2775,8 +2778,10 @@ async def test_link_metadata_backfilled_reference_dropped_by_subsequent_overwrit
     keys = vectors_client.list_vectors_by_metadata({"artifact_id": {"$eq": artifact_id}})
     entries = vectors_client.get_vectors(keys)
     assert entries
+    # T58: references is never written to vector metadata — the annotation assertion
+    # above is this test's sole surface for the documented drop-"z-9" behaviour.
     for entry in entries:
-        assert entry["metadata"]["references"] == ["a-1"]
+        assert "references" not in entry["metadata"]
 
 
 @pytest.mark.asyncio
@@ -3340,8 +3345,14 @@ async def test_non_ascii_title_written_and_read_back_via_vector_metadata(
 # its own once combined with the artifact's other filterable fields, but their
 # union is not — this isolates the missing post-merge re-check rather than
 # re-testing the pre-merge Step 3c guard already covered above.
-_LINK_FIELD_ITEM_LEN = 40
-_LINK_FIELD_ITEM_COUNT = 22
+#
+# T58: the union's entry count is deliberately kept AT (not over)
+# COMMIT_REFS_VECTOR_METADATA_MAX_ENTRIES (2 * _LINK_FIELD_ITEM_COUNT == 20) so
+# cap_commit_refs_for_vectors is a no-op here — this test isolates a pure byte-budget
+# breach that survives the cap, not the cap's own entry-count truncation (covered
+# separately by the dedicated T58 cap tests below).
+_LINK_FIELD_ITEM_LEN = 80
+_LINK_FIELD_ITEM_COUNT = 10
 
 
 def _make_link_field_batch(prefix: str) -> list[str]:
@@ -3450,6 +3461,90 @@ async def test_overwrite_merged_commit_refs_under_budget_still_succeeds(
     entries = vectors_client.get_vectors(keys)
     for entry in entries:
         assert entry["metadata"]["commit_refs"] == ["abc1234", "def5678"]
+
+
+# ---------------------------------------------------------------------------
+# T58 — commit_refs vector-metadata cap (20 most-recently-appended entries)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_write_fresh_commit_refs_over_cap_vector_capped_annotation_full(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """A fresh write supplying 21 short commit_refs (well under the byte budget) must
+    succeed — never rejected for entry count alone — with the vector-metadata copy
+    carrying only the last 20, while the annotation carries the complete, uncapped
+    list of 21."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+    vec_spy = mocker.spy(vectors_client, "put_vectors_batch")
+    refs = [f"sha{i:04d}" for i in range(21)]
+
+    result = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        **{**_ONE_SECTION_KWARGS, "commit_refs": refs},
+    )
+
+    assert "error" not in result
+    assert s3_client.get_object_annotation(result["artifact_id"], "commit_refs") == ",".join(refs)
+    vec_items = vec_spy.call_args.args[0]
+    for item in vec_items:
+        assert item["metadata"]["commit_refs"] == refs[-20:]
+        assert len(item["metadata"]["commit_refs"]) == 20
+
+
+@pytest.mark.asyncio
+async def test_write_overwrite_merged_commit_refs_over_cap_vector_capped_annotation_full(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+) -> None:
+    """An overwrite whose read-forward merge (existing ∪ supplied) produces more than 20
+    short commit_refs entries must still succeed — the vector-metadata copy carries only
+    the last 20 of the merged list, while the annotation carries the complete, uncapped
+    merge."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+    tier3_kwargs = {**_ONE_SECTION_KWARGS, "tier": 3}
+    existing_refs = [f"existing{i:03d}" for i in range(15)]
+    new_refs = [f"new{i:03d}" for i in range(10)]
+    full_merged = list(dict.fromkeys(existing_refs + new_refs))
+    assert len(full_merged) == 25  # sanity: exceeds the 20-entry cap
+
+    first = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        **{**tier3_kwargs, "commit_refs": existing_refs},
+    )
+    assert "error" not in first
+    artifact_id = first["artifact_id"]
+
+    result = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        overwrite=True,
+        **{**tier3_kwargs, "content": "## Summary\n\nUpdated content.", "commit_refs": new_refs},
+    )
+
+    assert "error" not in result
+    assert s3_client.get_object_annotation(artifact_id, "commit_refs") == ",".join(full_merged)
+    keys = vectors_client.list_vectors_by_metadata({"artifact_id": {"$eq": artifact_id}})
+    entries = vectors_client.get_vectors(keys)
+    assert entries
+    for entry in entries:
+        assert entry["metadata"]["commit_refs"] == full_merged[-20:]
+        assert len(entry["metadata"]["commit_refs"]) == 20
 
 
 # ---------------------------------------------------------------------------

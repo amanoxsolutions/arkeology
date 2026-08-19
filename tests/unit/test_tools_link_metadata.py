@@ -152,12 +152,14 @@ async def test_link_metadata_commit_refs_backfilled_to_both_stores(
         assert item["metadata"]["commit_refs"] == ["abc1234"]
 
 
-async def test_link_metadata_references_backfilled_to_both_stores(
+async def test_link_metadata_references_backfilled_to_annotation_not_vector_metadata(
     monkeypatch: pytest.MonkeyPatch,
     s3_client: S3ClientImpl,
     vectors_client_2: VectorsClientImpl,
 ) -> None:
-    """references=['a-1'] lands in both the S3 annotation and vector metadata."""
+    """T58: references=['a-1'] lands in the S3 annotation (its sole durable store) and
+    never appears in vector metadata, even though put_vectors_batch is still called for
+    every section vector (to persist the write's other metadata)."""
     settings = _make_settings(monkeypatch)
     bedrock = FakeBedrockClient()
     _seed_all(s3_client, vectors_client_2)
@@ -176,7 +178,7 @@ async def test_link_metadata_references_backfilled_to_both_stores(
 
     items = vectors_client_2.get_vectors([KEY_A1, KEY_A2])
     for item in items:
-        assert item["metadata"]["references"] == ["a-1"]
+        assert "references" not in item["metadata"]
 
 
 async def test_link_metadata_both_fields_backfilled_in_one_call(
@@ -184,8 +186,9 @@ async def test_link_metadata_both_fields_backfilled_in_one_call(
     s3_client: S3ClientImpl,
     vectors_client_2: VectorsClientImpl,
 ) -> None:
-    """Supplying both commit_refs and references in one call backfills both fields
-    to both stores."""
+    """Supplying both commit_refs and references in one call backfills commit_refs to
+    both stores and references to the annotation only (T58: references is never
+    written to vector metadata)."""
     settings = _make_settings(monkeypatch)
     bedrock = FakeBedrockClient()
     _seed_all(s3_client, vectors_client_2)
@@ -207,7 +210,7 @@ async def test_link_metadata_both_fields_backfilled_in_one_call(
     items = vectors_client_2.get_vectors([KEY_A1, KEY_A2])
     for item in items:
         assert item["metadata"]["commit_refs"] == ["abc1234"]
-        assert item["metadata"]["references"] == ["a-1"]
+        assert "references" not in item["metadata"]
 
 
 # ---------------------------------------------------------------------------
@@ -382,7 +385,8 @@ async def test_link_metadata_idempotent_on_rerun(
     items = vectors_client_2.get_vectors([KEY_A1, KEY_A2])
     for item in items:
         assert item["metadata"]["commit_refs"] == ["abc1234"]
-        assert item["metadata"]["references"] == ["a-1"]
+        # T58: references is never written to vector metadata.
+        assert "references" not in item["metadata"]
     assert s3_client.get_object_annotation(ID_A, "commit_refs") == "abc1234"
     assert s3_client.get_object_annotation(ID_A, "references") == "a-1"
 
@@ -1338,6 +1342,122 @@ async def test_link_metadata_orphaned_vector_missing_s3_object_skipped_not_abort
 
 
 # ---------------------------------------------------------------------------
+# T58 — commit_refs vector-metadata cap (20) + references vector-metadata removal
+# ---------------------------------------------------------------------------
+
+
+async def test_link_metadata_references_never_in_put_vectors_batch_payload(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """A non-empty references value backfilled by link_metadata is never present in
+    any put_vectors_batch payload — the annotation write carries the merged value; the
+    vector write must not."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient()
+    _seed_all(s3_client, vectors_client_2)
+    batch_spy = mocker.spy(vectors_client_2, "put_vectors_batch")
+
+    result = await link_metadata(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=bedrock,
+        artifact_ids=[ID_A],
+        references=["a-1", "b-2"],
+    )
+
+    assert result.get("linked") == 1
+    assert s3_client.get_object_annotation(ID_A, "references") == "a-1,b-2"
+    assert batch_spy.call_count == 1
+    batch_payload = batch_spy.call_args.args[0]
+    for item in batch_payload:
+        assert "references" not in item["metadata"]
+
+
+async def test_link_metadata_commit_refs_over_cap_vector_capped_annotation_full(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+) -> None:
+    """A merged commit_refs list exceeding 20 entries succeeds — the vector-metadata
+    copy carries only the last 20, while the annotation carries the complete, uncapped
+    merged list."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient()
+    _seed_all(s3_client, vectors_client_2)
+
+    existing_refs = [f"existing{i:03d}" for i in range(15)]
+    s3_client.put_object_annotation(ID_A, "commit_refs", ",".join(existing_refs))
+    new_refs = [f"new{i:03d}" for i in range(10)]
+    full_merged = list(dict.fromkeys(existing_refs + new_refs))
+    assert len(full_merged) == 25  # sanity: exceeds the 20-entry cap
+
+    result = await link_metadata(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=bedrock,
+        artifact_ids=[ID_A],
+        commit_refs=new_refs,
+    )
+
+    assert result.get("linked") == 1
+    assert s3_client.get_object_annotation(ID_A, "commit_refs") == ",".join(full_merged)
+
+    items = vectors_client_2.get_vectors([KEY_A1, KEY_A2])
+    for item in items:
+        assert item["metadata"]["commit_refs"] == full_merged[-20:]
+        assert len(item["metadata"]["commit_refs"]) == 20
+
+
+async def test_link_metadata_pre_check_measures_capped_payload_not_uncapped(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+) -> None:
+    """The pre-annotation-write budget check must measure the payload the real write
+    actually assembles (capped commit_refs, no references key) — not the uncapped
+    merged commit_refs. With realistic 40-char SHA-like entries, the uncapped merged
+    list (55 entries) breaches VECTOR_FILTERABLE_METADATA_MAX_BYTES on its own, but the
+    capped, last-20-entries payload the real write sends comfortably fits. This call
+    must succeed, not be spuriously rejected with validation_error."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient()
+    _seed_all(s3_client, vectors_client_2)
+
+    def _sha_like(i: int, prefix: str) -> str:
+        stem = f"{prefix}{i:04d}"
+        return stem + "f" * (40 - len(stem))
+
+    existing_refs = [_sha_like(i, "e") for i in range(30)]
+    s3_client.put_object_annotation(ID_A, "commit_refs", ",".join(existing_refs))
+    new_refs = [_sha_like(i, "n") for i in range(25)]
+    full_merged = list(dict.fromkeys(existing_refs + new_refs))
+    assert len(full_merged) == 55  # sanity: uncapped list is large
+
+    result = await link_metadata(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=bedrock,
+        artifact_ids=[ID_A],
+        commit_refs=new_refs,
+    )
+
+    assert result.get("error") is None
+    assert result.get("linked") == 1
+    assert s3_client.get_object_annotation(ID_A, "commit_refs") == ",".join(full_merged)
+
+    items = vectors_client_2.get_vectors([KEY_A1, KEY_A2])
+    for item in items:
+        assert item["metadata"]["commit_refs"] == full_merged[-20:]
+        assert len(item["metadata"]["commit_refs"]) == 20
+
+
+# ---------------------------------------------------------------------------
 # T57 — check_metadata_budgets guard coverage in link_metadata
 # (docs/specs/p12-t57-guard-coverage.md, Story 1). An oversize merged
 # commit_refs/references payload must be rejected BEFORE the annotation write —
@@ -1383,17 +1503,22 @@ async def test_link_metadata_oversize_only_after_merge_rejected(
     vectors_client_2: VectorsClientImpl,
     mocker: MockerFixture,
 ) -> None:
-    """Supplied commit_refs alone would pass the budget check, but the merge with the
-    already-indexed existing commit_refs breaches it — the check measures the merged,
-    about-to-be-written state, not the caller's raw input, so this is still rejected
-    with zero writes."""
+    """Supplied commit_refs alone (10 entries, ~100 bytes each) would pass the budget
+    check on their own, but the check measures the merged-then-capped, about-to-be-
+    written state (T58): merging with the already-indexed existing commit_refs and
+    capping to the most-recent 20 entries still leaves 10 existing-tail entries plus
+    all 10 supplied entries — 20 large entries that together breach
+    VECTOR_FILTERABLE_METADATA_MAX_BYTES — so this is still rejected with zero writes.
+    (This is distinct from a rejection caused merely by entry *count*: capping alone
+    would fit comfortably here — it's the entries' size, not their number, that
+    breaches the budget.)"""
     settings = _make_settings(monkeypatch)
     bedrock = FakeBedrockClient()
     _seed_all(s3_client, vectors_client_2)
 
-    # Existing indexed commit_refs on artifact-own-A: large but individually under
-    # budget on its own.
-    existing_refs = [f"existing{i:04d}" + "x" * 40 for i in range(22)]
+    # Existing indexed commit_refs on artifact-own-A: 15 large entries. The most
+    # recent 10 of these survive capping alongside the supplied entries below.
+    existing_refs = [f"existing{i:04d}" + "x" * 88 for i in range(15)]
     meta_a: dict[str, Any] = {
         **_BASE_META,
         "artifact_id": ID_A,
@@ -1403,9 +1528,10 @@ async def test_link_metadata_oversize_only_after_merge_rejected(
     vectors_client_2.put_vector(KEY_A1, _unit_vec(1.0), meta_a)
     vectors_client_2.put_vector(KEY_A2, _unit_vec(1.1), meta_a)
 
-    # Supplied commit_refs — also individually under budget — but the union of both
-    # breaches VECTOR_FILTERABLE_METADATA_MAX_BYTES.
-    supplied_refs = [f"supplied{i:04d}" + "x" * 40 for i in range(22)]
+    # Supplied commit_refs — 10 large entries, comfortably under budget on their own —
+    # but merged with the existing entries and capped to the most-recent 20, the
+    # combined size breaches VECTOR_FILTERABLE_METADATA_MAX_BYTES.
+    supplied_refs = [f"supplied{i:04d}" + "x" * 88 for i in range(10)]
 
     annotation_spy = mocker.spy(s3_client, "put_object_annotation")
     batch_spy = mocker.spy(vectors_client_2, "put_vectors_batch")

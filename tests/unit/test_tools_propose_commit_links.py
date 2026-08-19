@@ -10,6 +10,7 @@ from typing import Any
 import pytest
 from pytest_mock import MockerFixture
 
+from arkeology.clients.s3 import S3ClientImpl
 from arkeology.clients.vectors import VectorsClientImpl
 from arkeology.config import Settings
 from arkeology.errors import CredentialError
@@ -131,6 +132,7 @@ def _seed_standard(vectors: VectorsClientImpl) -> None:
 async def test_since_ulid_returns_only_b(
     monkeypatch: pytest.MonkeyPatch,
     vectors_client_2: VectorsClientImpl,
+    s3_client: S3ClientImpl,
 ) -> None:
     """since_ulid=ULID_MID → only artifact-B returned (A too old, C linked, D foreign)."""
     settings = _make_settings(monkeypatch)
@@ -138,7 +140,7 @@ async def test_since_ulid_returns_only_b(
 
     result = await propose_commit_links(
         settings=settings,
-        s3=None,
+        s3=s3_client,
         vectors=vectors_client_2,
         bedrock=None,
         commit_sha=COMMIT_SHA,
@@ -156,6 +158,7 @@ async def test_since_ulid_returns_only_b(
 async def test_since_ulid_empty_range_returns_empty_proposed(
     monkeypatch: pytest.MonkeyPatch,
     vectors_client_2: VectorsClientImpl,
+    s3_client: S3ClientImpl,
 ) -> None:
     """since_ulid beyond all ULIDs → proposed is [] (not an error)."""
     settings = _make_settings(monkeypatch)
@@ -166,7 +169,7 @@ async def test_since_ulid_empty_range_returns_empty_proposed(
 
     result = await propose_commit_links(
         settings=settings,
-        s3=None,
+        s3=s3_client,
         vectors=vectors_client_2,
         bedrock=None,
         commit_sha=COMMIT_SHA,
@@ -184,6 +187,7 @@ async def test_since_ulid_empty_range_returns_empty_proposed(
 async def test_no_since_ulid_returns_a_and_b(
     monkeypatch: pytest.MonkeyPatch,
     vectors_client_2: VectorsClientImpl,
+    s3_client: S3ClientImpl,
 ) -> None:
     """No since_ulid → A and B in proposed (C linked, D foreign)."""
     settings = _make_settings(monkeypatch)
@@ -191,7 +195,7 @@ async def test_no_since_ulid_returns_a_and_b(
 
     result = await propose_commit_links(
         settings=settings,
-        s3=None,
+        s3=s3_client,
         vectors=vectors_client_2,
         bedrock=None,
         commit_sha=COMMIT_SHA,
@@ -208,6 +212,7 @@ async def test_no_since_ulid_returns_a_and_b(
 async def test_all_linked_returns_empty_proposed(
     monkeypatch: pytest.MonkeyPatch,
     vectors_client_2: VectorsClientImpl,
+    s3_client: S3ClientImpl,
 ) -> None:
     """All own-scope artifacts have commit_refs → proposed is []."""
     settings = _make_settings(monkeypatch)
@@ -226,7 +231,7 @@ async def test_all_linked_returns_empty_proposed(
 
     result = await propose_commit_links(
         settings=settings,
-        s3=None,
+        s3=s3_client,
         vectors=vectors_client_2,
         bedrock=None,
         commit_sha=COMMIT_SHA,
@@ -243,6 +248,7 @@ async def test_all_linked_returns_empty_proposed(
 async def test_response_shape_has_commit_sha(
     monkeypatch: pytest.MonkeyPatch,
     vectors_client_2: VectorsClientImpl,
+    s3_client: S3ClientImpl,
 ) -> None:
     """Response always includes 'commit_sha' matching the supplied value."""
     settings = _make_settings(monkeypatch)
@@ -250,7 +256,7 @@ async def test_response_shape_has_commit_sha(
 
     result = await propose_commit_links(
         settings=settings,
-        s3=None,
+        s3=s3_client,
         vectors=vectors_client_2,
         bedrock=None,
         commit_sha=COMMIT_SHA,
@@ -262,6 +268,7 @@ async def test_response_shape_has_commit_sha(
 async def test_entry_has_required_fields(
     monkeypatch: pytest.MonkeyPatch,
     vectors_client_2: VectorsClientImpl,
+    s3_client: S3ClientImpl,
 ) -> None:
     """Each proposed entry has artifact_id, title, type, last_edited_ulid, last_edited_at."""
     settings = _make_settings(monkeypatch)
@@ -269,7 +276,7 @@ async def test_entry_has_required_fields(
 
     result = await propose_commit_links(
         settings=settings,
-        s3=None,
+        s3=s3_client,
         vectors=vectors_client_2,
         bedrock=None,
         commit_sha=COMMIT_SHA,
@@ -285,6 +292,7 @@ async def test_entry_has_required_fields(
 async def test_entry_last_edited_at_is_iso8601(
     monkeypatch: pytest.MonkeyPatch,
     vectors_client_2: VectorsClientImpl,
+    s3_client: S3ClientImpl,
 ) -> None:
     """Entry with known last_edited_ulid → last_edited_at is a non-empty ISO-8601 string."""
     settings = _make_settings(monkeypatch)
@@ -292,7 +300,7 @@ async def test_entry_last_edited_at_is_iso8601(
 
     result = await propose_commit_links(
         settings=settings,
-        s3=None,
+        s3=s3_client,
         vectors=vectors_client_2,
         bedrock=None,
         commit_sha=COMMIT_SHA,
@@ -316,6 +324,7 @@ async def test_entry_last_edited_at_is_iso8601(
 async def test_missing_last_edited_ulid_yields_null_fields_and_is_candidate(
     monkeypatch: pytest.MonkeyPatch,
     vectors_client_2: VectorsClientImpl,
+    s3_client: S3ClientImpl,
 ) -> None:
     """Artifact without last_edited_ulid → null fields; still proposed."""
     settings = _make_settings(monkeypatch)
@@ -333,7 +342,7 @@ async def test_missing_last_edited_ulid_yields_null_fields_and_is_candidate(
 
     result = await propose_commit_links(
         settings=settings,
-        s3=None,
+        s3=s3_client,
         vectors=vectors_client_2,
         bedrock=None,
         commit_sha=COMMIT_SHA,
@@ -350,6 +359,7 @@ async def test_missing_last_edited_ulid_yields_null_fields_and_is_candidate(
 async def test_legacy_artifact_excluded_when_since_ulid_provided(
     monkeypatch: pytest.MonkeyPatch,
     vectors_client_2: VectorsClientImpl,
+    s3_client: S3ClientImpl,
 ) -> None:
     """Legacy artifact (no last_edited_ulid) is excluded when since_ulid is given.
 
@@ -382,7 +392,7 @@ async def test_legacy_artifact_excluded_when_since_ulid_provided(
 
     result = await propose_commit_links(
         settings=settings,
-        s3=None,
+        s3=s3_client,
         vectors=vectors_client_2,
         bedrock=None,
         commit_sha=COMMIT_SHA,
@@ -402,6 +412,7 @@ async def test_legacy_artifact_excluded_when_since_ulid_provided(
 async def test_foreign_scope_excluded(
     monkeypatch: pytest.MonkeyPatch,
     vectors_client_2: VectorsClientImpl,
+    s3_client: S3ClientImpl,
 ) -> None:
     """Foreign-scope artifact with no commit_refs is NOT in proposed."""
     settings = _make_settings(monkeypatch)
@@ -409,7 +420,7 @@ async def test_foreign_scope_excluded(
 
     result = await propose_commit_links(
         settings=settings,
-        s3=None,
+        s3=s3_client,
         vectors=vectors_client_2,
         bedrock=None,
         commit_sha=COMMIT_SHA,
@@ -427,6 +438,7 @@ async def test_foreign_scope_excluded(
 async def test_multiple_section_vectors_deduplicated(
     monkeypatch: pytest.MonkeyPatch,
     vectors_client_2: VectorsClientImpl,
+    s3_client: S3ClientImpl,
 ) -> None:
     """Two section vectors for same artifact → exactly one entry in proposed."""
     settings = _make_settings(monkeypatch)
@@ -442,7 +454,7 @@ async def test_multiple_section_vectors_deduplicated(
 
     result = await propose_commit_links(
         settings=settings,
-        s3=None,
+        s3=s3_client,
         vectors=vectors_client_2,
         bedrock=None,
         commit_sha=COMMIT_SHA,
@@ -460,6 +472,7 @@ async def test_multiple_section_vectors_deduplicated(
 async def test_list_vectors_credential_error_returns_structured(
     monkeypatch: pytest.MonkeyPatch,
     vectors_client_2: VectorsClientImpl,
+    s3_client: S3ClientImpl,
     mocker: MockerFixture,
 ) -> None:
     """list_vectors_by_metadata raises CredentialError → structured error response."""
@@ -476,7 +489,7 @@ async def test_list_vectors_credential_error_returns_structured(
 
     result = await propose_commit_links(
         settings=settings,
-        s3=None,
+        s3=s3_client,
         vectors=vectors_client_2,
         bedrock=None,
         commit_sha=COMMIT_SHA,
@@ -488,6 +501,7 @@ async def test_list_vectors_credential_error_returns_structured(
 async def test_get_vectors_credential_error_returns_structured(
     monkeypatch: pytest.MonkeyPatch,
     vectors_client_2: VectorsClientImpl,
+    s3_client: S3ClientImpl,
     mocker: MockerFixture,
 ) -> None:
     """get_vectors raises CredentialError → structured error response."""
@@ -505,10 +519,175 @@ async def test_get_vectors_credential_error_returns_structured(
 
     result = await propose_commit_links(
         settings=settings,
-        s3=None,
+        s3=s3_client,
         vectors=vectors_client_2,
         bedrock=None,
         commit_sha=COMMIT_SHA,
     )
 
     assert "error" in result
+
+
+# ---------------------------------------------------------------------------
+# T58 — eligibility sourced from read_current_link_fields (union of both stores),
+# never from a single vector's meta
+# ---------------------------------------------------------------------------
+
+
+async def test_commit_refs_on_non_first_section_vector_excluded_from_proposed(
+    monkeypatch: pytest.MonkeyPatch,
+    vectors_client_2: VectorsClientImpl,
+    s3_client: S3ClientImpl,
+) -> None:
+    """A multi-section artifact whose commit_refs live on a section vector other than
+    the one the initial dedup (seen_ids) happens to keep as representative is still
+    correctly excluded from proposed — eligibility comes from
+    annotations.read_current_link_fields (the union across every section vector plus
+    the annotation), never from the single representative vector's own meta."""
+    settings = _make_settings(monkeypatch)
+    artifact_id = "artifacts/multi-section-linked-elsewhere"
+    meta_no_refs = {
+        **_BASE_META,
+        "artifact_id": artifact_id,
+        "last_edited_ulid": ULID_HIGH,
+        "title": "Multi-section linked on non-first vector",
+    }
+    meta_with_refs = {**meta_no_refs, "commit_refs": ["sha1"]}
+    # Insertion order is the order get_vectors/list_vectors_by_metadata return them in
+    # moto — the first-inserted vector (no commit_refs) is the one a naive
+    # first-occurrence-wins dedup would have kept as representative.
+    vectors_client_2.put_vector(f"{artifact_id}#aaa-summary", _unit_vec(3.1), meta_no_refs)
+    vectors_client_2.put_vector(f"{artifact_id}#zzz-details", _unit_vec(3.2), meta_with_refs)
+
+    result = await propose_commit_links(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=None,
+        commit_sha=COMMIT_SHA,
+    )
+
+    ids = [e["artifact_id"] for e in result["proposed"]]
+    assert artifact_id not in ids
+
+
+async def test_commit_refs_over_cap_still_excluded_from_proposed(
+    monkeypatch: pytest.MonkeyPatch,
+    vectors_client_2: VectorsClientImpl,
+    s3_client: S3ClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """An artifact whose full commit_refs (annotation-sourced) exceeds the 20-entry
+    vector-metadata cap (Story 2) is still correctly excluded from proposed —
+    eligibility is decided via the annotation-backed, uncapped union
+    (read_current_link_fields), never from the vector's already-capped copy alone.
+    Asserts the annotation is actually consulted (not merely that the capped vector
+    copy happens to already be non-empty)."""
+    settings = _make_settings(monkeypatch)
+    artifact_id = "artifacts/over-cap-linked"
+    full_commit_refs = [f"sha{i:04d}" for i in range(25)]
+    # Annotations are set on an existing S3 object — real S3 semantics.
+    s3_client.put_object(artifact_id, "content", {})
+    s3_client.put_object_annotation(artifact_id, "commit_refs", ",".join(full_commit_refs))
+    meta = {
+        **_BASE_META,
+        "artifact_id": artifact_id,
+        "last_edited_ulid": ULID_HIGH,
+        "title": "Over-cap linked artifact",
+        "commit_refs": full_commit_refs[-20:],  # simulates T58's vector-metadata cap
+    }
+    vectors_client_2.put_vector(f"{artifact_id}#summary", _unit_vec(4.1), meta)
+    annotation_spy = mocker.spy(s3_client, "get_object_annotation")
+
+    result = await propose_commit_links(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=None,
+        commit_sha=COMMIT_SHA,
+    )
+
+    ids = [e["artifact_id"] for e in result["proposed"]]
+    assert artifact_id not in ids
+    annotation_spy.assert_any_call(artifact_id, "commit_refs")
+
+
+async def test_commit_refs_resolution_credential_error_returns_structured(
+    monkeypatch: pytest.MonkeyPatch,
+    vectors_client_2: VectorsClientImpl,
+    s3_client: S3ClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """A CredentialError raised while resolving a candidate's commit_refs (the
+    per-candidate read_current_link_fields call, not the initial
+    list_vectors_by_metadata/get_vectors fetch) returns the same structured
+    credential-error response as the other two CredentialError paths.
+
+    Patches read_current_link_fields itself (the collaborator propose_commit_links.py
+    calls) rather than an underlying client method, so this test targets exactly the
+    exception-handling contract this task adds, independent of annotations.py's own
+    internal (and separately-tested) error handling.
+    """
+    settings = _make_settings(monkeypatch)
+    _seed_standard(vectors_client_2)
+    mocker.patch(
+        "arkeology.tools.propose_commit_links.read_current_link_fields",
+        side_effect=CredentialError(
+            message="Credential failure resolving commit_refs (simulated).",
+            service="s3",
+            original=Exception("simulated"),
+        ),
+    )
+
+    result = await propose_commit_links(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=None,
+        commit_sha=COMMIT_SHA,
+    )
+
+    assert "error" in result
+
+
+async def test_commit_refs_resolution_non_credential_error_degrades_candidate(
+    monkeypatch: pytest.MonkeyPatch,
+    vectors_client_2: VectorsClientImpl,
+    s3_client: S3ClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """A non-CredentialError raised while resolving one candidate's commit_refs
+    degrades that candidate to commit_refs=[] (treated as not-yet-linked) rather than
+    aborting the whole call — mirroring list.py's existing degrade-on-error behaviour
+    for the same helper. Artifact C (which genuinely has commit_refs on its vector) is
+    forced to error and therefore, correctly, appears in `proposed` despite actually
+    being linked — this proves the call did not abort and the degrade landed on
+    exactly the failing candidate, not the other two."""
+    settings = _make_settings(monkeypatch)
+    _seed_standard(vectors_client_2)
+
+    def _fake_read_current_link_fields(
+        s3_arg: S3ClientImpl, vectors_arg: VectorsClientImpl, artifact_id: str
+    ) -> tuple[list[str], list[str]]:
+        if artifact_id == "artifacts/artifact-c":
+            raise RuntimeError("transient (simulated)")
+        return ([], [])
+
+    mocker.patch(
+        "arkeology.tools.propose_commit_links.read_current_link_fields",
+        side_effect=_fake_read_current_link_fields,
+    )
+
+    result = await propose_commit_links(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=None,
+        commit_sha=COMMIT_SHA,
+    )
+
+    assert "error" not in result
+    ids = [e["artifact_id"] for e in result["proposed"]]
+    assert "artifacts/artifact-a" in ids
+    assert "artifacts/artifact-b" in ids
+    assert "artifacts/artifact-c" in ids

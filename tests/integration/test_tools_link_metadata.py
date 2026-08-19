@@ -122,16 +122,15 @@ async def test_link_metadata_round_trip_durable_annotation_and_vector_metadata(
             == f"{settings.write_prefix}/adr-2026-05-30-some-decision-deadbeef"
         )
 
-        # ── Vector metadata dual-write, embeddings reused unchanged ──
+        # ── Vector metadata write: commit_refs only, references never (T58) ──
+        # embeddings reused unchanged
         after_vectors = vectors.get_vectors(
             vectors.list_vectors_by_metadata({"artifact_id": {"$eq": artifact_id}})
         )
         assert after_vectors
         for v in after_vectors:
             assert v["metadata"]["commit_refs"] == ["abc1234"]
-            assert v["metadata"]["references"] == [
-                f"{settings.write_prefix}/adr-2026-05-30-some-decision-deadbeef"
-            ]
+            assert "references" not in v["metadata"]
             assert v["data"]["float32"] == before_embedding_by_key[v["key"]], (
                 "link_metadata must reuse the existing embedding unchanged, "
                 "never issue a Bedrock re-embed"

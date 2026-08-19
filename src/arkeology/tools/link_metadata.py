@@ -33,7 +33,7 @@ from arkeology.annotations import (
     apply_link_annotations,
     read_current_link_fields,
 )
-from arkeology.artifact import Artifact, check_metadata_budgets
+from arkeology.artifact import Artifact, cap_commit_refs_for_vectors, check_metadata_budgets
 from arkeology.clients.interfaces import (
     BedrockClientInterface,
     S3ClientInterface,
@@ -112,15 +112,17 @@ def _apply_link_metadata_with_cas(
         merged_commit_refs = _merge_link_field(existing_commit_refs, supplied_commit_refs)
         merged_references = _merge_link_field(existing_references, supplied_references)
 
+        # The pre-check must measure exactly what the real write assembles (T58 batch
+        # loop in _link_metadata_inner below): commit_refs capped to the most-recent
+        # COMMIT_REFS_VECTOR_METADATA_MAX_ENTRIES entries, references never written to
+        # vector metadata at all. Measuring the uncapped merged_commit_refs here would
+        # spuriously reject a write that the real, correctly-capped write would pass.
         candidate_metadata: dict[str, Any] = dict(existing_vector_metadata)
         if merged_commit_refs:
-            candidate_metadata["commit_refs"] = merged_commit_refs
+            candidate_metadata["commit_refs"] = cap_commit_refs_for_vectors(merged_commit_refs)
         else:
             candidate_metadata.pop("commit_refs", None)
-        if merged_references:
-            candidate_metadata["references"] = merged_references
-        else:
-            candidate_metadata.pop("references", None)
+        candidate_metadata.pop("references", None)
         check_metadata_budgets(s3_metadata={}, vector_metadata=candidate_metadata)
 
         try:
@@ -329,17 +331,20 @@ async def _link_metadata_inner(
             )
 
             # ── Vector metadata write SECOND, reusing existing embeddings ─────
+            # commit_refs is capped to the most-recently-appended
+            # COMMIT_REFS_VECTOR_METADATA_MAX_ENTRIES entries for this vector-metadata
+            # copy only (T58) — the annotation write above already carried the
+            # complete, uncapped merged_commit_refs. references is never written to
+            # vector metadata (T58) — the annotation write above is its sole durable
+            # store; unconditionally drop any stale pre-T58 key here.
             batch: list[dict[str, Any]] = []
             for item in items:
                 meta: dict[str, Any] = dict(item["metadata"])
                 if merged_commit_refs:
-                    meta["commit_refs"] = merged_commit_refs
+                    meta["commit_refs"] = cap_commit_refs_for_vectors(merged_commit_refs)
                 else:
                     meta.pop("commit_refs", None)
-                if merged_references:
-                    meta["references"] = merged_references
-                else:
-                    meta.pop("references", None)
+                meta.pop("references", None)
 
                 batch.append(
                     {

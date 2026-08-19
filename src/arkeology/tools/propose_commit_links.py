@@ -3,14 +3,20 @@
 Read-only discovery tool: returns own-scope artifacts that have no commit_refs,
 optionally bounded to those written since a given session-start ULID.
 
-Makes no writes to S3 or the vector index.
+Makes no writes to S3 or the vector index. Eligibility (``commit_refs`` empty or not)
+is decided from ``annotations.read_current_link_fields`` — the union-of-both-stores
+helper ``read.py``/``list.py`` already use — rather than a single vector's ``meta``, so
+a multi-section artifact whose ``commit_refs`` live on a section vector other than the
+one the initial dedup keeps is never silently re-proposed as unlinked (T58).
 """
 
+import asyncio
 import logging
 from typing import Any
 
 from ulid import ULID
 
+from arkeology.annotations import read_current_link_fields
 from arkeology.clients.interfaces import (
     BedrockClientInterface,
     S3ClientInterface,
@@ -27,7 +33,7 @@ logger = logging.getLogger(__name__)
 async def propose_commit_links(
     *,
     settings: Settings,
-    s3: S3ClientInterface | None = None,
+    s3: S3ClientInterface,
     vectors: VectorsClientInterface,
     bedrock: BedrockClientInterface | None = None,
     commit_sha: str,
@@ -37,7 +43,8 @@ async def propose_commit_links(
 
     Args:
         settings: Server configuration.
-        s3: S3 client (unused; injected for interface consistency).
+        s3: S3 client, used to resolve each candidate's current commit_refs via the
+            union-of-both-stores helper (``annotations.read_current_link_fields``).
         vectors: S3 Vectors client.
         bedrock: Bedrock client (unused; injected for interface consistency).
         commit_sha: The commit SHA to associate (echoed in the response).
@@ -65,14 +72,13 @@ async def propose_commit_links(
 async def _propose_commit_links_inner(
     *,
     settings: Settings,
-    s3: S3ClientInterface | None = None,
+    s3: S3ClientInterface,
     vectors: VectorsClientInterface,
     bedrock: BedrockClientInterface | None = None,
     commit_sha: str,
     since_ulid: str | None = None,
 ) -> dict[str, Any]:
     """Inner implementation of propose_commit_links."""
-    _ = s3
     _ = bedrock
 
     own_scope = settings.write_prefix
@@ -107,7 +113,7 @@ async def _propose_commit_links_inner(
 
     # ── Step 4: Deduplicate by artifact_id ────────────────────────────────────
     seen_ids: set[str] = set()
-    candidates: list[dict[str, Any]] = []
+    base_entries: list[tuple[str, dict[str, Any]]] = []
 
     for item in items:
         meta = item["metadata"]
@@ -116,21 +122,58 @@ async def _propose_commit_links_inner(
         if artifact_id in seen_ids:
             continue
         seen_ids.add(artifact_id)
+        base_entries.append((artifact_id, meta))
 
-        # ── Step 5: Client-side commit_refs filter ────────────────────────────
-        raw_commit_refs = meta.get("commit_refs")
-        if isinstance(raw_commit_refs, list):
-            commit_refs_val: list[str] = raw_commit_refs
-        elif raw_commit_refs:
-            commit_refs_val = [r for r in str(raw_commit_refs).split(",") if r]
-        else:
-            commit_refs_val = []
+    # ── Step 5: Resolve each candidate's current commit_refs from the union of both
+    # durable stores ────────────────────────────────────────────────────────────────
+    # A single vector's `meta.get("commit_refs")` misses a value set (via link_metadata)
+    # on a different section vector, and — after T58's vector-metadata entry cap — can
+    # also miss a value that aged out of that one vector's capped window. Resolving via
+    # read_current_link_fields (annotation ∪ every section vector) closes both gaps.
+    # These are additional round trips beyond the single batched list_vectors_by_metadata
+    # + get_vectors fetch above — the same accepted cost list.py/read.py already carry
+    # for the identical fix — so they run off the event loop and in parallel via
+    # asyncio.gather, mirroring list.py's _fetch_link_fields pattern exactly. No new
+    # bounded-concurrency setting: a candidate page is small relative to a single
+    # artifact's section count, so an unbounded gather is the proportionate choice here.
+    async def _fetch_commit_refs(artifact_id: str) -> list[str]:
+        commit_refs, _references = await asyncio.to_thread(
+            read_current_link_fields, s3, vectors, artifact_id
+        )
+        return commit_refs
 
-        if commit_refs_val:
+    distinct_ids = [artifact_id for artifact_id, _meta in base_entries]
+    commit_refs_by_id: dict[str, list[str]] = {}
+    if distinct_ids:
+        results = await asyncio.gather(
+            *(_fetch_commit_refs(artifact_id) for artifact_id in distinct_ids),
+            return_exceptions=True,
+        )
+        for artifact_id, result in zip(distinct_ids, results, strict=True):
+            if isinstance(result, CredentialError):
+                return credential_error_response(result)
+            if isinstance(result, BaseException):
+                # commit_refs is supplementary to this discovery — degrade this one
+                # candidate to [] (treated as not-yet-linked) rather than aborting the
+                # whole call on a transient per-artifact vector/annotation error,
+                # mirroring list.py's existing degrade-on-error behaviour for the same
+                # helper.
+                logger.warning(
+                    "Failed to read commit_refs for %s; degrading to []",
+                    artifact_id,
+                    exc_info=result,
+                )
+                commit_refs_by_id[artifact_id] = []
+            else:
+                commit_refs_by_id[artifact_id] = result
+
+    # ── Step 6: Filter already-linked candidates, build response entries ──────
+    candidates: list[dict[str, Any]] = []
+    for artifact_id, meta in base_entries:
+        if commit_refs_by_id.get(artifact_id):
             # Already linked — skip
             continue
 
-        # ── Step 6: Build candidate entry ────────────────────────────────────
         last_edited_ulid: str | None = meta.get("last_edited_ulid") or None
         last_edited_at: str | None = None
         if last_edited_ulid:
