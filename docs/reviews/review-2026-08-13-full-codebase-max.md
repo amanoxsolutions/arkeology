@@ -123,7 +123,7 @@ appear nowhere in `link_metadata.py`; verified the S3-annotation-write-then-vect
 ordering; verified none of the file's `except` clauses would catch a raw
 `ValidationException`).
 
-**[2026-08-13 — solution defined, specs written, pending implementation.** Root-caused and designed in `adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal.md` (Accepted), which also folds in a real-AWS calibration finding (`commit_refs` cap of 20, see `docs/learnings.md`). Spec: `docs/specs/p12-t57-guard-coverage.md` (threads `check_metadata_budgets` into `link_metadata.py`'s CAS loop before the annotation write); the split-store half of the fix (`references` removed from vector metadata entirely, `commit_refs` capped) is `docs/specs/p12-t58-commit-refs-cap-references-removal.md`. Tracked as Phase 12 tasks T57/T58 in `plan.md`, both `⬜ pending` — not yet coded.]
+**[2026-08-17 — T57 half implemented, T58 half still pending.** Root-caused and designed in `adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal.md` (Accepted), which also folds in a real-AWS calibration finding (`commit_refs` cap of 20, see `docs/learnings.md`). `docs/specs/p12-t57-guard-coverage.md` (Phase 12 T57, `plan.md`, now `✅`) threads `check_metadata_budgets` into `link_metadata.py`'s CAS loop before the annotation write — an oversize payload is now rejected up front instead of durably desyncing the annotation and vector stores. The structural root cause — an unbounded `commit_refs`/`references` list can still grow past what any budget threshold tolerates — is not yet closed: that is the split-store fix (`references` removed from vector metadata entirely, `commit_refs` capped) in `docs/specs/p12-t58-commit-refs-cap-references-removal.md` (Phase 12 T58, `plan.md`, still `⬜ pending`).]
 
 **B-2 — `reconcile_index`'s own repair path (`_reindex_artifact`) has the same missing `check_metadata_budgets` guard, making an over-budget artifact un-reconcilable and stuck in an infinite failure-log replay loop.**
 
@@ -152,7 +152,7 @@ Confidence: confirmed (verified no `check_metadata_budgets` import/call in
 `reconcile.py`; verified the `except Exception` → `failed` → retained-in-log
 path).
 
-**[2026-08-13 — solution defined, specs written, pending implementation.** Same ADR/spec pair as B-1 (`adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal.md`, Accepted). Spec: `docs/specs/p12-t57-guard-coverage.md` threads `check_metadata_budgets` into `_reindex_artifact` before `vectors.put_vector`; T62 (`docs/specs/p12-t62-bounded-reconcile-retry.md`) additionally caps the infinite-replay failure mode described here at 3 attempts, reporting stuck entries loudly instead of retrying forever. Tracked as Phase 12 tasks T57/T62 in `plan.md`, both `⬜ pending` — not yet coded.]
+**[2026-08-17 — ✅ RESOLVED.** Same ADR as B-1 (`adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal.md`, Accepted). `docs/specs/p12-t57-guard-coverage.md` (Phase 12 T57) threads `check_metadata_budgets` into `_reindex_artifact` before `vectors.put_vector`, so reconcile can no longer durably write an over-budget rebuild; `docs/specs/p12-t62-bounded-reconcile-retry.md` (Phase 12 T62) additionally caps the infinite-replay failure mode described here at `CAS_MAX_ATTEMPTS` (3) attempts, reporting stuck entries once in a new `stuck_failures` response field instead of retrying forever. Both landed on `main`, `plan.md` T57/T62 now `✅`.]
 
 **B-3 — `list_artifacts` sources `commit_refs`/`references`/`tags`/`source_artifacts` from a single arbitrary (first-occurrence) vector per artifact, not the cross-store union `archive.py`/`write.py`/`link_metadata.py` use — same failure class as A-1, for the list/studio-browser path.**
 
@@ -843,9 +843,11 @@ and are marked resolved in place above; the remaining 30 are open.
 - **B-1 / B-2** — missing `check_metadata_budgets` guard on the
   `link_metadata` and `reconcile_index` write paths can permanently desync
   the S3-annotation and vector stores for an artifact, with no self-healing
-  path (B-2 makes B-1 non-recoverable). *Solution defined, specs written,
-  pending implementation — see the inline note above and Phase 12 T57/T58/T62
-  in `plan.md`.*
+  path (B-2 made B-1 non-recoverable). *Guard coverage (T57) and bounded
+  reconcile retry (T62) are done — see the inline notes above. B-2's
+  non-recoverability is resolved; B-1's structural root cause (an unbounded
+  `commit_refs`/`references` list can still overflow the budget) still needs
+  T58, tracked `⬜ pending` in `plan.md`.*
 - **I-4** — `link_metadata.py`'s hand-rolled validation omits the
   control-character check `Artifact` enforces everywhere else, giving
   `commit_refs`/`references` exactly one bypass door for an invariant the
