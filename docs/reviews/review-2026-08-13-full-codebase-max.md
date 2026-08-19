@@ -601,6 +601,8 @@ vs. `"orphan_scan"`). Worth factoring into one
 
 Confidence: confirmed.
 
+**[2026-08-19 — ✅ RESOLVED.** Factored into a shared `_fetch_and_reindex(artifact_id, raw_meta, source, ...)` helper exactly as recommended, in Phase 12 T62 (`docs/specs/p12-t62-bounded-reconcile-retry.md`), commit `8be95b8`. Already reflected in B-2's resolved note and the aggregate cleanup-backlog count above — this entry was missing its own inline marker.]
+
 **H-3 — `delete_artifact`: two independent vector-index lookups run sequentially.**
 
 `delete.py` — Step 4 `find_referrers(...)` (`112`) and Step 5
@@ -689,7 +691,7 @@ a scope-security decision.
 Confidence: plausible (real gap, but no current call site is actually
 wrong — the cost is entirely about the next one).
 
-**[2026-08-19 — ✅ RESOLVED.** Extracted into `is_own_scope(artifact_id, scope) -> bool` in the new `src/arkeology/tools/_scope.py`, used consistently across `delete.py`, `read.py`, `list.py`, `archive.py`, `link_metadata.py`, `purge.py`, and `reconcile.py`. New tests (`tests/unit/test_tools__scope.py`) explicitly pin the exact false-prefix-match case this finding names (`"team-a"` vs `"team-abc/..."`). Phase 12 T63, `plan.md` now `✅`; landed alongside F-1 in the same task.]
+**[2026-08-19 — ✅ RESOLVED.** Extracted into `is_own_scope(artifact_id, scope) -> bool` in the new `src/arkeology/tools/_scope.py`, used consistently across `delete.py`, `read.py`, `list.py`, `archive.py`, `link_metadata.py`, `purge.py`, `reconcile.py`, `freshness.py`, and `_reference_filter.py`. New tests (`tests/unit/test_tools__scope.py`) explicitly pin the exact false-prefix-match case this finding names (`"team-a"` vs `"team-abc/..."`). Phase 12 T63, `plan.md` now `✅`; landed alongside F-1 in the same task.]
 
 **I-4 — `link_metadata.py` reimplements `Artifact.validate_commit_refs`/`validate_references`'s per-element constraint by hand instead of calling it, and the reimplementation has already drifted from the real rule: it never checks for control characters.**
 

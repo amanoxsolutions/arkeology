@@ -100,6 +100,11 @@ Items that were promoted to a phase are **not** listed here — see the phase hi
   (`purge.py`, `freshness.py`, `link_metadata.py`, `reconcile.py`) but each hardcodes its own fixed
   bound (`5`, matching `SECTION_CONCURRENCY`'s default) with no caller or operator override —
   reviewed and accepted as non-blocking for T63 itself, but the inconsistency is worth resolving.
+  A sixth, pre-existing instance: `list.py`'s `_fetch_link_fields` fans out an **unbounded**
+  `asyncio.gather` (no semaphore at all) over every distinct candidate artifact_id, and T58's
+  `propose_commit_links.py` fix (`docs/specs/p12-t58-commit-refs-cap-references-removal.md`)
+  deliberately mirrored that exact pattern — so the same unbounded fan-out now exists in two tools,
+  predating T63 and out of its scope. Include both in the unification.
   Propose a single, simple mechanism instead of five independent bounds — e.g. one shared setting/
   constant, or extending `artifact_concurrency`-style per-call override to all five tools — design-first:
   decide whether this should be a global server setting (env var, one source of truth, no per-call
