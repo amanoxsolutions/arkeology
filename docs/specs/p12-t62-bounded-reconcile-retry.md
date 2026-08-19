@@ -20,6 +20,19 @@ authored:
 
 # T62 — Bounded `reconcile_index` Failure-Log Retry + Fetch-and-Reindex Dedup
 
+## Revision — 2026-08-19
+
+The Problem Statement and Requirements below describe the failure-log's shape as it
+existed when T62 shipped: one entry kind, keyed for Phase 1's dedup/resolution purposes
+by bare `artifact_id`. [`docs/specs/p13-t67-orphan-vector-retry-and-selfheal.md`](p13-t67-orphan-vector-retry-and-selfheal.md)
+adds a second entry kind (distinguished by the presence of an `orphan_keys` field,
+recording orphan vector keys Step 8 of `write_artifact` failed to delete after its inline
+retry) and changes Phase 1's dedup/resolution key from bare `artifact_id` to
+`(artifact_id, kind)` — a co-existing entry of each kind for the same `artifact_id` is
+now possible and must be resolved independently. The `reconcile_attempts`/
+`CAS_MAX_ATTEMPTS`/`stuck_failures` mechanism this spec introduces is unchanged and now
+applies to both kinds identically. See that spec for the full rationale.
+
 <!-- SCOPE BLOCK — frozen after approval -->
 
 ## TL;DR
