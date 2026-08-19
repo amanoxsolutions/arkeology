@@ -81,7 +81,9 @@ def _reindex_artifact(
             silently continuing without link fields.
         MetadataTooLargeError: If the rebuilt vector_metadata breaches any of the
             three metadata size budgets (T57) — propagated to the caller, which
-            reports it as a structured `failed` entry rather than crashing.
+            reports it as a structured `failed` entry (or, once an entry's
+            reconcile_attempts crosses CAS_MAX_ATTEMPTS, `stuck_failures` — see T62)
+            rather than crashing.
     """
     # Decode transport-encoded S3 user-metadata values (see
     # arkeology.artifact.encode_metadata_value) so a non-ASCII title (and any other
