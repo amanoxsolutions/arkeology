@@ -1853,6 +1853,7 @@ async def test_orphan_scan_oversize_link_fields_rejected_reported_in_failed(
     assert oversize_id not in reconciled_ids
     assert all(call.args[0] != oversize_id for call in put_vector_spy.call_args_list)
 
+
 # T62 — Bounded failure-log retry: reconcile_attempts / stuck_failures
 # ---------------------------------------------------------------------------
 
