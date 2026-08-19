@@ -13,12 +13,13 @@ import boto3
 import pytest
 from pytest_mock import MockerFixture
 
-from arkeology.annotations import apply_link_annotations
+from arkeology.annotations import CAS_MAX_ATTEMPTS, apply_link_annotations
 from arkeology.clients.fakes.fake_bedrock import FakeBedrockClient
 from arkeology.clients.s3 import S3ClientImpl
 from arkeology.clients.vectors import VectorsClientImpl
 from arkeology.config import Settings
 from arkeology.errors import CredentialError
+from arkeology.tools import reconcile as reconcile_module
 from arkeology.tools.reconcile import reconcile_index
 from tests.unit.conftest import _make_settings as _make_settings_base
 from tests.unit.conftest import _make_vectors_client
@@ -1761,3 +1762,275 @@ async def test_reconcile_dangling_prune_calls_run_off_event_loop(
     assert all(t is not main_thread for t in seen_threads), (
         "Dangling-prune calls ran on the event-loop thread — they must be offloaded"
     )
+
+
+# ---------------------------------------------------------------------------
+# T62 — Bounded failure-log retry: reconcile_attempts / stuck_failures
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("prior_attempts", [None, 0, 1, 2])
+async def test_failure_log_entry_below_threshold_fails_increments_and_stays_in_failed(
+    reconcile_settings: Settings,
+    s3_reconcile: S3ClientImpl,
+    vectors_reconcile: VectorsClientImpl,
+    mocker: MockerFixture,
+    prior_attempts: int | None,
+) -> None:
+    """An entry whose prior reconcile_attempts is below CAS_MAX_ATTEMPTS (unset/0/1/2)
+    that fails this run: reconcile_attempts increments by one, and — because 2->3 is
+    exactly the run on which the threshold is crossed — the entry lands in
+    stuck_failures instead of failed once the increment reaches CAS_MAX_ATTEMPTS. Below
+    that, it stays in failed exactly as today. Either way the rewritten failure log on
+    disk carries the updated counter."""
+    artifact_id = "artifacts/implementation-note-2026-01-01-below-threshold"
+    s3_reconcile.put_object(artifact_id, _CONTENT_NO_SECTIONS, {**_BASE_S3_META})
+    entry: dict[str, Any] = {**_BASE_LOG_ENTRY, "artifact_id": artifact_id}
+    if prior_attempts is not None:
+        entry["reconcile_attempts"] = prior_attempts
+    _write_failure_log(reconcile_settings.failure_log_path, [entry])
+
+    bedrock = FakeBedrockClient(dimension=DIMENSION)
+    mocker.patch.object(bedrock, "embed", side_effect=RuntimeError("simulated embed failure"))
+
+    result = await reconcile_index(
+        settings=reconcile_settings,
+        s3=s3_reconcile,
+        vectors=vectors_reconcile,
+        bedrock=bedrock,
+    )
+
+    assert "error" not in result
+    expected_attempts = (prior_attempts or 0) + 1
+    failed_ids = [e["artifact_id"] for e in result["failed"]]
+    stuck_ids = [e["artifact_id"] for e in result.get("stuck_failures", [])]
+
+    if expected_attempts >= CAS_MAX_ATTEMPTS:
+        assert artifact_id in stuck_ids
+        assert artifact_id not in failed_ids
+    else:
+        assert artifact_id in failed_ids
+        assert artifact_id not in stuck_ids
+
+    log_lines = reconcile_settings.failure_log_path.read_text(encoding="utf-8").splitlines()
+    persisted = [json.loads(line) for line in log_lines]
+    persisted_entry = next(e for e in persisted if e["artifact_id"] == artifact_id)
+    assert persisted_entry["reconcile_attempts"] == expected_attempts
+
+
+async def test_failure_log_entry_at_threshold_skipped_and_reported_stuck(
+    reconcile_settings: Settings,
+    s3_reconcile: S3ClientImpl,
+    vectors_reconcile: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """An entry whose reconcile_attempts is already >= CAS_MAX_ATTEMPTS before this run
+    is never attempted — no _reindex_artifact call, hence no bedrock.embed / put_vector
+    call for it — and is reported in stuck_failures, not failed. Its counter does not
+    grow further since no attempt was made."""
+    artifact_id = "artifacts/implementation-note-2026-01-01-already-stuck"
+    s3_reconcile.put_object(artifact_id, _CONTENT_NO_SECTIONS, {**_BASE_S3_META})
+    _write_failure_log(
+        reconcile_settings.failure_log_path,
+        [{**_BASE_LOG_ENTRY, "artifact_id": artifact_id, "reconcile_attempts": CAS_MAX_ATTEMPTS}],
+    )
+    bedrock = FakeBedrockClient(dimension=DIMENSION)
+    spy = mocker.spy(reconcile_module, "_reindex_artifact")
+
+    result = await reconcile_index(
+        settings=reconcile_settings,
+        s3=s3_reconcile,
+        vectors=vectors_reconcile,
+        bedrock=bedrock,
+    )
+
+    assert "error" not in result
+    assert spy.call_count == 0
+    stuck_ids = [e["artifact_id"] for e in result.get("stuck_failures", [])]
+    failed_ids = [e["artifact_id"] for e in result["failed"]]
+    assert artifact_id in stuck_ids
+    assert artifact_id not in failed_ids
+
+    log_lines = reconcile_settings.failure_log_path.read_text(encoding="utf-8").splitlines()
+    persisted = [json.loads(line) for line in log_lines]
+    persisted_entry = next(e for e in persisted if e["artifact_id"] == artifact_id)
+    assert persisted_entry["reconcile_attempts"] == CAS_MAX_ATTEMPTS
+
+
+async def test_failure_log_entry_succeeds_pruned_regardless_of_prior_attempts(
+    reconcile_settings: Settings,
+    s3_reconcile: S3ClientImpl,
+    vectors_reconcile: VectorsClientImpl,
+) -> None:
+    """An entry that succeeds this run is pruned from the log regardless of its prior
+    reconcile_attempts value — the counter is irrelevant once resolved."""
+    artifact_id = "artifacts/implementation-note-2026-01-01-succeeds-with-history"
+    s3_reconcile.put_object(artifact_id, _CONTENT_NO_SECTIONS, {**_BASE_S3_META})
+    _write_failure_log(
+        reconcile_settings.failure_log_path,
+        [{**_BASE_LOG_ENTRY, "artifact_id": artifact_id, "reconcile_attempts": 2}],
+    )
+    bedrock = FakeBedrockClient(dimension=DIMENSION)
+
+    result = await reconcile_index(
+        settings=reconcile_settings,
+        s3=s3_reconcile,
+        vectors=vectors_reconcile,
+        bedrock=bedrock,
+    )
+
+    assert "error" not in result
+    reconciled_ids = [e["artifact_id"] for e in result["reconciled"]]
+    assert artifact_id in reconciled_ids
+    assert result["failure_log_entries_after"] == 0
+    assert not reconcile_settings.failure_log_path.exists()
+
+
+async def test_response_omits_stuck_failures_when_none(
+    reconcile_settings: Settings,
+    s3_reconcile: S3ClientImpl,
+    vectors_reconcile: VectorsClientImpl,
+) -> None:
+    """A run with no entries crossing the retry threshold omits 'stuck_failures'
+    entirely from the response, matching the optional-field convention used by
+    skipped_existing/generation_failed-style fields elsewhere."""
+    bedrock = FakeBedrockClient(dimension=DIMENSION)
+
+    result = await reconcile_index(
+        settings=reconcile_settings,
+        s3=s3_reconcile,
+        vectors=vectors_reconcile,
+        bedrock=bedrock,
+    )
+
+    assert "error" not in result
+    assert "stuck_failures" not in result
+
+
+async def test_orphan_scan_failure_never_produces_stuck_failures(
+    reconcile_settings: Settings,
+    s3_reconcile: S3ClientImpl,
+    vectors_reconcile: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """A Phase 2 (orphan-scan) failure has no persisted failure-log entry and no
+    reconcile_attempts counter — it always lands in 'failed', never 'stuck_failures',
+    no matter how many times reconcile_index re-runs, since Phase 2's failed list is
+    ephemeral per call and there is no replay loop to bound."""
+    artifact_id = "artifacts/implementation-note-2026-01-01-orphan-always-fails"
+    s3_reconcile.put_object(artifact_id, _CONTENT_NO_SECTIONS, {**_BASE_S3_META})
+    bedrock = FakeBedrockClient(dimension=DIMENSION)
+    mocker.patch.object(bedrock, "embed", side_effect=RuntimeError("simulated embed failure"))
+
+    for _ in range(4):
+        result = await reconcile_index(
+            settings=reconcile_settings,
+            s3=s3_reconcile,
+            vectors=vectors_reconcile,
+            bedrock=bedrock,
+        )
+        assert "error" not in result
+        failed_ids = [e["artifact_id"] for e in result["failed"]]
+        assert artifact_id in failed_ids
+        assert "stuck_failures" not in result
+
+
+async def test_three_consecutive_runs_cross_threshold_into_stuck_failures(
+    reconcile_settings: Settings,
+    s3_reconcile: S3ClientImpl,
+    vectors_reconcile: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """The same unresolved failure-log entry, replayed across four consecutive
+    reconcile_index calls: it appears in 'failed' on runs 1-2, crosses into
+    'stuck_failures' on run 3 (the run on which the increment reaches
+    CAS_MAX_ATTEMPTS), and _reindex_artifact is never called again on run 4+."""
+    artifact_id = "artifacts/implementation-note-2026-01-01-persistent-failure"
+    s3_reconcile.put_object(artifact_id, _CONTENT_NO_SECTIONS, {**_BASE_S3_META})
+    _write_failure_log(
+        reconcile_settings.failure_log_path,
+        [{**_BASE_LOG_ENTRY, "artifact_id": artifact_id}],
+    )
+    bedrock = FakeBedrockClient(dimension=DIMENSION)
+    mocker.patch.object(bedrock, "embed", side_effect=RuntimeError("simulated embed failure"))
+
+    for run in (1, 2):
+        result = await reconcile_index(
+            settings=reconcile_settings,
+            s3=s3_reconcile,
+            vectors=vectors_reconcile,
+            bedrock=bedrock,
+        )
+        assert "error" not in result
+        failed_ids = [e["artifact_id"] for e in result["failed"]]
+        assert artifact_id in failed_ids, f"run {run}"
+        assert "stuck_failures" not in result, f"run {run}"
+
+    result_run_3 = await reconcile_index(
+        settings=reconcile_settings,
+        s3=s3_reconcile,
+        vectors=vectors_reconcile,
+        bedrock=bedrock,
+    )
+    assert "error" not in result_run_3
+    stuck_ids = [e["artifact_id"] for e in result_run_3.get("stuck_failures", [])]
+    assert artifact_id in stuck_ids
+    assert artifact_id not in [e["artifact_id"] for e in result_run_3["failed"]]
+
+    spy = mocker.spy(reconcile_module, "_reindex_artifact")
+    result_run_4 = await reconcile_index(
+        settings=reconcile_settings,
+        s3=s3_reconcile,
+        vectors=vectors_reconcile,
+        bedrock=bedrock,
+    )
+    assert "error" not in result_run_4
+    assert spy.call_count == 0
+    stuck_ids_4 = [e["artifact_id"] for e in result_run_4.get("stuck_failures", [])]
+    assert artifact_id in stuck_ids_4
+
+
+# ---------------------------------------------------------------------------
+# T62 — _fetch_and_reindex shared helper (Phase 1 / Phase 2 dedup)
+# ---------------------------------------------------------------------------
+
+
+async def test_fetch_and_reindex_shared_helper_used_by_both_phases(
+    reconcile_settings: Settings,
+    s3_reconcile: S3ClientImpl,
+    vectors_reconcile: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """Phase 1 (failure-log replay) and Phase 2 (orphan scan) both route their
+    fetch-and-reindex sequence through the shared _fetch_and_reindex helper, each with
+    the correct 'source' label, and s3.head_object is called exactly once per artifact
+    across the pre-fetch and the helper combined (no duplicate re-fetch inside it)."""
+    replay_id = "artifacts/implementation-note-2026-01-01-helper-replay"
+    orphan_id = "artifacts/implementation-note-2026-01-01-helper-orphan"
+    s3_reconcile.put_object(replay_id, _CONTENT_NO_SECTIONS, {**_BASE_S3_META})
+    s3_reconcile.put_object(orphan_id, _CONTENT_NO_SECTIONS, {**_BASE_S3_META})
+    _write_failure_log(
+        reconcile_settings.failure_log_path,
+        [{**_BASE_LOG_ENTRY, "artifact_id": replay_id}],
+    )
+    bedrock = FakeBedrockClient(dimension=DIMENSION)
+
+    fetch_spy = mocker.spy(reconcile_module, "_fetch_and_reindex")
+    head_object_spy = mocker.spy(s3_reconcile, "head_object")
+
+    result = await reconcile_index(
+        settings=reconcile_settings,
+        s3=s3_reconcile,
+        vectors=vectors_reconcile,
+        bedrock=bedrock,
+    )
+
+    assert "error" not in result
+    assert fetch_spy.call_count == 2
+    sources_by_artifact = {call.args[0]: call.args[2] for call in fetch_spy.call_args_list}
+    assert sources_by_artifact[replay_id] == "failure_log"
+    assert sources_by_artifact[orphan_id] == "orphan_scan"
+
+    head_calls = [c.args[0] for c in head_object_spy.call_args_list]
+    assert head_calls.count(replay_id) == 1
+    assert head_calls.count(orphan_id) == 1
