@@ -95,6 +95,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `source: "orphan_vector_cleanup"` (in place of `sections_indexed`), and they
   participate in the existing `failed`/`stuck_failures` bounding, carrying an
   additional `orphan_keys` field when present
+- `link_metadata` and `reconcile_index` now validate metadata size budgets before
+  writing (previously only `write_artifact` did), closing a gap where either could
+  durably write metadata a fresh `write_artifact` call would reject outright and
+  permanently desync the annotation/vector stores. `link_metadata`'s validation of
+  supplied `commit_refs`/`references` values now also rejects control characters
+  (previously only checked for commas and empty/whitespace-only values)
+- **Breaking:** `list_artifacts`' `references=` filter parameter is removed entirely
+  — a caller supplying it now gets a `TypeError`, not a silently-empty result.
+  `references` stopped being vector-filterable once `commit_refs`/`references`
+  vector-metadata hardening shipped, so the parameter could never match anything for
+  artifacts written after that. `commit_refs=` filtering is unaffected
+- `delete_artifact`'s and `archive_artifact`'s reverse-lookup warning (checking
+  whether other artifacts refer to the one being acted on) now only checks
+  `source_artifacts` — the `references`-half of that check is dropped, since
+  `references` stopped being vector-filterable and could never match anything there
+  either. This is a separate, more recent change from the reverse-reference lookup's
+  earlier one-query-instead-of-two optimisation documented above
+- `migrate_artifacts`' skip-existing check can now report a candidate under a new
+  `skipped_unindexed` field (distinct from `skipped_existing`) when its S3 object
+  exists but its vectors are missing — a partial-write state previously silently
+  treated as "already migrated." Points the operator at `reconcile_index` for
+  remediation
+- `check_synthesis_freshness(confirm=True)`'s `all_fresh` field now also requires no
+  synthesis deletions to have failed, not just no malformed syntheses reported —
+  previously it could report `all_fresh: true` while a malformed synthesis was still
+  present in S3 because its deletion had failed
 
 ### Security
 - Bumped the pinned DOMPurify dependency used by `arkeology_studio`'s browser-side
