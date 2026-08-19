@@ -110,3 +110,15 @@ Items that were promoted to a phase are **not** listed here — see the phase hi
   decide whether this should be a global server setting (env var, one source of truth, no per-call
   tuning) or a per-call parameter matching `write_artifacts.py`'s existing shape.
   Source: Phase 12 T63 review (2026-08-19).
+
+- **B-8 — Two residual hand-rolled duplicates of patterns T68 just centralized, outside T68's own scope.**
+  Phase 13 T68's review surfaced these while confirming F-2/F-6's extractions were complete — both
+  predate T68 and are genuinely outside the findings' originally-cited scope, not something T68 missed:
+  (1) `_error_code(exc)` (F-2, `credentials.py`) has two more hand-rolled copies of the identical
+  `exc.response.get("Error", {}).get("Code", "")` idiom outside the client layer — `write.py`'s
+  `_delete_orphan_vectors_with_retry` (landed with T67) and `startup.py`'s credential check — now
+  importable and reusable now that `_error_code` lives in `credentials.py`. (2) `derive_last_edited_at`
+  (F-6, `_search_helper.py`) has a third near-identical copy in `resources.py`'s markdown-resource
+  `last_edited_at` deriver, with a slightly different warning message — F-6's originally-cited scope
+  was only `search.py`/`propose_commit_links.py`. Low priority; fold into a future hygiene batch.
+  Source: Phase 13 T68 review (2026-08-19).
