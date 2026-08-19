@@ -80,6 +80,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Previously two specific probe names were hard-coded, so the setup skill's annotation
   probe could be reported as an orphaned artifact. No generated artifact id can collide
   with the prefix
+- `reconcile_index`'s failure-log replay now tracks a per-entry retry count. An entry
+  that fails to re-index 3 times in a row stops being auto-retried and is reported once,
+  loudly, in a new `stuck_failures` response field, instead of blending indistinguishably
+  into `failed` on every run. Previously a genuinely unfixable entry would be replayed
+  identically forever
+- `write_artifact`'s Step 8 orphan-vector cleanup now retries a transient
+  `delete_vectors` failure inline, bounded with backoff, so it self-heals without
+  reaching the durable failure path. If the retry budget is exhausted, the failure
+  is logged with the exact orphan vector keys still needing deletion, and
+  `reconcile_index` gains a new repair path that recognises this failure kind and
+  deletes exactly those keys directly, without re-indexing. `reconcile_index`'s
+  response reports these as a `reconciled` entry shaped `orphan_keys_deleted` /
+  `source: "orphan_vector_cleanup"` (in place of `sections_indexed`), and they
+  participate in the existing `failed`/`stuck_failures` bounding, carrying an
+  additional `orphan_keys` field when present
 
 ### Security
 - Bumped the pinned DOMPurify dependency used by `arkeology_studio`'s browser-side
