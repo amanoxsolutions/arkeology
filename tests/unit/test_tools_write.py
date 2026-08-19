@@ -1552,6 +1552,227 @@ async def test_orphan_cleanup_credential_failure_does_not_fail_write(
 
 
 # ---------------------------------------------------------------------------
+# T67 — Step 8 delete_vectors bounded inline retry + orphan_keys failure-log kind
+# ---------------------------------------------------------------------------
+
+
+def _orphan_transient_error(
+    code: str = "RequestTimeoutException",
+) -> botocore.exceptions.ClientError:
+    """A ClientError carrying one of the three documented DeleteVectors transient codes."""
+    return botocore.exceptions.ClientError(
+        {"Error": {"Code": code, "Message": "Retry your request"}},
+        "DeleteVectors",
+    )
+
+
+def _orphan_non_transient_error() -> botocore.exceptions.ClientError:
+    """A ClientError whose code is not in the transient retry set."""
+    return botocore.exceptions.ClientError(
+        {"Error": {"Code": "ValidationException", "Message": "Bad input"}},
+        "DeleteVectors",
+    )
+
+
+async def _seed_artifact_with_orphan(
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    bedrock: FakeBedrockClient,
+    settings: object,
+) -> str:
+    """Write a tier-3 artifact with 3 sections. The caller then overwrites it with 2
+    sections (dropping the ``gamma`` section), producing exactly one real orphan vector
+    key (``f"{artifact_id}#gamma"``) for Step 8 to compute and attempt to delete."""
+    three = "## Alpha\n\nBody A.\n\n## Beta\n\nBody B.\n\n## Gamma\n\nBody C."
+    kwargs_3 = {**_BASE_WRITE_KWARGS, "tier": 3, "content": three}
+    first = await write_artifact(
+        s3=s3_client, vectors=vectors_client, bedrock=bedrock, settings=settings, **kwargs_3
+    )
+    artifact_id: str = first["artifact_id"]
+    return artifact_id
+
+
+_TWO_SECTION_OVERWRITE_CONTENT = "## Alpha\n\nBody A.\n\n## Beta\n\nBody B."
+
+
+@pytest.mark.asyncio
+async def test_orphan_delete_transient_error_then_success_retries_and_succeeds(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+    tmp_path: pytest.TempPathFactory,
+) -> None:
+    """A transient ClientError on the first delete_vectors attempt, succeeding on the
+    retry: delete_vectors is called exactly twice, time.sleep is called exactly once
+    (mocked, never actually sleeps), the write still returns its normal success
+    response, and no failure-log entry is written."""
+    log_path = tmp_path / "failures.jsonl"
+    settings = _make_settings(monkeypatch, FAILURE_LOG_PATH=str(log_path))
+    bedrock = FakeBedrockClient(dimension=1024)
+    artifact_id = await _seed_artifact_with_orphan(s3_client, vectors_client, bedrock, settings)
+
+    kwargs_2 = {**_BASE_WRITE_KWARGS, "tier": 3, "content": _TWO_SECTION_OVERWRITE_CONTENT}
+    delete_spy = mocker.patch.object(
+        vectors_client, "delete_vectors", side_effect=[_orphan_transient_error(), None]
+    )
+    sleep_spy = mocker.patch("arkeology.tools.write.time.sleep")
+
+    result = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        overwrite=True,
+        **kwargs_2,
+    )
+
+    assert "error" not in result
+    assert result.get("artifact_id") == artifact_id
+    assert delete_spy.call_count == 2
+    assert sleep_spy.call_count == 1
+    assert not settings.failure_log_path.exists(), (
+        "a successful retry must not write a failure-log entry"
+    )
+
+
+@pytest.mark.asyncio
+async def test_orphan_delete_transient_error_exhausted_logs_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+    tmp_path: pytest.TempPathFactory,
+) -> None:
+    """A transient ClientError on every delete_vectors attempt: the retry budget is
+    exhausted (called exactly twice, never more), a failure-log entry is written with
+    failure_step='orphan_vector_cleanup' and orphan_keys matching the computed orphan
+    set exactly, and the write still returns its normal success response."""
+    log_path = tmp_path / "failures.jsonl"
+    settings = _make_settings(monkeypatch, FAILURE_LOG_PATH=str(log_path))
+    bedrock = FakeBedrockClient(dimension=1024)
+    artifact_id = await _seed_artifact_with_orphan(s3_client, vectors_client, bedrock, settings)
+
+    kwargs_2 = {**_BASE_WRITE_KWARGS, "tier": 3, "content": _TWO_SECTION_OVERWRITE_CONTENT}
+    delete_spy = mocker.patch.object(
+        vectors_client, "delete_vectors", side_effect=_orphan_transient_error()
+    )
+    sleep_spy = mocker.patch("arkeology.tools.write.time.sleep")
+
+    result = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        overwrite=True,
+        **kwargs_2,
+    )
+
+    assert "error" not in result
+    assert result.get("artifact_id") == artifact_id
+    assert delete_spy.call_count == 2
+    assert sleep_spy.call_count == 1
+
+    log_lines = settings.failure_log_path.read_text(encoding="utf-8").splitlines()
+    entries = [json.loads(line) for line in log_lines]
+    assert len(entries) == 1
+    entry = entries[0]
+    assert entry["artifact_id"] == artifact_id
+    assert entry["failure_step"] == "orphan_vector_cleanup"
+    assert entry["orphan_keys"] == [f"{artifact_id}#gamma"]
+    assert "reconcile_attempts" not in entry
+
+
+@pytest.mark.asyncio
+async def test_orphan_delete_credential_error_not_retried_logs_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+    tmp_path: pytest.TempPathFactory,
+) -> None:
+    """A CredentialError from delete_vectors is never retried (called exactly once) and
+    goes straight to the fallback failure-log entry; the write still returns its normal
+    success response."""
+    log_path = tmp_path / "failures.jsonl"
+    settings = _make_settings(monkeypatch, FAILURE_LOG_PATH=str(log_path))
+    bedrock = FakeBedrockClient(dimension=1024)
+    artifact_id = await _seed_artifact_with_orphan(s3_client, vectors_client, bedrock, settings)
+
+    kwargs_2 = {**_BASE_WRITE_KWARGS, "tier": 3, "content": _TWO_SECTION_OVERWRITE_CONTENT}
+    cred_exc = CredentialError(
+        message="AWS credentials are invalid or expired (simulated).",
+        service="s3vectors",
+        original=Exception("simulated"),
+    )
+    delete_spy = mocker.patch.object(vectors_client, "delete_vectors", side_effect=cred_exc)
+    sleep_spy = mocker.patch("arkeology.tools.write.time.sleep")
+
+    result = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        overwrite=True,
+        **kwargs_2,
+    )
+
+    assert "error" not in result
+    assert result.get("artifact_id") == artifact_id
+    assert delete_spy.call_count == 1
+    assert sleep_spy.call_count == 0
+
+    log_lines = settings.failure_log_path.read_text(encoding="utf-8").splitlines()
+    entries = [json.loads(line) for line in log_lines]
+    assert len(entries) == 1
+    assert entries[0]["failure_step"] == "orphan_vector_cleanup"
+    assert entries[0]["orphan_keys"] == [f"{artifact_id}#gamma"]
+
+
+@pytest.mark.asyncio
+async def test_orphan_delete_non_transient_error_not_retried_logs_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+    tmp_path: pytest.TempPathFactory,
+) -> None:
+    """A ClientError whose code is not one of the three transient codes is never
+    retried (called exactly once) and goes straight to the fallback failure-log entry;
+    the write still returns its normal success response."""
+    log_path = tmp_path / "failures.jsonl"
+    settings = _make_settings(monkeypatch, FAILURE_LOG_PATH=str(log_path))
+    bedrock = FakeBedrockClient(dimension=1024)
+    artifact_id = await _seed_artifact_with_orphan(s3_client, vectors_client, bedrock, settings)
+
+    kwargs_2 = {**_BASE_WRITE_KWARGS, "tier": 3, "content": _TWO_SECTION_OVERWRITE_CONTENT}
+    delete_spy = mocker.patch.object(
+        vectors_client, "delete_vectors", side_effect=_orphan_non_transient_error()
+    )
+    sleep_spy = mocker.patch("arkeology.tools.write.time.sleep")
+
+    result = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        overwrite=True,
+        **kwargs_2,
+    )
+
+    assert "error" not in result
+    assert result.get("artifact_id") == artifact_id
+    assert delete_spy.call_count == 1
+    assert sleep_spy.call_count == 0
+
+    log_lines = settings.failure_log_path.read_text(encoding="utf-8").splitlines()
+    entries = [json.loads(line) for line in log_lines]
+    assert len(entries) == 1
+    assert entries[0]["failure_step"] == "orphan_vector_cleanup"
+    assert entries[0]["orphan_keys"] == [f"{artifact_id}#gamma"]
+
+
+# ---------------------------------------------------------------------------
 # Spec 19 — CredentialError from head_object returns credential_error
 # ---------------------------------------------------------------------------
 

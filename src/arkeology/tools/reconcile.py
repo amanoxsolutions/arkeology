@@ -51,6 +51,20 @@ _RECONCILE_CONCURRENCY = 5
 _PROBE_KEY_MARKER = "_arkeology_"
 
 
+def _entry_kind(entry: dict[str, Any]) -> str:
+    """Classify a failure-log entry as ``"orphan_cleanup"`` or ``"reindex"`` (T67).
+
+    A pure, no-persisted-field function of the entry's own shape: the presence of
+    ``orphan_keys`` is both "this entry carries what the cheap repair needs" and "this
+    is the cheap-repair kind" — the same guard serves both purposes, so nothing can
+    drift out of sync the way an independent label field could. Used as (part of) the
+    dedup/resolution key for Phase 1's failure-log replay, so a reindex-kind entry and
+    an orphan-cleanup-kind entry for the same ``artifact_id`` are always processed and
+    pruned independently.
+    """
+    return "orphan_cleanup" if "orphan_keys" in entry else "reindex"
+
+
 def _reindex_artifact(
     artifact_id: str,
     content: str,
@@ -339,16 +353,23 @@ async def _reconcile_index_inner(
 
         failure_log_entries_before = len(entries)
 
-        # Deduplicate by artifact_id — attempt re-index once per unique ID.
-        seen_ids: set[str] = set()
+        # Deduplicate by (artifact_id, kind) — attempt re-processing once per unique
+        # (id, kind) pair (T67). A bare artifact_id key would incorrectly collapse a
+        # reindex-kind entry and an orphan-cleanup-kind entry for the same artifact_id
+        # into one attempt, and later prune BOTH when either resolves — see
+        # docs/specs/p13-t67-orphan-vector-retry-and-selfheal.md Problem Statement
+        # point 5. Before T67, at most one entry per artifact_id existed, so this is
+        # backward-compatible: the composite key is unique either way.
+        seen_keys: set[tuple[str, str]] = set()
         unique_entries: list[dict[str, Any]] = []
         for entry in entries:
             aid = entry.get("artifact_id", "")
-            if aid and aid not in seen_ids:
-                seen_ids.add(aid)
+            key = (aid, _entry_kind(entry))
+            if aid and key not in seen_keys:
+                seen_keys.add(key)
                 unique_entries.append(entry)
 
-        resolved_ids: set[str] = set()
+        resolved_keys: set[tuple[str, str]] = set()
 
         # Bounded concurrency (H-1): each entry's head_object + re-index is independent
         # of every other's, mirroring write_artifacts.py's asyncio.Semaphore-gated
@@ -375,20 +396,71 @@ async def _reconcile_index_inner(
                 logger.warning("Skipping out-of-scope failure log entry: %s", artifact_id)
                 return {"kind": "invalid"}
 
-            # Bounded retry (T62): an entry that has already failed to replay
-            # CAS_MAX_ATTEMPTS times is never attempted again — it is reported once,
-            # loudly, in stuck_failures instead of blending indistinguishably into
-            # failed. Its counter does not grow further while stuck.
+            # T67: an orphan-cleanup-kind entry (Step 8's delete_vectors retry
+            # exhausted) carries the exact orphan vector keys still needing deletion —
+            # its repair is a direct delete_vectors call, never a re-index.
+            orphan_keys: list[str] | None = (
+                entry.get("orphan_keys") if _entry_kind(entry) == "orphan_cleanup" else None
+            )
+
+            # Bounded retry (T62, extended by T67 to the orphan-cleanup kind too): an
+            # entry that has already failed to replay CAS_MAX_ATTEMPTS times is never
+            # attempted again — it is reported once, loudly, in stuck_failures instead
+            # of blending indistinguishably into failed. Its counter does not grow
+            # further while stuck.
             prior_attempts = entry.get("reconcile_attempts", 0)
             if prior_attempts >= CAS_MAX_ATTEMPTS:
-                return {
+                result: dict[str, Any] = {
                     "kind": "stuck_already",
                     "artifact_id": artifact_id,
                     "reason": entry.get("reason", ""),
                     "reconcile_attempts": prior_attempts,
                 }
+                if orphan_keys is not None:
+                    result["orphan_keys"] = orphan_keys
+                return result
 
             async with semaphore:
+                if orphan_keys is not None:
+                    # T67: repair directly — no head_object, no get_object, no
+                    # bedrock.embed, no _fetch_and_reindex/_reindex_artifact. Idempotent
+                    # by the documented DeleteVectors API contract and moto's mock: a
+                    # key already absent from the index is not an error (see the spec's
+                    # Problem Statement point 4) — no pre-check needed.
+                    try:
+                        # Off the event loop — blocking boto3 call.
+                        await asyncio.to_thread(vectors.delete_vectors, orphan_keys)
+                    except CredentialError as exc:
+                        return {"kind": "credential_error", "exc": exc}
+                    except Exception as exc:
+                        new_attempts = prior_attempts + 1
+                        if new_attempts >= CAS_MAX_ATTEMPTS:
+                            return {
+                                "kind": "stuck_new",
+                                "artifact_id": artifact_id,
+                                "reason": str(exc),
+                                "reconcile_attempts": new_attempts,
+                                "orphan_keys": orphan_keys,
+                            }
+                        return {
+                            "kind": "failed_new",
+                            "artifact_id": artifact_id,
+                            "reason": str(exc),
+                            "reconcile_attempts": new_attempts,
+                            "orphan_keys": orphan_keys,
+                        }
+                    else:
+                        return {
+                            "kind": "resolved",
+                            "artifact_id": artifact_id,
+                            "entry": {
+                                "artifact_id": artifact_id,
+                                "title": entry.get("title", ""),
+                                "orphan_keys_deleted": len(orphan_keys),
+                                "source": "orphan_vector_cleanup",
+                            },
+                        }
+
                 try:
                     # Off the event loop — blocking boto3 call.
                     raw_meta = await asyncio.to_thread(s3.head_object, artifact_id)
@@ -447,36 +519,52 @@ async def _reconcile_index_inner(
                 continue
             if kind == "resolved":
                 reconciled.append(r["entry"])
-                resolved_ids.add(r["artifact_id"])
+                resolved_keys.add((r["artifact_id"], _entry_kind(entry)))
             elif kind == "failed":
-                failed.append({"artifact_id": r["artifact_id"], "reason": r["reason"]})
+                failed_entry: dict[str, Any] = {
+                    "artifact_id": r["artifact_id"],
+                    "reason": r["reason"],
+                }
+                if "orphan_keys" in r:
+                    failed_entry["orphan_keys"] = r["orphan_keys"]
+                failed.append(failed_entry)
                 failed_ids.add(r["artifact_id"])
             elif kind == "stuck_already":
-                stuck_failures.append(
-                    {
-                        "artifact_id": r["artifact_id"],
-                        "reason": r["reason"],
-                        "reconcile_attempts": r["reconcile_attempts"],
-                    }
-                )
+                stuck_entry: dict[str, Any] = {
+                    "artifact_id": r["artifact_id"],
+                    "reason": r["reason"],
+                    "reconcile_attempts": r["reconcile_attempts"],
+                }
+                if "orphan_keys" in r:
+                    stuck_entry["orphan_keys"] = r["orphan_keys"]
+                stuck_failures.append(stuck_entry)
                 failed_ids.add(r["artifact_id"])
             elif kind == "stuck_new":
                 entry["reconcile_attempts"] = r["reconcile_attempts"]
-                stuck_failures.append(
-                    {
-                        "artifact_id": r["artifact_id"],
-                        "reason": r["reason"],
-                        "reconcile_attempts": r["reconcile_attempts"],
-                    }
-                )
+                stuck_entry = {
+                    "artifact_id": r["artifact_id"],
+                    "reason": r["reason"],
+                    "reconcile_attempts": r["reconcile_attempts"],
+                }
+                if "orphan_keys" in r:
+                    stuck_entry["orphan_keys"] = r["orphan_keys"]
+                stuck_failures.append(stuck_entry)
                 failed_ids.add(r["artifact_id"])
             elif kind == "failed_new":
                 entry["reconcile_attempts"] = r["reconcile_attempts"]
-                failed.append({"artifact_id": r["artifact_id"], "reason": r["reason"]})
+                failed_entry = {"artifact_id": r["artifact_id"], "reason": r["reason"]}
+                if "orphan_keys" in r:
+                    failed_entry["orphan_keys"] = r["orphan_keys"]
+                failed.append(failed_entry)
                 failed_ids.add(r["artifact_id"])
 
-        # Rewrite the failure log — retain only entries whose artifact_id was NOT resolved.
-        remaining_entries = [e for e in entries if e.get("artifact_id", "") not in resolved_ids]
+        # Rewrite the failure log — retain only entries whose (artifact_id, kind) was
+        # NOT resolved (T67: a co-existing reindex entry and orphan-cleanup entry for
+        # the same artifact_id are pruned independently, never as a side effect of the
+        # other's resolution).
+        remaining_entries = [
+            e for e in entries if (e.get("artifact_id", ""), _entry_kind(e)) not in resolved_keys
+        ]
         failure_log_entries_after = len(remaining_entries)
 
         if remaining_entries:
