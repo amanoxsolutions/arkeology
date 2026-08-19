@@ -32,7 +32,7 @@ revised:
 > 1. **Guard coverage closed (T57).** This spec's check was originally called from only two places
 >    (`write.py`'s fresh-create and overwrite-CAS paths). A real 57-file migration incident surfaced
 >    that `link_metadata.py` and `reconcile.py` independently assemble and write vector metadata with
->    no call to this check at all (review findings B-1/B-2) — exactly the "self-perpetuating
+>    no call to this check at all — exactly the "self-perpetuating
 >    failure-log replay" this spec's own TL;DR states must never happen. T57 adds the missing calls at
 >    both sites, immediately before their respective vector writes. See `docs/specs/p12-t57-guard-coverage.md`.
 > 2. **Real-AWS calibration closed the deferred Open Question below, and led to a structural fix

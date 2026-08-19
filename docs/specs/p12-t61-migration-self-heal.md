@@ -14,7 +14,6 @@ references:
   - docs/specs/p12-t57-guard-coverage.md
   - docs/specs/p12-t56-deterministic-content-reference-rewrite.md
   - docs/specs/p9-t30-write-artifacts.md
-  - docs/reviews/review-2026-08-13-full-codebase-max.md
 authored:
   by: "architect"
   date: "2026-08-17"
