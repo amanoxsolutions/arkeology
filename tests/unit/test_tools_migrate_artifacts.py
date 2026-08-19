@@ -12,10 +12,13 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from pytest_mock import MockerFixture
 
 from arkeology.clients.fakes.fake_bedrock import FakeBedrockClient
 from arkeology.clients.s3 import S3ClientImpl
 from arkeology.clients.vectors import VectorsClientImpl
+from arkeology.constants import ErrorCode
+from arkeology.errors import CredentialError
 from arkeology.server import _app, register_tools
 from tests.unit.conftest import _make_settings
 
@@ -1379,3 +1382,237 @@ async def test_t56_write_artifacts_direct_call_ignores_resolved_references_map(
     assert stored_content == _T56_CONTENT
     assert _T56_ORIGINAL_PATH in stored_content
     assert "arkeology://artifact/" not in stored_content
+
+
+# ---------------------------------------------------------------------------
+# T61 — skipped_unindexed classification (Step 5 self-heal detection)
+# ---------------------------------------------------------------------------
+
+
+async def test_t61_skipped_existing_unchanged_when_vectors_indexed(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """S3 object exists AND vectors are indexed → skipped_existing, unchanged shape."""
+    from arkeology.tools.migrate_artifacts import migrate_artifacts
+
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+    descriptor = _make_descriptor(0)
+
+    first = await migrate_artifacts(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        descriptors=[descriptor],
+        dry_run=False,
+    )
+    assert first["results"][0].get("written") is True
+
+    spy = mocker.spy(vectors_client, "list_vectors_by_metadata")
+    second = await migrate_artifacts(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        descriptors=[descriptor],
+        dry_run=False,
+    )
+
+    assert spy.call_count == 1, "one existence query for the one already-existing candidate"
+    skipped_existing = second.get("skipped_existing", [])
+    assert len(skipped_existing) == 1
+    assert "skipped_unindexed" not in second
+    entry = second["results"][0]
+    assert entry.get("written") is not True
+    assert "reason" not in entry, f"plain skipped_existing entry carries no reason key: {entry}"
+
+
+async def test_t61_skipped_unindexed_when_s3_exists_but_no_vectors(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """S3 object exists but vectors are absent (partial write) → skipped_unindexed,
+    distinct from skipped_existing, no write performed, message points at reconcile_index.
+    """
+    from arkeology.tools.migrate_artifacts import migrate_artifacts
+
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+    descriptor = _make_descriptor(0)
+
+    first = await migrate_artifacts(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        descriptors=[descriptor],
+        dry_run=False,
+    )
+    artifact_id = first["results"][0]["artifact_id"]
+    original_content = s3_client.get_object(artifact_id)
+
+    # Simulate the incident's partial-write state: S3 object durably written,
+    # vectors never (or no longer) indexed.
+    vec_keys = vectors_client.list_vectors_by_metadata({"artifact_id": {"$eq": artifact_id}})
+    assert vec_keys, "prior write must have indexed vectors to delete for this scenario"
+    vectors_client.delete_vectors(vec_keys)
+
+    result = await migrate_artifacts(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        descriptors=[descriptor],
+        dry_run=False,
+    )
+
+    assert result.get("skipped_existing", []) == []
+    skipped_unindexed = result.get("skipped_unindexed", [])
+    assert len(skipped_unindexed) == 1, f"Expected one skipped_unindexed entry: {result}"
+    unindexed_entry = skipped_unindexed[0]
+    assert unindexed_entry["artifact_id"] == artifact_id
+    assert unindexed_entry["index"] == 0
+    assert "reconcile_index" in unindexed_entry["message"]
+
+    combined_entry = result["results"][0]
+    assert combined_entry.get("written") is not True
+    assert combined_entry.get("skipped") is True
+    assert combined_entry.get("reason") == "unindexed"
+    assert "reconcile_index" in combined_entry.get("message", "")
+
+    # No write occurred: content untouched, still no vectors indexed.
+    assert s3_client.get_object(artifact_id) == original_content
+    assert vectors_client.list_vectors_by_metadata({"artifact_id": {"$eq": artifact_id}}) == []
+
+
+async def test_t61_no_vector_existence_query_for_genuinely_new_candidate(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """A candidate whose S3 object does not exist never triggers a vector-existence
+    query — the existing to_write_indices path is unaffected.
+    """
+    from arkeology.tools.migrate_artifacts import migrate_artifacts
+
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+    spy = mocker.spy(vectors_client, "list_vectors_by_metadata")
+
+    result = await migrate_artifacts(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        descriptors=[_make_descriptor(0)],
+        dry_run=False,
+    )
+
+    assert result["results"][0].get("written") is True
+    assert spy.call_count == 0, "no existence query for a genuinely-new candidate"
+
+
+async def test_t61_mixed_corpus_all_three_categories_classified_independently(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """A corpus containing fully-migrated, unindexed, and genuinely-new candidates
+    in one call is classified correctly and independently, with exactly one bounded
+    existence query per already-existing candidate.
+    """
+    from arkeology.tools.migrate_artifacts import migrate_artifacts
+
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+
+    fully_migrated = _make_descriptor(0)
+    to_be_unindexed = _make_descriptor(1)
+    seed = await migrate_artifacts(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        descriptors=[fully_migrated, to_be_unindexed],
+        dry_run=False,
+    )
+    unindexed_artifact_id = seed["results"][1]["artifact_id"]
+    vec_keys = vectors_client.list_vectors_by_metadata(
+        {"artifact_id": {"$eq": unindexed_artifact_id}}
+    )
+    vectors_client.delete_vectors(vec_keys)
+
+    genuinely_new = _make_descriptor(2)
+    spy = mocker.spy(vectors_client, "list_vectors_by_metadata")
+    result = await migrate_artifacts(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        descriptors=[fully_migrated, to_be_unindexed, genuinely_new],
+        dry_run=False,
+    )
+
+    # Exactly one query per already-existing candidate (2), never for the new one.
+    assert spy.call_count == 2
+
+    assert len(result.get("skipped_existing", [])) == 1
+    assert result["skipped_existing"][0]["index"] == 0
+
+    skipped_unindexed = result.get("skipped_unindexed", [])
+    assert len(skipped_unindexed) == 1
+    assert skipped_unindexed[0]["index"] == 1
+
+    assert result["results"][2].get("written") is True
+
+
+async def test_t61_credential_error_from_vector_existence_query(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """CredentialError from the new vector-existence query surfaces the same
+    structured credential-error response as a head_object credential failure.
+    """
+    from arkeology.tools.migrate_artifacts import migrate_artifacts
+
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+    descriptor = _make_descriptor(0)
+
+    await migrate_artifacts(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        descriptors=[descriptor],
+        dry_run=False,
+    )
+
+    mocker.patch.object(
+        vectors_client,
+        "list_vectors_by_metadata",
+        side_effect=CredentialError(
+            message="Simulated.", service="s3vectors", original=Exception("sim")
+        ),
+    )
+
+    result = await migrate_artifacts(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        descriptors=[descriptor],
+        dry_run=False,
+    )
+
+    assert result.get("error") == ErrorCode.CREDENTIAL_ERROR

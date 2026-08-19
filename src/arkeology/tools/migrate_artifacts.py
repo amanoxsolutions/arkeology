@@ -16,6 +16,16 @@ candidate's generated key is checked for existence; any candidate that already e
 is skipped (no write, no error) and reported in the ``"skipped_existing"`` list, so
 re-running a migration over an already-imported corpus is idempotent and non-destructive.
 
+T61: "S3 object exists" is not the same fact as "fully migrated" — a prior attempt can
+have written S3 successfully and then failed on the vector write. For each already-
+existing candidate, one bounded, per-candidate ``vectors.list_vectors_by_metadata``
+query distinguishes the two: if vectors are indexed, the candidate is
+``skipped_existing`` exactly as before; if not, it is reported distinctly in the new
+``"skipped_unindexed"`` list (``combined_results[idx]["reason"] = "unindexed"``),
+with a message pointing at ``reconcile_index`` for remediation. Detection and
+reporting only — ``migrate_artifacts`` never writes to or re-indexes an unindexed
+candidate itself.
+
 A descriptor whose Nova Lite description generation fails is never written with an
 empty ``description`` — it is skipped (mirroring the skip-existing
 ``skipped_existing`` shape) and reported in the top-level ``"generation_failed"`` list,
@@ -157,6 +167,14 @@ async def migrate_artifacts(
             migration over an already-imported corpus is therefore idempotent and
             non-destructive: every already-present artifact is skipped and nothing is
             overwritten or deleted.
+        A candidate whose S3 object exists but has no indexed vectors (a partial
+            write) is skipped distinctly: its entry is ``{"written": False,
+            "skipped": True, "artifact_id": ..., "reason": "unindexed", "message":
+            ...}``, and a top-level ``"skipped_unindexed"`` list is included
+            (``index``, ``artifact_id``, ``title``, ``message``), one entry per
+            such candidate, with the message pointing at ``reconcile_index`` as the
+            remediation path. Never folded into ``skipped_existing`` and never
+            written to by ``migrate_artifacts`` itself.
         A descriptor whose Nova Lite description generation fails is never
             written with an empty ``description``. In ``dry_run=False`` its result
             entry is ``{"written": False, "skipped": True,
@@ -327,6 +345,7 @@ async def _migrate_artifacts_inner(
     # silent-overwrite hole that write_artifact's collision guard exists to close.
     to_write_indices: list[int] = []
     skipped_existing: list[dict[str, Any]] = []
+    skipped_unindexed: list[dict[str, Any]] = []
     combined_results: list[dict[str, Any] | None] = [None] * len(enriched)
 
     for idx, descriptor in enumerate(enriched):
@@ -364,14 +383,54 @@ async def _migrate_artifacts_inner(
         except CredentialError as exc:
             return _with_warning({"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)})
 
-        combined_results[idx] = {
-            "written": False,
-            "skipped": True,
-            "artifact_id": candidate_key,
-        }
-        skipped_existing.append(
-            {"index": idx, "artifact_id": candidate_key, "title": descriptor.get("title", "")}
-        )
+        # T61 self-heal detection: "S3 object exists" and "fully migrated" are not
+        # the same fact — a prior attempt can have written S3 successfully and then
+        # failed on the vector write (the incident's exact partial-write shape). One
+        # bounded, per-candidate existence query distinguishes the two so an
+        # unindexed candidate is reported distinctly instead of silently folded into
+        # skipped_existing forever. This is detection-and-reporting only: the
+        # skip-existing guard still applies and no write happens for either case;
+        # remediation is reconcile_index's job, not migrate_artifacts'.
+        try:
+            indexed_vector_keys = vectors.list_vectors_by_metadata(
+                {"artifact_id": {"$eq": candidate_key}}
+            )
+        except CredentialError as exc:
+            return _with_warning({"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)})
+
+        if indexed_vector_keys:
+            combined_results[idx] = {
+                "written": False,
+                "skipped": True,
+                "artifact_id": candidate_key,
+            }
+            skipped_existing.append(
+                {
+                    "index": idx,
+                    "artifact_id": candidate_key,
+                    "title": descriptor.get("title", ""),
+                }
+            )
+        else:
+            message = (
+                f"Artifact '{candidate_key}' exists in S3 but has no indexed vectors "
+                "(a partial write). Run reconcile_index to re-index it."
+            )
+            combined_results[idx] = {
+                "written": False,
+                "skipped": True,
+                "artifact_id": candidate_key,
+                "reason": "unindexed",
+                "message": message,
+            }
+            skipped_unindexed.append(
+                {
+                    "index": idx,
+                    "artifact_id": candidate_key,
+                    "title": descriptor.get("title", ""),
+                    "message": message,
+                }
+            )
 
     # ── Step 6: delegate to write_artifacts for the genuinely-new candidates ──────
     if to_write_indices:
@@ -394,6 +453,8 @@ async def _migrate_artifacts_inner(
     response: dict[str, Any] = {"results": combined_results}
     if skipped_existing:
         response["skipped_existing"] = skipped_existing
+    if skipped_unindexed:
+        response["skipped_unindexed"] = skipped_unindexed
     if generation_failures:
         response["generation_failed"] = _generation_failed_report(descriptors, generation_failures)
     return _with_warning(response)
