@@ -437,6 +437,8 @@ the shared client-error-classification module — recommend a single
 
 Confidence: confirmed (grep count matches exactly: 11 occurrences).
 
+**[2026-08-19 — ✅ RESOLVED.** Extracted into `_error_code(exc) -> str` in `credentials.py`, replacing all 11 sites in `s3.py` (7), `vectors.py` (1), `bedrock.py` (1), and `credentials.py`'s own two classifiers. Phase 13 T68, `plan.md` now `✅`. Two more copies of the same idiom exist outside the client layer (`write.py`, `startup.py`) — genuinely outside this finding's stated scope ("across the client layer"), not a miss; tracked as backlog B-8.]
+
 **F-3 — The `list_vectors_by_metadata` → `get_vectors` two-step fetch idiom is hand-rolled independently at ~10 call sites, with inconsistent empty-`keys` short-circuit handling.**
 
 The pattern appears in `purge.py` (3×), `delete.py:118`, `archive.py`
@@ -466,6 +468,8 @@ with each caller layering its own extra keys on top.
 
 Confidence: confirmed.
 
+**[2026-08-19 — ✅ RESOLVED.** Extracted into `build_artifact_summary(meta, artifact_id, tags_val, source_artifacts_val)` in `_search_helper.py`, used by `list.py` and `search.py`, each layering its own extra keys on top exactly as recommended. Phase 13 T68, `plan.md` now `✅`. Reviewed: response dict key *insertion order* changed slightly in both callers — cosmetic only, no test or consumer depends on JSON key order.]
+
 **F-5 — `top_k` validation-and-clamp logic duplicated between `search.py` and `synthesise.py`.**
 
 Both `search.py:118-125,230-232` and `synthesise.py:95-101,209-211`
@@ -477,6 +481,8 @@ for the same two tools.
 
 Confidence: confirmed.
 
+**[2026-08-19 — ✅ RESOLVED.** Extracted into `clamp_top_k(top_k)` in `_search_helper.py`, used by `search.py` and `synthesise.py`; rejection message, `100` ceiling, and `clamped` semantics preserved verbatim at both call sites. Phase 13 T68, `plan.md` now `✅`.]
+
 **F-6 — `last_edited_ulid` → `last_edited_at` ISO-timestamp derivation duplicated verbatim in `search.py` and `propose_commit_links.py`.**
 
 `search.py:194-201` and `propose_commit_links.py:133-140` contain the
@@ -487,6 +493,8 @@ must be made twice to stay in sync. Recommend extracting a one-line-call
 `derive_last_edited_at()` helper near `coerce_list_field`.
 
 Confidence: confirmed.
+
+**[2026-08-19 — ✅ RESOLVED.** Extracted into `derive_last_edited_at(last_edited_ulid) -> str | None` in `_search_helper.py` near `coerce_list_field`, used by `search.py` and `propose_commit_links.py`; the warning message and malformed-input handling preserved verbatim at both sites, now-unused `from ulid import ULID` removed from both files. Phase 13 T68, `plan.md` now `✅`. A third copy exists in `resources.py` (with a different warning message) — outside this finding's originally-cited scope, not a miss; tracked as backlog B-8.]
 
 **F-7 — The CAS (compare-and-swap) retry loop skeleton is hand-rolled independently in `archive.py`, `link_metadata.py`, and `write.py`.**
 
@@ -527,6 +535,8 @@ collapse all five call sites to one-liners.
 
 Confidence: confirmed (all five sites verified).
 
+**[2026-08-19 — ✅ RESOLVED.** Extracted into `_record_partial_write_credential_error(...)` in `write.py`, mirroring `_record_partial_write` exactly. Reviewed: the code had grown a sixth call site since this finding was written (a single-doc vs. batch/sections embed branch split) — all six now collapse to one-liners. Phase 13 T68, `plan.md` now `✅`.]
+
 **G-2 — `propose_commit_links.py` reimplements `coerce_list_field` instead of reusing it.**
 
 `_search_helper.py:coerce_list_field()` is already the shared helper for
@@ -564,6 +574,8 @@ the duplicate constants and duplicate branching — the same pattern as the
 but a separate pair of files/constants.
 
 Confidence: confirmed.
+
+**[2026-08-19 — ✅ RESOLVED.** `_clamp_concurrency(value, default, max_)` added to a new `_concurrency.py`, used by `write_artifacts.py` and `migrate_artifacts.py`. Initial T68 pass unified the branching but left `_ARTIFACT_CONCURRENCY_DEFAULT`/`_MAX` duplicated in both files (caught by this same task's own review as an incomplete closure — the finding's own text explicitly named the constants, not just the branching); follow-up fix relocated both constants into `_concurrency.py` as the single source of truth, closing the drift risk `migrate_artifacts.py`'s double-clamp-forwarding into `write_artifacts()` would otherwise carry. Phase 13 T68, `plan.md` now `✅`.]
 
 **H-1 — Sequential per-artifact processing where independent items could run concurrently.**
 
@@ -619,6 +631,8 @@ issued concurrently (`asyncio.gather`), saving one round trip of latency on
 every delete call.
 
 Confidence: confirmed.
+
+**[2026-08-19 — ✅ RESOLVED.** `delete_artifact`'s Step 4/Step 5 calls now run via `asyncio.gather(asyncio.to_thread(...), asyncio.to_thread(...))` instead of sequentially. Verified no ordering dependency between them (each result feeds a different, independent downstream step) and that a `CredentialError` from either concurrent call still produces the identical structured error response as before. Phase 13 T68, `plan.md` now `✅`.]
 
 ### Angle I — altitude (right-depth fixes)
 
@@ -920,10 +934,12 @@ helpers (`coerce_list_field`, `credential_error_response`, the boto3
 `get_vectors` idiom, `top_k` clamping, artifact-summary dict construction,
 CAS retry skeletons) plus one concrete efficiency win applicable in five
 files (H-1: bounded-concurrency batch processing, already proven out in
-`write_artifacts.py`). **F-1, F-3, H-1, and H-2 are now resolved (Phase 12
-T62/T63)**, and **G-2 is resolved as a T58 byproduct** — see the inline
-notes above; **8 remain open** (F-2, F-4 through F-7, G-1, G-3, H-3), none
-describing currently-broken behavior.
+`write_artifacts.py`). **F-1, F-3, H-1, and H-2 are resolved (Phase 12
+T62/T63)**; **G-2 is resolved as a T58 byproduct**; **F-2, F-4, F-5, F-6,
+G-1, G-3, and H-3 are resolved (Phase 13 T68)** — see the inline notes
+above; **only F-7 remains open**, deliberately not extracted per this
+finding's own recommendation (see its inline text) — not a gap, an
+accepted deferral.
 
 No violations of AGENTS.md's explicit, checkable rules (stdout printing,
 bare `startswith(scope)`, `filter=` shadowing, UUID/random keys,
