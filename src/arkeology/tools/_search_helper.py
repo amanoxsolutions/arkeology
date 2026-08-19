@@ -20,7 +20,11 @@ from arkeology.artifact import (
 from arkeology.clients.interfaces import VectorsClientInterface
 from arkeology.config import Settings
 from arkeology.constants import ArtifactStatus, ErrorCode
-from arkeology.errors import CredentialError, InvalidFilterValueError
+from arkeology.errors import (
+    CredentialError,
+    InvalidFilterValueError,
+    VectorDistanceMissingError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -181,7 +185,7 @@ async def run_search_loop(
     user_filters: list[dict[str, Any]],
     status_filter: dict[str, Any] | None,
     effective_top_k: int,
-) -> tuple[list[dict[str, Any]], bool] | dict[str, Any]:
+) -> tuple[list[dict[str, Any]], bool, bool] | dict[str, Any]:
     """Execute the deduplicating re-fetch loop over the vector index.
 
     Iterates up to ``settings.search_max_iterations`` times, accumulating
@@ -196,6 +200,16 @@ async def run_search_loop(
     error is the one exception: it returns the structured ``credential_error`` response
     immediately, even if some results were already collected, because every subsequent
     iteration would fail the same way.
+
+    ``VectorDistanceMissingError`` (raised by the vectors client when a
+    ``query_vectors`` result is missing its ``distance`` field — a signal of possible
+    S3 Vectors index corruption, per the exception's own docstring) is a **soft**
+    signal, not a hard abort: it is logged distinctly from an ordinary non-credential
+    failure (a different message, at ``ERROR`` not ``WARNING``, so it is
+    grep/alertable and doesn't blend into transient-error noise) and otherwise handled
+    exactly like a non-credential failure — the loop stops and whatever partial results
+    were already collected are returned. The returned ``index_corruption_detected`` flag
+    tells the caller this happened, without ever aborting the call.
 
     ``query_vectors`` is a blocking boto3 call, so each iteration routes it through
     ``asyncio.to_thread`` — this coroutine must be awaited by every caller.
@@ -221,19 +235,23 @@ async def run_search_loop(
 
     Returns:
         On success (including a partial, non-credential-failure-truncated result):
-            ``(list[dict], bool)`` — the result list (each dict has keys
+            ``(list[dict], bool, bool)`` — the result list (each dict has keys
             ``artifact_id``, ``score``, and ``meta``, the raw vector metadata
-            dict) and a ``fetch_exhausted`` flag: ``True`` when the loop
+            dict), a ``fetch_exhausted`` flag: ``True`` when the loop
             stopped due to its own iteration/``$nin`` budget while still
             finding new, unseen matches (more may exist beyond what was
             fetched); ``False`` when it stopped because ``effective_top_k``
-            was reached or the index was naturally exhausted.
+            was reached or the index was naturally exhausted; and an
+            ``index_corruption_detected`` flag: ``True`` when the loop stopped
+            because ``query_vectors`` raised ``VectorDistanceMissingError``
+            mid-loop, ``False`` otherwise.
         On credential error: ``{"error": "credential_error", "message": str}``
     """
     scope_filter = build_scope_filter(settings)
     seen_ids: set[str] = set()
     results: list[dict[str, Any]] = []
     fetch_exhausted = False
+    index_corruption_detected = False
 
     for _ in range(settings.search_max_iterations):
         and_clauses: list[dict[str, Any]] = [*user_filters, scope_filter]
@@ -264,6 +282,24 @@ async def run_search_loop(
             )
         except CredentialError as exc:
             return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
+        except VectorDistanceMissingError:
+            # Distinct from the generic non-credential branch below: this signals
+            # possible S3 Vectors index corruption (see the exception's own
+            # docstring), so it is logged at ERROR with its own grep/alertable
+            # message rather than blending into ordinary transient-error WARNING
+            # noise. Still a soft signal — the loop stops and whatever partial
+            # results were already collected are returned, exactly like a
+            # non-credential failure; the call is never aborted for this reason.
+            logger.error(
+                "Vector distance missing in search re-fetch loop after collecting %d "
+                "result(s) — possible S3 Vectors index corruption; returning partial "
+                "results",
+                len(results),
+                exc_info=True,
+            )
+            index_corruption_detected = True
+            fetch_exhausted = len(results) < effective_top_k
+            break
         except Exception:
             logger.warning(
                 "Non-credential error in search re-fetch loop after collecting %d "
@@ -304,7 +340,7 @@ async def run_search_loop(
         fetch_exhausted = len(results) < effective_top_k
 
     results.sort(key=lambda r: float(r["score"]), reverse=True)
-    return results[:effective_top_k], fetch_exhausted
+    return results[:effective_top_k], fetch_exhausted, index_corruption_detected
 
 
 def find_referrers(

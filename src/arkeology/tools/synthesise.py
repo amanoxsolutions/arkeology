@@ -56,7 +56,11 @@ async def synthesise_artifacts(
 
     Returns:
         On success: ``{"artifacts": [...]}`` — each entry includes all metadata
-            fields plus ``content``.
+            fields plus ``content``. ``"index_corruption_detected": True`` is
+            included when the re-fetch loop stopped because a vector result was
+            missing its ``distance`` field — a soft signal of possible S3
+            Vectors index corruption; whatever results were already collected
+            are still returned, never a hard error.
         On error: ``{"error": str, "message": str}``
     """
     try:
@@ -136,10 +140,16 @@ async def _synthesise_artifacts_inner(
 
     # fetch_exhausted is currently only surfaced by search_artifacts;
     # synthesise_artifacts does not expose it (no test/spec currently requires it).
-    search_results, _fetch_exhausted = loop_result
+    # index_corruption_detected IS surfaced here too (T66/C-1) — unlike
+    # fetch_exhausted, this is an observability signal an operator needs
+    # regardless of which tool triggered the re-fetch loop.
+    search_results, _fetch_exhausted, index_corruption_detected = loop_result
 
     if not search_results:
-        return {"artifacts": [], "zero_results": True}
+        zero_response: dict[str, Any] = {"artifacts": [], "zero_results": True}
+        if index_corruption_detected:
+            zero_response["index_corruption_detected"] = True
+        return zero_response
 
     # ── Step 6: Fetch content for each result, budget-aware ────────────────────
     # Track a running total of assembled response bytes — measured as the
@@ -214,4 +224,6 @@ async def _synthesise_artifacts_inner(
         response["included"] = len(artifacts)
     if skipped_count:
         response["skipped_count"] = skipped_count
+    if index_corruption_detected:
+        response["index_corruption_detected"] = True
     return response
