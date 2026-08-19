@@ -489,9 +489,8 @@ async def test_delete_source_artifacts_dedupe_unaffected_by_references_narrowing
 ) -> None:
     """T60: with `references` narrowed out, a `references`-only referrer never appears
     in the warning, while the remaining `source_artifacts`-based referrers are still
-    found and still deduplicated (each appears exactly once, even with multiple
-    section vectors) — the narrowing removes one mechanism entirely rather than
-    degrading the one that remains."""
+    found and still deduplicated (each appears exactly once) — the narrowing removes
+    one mechanism entirely rather than degrading the one that remains."""
     settings = _make_settings(monkeypatch)
     _seed_all(s3_client, vectors_client_2)
     s3_client.put_object(
