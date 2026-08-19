@@ -807,6 +807,11 @@ async def test_synthesise_vector_distance_missing_mid_loop_returns_partial_with_
     assert any(
         r.levelno == logging.ERROR and "index corruption" in r.getMessage() for r in caplog.records
     ), f"Expected a distinct ERROR-level index-corruption log line, got: {caplog.records}"
+    warning_records = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert not any("Non-credential error" in r.getMessage() for r in warning_records), (
+        "VectorDistanceMissingError must not be logged via the generic "
+        "non-credential-failure WARNING message"
+    )
 
 
 # ---------------------------------------------------------------------------

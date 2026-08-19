@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- `search_artifacts` and `synthesise_artifacts` responses now include
+  `index_corruption_detected: true` when a `VectorDistanceMissingError` — an S3
+  Vectors index-corruption signal, distinct from an ordinary transient error — is
+  encountered mid-search; the call still returns whatever partial results were
+  already collected rather than aborting
 - The `AnnotationUnavailableError` message's bucket-type guidance now correctly
   describes directory buckets and Outposts buckets as the two affected bucket
   types, with S3 Express One Zone named as the storage class directory buckets
