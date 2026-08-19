@@ -161,7 +161,6 @@ def register_tools(
         tags: list[str] | None = None,
         tier: int | None = None,
         commit_refs: list[str] | None = None,
-        references: list[str] | None = None,
     ) -> dict[str, Any]:
         """List artifacts by metadata filters without a semantic query.
 
@@ -180,7 +179,6 @@ def register_tools(
             tags=tags,
             tier=tier,
             commit_refs=commit_refs,
-            references=references,
         )
 
     @_app.tool()

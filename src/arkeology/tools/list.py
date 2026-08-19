@@ -40,7 +40,6 @@ async def list_artifacts(
     type: str | None = None,  # noqa: A002
     tags: list[str] | None = None,
     commit_refs: list[str] | None = None,
-    references: list[str] | None = None,
     team: str | None = None,
     project: str | None = None,
     tier: int | None = None,
@@ -61,8 +60,6 @@ async def list_artifacts(
             type: Optional artifact type filter.
             tags: Optional list of tags; all must match (AND semantics).
             commit_refs: Optional list of commit refs; all must match (AND semantics).
-            references: Optional list of resolved bare artifact IDs; all must be
-                present on the artifact's references field (AND semantics).
             team: Optional team filter.
         project: Optional project filter.
         tier: Optional tier filter.
@@ -86,7 +83,6 @@ async def list_artifacts(
             type=type,
             tags=tags,
             commit_refs=commit_refs,
-            references=references,
             team=team,
             project=project,
             tier=tier,
@@ -106,7 +102,6 @@ async def _list_artifacts_inner(
     type: str | None = None,  # noqa: A002
     tags: list[str] | None = None,
     commit_refs: list[str] | None = None,
-    references: list[str] | None = None,
     team: str | None = None,
     project: str | None = None,
     tier: int | None = None,
@@ -141,9 +136,6 @@ async def _list_artifacts_inner(
     if commit_refs:
         for ref in commit_refs:
             clauses.append({"commit_refs": {"$eq": ref}})
-    if references:
-        for ref in references:
-            clauses.append({"references": {"$eq": ref}})
 
     # ── Step 1b: Scope filter (shared with search.py / synthesise.py) ─────────
     clauses.append(build_scope_filter(settings))
