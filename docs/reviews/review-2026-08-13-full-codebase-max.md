@@ -385,6 +385,8 @@ Confidence: plausible (real drift risk, but possibly an intentional
 performance trade-off rather than a bug — flagging for a decision, not
 asserting it's wrong as-is).
 
+**[2026-08-19 — ✅ RESOLVED (byproduct, not explicitly in scope).** `freshness.py` now calls `is_cross_scope_readable(meta, source_id, own_scope, read_prefixes)` directly — the drift risk this finding flagged no longer exists, since it's the same shared function F-1/I-5 extracted, not a separate inline copy. Landed as part of Phase 12 T63's F-1 fix, even though E-3 wasn't itself named in T63's scope; the per-source round-trip concern this finding raised (needing `date`/`status`/`tier` alongside the gate decision) is unaffected — `is_cross_scope_readable` still takes the already-fetched `meta` dict, no extra round trip.]
+
 No other candidates from this angle survived self-verification (checked:
 every public tool function's `_inner` delegation pattern is intact across
 all of `tools/*.py`; `run_search_loop` is called identically by `search.py`
