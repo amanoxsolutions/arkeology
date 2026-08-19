@@ -822,87 +822,29 @@ async def test_list_result_commit_refs_empty_when_absent(
 
 
 # ---------------------------------------------------------------------------
-# T46 — references filter (AND semantics) and references field in list response
+# T59 — references= filter parameter removed; references field in list response
 # ---------------------------------------------------------------------------
 
 
-async def test_list_references_filter_returns_matching_artifacts(
+async def test_list_references_kwarg_rejected(
     monkeypatch: pytest.MonkeyPatch,
     vectors_client_8: VectorsClientImpl,
 ) -> None:
-    """list_artifacts with references=['a-1'] returns only matching artifacts."""
+    """list_artifacts no longer accepts a references= filter parameter (T59):
+    since T58 stopped writing references into vector metadata, the old
+    {"references": {"$eq": ref}} clause could never match anything again — the
+    parameter is removed outright rather than silently ignored or returning an
+    empty result set."""
     settings = _make_settings(monkeypatch)
-    vectors_client_8.put_vector(
-        "artifacts/with-ref-field#summary",
-        _unit_vec(4.0),
-        {
-            **_BASE_VECTOR_META,
-            "artifact_id": "artifacts/with-ref-field",
-            "references": ["a-1"],
-        },
-    )
-    vectors_client_8.put_vector(
-        "artifacts/no-ref-field#summary",
-        _unit_vec(4.1),
-        {
-            **_BASE_VECTOR_META,
-            "artifact_id": "artifacts/no-ref-field",
-        },
-    )
 
-    result = await list_artifacts(
-        settings=settings,
-        vectors=vectors_client_8,
-        s3=None,
-        bedrock=None,
-        references=["a-1"],
-    )
-
-    artifacts = result.get("artifacts", [])
-    ids = [a["artifact_id"] for a in artifacts]
-    assert "artifacts/with-ref-field" in ids
-    assert "artifacts/no-ref-field" not in ids
-
-
-async def test_list_references_filter_two_identifiers_is_and_semantics(
-    monkeypatch: pytest.MonkeyPatch,
-    vectors_client_8: VectorsClientImpl,
-) -> None:
-    """references=['a-1', 'b-2'] requires BOTH identifiers to be present (AND semantics)."""
-    settings = _make_settings(monkeypatch)
-    # matches both
-    vectors_client_8.put_vector(
-        "artifacts/both-refs#summary",
-        _unit_vec(4.2),
-        {
-            **_BASE_VECTOR_META,
-            "artifact_id": "artifacts/both-refs",
-            "references": ["a-1", "b-2"],
-        },
-    )
-    # matches only one
-    vectors_client_8.put_vector(
-        "artifacts/one-ref#summary",
-        _unit_vec(4.3),
-        {
-            **_BASE_VECTOR_META,
-            "artifact_id": "artifacts/one-ref",
-            "references": ["a-1"],
-        },
-    )
-
-    result = await list_artifacts(
-        settings=settings,
-        vectors=vectors_client_8,
-        s3=None,
-        bedrock=None,
-        references=["a-1", "b-2"],
-    )
-
-    artifacts = result.get("artifacts", [])
-    ids = [a["artifact_id"] for a in artifacts]
-    assert "artifacts/both-refs" in ids
-    assert "artifacts/one-ref" not in ids
+    with pytest.raises(TypeError):
+        await list_artifacts(  # type: ignore[call-arg]
+            settings=settings,
+            vectors=vectors_client_8,
+            s3=None,
+            bedrock=None,
+            references=["a-1"],
+        )
 
 
 async def test_list_no_references_filter_returns_all(

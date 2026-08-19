@@ -340,10 +340,12 @@ async def test_list_artifacts_mcp_layer_forwards_commit_refs(
     assert call_kwargs["commit_refs"] == ["abc1234"]
 
 
-async def test_list_artifacts_mcp_layer_forwards_references(
+async def test_list_artifacts_mcp_layer_rejects_references_kwarg(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """list_artifacts MCP tool forwards references to the underlying _list_artifacts."""
+    """list_artifacts MCP tool no longer accepts references= (T59): since T58
+    stopped writing references into vector metadata, the filter parameter is
+    removed outright rather than silently ignored."""
     settings = _make_settings(monkeypatch)
     mock_list: AsyncMock = AsyncMock(return_value={"artifacts": []})
     monkeypatch.setattr("arkeology.server._list_artifacts", mock_list)
@@ -355,11 +357,10 @@ async def test_list_artifacts_mcp_layer_forwards_references(
         bedrock=MagicMock(),
     )
     tool = await _app.get_tool("list_artifacts")
-    await tool.fn(references=["a-1"])
+    with pytest.raises(TypeError):
+        await tool.fn(references=["a-1"])  # type: ignore[call-arg]
 
-    mock_list.assert_awaited_once()
-    _, call_kwargs = mock_list.call_args
-    assert call_kwargs["references"] == ["a-1"]
+    mock_list.assert_not_awaited()
 
 
 # ---------------------------------------------------------------------------
