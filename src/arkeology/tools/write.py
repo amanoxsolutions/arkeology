@@ -7,10 +7,13 @@ vectors from the previous write are cleaned up automatically.
 
 import asyncio
 import logging
+import random
+import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from typing import Any
 
+import botocore.exceptions
 from pydantic import ValidationError
 from ulid import ULID
 
@@ -49,6 +52,15 @@ from arkeology.tools._section_pipeline import (
 )
 
 logger = logging.getLogger(__name__)
+
+# T67 — Step 8 delete_vectors bounded inline retry, mirroring bedrock.py's _invoke shape
+# exactly: exactly one retry (2 total attempts), fixed sleep + jitter, retrying only the
+# documented S3 Vectors DeleteVectors transient error codes.
+_ORPHAN_DELETE_RETRY_ATTEMPTS = 2
+_ORPHAN_DELETE_RETRY_SLEEP_SECONDS: float = 2.0
+_ORPHAN_DELETE_TRANSIENT_ERROR_CODES = frozenset(
+    {"RequestTimeoutException", "ServiceUnavailableException", "TooManyRequestsException"}
+)
 
 # Dedicated thread pool for Bedrock embed calls.  The default asyncio executor
 # is sized at min(32, cpu_count + 4) — typically 8–16 threads — which can
@@ -94,6 +106,7 @@ def _log_partial_write_failure(
     date: str,
     failure_step: str,
     reason: str,
+    orphan_keys: list[str] | None = None,
 ) -> None:
     """Append a failure-log entry recording a partial write (S3 succeeded, a
     downstream step failed).
@@ -116,22 +129,27 @@ def _log_partial_write_failure(
         tier: Artifact tier.
         date: ISO-8601 date string.
         failure_step: Stage that failed (e.g. ``"bedrock_embed"``, ``"put_vector"``,
-            ``"annotation_write"``).
+            ``"annotation_write"``, ``"orphan_vector_cleanup"``).
         reason: Human-readable failure reason.
+        orphan_keys: T67 — when Step 8's ``delete_vectors`` retry is exhausted, the
+            exact list of stale vector keys that still need deleting. Included in the
+            written entry only when not ``None``; its presence (not a separate
+            ``kind``/``type`` field) is what distinguishes this failure-log entry kind
+            from every other (``reconcile_index``'s Phase 1 recognises it this way).
     """
-    append_failure_entry(
-        settings.failure_log_path,
-        {
-            "artifact_id": artifact_id,
-            "title": title,
-            "type": artifact_type,
-            "tier": tier,
-            "date": date,
-            "failure_step": failure_step,
-            "reason": reason,
-            "timestamp": datetime.now(UTC).isoformat(),
-        },
-    )
+    entry: dict[str, Any] = {
+        "artifact_id": artifact_id,
+        "title": title,
+        "type": artifact_type,
+        "tier": tier,
+        "date": date,
+        "failure_step": failure_step,
+        "reason": reason,
+        "timestamp": datetime.now(UTC).isoformat(),
+    }
+    if orphan_keys is not None:
+        entry["orphan_keys"] = orphan_keys
+    append_failure_entry(settings.failure_log_path, entry)
 
 
 def _record_partial_write(
@@ -179,6 +197,52 @@ def _record_partial_write(
         "message": f"{reason} — failure recorded in {settings.failure_log_path}",
         "artifact_id": artifact_id,
     }
+
+
+def _delete_orphan_vectors_with_retry(
+    vectors: VectorsClientInterface, orphan_keys: list[str]
+) -> Exception | None:
+    """Delete stale orphan vectors with one bounded retry on a transient failure.
+
+    Mirrors ``bedrock.py``'s ``_invoke`` retry shape exactly: exactly one retry (2
+    total attempts), sleeping ``_ORPHAN_DELETE_RETRY_SLEEP_SECONDS +
+    random.uniform(0, 1)`` seconds between attempts, retrying only a
+    ``ClientError`` whose code is in ``_ORPHAN_DELETE_TRANSIENT_ERROR_CODES``.
+    ``CredentialError`` (already translated from a ``ClientError`` by
+    ``VectorsClientImpl.delete_vectors``'s own ``wrap_credential_errors`` wrapper
+    before it ever reaches this function) and any other exception are never
+    retried.
+
+    Synchronous and blocking (including its sleep) by design — the caller runs it
+    via ``asyncio.to_thread`` so the retry never blocks the event loop.
+
+    Returns:
+        ``None`` on success. The final exception (never raised) if every attempt
+        failed, so the async caller can log it without an extra try/except layer.
+    """
+    last_exc: Exception | None = None
+    for attempt in range(_ORPHAN_DELETE_RETRY_ATTEMPTS):
+        try:
+            vectors.delete_vectors(orphan_keys)
+        except CredentialError as exc:
+            return exc
+        except botocore.exceptions.ClientError as exc:
+            last_exc = exc
+            code = exc.response.get("Error", {}).get("Code", "")
+            if code in _ORPHAN_DELETE_TRANSIENT_ERROR_CODES and attempt == 0:
+                logger.warning(
+                    "Orphan vector delete transient error %s on attempt 1; retrying after %.1fs",
+                    code,
+                    _ORPHAN_DELETE_RETRY_SLEEP_SECONDS,
+                )
+                time.sleep(_ORPHAN_DELETE_RETRY_SLEEP_SECONDS + random.uniform(0, 1))
+                continue
+            return exc
+        except Exception as exc:  # noqa: BLE001 - returned, not swallowed
+            return exc
+        else:
+            return None
+    return last_exc
 
 
 async def write_artifact(
@@ -917,7 +981,31 @@ async def _write_artifact_inner(  # noqa: PLR0913
             existing_keys = vectors.list_vectors_by_metadata({"artifact_id": {"$eq": s3_key}})
             orphan_keys = [k for k in existing_keys if k not in new_keys]
             if orphan_keys:
-                vectors.delete_vectors(orphan_keys)
+                # T67: bounded inline retry (mirrors bedrock.py's _invoke shape), routed
+                # through asyncio.to_thread since it may block on a retry sleep and this
+                # call runs directly on the event loop.
+                delete_failure = await asyncio.to_thread(
+                    _delete_orphan_vectors_with_retry, vectors, orphan_keys
+                )
+                if delete_failure is not None:
+                    _log_partial_write_failure(
+                        settings,
+                        artifact_id=s3_key,
+                        title=title,
+                        artifact_type=type,
+                        tier=tier,
+                        date=date,
+                        failure_step="orphan_vector_cleanup",
+                        reason=str(delete_failure),
+                        orphan_keys=orphan_keys,
+                    )
+                    logger.warning(
+                        "Orphan vector cleanup failed for key=%s; the artifact is written "
+                        "and searchable but stale section vectors from a prior version "
+                        "may remain (reconcile_index will repair them from the failure "
+                        "log).",
+                        s3_key,
+                    )
         except Exception:
             logger.warning(
                 "Orphan vector cleanup failed for key=%s; the artifact is written and "

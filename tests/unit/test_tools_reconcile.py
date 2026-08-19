@@ -2182,3 +2182,243 @@ async def test_fetch_and_reindex_shared_helper_used_by_both_phases(
     head_calls = [c.args[0] for c in head_object_spy.call_args_list]
     assert head_calls.count(replay_id) == 1
     assert head_calls.count(orphan_id) == 1
+
+
+# ---------------------------------------------------------------------------
+# T67 — orphan-cleanup failure-log kind: direct repair + (artifact_id, kind) dedup
+# ---------------------------------------------------------------------------
+
+
+async def test_orphan_cleanup_entry_repaired_by_direct_delete_no_reindex(
+    reconcile_settings: Settings,
+    s3_reconcile: S3ClientImpl,
+    vectors_reconcile: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """A failure-log entry carrying orphan_keys is repaired by a direct
+    delete_vectors(orphan_keys) call — no head_object, no get_object, no
+    bedrock.embed for that entry — and is pruned from the log and reported in
+    reconciled with the orphan_keys_deleted/source shape (no sections_indexed)."""
+    artifact_id = "artifacts/implementation-note-2026-01-01-orphan-repair-target"
+    stale_key = f"{artifact_id}#stale-section"
+    vectors_reconcile.put_vector(
+        stale_key,
+        [1.0] + [0.0] * (DIMENSION - 1),
+        {
+            "artifact_id": artifact_id,
+            "scope": "artifacts",
+            "type": "implementation_note",
+            "tier": 2,
+            "title": "Test Artifact",
+        },
+    )
+    _write_failure_log(
+        reconcile_settings.failure_log_path,
+        [{**_BASE_LOG_ENTRY, "artifact_id": artifact_id, "orphan_keys": [stale_key]}],
+    )
+    bedrock = FakeBedrockClient(dimension=DIMENSION)
+    delete_spy = mocker.spy(vectors_reconcile, "delete_vectors")
+    head_spy = mocker.spy(s3_reconcile, "head_object")
+    get_spy = mocker.spy(s3_reconcile, "get_object")
+    embed_spy = mocker.spy(bedrock, "embed")
+
+    result = await reconcile_index(
+        settings=reconcile_settings,
+        s3=s3_reconcile,
+        vectors=vectors_reconcile,
+        bedrock=bedrock,
+    )
+
+    assert "error" not in result
+    delete_spy.assert_called_once_with([stale_key])
+    assert head_spy.call_count == 0
+    assert get_spy.call_count == 0
+    assert embed_spy.call_count == 0
+
+    reconciled_entry = next(e for e in result["reconciled"] if e["artifact_id"] == artifact_id)
+    assert reconciled_entry == {
+        "artifact_id": artifact_id,
+        "title": "Test Artifact",
+        "orphan_keys_deleted": 1,
+        "source": "orphan_vector_cleanup",
+    }
+    assert "sections_indexed" not in reconciled_entry
+    assert result["failure_log_entries_after"] == 0
+    assert not reconcile_settings.failure_log_path.exists()
+
+
+async def test_orphan_cleanup_and_reindex_entries_same_artifact_resolved_independently(
+    reconcile_settings: Settings,
+    s3_reconcile: S3ClientImpl,
+    vectors_reconcile: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """Story 5: a reindex-kind entry and an orphan-cleanup-kind entry for the SAME
+    artifact_id are both attempted this run (dedup/resolution keyed by
+    (artifact_id, kind)). The reindex succeeds; the orphan-cleanup delete fails — only
+    the still-failing orphan-cleanup entry survives the log rewrite, the resolved
+    reindex entry is pruned independently."""
+    artifact_id = "artifacts/implementation-note-2026-01-01-coexist"
+    stale_key = f"{artifact_id}#stale-section"
+    s3_reconcile.put_object(artifact_id, _CONTENT_NO_SECTIONS, {**_BASE_S3_META})
+    vectors_reconcile.put_vector(
+        stale_key,
+        [1.0] + [0.0] * (DIMENSION - 1),
+        {
+            "artifact_id": artifact_id,
+            "scope": "artifacts",
+            "type": "implementation_note",
+            "tier": 2,
+            "title": "Test Artifact",
+        },
+    )
+    _write_failure_log(
+        reconcile_settings.failure_log_path,
+        [
+            {**_BASE_LOG_ENTRY, "artifact_id": artifact_id},
+            {**_BASE_LOG_ENTRY, "artifact_id": artifact_id, "orphan_keys": [stale_key]},
+        ],
+    )
+    bedrock = FakeBedrockClient(dimension=DIMENSION)
+    mocker.patch.object(vectors_reconcile, "delete_vectors", side_effect=RuntimeError("boom"))
+
+    result = await reconcile_index(
+        settings=reconcile_settings,
+        s3=s3_reconcile,
+        vectors=vectors_reconcile,
+        bedrock=bedrock,
+    )
+
+    assert "error" not in result
+    reconciled_ids = [e["artifact_id"] for e in result["reconciled"]]
+    assert artifact_id in reconciled_ids
+    failed_entry = next(
+        (e for e in result["failed"] if e["artifact_id"] == artifact_id and "orphan_keys" in e),
+        None,
+    )
+    assert failed_entry is not None
+    assert failed_entry["orphan_keys"] == [stale_key]
+
+    log_lines = reconcile_settings.failure_log_path.read_text(encoding="utf-8").splitlines()
+    persisted = [json.loads(line) for line in log_lines]
+    assert len(persisted) == 1
+    assert persisted[0].get("orphan_keys") == [stale_key]
+    assert persisted[0]["reconcile_attempts"] == 1
+
+
+async def test_orphan_cleanup_entry_at_threshold_skipped_and_reported_stuck(
+    reconcile_settings: Settings,
+    s3_reconcile: S3ClientImpl,
+    vectors_reconcile: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """Story 4: an orphan-cleanup entry crossing CAS_MAX_ATTEMPTS on this run's failed
+    delete_vectors call is reported in stuck_failures (carrying orphan_keys) instead of
+    failed; a subsequent run never attempts delete_vectors for it again."""
+    artifact_id = "artifacts/implementation-note-2026-01-01-orphan-stuck"
+    stale_key = f"{artifact_id}#stale-section"
+    # An S3 object backs this artifact_id (matching the realistic T67 scenario — the
+    # orphan-cleanup entry originates from Step 8 of a successful overwrite) so Phase 3's
+    # dangling-vector prune never independently targets the same still-indexed stale_key
+    # and double-reports this artifact_id in `failed`.
+    s3_reconcile.put_object(artifact_id, _CONTENT_NO_SECTIONS, {**_BASE_S3_META})
+    vectors_reconcile.put_vector(
+        stale_key,
+        [1.0] + [0.0] * (DIMENSION - 1),
+        {
+            "artifact_id": artifact_id,
+            "scope": "artifacts",
+            "type": "implementation_note",
+            "tier": 2,
+            "title": "Test Artifact",
+        },
+    )
+    _write_failure_log(
+        reconcile_settings.failure_log_path,
+        [
+            {
+                **_BASE_LOG_ENTRY,
+                "artifact_id": artifact_id,
+                "orphan_keys": [stale_key],
+                "reconcile_attempts": CAS_MAX_ATTEMPTS - 1,
+            }
+        ],
+    )
+    bedrock = FakeBedrockClient(dimension=DIMENSION)
+    mocker.patch.object(vectors_reconcile, "delete_vectors", side_effect=RuntimeError("boom"))
+
+    result_run_1 = await reconcile_index(
+        settings=reconcile_settings,
+        s3=s3_reconcile,
+        vectors=vectors_reconcile,
+        bedrock=bedrock,
+    )
+
+    assert "error" not in result_run_1
+    stuck = next(
+        e for e in result_run_1.get("stuck_failures", []) if e["artifact_id"] == artifact_id
+    )
+    assert stuck["reconcile_attempts"] == CAS_MAX_ATTEMPTS
+    assert stuck["orphan_keys"] == [stale_key]
+    assert artifact_id not in [e["artifact_id"] for e in result_run_1["failed"]]
+
+    delete_spy = mocker.patch.object(
+        vectors_reconcile, "delete_vectors", side_effect=RuntimeError("boom")
+    )
+    result_run_2 = await reconcile_index(
+        settings=reconcile_settings,
+        s3=s3_reconcile,
+        vectors=vectors_reconcile,
+        bedrock=bedrock,
+    )
+
+    assert "error" not in result_run_2
+    assert delete_spy.call_count == 0
+    stuck_2 = next(
+        e for e in result_run_2.get("stuck_failures", []) if e["artifact_id"] == artifact_id
+    )
+    assert stuck_2["reconcile_attempts"] == CAS_MAX_ATTEMPTS
+    assert stuck_2["orphan_keys"] == [stale_key]
+
+
+async def test_orphan_cleanup_partially_absent_keys_still_resolves(
+    reconcile_settings: Settings,
+    s3_reconcile: S3ClientImpl,
+    vectors_reconcile: VectorsClientImpl,
+) -> None:
+    """Story 3 idempotency: orphan_keys containing one still-indexed key and one
+    already-absent key does not raise and the entry still resolves exactly as a
+    fully-successful delete."""
+    artifact_id = "artifacts/implementation-note-2026-01-01-orphan-partial"
+    present_key = f"{artifact_id}#present"
+    absent_key = f"{artifact_id}#absent"
+    vectors_reconcile.put_vector(
+        present_key,
+        [1.0] + [0.0] * (DIMENSION - 1),
+        {
+            "artifact_id": artifact_id,
+            "scope": "artifacts",
+            "type": "implementation_note",
+            "tier": 2,
+            "title": "Test Artifact",
+        },
+    )
+    _write_failure_log(
+        reconcile_settings.failure_log_path,
+        [{**_BASE_LOG_ENTRY, "artifact_id": artifact_id, "orphan_keys": [present_key, absent_key]}],
+    )
+    bedrock = FakeBedrockClient(dimension=DIMENSION)
+
+    result = await reconcile_index(
+        settings=reconcile_settings,
+        s3=s3_reconcile,
+        vectors=vectors_reconcile,
+        bedrock=bedrock,
+    )
+
+    assert "error" not in result
+    reconciled_entry = next(e for e in result["reconciled"] if e["artifact_id"] == artifact_id)
+    assert reconciled_entry["orphan_keys_deleted"] == 2
+    assert reconciled_entry["source"] == "orphan_vector_cleanup"
+    assert result["failure_log_entries_after"] == 0
+    assert not reconcile_settings.failure_log_path.exists()
