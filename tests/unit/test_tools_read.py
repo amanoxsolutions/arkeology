@@ -259,7 +259,7 @@ async def test_foreign_tier2_access_denied(
         s3=s3_client, settings=settings, artifact_id="other-team/t2-foreign-shared"
     )
 
-    assert "error" in result or result.get("error_type") is not None
+    assert result.get("error") == "access_denied"
     result_str = str(result).lower()
     assert "access" in result_str or "denied" in result_str or "forbidden" in result_str
     called_keys = [call.args[0] for call in spy_get.call_args_list]
@@ -278,7 +278,7 @@ async def test_foreign_tier3_hidden_access_denied(
         s3=s3_client, settings=settings, artifact_id="other-team/t3-foreign-hidden"
     )
 
-    assert "error" in result or result.get("error_type") is not None
+    assert result.get("error") == "access_denied"
     result_str = str(result).lower()
     assert "access" in result_str or "denied" in result_str or "forbidden" in result_str
 
@@ -295,7 +295,7 @@ async def test_unknown_scope_artifact_id_access_denied(
         s3=s3_client, settings=settings, artifact_id="unknown-scope/some-artifact"
     )
 
-    assert "error" in result or result.get("error_type") is not None
+    assert result.get("error") == "access_denied"
 
 
 async def test_access_denied_differs_from_not_found_in_message(
@@ -332,7 +332,7 @@ async def test_own_scope_missing_object_returns_not_found(
         s3=s3_client, settings=settings, artifact_id="artifacts/nonexistent"
     )
 
-    assert "error" in result or result.get("error_type") is not None
+    assert result.get("error") == "not_found"
     result_str = str(result).lower()
     assert "not" in result_str or "found" in result_str or "missing" in result_str
 
@@ -363,7 +363,7 @@ async def test_artifact_id_with_no_slash_returns_access_denied(
 
     result = await read_artifact(s3=s3_client, settings=settings, artifact_id="noslash")
 
-    assert "error" in result or result.get("error_type") is not None
+    assert result.get("error") == "access_denied"
 
 
 async def test_head_object_key_error_returns_not_found_not_exception(
@@ -378,7 +378,7 @@ async def test_head_object_key_error_returns_not_found_not_exception(
     )
 
     assert isinstance(result, dict)
-    assert "error" in result or result.get("error_type") is not None
+    assert result.get("error") == "not_found"
 
 
 # ---------------------------------------------------------------------------
@@ -408,7 +408,7 @@ async def test_head_object_credential_failure_no_get_object_call(
 
     result = await read_artifact(s3=s3_client, settings=settings, artifact_id="artifacts/t2-shared")
 
-    assert "error" in result or result.get("error_type") is not None
+    assert result.get("error") == "credential_error"
     assert spy_get.call_count == 0
 
 
@@ -433,7 +433,7 @@ async def test_get_object_credential_failure_after_gate_passes(
 
     result = await read_artifact(s3=s3_client, settings=settings, artifact_id="artifacts/t2-shared")
 
-    assert "error" in result or result.get("error_type") is not None
+    assert result.get("error") == "credential_error"
 
 
 # ---------------------------------------------------------------------------

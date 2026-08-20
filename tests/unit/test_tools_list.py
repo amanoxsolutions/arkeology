@@ -597,7 +597,7 @@ async def test_list_vectors_by_metadata_credential_error_returns_structured(
         settings=settings, vectors=vectors_client_8, s3=None, bedrock=None
     )
 
-    assert "error" in result or result.get("error_type") is not None
+    assert result.get("error") == "credential_error"
 
 
 async def test_get_vectors_credential_error_returns_structured(
@@ -622,7 +622,7 @@ async def test_get_vectors_credential_error_returns_structured(
         settings=settings, vectors=vectors_client_8, s3=None, bedrock=None
     )
 
-    assert "error" in result or result.get("error_type") is not None
+    assert result.get("error") == "credential_error"
 
 
 # ---------------------------------------------------------------------------

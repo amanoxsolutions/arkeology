@@ -929,7 +929,7 @@ async def test_s3_credential_failure_returns_error_bedrock_not_called(
         **_BASE_WRITE_KWARGS,
     )
 
-    assert "error" in result or result.get("success") is False
+    assert result.get("error") == "credential_error"
     assert spy.call_count == 0
 
 
@@ -959,7 +959,7 @@ async def test_bedrock_credential_failure_returns_error(
         **_BASE_WRITE_KWARGS,
     )
 
-    assert "error" in result or result.get("success") is False
+    assert result.get("error") == "credential_error"
 
 
 # ---------------------------------------------------------------------------

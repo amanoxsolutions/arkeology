@@ -170,4 +170,4 @@ async def test_nonexistent_artifact_id_returns_not_found(
     )
 
     assert isinstance(result, dict)
-    assert "error" in result or result.get("error_type") is not None
+    assert result.get("error") == "not_found"

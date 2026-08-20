@@ -1214,7 +1214,7 @@ async def test_bedrock_credential_failure_returns_error_no_query(
         vectors=vectors_client_8, bedrock=bedrock, settings=settings, query="review", top_k=5
     )
 
-    assert "error" in result or result.get("success") is False
+    assert result.get("error") == "credential_error"
     assert spy.call_count == 0
 
 
@@ -1240,7 +1240,7 @@ async def test_vectors_credential_failure_returns_error(
         vectors=vectors_client_8, bedrock=bedrock, settings=settings, query="review", top_k=5
     )
 
-    assert "error" in result or result.get("success") is False
+    assert result.get("error") == "credential_error"
 
 
 # ---------------------------------------------------------------------------

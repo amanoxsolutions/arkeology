@@ -92,7 +92,7 @@ async def test_delete_confirm_true_artifact_not_retrievable(
 
     # Not retrievable by ID
     read_result = await read_artifact(s3=s3, settings=settings, artifact_id=artifact_id)
-    assert "error" in read_result or read_result.get("error_type") is not None
+    assert read_result.get("error") == "not_found"
 
     # Not in list
     list_result = await list_artifacts(settings=settings, s3=s3, vectors=vectors, bedrock=bedrock)
@@ -126,7 +126,7 @@ async def test_delete_without_confirm_error_artifact_still_retrievable(
             artifact_id=written_id,
         )
 
-        assert "error" in result or result.get("error_type") is not None
+        assert result.get("error") == "confirmation_required"
 
         # Artifact still readable
         read_result = await read_artifact(s3=s3, settings=settings, artifact_id=written_id)
@@ -160,7 +160,7 @@ async def test_delete_foreign_scope_access_denied(
         confirm=True,
     )
 
-    assert "error" in result or result.get("error_type") is not None
+    assert result.get("error") == "access_denied"
     result_str = str(result).lower()
     assert "access" in result_str or "denied" in result_str or "forbidden" in result_str
 
@@ -182,7 +182,7 @@ async def test_delete_nonexistent_artifact_not_found(
         confirm=True,
     )
 
-    assert "error" in result or result.get("error_type") is not None
+    assert result.get("error") == "not_found"
     result_str = str(result).lower()
     assert "not" in result_str or "found" in result_str or "missing" in result_str
 

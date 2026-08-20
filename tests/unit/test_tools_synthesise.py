@@ -691,7 +691,7 @@ async def test_synthesise_embed_credential_error(
         top_k=5,
     )
 
-    assert "error" in result or result.get("error_type") is not None
+    assert result.get("error") == "credential_error"
 
 
 async def test_synthesise_query_vectors_credential_error(
@@ -723,7 +723,7 @@ async def test_synthesise_query_vectors_credential_error(
         top_k=5,
     )
 
-    assert "error" in result or result.get("error_type") is not None
+    assert result.get("error") == "credential_error"
 
 
 async def test_synthesise_get_object_credential_error_is_hard_failure(
@@ -755,7 +755,7 @@ async def test_synthesise_get_object_credential_error_is_hard_failure(
         top_k=5,
     )
 
-    assert "error" in result or result.get("error_type") is not None
+    assert result.get("error") == "credential_error"
 
 
 async def test_synthesise_vector_distance_missing_mid_loop_returns_partial_with_signal(

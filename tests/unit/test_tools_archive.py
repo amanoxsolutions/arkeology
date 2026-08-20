@@ -510,7 +510,7 @@ async def test_archive_foreign_scope_returns_access_denied(
         artifact_id="other-team/foreign-active",
     )
 
-    assert "error" in result or result.get("error_type") is not None
+    assert result.get("error") == "access_denied"
     result_str = str(result).lower()
     assert "access" in result_str or "denied" in result_str or "forbidden" in result_str
     assert spy_put.call_count == initial_put_count
@@ -532,7 +532,7 @@ async def test_archive_unknown_scope_returns_access_denied(
         artifact_id="unknown-scope/some-artifact",
     )
 
-    assert "error" in result or result.get("error_type") is not None
+    assert result.get("error") == "access_denied"
 
 
 # ---------------------------------------------------------------------------
@@ -558,7 +558,7 @@ async def test_archive_nonexistent_own_scope_returns_not_found(
         artifact_id="artifacts/nonexistent",
     )
 
-    assert "error" in result or result.get("error_type") is not None
+    assert result.get("error") == "not_found"
     result_str = str(result).lower()
     assert "not" in result_str or "found" in result_str or "missing" in result_str
     assert spy_list.call_count == 0
@@ -593,7 +593,7 @@ async def test_archive_get_object_credential_error(
         artifact_id="artifacts/active-review",
     )
 
-    assert "error" in result or result.get("error_type") is not None
+    assert result.get("error") == "credential_error"
     assert spy_put_vec.call_count == 0
 
 
@@ -621,7 +621,7 @@ async def test_archive_put_object_credential_error_no_vector_writes(
         artifact_id="artifacts/active-review",
     )
 
-    assert "error" in result or result.get("error_type") is not None
+    assert result.get("error") == "credential_error"
     assert spy_put_vec.call_count == 0
 
 
@@ -658,7 +658,7 @@ async def test_archive_list_vectors_credential_error(
         artifact_id="artifacts/active-review",
     )
 
-    assert "error" in result or result.get("error_type") is not None
+    assert result.get("error") == "credential_error"
     assert not settings.failure_log_path.exists()
 
 
@@ -697,7 +697,7 @@ async def test_archive_get_vectors_credential_error(
         artifact_id="artifacts/active-review",
     )
 
-    assert "error" in result or result.get("error_type") is not None
+    assert result.get("error") == "credential_error"
     assert not settings.failure_log_path.exists()
 
 
@@ -733,7 +733,7 @@ async def test_archive_put_vector_credential_error(
         artifact_id="artifacts/active-review",
     )
 
-    assert "error" in result or result.get("error_type") is not None
+    assert result.get("error") == "credential_error"
     assert settings.failure_log_path.exists()
 
 

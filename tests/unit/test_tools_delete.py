@@ -186,7 +186,7 @@ async def test_confirm_false_returns_error_no_writes(
         confirm=False,
     )
 
-    assert "error" in result or result.get("error_type") is not None
+    assert result.get("error") == "confirmation_required"
     assert spy_delete.call_count == 0
 
 
@@ -208,7 +208,7 @@ async def test_confirm_missing_returns_error_no_writes(
         artifact_id="artifacts/t2-active",
     )
 
-    assert "error" in result or result.get("error_type") is not None
+    assert result.get("error") == "confirmation_required"
     assert len(s3_client.list_objects("")) == initial_count
 
 
@@ -697,7 +697,7 @@ async def test_delete_foreign_scope_access_denied_no_writes(
         confirm=True,
     )
 
-    assert "error" in result or result.get("error_type") is not None
+    assert result.get("error") == "access_denied"
     result_str = str(result).lower()
     assert "access" in result_str or "denied" in result_str or "forbidden" in result_str
     assert spy_delete.call_count == 0
@@ -720,7 +720,7 @@ async def test_delete_unknown_scope_access_denied(
         confirm=True,
     )
 
-    assert "error" in result or result.get("error_type") is not None
+    assert result.get("error") == "access_denied"
 
 
 # ---------------------------------------------------------------------------
@@ -747,7 +747,7 @@ async def test_delete_nonexistent_own_scope_not_found(
         confirm=True,
     )
 
-    assert "error" in result or result.get("error_type") is not None
+    assert result.get("error") == "not_found"
     assert spy_delete_vec.call_count == 0
 
 
@@ -780,7 +780,7 @@ async def test_delete_vectors_failure_leaves_s3_intact(
         confirm=True,
     )
 
-    assert "error" in result or result.get("error_type") is not None
+    assert result.get("error") == "delete_vectors_failed"
     assert "artifacts/t2-active" in s3_client.list_objects("")
 
 
@@ -813,7 +813,7 @@ async def test_delete_s3_failure_after_vectors_partial_failure(
         confirm=True,
     )
 
-    assert "error" in result or result.get("error_type") is not None
+    assert result.get("error") == "partial_delete"
     result_str = str(result).lower()
     assert "partial" in result_str or "artifacts/t2-active" in str(result)
     # Vectors are deleted (orphan state)
@@ -851,7 +851,7 @@ async def test_delete_head_object_credential_error(
         confirm=True,
     )
 
-    assert "error" in result or result.get("error_type") is not None
+    assert result.get("error") == "credential_error"
 
 
 async def test_delete_list_vectors_credential_error_s3_intact(
@@ -880,7 +880,7 @@ async def test_delete_list_vectors_credential_error_s3_intact(
         confirm=True,
     )
 
-    assert "error" in result or result.get("error_type") is not None
+    assert result.get("error") == "credential_error"
     assert "artifacts/t2-active" in s3_client.list_objects("")
 
 
@@ -915,7 +915,7 @@ async def test_delete_vectors_credential_error_s3_intact(
         confirm=True,
     )
 
-    assert "error" in result or result.get("error_type") is not None
+    assert result.get("error") == "credential_error"
     assert "artifacts/t2-active" in s3_client.list_objects("")
 
 
@@ -948,7 +948,7 @@ async def test_delete_s3_delete_credential_error_partial_failure(
         confirm=True,
     )
 
-    assert "error" in result or result.get("error_type") is not None
+    assert result.get("error") == "credential_error"
     assert "artifacts/t2-active" in str(result)
 
 

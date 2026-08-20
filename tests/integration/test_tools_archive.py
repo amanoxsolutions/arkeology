@@ -136,7 +136,7 @@ async def test_archive_foreign_scope_returns_access_denied(
         artifact_id="nonexistent-foreign-scope/some-artifact",
     )
 
-    assert "error" in result or result.get("error_type") is not None
+    assert result.get("error") == "access_denied"
     result_str = str(result).lower()
     assert "access" in result_str or "denied" in result_str or "forbidden" in result_str
 
@@ -157,6 +157,6 @@ async def test_archive_nonexistent_artifact_returns_not_found(
         artifact_id=f"{settings.write_prefix}/nonexistent-artifact-archive-test-xyz999",
     )
 
-    assert "error" in result or result.get("error_type") is not None
+    assert result.get("error") == "not_found"
     result_str = str(result).lower()
     assert "not" in result_str or "found" in result_str or "missing" in result_str
