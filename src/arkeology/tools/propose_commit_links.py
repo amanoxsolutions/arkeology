@@ -101,7 +101,9 @@ async def _propose_commit_links_inner(
 
     # ── Steps 2–3: List matching vector keys, then fetch their metadata ───────
     try:
-        items = fetch_vectors_by_metadata(vectors, combined_filter, include_data=False)
+        items = await asyncio.to_thread(
+            fetch_vectors_by_metadata, vectors, combined_filter, include_data=False
+        )
     except CredentialError as exc:
         return credential_error_response(exc)
 

@@ -103,7 +103,8 @@ async def _purge_archived_inner(
     # ── Steps 2–3: Find inactive vectors, fetch metadata, deduplicate by id ───
     own_scope = settings.write_prefix
     try:
-        inactive_items = fetch_vectors_by_metadata(
+        inactive_items = await asyncio.to_thread(
+            fetch_vectors_by_metadata,
             vectors,
             {
                 "$and": [
@@ -131,7 +132,8 @@ async def _purge_archived_inner(
     # ── Step 4: Cascade check — active synthesis in own scope ────────────────
     cascade_set: set[str] = set()
     try:
-        synthesis_items = fetch_vectors_by_metadata(
+        synthesis_items = await asyncio.to_thread(
+            fetch_vectors_by_metadata,
             vectors,
             {
                 "$and": [

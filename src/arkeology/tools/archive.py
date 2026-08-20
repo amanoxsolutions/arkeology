@@ -175,8 +175,11 @@ async def _archive_artifact_inner(
     # short-circuit when S3 is inactive AND every existing vector already agrees.
     if s3_meta.get("status") == ArtifactStatus.INACTIVE:
         try:
-            existing_vec_items = fetch_vectors_by_metadata(
-                vectors, {"artifact_id": {"$eq": artifact_id}}, include_data=False
+            existing_vec_items = await asyncio.to_thread(
+                fetch_vectors_by_metadata,
+                vectors,
+                {"artifact_id": {"$eq": artifact_id}},
+                include_data=False,
             )
             vectors_need_flip = any(
                 item["metadata"].get("status") != ArtifactStatus.INACTIVE
@@ -197,7 +200,9 @@ async def _archive_artifact_inner(
 
     # ── Step 3: Unified own-scope referenced_by check (T50, ADR-012 D13) ─────
     try:
-        referrers = find_referrers(vectors=vectors, settings=settings, artifact_id=artifact_id)
+        referrers = await asyncio.to_thread(
+            find_referrers, vectors=vectors, settings=settings, artifact_id=artifact_id
+        )
     except CredentialError as exc:
         return credential_error_response(exc)
 
@@ -251,8 +256,8 @@ async def _archive_artifact_inner(
             current_etag = current_s3_meta.get("ETag")
 
         try:
-            current_commit_refs, current_references = read_current_link_fields(
-                s3, vectors, artifact_id
+            current_commit_refs, current_references = await asyncio.to_thread(
+                read_current_link_fields, s3, vectors, artifact_id
             )
         except CredentialError as exc:
             return credential_error_response(exc)
@@ -284,7 +289,8 @@ async def _archive_artifact_inner(
         try:
             # T52 / ADR-011 decision 5: annotation availability is a feature-level
             # concern, not a hard failure — the archive itself must still succeed.
-            apply_link_annotations(
+            await asyncio.to_thread(
+                apply_link_annotations,
                 s3,
                 artifact_id,
                 commit_refs=current_commit_refs,
@@ -342,8 +348,11 @@ async def _archive_artifact_inner(
     # can find and repair it and a retried archive_artifact call is not blocked by
     # the Step 2b idempotency check.
     try:
-        vec_items = fetch_vectors_by_metadata(
-            vectors, {"artifact_id": {"$eq": artifact_id}}, include_data=True
+        vec_items = await asyncio.to_thread(
+            fetch_vectors_by_metadata,
+            vectors,
+            {"artifact_id": {"$eq": artifact_id}},
+            include_data=True,
         )
         for item in vec_items:
             key = item["key"]

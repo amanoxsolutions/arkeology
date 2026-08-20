@@ -630,8 +630,8 @@ async def _write_artifact_inner(  # noqa: PLR0913
                     }
 
             try:
-                existing_commit_refs, _existing_references = read_current_link_fields(
-                    s3, vectors, s3_key
+                existing_commit_refs, _existing_references = await asyncio.to_thread(
+                    read_current_link_fields, s3, vectors, s3_key
                 )
             except CredentialError as exc:
                 return {
@@ -678,7 +678,8 @@ async def _write_artifact_inner(  # noqa: PLR0913
             last_attempt_object_written = True
 
             try:
-                apply_link_annotations(
+                await asyncio.to_thread(
+                    apply_link_annotations,
                     s3,
                     s3_key,
                     commit_refs=final_commit_refs,
@@ -792,8 +793,12 @@ async def _write_artifact_inner(  # noqa: PLR0913
         # on an annotation-unavailable deployment, a spurious warning for a no-op).
         try:
             if final_commit_refs or final_references:
-                apply_link_annotations(
-                    s3, s3_key, commit_refs=final_commit_refs, references=final_references
+                await asyncio.to_thread(
+                    apply_link_annotations,
+                    s3,
+                    s3_key,
+                    commit_refs=final_commit_refs,
+                    references=final_references,
                 )
         except AnnotationUnavailableError as exc:
             logger.warning(
