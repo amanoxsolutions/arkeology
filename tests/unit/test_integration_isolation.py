@@ -226,10 +226,17 @@ def test_teardown_vectors_list_failure_does_not_raise(
 def test_teardown_no_vectors_to_delete_skips_delete_call(
     vectors_client_8: VectorsClientImpl, mocker: MockerFixture
 ) -> None:
-    """When no vectors match the scope, delete_vectors is never called (nothing to chunk)."""
+    """When no vectors match the scope, delete_vectors is never called (nothing to chunk)
+    and an unrelated vector is left untouched."""
     scope = generate_run_scope()
+    vectors_client_8.put_vector(
+        "artifacts/untouched",
+        _UNIT_VEC,
+        {"artifact_id": "artifacts/untouched", "scope": "artifacts"},
+    )
     spy = mocker.spy(vectors_client_8, "delete_vectors")
 
     teardown_run_scope(_NoOpS3(), vectors_client_8, scope)
 
     spy.assert_not_called()
+    assert "artifacts/untouched" in vectors_client_8.list_vectors_by_metadata({})

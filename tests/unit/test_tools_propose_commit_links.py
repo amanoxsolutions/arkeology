@@ -495,7 +495,7 @@ async def test_list_vectors_credential_error_returns_structured(
         commit_sha=COMMIT_SHA,
     )
 
-    assert "error" in result
+    assert result.get("error") == "credential_error"
 
 
 async def test_get_vectors_credential_error_returns_structured(
@@ -525,7 +525,7 @@ async def test_get_vectors_credential_error_returns_structured(
         commit_sha=COMMIT_SHA,
     )
 
-    assert "error" in result
+    assert result.get("error") == "credential_error"
 
 
 # ---------------------------------------------------------------------------
@@ -647,7 +647,7 @@ async def test_commit_refs_resolution_credential_error_returns_structured(
         commit_sha=COMMIT_SHA,
     )
 
-    assert "error" in result
+    assert result.get("error") == "credential_error"
 
 
 async def test_commit_refs_resolution_non_credential_error_degrades_candidate(

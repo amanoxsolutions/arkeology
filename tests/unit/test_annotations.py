@@ -121,6 +121,9 @@ def test_apply_link_annotations_calls_put_for_non_empty_and_delete_for_empty(
         "artifacts/a3.md", COMMIT_REFS_ANNOTATION, "abc1234", if_match=None
     )
     delete_spy.assert_called_once_with("artifacts/a3.md", REFERENCES_ANNOTATION, if_match=None)
+    assert s3_client.get_object_annotation("artifacts/a3.md", COMMIT_REFS_ANNOTATION) == "abc1234"
+    with pytest.raises(KeyError):
+        s3_client.get_object_annotation("artifacts/a3.md", REFERENCES_ANNOTATION)
 
 
 def test_apply_link_annotations_threads_if_match_to_both_calls(
@@ -146,6 +149,9 @@ def test_apply_link_annotations_threads_if_match_to_both_calls(
         "artifacts/a3b.md", COMMIT_REFS_ANNOTATION, "abc1234", if_match=token
     )
     delete_spy.assert_called_once_with("artifacts/a3b.md", REFERENCES_ANNOTATION, if_match=token)
+    assert s3_client.get_object_annotation("artifacts/a3b.md", COMMIT_REFS_ANNOTATION) == "abc1234"
+    with pytest.raises(KeyError):
+        s3_client.get_object_annotation("artifacts/a3b.md", REFERENCES_ANNOTATION)
 
 
 def test_apply_link_annotations_stale_if_match_raises_conflict(
