@@ -219,6 +219,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   fit within budget
 - A migration manifest with two entries that normalise to the same path now
   raises instead of silently letting the second entry overwrite the first
+- `migrate_artifacts`' skip-existing pre-check now rejects a candidate whose
+  `file_extension` does not start with `.` up front, with the same
+  `validation_error` shape as `write_artifact`'s own guard. Previously a
+  malformed value silently built an unreachable candidate key and was deferred
+  to `write_artifacts`' own validation
 - A newline embedded in an artifact's title or description no longer corrupts the
   `arkeology://artifacts` markdown table's row structure
 - Investigated and left unchanged: the `coerce_list_field` inconsistency flagged
