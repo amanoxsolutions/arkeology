@@ -490,14 +490,14 @@ framing. Testing approach: **TDD** (NFR-07), matching T45–T56.
 
 Review findings **F-1**, **F-3**, **H-1**, **H-2**, **I-3** (shared scope-check/cross-scope/fetch-vector helpers, reconcile's duplicated fetch-and-reindex sequence, bounded concurrency for sequential per-artifact loops — see `docs/reviews/review-2026-08-13-full-codebase-max.md`) were considered for the T57–T62 wave and deliberately **not** folded into those specs: none describes currently-broken behavior (confirmed duplication with zero behavioral difference, or a plausible-but-unmeasured/never-wrong gap). **H-2 is now resolved** (T62's `_fetch_and_reindex` extraction). **F-1/F-3/H-1/I-3 are T63**, above, dispatched now that T57–T62 have landed.
 
-## Phase 13 — Further review-2026-08-13 remediation
-
-Correctness-class findings from `docs/reviews/review-2026-08-13-full-codebase-max.md` not
-covered by the T57–T63 wave. Each is small and independent (no file overlap with the others);
-dispatched individually rather than batched. No dedicated spec file for T64/T65 — each entry
-below (with the review finding's own failure-scenario prose) is the scope of record, per
-AGENTS.md's working convention on when a spec is/isn't needed; neither introduces a new tool,
-parameter, or response field, just corrects an existing one to match its own documented intent.
+**T64–T69 — Further review-2026-08-13 remediation** (added 2026-08-19/20, continuing this same
+phase past the T57–T63 wave). Correctness-class and convention-class findings from
+`docs/reviews/review-2026-08-13-full-codebase-max.md` not covered by T57–T63. Each is small and
+independent (no file overlap with the others); dispatched individually or in small batches
+rather than all together. No dedicated spec file for most entries — each entry below (with the
+review finding's own write-up) is the scope of record, per AGENTS.md's working convention on
+when a spec is/isn't needed; none introduces a new tool, parameter, or response field beyond
+what's described.
 
 64. ✅ **I-6 — Validate `file_extension` starts with `.` in `migrate_artifacts.py`'s skip-existing pre-check** — mirror `write.py`'s existing check (reject with the same validation error shape `write.py` uses, before any `head_object` probe is issued) so the two paths enforce the identical invariant instead of the pre-check silently probing a key `write_artifacts`/`write.py` would refuse to construct.
     - Done when: a descriptor with a `file_extension` not starting with `.` is rejected at the pre-check step (not silently routed to `to_write_indices` to fail later at the real write); a descriptor with a correctly-formed `file_extension` is unaffected; no `head_object` call is issued for a malformed `file_extension`.
@@ -513,7 +513,7 @@ parameter, or response field, just corrects an existing one to match its own doc
 
 67. ✅ **J-1 — `write_artifact`'s orphan-vector cleanup: retry inline, fall back to a `reconcile_index` repair mechanism** *(operator decision: inline retry (option b) first; if retries are exhausted, extend `reconcile_index` with a real repair path (option c) — see `docs/reviews/review-2026-08-13-full-codebase-max.md`)* — `write.py`'s Step 8 orphan-vector cleanup claims `reconcile_index` "can collect any leftover orphan vectors later," but that promise doesn't hold today: the failure isn't logged, and even if it were, none of `reconcile_index`'s three existing repair mechanisms (failure-log replay, orphan scan, dangling-vector prune) are built to detect "an artifact has some correct vectors and some stale extra ones mixed together" — a full re-index rebuilds the current sections but never deletes ones that no longer belong. Fix: (b) wrap Step 8's `delete_vectors` call in a bounded inline retry with backoff, matching the existing Bedrock-throttle-retry pattern, so a transient failure self-heals immediately; (c) if retries are exhausted, log a distinct failure-log entry (a new kind, alongside T62's `reconcile_attempts`-bearing "needs re-index" kind) recording the orphan keys still needing deletion, and extend `reconcile_index` to recognise and repair that kind — participating in T62's existing `reconcile_attempts`/`stuck_failures` bounding rather than a separate mechanism.
     - Done when: a transient `delete_vectors` failure in Step 8 self-heals via inline retry without ever reaching the durable-failure path; a failure that survives the retry budget is durably logged with enough information for `reconcile_index` to delete exactly those orphan keys (not a full re-index); `reconcile_index` correctly repairs that failure kind, bounded by the same `reconcile_attempts`/`stuck_failures` mechanism T62 established; the code comment's claim becomes true, not aspirational.
-    - Depends on: T62 (`reconcile_attempts`/`stuck_failures`/failure-log conventions this extends). Spec: `docs/specs/p13-t67-orphan-vector-retry-and-selfheal.md`.
+    - Depends on: T62 (`reconcile_attempts`/`stuck_failures`/failure-log conventions this extends). Spec: `docs/specs/p12-t67-orphan-vector-retry-and-selfheal.md`.
 
 68. ✅ **Cleanup-hygiene batch 2: reuse/DRY findings F-2, F-4, F-5, F-6, G-1, G-3 + H-3 concurrency** *(pure hygiene, zero behaviour change, same treatment as T63 — no dedicated spec file; this entry is the scope of record, per AGENTS.md's working convention)* — extract seven small shared helpers/fixes, each closing one confirmed duplication or latency finding:
     - **F-2**: `_error_code(exc: botocore.exceptions.ClientError) -> str` in `credentials.py` (already the shared client-error-classification module), replacing the hand-rolled `exc.response.get("Error", {}).get("Code", "")` idiom repeated across `s3.py`, `vectors.py`, `bedrock.py`, `credentials.py` (11 sites).

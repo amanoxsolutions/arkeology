@@ -218,7 +218,7 @@ case visible.
 
 Confidence: confirmed.
 
-**[2026-08-19 — ✅ RESOLVED.** Operator decision: soft signal, not a hard abort. `run_search_loop` now catches `VectorDistanceMissingError` in a dedicated clause (before the generic `except Exception:`), logs it distinctly at `ERROR` instead of blending into the generic transient-error `WARNING`, and adds `index_corruption_detected: true` to the response (present only when it occurred) on both `search_artifacts` and `synthesise_artifacts`. Partial results already collected are still returned; the call is never aborted. Phase 13 T66, `plan.md` now `✅`.]
+**[2026-08-19 — ✅ RESOLVED.** Operator decision: soft signal, not a hard abort. `run_search_loop` now catches `VectorDistanceMissingError` in a dedicated clause (before the generic `except Exception:`), logs it distinctly at `ERROR` instead of blending into the generic transient-error `WARNING`, and adds `index_corruption_detected: true` to the response (present only when it occurred) on both `search_artifacts` and `synthesise_artifacts`. Partial results already collected are still returned; the call is never aborted. Phase 12 T66, `plan.md` now `✅`.]
 
 **C-2 — `archive.py`'s partial-failure log entries store the still-percent-encoded title, while `write.py`'s equivalent entries store the plain decoded title — same failure log, inconsistent encoding per writer.**
 
@@ -241,7 +241,7 @@ inconsistently garbled titles depending on which tool produced the entry.
 
 Confidence: confirmed.
 
-**[2026-08-20 — ✅ RESOLVED.** `_record_partial_archive_failure` now decodes `s3_meta["title"]` via `decode_metadata_value` before logging, matching `write.py`'s plain-title failure-log entries — the same `.arkeology_failures.jsonl` file is now encoding-consistent regardless of which tool wrote the entry. Phase 13 T69, `plan.md` now `✅`.]
+**[2026-08-20 — ✅ RESOLVED.** `_record_partial_archive_failure` now decodes `s3_meta["title"]` via `decode_metadata_value` before logging, matching `write.py`'s plain-title failure-log entries — the same `.arkeology_failures.jsonl` file is now encoding-consistent regardless of which tool wrote the entry. Phase 12 T69, `plan.md` now `✅`.]
 
 **C-3 — `S3ClientInterface`/`BedrockClientInterface` Protocol docstrings understate the exceptions their concrete implementations actually raise (documentation-contract drift, not a runtime bug).**
 
@@ -272,7 +272,7 @@ handling.
 Confidence: confirmed (documentation-accuracy finding, not a functional bug —
 lowest severity of this angle's findings).
 
-**[2026-08-20 — ✅ RESOLVED.** `interfaces.py`'s `Raises:` blocks extended (docstring-only, no code/behaviour change): `AnnotationUnavailableError` added to the four annotation methods; `NonUtf8PayloadError` added to `get_object`/`get_object_annotation`; a note on the re-raised `botocore.exceptions.ClientError` added to `BedrockClientInterface.embed`/`invoke_text_model`. Phase 13 T69, `plan.md` now `✅`.]
+**[2026-08-20 — ✅ RESOLVED.** `interfaces.py`'s `Raises:` blocks extended (docstring-only, no code/behaviour change): `AnnotationUnavailableError` added to the four annotation methods; `NonUtf8PayloadError` added to `get_object`/`get_object_annotation`; a note on the re-raised `botocore.exceptions.ClientError` added to `BedrockClientInterface.embed`/`invoke_text_model`. Phase 12 T69, `plan.md` now `✅`.]
 
 ### Angle D — Python/asyncio/boto3 pitfall specialist
 
@@ -326,7 +326,7 @@ pagination (`list_vectors_by_metadata`'s `nextToken` loop is correct);
 variables (loop variables are always passed as function parameters, never
 captured by reference).
 
-**[2026-08-20 — ✅ RESOLVED.** Of the finding's seven originally-cited modules, `purge.py`, `propose_commit_links.py`, and `migrate_artifacts.py`'s existence-check loop were already fully wrapped as byproducts of Phase 12 T63/T68. The remaining raw call sites now route through `asyncio.to_thread`: `write.py`'s CAS loop head/put + vector put/list calls (7 sites), `archive.py`'s CAS head/get/put + vector put calls (5 sites), `delete.py`'s existence-check/`delete_vectors`/`delete_object` calls (3 sites). `link_metadata.py`'s two `head_object` calls inside `_apply_link_metadata_with_cas` were deliberately left untouched: that helper is a plain (non-`async`) `def` already invoked as a single unit via `await asyncio.to_thread(_apply_link_metadata_with_cas, ...)` at its one call site, so wrapping the inner calls individually is both impossible (no `await` in a sync `def`) and redundant. `health.py`'s pre-existing, documented exception is unchanged. Phase 13 T69, `plan.md` now `✅`.]
+**[2026-08-20 — ✅ RESOLVED.** Of the finding's seven originally-cited modules, `purge.py`, `propose_commit_links.py`, and `migrate_artifacts.py`'s existence-check loop were already fully wrapped as byproducts of Phase 12 T63/T68. The remaining raw call sites now route through `asyncio.to_thread`: `write.py`'s CAS loop head/put + vector put/list calls (7 sites), `archive.py`'s CAS head/get/put + vector put calls (5 sites), `delete.py`'s existence-check/`delete_vectors`/`delete_object` calls (3 sites). `link_metadata.py`'s two `head_object` calls inside `_apply_link_metadata_with_cas` were deliberately left untouched: that helper is a plain (non-`async`) `def` already invoked as a single unit via `await asyncio.to_thread(_apply_link_metadata_with_cas, ...)` at its one call site, so wrapping the inner calls individually is both impossible (no `await` in a sync `def`) and redundant. `health.py`'s pre-existing, documented exception is unchanged. Phase 12 T69, `plan.md` now `✅`.]
 
 ### Angle E — wrapper/delegation correctness
 
@@ -351,7 +351,7 @@ code path only.
 
 Confidence: confirmed.
 
-**[2026-08-20 — ✅ RESOLVED.** This handler now returns the same `{"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc), "artifact_id": s3_key}` shape as its two sibling handlers in the same loop — no other line in the loop changed. Phase 13 T69, `plan.md` now `✅`.]
+**[2026-08-20 — ✅ RESOLVED.** This handler now returns the same `{"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc), "artifact_id": s3_key}` shape as its two sibling handlers in the same loop — no other line in the loop changed. Phase 12 T69, `plan.md` now `✅`.]
 
 **E-2 — `migrate_artifacts.py` builds its `CredentialError` response inline instead of calling the shared `credential_error_response()` helper every other tool module uses, and never imports it.**
 
@@ -371,7 +371,7 @@ credential-error responses will drift from every other tool's.
 
 Confidence: confirmed.
 
-**[2026-08-20 — ✅ RESOLVED.** `migrate_artifacts.py` now imports and calls the shared `credential_error_response()` helper instead of hand-building the response dict — verified the resulting shape is identical to the removed inline construction. Phase 13 T69, `plan.md` now `✅`.]
+**[2026-08-20 — ✅ RESOLVED.** `migrate_artifacts.py` now imports and calls the shared `credential_error_response()` helper instead of hand-building the response dict — verified the resulting shape is identical to the removed inline construction. Phase 12 T69, `plan.md` now `✅`.]
 
 **E-3 — `freshness.py` reimplements the cross-scope readability predicate inline instead of delegating to `_reference_filter.py`'s `resolve_readable_targets`, which its own comment cites as the pattern being mirrored.**
 
@@ -447,7 +447,7 @@ the shared client-error-classification module — recommend a single
 
 Confidence: confirmed (grep count matches exactly: 11 occurrences).
 
-**[2026-08-19 — ✅ RESOLVED.** Extracted into `_error_code(exc) -> str` in `credentials.py`, replacing all 11 sites in `s3.py` (7), `vectors.py` (1), `bedrock.py` (1), and `credentials.py`'s own two classifiers. Phase 13 T68, `plan.md` now `✅`. Two more copies of the same idiom exist outside the client layer (`write.py`, `startup.py`) — genuinely outside this finding's stated scope ("across the client layer"), not a miss; tracked as backlog B-8.]
+**[2026-08-19 — ✅ RESOLVED.** Extracted into `_error_code(exc) -> str` in `credentials.py`, replacing all 11 sites in `s3.py` (7), `vectors.py` (1), `bedrock.py` (1), and `credentials.py`'s own two classifiers. Phase 12 T68, `plan.md` now `✅`. Two more copies of the same idiom exist outside the client layer (`write.py`, `startup.py`) — genuinely outside this finding's stated scope ("across the client layer"), not a miss; tracked as backlog B-8.]
 
 **F-3 — The `list_vectors_by_metadata` → `get_vectors` two-step fetch idiom is hand-rolled independently at ~10 call sites, with inconsistent empty-`keys` short-circuit handling.**
 
@@ -478,7 +478,7 @@ with each caller layering its own extra keys on top.
 
 Confidence: confirmed.
 
-**[2026-08-19 — ✅ RESOLVED.** Extracted into `build_artifact_summary(meta, artifact_id, tags_val, source_artifacts_val)` in `_search_helper.py`, used by `list.py` and `search.py`, each layering its own extra keys on top exactly as recommended. Phase 13 T68, `plan.md` now `✅`. Reviewed: response dict key *insertion order* changed slightly in both callers — cosmetic only, no test or consumer depends on JSON key order.]
+**[2026-08-19 — ✅ RESOLVED.** Extracted into `build_artifact_summary(meta, artifact_id, tags_val, source_artifacts_val)` in `_search_helper.py`, used by `list.py` and `search.py`, each layering its own extra keys on top exactly as recommended. Phase 12 T68, `plan.md` now `✅`. Reviewed: response dict key *insertion order* changed slightly in both callers — cosmetic only, no test or consumer depends on JSON key order.]
 
 **F-5 — `top_k` validation-and-clamp logic duplicated between `search.py` and `synthesise.py`.**
 
@@ -491,7 +491,7 @@ for the same two tools.
 
 Confidence: confirmed.
 
-**[2026-08-19 — ✅ RESOLVED.** Extracted into `clamp_top_k(top_k)` in `_search_helper.py`, used by `search.py` and `synthesise.py`; rejection message, `100` ceiling, and `clamped` semantics preserved verbatim at both call sites. Phase 13 T68, `plan.md` now `✅`.]
+**[2026-08-19 — ✅ RESOLVED.** Extracted into `clamp_top_k(top_k)` in `_search_helper.py`, used by `search.py` and `synthesise.py`; rejection message, `100` ceiling, and `clamped` semantics preserved verbatim at both call sites. Phase 12 T68, `plan.md` now `✅`.]
 
 **F-6 — `last_edited_ulid` → `last_edited_at` ISO-timestamp derivation duplicated verbatim in `search.py` and `propose_commit_links.py`.**
 
@@ -504,7 +504,7 @@ must be made twice to stay in sync. Recommend extracting a one-line-call
 
 Confidence: confirmed.
 
-**[2026-08-19 — ✅ RESOLVED.** Extracted into `derive_last_edited_at(last_edited_ulid) -> str | None` in `_search_helper.py` near `coerce_list_field`, used by `search.py` and `propose_commit_links.py`; the warning message and malformed-input handling preserved verbatim at both sites, now-unused `from ulid import ULID` removed from both files. Phase 13 T68, `plan.md` now `✅`. A third copy exists in `resources.py` (with a different warning message) — outside this finding's originally-cited scope, not a miss; tracked as backlog B-8.]
+**[2026-08-19 — ✅ RESOLVED.** Extracted into `derive_last_edited_at(last_edited_ulid) -> str | None` in `_search_helper.py` near `coerce_list_field`, used by `search.py` and `propose_commit_links.py`; the warning message and malformed-input handling preserved verbatim at both sites, now-unused `from ulid import ULID` removed from both files. Phase 12 T68, `plan.md` now `✅`. A third copy exists in `resources.py` (with a different warning message) — outside this finding's originally-cited scope, not a miss; tracked as backlog B-8.]
 
 **F-7 — The CAS (compare-and-swap) retry loop skeleton is hand-rolled independently in `archive.py`, `link_metadata.py`, and `write.py`.**
 
@@ -545,7 +545,7 @@ collapse all five call sites to one-liners.
 
 Confidence: confirmed (all five sites verified).
 
-**[2026-08-19 — ✅ RESOLVED.** Extracted into `_record_partial_write_credential_error(...)` in `write.py`, mirroring `_record_partial_write` exactly. Reviewed: the code had grown a sixth call site since this finding was written (a single-doc vs. batch/sections embed branch split) — all six now collapse to one-liners. Phase 13 T68, `plan.md` now `✅`.]
+**[2026-08-19 — ✅ RESOLVED.** Extracted into `_record_partial_write_credential_error(...)` in `write.py`, mirroring `_record_partial_write` exactly. Reviewed: the code had grown a sixth call site since this finding was written (a single-doc vs. batch/sections embed branch split) — all six now collapse to one-liners. Phase 12 T68, `plan.md` now `✅`.]
 
 **G-2 — `propose_commit_links.py` reimplements `coerce_list_field` instead of reusing it.**
 
@@ -585,7 +585,7 @@ but a separate pair of files/constants.
 
 Confidence: confirmed.
 
-**[2026-08-19 — ✅ RESOLVED.** `_clamp_concurrency(value, default, max_)` added to a new `_concurrency.py`, used by `write_artifacts.py` and `migrate_artifacts.py`. Initial T68 pass unified the branching but left `_ARTIFACT_CONCURRENCY_DEFAULT`/`_MAX` duplicated in both files (caught by this same task's own review as an incomplete closure — the finding's own text explicitly named the constants, not just the branching); follow-up fix relocated both constants into `_concurrency.py` as the single source of truth, closing the drift risk `migrate_artifacts.py`'s double-clamp-forwarding into `write_artifacts()` would otherwise carry. Phase 13 T68, `plan.md` now `✅`.]
+**[2026-08-19 — ✅ RESOLVED.** `_clamp_concurrency(value, default, max_)` added to a new `_concurrency.py`, used by `write_artifacts.py` and `migrate_artifacts.py`. Initial T68 pass unified the branching but left `_ARTIFACT_CONCURRENCY_DEFAULT`/`_MAX` duplicated in both files (caught by this same task's own review as an incomplete closure — the finding's own text explicitly named the constants, not just the branching); follow-up fix relocated both constants into `_concurrency.py` as the single source of truth, closing the drift risk `migrate_artifacts.py`'s double-clamp-forwarding into `write_artifacts()` would otherwise carry. Phase 12 T68, `plan.md` now `✅`.]
 
 **H-1 — Sequential per-artifact processing where independent items could run concurrently.**
 
@@ -642,7 +642,7 @@ every delete call.
 
 Confidence: confirmed.
 
-**[2026-08-19 — ✅ RESOLVED.** `delete_artifact`'s Step 4/Step 5 calls now run via `asyncio.gather(asyncio.to_thread(...), asyncio.to_thread(...))` instead of sequentially. Verified no ordering dependency between them (each result feeds a different, independent downstream step) and that a `CredentialError` from either concurrent call still produces the identical structured error response as before. Phase 13 T68, `plan.md` now `✅`.]
+**[2026-08-19 — ✅ RESOLVED.** `delete_artifact`'s Step 4/Step 5 calls now run via `asyncio.gather(asyncio.to_thread(...), asyncio.to_thread(...))` instead of sequentially. Verified no ordering dependency between them (each result feeds a different, independent downstream step) and that a `CredentialError` from either concurrent call still produces the identical structured error response as before. Phase 12 T68, `plan.md` now `✅`.]
 
 ### Angle I — altitude (right-depth fixes)
 
@@ -670,7 +670,7 @@ re-declaring `280`.
 
 Confidence: confirmed.
 
-**[2026-08-20 — ✅ RESOLVED.** `DESCRIPTION_MAX_LENGTH = 280` added next to `TITLE_MAX_LENGTH` in `artifact.py`; `validate_description` and `migrate_artifacts.py`'s clip constant both reference it instead of independently hardcoding `280`. Phase 13 T69, `plan.md` now `✅`.]
+**[2026-08-20 — ✅ RESOLVED.** `DESCRIPTION_MAX_LENGTH = 280` added next to `TITLE_MAX_LENGTH` in `artifact.py`; `validate_description` and `migrate_artifacts.py`'s clip constant both reference it instead of independently hardcoding `280`. Phase 12 T69, `plan.md` now `✅`.]
 
 **I-2 — `propose_commit_links.py` sources `commit_refs` from a single, first-occurrence-wins vector per artifact — a third independent instance of the "first-vector-only" bug class already flagged (and partly fixed) for `read.py` and `list.py`.**
 
@@ -814,7 +814,7 @@ would refuse to construct.
 
 Confidence: confirmed.
 
-**[2026-08-19 — ✅ RESOLVED.** `migrate_artifacts.py`'s Step 5 pre-check now validates `file_extension` starts with `.` before building any candidate key or issuing `head_object`, mirroring `write.py`'s exact check and error shape. Phase 13 T64, `plan.md` now `✅`.]
+**[2026-08-19 — ✅ RESOLVED.** `migrate_artifacts.py`'s Step 5 pre-check now validates `file_extension` starts with `.` before building any candidate key or issuing `head_object`, mirroring `write.py`'s exact check and error shape. Phase 12 T64, `plan.md` now `✅`.]
 
 ### Angle J — CLAUDE.md / AGENTS.md conventions
 
@@ -855,7 +855,7 @@ artifact with duplicate/stale section content.
 Confidence: confirmed (verified all three `reconcile.py` phases plus the
 `write.py:915-922` except block directly).
 
-**[2026-08-19 — ✅ RESOLVED.** Operator decision: (b) inline retry first, (c) real self-heal repair as fallback. Step 8's `delete_vectors` now gets a bounded inline retry (2 total attempts, mirroring `bedrock.py`'s exact retry shape) for the three documented transient error codes; on retry exhaustion, a new failure-log entry kind (discriminated by an `orphan_keys` field) is logged, and `reconcile_index`'s Phase 1 recognises and repairs it with a direct `delete_vectors` call — no re-indexing — bounded by T62's `reconcile_attempts`/`stuck_failures` mechanism. Phase 1's dedup/resolution key changed from bare `artifact_id` to `(artifact_id, kind)`, fixing a latent defect this task's own change would otherwise introduce. Phase 13 T67, `plan.md` now `✅`. Spec: `docs/specs/p13-t67-orphan-vector-retry-and-selfheal.md`.]
+**[2026-08-19 — ✅ RESOLVED.** Operator decision: (b) inline retry first, (c) real self-heal repair as fallback. Step 8's `delete_vectors` now gets a bounded inline retry (2 total attempts, mirroring `bedrock.py`'s exact retry shape) for the three documented transient error codes; on retry exhaustion, a new failure-log entry kind (discriminated by an `orphan_keys` field) is logged, and `reconcile_index`'s Phase 1 recognises and repairs it with a direct `delete_vectors` call — no re-indexing — bounded by T62's `reconcile_attempts`/`stuck_failures` mechanism. Phase 1's dedup/resolution key changed from bare `artifact_id` to `(artifact_id, kind)`, fixing a latent defect this task's own change would otherwise introduce. Phase 12 T67, `plan.md` now `✅`. Spec: `docs/specs/p12-t67-orphan-vector-retry-and-selfheal.md`.]
 
 **J-2 — `check_synthesis_freshness(confirm=True)` can report `all_fresh: True` while a malformed synthesis artifact still exists, undeleted.**
 
@@ -882,7 +882,7 @@ Confidence: confirmed (verified `delete_failed` and `malformed_reported`
 are disjoint accumulator lists and `all_fresh`'s boolean expression omits
 `delete_failed` entirely).
 
-**[2026-08-19 — ✅ RESOLVED.** `all_fresh` now also requires `delete_failed` to be empty, alongside the existing `stale`/`archived_sources`/`missing_sources`/`malformed_reported` checks — a strict addition, no change to the other four conditions. Phase 13 T65, `plan.md` now `✅`.]
+**[2026-08-19 — ✅ RESOLVED.** `all_fresh` now also requires `delete_failed` to be empty, alongside the existing `stale`/`archived_sources`/`missing_sources`/`malformed_reported` checks — a strict addition, no change to the other four conditions. Phase 12 T65, `plan.md` now `✅`.]
 
 ## Summary
 
@@ -890,7 +890,7 @@ are disjoint accumulator lists and `all_fresh`'s boolean expression omits
 plausible (real mechanism, lower-certainty impact or partly-intentional
 tradeoff — B-3 was confirmed-mechanism/plausible-impact before it was
 fixed). 2 findings (A-1, B-3) were fixed mid-review by commit `824534e`
-and are marked resolved in place above. As of 2026-08-20 (Phase 13 T69),
+and are marked resolved in place above. As of 2026-08-20 (Phase 12 T69),
 31 of the 32 findings are resolved — see each finding's own inline
 `RESOLVED` note above; only **F-7** remains open, and it is a deliberate
 non-extraction per its own recommendation rather than an outstanding gap.
@@ -952,7 +952,7 @@ CAS retry skeletons) plus one concrete efficiency win applicable in five
 files (H-1: bounded-concurrency batch processing, already proven out in
 `write_artifacts.py`). **F-1, F-3, H-1, and H-2 are resolved (Phase 12
 T62/T63)**; **G-2 is resolved as a T58 byproduct**; **F-2, F-4, F-5, F-6,
-G-1, G-3, and H-3 are resolved (Phase 13 T68)** — see the inline notes
+G-1, G-3, and H-3 are resolved (Phase 12 T68)** — see the inline notes
 above; **only F-7 remains open**, deliberately not extracted per this
 finding's own recommendation (see its inline text) — not a gap, an
 accepted deferral.
