@@ -65,6 +65,8 @@ class S3ClientInterface(Protocol):
         Raises:
             KeyError: If the key does not exist.
             CredentialError: If credentials are invalid or expired.
+            NonUtf8PayloadError: If the stored object body cannot be decoded as
+                UTF-8.
         """
         ...
 
@@ -153,6 +155,9 @@ class S3ClientInterface(Protocol):
             ArtifactConflictError: If ``if_match`` is set and does not match the
                 object's current ETag (HTTP 412 PreconditionFailed).
             CredentialError: If credentials are invalid or expired.
+            AnnotationUnavailableError: If S3 object annotations are unavailable
+                for this bucket (unsupported region/bucket type) or the caller
+                lacks the required IAM permission (ADR-2026-07-03).
         """
         ...
 
@@ -169,6 +174,11 @@ class S3ClientInterface(Protocol):
         Raises:
             KeyError: If the object or the named annotation does not exist.
             CredentialError: If credentials are invalid or expired.
+            AnnotationUnavailableError: If S3 object annotations are unavailable
+                for this bucket (unsupported region/bucket type) or the caller
+                lacks the required IAM permission (ADR-2026-07-03).
+            NonUtf8PayloadError: If the stored annotation payload cannot be
+                decoded as UTF-8.
         """
         ...
 
@@ -184,6 +194,9 @@ class S3ClientInterface(Protocol):
         Raises:
             KeyError: If the object does not exist.
             CredentialError: If credentials are invalid or expired.
+            AnnotationUnavailableError: If S3 object annotations are unavailable
+                for this bucket (unsupported region/bucket type) or the caller
+                lacks the required IAM permission (ADR-2026-07-03).
         """
         ...
 
@@ -211,6 +224,9 @@ class S3ClientInterface(Protocol):
             ArtifactConflictError: If ``if_match`` is set and does not match the
                 object's current ETag (HTTP 412 PreconditionFailed).
             CredentialError: If credentials are invalid or expired.
+            AnnotationUnavailableError: If S3 object annotations are unavailable
+                for this bucket (unsupported region/bucket type) or the caller
+                lacks the required IAM permission (ADR-2026-07-03).
         """
         ...
 
@@ -339,6 +355,9 @@ class BedrockClientInterface(Protocol):
 
         Raises:
             CredentialError: If credentials are invalid or expired.
+            botocore.exceptions.ClientError: Re-raised unchanged for any
+                non-transient error once the transient-error retry loop is
+                exhausted (persistent throttling surfaces this way too).
         """
         ...
 
@@ -354,5 +373,8 @@ class BedrockClientInterface(Protocol):
 
         Raises:
             CredentialError: If credentials are invalid or expired.
+            botocore.exceptions.ClientError: Re-raised unchanged for any
+                non-transient error once the transient-error retry loop is
+                exhausted (persistent throttling surfaces this way too).
         """
         ...

@@ -53,7 +53,7 @@ import asyncio
 import logging
 from typing import Any
 
-from arkeology.artifact import generate_artifact_id
+from arkeology.artifact import DESCRIPTION_MAX_LENGTH, generate_artifact_id
 from arkeology.clients.interfaces import (
     BedrockClientInterface,
     S3ClientInterface,
@@ -68,6 +68,7 @@ from arkeology.tools._concurrency import (
     _ARTIFACT_CONCURRENCY_MAX,
     _clamp_concurrency,
 )
+from arkeology.tools._errors import credential_error_response
 from arkeology.tools.write_artifacts import write_artifacts as _write_artifacts
 
 logger = logging.getLogger(__name__)
@@ -86,7 +87,9 @@ _DESCRIPTION_PROMPT = (
     "Title: {title}\n\nContent:\n{content}"
 )
 
-_MAX_DESCRIPTION_LENGTH = 280
+# Mirrors arkeology.artifact.DESCRIPTION_MAX_LENGTH — descriptions clipped here must
+# never drift from the limit Artifact.validate_description actually enforces (I-1).
+_MAX_DESCRIPTION_LENGTH = DESCRIPTION_MAX_LENGTH
 
 # Bound the artifact content interpolated into the Nova Lite prompt. A
 # single-sentence summary never needs the full body of a multi-thousand-line spec
@@ -422,7 +425,7 @@ async def _migrate_artifacts_inner(
     # CredentialError a sequential scan would hit first is the one surfaced.
     for idx, outcome, payload in check_results:
         if outcome == "credential_error":
-            return _with_warning({"error": ErrorCode.CREDENTIAL_ERROR, "message": str(payload)})
+            return _with_warning(credential_error_response(payload))
 
     for idx, outcome, _payload in check_results:
         descriptor = enriched[idx]

@@ -382,6 +382,16 @@ async def test_migrate_artifacts_clips_long_nova_description_and_logs(
     )
 
 
+def test_migrate_artifacts_description_clip_length_matches_artifact_constant() -> None:
+    """migrate_artifacts._MAX_DESCRIPTION_LENGTH must reference (not duplicate)
+    arkeology.artifact.DESCRIPTION_MAX_LENGTH — the same limit Artifact.validate_description
+    enforces (I-1), so the two can never independently drift out of sync."""
+    from arkeology.artifact import DESCRIPTION_MAX_LENGTH
+    from arkeology.tools.migrate_artifacts import _MAX_DESCRIPTION_LENGTH
+
+    assert _MAX_DESCRIPTION_LENGTH is DESCRIPTION_MAX_LENGTH
+
+
 # ---------------------------------------------------------------------------
 # E8 — ARTIFACT_CONCURRENCY=2 → at most 2 concurrent Nova Lite calls
 # ---------------------------------------------------------------------------

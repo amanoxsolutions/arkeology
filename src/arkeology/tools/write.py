@@ -563,7 +563,7 @@ async def _write_artifact_inner(  # noqa: PLR0913
     is_existing = False
     initial_etag: str | None = None
     try:
-        head_meta = s3.head_object(s3_key)
+        head_meta = await asyncio.to_thread(s3.head_object, s3_key)
         is_existing = True
         initial_etag = head_meta.get("ETag")
     except KeyError:
@@ -620,7 +620,8 @@ async def _write_artifact_inner(  # noqa: PLR0913
             last_attempt_object_written = False
             if attempt > 0:
                 try:
-                    current_etag = s3.head_object(s3_key).get("ETag")
+                    head_meta_retry = await asyncio.to_thread(s3.head_object, s3_key)
+                    current_etag = head_meta_retry.get("ETag")
                 except CredentialError as exc:
                     return {
                         "error": ErrorCode.CREDENTIAL_ERROR,
@@ -661,13 +662,19 @@ async def _write_artifact_inner(  # noqa: PLR0913
                 return {"error": ErrorCode.VALIDATION_ERROR, "message": str(exc)}
 
             try:
-                new_etag = s3.put_object(s3_key, content, s3_metadata, if_match=current_etag)
+                new_etag = await asyncio.to_thread(
+                    s3.put_object, s3_key, content, s3_metadata, if_match=current_etag
+                )
             except ArtifactConflictError:
                 # Someone else changed the object since we read its ETag — retry the
                 # whole cycle (re-read, re-merge, re-write).
                 continue
             except CredentialError as exc:
-                return credential_error_response(exc)
+                return {
+                    "error": ErrorCode.CREDENTIAL_ERROR,
+                    "message": str(exc),
+                    "artifact_id": s3_key,
+                }
             last_attempt_object_written = True
 
             try:
@@ -752,7 +759,9 @@ async def _write_artifact_inner(  # noqa: PLR0913
         # against (ADR-011 decision 6): the create-collision guard below is the only
         # concurrency concern, and it is already atomic via if_none_match.
         try:
-            new_etag = s3.put_object(s3_key, content, s3_metadata, if_none_match=not overwrite)
+            new_etag = await asyncio.to_thread(
+                s3.put_object, s3_key, content, s3_metadata, if_none_match=not overwrite
+            )
         except ArtifactCollisionError:
             # The fast-path check above missed a concurrent writer that created the key
             # between the head_object call and this put_object call — the atomic
@@ -910,7 +919,7 @@ async def _write_artifact_inner(  # noqa: PLR0913
             for vec_key, embedding in successful
         ]
         try:
-            vectors.put_vectors_batch(items)
+            await asyncio.to_thread(vectors.put_vectors_batch, items)
         except CredentialError as exc:
             return _record_partial_write_credential_error(
                 settings,
@@ -975,7 +984,7 @@ async def _write_artifact_inner(  # noqa: PLR0913
 
         doc_item = [{"key": s3_key, "vector": doc_embedding, "metadata": vector_metadata}]
         try:
-            vectors.put_vectors_batch(doc_item)
+            await asyncio.to_thread(vectors.put_vectors_batch, doc_item)
         except CredentialError as exc:
             return _record_partial_write_credential_error(
                 settings,
@@ -1011,7 +1020,9 @@ async def _write_artifact_inner(  # noqa: PLR0913
     # collect any leftover orphan vectors later.
     if is_existing:
         try:
-            existing_keys = vectors.list_vectors_by_metadata({"artifact_id": {"$eq": s3_key}})
+            existing_keys = await asyncio.to_thread(
+                vectors.list_vectors_by_metadata, {"artifact_id": {"$eq": s3_key}}
+            )
             orphan_keys = [k for k in existing_keys if k not in new_keys]
             if orphan_keys:
                 # T67: bounded inline retry (mirrors bedrock.py's _invoke shape), routed

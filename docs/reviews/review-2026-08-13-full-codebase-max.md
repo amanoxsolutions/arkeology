@@ -241,6 +241,8 @@ inconsistently garbled titles depending on which tool produced the entry.
 
 Confidence: confirmed.
 
+**[2026-08-20 — ✅ RESOLVED.** `_record_partial_archive_failure` now decodes `s3_meta["title"]` via `decode_metadata_value` before logging, matching `write.py`'s plain-title failure-log entries — the same `.arkeology_failures.jsonl` file is now encoding-consistent regardless of which tool wrote the entry. Phase 13 T69, `plan.md` now `✅`.]
+
 **C-3 — `S3ClientInterface`/`BedrockClientInterface` Protocol docstrings understate the exceptions their concrete implementations actually raise (documentation-contract drift, not a runtime bug).**
 
 Several `Raises:` blocks in `src/arkeology/clients/interfaces.py` are
@@ -269,6 +271,8 @@ handling.
 
 Confidence: confirmed (documentation-accuracy finding, not a functional bug —
 lowest severity of this angle's findings).
+
+**[2026-08-20 — ✅ RESOLVED.** `interfaces.py`'s `Raises:` blocks extended (docstring-only, no code/behaviour change): `AnnotationUnavailableError` added to the four annotation methods; `NonUtf8PayloadError` added to `get_object`/`get_object_annotation`; a note on the re-raised `botocore.exceptions.ClientError` added to `BedrockClientInterface.embed`/`invoke_text_model`. Phase 13 T69, `plan.md` now `✅`.]
 
 ### Angle D — Python/asyncio/boto3 pitfall specialist
 
@@ -322,6 +326,8 @@ pagination (`list_vectors_by_metadata`'s `nextToken` loop is correct);
 variables (loop variables are always passed as function parameters, never
 captured by reference).
 
+**[2026-08-20 — ✅ RESOLVED.** Of the finding's seven originally-cited modules, `purge.py`, `propose_commit_links.py`, and `migrate_artifacts.py`'s existence-check loop were already fully wrapped as byproducts of Phase 12 T63/T68. The remaining raw call sites now route through `asyncio.to_thread`: `write.py`'s CAS loop head/put + vector put/list calls (7 sites), `archive.py`'s CAS head/get/put + vector put calls (5 sites), `delete.py`'s existence-check/`delete_vectors`/`delete_object` calls (3 sites). `link_metadata.py`'s two `head_object` calls inside `_apply_link_metadata_with_cas` were deliberately left untouched: that helper is a plain (non-`async`) `def` already invoked as a single unit via `await asyncio.to_thread(_apply_link_metadata_with_cas, ...)` at its one call site, so wrapping the inner calls individually is both impossible (no `await` in a sync `def`) and redundant. `health.py`'s pre-existing, documented exception is unchanged. Phase 13 T69, `plan.md` now `✅`.]
+
 ### Angle E — wrapper/delegation correctness
 
 **E-1 — One of three `CredentialError` handlers in `write.py`'s overwrite CAS retry loop omits `artifact_id` from its response, unlike its two sibling handlers in the same loop iteration.**
@@ -345,6 +351,8 @@ code path only.
 
 Confidence: confirmed.
 
+**[2026-08-20 — ✅ RESOLVED.** This handler now returns the same `{"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc), "artifact_id": s3_key}` shape as its two sibling handlers in the same loop — no other line in the loop changed. Phase 13 T69, `plan.md` now `✅`.]
+
 **E-2 — `migrate_artifacts.py` builds its `CredentialError` response inline instead of calling the shared `credential_error_response()` helper every other tool module uses, and never imports it.**
 
 `src/arkeology/tools/migrate_artifacts.py:364` —
@@ -362,6 +370,8 @@ sometimes needed) will silently miss this site, and `migrate_artifacts.py`'s
 credential-error responses will drift from every other tool's.
 
 Confidence: confirmed.
+
+**[2026-08-20 — ✅ RESOLVED.** `migrate_artifacts.py` now imports and calls the shared `credential_error_response()` helper instead of hand-building the response dict — verified the resulting shape is identical to the removed inline construction. Phase 13 T69, `plan.md` now `✅`.]
 
 **E-3 — `freshness.py` reimplements the cross-scope readability predicate inline instead of delegating to `_reference_filter.py`'s `resolve_readable_targets`, which its own comment cites as the pattern being mirrored.**
 
@@ -660,6 +670,8 @@ re-declaring `280`.
 
 Confidence: confirmed.
 
+**[2026-08-20 — ✅ RESOLVED.** `DESCRIPTION_MAX_LENGTH = 280` added next to `TITLE_MAX_LENGTH` in `artifact.py`; `validate_description` and `migrate_artifacts.py`'s clip constant both reference it instead of independently hardcoding `280`. Phase 13 T69, `plan.md` now `✅`.]
+
 **I-2 — `propose_commit_links.py` sources `commit_refs` from a single, first-occurrence-wins vector per artifact — a third independent instance of the "first-vector-only" bug class already flagged (and partly fixed) for `read.py` and `list.py`.**
 
 `propose_commit_links.py:109-125` dedups `items` by `artifact_id` with
@@ -878,7 +890,10 @@ are disjoint accumulator lists and `all_fresh`'s boolean expression omits
 plausible (real mechanism, lower-certainty impact or partly-intentional
 tradeoff — B-3 was confirmed-mechanism/plausible-impact before it was
 fixed). 2 findings (A-1, B-3) were fixed mid-review by commit `824534e`
-and are marked resolved in place above; the remaining 30 are open.
+and are marked resolved in place above. As of 2026-08-20 (Phase 13 T69),
+31 of the 32 findings are resolved — see each finding's own inline
+`RESOLVED` note above; only **F-7** remains open, and it is a deliberate
+non-extraction per its own recommendation rather than an outstanding gap.
 
 **Highest-severity open findings (data integrity / silent-corruption class):**
 
@@ -926,6 +941,7 @@ and are marked resolved in place above; the remaining 30 are open.
   next site. *Resolved by T63 — see inline note above.*
 - **D-1** — 7 tool modules skip `asyncio.to_thread` around blocking boto3
   calls, contradicting an otherwise-consistent codebase convention.
+  *Resolved by T69 — see inline note above.*
 
 **Cleanup backlog (F, G, H — reuse/simplification/efficiency):** originally
 13 findings, mostly small hand-rolled duplications of existing shared

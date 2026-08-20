@@ -22,6 +22,7 @@ Step 4a/4b pattern — including its ``AnnotationUnavailableError`` graceful deg
 (warn, don't fail the archive) while still aborting on ``CredentialError``.
 """
 
+import asyncio
 import logging
 from datetime import UTC, datetime
 from typing import Any
@@ -31,6 +32,7 @@ from arkeology.annotations import (
     apply_link_annotations,
     read_current_link_fields,
 )
+from arkeology.artifact import decode_metadata_value
 from arkeology.clients.interfaces import (
     BedrockClientInterface,
     S3ClientInterface,
@@ -83,7 +85,7 @@ def _record_partial_archive_failure(
         settings.failure_log_path,
         {
             "artifact_id": artifact_id,
-            "title": s3_meta.get("title", ""),
+            "title": decode_metadata_value(s3_meta.get("title", "")),
             "type": s3_meta.get("type", ""),
             "tier": tier,
             "date": s3_meta.get("date", ""),
@@ -155,7 +157,7 @@ async def _archive_artifact_inner(
 
     # ── Step 2: Verify existence and get current S3 metadata ─────────────────
     try:
-        s3_meta = s3.head_object(artifact_id)
+        s3_meta = await asyncio.to_thread(s3.head_object, artifact_id)
     except CredentialError as exc:
         return credential_error_response(exc)
     except KeyError:
@@ -243,7 +245,7 @@ async def _archive_artifact_inner(
         last_attempt_object_written = False
         if attempt > 0:
             try:
-                current_s3_meta = s3.head_object(artifact_id)
+                current_s3_meta = await asyncio.to_thread(s3.head_object, artifact_id)
             except CredentialError as exc:
                 return credential_error_response(exc)
             current_etag = current_s3_meta.get("ETag")
@@ -263,12 +265,14 @@ async def _archive_artifact_inner(
         updated_s3_meta["status"] = ArtifactStatus.INACTIVE
 
         try:
-            content = s3.get_object(artifact_id)
+            content = await asyncio.to_thread(s3.get_object, artifact_id)
         except CredentialError as exc:
             return credential_error_response(exc)
 
         try:
-            new_etag = s3.put_object(artifact_id, content, updated_s3_meta, if_match=current_etag)
+            new_etag = await asyncio.to_thread(
+                s3.put_object, artifact_id, content, updated_s3_meta, if_match=current_etag
+            )
         except ArtifactConflictError:
             # Someone else changed the object since we read its ETag — retry the
             # whole cycle (re-read, re-merge, re-write).
@@ -348,7 +352,7 @@ async def _archive_artifact_inner(
                 **item["metadata"],
                 "status": ArtifactStatus.INACTIVE,
             }
-            vectors.put_vector(key, vector_data, updated_meta)
+            await asyncio.to_thread(vectors.put_vector, key, vector_data, updated_meta)
     except CredentialError as exc:
         _record_partial_archive_failure(
             settings, artifact_id=artifact_id, s3_meta=updated_s3_meta, reason=str(exc)

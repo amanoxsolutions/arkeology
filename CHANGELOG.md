@@ -230,6 +230,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   to contain a literal `%XX`-shaped substring cannot be reliably distinguished on
   read from an intentionally-encoded value without a persistent per-object
   encoding-version marker — a schema-level decision out of scope for this fix
+- `write_artifact`'s overwrite compare-and-swap retry loop's `CredentialError`
+  response on the conditional `put_object` call now includes `artifact_id`,
+  matching its two sibling `CredentialError` handlers in the same loop iteration
 
 ## [0.5.0] - 2026-06-29
 

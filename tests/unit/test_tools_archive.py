@@ -966,6 +966,56 @@ async def test_archive_partial_archive_credential_error_writes_failure_log(
     assert meta["status"] == "inactive"
 
 
+async def test_archive_partial_archive_failure_log_decodes_non_ascii_title(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+    mocker: MockerFixture,
+    tmp_path: Path,
+) -> None:
+    """A non-ASCII title is stored percent-encoded in raw S3 user-metadata
+    (``encode_metadata_value``); the failure-log entry must log the plain, decoded
+    title — matching write.py's equivalent entries — not the raw percent-encoded
+    S3 metadata value (C-2)."""
+    settings = _make_settings(monkeypatch, tmp_path=tmp_path)
+    non_ascii_title = "Café review"
+    s3_client.put_object(
+        "artifacts/active-review",
+        _CONTENT,
+        {**_BASE_S3_META, "status": "active", "title": non_ascii_title},
+    )
+    vectors_client_2.put_vector(
+        "artifacts/active-review#summary",
+        [1.0, 0.0],
+        {
+            **_BASE_VECTOR_META,
+            "artifact_id": "artifacts/active-review",
+            "status": "active",
+            "title": non_ascii_title,
+        },
+    )
+    mocker.patch.object(
+        vectors_client_2,
+        "put_vector",
+        side_effect=CredentialError(
+            message="Simulated.", service="s3vectors", original=Exception("sim")
+        ),
+    )
+
+    result = await archive_artifact(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=None,
+        artifact_id="artifacts/active-review",
+    )
+
+    assert result.get("error") == "credential_error"
+    assert settings.failure_log_path.exists()
+    entries = [json.loads(line) for line in settings.failure_log_path.read_text().splitlines()]
+    assert entries[0]["title"] == non_ascii_title
+
+
 # ---------------------------------------------------------------------------
 # Annotation preservation across the archive status re-PUT
 # ---------------------------------------------------------------------------

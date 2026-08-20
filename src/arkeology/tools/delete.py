@@ -110,7 +110,7 @@ async def _delete_artifact_inner(
 
     # ── Step 3: Verify existence ──────────────────────────────────────────────
     try:
-        s3.head_object(artifact_id)
+        await asyncio.to_thread(s3.head_object, artifact_id)
     except CredentialError as exc:
         return credential_error_response(exc)
     except KeyError:
@@ -137,7 +137,7 @@ async def _delete_artifact_inner(
     # ── Step 6: Delete vectors first ─────────────────────────────────────────
     if vec_keys:
         try:
-            vectors.delete_vectors(vec_keys)
+            await asyncio.to_thread(vectors.delete_vectors, vec_keys)
         except CredentialError as exc:
             return credential_error_response(exc)
         except Exception as exc:
@@ -145,7 +145,7 @@ async def _delete_artifact_inner(
 
     # ── Step 7: Delete S3 object ──────────────────────────────────────────────
     try:
-        s3.delete_object(artifact_id)
+        await asyncio.to_thread(s3.delete_object, artifact_id)
     except CredentialError as exc:
         return {
             "error": ErrorCode.CREDENTIAL_ERROR,

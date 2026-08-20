@@ -66,6 +66,12 @@ VALID_TIERS: frozenset[int] = frozenset({2, 3})
 # immediately before any storage write.
 TITLE_MAX_LENGTH = 256
 
+# DESCRIPTION_MAX_LENGTH is the same kind of coarse model-level sanity bound as
+# TITLE_MAX_LENGTH, one field over — also consumed by migrate_artifacts.py, which
+# clips Nova-Lite-generated descriptions to this same value before they reach
+# Artifact.validate_description, so the two must never drift independently (I-1).
+DESCRIPTION_MAX_LENGTH = 280
+
 # S3 user-defined object metadata is capped at 2 KB aggregate (sum of UTF-8 bytes of every
 # key plus its transport-encoded value) — verified against the AWS S3 user guide.
 S3_USER_METADATA_MAX_BYTES = 2048
@@ -580,8 +586,10 @@ class Artifact(BaseModel):
     @field_validator("description")
     @classmethod
     def validate_description(cls, v: str) -> str:
-        if len(v) > 280:
-            raise ValueError(f"description must be at most 280 characters, got {len(v)}")
+        if len(v) > DESCRIPTION_MAX_LENGTH:
+            raise ValueError(
+                f"description must be at most {DESCRIPTION_MAX_LENGTH} characters, got {len(v)}"
+            )
         _require_no_control_chars("description", v)
         return v
 

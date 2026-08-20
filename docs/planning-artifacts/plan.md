@@ -528,6 +528,16 @@ parameter, or response field, just corrects an existing one to match its own doc
     - Done when: all seven helpers/fixes exist and every listed call site uses them (or, for H-3, both queries run concurrently); the full unit suite passes with zero assertion changes (pure refactor — same bar as T63); F-7 remains untouched, its non-extraction documented as a deliberate choice, not an oversight.
     - Depends on: nothing new.
 
+69. ✅ **Convention-class cleanup: C-2, C-3, D-1, E-1, E-2, I-1** *(pure hygiene/consistency fixes, no new tool/parameter/response contract — no dedicated spec file; this entry, with each review finding's own write-up, is the scope of record, per AGENTS.md's working convention)* — the six remaining open findings from `docs/reviews/review-2026-08-13-full-codebase-max.md`, all convention-class (no currently-broken behaviour):
+    - **C-2**: `archive.py`'s `_record_partial_archive_failure` decodes `s3_meta["title"]` via `decode_metadata_value` before logging it, matching `write.py`'s plain-title failure-log entries — same `.arkeology_failures.jsonl`, consistent encoding regardless of writer.
+    - **C-3**: `interfaces.py`'s `Raises:` docstrings for `S3ClientInterface`'s four annotation methods, `get_object`/`get_object_annotation`, and `BedrockClientInterface.embed`/`invoke_text_model` are extended to document `AnnotationUnavailableError`, `NonUtf8PayloadError`, and the re-raised `botocore.exceptions.ClientError` respectively — matching what the concrete implementations actually raise.
+    - **D-1**: of the finding's seven originally-cited modules, `purge.py`, `propose_commit_links.py`, and `migrate_artifacts.py`'s existence-check loop are already fully wrapped (T63/T68 byproducts, confirmed by direct grep — no remaining raw calls). The remaining raw `s3.*`/`vectors.*` call sites route through `asyncio.to_thread`, matching the established convention already used by `read.py`/`list.py`/`search.py`/`synthesise.py`/`freshness.py`/`reconcile.py`: `write.py`'s CAS head/put and vector put/list calls (7 sites), `archive.py`'s CAS head/get/put and vector put calls (5 sites), `delete.py`'s existence-check/delete_vectors/delete_object calls (3 sites — Steps 4/5's concurrent gather already wrapped by T68/H-3), `link_metadata.py`'s CAS retry loop's two `head_object` calls (its later CAS-write calls already wrapped). `health.py`'s pre-existing, documented exception is untouched.
+    - **E-1**: `write.py`'s CAS retry loop's `CredentialError` handler at the `s3.put_object` call adds `artifact_id` to its response, matching its two sibling handlers earlier in the same loop iteration.
+    - **E-2**: `migrate_artifacts.py` imports and calls the shared `credential_error_response()` helper instead of building its `CredentialError` response dict inline.
+    - **I-1**: a `DESCRIPTION_MAX_LENGTH` constant is added next to `TITLE_MAX_LENGTH` in `artifact.py`; `Artifact.validate_description` and `migrate_artifacts.py`'s `_MAX_DESCRIPTION_LENGTH` both reference it instead of independently hardcoding `280`.
+    - Done when: all six fixes land with no observable behaviour change (D-1 changes *where* the blocking call runs, not its result); the full unit suite passes; ruff/format/mypy clean.
+    - Depends on: nothing new.
+
 ---
 
 ## Risks and Open Questions

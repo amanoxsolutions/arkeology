@@ -3124,6 +3124,47 @@ async def test_write_credential_error_from_annotation_write_is_structured(
     assert entries[0]["artifact_id"] == result["artifact_id"]
 
 
+@pytest.mark.asyncio
+async def test_write_overwrite_cas_put_object_credential_error_includes_artifact_id(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """A CredentialError raised by the overwrite CAS retry loop's ``s3.put_object``
+    call surfaces ``artifact_id`` in its response, matching its two sibling
+    CredentialError handlers in the same loop iteration (E-1)."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient(dimension=1024)
+
+    first = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        **_BASE_WRITE_KWARGS,
+    )
+    artifact_id = first["artifact_id"]
+
+    mocker.patch.object(
+        s3_client,
+        "put_object",
+        side_effect=CredentialError("expired", "s3", Exception("boom")),
+    )
+
+    result = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        overwrite=True,
+        **{**_BASE_WRITE_KWARGS, "content": "## Summary\n\nUpdated content."},
+    )
+
+    assert result["error"] == "credential_error"
+    assert result["artifact_id"] == artifact_id
+
+
 # ---------------------------------------------------------------------------
 # T52 — annotation availability graceful degrade (write path)
 # ---------------------------------------------------------------------------
