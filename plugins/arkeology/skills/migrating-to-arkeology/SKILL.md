@@ -121,7 +121,8 @@ do not consult Pass 2**.
 
 | Filename stems (exact, case-insensitive) | Type | Tier |
 |---|---|---|
-| `prd`, `product-requirements`, `requirements` | `prd` | 3 |
+| `vision` | `vision` | 3 |
+| `prd`, `product-requirements`, `requirements` | `requirements` | 3 |
 | `plan`, `planning`, `project-plan`, `roadmap` | `plan` | 3 |
 | `changelog`, `change-log`, `changes`, `release-notes` | `changelog` | 2 |
 | `runbook`, `run-book`, `playbook` | `runbook` | 3 |
@@ -795,8 +796,8 @@ Once an artifact is verified in Arkeology and Arkeology has become the
 migrated file, use the guidance below to decide whether Arkeology is now
 authoritative; where it is, **propose deleting the file to the operator** rather
 than removing it silently. This applies across tiers — durable tier-3 types
-(e.g. `adr`, `plan`, `prd`) can also become arkeology-authoritative, not just
-ephemeral tier-2 records.
+(e.g. `adr`, `plan`, `vision`, `requirements`) can also become
+arkeology-authoritative, not just ephemeral tier-2 records.
 
 | Type | Propose removal from repo? |
 |------|----------------------------|
@@ -811,9 +812,10 @@ ephemeral tier-2 records.
 | `changelog` | Judgment call — keep if the changelog is actively referenced in release PRs; remove old entries already captured in Arkeology |
 | `plan` | Judgment call — keep if the plan file is actively updated in the repo; remove if Arkeology is now the live version |
 | `postmortem` | Yes — point-in-time incident records; Arkeology is the right home |
-| `prd` | Judgment call — keep if the PRD is referenced in active development; remove once the feature is shipped and the Arkeology copy is the archive |
+| `vision` | Judgment call — keep if the vision doc is actively updated in the repo; remove if Arkeology is now the live version |
+| `requirements` | Judgment call — keep if requirements are referenced in active development; remove once superseded by the Arkeology copy |
 | `runbook` | Judgment call — keep if the team needs runbooks reachable outside Arkeology (e.g. via git during an incident); remove if Arkeology is the agreed operational home |
-| `learning` | Judgment call — `learnings.md` is a living file continuously appended to by the `capturing-learnings` skill; propose removal only if Arkeology becomes the agreed live home (same posture as `plan` / `prd`). |
+| `learning` | Judgment call — `learnings.md` is a living file continuously appended to by the `capturing-learnings` skill; propose removal only if Arkeology becomes the agreed live home (same posture as `plan` / `vision` / `requirements`). |
 
 Never delete a migrated file on your own. Present the removal proposal to the
 operator and wait for explicit confirmation of which files they are comfortable

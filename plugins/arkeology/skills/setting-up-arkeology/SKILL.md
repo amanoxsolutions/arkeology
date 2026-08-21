@@ -600,7 +600,7 @@ operator confirmation required.
 **Scratchpad** — always set to `arkeology`.
 
 **Documentation** — derive from `local_only_types` and `local_only_paths` (Parts A and B).
-Tier 3 types: `spec`, `adr`, `decision_note`, `synthesis`, `plan`, `prd`, `runbook`, `learning`.
+Tier 3 types: `spec`, `adr`, `decision_note`, `synthesis`, `plan`, `vision`, `requirements`, `runbook`, `learning`.
 
 | Condition | New value |
 |-----------|-----------|

@@ -489,13 +489,14 @@ def test_artifact_unknown_type_invalid() -> None:
         "changelog",
         "plan",
         "postmortem",
-        "prd",
+        "vision",
+        "requirements",
         "runbook",
         "learning",
     ],
 )
 def test_artifact_all_valid_types_accepted(artifact_type: str) -> None:
-    """All 15 valid artifact types are accepted."""
+    """All 16 valid artifact types are accepted."""
     kwargs = {**VALID_ARTIFACT_KWARGS, "type": artifact_type}
     artifact = Artifact(**kwargs)
     assert artifact.type == artifact_type

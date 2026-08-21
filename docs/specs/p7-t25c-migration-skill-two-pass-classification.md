@@ -34,6 +34,16 @@ of files in non-standard directory layouts (e.g. `_bmad-output/brainstorming/`).
 > filename rule (`learnings`, `learning`, `lessons-learned`) and Pass 2 path-segment rule
 > (`**/learnings`, `**/lessons-learned`) are reflected in the tables below.
 
+> **Follow-up (2026-08-21):** the `prd` type is removed and replaced by two new types,
+> `vision` and `requirements`, mirroring the amanox planning-artifact convention this
+> project itself now follows (`vision.md` + `requirements.md` in place of a single
+> `prd.md`). The Pass 1 filename-stem row below is split into two: `vision` maps to the
+> new `vision` type; `prd`, `product-requirements`, `requirements` (the legacy
+> single-document convention, still common in migrated projects) map to `requirements`
+> — its content is predominantly requirements-shaped, and "requirements" is literally
+> part of the name, so this is the closer content match of the two new types. See
+> `p7-t25b`'s matching follow-up for the `resources.py` and Step 7 table changes.
+
 ## Problem Statement
 
 The migration skill's Step 2 discovery tries to find a docs root (`docs/`,
@@ -149,7 +159,8 @@ do not consult Pass 2**.
 
 | Filename stems (exact, case-insensitive) | Type | Tier |
 |---|---|---|
-| `prd`, `product-requirements`, `requirements` | `prd` | 3 |
+| `vision` | `vision` | 3 |
+| `prd`, `product-requirements`, `requirements` | `requirements` | 3 |
 | `plan`, `planning`, `project-plan`, `roadmap` | `plan` | 3 |
 | `changelog`, `change-log`, `changes`, `release-notes` | `changelog` | 2 |
 | `runbook`, `run-book`, `playbook` | `runbook` | 3 |

@@ -38,6 +38,23 @@ rather than assuming `docs/`.
 > Pass 1 / Pass 2 classification rows and a Step 5 removal-guidance row, and one
 > parametrized test case is added in `test_artifact.py`.
 
+> **Follow-up (2026-08-21):** the `prd` type is removed and replaced by two new types,
+> `vision` and `requirements` (15 → 16 types — one type removed, two added), mirroring
+> the amanox planning-artifact convention this project itself
+> follows: the old single `prd.md` is now split into `vision.md` (problem statement,
+> users, journeys, differentiator) + `requirements.md` (FR/NFR/AC/Constraints). Splitting
+> preserves type-filtered search granularity — an agent can ask for "the vision" or "the
+> requirements" separately — which a single merged type would have cost. A legacy
+> single-document `prd.md`/`product-requirements.md` (pre-split convention) classifies
+> to `requirements`, since its content is predominantly requirements-shaped and
+> "requirements" is part of the name; the smaller vision-framing portion such a document
+> typically carries is an acceptable, judgment-call-documented simplification.
+> `resources.py`'s `prd` description entry is replaced by two new description entries;
+> the tier 3 "Use for" line drops `prd` and gains `vision`, `requirements`; the migration
+> skill's Pass 1 filename-stem row is split into two rows accordingly; and the Step 7
+> removal-guidance row is replaced by two rows. See `p7-t25c`'s matching follow-up for
+> the exact table change.
+
 ## Problem Statement
 
 Two independent gaps are resolved together because they share the same affected files
@@ -265,10 +282,11 @@ This project uses TDD. Test file is listed before the implementation file it gat
    | `runbook` | Judgment call — keep if the team needs runbooks reachable outside Arkeology (e.g. via git during an incident); remove if Arkeology is the agreed operational home |
 
 6. `skills/migrating-to-arkeology/schema.yaml` — update the inline `ARTIFACT_TYPES` comment
-   to list all types alphabetically (15 after the `learning` follow-up):
+   to list all types alphabetically (16 after the `learning` and `vision`/`requirements`
+   follow-ups):
    `adr, brainstorming, bug_report, changelog, code_review, decision_note,`
-   `implementation_note, learning, plan, postmortem, prd, runbook, session_summary,`
-   `spec, synthesis`
+   `implementation_note, learning, plan, postmortem, requirements, runbook,`
+   `session_summary, spec, synthesis, vision`
 
 **Verify after all changes:**
 

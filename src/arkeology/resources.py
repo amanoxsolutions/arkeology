@@ -162,7 +162,7 @@ overwrite.
 Example: an ADR with title "Use S3 Vectors for embeddings" becomes
 `adr-use-s3-vectors-for-embeddings-788ff524`.
 
-**Use for:** adr, spec, decision_note, synthesis, plan, prd, runbook, learning
+**Use for:** adr, spec, decision_note, synthesis, plan, vision, requirements, runbook, learning
 
 **Cross-scope access:** tier 3 artifacts with `visibility=shared` are discoverable by
 agents pointing at the same vector index with different `WRITE_PREFIX` scopes.
@@ -263,9 +263,13 @@ def types_schema_content() -> str:
             "Synthesis — agent-compiled summary of multiple source artifacts;"
             " written back with source_artifacts=[...]. Tier 3."
         ),
-        "prd": (
-            "Product Requirements Document — defines what to build, user needs, goals,"
-            " and non-goals. Tier 3, shared."
+        "vision": (
+            "Product vision — problem statement, target users, user journeys,"
+            " and differentiator. Tier 3, shared."
+        ),
+        "requirements": (
+            "Functional, non-functional, and acceptance-criteria requirements —"
+            " what to build and constraints. Tier 3, shared."
         ),
         "plan": (
             "Project or sprint plan — ordered task breakdown, milestones, and dependencies. Tier 3."

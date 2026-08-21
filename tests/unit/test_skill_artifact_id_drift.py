@@ -63,7 +63,7 @@ ID_CASES = [
     ("truncation-boundary-dash", "plan", 3, "2026-05-30", "x" * 59 + " tail", ".md"),
     ("empty-slug-title", "adr", 2, "2026-05-30", "日本語のタイトル", ".md"),
     ("empty-slug-punctuation", "adr", 3, "2026-05-30", "!!! ??? ...", ".md"),
-    ("no-extension", "prd", 2, "2026-05-30", "Product Requirements", ""),
+    ("no-extension", "requirements", 2, "2026-05-30", "Product Requirements", ""),
 ]
 
 

@@ -32,7 +32,8 @@ arkeology is connected to this project. Use it to persist knowledge across sessi
 | `bug_report` | When a bug is diagnosed — root cause, affected behaviour, fix applied |
 | `decision_note` | A lightweight decision with rationale — smaller than an ADR, larger than a comment |
 | `synthesis` | Consolidating multiple prior artifacts into a summary; must include `source_artifacts` |
-| `prd` | Product Requirements Documents — what to build, user needs, goals, non-goals; tier 3 |
+| `vision` | Product vision — problem statement, target users, user journeys, differentiator; tier 3 |
+| `requirements` | Functional, non-functional, and acceptance-criteria requirements — what to build and constraints; tier 3 |
 | `plan` | Project or sprint plans — ordered task breakdown, milestones, dependencies; tier 3 |
 | `runbook` | Operational runbooks — deployment, rollback, and incident response procedures; tier 3 |
 | `changelog` | Changelog entries — features shipped, bugs fixed, breaking changes; tier 2 |
@@ -70,7 +71,8 @@ The `description` field is the primary search signal. Invest in it.
   `implementation_note`, `bug_report`, `changelog`, `postmortem`. Immutable after write;
   keyed by type + date + title.
 - **Tier 3** — living documents: `spec`, `adr`, `decision_note`, `synthesis`, `plan`,
-  `prd`, `runbook`, `learning`. Overwrite in place on re-write; keyed by type + title (no date).
+  `vision`, `requirements`, `runbook`, `learning`. Overwrite in place on re-write; keyed
+  by type + title (no date).
 
 ### Query strategy — start narrow, broaden only if needed
 

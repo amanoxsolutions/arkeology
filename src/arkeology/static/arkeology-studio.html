@@ -80,7 +80,8 @@ mermaid.initialize({
 const TYPE_VARS = {
   __proto__: null,
   adr:                 { c: "--c-adr",       bt: "--bt-adr" },
-  prd:                 { c: "--c-prd",       bt: "--bt-prd" },
+  vision:              { c: "--c-vision",    bt: "--bt-vision" },
+  requirements:        { c: "--c-requirements", bt: "--bt-requirements" },
   spec:                { c: "--c-spec",      bt: "--bt-spec" },
   plan:                { c: "--c-plan",      bt: "--bt-plan" },
   runbook:             { c: "--c-runbook",   bt: "--bt-runbook" },
@@ -99,7 +100,8 @@ const TYPE_VARS = {
 const TYPE_LABELS = {
   __proto__: null,    // see TYPE_VARS above — same untrusted lookup key
   adr:                "ADR",
-  prd:                "PRD",
+  vision:             "Vision",
+  requirements:       "Requirements",
   spec:               "Spec",
   plan:               "Plan",
   runbook:            "Runbook",
@@ -615,7 +617,8 @@ app.sendSizeChanged({ height: 1000 });
 
   /* — Type identity colours (4px stripe; decorative) — */
   --c-adr:       #00d4b8;
-  --c-prd:       #00bccc;
+  --c-vision:    #00c3c5;
+  --c-requirements: #00b1d3;
   --c-spec:      #00a0e0;
   --c-plan:      #0088f8;
   --c-runbook:   #1a66ee;
@@ -634,7 +637,8 @@ app.sendSizeChanged({ height: 1000 });
      as text on its own 16% tint over the dark base. Stops at or above plan
      already pass and are kept identical to their --c-* value. — */
   --bt-adr:       #00d4b8;
-  --bt-prd:       #00bccc;
+  --bt-vision:    #00c3c5;
+  --bt-requirements: #00b1d3;
   --bt-spec:      #00a0e0;
   --bt-plan:      #0088f8;
   --bt-runbook:   #4180f1;
@@ -704,7 +708,8 @@ app.sendSizeChanged({ height: 1000 });
 
   /* Deepened identity stops (stripe stays vivid on white). */
   --c-adr:       #007565;
-  --c-prd:       #00717a;
+  --c-vision:    #007275;
+  --c-requirements: #006e86;
   --c-spec:      #006b96;
   --c-plan:      #0063b5;
   --c-runbook:   #1759cf;
@@ -722,7 +727,8 @@ app.sendSizeChanged({ height: 1000 });
   /* Badge/eyebrow text — darkened stops, each ≥4.5:1 on its own 16% tint over
      the light base (and ≥4.5:1 on the light base directly, for the eyebrow). */
   --bt-adr:       #007565;
-  --bt-prd:       #00717a;
+  --bt-vision:    #007275;
+  --bt-requirements: #006e86;
   --bt-spec:      #006b96;
   --bt-plan:      #0063b5;
   --bt-runbook:   #1759cf;
@@ -1320,7 +1326,8 @@ html {
       <select id="sel-type" aria-label="Filter by type">
         <option value="">All types</option>
         <option value="adr">ADR</option>
-        <option value="prd">PRD</option>
+        <option value="vision">Vision</option>
+        <option value="requirements">Requirements</option>
         <option value="spec">Spec</option>
         <option value="plan">Plan</option>
         <option value="runbook">Runbook</option>

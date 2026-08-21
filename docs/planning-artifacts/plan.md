@@ -10,8 +10,8 @@ okf_version: "0.1"
 # Plan: Arkeology
 
 _Project: arkeology_
-_Generated: 2026-05-29_ · _Last updated: 2026-08-20_
-_Status: **V1 — Phases 1–9 complete (unit + integration suite passing against live AWS; ruff + mypy clean; Apache 2.0 licensed; production-hardened; moto migration complete; write performance hardened; bulk write + migration tools; setting-up-arkeology + sync-arkeology-plugin skills; skill distribution via native plugin mechanisms) · Phase 10 complete (artifact commit references + caller-controlled concurrency + OKF schema alignment + MCP data resources; v0.4.0) · Phase 11 complete (MCP App visual reading interface; v0.5.0) · Phase 12 (artifact cross-referencing + annotation-backed link storage) — tasks T45–T69 all implemented, unit-tested, and merged to `main`, including the T57–T62 vector metadata budget hardening wave (ADR-2026-08-13, Accepted) and the T63–T69 further review-remediation batches; no open tasks remain in the phase; unreleased — latest tag is v0.5.0 (Phase 11)**_
+_Generated: 2026-05-29_ · _Last updated: 2026-08-21_
+_Status: **V1 — Phases 1–9 complete (unit + integration suite passing against live AWS; ruff + mypy clean; Apache 2.0 licensed; production-hardened; moto migration complete; write performance hardened; bulk write + migration tools; setting-up-arkeology + sync-arkeology-plugin skills; skill distribution via native plugin mechanisms) · Phase 10 complete (artifact commit references + caller-controlled concurrency + OKF schema alignment + MCP data resources; v0.4.0) · Phase 11 complete (MCP App visual reading interface; v0.5.0) · Phase 12 complete (artifact cross-referencing + annotation-backed link storage) — tasks T45–T69 all implemented, unit-tested, and merged to `main`, including the T57–T62 vector metadata budget hardening wave (ADR-2026-08-13, Accepted) and the T63–T69 further review-remediation batches · Phase 13 complete — T70 (`prd` type → `vision` + `requirements`) implemented, unit-tested (1281 passed), ruff/mypy/npm-test clean; unreleased — latest tag is v0.5.0 (Phase 11)**_
 
 ## How we work
 
@@ -197,7 +197,7 @@ Goal: quality-of-life improvements and documentation polish before declaring v1,
     - **P4 — `EMBED_MAX_SECTION_LENGTH`** (FR-01): add `EMBED_MAX_SECTION_LENGTH` config var (int, default 24,000 chars; 0 = disabled); sections exceeding the limit are truncated before the embedding call (not skipped); truncation applies to embedding input only — S3 content is never modified; log at DEBUG; default 24,000 chars targets ≈ 6,000–8,000 tokens depending on content type (code ~3 chars/token ≈ 8,000 tokens; prose ~4 chars/token ≈ 6,000 tokens) — comfortably under Titan's 8,192-token hard limit across content types.
     - **migrate.py eliminated**: delete `skills/migrating-to-arkeology/scripts/migrate.py` and the `scripts/` directory entirely; all Bedrock and write logic lives in the server.
     - **SKILL.md simplified**: remove all sub-agent/task-tool references; two paths — agent-only (< 5 files: agent classifies + generates descriptions in-context + calls `write_artifacts` once) and manifest + `migrate_artifacts` (≥ 5 files: agent classifies into ARKEOLOGY_IMPORT.yaml with git dates → calls `migrate_artifacts(dry_run=True)` to preview → reviews → calls `migrate_artifacts(dry_run=False)` to write); ARKEOLOGY_IMPORT.yaml as progress tracker enabling partial-failure retry; ≤ 500 lines; cross-IDE compatible (no IDE-specific tool references).
-    - Update plan.md, PRD, and brainstorming docs.
+    - Update plan.md, vision.md/requirements.md, and brainstorming docs.
     - Done when: `write_artifacts` on a 10-entry list processes entries concurrently (verified by log order); any failed entry appears in the response with an error field while successful entries report `written=True`; `ARTIFACT_CONCURRENCY=0` exits with a clear error at startup; `migrate_artifacts` with `dry_run=True` returns enriched descriptors with generated descriptions and writes nothing; descriptions in the enriched list are clipped to 280 chars; `migrate_artifacts` with `dry_run=False` writes all artifacts and makes them immediately searchable; `BEDROCK_TEXT_MODEL` startup check fires when configured; a section body exceeding `EMBED_MAX_SECTION_LENGTH` is truncated before embedding but the full body is returned unchanged by `read_artifact`; `EMBED_MAX_SECTION_LENGTH=0` disables truncation; `skills/migrating-to-arkeology/scripts/` directory absent; SKILL.md ≤ 500 lines and references no IDE-specific tool; full round-trip: agent classifies → `migrate_artifacts(dry_run=True)` → `migrate_artifacts(dry_run=False)` → `list_artifacts` confirms all entries
     - Spec: `docs/specs/p9-t30-write-artifacts.md` (status: **approved + complete** — 547 unit tests passing; SKILL.md 354 lines; scripts/ deleted; ruff + mypy clean; integration tests pending live AWS run)
     - **New config vars**: `ARTIFACT_CONCURRENCY` (int, default 3, ≥ 1); `BEDROCK_TEXT_MODEL` (string, default `None` — operator opt-in); `EMBED_MAX_SECTION_LENGTH` (int, default 24,000, ≥ 0; 0 = disabled); combined `ARTIFACT_CONCURRENCY × SECTION_CONCURRENCY ≤ 15` rule of thumb (safe Bedrock quota ceiling)
@@ -368,8 +368,8 @@ revisions to FR-32, FR-17, FR-28, FR-09. Design source: `docs/brainstorming/brai
 (decisions D1–D15).
 
 **This track supersedes several Phase 10 commit-refs decisions.** The vector-only `commit_refs`
-storage (Phase 10 T38 "Known limitation") and the "commit references lost after reconcile" PRD
-limitation are replaced by annotation-backed dual-write. The Phase 10 specs `p10-t36`, `p10-t38`,
+storage (Phase 10 T38 "Known limitation") and the "commit references lost after reconcile"
+requirements.md limitation are replaced by annotation-backed dual-write. The Phase 10 specs `p10-t36`, `p10-t38`,
 and `p10-t40`, plus the read (`p2-t9`) and reconcile (`p5-t21`) specs touched by the annotation
 change, are revised as part of this phase — **assigned to an Architect** (see execution note). A
 one-time relink sweep for legacy vector-only `commit_refs` was considered and dropped — no live
@@ -537,6 +537,52 @@ what's described.
     - **I-1**: a `DESCRIPTION_MAX_LENGTH` constant is added next to `TITLE_MAX_LENGTH` in `artifact.py`; `Artifact.validate_description` and `migrate_artifacts.py`'s `_MAX_DESCRIPTION_LENGTH` both reference it instead of independently hardcoding `280`.
     - Done when: all six fixes land with no observable behaviour change (D-1 changes *where* the blocking call runs, not its result); the full unit suite passes; ruff/format/mypy clean.
     - Depends on: nothing new.
+
+---
+
+## Phase 13 — Artifact Type Vocabulary: `prd` → `vision` + `requirements`
+
+Goal: replace the `prd` artifact type with two new types, `vision` and `requirements`,
+mirroring the amanox planning-artifact convention this project itself now follows
+(`vision.md` + `requirements.md` in place of a single `prd.md`; see this project's own
+`docs/planning-artifacts/` migration). No new spec file — the change is scoped as
+follow-up amendments to the existing `p7-t25b-extend-artifact-types.md` (type vocabulary
+and `resources.py`/README/Step 7 removal-guidance changes) and
+`p7-t25c-migration-skill-two-pass-classification.md` (Pass 1 filename-stem table change)
+specs, per AGENTS.md's working convention that a change applying an already-established
+pattern more consistently doesn't need a dedicated spec. Testing approach: **TDD** (NFR-07).
+
+70. ✅ **Rename `prd` type to `vision` + `requirements`** — remove `"prd"` from
+    `ARTIFACT_TYPES` in `artifact.py`; add `"vision"` and `"requirements"` (16 types
+    total, up from 15). `resources.py`: replace the `prd` description entry with two new
+    description entries (`vision`, `requirements`); update the tier 3 "Use for" line to
+    drop `prd` and add `vision`, `requirements`. Migration skill
+    (`skills/migrating-to-arkeology/SKILL.md`): split the Pass 1 filename-stem row —
+    `vision` → `type=vision`, tier 3; `prd`/`product-requirements`/`requirements` (legacy
+    single-document convention) → `type=requirements`, tier 3 (its content is
+    predominantly requirements-shaped, and "requirements" is literally part of the
+    name); update the Step 7 removal-guidance row accordingly; update
+    `schema.yaml`'s inline `ARTIFACT_TYPES` comment. `setting-up-arkeology/SKILL.md`
+    and `references/agents-snippet.md`: update tier 3 type lists and the AGENTS.md
+    type-table entry. `src/arkeology/static/arkeology-studio.html`: replace the `prd`
+    type-filter option, colour variable, and label with `vision` and `requirements`
+    entries. `README.md` and `SERVER-REFERENCE.md`: update type tables/lists.
+    `CHANGELOG.md`: add a `[Unreleased]` **Breaking** entry — callers writing or
+    filtering on `type="prd"` must switch to `type="vision"` or `type="requirements"`.
+    - Done when: **(Red)** `test_artifact.py`'s `test_artifact_all_valid_types_accepted`
+      parametrize list and `test_skill_artifact_id_drift.py`'s ID-drift case are updated
+      to `vision`/`requirements` and fail against the current `ARTIFACT_TYPES`;
+      **(Green)** both pass; `test_resources.py`'s dynamic `ARTIFACT_TYPES` iteration
+      continues to cover every type with no new test needed; a `write_artifact` call
+      with `type="prd"` is rejected (`validation_error`, unknown type); calls with
+      `type="vision"` and `type="requirements"` succeed and are indexed; `search_artifacts`
+      filtered by either new type returns only that type; `arkeology://schema/types` and
+      `arkeology://schema/artifact` list both new types with usage descriptions;
+      `arkeology://schema/tiers` lists both in tier 3 "Use for" guidance; ruff, ruff
+      format, and mypy clean.
+    - Depends on: nothing new. Specs (amended, not new):
+      `docs/specs/p7-t25b-extend-artifact-types.md`,
+      `docs/specs/p7-t25c-migration-skill-two-pass-classification.md`.
 
 ---
 

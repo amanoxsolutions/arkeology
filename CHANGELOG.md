@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- **Breaking:** the `prd` artifact type is removed and replaced by two new types,
+  `vision` and `requirements`, mirroring this project's own migration from a single
+  `prd.md` to `vision.md` + `requirements.md`. Callers writing or filtering on
+  `type="prd"` must switch to `type="vision"` or `type="requirements"`; existing
+  `prd`-typed artifacts are unaffected in storage but no longer match schema
+  validation on new writes
 - `search_artifacts` and `synthesise_artifacts` responses now include
   `index_corruption_detected: true` when a `VectorDistanceMissingError` — an S3
   Vectors index-corruption signal, distinct from an ordinary transient error — is

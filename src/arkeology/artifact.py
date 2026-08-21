@@ -42,7 +42,8 @@ ARTIFACT_TYPES: frozenset[str] = frozenset(
         "implementation_note",
         "plan",
         "postmortem",
-        "prd",
+        "vision",
+        "requirements",
         "runbook",
         "spec",
         "adr",
@@ -83,8 +84,8 @@ VECTOR_FILTERABLE_METADATA_MAX_BYTES = 2048
 VECTOR_TOTAL_METADATA_MAX_BYTES = 40960
 
 # Vector-metadata keys that are NOT filterable (must match the externally-created S3
-# Vectors index's declared non-filterable slots exactly — see the PRD Deployment
-# Prerequisites). Every other vector-metadata key counts against the filterable budget.
+# Vectors index's declared non-filterable slots exactly — see the requirements.md
+# Constraints table). Every other vector-metadata key counts against the filterable budget.
 NON_FILTERABLE_METADATA_KEYS: tuple[str, ...] = (
     "description",
     "source_artifacts",
@@ -490,7 +491,7 @@ class Artifact(BaseModel):
     ``pydantic.ValidationError``.
 
     Attributes:
-        type: One of the fifteen valid artifact types in :data:`ARTIFACT_TYPES`.
+        type: One of the sixteen valid artifact types in :data:`ARTIFACT_TYPES`.
         team: Team that owns the artifact.
         project: Project the artifact belongs to.
         tier: 2 (session-scoped) or 3 (persistent/cross-session).
