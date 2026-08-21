@@ -593,7 +593,7 @@ Deployments using separate vector indexes per team cannot perform cross-scope se
 
 ## External Source Analysis — 2026-05-29
 
-Two external sources were reviewed after the PRD was complete to challenge relevance before implementation begins.
+Two external sources were reviewed after vision.md and requirements.md were complete to challenge relevance before implementation begins.
 
 ### Source 1 — PageIndex (VectifyAI/PageIndex)
 
@@ -623,7 +623,7 @@ PageIndex targets documents where structure is implicit and reasoning-intensive 
 | Write model | Agent writes → stored immediately | Agent writes → LLM synthesises into existing pages |
 | Maintenance cost | Zero (store-and-retrieve) | Real (synthesis, contradiction flagging, linting) |
 
-Arkeology stores raw artifacts; a Karpathy-style wiki synthesises them into compiled knowledge. They operate at different abstraction levels. The wiki pattern is a natural future layer *above* Arkeology — tier 3 shared artifacts are the natural vehicle for storing the synthesised output. This was captured as a Future Consideration in the PRD.
+Arkeology stores raw artifacts; a Karpathy-style wiki synthesises them into compiled knowledge. They operate at different abstraction levels. The wiki pattern is a natural future layer *above* Arkeology — tier 3 shared artifacts are the natural vehicle for storing the synthesised output. This was captured as a Future Consideration in requirements.md.
 
 **What it validates:**
 - The three-layer model (raw sources / wiki / schema) directly mirrors our three-tier model (tier 1 ephemeral / tier 2 working artifacts / tier 3 canonical knowledge)

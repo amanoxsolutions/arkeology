@@ -95,7 +95,7 @@ credential chain, and a single billing account. No external SaaS dependencies ar
 ## Consequences
 
 - The server is AWS-only. Teams not operating in AWS cannot use it — accepted constraint
-  documented in the PRD's Product Value Failure section.
+  documented in vision.md's Product-Value-Failure Pre-Mortem section.
 - S3 Vectors regional availability must be verified by the operator before provisioning; the
   server does not validate this at startup.
 - The vector index dimension is a one-time decision. It is validated at startup (check 5) but

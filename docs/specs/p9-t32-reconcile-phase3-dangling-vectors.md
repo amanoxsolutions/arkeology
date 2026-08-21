@@ -51,7 +51,7 @@ external S3 changes are not controlled by the server. Dangling vectors are not i
 search path returns metadata from vector entries directly without fetching S3. An agent sees
 the artifact in search or list results with valid-looking metadata, decides it is relevant,
 calls `read_artifact` — and receives a not-found error. This is the "the system says it
-exists but can't deliver" failure mode identified in the PRD's Product Value Failure section.
+exists but can't deliver" failure mode identified in vision.md's Product-Value-Failure Pre-Mortem section.
 No document explicitly descoped the reverse reconciliation direction; it was silently omitted
 because the server's own delete path prevents it. External S3 changes are not so constrained.
 

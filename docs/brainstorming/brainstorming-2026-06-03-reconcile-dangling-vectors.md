@@ -32,7 +32,7 @@ session explores whether that is a gap, how it arises, and how to address it.
 
 #### What the original spec covered
 
-FR-17 (PRD) is explicit: *"scans the deployment's own S3 prefix against the vector index
+FR-17 (requirements.md) is explicit: *"scans the deployment's own S3 prefix against the vector index
 and re-indexes any orphaned objects found — artifacts **present in S3 with no corresponding
 vector index entry**."* S3→vectors direction only.
 
@@ -71,7 +71,7 @@ vector entries directly (not fetched from S3 during search). A dangling vector *
 in search and list results with valid-looking metadata**. An agent sees the artifact,
 reads its description, decides it is relevant — then calls `read_artifact` and receives
 a not-found error. This is the *"the system says it exists but can't deliver"* failure
-mode from the PRD's Product Value Failure section.
+mode from vision.md's Product-Value-Failure Pre-Mortem section.
 
 ---
 

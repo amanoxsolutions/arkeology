@@ -37,7 +37,7 @@ revised:
 > `bedrock.embed` and asserts the returned vector's dimension matches, reusing the existing
 > credential-error classification for entitlement/credential failures. The running sequence is now
 > **seven checks**; log messages and the success line read `/7`. See `src/arkeology/startup.py`
-> (`_check_embedding_probe`) for the implementation. The PRD (FR-07) and `SERVER-REFERENCE.md`
+> (`_check_embedding_probe`) for the implementation. requirements.md (FR-07) and `SERVER-REFERENCE.md`
 > check-count references still say
 > five/six and need a corresponding update — flagged to the PM and tech-writer (out of scope for
 > this spec, which documents code-adjacent drift only).

@@ -170,8 +170,8 @@ Four defects were found and fixed in the non-supporting-host and iframe paths:
 - **(a) `studio.py` error masking.** `_arkeology_studio_inner` previously did
   `listing.get("artifacts", [])` on the inner `list_artifacts` call's result, so a
   credential-error dict was silently coerced into a successful empty listing — expired
-  credentials read as "the store is empty" instead of "the store could not be reached" (PRD
-  FR-12 violation). It now detects `"error"` in the inner result and returns a structured
+  credentials read as "the store is empty" instead of "the store could not be reached"
+  (requirements.md FR-12 violation). It now detects `"error"` in the inner result and returns a structured
   `ToolResult(is_error=True, structured_content={"error": ..., "message": ...})` instead.
 - **(b) Browser JS swallowed server error messages.** `loadList` rendered `data.artifacts ||
   []` and `doSearch` rendered a generic `"Search failed."`, both discarding the server's
@@ -379,7 +379,7 @@ focusable, it is not announced as a link to assistive technology, and activating
 
 ### Testing Approach (revision)
 
-**Project uses TDD** (PRD NFR-07). Sequence:
+**Project uses TDD** (requirements.md NFR-07). Sequence:
 
 1. Extend `tests/unit/test_tools_studio.py` first (Red) — fallback listing capped at the constant;
    `total_count` reports the pre-cap match count; ordering is newest-first with `artifact_id`

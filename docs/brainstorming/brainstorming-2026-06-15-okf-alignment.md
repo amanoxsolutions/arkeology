@@ -220,8 +220,8 @@ reframes D2 (see below).
   "OKF-compatible" (reinforces D3 positioning); (b) build best-effort OKF **export** (B-2) **and import**
   of foreign bundles (B-4 — previously optional, now in scope); (c) track the OKF spec over time.
   *Consequence to manage:* this accepts an ongoing spec-tracking cost against a currently **v0.1 draft**;
-  revisit the depth of commitment if OKF v1 diverges materially from v0.1. Sequencing and PRD scope are
-  the PM's call.
+  revisit the depth of commitment if OKF v1 diverges materially from v0.1. Sequencing and
+  vision.md/requirements.md scope are the PM's call.
 
 - **D3 — Strategic positioning: "semantic memory" vs "progressive-disclosure wiki." (LOCKED.)** Update
   the project README (and `docs/architecture-decisions/overview.md` if appropriate) to position Arkeology as

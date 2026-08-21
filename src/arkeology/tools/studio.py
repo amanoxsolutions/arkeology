@@ -74,7 +74,8 @@ async def _arkeology_studio_inner(
     if "error" in listing:
         # An error dict from the inner list call (e.g. expired credentials)
         # must never be coerced into a successful empty listing — that would read as
-        # "the store is empty" instead of "the store could not be reached" (PRD FR-12).
+        # "the store is empty" instead of "the store could not be reached"
+        # (requirements.md FR-12).
         # Propagate it as a structured error so the caller can distinguish the two.
         logger.warning(
             "arkeology_studio: inner list_artifacts call failed (%s); propagating a "

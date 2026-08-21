@@ -21,7 +21,7 @@ assumptions_challenged: []
 
 ## Description
 
-Two questions left open after the external source review (PageIndex + Karpathy llm-wiki). First: can PageIndex ideas improve retrieval quality for structured artifacts, even though the core PageIndex architecture does not apply directly? Second: what would a synthesis/wiki layer above Arkeology actually look like — concretely, for this project? Brainstormed 2026-05-29, after PRD and plan.md were finalised.
+Two questions left open after the external source review (PageIndex + Karpathy llm-wiki). First: can PageIndex ideas improve retrieval quality for structured artifacts, even though the core PageIndex architecture does not apply directly? Second: what would a synthesis/wiki layer above Arkeology actually look like — concretely, for this project? Brainstormed 2026-05-29, after vision.md, requirements.md, and plan.md were finalised.
 
 ---
 
@@ -270,21 +270,21 @@ The synthesis page doesn't replace the individual artifacts — it accelerates u
 | Decision | Locked as | Detail |
 |---|---|---|
 | Vector search is the right choice — PageIndex solves a problem we don't have (vector similarity failing on long unstructured docs) | Informational | Section-level indexing addresses the structure concern directly |
-| **Section-level indexing replaces EMBEDDING_SECTIONS**: every `##` section indexed as an independent vector; fallback (no sections) = one document-level vector from title+description+type+features | D12 | PRD: FR-01; plan: task 7 |
+| **Section-level indexing replaces EMBEDDING_SECTIONS**: every `##` section indexed as an independent vector; fallback (no sections) = one document-level vector from title+description+type+features | D12 | requirements.md: FR-01; plan: task 7 |
 | Section vector key: `{artifact_key}#{section_name_slug}`; `artifact_id` in filterable metadata links section vectors to S3 object; section keys are internal, never exposed to callers | D12 | Plan: task 7 integration test checkpoints |
-| `EMBEDDING_SECTIONS` env var eliminated — zero configuration needed | D12 | PRD: Deployment Prerequisites, Scope; plan: task 4 |
-| Write cost: N Bedrock calls per write (one per section) — known trade-off, negligible at Titan Text Embeddings v2 pricing | D12 | PRD: FR-01 |
-| Re-fetch loop with exclusion filter: `artifact_id NOT IN seen_ids` on each iteration; fixed `SEARCH_FETCH_TOP_K` per call; bounded by `SEARCH_MAX_ITERATIONS` | D12 | PRD: FR-03; plan: task 8 |
-| Three new server config params: `SEARCH_FETCH_TOP_K` (default 25), `SEARCH_MAX_ITERATIONS` (default 3), `SEARCH_DEFAULT_TOP_K` (default 5) | D12 | PRD: Deployment Prerequisites; plan: task 4 |
-| Synthesis lives as tier 3 artifacts with `type: synthesis` — no new infrastructure | D15 | PRD: FR-19, FR-20 |
-| `synthesise_artifacts` is a V1 MCP tool (8th tool); server retrieves and assembles source content; agent synthesises | D16 | PRD: FR-19 |
+| `EMBEDDING_SECTIONS` env var eliminated — zero configuration needed | D12 | requirements.md: Constraints table, Scope; plan: task 4 |
+| Write cost: N Bedrock calls per write (one per section) — known trade-off, negligible at Titan Text Embeddings v2 pricing | D12 | requirements.md: FR-01 |
+| Re-fetch loop with exclusion filter: `artifact_id NOT IN seen_ids` on each iteration; fixed `SEARCH_FETCH_TOP_K` per call; bounded by `SEARCH_MAX_ITERATIONS` | D12 | requirements.md: FR-03; plan: task 8 |
+| Three new server config params: `SEARCH_FETCH_TOP_K` (default 25), `SEARCH_MAX_ITERATIONS` (default 3), `SEARCH_DEFAULT_TOP_K` (default 5) | D12 | requirements.md: Constraints table; plan: task 4 |
+| Synthesis lives as tier 3 artifacts with `type: synthesis` — no new infrastructure | D15 | requirements.md: FR-19, FR-20 |
+| `synthesise_artifacts` is a V1 MCP tool (8th tool); server retrieves and assembles source content; agent synthesises | D16 | requirements.md: FR-19 |
 | Synthesis granularity is unconstrained — both topic-based and type-based queries are valid | D17 | No server enforcement |
-| Synthesis lint / freshness check is a V1 Could-have (FR-20); metadata-only, no LLM call | D18 | PRD: FR-20 |
-| `synthesis` added to type catalogue before V1 ships | D15 | PRD: FR-09, D6 |
-| `source_artifacts` as second non-filterable metadata field (declared at index creation) | D15/D16 | PRD: FR-09, Deployment Prerequisites; D6 updated |
+| Synthesis lint / freshness check is a V1 Could-have (FR-20); metadata-only, no LLM call | D18 | requirements.md: FR-20 |
+| `synthesis` added to type catalogue before V1 ships | D15 | requirements.md: FR-09, D6 |
+| `source_artifacts` as second non-filterable metadata field (declared at index creation) | D15/D16 | requirements.md: FR-09, Constraints table; D6 updated |
 | P3 (corpus-level index artifact) superseded by `list_artifacts` + metadata — no standalone index needed | Closed | Metadata already is the index |
 | Synthesis trigger: on-demand (B1) for V1; guidance in AGENTS.md snippet | D16 | NFR-12 updated |
-| Query strategy guidance (start narrow, broaden if insufficient): in MCP Resources (FR-18) and AGENTS.md snippet (NFR-12) | P2 | PRD updated |
+| Query strategy guidance (start narrow, broaden if insufficient): in MCP Resources (FR-18) and AGENTS.md snippet (NFR-12) | P2 | requirements.md updated |
 
 ### Open (integration test checkpoints — not design questions)
 

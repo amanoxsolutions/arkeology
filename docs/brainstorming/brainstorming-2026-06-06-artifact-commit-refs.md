@@ -88,13 +88,13 @@ and the migration skill implications.
 > in
 > [`brainstorming-2026-07-01-artifact-cross-referencing.md`](brainstorming-2026-07-01-artifact-cross-referencing.md)
 > (decisions D11–D15 and the resolution of that session's OQ2, locked 2026-07-02), and by the
-> corresponding PRD functional requirements.
+> corresponding requirements.md functional requirements.
 
 The 2026-06-06 session locked `commit_refs` storage as **vector-metadata-only in V1**. That
 mechanism has been superseded by an **annotation-backed dual-write** decided in the 2026-07-02
 session. Four decisions from this document are affected:
 
-| This doc | Status | Superseded by | PRD |
+| This doc | Status | Superseded by | requirements.md |
 |---|---|---|---|
 | **D6** — `link_commit` updates vector metadata only in V1; `reconcile_index` will not restore `commit_refs` | **Superseded** | `commit_refs` is now dual-written to durable S3 object annotations **and** vector metadata (2026-07-01 doc D11/D12); reconcile now rebuilds `commit_refs` from the durable annotations | FR-53, FR-54, FR-17 |
 | **D13** — S3 object metadata update for `commit_refs` (`copy_object`) is out of scope | **Superseded** | The durable copy is now stored as an **S3 object annotation** (`PutObjectAnnotation`, mutable in place) — not a `copy_object` of user-defined metadata, and no longer out of scope (2026-07-01 doc D12) | FR-54 |
@@ -264,7 +264,7 @@ session to review (Path 3b).
 > object annotations and vector metadata, and `reconcile_index` rebuilds it from the durable
 > annotations. See the "Superseded decisions (updated 2026-07-03)" section and
 > [`brainstorming-2026-07-01-artifact-cross-referencing.md`](brainstorming-2026-07-01-artifact-cross-referencing.md)
-> (D11/D12), PRD FR-17/FR-54.
+> (D11/D12), requirements.md FR-17/FR-54.
 
 `reconcile_index` rebuilds vector metadata entirely from S3 object metadata via
 `_reindex_artifact`. It reads every field that is stored in S3 — `feature_tags`,
@@ -300,7 +300,7 @@ value.
 > `copy_object` is a future milestone" (D13) is superseded. The durable copy is now stored as
 > an S3 object annotation (`PutObjectAnnotation`, mutable in place — not `copy_object`), and
 > `link_commit` is generalized into `link_metadata` performing a dual-write. See the "Superseded
-> decisions (updated 2026-07-03)" section, PRD FR-53/FR-54.
+> decisions (updated 2026-07-03)" section, requirements.md FR-53/FR-54.
 
 The update requires no Bedrock re-embedding: `get_vectors` returns float32 data, allowing
 `put_vectors_batch` with the same vectors and enriched metadata. The `link_commit` tool appends
@@ -388,7 +388,7 @@ No writes. No side effects. Returns an empty `proposed` list if no candidates fo
 > restores `commit_refs` from the durable annotation. See the "Superseded decisions
 > (updated 2026-07-03)" section and
 > [`brainstorming-2026-07-01-artifact-cross-referencing.md`](brainstorming-2026-07-01-artifact-cross-referencing.md)
-> (D11/D12), PRD FR-53/FR-54/FR-17.
+> (D11/D12), requirements.md FR-53/FR-54/FR-17.
 
 ```
 link_commit(
@@ -498,7 +498,7 @@ adoption), which is expected.
 > out-of-scope stance (D13) referenced below is likewise superseded — the durable copy is an S3
 > object annotation. See the "Superseded decisions (updated 2026-07-03)" section and
 > [`brainstorming-2026-07-01-artifact-cross-referencing.md`](brainstorming-2026-07-01-artifact-cross-referencing.md)
-> (OQ2 resolution, D11/D12), PRD FR-17/FR-54.
+> (OQ2 resolution, D11/D12), requirements.md FR-17/FR-54.
 
 `reconcile_index` rebuilds vector metadata entirely from S3 object metadata. Because
 `link_commit` writes `commit_refs` to **vector metadata only** (D6), a reconcile run

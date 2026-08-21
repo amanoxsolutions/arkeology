@@ -21,19 +21,19 @@ assumptions_challenged: []
 
 ## Description
 
-Research notes compiled 2026-05-26 for artifact store brainstorming; extended 2026-05-29 with two additional sources reviewed after the PRD was complete. Covers how the industry handles cross-session, cross-engineer agent memory and scratchpad sharing. Synthesizes 13 primary sources and 2 secondary sources. Evaluated against tier 2 (artifacts: sharing and indexing) and tier 3 (project documentation: SCRATCHPAD.md, PRD, ADRs) separately.
+Research notes compiled 2026-05-26 for artifact store brainstorming; extended 2026-05-29 with two additional sources reviewed after vision.md and requirements.md were complete. Covers how the industry handles cross-session, cross-engineer agent memory and scratchpad sharing. Synthesizes 13 primary sources and 2 secondary sources. Evaluated against tier 2 (artifacts: sharing and indexing) and tier 3 (project documentation: SCRATCHPAD.md, requirements, ADRs) separately.
 
 ---
 
 ## Problem Summary
 
-**The three-tier document lifecycle** is the correct model. The original four-tier proposal incorrectly separated "working notes" (SCRATCHPAD.md) into its own tier. SCRATCHPAD.md is a committed project document with a high-churn discipline — that is a content rule, not a structural tier. It belongs in tier 3 alongside PRD and ADRs.
+**The three-tier document lifecycle** is the correct model. The original four-tier proposal incorrectly separated "working notes" (SCRATCHPAD.md) into its own tier. SCRATCHPAD.md is a committed project document with a high-churn discipline — that is a content rule, not a structural tier. It belongs in tier 3 alongside requirements and ADRs.
 
 | Tier | Name | Examples | Committed | Currently in framework? |
 |------|------|----------|-----------|------------------------|
 | 1 | Ephemeral | Scratch notes, dead-ends | No (gitignored) | Yes |
 | 2 | **Artifacts** | Issue records, code review logs, implementation notes | **No (gitignored)** | **No — this is the gap** |
-| 3 | Project documentation | PRD, ADRs, requirements, planning artifacts, SCRATCHPAD.md | Yes | Partially |
+| 3 | Project documentation | ADRs, requirements, planning artifacts, SCRATCHPAD.md | Yes | Partially |
 
 **The core problem is tier 2:** artifacts are gitignored, unindexed, and invisible across sessions and engineers. A developer agent producing `issues/YYYY-MM-DD-bug-fix.md` today creates knowledge that is unreachable to any future agent on the same project.
 

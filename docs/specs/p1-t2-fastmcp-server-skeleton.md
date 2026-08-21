@@ -68,7 +68,7 @@ Mixing MCP messages with log lines on stdout would corrupt the transport.
 - The server name used in FastMCP must match the package name: `arkeology`.
 
 **Ask First:**
-- Nothing — all constraints are defined by the PRD and architecture decisions.
+- Nothing — all constraints are defined by vision.md, requirements.md, and architecture decisions.
 
 **Never:**
 - Do not write any log output to stdout — this corrupts the MCP stdio transport.

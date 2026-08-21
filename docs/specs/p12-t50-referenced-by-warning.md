@@ -250,7 +250,7 @@ Use `aws_mock`, `s3_client`, `vectors_client_2` fixtures; pre-seed referrer vect
 - **Should `commit_refs` join `REFERENCE_FIELDS`?** The metadata-filterability decision names
   `commit_refs` as a *filterable* field alongside `references`, which would place it in the
   server-side `$eq` branch automatically if added to `REFERENCE_FIELDS`. This spec deliberately keeps
-  `REFERENCE_FIELDS = ("source_artifacts", "references")` because (a) PRD FR-56 and ADR-012 D13 scope
+  `REFERENCE_FIELDS = ("source_artifacts", "references")` because (a) requirements.md FR-56 and ADR-012 D13 scope
   the `referenced_by` check to `source_artifacts` + `references` only, and (b) `commit_refs` holds git
   commit SHAs, not `artifact_id`s, so a `{"commit_refs": {"$eq": T}}` clause could never match an
   artifact-id target — including it would be inert noise. `commit_refs` therefore stands as the

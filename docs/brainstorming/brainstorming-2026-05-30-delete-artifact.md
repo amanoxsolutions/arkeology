@@ -21,7 +21,7 @@ assumptions_challenged: []
 
 ## Description
 
-The Arkeology PRD defines an archive mechanism (FR-05, FR-14) that marks an artifact inactive
+The Arkeology requirements.md defines an archive mechanism (FR-05, FR-14) that marks an artifact inactive
 and excludes it from search and listing. Archive does not remove content from storage. The
 question explored here is whether a true deletion capability — permanently removing an artifact
 from S3 and the vector index — is needed, and if so, what shape it should take.
@@ -31,7 +31,7 @@ results but the content persists in S3 and is still reachable via `read_artifact
 stale content, deletion addresses storage cost, compliance cleanup, and the risk that a confused
 agent uses `read_artifact` directly on a known ID and acts on superseded information.
 
-The PRD "Product Value Failure" section explicitly names "stale artifacts misleading agents" as
+vision.md's Product-Value-Failure Pre-Mortem section explicitly names "stale artifacts misleading agents" as
 a key failure mode. Deletion is a stronger remedy than archive for that class of problem.
 
 ---
@@ -122,7 +122,7 @@ reclamation.
 ### Open questions for the PM / architect
 
 1. **Does "tier 2 immutability" cover existence or only content?**
-   The PRD says "content is frozen as a permanent, point-in-time record" and "no content
+   requirements.md says "content is frozen as a permanent, point-in-time record" and "no content
    editing capability is provided." If immutability is scoped to *content*, deletion is
    compatible. If it covers *existence*, tier 2 artifacts cannot be deleted — only archived.
    This is the most consequential decision for the feature design.
@@ -166,7 +166,7 @@ All open questions resolved. These decisions are frozen inputs for the PM and sp
 ### Q1 — Tier 2 immutability scope: content only ✅
 
 "Immutable" applies to *content* — no content editing after initial write. It does not protect
-an artifact from deletion. Tier 2 artifacts are therefore deletable. The PRD and any spec must
+an artifact from deletion. Tier 2 artifacts are therefore deletable. requirements.md and any spec must
 clarify this wherever "immutable" appears, e.g.: "Tier 2 project-local artifacts are immutable
 (content cannot be edited after the initial write) but may be deleted or archived."
 
@@ -218,14 +218,14 @@ within own scope; they are no longer retrievable and no longer appear in any lis
 
 ### Summary for PM
 
-Two new tools to add to the plan and PRD:
+Two new tools to add to the plan and requirements.md:
 
 | Tool | Phase suggestion | Priority |
 |---|---|---|
 | `delete_artifact(artifact_id, confirm=True)` | Phase 3 (alongside archive) | Should |
 | `purge_archived(confirm=True)` | Phase 3 or Phase 5 | Could |
 
-PRD changes needed:
+requirements.md changes needed:
 - Add FR for `delete_artifact` (Should — mirrors archive in scope and priority)
 - Add FR for `purge_archived` (Could — storage reclamation, lower urgency)
 - Update FR-13 and FR-14 immutability language with parenthetical clarification

@@ -95,7 +95,7 @@ intentionally requires 3.14+. No change to make.
 >   included count). Keep the count as a cheap secondary guard. Default budget generous enough that normal
 >   ~10-artifact syntheses never trip it — final number set in the spec. Retrofit FR-19 + NFR-02 wording.
 
-These are recorded here as locked; the ADR-011/ADR-012 revisions, PRD FR retrofits, and a consolidated
+These are recorded here as locked; the ADR-011/ADR-012 revisions, requirements.md FR retrofits, and a consolidated
 implementation spec are authored next (Architect), then the code clusters implement against them.
 
 | ID | Question | Options | Recommendation |
@@ -225,7 +225,7 @@ commit since `v0.5.0` and the gaps filled. Full quality gate green (1162 unit te
 | Phase-12 **#7** | T55 lists `title`/`author_role` in both filterable and non-filterable | ✅ done (`2adbf84`) |
 | Phase-12 **#9** | stale `link_commit` comment in `tests/unit/test_tools_read.py` | ✅ done (`dec9426`) |
 | Phase-12 **#10** | CHANGELOG `[Unreleased]` empty despite the breaking `link_commit`→`link_metadata` removal | ✅ done (`dec9426`) — must now also cover M3/M4 (`7a697dd`), FC-1 (`63e5665`), M5/CA-5 + new `SYNTHESISE_MAX_RESPONSE_BYTES` setting (`2aa1633`) |
-| Phase-12 **#12** | "S3 Express One Zone" double-counts "directory buckets" across README/SERVER-REFERENCE/ADR/credentials.py/PRD/brainstorming | ✅ done (`dec9426`) |
+| Phase-12 **#12** | "S3 Express One Zone" double-counts "directory buckets" across README/SERVER-REFERENCE/ADR/credentials.py/requirements.md/brainstorming | ✅ done (`dec9426`) |
 | Phase-12 **#14** | FR-51–58 what-not-how violations + FR-54 duplicates ADR-011 §1 → dual-maintenance | ✅ done (`ad91fe3`) |
 | Phase-12 **#22** | skills reimplement `generate_artifact_id` twice with no drift test — add a drift test or single-source it | ✅ done (`2adbf84`) |
 | Phase-12 **#8** | style residue ("D4" shorthand vs "decision 5") | ✅ done (`dec9426`) |
@@ -255,10 +255,11 @@ needs an operator decision rather than silent adoption.
 - **Dangling review citations were swept repo-wide** (`3bfb10f`) — 297 sites across 84 files, since
   reviews are not guaranteed to be retained. `AGENTS.md` now forbids citing review findings and line
   numbers. Note this plan is the deliberate exception: it is the register *of* findings.
-- **The PRD's what-not-how convention is breached well beyond FR-51–58.** The rewrite of those eight
-  (`ad91fe3`) was run as a pilot; every one had a confirmed ADR home. FR-01–FR-50 predate most ADRs,
-  so a higher rate of mechanism recorded *only* in the PRD is expected there, and the pilot's cost
-  should not be extrapolated to them. The PRD's Deployment Prerequisites prose has the same problem.
+- **requirements.md's what-not-how convention is breached well beyond FR-51–58.** The rewrite of those
+  eight (`ad91fe3`) was run as a pilot; every one had a confirmed ADR home. FR-01–FR-50 predate most
+  ADRs, so a higher rate of mechanism recorded *only* in requirements.md is expected there, and the
+  pilot's cost should not be extrapolated to them. The requirements.md Constraints table prose has the
+  same problem.
 - **`credentials.py` carries a user-visible error string** that still double-counts the S3 Express
   One Zone / directory-bucket categories corrected everywhere else in `dec9426`. Left unchanged
   because it is a message, not a comment; no test asserts on it.

@@ -82,7 +82,7 @@ The same gate that applies to `search_artifacts` and `read_artifact` applies her
 > exception: if the very first ranked candidate alone exceeds the budget, it is included anyway
 > (never return zero results for a single relevant oversized hit) with `truncated: true` still set.
 > The count ceiling (100) remains in force as a secondary, cheaper guard, not the primary bound.
-> Rationale for the 1 MB default: PRD FR-19 / NFR-02.
+> Rationale for the 1 MB default: requirements.md FR-19 / NFR-02.
 
 ### Story 4 — Credential errors return structured responses (P1)
 

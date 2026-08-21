@@ -154,5 +154,5 @@ degradation path delivers the primary use case. Direction 4's retirement stands.
 > `pip install arkeology` always installs it, and the server cannot start without it (`server.py`
 > imports `fastmcp.apps` unconditionally for `arkeology_studio` and the UI resource). Read every
 > "optional" in this ADR as "an optional extra of the `fastmcp` package," not "optional for
-> Arkeology to function." (The PRD's FR-47 wording carries the same ambiguity and is flagged
-> separately to the PM.)
+> Arkeology to function." (requirements.md's FR-47 wording carries the same ambiguity and is
+> flagged separately to the PM.)

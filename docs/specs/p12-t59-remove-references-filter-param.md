@@ -89,4 +89,4 @@ Use `aws_mock`, `s3_client`, `vectors_client_*` fixtures.
 
 ## Open Questions
 
-- **PRD staleness (flagged, not resolved here).** AC-57 currently describes `list_artifacts`'s `references` filter as a supported capability. This spec does not edit `prd.md` (out of scope per this spec-writing task's instructions — spec files only). Flagged to the PM as a documentation follow-up once T57–T62 are dispatched: AC-57 needs either removal or a superseded-note, consistent with how AC-38/AC-39/AC-50 were annotated `*Superseded — ...*` when `link_commit` was retired.
+- **requirements.md staleness (flagged, not resolved here).** AC-57 currently describes `list_artifacts`'s `references` filter as a supported capability. This spec does not edit `requirements.md` (out of scope per this spec-writing task's instructions — spec files only). Flagged to the PM as a documentation follow-up once T57–T62 are dispatched: AC-57 needs either removal or a superseded-note, consistent with how AC-38/AC-39/AC-50 were annotated `*Superseded — ...*` when `link_commit` was retired.

@@ -167,7 +167,7 @@ decision.
   affected artifacts from S3 object metadata, which carries no `commit_refs` in V1. All commit
   links on re-indexed artifacts are erased. The operator must re-run the post-commit protocol to
   restore them. This is documented in: the `link_commit` module docstring, the AGENTS.md snippet
-  written by the installation skill, and the PRD Known Limitations section.
+  written by the installation skill, and the requirements.md Constraints table.
 
 - **CI pipelines without an agent session.** Automated pipelines (e.g. a CI code-reviewer agent)
   that commit without an active agent session following the AGENTS.md protocol can supply

@@ -209,7 +209,7 @@ what Story 1's check measured.
   `commit_refs`/`references` post-T47; the vector filterable budget *includes* them.
 - Budget constants and `NON_FILTERABLE_METADATA_KEYS` live in one place (single source of truth,
   mirroring `ARTIFACT_TYPES`/`REFERENCE_FIELDS`); `NON_FILTERABLE_METADATA_KEYS` MUST equal the
-  externally-created index's declared non-filterable slots (per PRD Deployment Prerequisites:
+  externally-created index's declared non-filterable slots (per the requirements.md Constraints table:
   `description`, `source_artifacts`, `title`, `author_role`).
 - Control-char policy is **reject, not strip** — see Open Questions rationale.
 - Non-ASCII title copy is **lossless-encoded**, not stripped, so reconcile round-trips it.

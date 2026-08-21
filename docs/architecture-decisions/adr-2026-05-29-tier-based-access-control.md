@@ -132,8 +132,8 @@ resource level (resource tags), never at the vector or metadata level. The Decis
 above now records the content/index asymmetry and the mutual-trust assumption. The tier +
 visibility gate itself is unchanged and remains correctly implemented.
 
-Hard-boundary directions, if ever required (candidates for a future ADR; anchored in the
-PRD Future Considerations entry "full visibility cross-scope enforcement"):
+Hard-boundary directions, if ever required (candidates for a future ADR; anchored in
+requirements.md FR-65, "full cross-scope enforcement of the visibility gate"):
 
 1. **Per-team vector indexes + tier 3 replication** — each team owns a private index; tier 3
    `shared` vectors are additionally written to a shared discovery index. Dual writes and a

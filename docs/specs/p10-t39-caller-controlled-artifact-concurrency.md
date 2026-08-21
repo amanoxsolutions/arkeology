@@ -166,7 +166,7 @@ starts, **then** no startup error is raised and the value has no effect on any t
 > here, but the MCP tool definition in `server.py` for `write_artifacts` was never updated to
 > accept and forward it (unlike `migrate_artifacts`'s tool definition, which already did).
 > The parameter was consequently unreachable over MCP for `write_artifacts` despite this spec,
-> PRD FR-25, and SERVER-REFERENCE documenting it as caller-controllable — a doc-vs-code
+> requirements.md FR-25, and SERVER-REFERENCE documenting it as caller-controllable — a doc-vs-code
 > contradiction now closed: `server.py`'s `write_artifacts` tool now
 > declares `artifact_concurrency: int = 3` and forwards it to the inner function, matching the
 > shape described here. See `tests/unit/test_server.py::test_write_artifacts_mcp_layer_forwards_artifact_concurrency`

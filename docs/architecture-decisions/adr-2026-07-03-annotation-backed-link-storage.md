@@ -37,7 +37,7 @@ vector metadata; `link_commit` generalizes into a single `link_metadata` primiti
 rebuilds both fields from annotations (resolving the old limitation); overwriting writes read-forward
 and re-apply link data; and annotation availability is handled as a feature-level concern, not a hard
 server-startup gate. These decisions were taken with the operator in the 2026-07-01 / 2026-07-02
-brainstorming session (decisions D11–D15, resolution of OQ2) and correspond to PRD requirements
+brainstorming session (decisions D11–D15, resolution of OQ2) and correspond to requirements.md
 FR-51 through FR-58 and the revisions to FR-32, FR-17, and FR-28.
 
 ## Status

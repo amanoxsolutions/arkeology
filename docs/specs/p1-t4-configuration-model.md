@@ -74,7 +74,7 @@ value where an integer is expected) produces a clear error, not a silent wrong v
 - All variable names, types, defaults, and descriptions must be documented in a reference table inside `config.py` as module-level docstring or comments — the code is the authoritative reference.
 
 **Ask First:**
-- Nothing — all variables and their constraints are defined in the PRD and design decisions.
+- Nothing — all variables and their constraints are defined in requirements.md and design decisions.
 
 **Never:**
 - Do not call `os.environ.get(...)` anywhere outside of `config.py` / the `Settings` class.

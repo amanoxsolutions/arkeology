@@ -78,7 +78,7 @@ async def test_arkeology_studio_non_supporting_host_credential_error_is_propagat
 ) -> None:
     """A credential-error dict from the inner list call must surface as a
     structured error, not be coerced into a successful empty listing — otherwise
-    expired credentials read as "the store is empty" (PRD FR-12)."""
+    expired credentials read as "the store is empty" (requirements.md FR-12)."""
     from arkeology.tools import studio
 
     mocker.patch.object(

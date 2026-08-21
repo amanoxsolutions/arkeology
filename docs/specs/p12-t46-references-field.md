@@ -184,7 +184,7 @@ An agent writes an artifact with `references=["adr-use-postgres-abc12345"]`; rea
 >    visibility" section.
 >
 > Neither behaviour changes the field's write-time acceptance or vector-metadata encoding described
-> above. PRD: FR-51/FR-54/FR-55/FR-10.
+> above. requirements.md: FR-51/FR-54/FR-55/FR-10.
 
 **Ask First:**
 - Nothing — all constraints are defined.

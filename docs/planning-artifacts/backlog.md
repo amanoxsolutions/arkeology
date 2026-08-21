@@ -54,7 +54,7 @@ Items that were promoted to a phase are **not** listed here — see the phase hi
   control: S3 Vectors authorization is all-or-nothing per index, so every team sharing the
   vector index can technically read all teams' vector metadata (titles, descriptions, tags)
   and embeddings, including tier 2 — cross-scope deployment is a mutual-trust topology
-  (documented 2026-07-02 in ADR-007 revision, PRD Known Limitations, and the
+  (documented 2026-07-02 in ADR-007 revision, the requirements.md Constraints table, and the
   SERVER-REFERENCE Cross-Scope Security Model). Two candidate solutions, design-first
   (brainstorming + ADR before spec):
   1. **Hosted MCP server** — deploy Arkeology as a shared service (requires the HTTP

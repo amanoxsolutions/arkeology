@@ -30,7 +30,7 @@ Add two MCP data resources to arkeology: `arkeology://artifact/{id}` (URI templa
 > identifier is the full S3 key `{write_prefix}/{id}{ext}`, which contains `/` characters. FastMCP's
 > plain `{id}` RFC 6570 template parameter does not match a path segment containing `/`, so the
 > resource is registered with the **wildcard-path** form `arkeology://artifact/{id*}` (note the trailing
-> `*`), which does. Every reference to `arkeology://artifact/{id}` below and in the PRD/ADR-012 is
+> `*`), which does. Every reference to `arkeology://artifact/{id}` below and in requirements.md/ADR-012 is
 > conceptually the same resource; the registered URI template literal is `arkeology://artifact/{id*}`.
 
 ## Problem Statement

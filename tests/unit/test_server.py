@@ -245,7 +245,7 @@ async def test_write_artifacts_mcp_layer_forwards_artifact_concurrency(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """write_artifacts MCP tool forwards a caller-supplied artifact_concurrency to
-    the underlying _write_artifacts — PRD FR-25 / p10-t39 document it as
+    the underlying _write_artifacts — requirements.md FR-25 / p10-t39 document it as
     caller-controllable, so the MCP signature must actually expose it."""
     settings = _make_settings(monkeypatch)
     mock_write_batch = AsyncMock(return_value={"results": []})

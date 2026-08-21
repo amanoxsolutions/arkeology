@@ -35,7 +35,7 @@ and normalization ceiling of the migration-time rewrite, the content-rewrite tar
 deterministic server-side execution, forward-reference resolution, the mutability-by-representation
 principle (including the replace-vs-accrete asymmetry between `references` and `commit_refs`),
 agent guidance, a deferred backfill skill, a unified own-scope `referenced_by` delete/archive
-warning, and cross-scope reference visibility. It corresponds to PRD requirements FR-10, FR-51,
+warning, and cross-scope reference visibility. It corresponds to requirements.md FR-10, FR-51,
 FR-52, FR-56, and FR-58 (and the NFR-12 AGENTS.md-guidance clause) and to brainstorming decisions
 D1–D10, D13, and D16.
 

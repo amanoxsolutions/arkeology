@@ -1,7 +1,7 @@
 ---
 type: brainstorming
 title: "Visibility Reframing: `confidential` → `hidden`"
-description: Catalogues all occurrences of the misleading `confidential` visibility value across code, tests, specs, PRD, and brainstorming files, and makes the case for replacing it with `hidden` to accurately describe the cross-scope visibility gate rather than implying a security boundary.
+description: Catalogues all occurrences of the misleading `confidential` visibility value across code, tests, specs, requirements.md, and brainstorming files, and makes the case for replacing it with `hidden` to accurately describe the cross-scope visibility gate rather than implying a security boundary.
 tags: []
 timestamp: 2026-05-31T00:00:00Z
 okf_version: "0.1"
@@ -29,7 +29,7 @@ the AWS IAM layer. Using the word "confidential" creates a false sense of securi
 replaced throughout with `"hidden"` — which accurately describes what the feature does.
 
 The user has already made the first correction in the README. This document catalogues every
-remaining occurrence across code, tests, specs, PRD, and brainstorming files so the PM can
+remaining occurrence across code, tests, specs, requirements.md, and brainstorming files so the PM can
 produce a complete, ordered plan for the developer and tech-writer agents.
 
 ---
@@ -240,7 +240,7 @@ boundary rules — no executable code. These are editorial changes.
 
 ---
 
-#### Category E — PRD (tech-writer task)
+#### Category E — requirements.md (tech-writer task)
 
 | File | Location | Change |
 |---|---|---|
@@ -318,7 +318,7 @@ the validator accidentally.
 |---|---|---|---|
 | **D-task: Code + Tests + README** | Developer agent | Category A (source) + Category B (unit tests) + Category C (README) | `uv run pytest tests/unit/ -q -m 'not integration'` passes; `uv run mypy src/` clean; `uv run ruff check src/ tests/` clean |
 | **TW-task: Spec files** | Tech-writer agent | Category D (5 spec files) | Human review; no automated verification needed |
-| **TW-task: PRD** | Tech-writer agent | Category E (1 occurrence in requirements.md) | Human review |
+| **TW-task: requirements.md** | Tech-writer agent | Category E (1 occurrence in requirements.md) | Human review |
 | **TW-task: Brainstorming** | Tech-writer agent (low priority) | Category F (2 brainstorming files) | Human review; can be deferred |
 
 The developer task must complete first. Tech-writer tasks can run in parallel with each other and
