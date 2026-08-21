@@ -9,7 +9,7 @@ feature: "Phase 12 · T54 — Option A: search age transparency"
 status: ready
 references:
   - "docs/planning-artifacts/backlog.md (B-6 — recency-weighted ranking, Option B)"
-  - "docs/planning-artifacts/prd.md (FR-03, AC-66)"
+  - "docs/planning-artifacts/requirements.md (FR-03, AC-66)"
   - "docs/planning-artifacts/plan.md (Phase 12, T54)"
 authored:
   by: "pm"

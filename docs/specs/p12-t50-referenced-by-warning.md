@@ -13,7 +13,7 @@ references:
   - docs/architecture-decisions/adr-2026-07-03-artifact-cross-referencing.md
   - docs/specs/p12-t46-references-field.md
   - docs/specs/p12-t55-metadata-validation.md
-  - docs/planning-artifacts/prd.md
+  - docs/planning-artifacts/requirements.md
 authored:
   by: "architect"
   date: "2026-07-03"

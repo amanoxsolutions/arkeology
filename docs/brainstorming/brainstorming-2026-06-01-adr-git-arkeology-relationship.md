@@ -296,9 +296,9 @@ with stale cross-team information. This is a governance risk, not a technical on
 
 The previous session recommended "git canonical, Arkeology is a search index" for `adr`
 specifically, on the basis that ADRs are "canonical decision records that belong in git
-alongside the code they govern." The human challenge is sharp: `docs/planning-artifacts/prd.md`
-and `docs/planning-artifacts/plan.md` are both committed to git in *this very project*, and
-both are tier 3 artifact types (`spec` and `plan`). If the "belongs in git" argument applies
+alongside the code they govern." The human challenge is sharp: `docs/planning-artifacts/vision.md`,
+`docs/planning-artifacts/requirements.md`, and `docs/planning-artifacts/plan.md` are all committed
+to git in *this very project*, and all are tier 3 artifact types (`spec` and `plan`). If the "belongs in git" argument applies
 to ADRs, does it not apply equally to specs and plans? What actually makes ADRs special, if
 anything?
 
@@ -414,8 +414,8 @@ approval). Plans and syntheses satisfy neither.
 
 #### Position A — All tier 3 docs belong in git; Arkeology just indexes copies
 
-**Implication for specs and plans:** This project already commits `prd.md` and `plan.md` to
-git. Position A says this is correct and all tier 3 documents should follow the same pattern.
+**Implication for specs and plans:** This project already commits `vision.md`, `requirements.md`,
+and `plan.md` to git. Position A says this is correct and all tier 3 documents should follow the same pattern.
 The sync problem that applied to ADRs applies equally to every type: every `write_artifact`
 call requires a corresponding git commit.
 
@@ -440,8 +440,8 @@ consistency over flexibility.
 
 #### Position B — No tier 3 doc must be in git; Arkeology is the canonical store
 
-**What teams lose without git for specs and plans:** In this project specifically, `prd.md`
-and `plan.md` are browsable on GitHub, linkable from issues and PRs, and accessible to any
+**What teams lose without git for specs and plans:** In this project specifically, `vision.md`,
+`requirements.md`, and `plan.md` are browsable on GitHub, linkable from issues and PRs, and accessible to any
 collaborator without AWS credentials. Removing them from git makes them accessible only via
 Arkeology, which requires: AWS credentials, a running service, and an MCP-capable client. Human
 collaborators who are not using an AI agent (code reviewers, stakeholders, new hires) lose
@@ -483,7 +483,7 @@ Arkeology for search.
 - `plan` → Continuously updated, rarely PR-reviewed → Arkeology is canonical.
 - `synthesis` → Exclusively agent-authored, no approval → Arkeology is canonical.
 
-**Tension with this project's current practice:** `prd.md` and `plan.md` are committed to git
+**Tension with this project's current practice:** `vision.md`, `requirements.md`, and `plan.md` are committed to git
 in this project. Under Position C, this is fine — they were authored by humans and committed
 manually. Position C does not prohibit committing to git; it says Arkeology does not *require*
 a git commit for documents that lack a formal PR-approval ceremony. The two approaches are
@@ -496,7 +496,7 @@ step, which is the same two-step problem from Option 4 in the previous session.
 
 **Verdict on Position C:** The most semantically precise position. It identifies the real
 differentiator (approval ceremony, not document type) and produces guidance that is consistent
-with both `prd.md`-in-git (this project's practice) and `synthesis`-in-arkeology-only (the
+with both `requirements.md`-in-git (this project's practice) and `synthesis`-in-arkeology-only (the
 obvious case). It requires teams to declare upfront whether a document type uses PR-based
 approval — which is a workflow decision, not a technical one.
 
@@ -560,8 +560,8 @@ Under this framing:
 - `adr` earns its "git canonical" status not because it is an ADR but because most teams
   use PR review to approve ADRs.
 - `spec` earns the same treatment **only if** the team uses PR review for spec approval — which
-  this project does (`prd.md` went through human authoring and was committed, even if not via
-  a formal PR). The PRD in `docs/planning-artifacts/` is therefore correctly in git under this
+  this project does (`vision.md` and `requirements.md` went through human authoring and were committed, even if not via
+  a formal PR). The vision and requirements documents in `docs/planning-artifacts/` are therefore correctly in git under this
   framing.
 - `plan` does not typically require formal approval, changes continuously, and serves primarily
   agent consumers → Arkeology is a defensible canonical store, with optional git commits for
@@ -583,7 +583,7 @@ property of the type.
 | Type | Remove from git after migration? | Rationale |
 |------|----------------------------------|-----------|
 | `adr` | **No — keep in git permanently** | ADRs typically go through PR-based approval; the PR discussion *is* the approval record and cannot be replicated in Arkeology. ADRs also govern code decisions and must be discoverable without AWS credentials. Arkeology holds an *index copy* for agent search; the git file is the authority. When an ADR is updated or superseded in git, re-index it in Arkeology by calling `write_artifact` again. |
-| `spec` | **Depends on team workflow.** If the spec was formally approved via PR (stakeholder sign-off, merge = approval), **keep in git permanently** — same reasoning as ADRs. If the spec is a working draft authored by an agent and has never been formally approved, **it is safe to leave in Arkeology as canonical**; commit to git if human browsability is desired. | The key question is whether the PR merge *was* the approval event. If yes, removing the git file destroys that approval record. If no, the git file is a convenience copy. In this project, `prd.md` was committed to git — it should stay there regardless of Arkeology status. |
+| `spec` | **Depends on team workflow.** If the spec was formally approved via PR (stakeholder sign-off, merge = approval), **keep in git permanently** — same reasoning as ADRs. If the spec is a working draft authored by an agent and has never been formally approved, **it is safe to leave in Arkeology as canonical**; commit to git if human browsability is desired. | The key question is whether the PR merge *was* the approval event. If yes, removing the git file destroys that approval record. If no, the git file is a convenience copy. In this project, `vision.md` and `requirements.md` were committed to git — they should stay there regardless of Arkeology status. |
 | `plan` | **Optional.** Plans change continuously and are rarely PR-approved. Arkeology is a defensible canonical store. Keeping a git copy is useful for human browsability (GitHub renders markdown, links are shareable) but is not required for auditability. Teams that already commit plans to git may continue to do so; there is no reason to remove them. Teams that do not commit plans to git need not start. | Arkeology provides the search and recall value; git provides human browsability. Neither is the sole correct answer. |
 | `synthesis` | **Yes — or never add to git in the first place.** Syntheses are AI-generated distillations, produced and updated by agent sessions, and have no natural place in a git repository. They are not decisions, not specs, and not plans. Arkeology is the only appropriate home. If any syntheses were manually committed to git during experimentation, they should be removed to avoid confusion. | Syntheses in git would mislead engineers into treating them as authoritative documents. They are knowledge infrastructure, not governance records. |
 
@@ -595,7 +595,7 @@ property of the type.
    rows for `spec`, rather than a single blanket rule?** This would be more precise but adds
    complexity to the operator decision path.
 
-2. **For this project specifically:** `docs/planning-artifacts/prd.md` and `plan.md` are already
+2. **For this project specifically:** `docs/planning-artifacts/vision.md`, `requirements.md`, and `plan.md` are already
    committed to git. Are they also in Arkeology? If not, should they be migrated in (so agents
    can search them semantically)? The migration skill would handle this, but the operator must
    decide whether to run it for their own project's planning artifacts.

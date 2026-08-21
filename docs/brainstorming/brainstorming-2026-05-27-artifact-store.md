@@ -303,7 +303,7 @@ Tier 2 artifacts are historical records. The same code review done in January an
 
 Example: `adr/b7c3e1f9a2d4e890.md`
 
-Tier 3 artifacts are living documents. There is one `plan.md`, one `prd.md`, one "VPC peering ADR". They are updated in place as decisions evolve. `date` is excluded from the hash — same `type + title` always produces the same key and overwrites the previous version regardless of when the update happens. The `date` metadata field is still stored in S3 Vectors and updated on every write to record when the artifact was last written.
+Tier 3 artifacts are living documents. There is one `plan.md`, one `requirements.md`, one "VPC peering ADR". They are updated in place as decisions evolve. `date` is excluded from the hash — same `type + title` always produces the same key and overwrites the previous version regardless of when the update happens. The `date` metadata field is still stored in S3 Vectors and updated on every write to record when the artifact was last written.
 
 **Why hash over path+UUID:**
 - **Idempotent**: same logical artifact written again produces the same key and overwrites. No duplicate artifacts, no orphaned S3 Vectors entries.

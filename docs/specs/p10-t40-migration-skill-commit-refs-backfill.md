@@ -13,7 +13,7 @@ references:
   - docs/brainstorming/brainstorming-2026-06-06-artifact-commit-refs.md
   - docs/architecture-decisions/adr-2026-06-16-artifact-commit-traceability.md
   - docs/architecture-decisions/adr-2026-07-03-annotation-backed-link-storage.md
-  - docs/planning-artifacts/prd.md
+  - docs/planning-artifacts/requirements.md
 authored:
   by: architect
   date: "2026-06-16"

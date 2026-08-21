@@ -11,7 +11,7 @@ phase: 11
 task: 43
 references:
   - docs/architecture-decisions/adr-2026-06-24-mcp-apps-visual-reading-interface.md
-  - docs/planning-artifacts/prd.md
+  - docs/planning-artifacts/requirements.md
 authored:
   by: "architect"
   date: "2026-06-24"

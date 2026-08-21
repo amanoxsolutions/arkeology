@@ -11,7 +11,7 @@ phase: 10
 task: 39
 references:
   - docs/brainstorming/brainstorming-2026-06-10-migrate-artifacts-concurrency.md
-  - docs/planning-artifacts/prd.md
+  - docs/planning-artifacts/requirements.md
 authored:
   by: "architect"
   date: "2026-06-11"

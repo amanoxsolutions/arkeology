@@ -14,7 +14,7 @@ references:
   - docs/architecture-decisions/adr-2026-07-03-annotation-backed-link-storage.md
   - docs/specs/p10-t36-commit-refs-metadata-fields.md
   - docs/specs/p12-t45-s3-annotation-client.md
-  - docs/planning-artifacts/prd.md
+  - docs/planning-artifacts/requirements.md
 authored:
   by: "architect"
   date: "2026-07-03"

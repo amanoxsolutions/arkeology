@@ -10,7 +10,7 @@ status: complete
 phase: 11
 task: 44
 references:
-  - docs/planning-artifacts/prd.md
+  - docs/planning-artifacts/requirements.md
   - docs/architecture-decisions/adr-2026-06-24-mcp-apps-visual-reading-interface.md
   - docs/architecture-decisions/adr-2026-08-12-studio-link-resolution.md
   - docs/architecture-decisions/adr-2026-07-03-artifact-cross-referencing.md

@@ -13,7 +13,7 @@ references:
   - docs/architecture-decisions/adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal.md
   - docs/specs/p12-t58-commit-refs-cap-references-removal.md
   - docs/specs/p12-t46-references-field.md
-  - docs/planning-artifacts/prd.md
+  - docs/planning-artifacts/requirements.md
 authored:
   by: "architect"
   date: "2026-08-17"
@@ -77,7 +77,7 @@ T58 removed `references` from S3 Vectors metadata, so `list_artifacts`'s existin
 | `tests/unit/test_tools_list.py` | Modify | Remove/replace any test asserting `references=[...]` filtering behaviour with a test asserting the parameter is rejected (`TypeError` at the Python call level, or the FastMCP-level equivalent for the registered tool); add/keep a `commit_refs=[...]` regression test proving it is unaffected — Red first |
 | `src/arkeology/tools/list.py` | Modify | Remove the `references` parameter from `list_artifacts`/`_list_artifacts_inner` signatures and the Step 1 `{"references": {"$eq": ref}}` clause-building block; update docstrings |
 | `src/arkeology/server.py` | Modify | Remove the `references` parameter from the `list_artifacts` tool-registration wrapper (signature, docstring, and the call into `_list_artifacts`) |
-| `docs/planning-artifacts/prd.md` | Not touched by this task | AC-57 (`list_artifacts` `references` filter) becomes stale once this ships — flagged in this spec's parent task's PM report as a documentation follow-up, not fixed here (PRD is out of scope for this spec-writing pass) |
+| `docs/planning-artifacts/requirements.md` | Not touched by this task | AC-57 (`list_artifacts` `references` filter) becomes stale once this ships — flagged in this spec's parent task's PM report as a documentation follow-up, not fixed here (Requirements are out of scope for this spec-writing pass) |
 
 ## Testing Approach
 

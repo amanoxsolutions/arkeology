@@ -12,7 +12,7 @@ task: 31a
 references:
   - docs/brainstorming/brainstorming-2026-06-02-setting-up-arkeology-skill.md
   - docs/brainstorming/brainstorming-2026-06-08-multi-team-multi-project-config.md
-  - docs/planning-artifacts/prd.md
+  - docs/planning-artifacts/requirements.md
   - https://docs.anthropic.com/en/docs/claude-code/mcp
   - https://opencode.ai/docs/mcp-servers/
   - https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-mcp-servers

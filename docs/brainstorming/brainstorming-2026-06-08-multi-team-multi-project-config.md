@@ -8,7 +8,7 @@ okf_version: "0.1"
 status: ready
 references:
   - src/arkeology/config.py
-  - docs/planning-artifacts/prd.md
+  - docs/planning-artifacts/requirements.md
   - https://docs.aws.amazon.com/agent-toolkit/latest/userguide/multi-account-access.html
   - https://opencode.ai/docs/config/
   - https://opencode.ai/docs/mcp-servers/

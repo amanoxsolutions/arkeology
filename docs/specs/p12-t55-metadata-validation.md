@@ -10,7 +10,7 @@ status: ready
 phase: 12
 task: 55
 references:
-  - docs/planning-artifacts/prd.md
+  - docs/planning-artifacts/requirements.md
   - docs/planning-artifacts/plan.md
   - docs/architecture-decisions/adr-2026-07-03-annotation-backed-link-storage.md
   - docs/specs/p12-t46-references-field.md

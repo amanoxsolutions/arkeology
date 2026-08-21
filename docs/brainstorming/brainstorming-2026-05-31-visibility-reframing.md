@@ -244,9 +244,9 @@ boundary rules — no executable code. These are editorial changes.
 
 | File | Location | Change |
 |---|---|---|
-| `docs/planning-artifacts/prd.md` | FR-01 (line 154) | `"visibility (shared or confidential)"` → `"visibility (shared or hidden)"` |
+| `docs/planning-artifacts/requirements.md` | FR-01 | `"visibility (shared or confidential)"` → `"visibility (shared or hidden)"` |
 
-All other PRD occurrences of `"shared"` (in cross-scope gate descriptions, AC-06, AC-07, etc.)
+All other occurrences of `"shared"` (in cross-scope gate descriptions, AC-06, AC-07, etc.)
 are already correct and do not mention `"confidential"`.
 
 ---
@@ -318,7 +318,7 @@ the validator accidentally.
 |---|---|---|---|
 | **D-task: Code + Tests + README** | Developer agent | Category A (source) + Category B (unit tests) + Category C (README) | `uv run pytest tests/unit/ -q -m 'not integration'` passes; `uv run mypy src/` clean; `uv run ruff check src/ tests/` clean |
 | **TW-task: Spec files** | Tech-writer agent | Category D (5 spec files) | Human review; no automated verification needed |
-| **TW-task: PRD** | Tech-writer agent | Category E (1 occurrence in prd.md) | Human review |
+| **TW-task: PRD** | Tech-writer agent | Category E (1 occurrence in requirements.md) | Human review |
 | **TW-task: Brainstorming** | Tech-writer agent (low priority) | Category F (2 brainstorming files) | Human review; can be deferred |
 
 The developer task must complete first. Tech-writer tasks can run in parallel with each other and

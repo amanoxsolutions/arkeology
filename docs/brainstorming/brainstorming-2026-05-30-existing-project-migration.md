@@ -89,7 +89,7 @@ judgment call on ambiguous files.
   - `docs/adr/` or `docs/architecture/` → `adr`, tier 3
   - `docs/specs/` → `spec`, tier 3
   - `docs/brainstorming/` → `session-summary` or `research`, tier 2
-  - `docs/planning-artifacts/` → split: `prd.md` → `spec`, `plan.md` → `spec`, both tier 3
+  - `docs/planning-artifacts/` → split: `vision.md` → `spec`, `requirements.md` → `spec`, `plan.md` → `spec`, all tier 3
   - `docs/notes/` or `docs/impl-notes/` → `impl-note`, tier 2
   - `docs/code-reviews/` → `code-review`, tier 2
   - `docs/research/` → `research`, tier 2 or 3 depending on content

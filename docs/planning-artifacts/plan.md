@@ -17,7 +17,7 @@ _Status: **V1 — Phases 1–9 complete (unit + integration suite passing agains
 
 This project runs as a **single open phase**, not a pre-planned roadmap. Completed phases stay below as a full history (every feature marked ✅); the current phase shows its tasks in detail; and anything not yet started — issues, deferred work, and scoped-but-unbuilt features — lives in [`backlog.md`](backlog.md), pulled into the current phase when we decide to tackle it. There are no pre-planned future phases beyond the current one, and a phase ends when we judge it done.
 
-- **Requirements** (FR/NFR) live in [`prd.md`](prd.md) — this plan references them by ID, it does not redefine them.
+- **Requirements** (FR/NFR/AC/Constraints) live in [`requirements.md`](requirements.md) and product vision lives in [`vision.md`](vision.md) — this plan references requirement IDs, it does not redefine them.
 - **Per-task implementation detail** lives in [`../specs/`](../specs/) as `p<phase>-t<task>-<slug>.md` (e.g. task 3 of Phase 10 → `p10-t3`).
 - **Status legend:** ⬜ pending · 🔄 in progress · 🔍 in review · ✅ done · 🔴 blocked
 - **Delivery model:** each **Phase** is a coherent slice of value delivered as a set of tasks. A phase ends when we judge it done.
@@ -548,7 +548,8 @@ what's described.
 
 ## References
 
-- [`docs/planning-artifacts/prd.md`](./prd.md)
+- [`docs/planning-artifacts/vision.md`](./vision.md)
+- [`docs/planning-artifacts/requirements.md`](./requirements.md)
 - [`docs/brainstorming/brainstorming-artifact-store.md`](../brainstorming/brainstorming-artifact-store.md)
 - [`docs/brainstorming/research-artifact-store.md`](../brainstorming/research-artifact-store.md)
 - [`docs/brainstorming/brainstorming-delete-artifact-2026-05-30.md`](../brainstorming/brainstorming-delete-artifact-2026-05-30.md)

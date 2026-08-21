@@ -10,7 +10,7 @@ phase: 9
 task: 34
 status: ready
 references:
-  - docs/planning-artifacts/prd.md
+  - docs/planning-artifacts/requirements.md
   - docs/specs/p9-t33a-opencode-js-plugin.md
   - docs/specs/p9-t33b-claude-code-plugin.md
 authored:

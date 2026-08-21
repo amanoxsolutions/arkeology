@@ -11,7 +11,7 @@ task: 33d
 status: complete
 references:
   - docs/brainstorming/brainstorming-2026-06-08-skill-distribution.md
-  - docs/planning-artifacts/prd.md
+  - docs/planning-artifacts/requirements.md
 authored:
   by: "architect"
   date: "2026-06-09"

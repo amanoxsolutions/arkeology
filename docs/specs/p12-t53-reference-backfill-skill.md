@@ -14,7 +14,7 @@ references:
   - docs/specs/p12-t49-link-metadata.md
   - docs/specs/p12-t51-migration-reference-rewrite.md
   - docs/specs/p10-t40-migration-skill-commit-refs-backfill.md
-  - docs/planning-artifacts/prd.md
+  - docs/planning-artifacts/requirements.md
 authored:
   by: "architect"
   date: "2026-07-03"

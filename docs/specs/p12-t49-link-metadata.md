@@ -14,7 +14,7 @@ references:
   - docs/specs/p10-t38-link-commit.md
   - docs/specs/p12-t45-s3-annotation-client.md
   - docs/specs/p12-t47-annotation-dual-write.md
-  - docs/planning-artifacts/prd.md
+  - docs/planning-artifacts/requirements.md
 authored:
   by: "architect"
   date: "2026-07-03"

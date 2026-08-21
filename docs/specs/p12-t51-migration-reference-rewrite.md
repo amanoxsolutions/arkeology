@@ -14,7 +14,7 @@ references:
   - docs/architecture-decisions/adr-2026-05-29-deterministic-artifact-ids.md
   - docs/specs/p12-t46-references-field.md
   - plugins/arkeology/skills/migrating-to-arkeology/SKILL.md
-  - docs/planning-artifacts/prd.md
+  - docs/planning-artifacts/requirements.md
 authored:
   by: "architect"
   date: "2026-07-03"

@@ -8,7 +8,7 @@ okf_version: "0.1"
 status: accepted
 references:
   - docs/brainstorming/brainstorming-2026-07-01-artifact-cross-referencing.md
-  - docs/planning-artifacts/prd.md
+  - docs/planning-artifacts/requirements.md
   - docs/planning-artifacts/plan.md
   - docs/architecture-decisions/adr-2026-07-03-annotation-backed-link-storage.md
   - docs/architecture-decisions/adr-2026-05-29-deterministic-artifact-ids.md
