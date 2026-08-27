@@ -123,7 +123,7 @@ do not consult Pass 2**.
 |---|---|---|
 | `vision` | `vision` | 3 |
 | `prd`, `product-requirements`, `requirements` | `requirements` | 3 |
-| `plan`, `planning`, `project-plan`, `roadmap` | `plan` | 3 |
+| `plan`, `planning`, `project-plan`, `roadmap`, `backlog` | `plan` | 3 |
 | `changelog`, `change-log`, `changes`, `release-notes` | `changelog` | 2 |
 | `runbook`, `run-book`, `playbook` | `runbook` | 3 |
 | `postmortem`, `post-mortem`, `incident-report` | `postmortem` | 2 |
