@@ -1,6 +1,6 @@
 {
   "name": "arkeology",
-  "version": "0.3.0",
+  "version": "0.6.0",
   "type": "module",
   "main": ".opencode/plugins/arkeology.js",
   "description": "MCP server for persistent artifact memory powered by AWS S3, S3 Vectors, and Bedrock embeddings",

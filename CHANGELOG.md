@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-08-28
+
 ### Changed
 - **Breaking:** the `prd` artifact type is removed and replaced by two new types,
   `vision` and `requirements`, mirroring this project's own migration from a single
