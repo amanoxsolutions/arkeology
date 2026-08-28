@@ -13,10 +13,6 @@ authored:
 revised:
   by: ""
   date: ""
-techniques_used: []
-assumptions_challenged: []
-decisions_locked: [D1, D2, D3, D4, D5, D6-metadata-schema, D7-deployment-agnostic, D8-tier3-sharing, D8b-visibility-control, D9-key-generation, D10-embedding-model, D11-tools-interface, D12-section-level-indexing, D13-schema-discovery, D14-cross-scope-index-topology, D15-synthesis-tier3-artifact, D16-synthesise-artifacts-tool, D17-synthesis-granularity-any-lens, D18-synthesis-freshness-check]
-decisions_closed_not_applicable: [OQ3-cross-team-iam, OQ5-vector-index-topology]
 ---
 
 # Brainstorming — amanox-artifact-store-mcp
@@ -29,6 +25,21 @@ New standalone project brainstorming. An AWS S3-based agent knowledge store deli
 **Facilitator Agent:** Analyst
 
 ---
+
+## Decisions
+
+### Locked
+
+- D1–D18 — see `## Locked Design Decisions` below for full detail (metadata schema, deployment-agnostic clients, tier 3 sharing/visibility, key generation, embedding model, tools interface, section-level indexing, schema discovery, cross-scope index topology, synthesis tier 3 artifact/tool/granularity/freshness check).
+
+### Pending
+
+_None._
+
+### Closed — Not Applicable
+
+- OQ3 (cross-team IAM) — ruled out of scope.
+- OQ5 (vector index topology) — resolved by D14, no longer open.
 
 ## Problem Statement
 

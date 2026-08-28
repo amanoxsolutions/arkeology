@@ -14,14 +14,6 @@ authored:
 revised:
   by: ""
   date: ""
-techniques_used: []
-assumptions_challenged: []
-decisions_locked: []
-decisions_pending:
-  - D1: Should Arkeology support Streamable HTTP transport?
-  - D2: Should stdio remain the primary/only transport, or should HTTP become the default?
-  - D3: Does Streamable HTTP eliminate the need for the description_concurrency parameter on migrate_artifacts?
-decisions_closed_not_applicable: []
 ---
 
 # MCP Transport Strategy — stdio vs Streamable HTTP
@@ -42,6 +34,22 @@ generation due to low server-side concurrency. The prior write-performance brain
 due to shared connection topology.
 
 ---
+
+## Decisions
+
+### Locked
+
+_None._
+
+### Pending
+
+- D1: Should Arkeology support Streamable HTTP transport?
+- D2: Should stdio remain the primary/only transport, or should HTTP become the default?
+- D3: Does Streamable HTTP eliminate the need for the description_concurrency parameter on migrate_artifacts?
+
+### Closed — Not Applicable
+
+_None._
 
 ## Session 2026-06-10
 

@@ -14,32 +14,6 @@ authored:
 revised:
   by: ""
   date:
-techniques_used:
-  - inversion ("what would make OKF adoption a mistake for Arkeology?")
-  - perspective-shift (Arkeology as a service vs OKF as a file format)
-  - cross-pollination (linked OKF export to the in-flight visual-reading-interface Idea 3/Surface B)
-  - challenge (contradiction surfaced in the D2-before-D1 sequencing)
-assumptions_challenged:
-  - "OKF is a competitor to Arkeology → reframed: OKF is a file/interchange format; Arkeology is a service. They sit in different layers and are complementary."
-  - "Adopting OKF means changing Arkeology's native schema → an adapter (export/import) isolates the v0.1-draft churn risk better than a native rewrite."
-  - "Updating the README fully delivers D3 → the positioning half does; the underlying moat claim (semantic recall > index.md navigation at scale) is an unvalidated assumption."
-  - "Frontmatter alignment (D2) is an all-or-nothing choice (adopt OKF names vs keep ours) → false: it is per-field. The one clean alignment (`feature_tags`→`tags`) is adopted internally; `date` is kept because OKF `timestamp` is a different concept (last-modified, not the immutable identity date) and would map from `last_edited_ulid`. Wholesale renaming is rejected because the boundary mapping function exists regardless."
-  - "OKF's index.md progressive-disclosure model is strictly weaker than Arkeology → LLMs navigate tables of contents well; the recall-degrades-at-scale claim must be tested, not assumed."
-  - "Arkeology stores OKF-style YAML frontmatter inside the document → false today: `content` is written to S3 as a pure markdown body (`write.py:262`); metadata lives separately in S3 object metadata and vector metadata. OKF frontmatter would be *synthesized at export*, not stored."
-  - "S3 Vectors metadata must match OKF field names to be OKF-compliant → no: OKF is a document-serialization format with no opinion on internal index metadata; vector metadata is query-filter infrastructure (`tier` as int, `feature_tags` as `list[str]`) and stays OKF-agnostic."
-  - "Making documents OKF-compliant is Arkeology's responsibility (a transform/mapping Arkeology performs) → no: OKF authoring is the writing agent's job and is out of scope for Arkeology. Arkeology stores content verbatim; any future export is best-effort enrichment of the existing frontmatter, never a transform of non-OKF content."
-decisions_locked:
-  - D1
-  - D2
-  - D3
-  - D4
-  - D5
-  - D6
-decisions_pending: []
-decisions_closed_not_applicable:
-  - OQ1
-  - OQ2
-  - OQ3
 ---
 
 # OKF (Open Knowledge Format) Alignment for Arkeology
@@ -52,6 +26,45 @@ into a graph, distributable as a git repo / tarball / subdirectory, with a hand-
 for progressive disclosure. This session explores what OKF means for Arkeology — a service that
 already stores markdown artifacts with rich metadata, backed by S3 + S3 Vectors + Bedrock semantic
 search — covering both the strategic relationship and the concrete export/import/schema options.
+
+## Decisions
+
+### Locked
+
+- D1
+- D2
+- D3
+- D4
+- D5
+- D6
+
+### Pending
+
+_None._
+
+### Closed — Not Applicable
+
+- OQ1
+- OQ2
+- OQ3
+
+## Techniques Used
+
+- inversion ("what would make OKF adoption a mistake for Arkeology?")
+- perspective-shift (Arkeology as a service vs OKF as a file format)
+- cross-pollination (linked OKF export to the in-flight visual-reading-interface Idea 3/Surface B)
+- challenge (contradiction surfaced in the D2-before-D1 sequencing)
+
+## Assumptions Challenged
+
+- "OKF is a competitor to Arkeology → reframed: OKF is a file/interchange format; Arkeology is a service. They sit in different layers and are complementary."
+- "Adopting OKF means changing Arkeology's native schema → an adapter (export/import) isolates the v0.1-draft churn risk better than a native rewrite."
+- "Updating the README fully delivers D3 → the positioning half does; the underlying moat claim (semantic recall > index.md navigation at scale) is an unvalidated assumption."
+- "Frontmatter alignment (D2) is an all-or-nothing choice (adopt OKF names vs keep ours) → false: it is per-field. The one clean alignment (`feature_tags`→`tags`) is adopted internally; `date` is kept because OKF `timestamp` is a different concept (last-modified, not the immutable identity date) and would map from `last_edited_ulid`. Wholesale renaming is rejected because the boundary mapping function exists regardless."
+- "OKF's index.md progressive-disclosure model is strictly weaker than Arkeology → LLMs navigate tables of contents well; the recall-degrades-at-scale claim must be tested, not assumed."
+- "Arkeology stores OKF-style YAML frontmatter inside the document → false today: `content` is written to S3 as a pure markdown body (`write.py:262`); metadata lives separately in S3 object metadata and vector metadata. OKF frontmatter would be *synthesized at export*, not stored."
+- "S3 Vectors metadata must match OKF field names to be OKF-compliant → no: OKF is a document-serialization format with no opinion on internal index metadata; vector metadata is query-filter infrastructure (`tier` as int, `feature_tags` as `list[str]`) and stays OKF-agnostic."
+- "Making documents OKF-compliant is Arkeology's responsibility (a transform/mapping Arkeology performs) → no: OKF authoring is the writing agent's job and is out of scope for Arkeology. Arkeology stores content verbatim; any future export is best-effort enrichment of the existing frontmatter, never a transform of non-OKF content."
 
 ## Session 2026-06-15
 

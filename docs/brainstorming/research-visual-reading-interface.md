@@ -14,17 +14,6 @@ authored:
 revised:
   by: ""
   date: ""
-techniques_used:
-  - market scan (directly-comparable vs adjacent matches)
-  - build-vs-adopt comparison against off-the-shelf tools
-  - gap analysis (where the concept sits relative to existing camps)
-assumptions_challenged:
-  - "A self-hosted Docker reader over S3 + S3 Vectors + Bedrock for human reading is novel / has no close prior art"
-  - "The mainstream self-hosted RAG stack is a document reader (it is overwhelmingly chat/Q&A-first)"
-  - "AWS reference architectures for knowledge bases are containerised (they are uniformly serverless and chat-oriented)"
-  - "Mermaid and faceted search must be custom-built (mature renderers exist; faceted browse is the real gap)"
-  - "There is a mature, reusable human web UI for MCP servers we could adopt instead of building (there is not — only dev/debug tools)"
-  - "If we couple a web UI to MCP, coupling to the tool layer is fine (it is LLM-shaped; couple to resources, or better, decouple)"
 ---
 
 # Research — Visual Reading / Browsing Interface for Arkeology Artifacts
@@ -47,6 +36,21 @@ Art"*), at the operator's request, to record the library-vs-MCP-client decision 
 rather than merely out-of-scope.
 
 ---
+
+## Techniques Used
+
+- market scan (directly-comparable vs adjacent matches)
+- build-vs-adopt comparison against off-the-shelf tools
+- gap analysis (where the concept sits relative to existing camps)
+
+## Assumptions Challenged
+
+- "A self-hosted Docker reader over S3 + S3 Vectors + Bedrock for human reading is novel / has no close prior art"
+- "The mainstream self-hosted RAG stack is a document reader (it is overwhelmingly chat/Q&A-first)"
+- "AWS reference architectures for knowledge bases are containerised (they are uniformly serverless and chat-oriented)"
+- "Mermaid and faceted search must be custom-built (mature renderers exist; faceted browse is the real gap)"
+- "There is a mature, reusable human web UI for MCP servers we could adopt instead of building (there is not — only dev/debug tools)"
+- "If we couple a web UI to MCP, coupling to the tool layer is fine (it is LLM-shaped; couple to resources, or better, decouple)"
 
 ## Problem Summary
 

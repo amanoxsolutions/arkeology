@@ -13,40 +13,6 @@ authored:
 revised:
   by: "analyst"
   date: "2026-06-07"
-techniques_used:
-  - inversion
-  - perspective-shift
-assumptions_challenged:
-  - "ADR strategy is the only exclusion dimension needed (false — some teams are not ready to move any tier-3 docs)"
-  - "Exclusions only matter at migration time (false — they are permanent runtime rules for every future agent session)"
-  - "The migration skill can stand alone without checking for prior installation (false — it depends on decisions recorded by the installation skill)"
-  - "Path exclusions should be applied after classification (false — scan-time exclusion is more efficient and clearer to the operator)"
-decisions_locked:
-  - D1: setting-up-arkeology skill is the right approach — atomic skill, no bundled script, AGENTS.md snippet in references/
-  - D2: adr_strategy key retained as a named field in the config block (git-only vs arkeology-only)
-  - D3: new local_only_paths key in the config block — a list of folders/files permanently excluded from Arkeology
-  - D4: local_only_types derived from local_only_paths — installation skill infers type-level rules from path selections and confirms with operator
-  - D5: structured <!-- arkeology:config ... --> block (YAML inside HTML comment) written to AGENTS.md by installation skill — single source of truth for both migration and runtime exclusions
-  - D6: config block presence is the installation sentinel — migration skill checks for it at pre-flight; absent = hard stop
-  - D7: migration skill removes its ADR gate entirely — exclusions come from the config block
-  - D8: when git-only ADR strategy chosen, installation skill auto-detects ADR folder; if not found, asks operator; then asks for additional folders/files
-  - D9: local_only_paths exclusions applied at scan-time in migration skill (not post-classification)
-  - D10: V1 path syntax — trailing / means entire directory tree; no trailing / means exact file; no glob syntax
-  - D11: re-running setting-up-arkeology updates the config block in place (no append, no history)
-  - D12: AGENTS.md narrative snippet gains a standing never-write instruction referencing local_only_types and local_only_paths
-  - D13: AWS provisioning (S3 bucket, S3 Vectors bucket/index, Bedrock model access) is OUT OF SCOPE for the installation skill — operator provisions these externally before running the skill
-  - D14: the skill collects values for pre-existing resources only (bucket name, index name, AWS profile, etc.) — it never creates AWS resources
-  - D15: pre-flight (Step 2) validates that the declared resources are reachable (s3api head-bucket, s3vectors describe-index) and that credentials are active — this replaces the provisioning responsibility
-  - D16: README AWS Provisioning section (Steps 1–4 with all CLI commands) removed; replaced by an expanded Prerequisites section listing what must exist before running the skill
-  - D17: provisioning IAM policy removed from README (no provisioning steps means no need for CreateIndex/DeleteIndex permissions); runtime IAM policy stays as a static reference with YOUR-* placeholders — the installation skill never generates or substitutes values into any IAM policy; operators use the README reference as a template for what to request from their AWS admin
-  - D18: env vars passed via IDE MCP config file env/environment block — no .env file written at any step
-  - D19: skill asks explicit permission before writing to any IDE config file; merges into existing file; displays entry for manual addition if operator declines
-  - D20: step count is 6 (parameter collection, pre-flight + resource reachability validation, clone + setup, MCP client config with env vars + permission ask, health check, exclusion config → AGENTS.md); IAM policy generation is absent from all steps — the README provides a static reference policy with YOUR-* placeholders; the skill never generates, substitutes, or applies any IAM policy document
-decisions_pending: []
-decisions_closed_not_applicable:
-  - Binary ADR gate as the sole exclusion mechanism — superseded by unified exclusion model (D2 + D3)
-  - Post-classification path filtering in migration skill — superseded by scan-time exclusion (D9)
-  - Append-on-rerun for config block — superseded by in-place update (D11)
 ---
 
 # Setting-Up-Arkeology Skill
@@ -61,6 +27,53 @@ sense, what it should cover, how it compares to the migration skill, and what tr
 in scope, structure, and README reduction.
 
 ---
+
+## Decisions
+
+### Locked
+
+- D1: setting-up-arkeology skill is the right approach — atomic skill, no bundled script, AGENTS.md snippet in references/
+- D2: adr_strategy key retained as a named field in the config block (git-only vs arkeology-only)
+- D3: new local_only_paths key in the config block — a list of folders/files permanently excluded from Arkeology
+- D4: local_only_types derived from local_only_paths — installation skill infers type-level rules from path selections and confirms with operator
+- D5: structured <!-- arkeology:config ... --> block (YAML inside HTML comment) written to AGENTS.md by installation skill — single source of truth for both migration and runtime exclusions
+- D6: config block presence is the installation sentinel — migration skill checks for it at pre-flight; absent = hard stop
+- D7: migration skill removes its ADR gate entirely — exclusions come from the config block
+- D8: when git-only ADR strategy chosen, installation skill auto-detects ADR folder; if not found, asks operator; then asks for additional folders/files
+- D9: local_only_paths exclusions applied at scan-time in migration skill (not post-classification)
+- D10: V1 path syntax — trailing / means entire directory tree; no trailing / means exact file; no glob syntax
+- D11: re-running setting-up-arkeology updates the config block in place (no append, no history)
+- D12: AGENTS.md narrative snippet gains a standing never-write instruction referencing local_only_types and local_only_paths
+- D13: AWS provisioning (S3 bucket, S3 Vectors bucket/index, Bedrock model access) is OUT OF SCOPE for the installation skill — operator provisions these externally before running the skill
+- D14: the skill collects values for pre-existing resources only (bucket name, index name, AWS profile, etc.) — it never creates AWS resources
+- D15: pre-flight (Step 2) validates that the declared resources are reachable (s3api head-bucket, s3vectors describe-index) and that credentials are active — this replaces the provisioning responsibility
+- D16: README AWS Provisioning section (Steps 1–4 with all CLI commands) removed; replaced by an expanded Prerequisites section listing what must exist before running the skill
+- D17: provisioning IAM policy removed from README (no provisioning steps means no need for CreateIndex/DeleteIndex permissions); runtime IAM policy stays as a static reference with YOUR-* placeholders — the installation skill never generates or substitutes values into any IAM policy; operators use the README reference as a template for what to request from their AWS admin
+- D18: env vars passed via IDE MCP config file env/environment block — no .env file written at any step
+- D19: skill asks explicit permission before writing to any IDE config file; merges into existing file; displays entry for manual addition if operator declines
+- D20: step count is 6 (parameter collection, pre-flight + resource reachability validation, clone + setup, MCP client config with env vars + permission ask, health check, exclusion config → AGENTS.md); IAM policy generation is absent from all steps — the README provides a static reference policy with YOUR-* placeholders; the skill never generates, substitutes, or applies any IAM policy document
+
+### Pending
+
+_None._
+
+### Closed — Not Applicable
+
+- Binary ADR gate as the sole exclusion mechanism — superseded by unified exclusion model (D2 + D3)
+- Post-classification path filtering in migration skill — superseded by scan-time exclusion (D9)
+- Append-on-rerun for config block — superseded by in-place update (D11)
+
+## Techniques Used
+
+- inversion
+- perspective-shift
+
+## Assumptions Challenged
+
+- "ADR strategy is the only exclusion dimension needed (false — some teams are not ready to move any tier-3 docs)"
+- "Exclusions only matter at migration time (false — they are permanent runtime rules for every future agent session)"
+- "The migration skill can stand alone without checking for prior installation (false — it depends on decisions recorded by the installation skill)"
+- "Path exclusions should be applied after classification (false — scan-time exclusion is more efficient and clearer to the operator)"
 
 ## Session 2026-06-02
 

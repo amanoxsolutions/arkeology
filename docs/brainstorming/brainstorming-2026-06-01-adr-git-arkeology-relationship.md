@@ -13,8 +13,6 @@ authored:
 revised:
   by: ""
   date: ""
-techniques_used: []
-assumptions_challenged: []
 ---
 
 # ADR Relationship Between Git and Arkeology

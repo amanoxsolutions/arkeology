@@ -15,57 +15,6 @@ authored:
 revised:
   by: "analyst"
   date: "2026-07-03"
-techniques_used:
-  - perspective-shift
-  - constraint-removal
-  - inversion
-assumptions_challenged:
-  - "The MCP server can be called from a git hook directly (false — stdio transport is point-to-point)"
-  - "A .env file is a reliable config source for all MCP tools (false — config location varies by tool)"
-  - "S3 stores timestamps we can filter on (false — only date is stored today; full timestamp requires a new field)"
-  - "ULIDs are only useful as IDs (false — they are also sortable timestamps enabling range queries)"
-  - "A separate skill is needed to coordinate with the committing-code skill (false — AGENTS.md is always in context)"
-  - "link_commit must update S3 object metadata to be correct (false — vector-only is acceptable in V1 with a documented reconcile limitation)"
-  - "since_ulid must be supplied for propose_commit_links to work (false — absent means all unlinked artifacts in scope)"
-decisions_locked:
-  - D1: commit_refs as the metadata field name (list[str], opaque format — full SHA, short SHA, PR URL, tag all valid)
-  - D2: last_edited_ulid as the write-time field (ULID generated on every write_artifact call, stored in S3 and vector metadata)
-  - D3: python-ulid as the ULID library dependency
-  - D4: $gte/$lte range operators must be added to filter.py as a prerequisite
-  - D5: two tools — propose_commit_links (read-only discovery) and link_commit (write, vector metadata only in V1)
-  - D6: link_commit updates vector metadata only in V1; known limitation — reconcile_index will not restore commit_refs (documented, not silent)
-  - D7: link_commit appends to existing commit_refs (merge + deduplicate, not replace)
-  - D8: V1 trigger mechanism is Path 2 — agent-driven via AGENTS.md protocol (tool-agnostic)
-  - D9: propose_commit_links fetches all artifacts in time range then filters client-side for missing commit_refs (avoids needing $exists operator)
-  - D10: link_commit returns next_since_ulid in its response; write_artifact returns last_edited_ulid in its response
-  - D11: since_ulid is optional in propose_commit_links; when absent, returns all unlinked artifacts in own scope regardless of age
-decisions_pending:
-  - Path 1 (Claude Code PostToolUse mcp_tool hook) and Path 3 (git hook + Arkeology CLI) — deferred to installation skill milestone (see Known Limitations and Deferred Features)
-  - A dedicated .arkeology/config.sh written by the installation skill as the tool-agnostic config source for Path 3
-decisions_locked:
-  - D1: commit_refs as the metadata field name (list[str], opaque format — full SHA, short SHA, PR URL, tag all valid)
-  - D2: last_edited_ulid as the write-time field (ULID generated on every write_artifact call, stored in S3 and vector metadata)
-  - D3: python-ulid as the ULID library dependency
-  - D4: $gte/$lte range operators must be added to filter.py as a prerequisite
-  - D5: two tools — propose_commit_links (read-only discovery) and link_commit (write, vector metadata only in V1)
-  - D6: link_commit updates vector metadata only in V1; known limitation — reconcile_index will not restore commit_refs (documented, not silent)
-  - D7: link_commit appends to existing commit_refs (merge + deduplicate, not replace)
-  - D8: V1 trigger mechanism is Path 2 — agent-driven via AGENTS.md protocol (tool-agnostic)
-  - D9: propose_commit_links fetches all artifacts in time range then filters client-side for missing commit_refs (avoids needing $exists operator)
-  - D10: link_commit returns next_since_ulid in its response; write_artifact returns last_edited_ulid in its response
-  - D11: since_ulid is optional in propose_commit_links; when absent, returns all unlinked artifacts in own scope regardless of age
-  - D12: "migration skill default is do not backfill commit_refs; three options available: (1) do not backfill, (2) link all to current HEAD via one `git rev-parse HEAD` call + one `link_commit` call — fast but imprecise (HEAD is migration-time snapshot, not per-file provenance), (3) backfill per-file from git history via `git log -1` per file — accurate but O(n) git calls"
-  - D13: S3 object metadata update for commit_refs (copy_object) is out of scope; commit_refs is read from vector metadata by read_artifact — no copy_object needed for read visibility
-decisions_closed_not_applicable:
-  - Direction 1 (caller-supplied commit_refs at write time) — caller may not know the SHA at write time; post-write annotation is the right model
-  - Direction 2 (ARKEOLOGY_GIT_COMMIT env var) — does not solve interactive sessions; deferred
-  - ISO-8601 datetime for written_at — ULID chosen instead (lexicographically sortable + unique + human-readable via conversion)
-  - OQ1 + OQ4 (session-start ULID ergonomics) — resolved: Bash call at session start, link_commit returns next_since_ulid, since_ulid optional
-  - OQ2 (S3 object metadata for commit_refs) — resolved as D6: vector-only in V1, reconcile limitation documented
-  - OQ3 (commit_refs filtering in list/search) — resolved: add commit_refs filter parameter to list_artifacts mirroring feature_tags pattern
-  - Migration skill backfill open question — resolved as D12: do not backfill is the default; three options (none / fast HEAD link / accurate per-file) remain available
-  - Migration timestamp option (commit_refs left empty, last_edited_ulid as proxy) — rejected; produces no actionable difference from option 1 and leaves artifacts unlinked, surfacing them in all future propose_commit_links calls without a since_ulid bound
-  - S3 copy_object for commit_refs open question — resolved as D13: out of scope; read_artifact reads vector metadata directly
 ---
 
 # Artifact Commit References
@@ -79,6 +28,57 @@ precision requirements, the trigger mechanism for linking artifacts to commits a
 and the migration skill implications.
 
 ---
+
+## Decisions
+
+### Locked
+
+- D1: commit_refs as the metadata field name (list[str], opaque format — full SHA, short SHA, PR URL, tag all valid)
+- D2: last_edited_ulid as the write-time field (ULID generated on every write_artifact call, stored in S3 and vector metadata)
+- D3: python-ulid as the ULID library dependency
+- D4: $gte/$lte range operators must be added to filter.py as a prerequisite
+- D5: two tools — propose_commit_links (read-only discovery) and link_commit (write, vector metadata only in V1)
+- D6: link_commit updates vector metadata only in V1; known limitation — reconcile_index will not restore commit_refs (documented, not silent)
+- D7: link_commit appends to existing commit_refs (merge + deduplicate, not replace)
+- D8: V1 trigger mechanism is Path 2 — agent-driven via AGENTS.md protocol (tool-agnostic)
+- D9: propose_commit_links fetches all artifacts in time range then filters client-side for missing commit_refs (avoids needing $exists operator)
+- D10: link_commit returns next_since_ulid in its response; write_artifact returns last_edited_ulid in its response
+- D11: since_ulid is optional in propose_commit_links; when absent, returns all unlinked artifacts in own scope regardless of age
+- D12: "migration skill default is do not backfill commit_refs; three options available: (1) do not backfill, (2) link all to current HEAD via one `git rev-parse HEAD` call + one `link_commit` call — fast but imprecise (HEAD is migration-time snapshot, not per-file provenance), (3) backfill per-file from git history via `git log -1` per file — accurate but O(n) git calls"
+- D13: S3 object metadata update for commit_refs (copy_object) is out of scope; commit_refs is read from vector metadata by read_artifact — no copy_object needed for read visibility
+
+### Pending
+
+- Path 1 (Claude Code PostToolUse mcp_tool hook) and Path 3 (git hook + Arkeology CLI) — deferred to installation skill milestone (see Known Limitations and Deferred Features)
+- A dedicated .arkeology/config.sh written by the installation skill as the tool-agnostic config source for Path 3
+
+### Closed — Not Applicable
+
+- Direction 1 (caller-supplied commit_refs at write time) — caller may not know the SHA at write time; post-write annotation is the right model
+- Direction 2 (ARKEOLOGY_GIT_COMMIT env var) — does not solve interactive sessions; deferred
+- ISO-8601 datetime for written_at — ULID chosen instead (lexicographically sortable + unique + human-readable via conversion)
+- OQ1 + OQ4 (session-start ULID ergonomics) — resolved: Bash call at session start, link_commit returns next_since_ulid, since_ulid optional
+- OQ2 (S3 object metadata for commit_refs) — resolved as D6: vector-only in V1, reconcile limitation documented
+- OQ3 (commit_refs filtering in list/search) — resolved: add commit_refs filter parameter to list_artifacts mirroring feature_tags pattern
+- Migration skill backfill open question — resolved as D12: do not backfill is the default; three options (none / fast HEAD link / accurate per-file) remain available
+- Migration timestamp option (commit_refs left empty, last_edited_ulid as proxy) — rejected; produces no actionable difference from option 1 and leaves artifacts unlinked, surfacing them in all future propose_commit_links calls without a since_ulid bound
+- S3 copy_object for commit_refs open question — resolved as D13: out of scope; read_artifact reads vector metadata directly
+
+## Techniques Used
+
+- perspective-shift
+- constraint-removal
+- inversion
+
+## Assumptions Challenged
+
+- "The MCP server can be called from a git hook directly (false — stdio transport is point-to-point)"
+- "A .env file is a reliable config source for all MCP tools (false — config location varies by tool)"
+- "S3 stores timestamps we can filter on (false — only date is stored today; full timestamp requires a new field)"
+- "ULIDs are only useful as IDs (false — they are also sortable timestamps enabling range queries)"
+- "A separate skill is needed to coordinate with the committing-code skill (false — AGENTS.md is always in context)"
+- "link_commit must update S3 object metadata to be correct (false — vector-only is acceptable in V1 with a documented reconcile limitation)"
+- "since_ulid must be supplied for propose_commit_links to work (false — absent means all unlinked artifacts in scope)"
 
 ## Superseded decisions (updated 2026-07-03)
 

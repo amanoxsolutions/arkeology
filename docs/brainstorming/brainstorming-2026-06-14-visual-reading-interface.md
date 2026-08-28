@@ -20,60 +20,6 @@ authored:
 revised:
   by: "analyst"
   date: 2026-06-23
-techniques_used:
-  - multi-agent adversarial challenge (5 analyst subagents, one idea each, each challenging the anchor)
-  - inversion (publish-once vs query-live; "what would make a localhost reader fail?")
-  - perspective-shift (in-session engineer vs team/org reader vs non-engineer)
-  - constraint-removal (what if the MCP server lived in AWS, not on the operator machine?)
-  - analogy (AWS Cognito+SSO identity model; static-site generators; AWS proxy per-call identity)
-  - cross-pollination (used each subagent's idea to answer another's challenge)
-assumptions_challenged:
-  - "Reading happens in-session, so reusing the already-running MCP process is the right host"
-  - "A localhost-only reader is sufficient — shareable links and deep-links don't matter"
-  - "The reader's audience is the engineer running the MCP server"
-  - "Live semantic search is needed for human reading and browsing"
-  - "Bundling a SPA + mermaid.js + a JS build toolchain inside the Python MCP package is acceptable"
-  - "We must build a bespoke UI rather than reuse renderers that already exist (Obsidian/GitHub/MkDocs/MCP hosts)"
-  - "Rendering should happen live at read time rather than once at write/publish time"
-  - "localhost-only neatly sidesteps the auth/transport question"
-  - "The soft tier/visibility gate is adequate when humans read via their own broad local AWS credentials"
-  - "A containerized reader should connect to Arkeology AS AN MCP CLIENT (the MCP tool contract is a stable decoupling boundary)"
-  - "A single local container can serve as a team-wide reader by changing its bind address"
-  - "Auth can stay minimal for a self-hosted reader because it is local/internal"
-  - "IAM Identity Center can serve as a general-purpose OIDC provider for AgentCore Gateway — disproved: IAM IC tokens carry AWS-internal audience claims rejected by AgentCore Gateway's aud validation, and the token endpoint requires SigV4 signing that Claude Code cannot perform (2026-06-23)"
-  - "CloudFront mTLS is viable without a private CA — disproved: ACM Private CA (~$400/mo) is required for a CloudFront mTLS trust store (2026-06-23)"
-  - "Signed cookies avoid the need for an identity mechanism for human readers — disproved: cookie renewal always requires authenticating the requester, reintroducing the same problem (2026-06-23)"
-  - "A clean auth model exists for both agent and human UI paths that avoids a Cognito user pool — disproved: every investigated alternative carries meaningful trade-offs; a self-managed Cognito user pool is the pragmatic choice (2026-06-23)"
-decisions_locked:
-  - "Direction 1 (publish-on-write static site) is eliminated — sync management (CloudFront invalidation, manifest rebuilds, delete/archive/visibility triggers, backfill) deemed too complex relative to value delivered (2026-06-17)"
-  - "Any local copy mechanism must be pull-only (S3 → local); local edits must never propagate back to S3. Write-back is explicitly out of scope. This is a new feature, distinct from Arkeology's MCP agent tools. (2026-06-17)"
-  - "Remotely Save under read-only IAM is not viable: during initial setup the plugin writes a metadata file and fails with an error if s3:PutObject is denied — IAM-layer enforcement alone cannot substitute for plugin-level configuration. Remotely Save does however support a native one-way sync option (pull-only or push-only); configuring pull-only in the plugin settings works correctly. Tested and confirmed working (2026-06-23)."
-  - "Direction 3 Surface B (Arkeology export CLI) is dropped: an agent can fetch any artifact from the MCP server on demand and export it to disk without a dedicated CLI. Continuous sync to Obsidian is handled by Remotely Save pull-only mode. No Arkeology export CLI will be built. (2026-06-23)"
-  - "'API Gateway MCP proxy support' is a console shortcut that registers an API Gateway stage as a target inside AgentCore Gateway; API Gateway itself does not serve MCP protocol. The MCP endpoint is always AgentCore Gateway's managed URL. The feature name is misleading. (2026-06-18)"
-  - "Direction 4 architecture: a single API Gateway + Lambda deployment (Arkeology read logic) serves two consumption paths — (1) AgentCore Gateway → API Gateway → Lambda for MCP agents over Streamable HTTP; (2) CloudFront → API Gateway → Lambda for the human reading UI. No code duplication across paths. (2026-06-18, updated 2026-06-23)"
-  - "CloudFront mTLS in Direction 4 is dropped — supersedes the 2026-06-18 lock. ACM Private CA (~$400/mo) is required for a CloudFront mTLS trust store, making it non-viable. Human readers use the same Cognito user pool as agents via Authorization Code + PKCE in the browser. (2026-06-23)"
-  - "Direction 4 inbound auth for AgentCore Gateway: Cognito Authorization Code (OAuth 2.0). Developers complete a one-time browser login per machine; Claude Code stores refresh tokens and handles all subsequent auth natively via Streamable HTTP, with no local proxy. (2026-06-18)"
-  - "stdio transport is fundamentally single-client: Workflow subagents are independent API calls that do not inherit the parent session's stdio MCP connections and cannot share them. This makes stdio structurally incompatible with multi-agent parallelisation. Streamable HTTP (AgentCore Gateway) resolves this because any number of independent subagents connect to the same URL concurrently. (2026-06-18)"
-  - "D4 resolved — Direction 3 is the immediate first increment, shipping independently of Direction 4: MCP data resources (Surface A) + Obsidian Remotely Save pull-only + web reading interface. On-demand artifact export is handled by the agent on request; no export CLI. No TUI. (2026-06-23)"
-  - "D12 resolved — one Cognito user pool federated to IAM Identity Center (or another corporate OIDC-compatible IdP such as Entra or Okta). No users are stored in Cognito; developers authenticate via the corporate IdP. Developer lifecycle (onboarding, offboarding) is managed entirely in the corporate IdP — zero user management for the Arkeology team. One-time federation setup requires coordination with the IdP team. (2026-06-23)"
-  - "D13 resolved — human reading UI uses the same federated Cognito user pool as agents, authenticated via Authorization Code + PKCE in the browser (Amplify or equivalent). mTLS dropped. Single pool serves both consumption paths. (2026-06-23)"
-decisions_pending:
-  - "D6: Partially answered — Direction 4 (hosted) independently adopts Streamable HTTP via AgentCore Gateway without forcing migration of the local stdio server. The local server can stay stdio. Whether to migrate it separately remains open in the transport strategy brainstorm."
-  - "D7: Should a self-hosted reader ship inside the Arkeology package or as a separate companion repo/product (e.g. arkeology-lens)?"
-  - "D8: Version-sync — how does the Arkeology version deployed as Lambda targets stay in lockstep with the Arkeology version agents write with (new metadata fields / ID scheme)?"
-  - "D11: Scope gate under the hosted model — how does the Lambda derive the caller's scope? Options: (a) extract from the Cognito JWT claim (requires a claim→scope mapping in Cognito); (b) explicit scope parameter passed by the agent (already the case in AGENTS.md, conceptually equivalent to the current per-process WRITE_PREFIX). The right answer may differ per path. (mTLS certificate CN option dropped with D13 resolution.)"
-decisions_closed_not_applicable:
-  - "D2 — closed (2026-06-24): MCP Apps is the reading surface. AWS hosting not needed. See brainstorming-2026-06-24-mcp-apps-visual-interface.md."
-  - "D3 — closed (2026-06-24): live semantic search is moot. The MCP App calls search_artifacts directly; semantic search is inherited from the existing tool. See brainstorming-2026-06-24-mcp-apps-visual-interface.md."
-  - "D7 — closed (2026-06-24): MCP Apps ships as pre-built HTML assets inside Arkeology. No separate arkeology-lens repo. See brainstorming-2026-06-24-mcp-apps-visual-interface.md."
-  - "D5 — closed: mTLS certificate subject as scope gate replacement is moot. CloudFront mTLS is for the UI path only; AgentCore Gateway uses Cognito OAuth (no certificate subject). Scope under the hosted model is addressed by D11. (2026-06-18)"
-  - "D9 — resolved: Remotely Save pull-only mode works when configured at the plugin level; read-only IAM is not viable (setup requires write access). No Arkeology export --watch CLI needed — on-demand export handled by the agent, continuous sync by Remotely Save. Tested and confirmed. (2026-06-23)"
-  - "D10 — closed: resolved by the 2026-06-18 investigation. AgentCore Gateway exposes MCP tools (from the API Gateway REST API targets) over Streamable HTTP. It collapses the agent tool access path and the hosted reader backend into one Lambda deployment, but the human UI is a separate frontend consuming the same API Gateway — not an MCP client. (2026-06-18)"
-  - "IAM IC as direct OIDC provider for AgentCore Gateway — closed (2026-06-23): two hard technical blockers: (1) IAM IC access tokens carry AWS-internal audience claims that AgentCore Gateway's aud validation rejects; (2) the token endpoint (CreateTokenWithIAM) requires SigV4 signing that Claude Code cannot perform. Additionally, registering a custom application in IAM IC requires coordination with the Identity Center team — organizational friction that rules it out independently of the technical blockers. IAM IC's OIDC service is designed for AWS CLI/SDK access to AWS account entitlements, not as a general-purpose OIDC provider for arbitrary applications."
-  - "IAM IC as direct OIDC provider for AgentCore Gateway (without Cognito) — closed (2026-06-23): distinct from Cognito-federated-to-IAM-IC (which is the adopted approach). Direct IAM IC has two hard technical blockers: (1) IAM IC access tokens carry AWS-internal audience claims that AgentCore Gateway rejects; (2) the token endpoint requires SigV4 signing that Claude Code cannot perform."
-  - "CloudFront signed cookies for human UI — closed (2026-06-23): signed cookie renewal requires authenticating the requester, which reintroduces an identity mechanism. The renewal problem is not simpler than the auth problem it was meant to avoid."
-  - "Cognito M2M (client credentials grant) via a Backend-For-Frontend for human UI — closed (2026-06-23): M2M authenticates the server application, not the human user — anyone who can reach the BFF URL gets read access, with no per-user gate. Claude Code's MCP OAuth implementation also does not support client credentials grant natively, so M2M cannot serve the agent path either."
-  - "Alternative Direction 4 variant (IAM/SigV4 for agents via mcp-proxy-for-aws, non-Cognito for humans) — investigated and not adopted as primary (2026-06-23): using mcp-proxy-for-aws preserves existing AWS credentials for agent auth (no Cognito user pool for agents) but the proxy is stdio — structurally incompatible with Workflow subagent parallelisation. The human UI auth problem then has no clean solution: mTLS requires ACM PCA (~$400/mo), signed cookies have a renewal gap, M2M has no per-user gate. The combination resolves the user-pool aversion but trades it for a weaker capability set. Documented below as a reference alternative for teams where parallelisation is genuinely not a requirement."
 ---
 
 # Visual Reading / Browsing Interface for Arkeology Artifacts
@@ -89,6 +35,72 @@ multi-facet filters (e.g. type + date), select a document, and render markdown *
 mermaid diagrams. It deliberately considers a reframe the user invited: a future where the
 MCP server (or a read-only twin of its logic) no longer runs only on the operator's machine
 but is hosted in AWS.
+
+## Decisions
+
+### Locked
+
+- "Direction 1 (publish-on-write static site) is eliminated — sync management (CloudFront invalidation, manifest rebuilds, delete/archive/visibility triggers, backfill) deemed too complex relative to value delivered (2026-06-17)"
+- "Any local copy mechanism must be pull-only (S3 → local); local edits must never propagate back to S3. Write-back is explicitly out of scope. This is a new feature, distinct from Arkeology's MCP agent tools. (2026-06-17)"
+- "Remotely Save under read-only IAM is not viable: during initial setup the plugin writes a metadata file and fails with an error if s3:PutObject is denied — IAM-layer enforcement alone cannot substitute for plugin-level configuration. Remotely Save does however support a native one-way sync option (pull-only or push-only); configuring pull-only in the plugin settings works correctly. Tested and confirmed working (2026-06-23)."
+- "Direction 3 Surface B (Arkeology export CLI) is dropped: an agent can fetch any artifact from the MCP server on demand and export it to disk without a dedicated CLI. Continuous sync to Obsidian is handled by Remotely Save pull-only mode. No Arkeology export CLI will be built. (2026-06-23)"
+- "'API Gateway MCP proxy support' is a console shortcut that registers an API Gateway stage as a target inside AgentCore Gateway; API Gateway itself does not serve MCP protocol. The MCP endpoint is always AgentCore Gateway's managed URL. The feature name is misleading. (2026-06-18)"
+- "Direction 4 architecture: a single API Gateway + Lambda deployment (Arkeology read logic) serves two consumption paths — (1) AgentCore Gateway → API Gateway → Lambda for MCP agents over Streamable HTTP; (2) CloudFront → API Gateway → Lambda for the human reading UI. No code duplication across paths. (2026-06-18, updated 2026-06-23)"
+- "CloudFront mTLS in Direction 4 is dropped — supersedes the 2026-06-18 lock. ACM Private CA (~$400/mo) is required for a CloudFront mTLS trust store, making it non-viable. Human readers use the same Cognito user pool as agents via Authorization Code + PKCE in the browser. (2026-06-23)"
+- "Direction 4 inbound auth for AgentCore Gateway: Cognito Authorization Code (OAuth 2.0). Developers complete a one-time browser login per machine; Claude Code stores refresh tokens and handles all subsequent auth natively via Streamable HTTP, with no local proxy. (2026-06-18)"
+- "stdio transport is fundamentally single-client: Workflow subagents are independent API calls that do not inherit the parent session's stdio MCP connections and cannot share them. This makes stdio structurally incompatible with multi-agent parallelisation. Streamable HTTP (AgentCore Gateway) resolves this because any number of independent subagents connect to the same URL concurrently. (2026-06-18)"
+- "D4 resolved — Direction 3 is the immediate first increment, shipping independently of Direction 4: MCP data resources (Surface A) + Obsidian Remotely Save pull-only + web reading interface. On-demand artifact export is handled by the agent on request; no export CLI. No TUI. (2026-06-23)"
+- "D12 resolved — one Cognito user pool federated to IAM Identity Center (or another corporate OIDC-compatible IdP such as Entra or Okta). No users are stored in Cognito; developers authenticate via the corporate IdP. Developer lifecycle (onboarding, offboarding) is managed entirely in the corporate IdP — zero user management for the Arkeology team. One-time federation setup requires coordination with the IdP team. (2026-06-23)"
+- "D13 resolved — human reading UI uses the same federated Cognito user pool as agents, authenticated via Authorization Code + PKCE in the browser (Amplify or equivalent). mTLS dropped. Single pool serves both consumption paths. (2026-06-23)"
+
+### Pending
+
+- "D6: Partially answered — Direction 4 (hosted) independently adopts Streamable HTTP via AgentCore Gateway without forcing migration of the local stdio server. The local server can stay stdio. Whether to migrate it separately remains open in the transport strategy brainstorm."
+- "D7: Should a self-hosted reader ship inside the Arkeology package or as a separate companion repo/product (e.g. arkeology-lens)?"
+- "D8: Version-sync — how does the Arkeology version deployed as Lambda targets stay in lockstep with the Arkeology version agents write with (new metadata fields / ID scheme)?"
+- "D11: Scope gate under the hosted model — how does the Lambda derive the caller's scope? Options: (a) extract from the Cognito JWT claim (requires a claim→scope mapping in Cognito); (b) explicit scope parameter passed by the agent (already the case in AGENTS.md, conceptually equivalent to the current per-process WRITE_PREFIX). The right answer may differ per path. (mTLS certificate CN option dropped with D13 resolution.)"
+
+### Closed — Not Applicable
+
+- "D2 — closed (2026-06-24): MCP Apps is the reading surface. AWS hosting not needed. See brainstorming-2026-06-24-mcp-apps-visual-interface.md."
+- "D3 — closed (2026-06-24): live semantic search is moot. The MCP App calls search_artifacts directly; semantic search is inherited from the existing tool. See brainstorming-2026-06-24-mcp-apps-visual-interface.md."
+- "D7 — closed (2026-06-24): MCP Apps ships as pre-built HTML assets inside Arkeology. No separate arkeology-lens repo. See brainstorming-2026-06-24-mcp-apps-visual-interface.md."
+- "D5 — closed: mTLS certificate subject as scope gate replacement is moot. CloudFront mTLS is for the UI path only; AgentCore Gateway uses Cognito OAuth (no certificate subject). Scope under the hosted model is addressed by D11. (2026-06-18)"
+- "D9 — resolved: Remotely Save pull-only mode works when configured at the plugin level; read-only IAM is not viable (setup requires write access). No Arkeology export --watch CLI needed — on-demand export handled by the agent, continuous sync by Remotely Save. Tested and confirmed. (2026-06-23)"
+- "D10 — closed: resolved by the 2026-06-18 investigation. AgentCore Gateway exposes MCP tools (from the API Gateway REST API targets) over Streamable HTTP. It collapses the agent tool access path and the hosted reader backend into one Lambda deployment, but the human UI is a separate frontend consuming the same API Gateway — not an MCP client. (2026-06-18)"
+- "IAM IC as direct OIDC provider for AgentCore Gateway — closed (2026-06-23): two hard technical blockers: (1) IAM IC access tokens carry AWS-internal audience claims that AgentCore Gateway's aud validation rejects; (2) the token endpoint (CreateTokenWithIAM) requires SigV4 signing that Claude Code cannot perform. Additionally, registering a custom application in IAM IC requires coordination with the Identity Center team — organizational friction that rules it out independently of the technical blockers. IAM IC's OIDC service is designed for AWS CLI/SDK access to AWS account entitlements, not as a general-purpose OIDC provider for arbitrary applications."
+- "IAM IC as direct OIDC provider for AgentCore Gateway (without Cognito) — closed (2026-06-23): distinct from Cognito-federated-to-IAM-IC (which is the adopted approach). Direct IAM IC has two hard technical blockers: (1) IAM IC access tokens carry AWS-internal audience claims that AgentCore Gateway rejects; (2) the token endpoint requires SigV4 signing that Claude Code cannot perform."
+- "CloudFront signed cookies for human UI — closed (2026-06-23): signed cookie renewal requires authenticating the requester, which reintroduces an identity mechanism. The renewal problem is not simpler than the auth problem it was meant to avoid."
+- "Cognito M2M (client credentials grant) via a Backend-For-Frontend for human UI — closed (2026-06-23): M2M authenticates the server application, not the human user — anyone who can reach the BFF URL gets read access, with no per-user gate. Claude Code's MCP OAuth implementation also does not support client credentials grant natively, so M2M cannot serve the agent path either."
+- "Alternative Direction 4 variant (IAM/SigV4 for agents via mcp-proxy-for-aws, non-Cognito for humans) — investigated and not adopted as primary (2026-06-23): using mcp-proxy-for-aws preserves existing AWS credentials for agent auth (no Cognito user pool for agents) but the proxy is stdio — structurally incompatible with Workflow subagent parallelisation. The human UI auth problem then has no clean solution: mTLS requires ACM PCA (~$400/mo), signed cookies have a renewal gap, M2M has no per-user gate. The combination resolves the user-pool aversion but trades it for a weaker capability set. Documented below as a reference alternative for teams where parallelisation is genuinely not a requirement."
+
+## Techniques Used
+
+- multi-agent adversarial challenge (5 analyst subagents, one idea each, each challenging the anchor)
+- inversion (publish-once vs query-live; "what would make a localhost reader fail?")
+- perspective-shift (in-session engineer vs team/org reader vs non-engineer)
+- constraint-removal (what if the MCP server lived in AWS, not on the operator machine?)
+- analogy (AWS Cognito+SSO identity model; static-site generators; AWS proxy per-call identity)
+- cross-pollination (used each subagent's idea to answer another's challenge)
+
+## Assumptions Challenged
+
+- "Reading happens in-session, so reusing the already-running MCP process is the right host"
+- "A localhost-only reader is sufficient — shareable links and deep-links don't matter"
+- "The reader's audience is the engineer running the MCP server"
+- "Live semantic search is needed for human reading and browsing"
+- "Bundling a SPA + mermaid.js + a JS build toolchain inside the Python MCP package is acceptable"
+- "We must build a bespoke UI rather than reuse renderers that already exist (Obsidian/GitHub/MkDocs/MCP hosts)"
+- "Rendering should happen live at read time rather than once at write/publish time"
+- "localhost-only neatly sidesteps the auth/transport question"
+- "The soft tier/visibility gate is adequate when humans read via their own broad local AWS credentials"
+- "A containerized reader should connect to Arkeology AS AN MCP CLIENT (the MCP tool contract is a stable decoupling boundary)"
+- "A single local container can serve as a team-wide reader by changing its bind address"
+- "Auth can stay minimal for a self-hosted reader because it is local/internal"
+- "IAM Identity Center can serve as a general-purpose OIDC provider for AgentCore Gateway — disproved: IAM IC tokens carry AWS-internal audience claims rejected by AgentCore Gateway's aud validation, and the token endpoint requires SigV4 signing that Claude Code cannot perform (2026-06-23)"
+- "CloudFront mTLS is viable without a private CA — disproved: ACM Private CA (~$400/mo) is required for a CloudFront mTLS trust store (2026-06-23)"
+- "Signed cookies avoid the need for an identity mechanism for human readers — disproved: cookie renewal always requires authenticating the requester, reintroducing the same problem (2026-06-23)"
+- "A clean auth model exists for both agent and human UI paths that avoids a Cognito user pool — disproved: every investigated alternative carries meaningful trade-offs; a self-managed Cognito user pool is the pragmatic choice (2026-06-23)"
 
 ## Summary
 

@@ -18,32 +18,6 @@ authored:
 revised:
   by: "analyst"
   date: 2026-06-24
-techniques_used:
-  - inversion ("what would make MCP Apps fail for Arkeology?")
-  - constraint-removal ("if we had to ship next week, what would block us?")
-  - perspective-shift (in-session engineer vs. always-on reader)
-assumptions_challenged:
-  - "Readers need access to artifacts outside an active Claude session — disproved: the team works inside Claude Code; needing it open is no worse than needing Confluence open"
-  - "MCP Apps requires Streamable HTTP — disproved: MCP Apps works over stdio with Claude Desktop; Streamable HTTP adds claude.ai web support but is not a prerequisite"
-  - "Embedding a JS build artifact in a Python package is problematic — disproved: pre-built HTML assets as package data files is standard practice; no runtime Node.js required; furthermore a Vite build step may not be needed at all if the UI is vanilla JS with CDN-loaded dependencies"
-  - "FastMCP does not support _meta.ui.resourceUri — disproved: FastMCP has first-class MCP Apps support via fastmcp[apps]; AppConfig(resource_uri=...) wires the _meta field and CSP automatically"
-  - "A Vite/Node.js build pipeline is required to build the MCP App UI — disproved: FastMCP's ResourceCSP.resource_domains allows loading ext-apps SDK and mermaid.js from CDN; the UI can be a plain HTML file with vanilla JS and no build step"
-decisions_locked:
-  - "D1 resolved — MCP Apps is the visual reading interface for Arkeology. An arkeology_studio tool (or equivalent) returns a bundled HTML/JS UI rendered inline in Claude Desktop / claude.ai. The UI calls existing Arkeology tools (list_artifacts, search_artifacts, read_artifact) directly."
-  - "D2 resolved — Direction 4's CloudFront SPA component is dropped. MCP Apps covers the in-session reading need; Obsidian + Remotely Save covers outside-session reading for those who want it. No AWS-hosted reading UI will be built."
-  - "D3 resolved — live semantic search is not a separate v1 requirement for the reading UI: the MCP App UI calls search_artifacts directly, which already performs vector search. Semantic search is available from day one via the existing tool."
-  - "Requiring Claude Desktop (or a compatible MCP App host) to read an artifact is an acceptable constraint for this team. Every project participant uses Claude Code as their primary AI interface."
-  - "Obsidian + Remotely Save is a per-developer personal preference, not a project-shipped feature. Arkeology will not own or configure Obsidian sync."
-  - "No TUI. The reading surface is a web interface (MCP App) only."
-decisions_pending:
-  - "Transport orthogonality: switching to Streamable HTTP (for Workflow parallelisation and claude.ai web MCP Apps) remains open in the transport strategy brainstorm and is independent of this decision."
-decisions_closed_not_applicable:
-  - "FastMCP _meta compatibility — closed (2026-06-24): FastMCP ships first-class MCP Apps support via fastmcp[apps]. AppConfig(resource_uri='ui://...') on @mcp.tool() sets the _meta.ui.resourceUri field; @mcp.resource('ui://...') serves the HTML. No lower-level workaround needed."
-  - "Mermaid rendering strategy — closed (2026-06-24): FastMCP's ResourceCSP(resource_domains=[...]) allows loading mermaid.js and the ext-apps SDK from CDN. No bundling required. A Vite build pipeline is not needed unless a JS framework (React/TypeScript) is desired for the UI."
-  - "arkeology_studio tool design (one vs two tools) — closed (2026-06-24): both arkeology_studio and read_artifact can independently carry AppConfig(resource_uri=...) and use ctx.client_supports_extension(UI_EXTENSION_ID) for graceful degradation. No architectural blocker on the two-tool design; scope decision deferred to feature spec."
-  - "D2 (prior) — 'Is the reading surface local or hosted in AWS?' — closed: MCP Apps (local/in-session) is the answer. AWS hosting is not needed for the reading surface."
-  - "D3 (prior) — 'Is live semantic search a v1 requirement for the hosted UI?' — closed: moot. The MCP App calls search_artifacts directly; semantic search is inherited, not a separate build concern."
-  - "D7 (prior) — 'Should the reading UI ship inside Arkeology or as a separate arkeology-lens repo?' — closed: MCP Apps ships as pre-built HTML assets inside Arkeology. No separate repo."
 ---
 
 # MCP Apps as the Visual Reading Interface for Arkeology
@@ -55,6 +29,44 @@ tools return interactive HTML/JS UIs rendered inline in the host (Claude Desktop
 VS Code Copilot, Cursor, etc.) — as the visual reading interface for Arkeology artifacts. The prior
 brainstorming session (`brainstorming-2026-06-14-visual-reading-interface.md`) left the web reading
 surface open as "direction to be determined." This session closes it.
+
+## Decisions
+
+### Locked
+
+- "D1 resolved — MCP Apps is the visual reading interface for Arkeology. An arkeology_studio tool (or equivalent) returns a bundled HTML/JS UI rendered inline in Claude Desktop / claude.ai. The UI calls existing Arkeology tools (list_artifacts, search_artifacts, read_artifact) directly."
+- "D2 resolved — Direction 4's CloudFront SPA component is dropped. MCP Apps covers the in-session reading need; Obsidian + Remotely Save covers outside-session reading for those who want it. No AWS-hosted reading UI will be built."
+- "D3 resolved — live semantic search is not a separate v1 requirement for the reading UI: the MCP App UI calls search_artifacts directly, which already performs vector search. Semantic search is available from day one via the existing tool."
+- "Requiring Claude Desktop (or a compatible MCP App host) to read an artifact is an acceptable constraint for this team. Every project participant uses Claude Code as their primary AI interface."
+- "Obsidian + Remotely Save is a per-developer personal preference, not a project-shipped feature. Arkeology will not own or configure Obsidian sync."
+- "No TUI. The reading surface is a web interface (MCP App) only."
+
+### Pending
+
+- "Transport orthogonality: switching to Streamable HTTP (for Workflow parallelisation and claude.ai web MCP Apps) remains open in the transport strategy brainstorm and is independent of this decision."
+
+### Closed — Not Applicable
+
+- "FastMCP _meta compatibility — closed (2026-06-24): FastMCP ships first-class MCP Apps support via fastmcp[apps]. AppConfig(resource_uri='ui://...') on @mcp.tool() sets the _meta.ui.resourceUri field; @mcp.resource('ui://...') serves the HTML. No lower-level workaround needed."
+- "Mermaid rendering strategy — closed (2026-06-24): FastMCP's ResourceCSP(resource_domains=[...]) allows loading mermaid.js and the ext-apps SDK from CDN. No bundling required. A Vite build pipeline is not needed unless a JS framework (React/TypeScript) is desired for the UI."
+- "arkeology_studio tool design (one vs two tools) — closed (2026-06-24): both arkeology_studio and read_artifact can independently carry AppConfig(resource_uri=...) and use ctx.client_supports_extension(UI_EXTENSION_ID) for graceful degradation. No architectural blocker on the two-tool design; scope decision deferred to feature spec."
+- "D2 (prior) — 'Is the reading surface local or hosted in AWS?' — closed: MCP Apps (local/in-session) is the answer. AWS hosting is not needed for the reading surface."
+- "D3 (prior) — 'Is live semantic search a v1 requirement for the hosted UI?' — closed: moot. The MCP App calls search_artifacts directly; semantic search is inherited, not a separate build concern."
+- "D7 (prior) — 'Should the reading UI ship inside Arkeology or as a separate arkeology-lens repo?' — closed: MCP Apps ships as pre-built HTML assets inside Arkeology. No separate repo."
+
+## Techniques Used
+
+- inversion ("what would make MCP Apps fail for Arkeology?")
+- constraint-removal ("if we had to ship next week, what would block us?")
+- perspective-shift (in-session engineer vs. always-on reader)
+
+## Assumptions Challenged
+
+- "Readers need access to artifacts outside an active Claude session — disproved: the team works inside Claude Code; needing it open is no worse than needing Confluence open"
+- "MCP Apps requires Streamable HTTP — disproved: MCP Apps works over stdio with Claude Desktop; Streamable HTTP adds claude.ai web support but is not a prerequisite"
+- "Embedding a JS build artifact in a Python package is problematic — disproved: pre-built HTML assets as package data files is standard practice; no runtime Node.js required; furthermore a Vite build step may not be needed at all if the UI is vanilla JS with CDN-loaded dependencies"
+- "FastMCP does not support _meta.ui.resourceUri — disproved: FastMCP has first-class MCP Apps support via fastmcp[apps]; AppConfig(resource_uri=...) wires the _meta field and CSP automatically"
+- "A Vite/Node.js build pipeline is required to build the MCP App UI — disproved: FastMCP's ResourceCSP.resource_domains allows loading ext-apps SDK and mermaid.js from CDN; the UI can be a plain HTML file with vanilla JS and no build step"
 
 ## Session 2026-06-24
 

@@ -22,46 +22,6 @@ authored:
 revised:
   by: analyst
   date: 2026-06-08
-techniques_used:
-  - inversion
-  - analogy (AWS mcp-proxy-for-aws profile-per-call pattern)
-  - constraint-removal (what if WRITE_PREFIX did not exist?)
-  - perspective-shift (agent perspective vs operator perspective)
-assumptions_challenged:
-  - "WRITE_PREFIX as a server-side enforcement gate is the right abstraction"
-  - "One server instance = one project is a fundamental constraint"
-  - "team/project fields in the artifact model and WRITE_PREFIX are different things"
-  - "The AWS proxy approach (per-call profile) requires a hosted server"
-decisions_locked:
-  - D1: Direction 2 (per-project MCP config) is the chosen approach — no server code changes
-  - D2: WRITE_PREFIX stays as-is; the enforcement fence is valuable and must not be removed
-  - D3: Multi-backend isolation (different ARTIFACT_BUCKET per project) is out of scope for now;
-        prefix-based isolation within one backend is sufficient; Direction 3 kept on roadmap
-  - D5: setting-up-arkeology skill must be updated to document all four client setups;
-        content and exact syntax documented in Session 3 of this file
-  - D6: "opencode merge is additive at the mcp server-name level — a project config that only
-        contains a new server name adds it to the global server list without disturbing existing
-        global entries; empirically confirmed (Session 4). Same-name override behaviour is
-        inferred shallow (replace entire entry) pending a separate test.
-        **CORRECTION (installation test)**: `.opencode.json` (dot-prefix) is NOT reliably
-        picked up by opencode as a project config — it was not loaded in a session started
-        from the project root, while the three global configs were. The officially documented
-        project config filename is `opencode.json` (no dot prefix). The dot-prefix variant
-        may work in some contexts/versions but cannot be relied upon. Use `opencode.json`."
-  - D8: The setting-up-arkeology skill must check whether config files already exist and EDIT them
-        (insert the Arkeology entry) rather than create or overwrite; must handle .json and .jsonc
-        variants for JSON-based clients and the existing TOML structure for Codex
-decisions_pending: []
-decisions_closed_not_applicable:
-  - D4: Named-profile proxy layer (Direction 3) — deferred indefinitely; Direction 2 is
-        sufficient for all current use cases; no stated need for "one session, two projects";
-        a proxy adds operational complexity with no immediate benefit; revisit only if a
-        concrete cross-project-session requirement emerges
-  - D7: Codex mcp_servers merge depth — not applicable; Codex docs describe explicit layering
-        for overrides ("set shared defaults, keep profile files focused on what differs");
-        Arkeology is only ever placed in the project config, never in global, so no same-name
-        conflict exists; additive behaviour (new section in project adds to global) is the
-        only case that matters and follows naturally from TOML table semantics
 ---
 
 # Multi-team / Multi-project Configuration
@@ -75,6 +35,59 @@ multiple teams and projects must either restart the server, juggle multiple
 server instances, or accept that all writes go to the same scope. This session
 explores solutions from lightweight (better docs) to structural (named profiles,
 proxy layer).
+
+## Decisions
+
+### Locked
+
+- D1: Direction 2 (per-project MCP config) is the chosen approach — no server code changes
+- D2: WRITE_PREFIX stays as-is; the enforcement fence is valuable and must not be removed
+- D3: Multi-backend isolation (different ARTIFACT_BUCKET per project) is out of scope for now;
+      prefix-based isolation within one backend is sufficient; Direction 3 kept on roadmap
+- D5: setting-up-arkeology skill must be updated to document all four client setups;
+      content and exact syntax documented in Session 3 of this file
+- D6: opencode merge is additive at the mcp server-name level — a project config that only
+      contains a new server name adds it to the global server list without disturbing existing
+      global entries; empirically confirmed (Session 4). Same-name override behaviour is
+      inferred shallow (replace entire entry) pending a separate test.
+      **CORRECTION (installation test)**: `.opencode.json` (dot-prefix) is NOT reliably
+      picked up by opencode as a project config — it was not loaded in a session started
+      from the project root, while the three global configs were. The officially documented
+      project config filename is `opencode.json` (no dot prefix). The dot-prefix variant
+      may work in some contexts/versions but cannot be relied upon. Use `opencode.json`.
+- D8: The setting-up-arkeology skill must check whether config files already exist and EDIT them
+      (insert the Arkeology entry) rather than create or overwrite; must handle .json and .jsonc
+      variants for JSON-based clients and the existing TOML structure for Codex
+
+### Pending
+
+_None._
+
+### Closed — Not Applicable
+
+- D4: Named-profile proxy layer (Direction 3) — deferred indefinitely; Direction 2 is
+      sufficient for all current use cases; no stated need for "one session, two projects";
+      a proxy adds operational complexity with no immediate benefit; revisit only if a
+      concrete cross-project-session requirement emerges
+- D7: Codex mcp_servers merge depth — not applicable; Codex docs describe explicit layering
+      for overrides ("set shared defaults, keep profile files focused on what differs");
+      Arkeology is only ever placed in the project config, never in global, so no same-name
+      conflict exists; additive behaviour (new section in project adds to global) is the
+      only case that matters and follows naturally from TOML table semantics
+
+## Techniques Used
+
+- inversion
+- analogy (AWS mcp-proxy-for-aws profile-per-call pattern)
+- constraint-removal (what if WRITE_PREFIX did not exist?)
+- perspective-shift (agent perspective vs operator perspective)
+
+## Assumptions Challenged
+
+- "WRITE_PREFIX as a server-side enforcement gate is the right abstraction"
+- "One server instance = one project is a fundamental constraint"
+- "team/project fields in the artifact model and WRITE_PREFIX are different things"
+- "The AWS proxy approach (per-call profile) requires a hosted server"
 
 ## Session 2026-06-08
 

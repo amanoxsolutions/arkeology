@@ -14,27 +14,6 @@ authored:
 revised:
   by: "analyst"
   date: "2026-06-11"
-techniques_used:
-  - assumption-surfacing
-  - constraint-removal
-assumptions_challenged:
-  - "Two parameters are needed because the description and write phases have different cost profiles — false: the phases run sequentially in separate calls, so one parameter per call is sufficient and the caller naturally sets a different value for each phase"
-  - "The write phase must keep the env var because it is called indirectly via write_artifacts — false: migrate_artifacts controls both calls and can thread a single parameter through to both phases"
-  - "The dynamic cap max(1, 15 // SECTION_CONCURRENCY) is the safest option — false: at the default SECTION_CONCURRENCY=5 it produces 3, identical to the current env var default, providing no improvement for the migration use case"
-  - "SECTION_CONCURRENCY should become a per-call parameter for symmetry with artifact_concurrency — false: section concurrency is an implementation detail of a single artifact write that callers have no meaningful reason to tune; it is server policy, not call-time tuning"
-  - "artifact_concurrency < 1 is a programming error that should return a validation error — false: there is no more reason to fail on a too-low value than on a too-high one; substitute the default (3) and warn, symmetrically with the > 15 cap"
-  - "batch size needs a separate parameter — false: batch_size = artifact_concurrency is sufficient; the skill already has the confirmed concurrency value and using it as the batch size gives free progress reporting with zero extra parameters"
-decisions_locked:
-  - "D1: Per-call parameter — artifact_concurrency is an optional parameter on migrate_artifacts and write_artifacts, not a server env var"
-  - "D2: Single parameter — one artifact_concurrency parameter per call; the two sequential migrate_artifacts calls (dry_run=True then dry_run=False) are the mechanism for phase-specific tuning"
-  - "D3: Skill proposes min(file_count, 15) with a brief explanation of the Titan quota context, then asks the operator to confirm or supply their own value before proceeding"
-  - "D4: Soft ceiling of 15 — values outside [1, 15] are never rejected; values > 15 are capped to 15, values < 1 are substituted with the default (3); in both cases a top-level warning field is added to the response and the work proceeds; at default SECTION_CONCURRENCY=5 the cap of 15 produces 75 concurrent Bedrock embedding calls, leaving 25% headroom under the 100 req/s Titan ceiling"
-  - "D8: Skill batches by artifact_concurrency (stdio workaround) — in 3.B3 and 3.B5 the skill splits the descriptor list into batches of artifact_concurrency and makes one migrate_artifacts call per batch; the operator receives a progress update after each batch; batch_size = artifact_concurrency so no separate parameter is needed; explicitly a stdio workaround — when Streamable HTTP + SSE is available the batching loop is replaced by a single call that receives per-item SSE events, and artifact_concurrency retains its server-side semaphore role independently"
-  - "D5: SECTION_CONCURRENCY stays as a server-level env var with default 5; it is server policy controlling the inner embedding loop, not a per-call tuning knob"
-  - "D6: ARTIFACT_CONCURRENCY env var removed entirely; artifact_concurrency becomes an optional parameter on write_artifacts and migrate_artifacts with a hardcoded default of 3"
-  - "D7: migrate_artifacts parameter renamed from concurrency to artifact_concurrency for consistency with write_artifacts"
-decisions_pending: []
-decisions_closed_not_applicable: []
 ---
 
 # migrate_artifacts — Caller-Controlled Concurrency Parameter
@@ -49,6 +28,41 @@ parameter that the caller (the skill) computes from the file count at invocation
 rather than a fixed server-side env var that requires a restart to change.
 
 ---
+
+## Decisions
+
+### Locked
+
+- "D1: Per-call parameter — artifact_concurrency is an optional parameter on migrate_artifacts and write_artifacts, not a server env var"
+- "D2: Single parameter — one artifact_concurrency parameter per call; the two sequential migrate_artifacts calls (dry_run=True then dry_run=False) are the mechanism for phase-specific tuning"
+- "D3: Skill proposes min(file_count, 15) with a brief explanation of the Titan quota context, then asks the operator to confirm or supply their own value before proceeding"
+- "D4: Soft ceiling of 15 — values outside [1, 15] are never rejected; values > 15 are capped to 15, values < 1 are substituted with the default (3); in both cases a top-level warning field is added to the response and the work proceeds; at default SECTION_CONCURRENCY=5 the cap of 15 produces 75 concurrent Bedrock embedding calls, leaving 25% headroom under the 100 req/s Titan ceiling"
+- "D8: Skill batches by artifact_concurrency (stdio workaround) — in 3.B3 and 3.B5 the skill splits the descriptor list into batches of artifact_concurrency and makes one migrate_artifacts call per batch; the operator receives a progress update after each batch; batch_size = artifact_concurrency so no separate parameter is needed; explicitly a stdio workaround — when Streamable HTTP + SSE is available the batching loop is replaced by a single call that receives per-item SSE events, and artifact_concurrency retains its server-side semaphore role independently"
+- "D5: SECTION_CONCURRENCY stays as a server-level env var with default 5; it is server policy controlling the inner embedding loop, not a per-call tuning knob"
+- "D6: ARTIFACT_CONCURRENCY env var removed entirely; artifact_concurrency becomes an optional parameter on write_artifacts and migrate_artifacts with a hardcoded default of 3"
+- "D7: migrate_artifacts parameter renamed from concurrency to artifact_concurrency for consistency with write_artifacts"
+
+### Pending
+
+_None._
+
+### Closed — Not Applicable
+
+_None._
+
+## Techniques Used
+
+- assumption-surfacing
+- constraint-removal
+
+## Assumptions Challenged
+
+- "Two parameters are needed because the description and write phases have different cost profiles — false: the phases run sequentially in separate calls, so one parameter per call is sufficient and the caller naturally sets a different value for each phase"
+- "The write phase must keep the env var because it is called indirectly via write_artifacts — false: migrate_artifacts controls both calls and can thread a single parameter through to both phases"
+- "The dynamic cap max(1, 15 // SECTION_CONCURRENCY) is the safest option — false: at the default SECTION_CONCURRENCY=5 it produces 3, identical to the current env var default, providing no improvement for the migration use case"
+- "SECTION_CONCURRENCY should become a per-call parameter for symmetry with artifact_concurrency — false: section concurrency is an implementation detail of a single artifact write that callers have no meaningful reason to tune; it is server policy, not call-time tuning"
+- "artifact_concurrency < 1 is a programming error that should return a validation error — false: there is no more reason to fail on a too-low value than on a too-high one; substitute the default (3) and warn, symmetrically with the > 15 cap"
+- "batch size needs a separate parameter — false: batch_size = artifact_concurrency is sufficient; the skill already has the confirmed concurrency value and using it as the batch size gives free progress reporting with zero extra parameters"
 
 ## Session 2026-06-10
 

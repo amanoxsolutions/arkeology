@@ -14,22 +14,6 @@ authored:
 revised:
   by: Matthieu
   date: 2026-06-10
-techniques_used:
-  - analogy
-  - inversion
-  - perspective-shift
-assumptions_challenged:
-  - "A CLAUDE.md @-import is always desirable (false — Arkeology's AGENTS.md contains server-specific setup context, not general conventions applicable to all sessions)"
-  - "The JS plugin + git+ssh:// mechanism adds value when the clone is already local (partially false — a skills.paths patch is simpler but loses the auto-path-resolution advantage)"
-  - "sync-arkeology-plugin is only useful for large skill catalogues (false — it saves one manual step even for 2 skills)"
-  - "Arkeology and the shared engineering plugin install scripts must be coordinated (false — both are idempotent bash scripts that coexist without conflict)"
-decisions_locked:
-  - D1: Skip CLAUDE.md @-import — Arkeology AGENTS.md is server-specific; per-project snippet written by setting-up-arkeology already covers this
-  - D2: Ship sync skill — delivered as arkeology:sync-arkeology-plugin (T34), a cross-IDE generic skill replacing the Claude Code-only plugin-sync concept; distributed via all three channels (OpenCode plugin, Claude Code plugin, Copilot gh skill install)
-  - D3: Full JS plugin for OpenCode — package.json + .opencode/plugins/arkeology.js config hook; install.sh prints the one-line git+ssh:// snippet
-  - D4: Brief coexistence note in README — short quick-install section plus a paragraph noting Arkeology coexists with the shared engineering plugin without namespace collision
-decisions_pending: []
-decisions_closed_not_applicable: []
 ---
 
 # Phase 9 — Skill Distribution via Native Plugin Mechanisms
@@ -48,6 +32,36 @@ only two skills and no agents, whose AGENTS.md is server-setup documentation rat
 general engineering conventions.
 
 ---
+
+## Decisions
+
+### Locked
+
+- D1: Skip CLAUDE.md @-import — Arkeology AGENTS.md is server-specific; per-project snippet written by setting-up-arkeology already covers this
+- D2: Ship sync skill — delivered as arkeology:sync-arkeology-plugin (T34), a cross-IDE generic skill replacing the Claude Code-only plugin-sync concept; distributed via all three channels (OpenCode plugin, Claude Code plugin, Copilot gh skill install)
+- D3: Full JS plugin for OpenCode — package.json + .opencode/plugins/arkeology.js config hook; install.sh prints the one-line git+ssh:// snippet
+- D4: Brief coexistence note in README — short quick-install section plus a paragraph noting Arkeology coexists with the shared engineering plugin without namespace collision
+
+### Pending
+
+_None._
+
+### Closed — Not Applicable
+
+_None._
+
+## Techniques Used
+
+- analogy
+- inversion
+- perspective-shift
+
+## Assumptions Challenged
+
+- "A CLAUDE.md @-import is always desirable (false — Arkeology's AGENTS.md contains server-specific setup context, not general conventions applicable to all sessions)"
+- "The JS plugin + git+ssh:// mechanism adds value when the clone is already local (partially false — a skills.paths patch is simpler but loses the auto-path-resolution advantage)"
+- "sync-arkeology-plugin is only useful for large skill catalogues (false — it saves one manual step even for 2 skills)"
+- "Arkeology and the shared engineering plugin install scripts must be coordinated (false — both are idempotent bash scripts that coexist without conflict)"
 
 ## Session 2026-06-08
 

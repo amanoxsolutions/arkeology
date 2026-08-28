@@ -13,8 +13,6 @@ authored:
 revised:
   by: ""
   date: ""
-techniques_used: []
-assumptions_challenged: []
 ---
 
 # Existing Project Migration
