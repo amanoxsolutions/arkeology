@@ -200,11 +200,9 @@ Concurrency validation:
 
 ## Open Questions
 
-- [ ] Do sub-agents spawned by the `task` tool in opencode inherit the parent session's
-  Arkeology MCP connections? This determines whether L1 write parallelism works at full
-  capacity or falls back to metadata-return + main-agent sequential writes. Resolution path:
-  test empirically during L1 implementation by spawning a sub-agent that calls `write_artifact`
-  and verifying the artifact appears in `list_artifacts`. The skill text must include the
-  fallback path regardless.
-- [ ] Should description generation in `migrate.py` be parallelised in this spec or deferred?
-  The brainstorming document did not select this as a priority; deferring is recommended.
+- [x] Do sub-agents spawned by the `task` tool in opencode inherit the parent session's
+  Arkeology MCP connections? **Closed as moot.** This spec is `status: superseded` — the
+  opencode sub-agent migration path it describes was never implemented, so the question
+  does not apply to what was built.
+- [x] Should description generation in `migrate.py` be parallelised in this spec or deferred?
+  **Closed as moot.** Same reason: this spec's `migrate.py` flow was never implemented.

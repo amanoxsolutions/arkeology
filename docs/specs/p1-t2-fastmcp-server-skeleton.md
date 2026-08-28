@@ -148,4 +148,4 @@ manually:
 
 ## Open Questions
 
-- [ ] Confirm whether FastMCP's stdio `run()` handles SIGTERM/SIGINT natively so an explicit signal handler is not needed. Check FastMCP docs or source before adding one.
+- [x] Confirm whether FastMCP's stdio `run()` handles SIGTERM/SIGINT natively so an explicit signal handler is not needed. **Resolved** — no explicit signal handler was added. `arkeology.server.run()` delegates directly to `_app.run(transport="stdio")`, and its docstring records the finding: FastMCP handles SIGTERM/SIGINT natively via its event loop.

@@ -209,4 +209,4 @@ This test can live in `test_config.py` or a new `test_main.py`.
 
 ## Open Questions
 
-- [ ] Pydantic `ValidationError` exposes errors as a structured list. Decide how many errors to surface in the human-readable output when multiple vars are missing simultaneously — first error only, or all errors at once. Recommendation: all errors at once (one missing variable should not hide another).
+- [x] Pydantic `ValidationError` exposes errors as a structured list. Decide how many errors to surface in the human-readable output when multiple vars are missing simultaneously — first error only, or all errors at once. **Resolved as recommended** — `config.py`'s `load_settings()` iterates `ValidationError.errors()` in full and joins every field's message into the single `ConfigurationError` raised, so one missing variable never hides another.

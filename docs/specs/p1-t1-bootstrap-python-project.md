@@ -154,4 +154,6 @@ The done condition for T1 is tooling health, not test coverage:
 
 ## Open Questions
 
-- [ ] Python version: confirm 3.12 is the target, or specify otherwise before starting.
+- [x] Python version: confirm 3.12 is the target, or specify otherwise before starting.
+  **Resolved** — the project currently targets Python 3.14 (see `pyproject.toml`'s
+  `requires-python` and its `[tool.mypy]` `python_version` setting).

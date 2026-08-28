@@ -363,10 +363,17 @@ mocker.patch.object(vectors_client, "put_vector", side_effect=Exception("simulat
 
 ## Open Questions
 
-- [ ] **moto S3VectorsBackend internals**: The `query_vectors` extension accesses moto's
+- [x] **moto S3VectorsBackend internals**: The `query_vectors` extension accesses moto's
   in-memory vector store via `self.vector_buckets[...].indexes[...].vectors`. The developer
   must inspect the moto S3 Vectors source at the installed version to confirm the exact
   attribute path before implementing. If the path differs, adjust the extension accordingly.
-- [ ] **`us-east-1` bucket creation**: boto3/moto requires no `CreateBucketConfiguration`
+  **Resolved** — the shipped extension in `tests/unit/conftest.py`'s `_backend_query_vectors()`
+  confirms this attribute path: it looks up the bucket via `self.vector_buckets.values()`
+  matching `vector_bucket_name`, then the index via `bucket.indexes.values()` matching
+  `index_name`, then iterates `index.vectors.items()`.
+- [x] **`us-east-1` bucket creation**: boto3/moto requires no `CreateBucketConfiguration`
   for `us-east-1`. If `settings.aws_region` is `us-east-1` in tests, remove the
   `LocationConstraint` from the `s3_client` fixture. Confirm the region used in tests.
+  **Resolved** — tests use `us-east-1` (set via `monkeypatch.setenv("AWS_REGION",
+  "us-east-1")` in `conftest.py`'s `_make_settings()`), and the `s3_client` fixture's
+  `create_bucket()` call carries no `CreateBucketConfiguration`/`LocationConstraint`.
