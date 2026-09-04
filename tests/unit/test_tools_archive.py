@@ -976,7 +976,7 @@ async def test_archive_partial_archive_failure_log_decodes_non_ascii_title(
     """A non-ASCII title is stored percent-encoded in raw S3 user-metadata
     (``encode_metadata_value``); the failure-log entry must log the plain, decoded
     title — matching write.py's equivalent entries — not the raw percent-encoded
-    S3 metadata value (C-2)."""
+    S3 metadata value."""
     settings = _make_settings(monkeypatch, tmp_path=tmp_path)
     non_ascii_title = "Café review"
     s3_client.put_object(

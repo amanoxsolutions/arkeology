@@ -25,7 +25,7 @@ from arkeology.tools._search_helper import fetch_vectors_by_metadata
 logger = logging.getLogger(__name__)
 
 # Bounded concurrency for the malformed-synthesis deletion loop (Step 8), mirroring
-# write_artifacts.py's asyncio.Semaphore-gated asyncio.gather pattern (H-1).
+# write_artifacts.py's asyncio.Semaphore-gated asyncio.gather pattern.
 _DELETE_CONCURRENCY = 5
 
 
@@ -220,7 +220,7 @@ async def _check_synthesis_freshness_inner(
     malformed_reported: list[str] = []
 
     if confirm:
-        # Bounded concurrency (H-1): each malformed synthesis's vectors-first-then-S3
+        # Bounded concurrency: each malformed synthesis's vectors-first-then-S3
         # deletion is independent of every other's, mirroring write_artifacts.py's
         # asyncio.Semaphore-gated asyncio.gather pattern. Each task never raises — it
         # returns an outcome marker — so a credential failure on one task never leaves

@@ -121,7 +121,7 @@ async def _delete_artifact_inner(
 
     # ── Steps 4+5: Unified own-scope referenced_by check (T50, ADR-012 D13) and
     # find all vector keys for this artifact — two independent read-only vector-index
-    # queries, neither depending on the other's result, issued concurrently (H-3).
+    # queries, neither depending on the other's result, issued concurrently.
     try:
         referrers, vec_keys = await asyncio.gather(
             asyncio.to_thread(

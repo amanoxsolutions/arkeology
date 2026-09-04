@@ -23,7 +23,7 @@ from arkeology.tools._search_helper import fetch_vectors_by_metadata
 logger = logging.getLogger(__name__)
 
 # Bounded concurrency for the Step 5 per-artifact deletion loop, mirroring
-# write_artifacts.py's asyncio.Semaphore-gated asyncio.gather pattern (H-1).
+# write_artifacts.py's asyncio.Semaphore-gated asyncio.gather pattern.
 _DELETE_CONCURRENCY = 5
 
 
@@ -181,7 +181,7 @@ async def _purge_archived_inner(
     def _record_failure(artifact_id: str, error: str, message: str) -> None:
         failed.append({"artifact_id": artifact_id, "error": error, "message": message})
 
-    # Bounded concurrency (H-1): each artifact's vectors-first-then-S3 deletion is
+    # Bounded concurrency: each artifact's vectors-first-then-S3 deletion is
     # independent of every other's, mirroring write_artifacts.py's
     # asyncio.Semaphore-gated asyncio.gather pattern. Each task never raises — it
     # returns an outcome marker — so a credential failure on one task never leaves

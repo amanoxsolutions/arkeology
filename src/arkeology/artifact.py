@@ -70,7 +70,7 @@ TITLE_MAX_LENGTH = 256
 # DESCRIPTION_MAX_LENGTH is the same kind of coarse model-level sanity bound as
 # TITLE_MAX_LENGTH, one field over — also consumed by migrate_artifacts.py, which
 # clips Nova-Lite-generated descriptions to this same value before they reach
-# Artifact.validate_description, so the two must never drift independently (I-1).
+# Artifact.validate_description, so the two must never drift independently.
 DESCRIPTION_MAX_LENGTH = 280
 
 # S3 user-defined object metadata is capped at 2 KB aggregate (sum of UTF-8 bytes of every

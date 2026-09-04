@@ -37,7 +37,7 @@ from arkeology.tools._section_pipeline import (
 logger = logging.getLogger(__name__)
 
 # Bounded concurrency for each phase's per-artifact loop, mirroring write_artifacts.py's
-# asyncio.Semaphore-gated asyncio.gather pattern (H-1). Each phase's per-artifact work is
+# asyncio.Semaphore-gated asyncio.gather pattern. Each phase's per-artifact work is
 # independent (re-indexing/pruning one artifact never depends on another's outcome).
 _RECONCILE_CONCURRENCY = 5
 
@@ -371,7 +371,7 @@ async def _reconcile_index_inner(
 
         resolved_keys: set[tuple[str, str]] = set()
 
-        # Bounded concurrency (H-1): each entry's head_object + re-index is independent
+        # Bounded concurrency: each entry's head_object + re-index is independent
         # of every other's, mirroring write_artifacts.py's asyncio.Semaphore-gated
         # asyncio.gather pattern. Each task never raises — it returns an outcome
         # marker — so a credential failure on one entry never leaves
@@ -603,7 +603,7 @@ async def _reconcile_index_inner(
     orphans = [k for k in own_keys if k not in indexed_artifact_ids and k not in failed_ids]
     orphans_found = len(orphans)
 
-    # Bounded concurrency (H-1): each orphan's head_object + re-index is independent
+    # Bounded concurrency: each orphan's head_object + re-index is independent
     # of every other's. Each task never raises — it returns an outcome marker.
     # See the Phase 1 semaphore comment above for the accepted non-deterministic-
     # abort-prefix trade-off, which applies here too.
@@ -647,7 +647,7 @@ async def _reconcile_index_inner(
     dangling_artifacts_found = 0
     dangling_vectors_pruned = 0
 
-    # Bounded concurrency (H-1): each dangling artifact's race-recheck + prune is
+    # Bounded concurrency: each dangling artifact's race-recheck + prune is
     # independent of every other's. Each task never raises — it returns an outcome
     # marker. See the Phase 1 semaphore comment above for the accepted
     # non-deterministic-abort-prefix trade-off, which applies here too.

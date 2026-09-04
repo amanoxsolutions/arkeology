@@ -23,7 +23,7 @@ from arkeology.clients.s3 import S3ClientImpl
 from arkeology.errors import AnnotationUnavailableError, CredentialError
 
 # ---------------------------------------------------------------------------
-# _error_code (F-2)
+# _error_code
 # ---------------------------------------------------------------------------
 
 

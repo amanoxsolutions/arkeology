@@ -1,11 +1,10 @@
 """Guard: dict keys asserted on in tests must exist somewhere in src/.
 
-Regression test for Recommendation 3 of
-.docs/reviews/review-2026-08-20-test-suite-assertion-strength.md — the audit found 42
-test assertions of the shape `result.get("error_type") is not None`, where
-`error_type` is a dict key production code never emits. The disjunct they were part of
-was therefore permanently False, silently reducing the assertion to a no-op. Pass 1
-(commit 0eae34b) fixed the 42 sites; this guard makes the bug class mechanically
+A test-suite assertion-strength audit found 42 test assertions of the shape
+`result.get("error_type") is not None`, where `error_type` is a dict key production code
+never emits. The disjunct they were part of was therefore permanently False, silently
+reducing the assertion to a no-op. Commit 0eae34b fixed the 42 sites; this guard makes
+the bug class mechanically
 detectable so it cannot silently reappear: any string-literal dict key referenced via
 `.get("key")` or `d["key"]` inside a test's `assert` expression must exist as a string
 literal somewhere in src/.
@@ -16,14 +15,44 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SRC_ROOT = REPO_ROOT / "src" / "arkeology"
 TESTS_ROOT = Path(__file__).resolve().parent.parent
 
+
+def _source_tree_is_mutated() -> bool:
+    """True when SRC_ROOT points at a mutation-instrumented copy of the package.
+
+    This guard derives its allowlist by collecting every string literal in ``src/``. A
+    ``mutmut run`` copies the package into ``mutants/`` and executes pytest from there, so
+    ``REPO_ROOT`` resolves to ``mutants/`` and ``SRC_ROOT`` to the instrumented tree —
+    whose literals include mutmut's own mangled values (``"XXXX"`` and similar) plus one
+    renamed function per mutant. Those get absorbed into the set of "keys that exist in
+    src", making the guard **looser during a mutation run than during a normal one**: at
+    its weakest in the strictest environment, which is the wrong way round for a guard.
+
+    Detection is deliberately not mutmut's ``MUTANT_UNDER_TEST`` environment variable —
+    that is a private detail — and deliberately not a single probe file, because
+    ``only_mutate`` bounds instrumentation to a couple of modules, so most files in
+    ``mutants/`` are verbatim copies. Two independent signals, either sufficient:
+
+    1. ``mutants`` is mutmut's fixed copy-directory name, hardcoded throughout its source.
+    2. A scan for instrumentation markers, which also catches a stale instrumented tree
+       left behind by an interrupted run, regardless of what ``only_mutate`` covered.
+    """
+    if REPO_ROOT.name == "mutants":
+        return True
+    return any(
+        "__mutmut_" in path.read_text(encoding="utf-8", errors="ignore")
+        for path in SRC_ROOT.rglob("*.py")
+    )
+
+
 # Keys legitimately absent from src/ — not instances of the dead-disjunct bug class.
 # Grouped by originating file/reason, each group commented. Verified against the live
-# suite on 2026-08-20 (see .docs/reviews/review-2026-08-20-test-suite-assertion-strength.md,
-# Recommendation 3); none of these trace to a src/ response contract.
+# suite on 2026-08-20; none of these trace to a src/ response contract.
 ALLOWLIST: set[str] = {
     # test_s3.py: arbitrary caller-chosen key in a generic metadata dict round-tripped
     # through S3ClientImpl; not tied to any specific src/ literal.
@@ -176,6 +205,14 @@ def test_scanner_does_not_flag_key_present_in_src_literal_set() -> None:
 
 def test_no_dead_assertion_dict_keys() -> None:
     """Every dict key asserted on in tests/ must exist as a string literal somewhere in src/."""
+    if _source_tree_is_mutated():
+        pytest.skip(
+            "SRC_ROOT is a mutation-instrumented tree; its string literals include "
+            "mutmut's mangled values, which would silently widen this guard's allowlist. "
+            "Skipping is correct — the guard protects the real source tree, and a mutant's "
+            "survival or death does not depend on it."
+        )
+
     src_literals = _collect_src_literals(SRC_ROOT)
     findings: list[str] = []
 

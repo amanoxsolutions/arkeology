@@ -103,7 +103,7 @@ def _error_code(exc: botocore.exceptions.ClientError) -> str:
     """Extract the boto3 "Error"/"Code" value from a ClientError's response.
 
     Returns "" if the response has no "Error" key or no "Code" key — never raises.
-    Shared by every credential/error-code classifier in the client layer (F-2);
+    Shared by every credential/error-code classifier in the client layer;
     do not hand-roll ``exc.response.get("Error", {}).get("Code", "")`` again.
     """
     return exc.response.get("Error", {}).get("Code", "")

@@ -1,7 +1,7 @@
 """Direct unit tests for arkeology.tools._concurrency._clamp_concurrency.
 
 Task 68 (Phase 13, codebase-hygiene batch 2): _clamp_concurrency is a newly
-extracted shared helper (review finding G-3), replacing the artifact_concurrency
+extracted shared helper, replacing the artifact_concurrency
 clamp-with-warning logic previously duplicated verbatim in write_artifacts.py and
 migrate_artifacts.py, so TDD applies to it directly.
 """

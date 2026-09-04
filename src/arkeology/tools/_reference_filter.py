@@ -28,8 +28,18 @@ async def resolve_readable_targets(
     - It is in a foreign scope **and** its stored ``tier == 3`` **and**
       ``visibility == "shared"``.
 
-    A candidate with no matching vector entry (deleted, never existed, or not
-    yet indexed) is excluded from the returned set — not readable, fail safe.
+    A **foreign-scope** candidate with no matching vector entry (deleted, never
+    existed, or not yet indexed) is excluded from the returned set — not
+    readable, fail safe.
+
+    This does **not** hold for own-scope candidates, and deliberately so. They
+    are admitted on prefix match alone, without any existence check, so a
+    reference naming an own-scope artifact that has since been deleted is
+    returned as readable and presented as a live link. That is a dangling-link
+    accuracy limitation, not a confidentiality one — the target is in the
+    caller's own scope either way — and it is the price of the own-scope
+    short-circuit below, which is what keeps an all-own-scope candidate set at
+    zero vector-client calls.
 
     Own-scope candidates are resolved by prefix alone (no vector-client call
     needed, mirroring read_artifact's Step 1 scope gate). The remaining

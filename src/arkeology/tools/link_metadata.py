@@ -55,7 +55,7 @@ from arkeology.tools._search_helper import fetch_vectors_by_metadata
 logger = logging.getLogger(__name__)
 
 # Bounded concurrency for the per-artifact_id loop, mirroring write_artifacts.py's
-# asyncio.Semaphore-gated asyncio.gather pattern (H-1). Each artifact_id's CAS-guarded
+# asyncio.Semaphore-gated asyncio.gather pattern. Each artifact_id's CAS-guarded
 # annotation + vector dual-write is independent of every other's.
 _LINK_CONCURRENCY = 5
 
@@ -289,7 +289,7 @@ async def _link_metadata_inner(
 
     write_prefix = settings.write_prefix
 
-    # Bounded concurrency (H-1): each artifact_id's fetch-merge-CAS-reput cycle is
+    # Bounded concurrency: each artifact_id's fetch-merge-CAS-reput cycle is
     # independent of every other's, mirroring write_artifacts.py's
     # asyncio.Semaphore-gated asyncio.gather pattern. Each task never raises — it
     # returns an outcome marker — so one artifact_id's failure never leaves

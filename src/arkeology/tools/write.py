@@ -211,7 +211,7 @@ def _record_partial_write_credential_error(
     exc: CredentialError,
 ) -> dict[str, Any]:
     """Append a failure-log entry and build the standard ``credential_error`` response
-    for a ``CredentialError`` raised after S3 has already been written durably (G-1).
+    for a ``CredentialError`` raised after S3 has already been written durably.
 
     Mirrors :func:`_record_partial_write` exactly, but for the credential-error case
     (which returns ``ErrorCode.CREDENTIAL_ERROR``, not ``ErrorCode.PARTIAL_WRITE`` —

@@ -160,11 +160,8 @@ async def test_skip_guard_does_not_abort_remaining_candidates(
 ) -> None:
     """A fetched item whose artifact_id is not in ``unresolved`` (e.g. malformed/empty
     metadata) must be *skipped*, not treated as a reason to abort the whole loop — later,
-    genuinely readable candidates must still make it into the result.
-
-    Regresses mutmut survivor mutant 45 (`.docs/issues/issue-2026-09-04-cross-scope-gate
-    -mutation-survivors.md`), which flips the guard's ``continue`` to ``break``: under that
-    mutant this test's second candidate would be silently dropped.
+    genuinely readable candidates must still make it into the result. Turning the guard's
+    ``continue`` into a ``break`` silently drops this test's second candidate.
     """
     settings = _make_settings(monkeypatch)
     mocker.patch(
@@ -198,13 +195,17 @@ async def test_refetch_omits_embedding_data(
     """The cross-scope re-fetch must request ``include_data=False`` — the readability
     check only ever consults metadata, so pulling embedding vectors here is pure waste.
 
-    Regresses mutmut survivors 21/27 (`.docs/issues/issue-2026-09-04-cross-scope-gate
-    -mutation-survivors.md`): no assertion elsewhere in this suite distinguishes
-    ``include_data=False`` from ``True`` or from the argument being dropped entirely
-    (interface default is ``True``). Asserting on call shape rather than result state is
-    the deliberate exception noted in that issue and in
-    `.docs/reviews/review-2026-08-20-test-suite-assertion-strength.md` Recommendation 6 —
-    here the value protected *is* the call shape (a cost optimisation), not a result.
+    Asserting on call shape rather than result state is deliberate: the value protected
+    *is* the call shape (a cost optimisation), which no result-state assertion can
+    observe. The assertion is made against ``get_vectors``, one level below the call this
+    function makes, because that is where the flag has to survive to matter:
+    ``VectorsClientInterface.get_vectors`` defaults ``include_data`` to ``True``, so a
+    ``False`` reaching it proves the whole chain passed the flag through.
+
+    This pins a flip to ``True``. It deliberately does not pin *deletion* of the argument
+    at this function's own call site, which is a no-op — ``fetch_vectors_by_metadata``
+    already defaults ``include_data`` to ``False``, so an assertion demanding the
+    redundant argument be present would test syntax, not behaviour.
     """
     settings = _make_settings(monkeypatch)
     _seed(vectors_client_2)

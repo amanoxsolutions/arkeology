@@ -88,7 +88,7 @@ _DESCRIPTION_PROMPT = (
 )
 
 # Mirrors arkeology.artifact.DESCRIPTION_MAX_LENGTH — descriptions clipped here must
-# never drift from the limit Artifact.validate_description actually enforces (I-1).
+# never drift from the limit Artifact.validate_description actually enforces.
 _MAX_DESCRIPTION_LENGTH = DESCRIPTION_MAX_LENGTH
 
 # Bound the artifact content interpolated into the Nova Lite prompt. A
@@ -381,7 +381,7 @@ async def _migrate_artifacts_inner(
         candidate_keys[idx] = f"{settings.write_prefix}/{slug}{ext}"
 
     # Second pass: bounded-concurrency existence + indexing check for every
-    # candidate key (H-1), reusing the same artifact_concurrency semaphore as the
+    # candidate key, reusing the same artifact_concurrency semaphore as the
     # description-generation phase above. Read-only (head_object,
     # list_vectors_by_metadata) — no side effects — so dispatching every check
     # concurrently and then deciding in original index order below reproduces the

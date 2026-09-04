@@ -1,9 +1,9 @@
 """Direct unit tests for arkeology.tools._search_helper.
 
 Task 63 (Phase 12, codebase-hygiene pass): fetch_vectors_by_metadata is a newly
-extracted shared helper (review finding F-3), so TDD applies to it directly.
-Task 68 (Phase 13, codebase-hygiene batch 2) adds build_artifact_summary (F-4),
-clamp_top_k (F-5), and derive_last_edited_at (F-6) — each is a newly extracted
+extracted shared helper, so TDD applies to it directly.
+Task 68 (Phase 13, codebase-hygiene batch 2) adds build_artifact_summary,
+clamp_top_k, and derive_last_edited_at — each is a newly extracted
 shared helper, so TDD applies directly to those too.
 The rest of _search_helper.py (run_search_loop, build_scope_filter, etc.) is
 already covered indirectly via search.py/synthesise.py's test suites.
@@ -81,7 +81,7 @@ def test_include_data_true_returns_vector_data(vectors_client_2: VectorsClientIm
 
 
 # ---------------------------------------------------------------------------
-# build_artifact_summary (F-4)
+# build_artifact_summary
 # ---------------------------------------------------------------------------
 
 
@@ -134,7 +134,7 @@ def test_build_artifact_summary_surfaces_last_edited_ulid_when_present() -> None
 
 
 # ---------------------------------------------------------------------------
-# clamp_top_k (F-5)
+# clamp_top_k
 # ---------------------------------------------------------------------------
 
 
@@ -165,7 +165,7 @@ def test_clamp_top_k_rejects_negative_with_validation_error_dict() -> None:
 
 
 # ---------------------------------------------------------------------------
-# derive_last_edited_at (F-6)
+# derive_last_edited_at
 # ---------------------------------------------------------------------------
 
 
