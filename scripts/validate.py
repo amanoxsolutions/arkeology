@@ -5,6 +5,7 @@ gh skill install uses a Go YAML parser that rejects plain scalars containing
 ': ' (colon-space). Any description value with ': ' must be wrapped in double
 quotes. This script enforces that rule at commit time.
 """
+
 import sys
 from pathlib import Path
 

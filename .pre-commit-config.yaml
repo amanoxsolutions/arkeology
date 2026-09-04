@@ -1,26 +1,51 @@
+# Every hook runs the project's own pinned tooling via `uv run` — never an
+# independently-versioned upstream mirror.
+#
+# This file previously used `ruff-pre-commit` and `mirrors-mypy`, which pin their own
+# tool versions. Those pins drifted badly: the hooks ran ruff v0.11.11 and mypy v1.16.0
+# while `## Quality Gates` in AGENTS.md ran ruff 0.16.x and mypy 2.x — a major version
+# apart for mypy. A passing hook therefore told you nothing about whether the gate would
+# pass. The mypy mirror also needed its own `additional_dependencies`, which had drifted
+# separately (missing the `s3vectors` extra the `dev` group carries, and listing both
+# `boto3-stubs` and `types-boto3` — the same package under its old and new names).
+#
+# `language: system` + `uv run` removes that whole failure class: there is exactly one
+# source of truth for tool versions and typing stubs, `pyproject.toml`. There is nothing
+# here for `pre-commit autoupdate` to drift.
+#
+# Hooks are opt-in per clone — they do nothing until someone runs `pre-commit install`.
+# These are a fast local pre-filter, not enforcement: `pytest` (~4 min) and `npm test`
+# are deliberately absent, because a hook slow enough to invite `--no-verify` is worse
+# than no hook. Run the full list in `## Quality Gates` before pushing.
 repos:
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.11.11
-    hooks:
-      - id: ruff-format
-        args: [--check]
-        types_or: [python, pyi]
-      - id: ruff
-        types_or: [python, pyi]
-
-  - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.16.0
-    hooks:
-      - id: mypy
-        args: [--strict]
-        additional_dependencies:
-          - boto3-stubs[s3,bedrock-runtime,sts]
-          - pydantic
-          - pydantic-settings
-          - types-boto3
-
   - repo: local
     hooks:
+      # `--force-exclude` makes ruff honour the `exclude` config even for paths handed
+      # to it explicitly, which is how pre-commit invokes it (changed files only).
+      - id: ruff-format
+        name: ruff format (check)
+        language: system
+        entry: uv run ruff format --check --force-exclude
+        types_or: [python, pyi]
+
+      - id: ruff
+        name: ruff check
+        language: system
+        entry: uv run ruff check --force-exclude
+        types_or: [python, pyi]
+
+      # Checks the whole package, not the changed files. mypy given a file list resolves
+      # imports differently from mypy given a package, so per-file invocation is not
+      # equivalent to the documented `uv run mypy src/` gate and can miss module-level
+      # errors. `pass_filenames: false` keeps the two identical; `types_or` still means
+      # this only fires when Python actually changed.
+      - id: mypy
+        name: mypy (whole package, matches the gate)
+        language: system
+        entry: uv run mypy src/
+        pass_filenames: false
+        types_or: [python, pyi]
+
       - id: validate-skill-descriptions
         name: Validate SKILL.md description quoting
         language: system

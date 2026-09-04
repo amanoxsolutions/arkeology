@@ -1,0 +1,76 @@
+# The quality gates from AGENTS.md `## Quality Gates`, enforced.
+#
+# Every step runs the *exact* command AGENTS.md documents, through `uv run` / `npm`, so
+# there is one source of truth for tool versions (`pyproject.toml` / `package-lock.json`).
+# Do not re-declare ruff/mypy/pytest versions here — that is the drift class that made
+# `.pre-commit-config.yaml`'s mirrors useless, where a passing hook told you nothing about
+# whether the gate would pass.
+#
+# Needs no secrets: the unit suite is fully moto-mocked and passes with no `.env` and no
+# AWS credentials present. That is deliberate and worth preserving — a fork pull request
+# receives no secrets and a read-only token, so any gate requiring credentials could never
+# run on an external contribution.
+#
+# NOT here, and cannot be:
+#   - `uv run arkeology`     — needs a real `.env`
+#   - `uv run pytest tests/integration/` — needs real AWS
+# Both stay manual. Adding them via `pull_request_target` would run untrusted code with
+# write permissions and secrets; don't.
+#
+# Also not here: `uv run mutmut run` — 40+ minutes, deliberately manual and local. See
+# `## Conventions` in AGENTS.md.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+# A newer push to the same branch makes an in-flight run obsolete. Never cancel `main`,
+# so post-merge results stay complete.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v10
+        with:
+          enable-cache: true
+
+      # Installs the interpreter pinned by .python-version (3.14) and the `dev` group.
+      - run: uv sync --group dev
+
+      # Fast gates first: ruff and mypy finish in seconds, so a style or typing failure
+      # does not cost the 4-minute suite. Scope matches AGENTS.md exactly and is neither
+      # `src/ tests/` (which never checked scripts/ or plugins/) nor `.` (ruff formats
+      # Python blocks embedded in Markdown, so `.` would rewrite archival documents).
+      - run: uv run ruff check src/ tests/ scripts/ plugins/
+      - run: uv run ruff format --check src/ tests/ scripts/ plugins/
+      - run: uv run mypy src/
+
+      - run: uv run pytest tests/unit/ -q -m 'not integration'
+
+  static:
+    # Separate job for a separate toolchain — no reason to install Node to run mypy, or
+    # a Python interpreter to run the link-sanitisation guard. Runs in parallel.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+      - run: npm test
