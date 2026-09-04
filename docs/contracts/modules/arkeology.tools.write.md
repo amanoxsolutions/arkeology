@@ -17,8 +17,8 @@ authored:
   by: "tech-writer"
   date: 2026-09-04
 revised:
-  by: ""
-  date: YYYY-MM-DD
+  by: "architect"
+  date: 2026-09-04
 ---
 
 # arkeology.tools.write
@@ -99,6 +99,23 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
   a section truncated at write time is not re-submitted full-length on replay.
 - Concurrent embed calls per artifact are bounded by the configured section concurrency.
 - Overwriting an existing artifact cleans up orphaned section vectors from the previous write.
+- An **overwriting** write is serialised by a bounded ETag compare-and-swap cycle, bounded by
+  `CAS_MAX_ATTEMPTS`. Two conditional writes share one cycle: the `put_object` is conditional on
+  the ETag read during the existence check, and the `apply_link_annotations` that follows is
+  conditional on the *new* ETag returned by that `put_object`. A conflict from **either** call
+  retries the whole cycle — re-read, re-merge, re-write — never just the failed half; retrying
+  only the annotation write would attach link fields to an object another writer had since
+  replaced. Exhausting the cycle returns `conflict`, never a partial write.
+- **Each retry re-merges the caller's originally supplied `commit_refs`/`references`, never a
+  previous attempt's already-merged output.** This is what stops merges compounding: re-merging
+  the merged result would accumulate entries across attempts, so a write that raced twice would
+  persist link fields the caller never asked for, and the final content would depend on how many
+  times it happened to retry.
+- A **fresh** write is not part of this cycle and has nothing to race against. Its
+  `if_none_match="*"` guard addresses a different race — two concurrent creates of the same
+  generated key — and yields `validation_error`, not `conflict`. Do not conflate the two
+  conditions: one means "someone else changed this object mid-write", the other means "this key
+  already exists".
 - `last_edited_ulid` is regenerated on every write.
 
 **Preconditions**
@@ -109,9 +126,18 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
 
 **Postconditions**
 
-- On success, returns `{"artifact_id": str, "sections_indexed": int, "last_edited_ulid": str}`.
+- On success, returns `{"artifact_id": str, "sections_indexed": int, "last_edited_ulid": str}`,
+  plus a fourth key `"warning": str` **only** when the durable annotation write was unavailable
+  (see below).
 - On success all three stores agree: object content present, annotations reflecting the final link
-  fields, and one vector per indexed section.
+  fields, and one vector per indexed section — **unless** a `"warning"` key is present.
+- Annotations are unavailable on directory and Outposts buckets, and can become unavailable through
+  IAM drift. The write path degrades gracefully rather than failing: content and vectors are still
+  persisted, the tool still returns success, and the response carries a top-level `"warning"`
+  describing that no durable `commit_refs`/`references` copy was stored. A caller that needs the
+  link fields to be durable must check for `"warning"` — a bare check for the absence of `"error"`
+  is not sufficient. (`link_metadata` is the deliberate exception: its whole purpose is the durable
+  write, so it surfaces `annotation_unavailable` as an error instead of absorbing it.)
 - On `partial_write` the S3 object is durable and a failure-log entry exists; the artifact is
   content-complete but unsearchable until reconciled.
 - On any `validation_error` nothing was written anywhere and no failure-log entry was created.

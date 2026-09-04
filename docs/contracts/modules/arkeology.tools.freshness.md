@@ -13,8 +13,8 @@ authored:
   by: "tech-writer"
   date: 2026-09-04
 revised:
-  by: ""
-  date: YYYY-MM-DD
+  by: "architect"
+  date: 2026-09-04
 ---
 
 # arkeology.tools.freshness
@@ -57,8 +57,8 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
   deleted, at any `confirm` value — those are judgement calls for the caller.
 - Source lookup applies the cross-scope gate. It must not query source artifacts by bare
   `artifact_id` with no scope clause and no tier/visibility check: that was a real gate-bypass
-  defect (review finding C-5), leaking the existence, archival state, and update recency of foreign
-  tier-2 and hidden artifacts that `read_artifact` would deny. Sources gated out are classified as
+  defect, leaking the existence, archival state, and update recency of foreign tier-2 and hidden
+  artifacts that `read_artifact` would deny. Sources gated out are classified as
   inaccessible, not as missing.
 - Own-scope only for the destructive path.
 - Staleness is determined by comparing source update recency against the synthesis, so a synthesis

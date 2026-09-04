@@ -1,19 +1,20 @@
 ---
 type: Contract
 title: arkeology.resources
-description: The MCP resource surface — five pure read-only schema resources describing the artifact model, and two client-backed data resources returning artifact content and an own-scope index, all under the arkeology:// scheme.
+description: The MCP resource surface — five pure read-only schema resources describing the artifact model and two client-backed data resources returning artifact content and an own-scope index, both under the arkeology:// scheme, plus the ui:// resource serving the Arkeology Studio MCP App and declaring its content-security policy.
 tags: []
 timestamp: 2026-09-04T00:00:00Z
 okf_version: "0.1"
 references:
   - docs/specs/p4-t18-mcp-resources.md
   - docs/specs/p10-t42-mcp-data-resources.md
+  - docs/specs/p11-t43-mcp-app-infrastructure.md
 authored:
   by: "tech-writer"
   date: 2026-09-04
 revised:
-  by: ""
-  date: YYYY-MM-DD
+  by: "architect"
+  date: 2026-09-04
 ---
 
 # arkeology.resources
@@ -23,6 +24,11 @@ revised:
 The MCP resource boundary. Resources differ from tools in that a host may fetch them without an
 agent deciding to — so their URI scheme, their purity, and their gate behaviour are a contract with
 the host, not just with a calling agent.
+
+Two URI schemes are served, and the distinction is load-bearing. `arkeology://` resources are data:
+schema documents and artifact content. `ui://` serves the Studio MCP App itself — the host renders
+it as a sandboxed iframe, so its declared content-security policy is a security boundary, not a
+presentation detail.
 
 ## Symbols
 
@@ -103,3 +109,64 @@ result does.
 
 - Both data resources are resolvable and return fresh content on every read; nothing is cached.
 - No resource ever returns content the caller's scope may not read.
+
+### register_ui_resource
+
+```python
+def register_ui_resource(app: fastmcp.FastMCP) -> None: ...
+```
+
+Registers the single `ui://arkeology-studio/index.html` resource, which returns the bundled
+`arkeology/static/arkeology-studio.html` as text. This is the resource
+`arkeology_studio`'s `resource_uri` app config points at; without it that tool has nothing to
+render.
+
+**Errors**
+
+Registration itself cannot fail. A read fails only if the packaged HTML asset is missing from the
+installed distribution, which surfaces as the underlying `importlib.resources` error.
+
+**Invariants**
+
+- No `mime_type` is set explicitly. FastMCP auto-resolves `ui://` resources to
+  `text/html;profile=mcp-app`, which is the MIME type a host requires to render an MCP App iframe
+  rather than displaying the HTML as raw text. Setting `mime_type` by hand overrides that
+  resolution and breaks rendering.
+- The resource is **static** — it takes no AWS clients and holds no state, which is why it is
+  registered at module load time alongside `register_resources` rather than after client
+  construction.
+- The HTML is read from the installed package via `importlib.resources`, never from a path relative
+  to the source tree, so it resolves identically from a wheel, an editable install, and a zipapp.
+- The app is a single self-contained file. It has no build step, which is what makes the design
+  token layer (see `docs/contracts/design/arkeology-studio-tokens.html`) plain CSS custom
+  properties rather than DTCG.
+
+**Content-security policy**
+
+The resource is registered with `AppConfig(csp=ResourceCSP(resource_domains=...))`. That allow-list
+is the app's **complete** set of permitted external origins; a host is entitled to block anything
+outside it. The current allow-list is:
+
+| Origin | Loaded for |
+|---|---|
+| `https://unpkg.com` | the MCP Apps client extension bridge |
+| `https://cdn.jsdelivr.net` | Markdown rendering, HTML sanitisation, and Mermaid diagram rendering |
+
+- The allow-list is an **origin** allow-list, not a package or version allow-list. Permitting an
+  origin permits every asset served from it, so widening it widens the app's script-execution
+  surface — it is a security decision, not a dependency bump.
+- Adding an origin here without a corresponding load in the HTML grants reach the app does not
+  need; adding a load to the HTML without the origin here produces a silent runtime failure in a
+  CSP-enforcing host. The two must be changed together.
+- HTML sanitisation of artifact content is not delegated to the CSP. The app sanitises rendered
+  Markdown itself, and the `npm test` link-sanitisation guard covers that; the CSP bounds where
+  code may be *fetched from*, not what the app does with artifact text.
+
+**Preconditions**
+
+- May be called at module load time; requires no AWS clients.
+
+**Postconditions**
+
+- `ui://arkeology-studio/index.html` is resolvable and returns the app HTML verbatim on every read;
+  nothing is cached and no artifact data is embedded in it.

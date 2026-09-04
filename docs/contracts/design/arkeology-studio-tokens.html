@@ -11,6 +11,7 @@
     - docs/specs/p11-t43-mcp-app-infrastructure.md
     - docs/reviews/review-2026-06-29-arkeology-studio-design.md
   authored:    tech-writer, 2026-09-04
+  revised:     architect, 2026-09-04
 
   Format is CSS custom properties rather than DTCG — declared in AGENTS.md's
   `Contract format:` design sub-bullet. The consumer
@@ -50,7 +51,8 @@
 
     /* Artifact type colours — teal→magenta = structural→ephemeral (4px stripe / pip) */
     --c-adr:         #00d4b8;
-    --c-prd:         #00bccc;
+    --c-vision:      #00c3c5;
+    --c-requirements: #00b1d3;
     --c-spec:        #00a0e0;
     --c-plan:        #0088f8;
     --c-runbook:     #1a66ee;
@@ -68,7 +70,8 @@
     /* Badge/eyebrow TEXT colours — lightened so each clears ≥4.5:1 as text
        on its own 16% tint over the dark base. */
     --bt-adr:        #00d4b8;
-    --bt-prd:        #00bccc;
+    --bt-vision:     #00c3c5;
+    --bt-requirements: #00b1d3;
     --bt-spec:       #00a0e0;
     --bt-plan:       #0088f8;
     --bt-runbook:    #4180f1;
@@ -89,6 +92,7 @@
     --text-h1:   1.375rem;  /* 22px */
     --text-h2:   1.1875rem; /* 19px */
     --text-h3:   1.0625rem; /* 17px */
+    --text-h4:   1rem;      /* 16px */
     --text-body: 1rem;      /* 16px */
     --text-read: 0.9375rem; /* 15px */
     --text-cap:  0.875rem;  /* 14px — smallest reading token */
@@ -133,13 +137,15 @@
     --g:   linear-gradient(135deg, #009b86, #0066e0 33%, #7a2fdd 66%, #c70098);
     --g90: linear-gradient(90deg,  #009b86, #0066e0 33%, #7a2fdd 66%, #c70098);
 
-    --c-adr:       #007565;  --c-prd:       #00717a;  --c-spec:      #006b96;
+    --c-adr:       #007565;  --c-vision:    #007275;  --c-requirements: #006e86;
+    --c-spec:      #006b96;
     --c-plan:      #0063b5;  --c-runbook:   #1759cf;  --c-changelog: #3344ee;
     --c-impl:      #5533ee;  --c-cr:        #7231e4;  --c-dn:        #8a2ec7;
     --c-pm:        #9b2aa9;  --c-brain:     #a71c99;  --c-ss:        #af0d86;
     --c-learn:     #b5006a;  --c-synth:     #b9005c;  --c-bug:       #ba0049;
 
-    --bt-adr:       #007565;  --bt-prd:       #00717a;  --bt-spec:      #006b96;
+    --bt-adr:       #007565;  --bt-vision:    #007275;  --bt-requirements: #006e86;
+    --bt-spec:      #006b96;
     --bt-plan:      #0063b5;  --bt-runbook:   #1759cf;  --bt-changelog: #3344ee;
     --bt-impl:      #5533ee;  --bt-cr:        #7231e4;  --bt-dn:        #8a2ec7;
     --bt-pm:        #9b2aa9;  --bt-brain:     #a71c99;  --bt-ss:        #af0d86;
@@ -608,6 +614,7 @@
       <div class="text-row"><div class="text-meta"><b>h1</b> · 22px · 700</div><div style="font-size:var(--text-h1);font-weight:700;letter-spacing:-.02em">Artifact title</div></div>
       <div class="text-row"><div class="text-meta"><b>h2</b> · 19px · 600</div><div style="font-size:var(--text-h2);font-weight:600">Section heading</div></div>
       <div class="text-row"><div class="text-meta"><b>h3</b> · 17px · 600</div><div style="font-size:var(--text-h3);font-weight:600">Sub heading</div></div>
+      <div class="text-row"><div class="text-meta"><b>h4</b> · 16px · 600</div><div style="font-size:var(--text-h4);font-weight:600">Minor heading</div></div>
       <div class="text-row"><div class="text-meta"><b>body</b> · 16px · 1.6</div><div style="font-size:var(--text-body);color:var(--t2)">Detail-view paragraph copy — reads at the 16px base.</div></div>
       <div class="text-row"><div class="text-meta"><b>read</b> · 15px</div><div style="font-size:var(--text-read);color:var(--t2)">Table cells &amp; list items — above the 14px floor.</div></div>
       <div class="text-row"><div class="text-meta"><b>cap</b> · 14px</div><div style="font-size:var(--text-cap);color:var(--t2)">List titles — the floor for reading content.</div></div>
@@ -631,7 +638,8 @@
   <p class="sec-head">Artifact type colour system — structural (teal) → ephemeral (magenta)</p>
   <div class="type-grid">
     <div class="tc"><div class="tc-pip" style="background:var(--c-adr)"></div><span class="tc-slug">adr</span></div>
-    <div class="tc"><div class="tc-pip" style="background:var(--c-prd)"></div><span class="tc-slug">prd</span></div>
+    <div class="tc"><div class="tc-pip" style="background:var(--c-vision)"></div><span class="tc-slug">vision</span></div>
+    <div class="tc"><div class="tc-pip" style="background:var(--c-requirements)"></div><span class="tc-slug">requirements</span></div>
     <div class="tc"><div class="tc-pip" style="background:var(--c-spec)"></div><span class="tc-slug">spec</span></div>
     <div class="tc"><div class="tc-pip" style="background:var(--c-plan)"></div><span class="tc-slug">plan</span></div>
     <div class="tc"><div class="tc-pip" style="background:var(--c-runbook)"></div><span class="tc-slug">runbook</span></div>

@@ -53,6 +53,14 @@ Never raises. A failure is returned as a structured error `ToolResult` with `is_
   and `total_count`, so the client gets a usable listing without a second `list_artifacts` call.
 - The fallback listing is **bounded** by `FALLBACK_LISTING_CAP` (50), because it is destined for an
   agent's context window and an unbounded store would fill it.
+- The cap keeps the **50 most recent** artifacts, not an arbitrary 50. The listing is ordered
+  `date` **descending**, tie-broken by `artifact_id` **ascending**, and the cap slices the head of
+  that order. Both halves are required: the date ordering is what makes "most recent" true, and
+  the `artifact_id` tie-break is what makes the result **stable** — without it, two artifacts
+  sharing a `date` could swap places between identical calls, so which one survived the cap would
+  vary run to run. An implementation satisfying every other clause here while returning an
+  arbitrary 50 would be wrong, and `total_count` would still report the correct pre-cap total, so
+  nothing else in this contract would catch it.
 - `total_count` carries the full **pre-cap** match count, so a truncated listing can never be
   mistaken for a complete one. Reporting the post-cap length here would silently misrepresent the
   store's size.

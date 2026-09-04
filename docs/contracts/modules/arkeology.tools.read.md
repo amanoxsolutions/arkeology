@@ -13,8 +13,8 @@ authored:
   by: "tech-writer"
   date: 2026-09-04
 revised:
-  by: ""
-  date: YYYY-MM-DD
+  by: "architect"
+  date: 2026-09-04
 ---
 
 # arkeology.tools.read
@@ -56,8 +56,11 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
 - Own-scope membership is tested as `artifact_id.startswith(scope + "/")`, never a bare
   `startswith(scope)`.
 - A foreign-scope artifact is readable only when its stored `tier` is 3 **and** its `visibility` is
-  `"shared"`. Any other foreign artifact is indistinguishable from absent, as far as a caller can
-  observe.
+  `"shared"`. Any other foreign artifact is denied with `access_denied`, which is deliberately
+  distinguishable from `not_found`: the spec (see `docs/specs/p2-t9-read-artifact.md`, "Never")
+  forbids silently downgrading a gated foreign artifact to "not found", so that a caller can tell
+  why retrieval failed. Existence in a foreign scope is therefore observable; only the artifact's
+  metadata and content are withheld.
 - `references` returned to a **foreign-scope** reader is filtered to targets that reader is
   independently permitted to read. Own-scope reads return `references` exactly as stored.
 - A title sourced from S3 object metadata is decoded via `decode_metadata_value`, so it can never
@@ -72,5 +75,5 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
 - On success, returns all artifact fields including `content`.
 - `commit_refs` and `references` are sourced from the union of both durable stores, never from
   vector metadata alone.
-- Denial reveals nothing beyond the error code — no metadata, no existence confirmation for a gated
-  foreign artifact.
+- Denial reveals nothing beyond the error code — no title, no metadata, no content, no
+  `references`. The error code itself does distinguish denial from absence, by design.
