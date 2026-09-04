@@ -10,6 +10,7 @@ status: ready
 phase: 2
 task: 8
 references:
+  - docs/contracts/modules/arkeology.tools.search.md
   - docs/architecture-decisions/adr-2026-08-12-status-all-sentinel-convention.md
 authored:
   by: "architect"

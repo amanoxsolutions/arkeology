@@ -9,7 +9,8 @@ feature: p3-t16-synthesise-artifacts
 status: ready
 phase: 3
 task: 16
-references: []
+references:
+  - docs/contracts/modules/arkeology.tools.synthesise.md
 authored:
   by: "architect"
   date: "2026-05-30"

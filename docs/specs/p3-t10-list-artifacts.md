@@ -9,7 +9,8 @@ feature: p3-t10-list-artifacts
 status: ready
 phase: 3
 task: 10
-references: []
+references:
+  - docs/contracts/modules/arkeology.tools.list.md
 authored:
   by: "architect"
   date: "2026-05-30"

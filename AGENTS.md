@@ -32,7 +32,21 @@ browser UI handles rendering; Claude's role ends after the initial `arkeology_st
 - **Scratchpad:** .docs/
 
 ## Conventions
-- **Testing approach:** test driven development
+- **Testing approach:** tdd
+- **Mutation testing:** enabled
+  - **Scope:** the cross-scope access gate — the tier + visibility check applied to foreign-scope
+    artifacts in every read, search, and delete path, and every `startswith(scope + "/")` scope guard
+  - **Tool:** python — mutmut
+- **Integration target:** real AWS (S3, S3 Vectors, Bedrock), with credentials and resource names
+  read from `.env`; fixtures are provisioned as an ephemeral run-scoped
+  `integration-tests/<run-id>` write/read prefix pair inside the operator's existing buckets,
+  never the operator's configured `WRITE_PREFIX`/`READ_PREFIXES`, and are best-effort torn down
+  at session end
+- **Contracts location:** docs/contracts/
+- **Contract format:** defaults
+  - **design:** CSS custom properties in a self-contained HTML reference page, not DTCG — the
+    token layer is consumed directly by `src/arkeology/static/arkeology-studio.html`, which is
+    plain CSS with no build step to compile DTCG tokens into
 - **Source-control branching model:** trunk-based (main branch)
 - **Versioning:** semver
 - **Changelog format:** keep-a-changelog

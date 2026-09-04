@@ -1,13 +1,13 @@
 ---
 type: code_review
 title: "Design + accessibility review of Arkeology studio (p11-t44 browser UI)"
-description: "Frontend-design and code review of the Arkeology studio MCP App visual design (docs/specs/p11-t44-browser-ui-design.html), the normative T44 spec, and the built arkeology-studio.html — benchmarked against the aws-certs-exam-study design system, excluding its Google-Fonts dependency (GDPR)."
+description: "Frontend-design and code review of the Arkeology studio MCP App visual design (docs/contracts/design/arkeology-studio-tokens.html), the normative T44 spec, and the built arkeology-studio.html — benchmarked against the aws-certs-exam-study design system, excluding its Google-Fonts dependency (GDPR)."
 tags: [code-review, Arkeology, frontend, design-system, accessibility]
 timestamp: 2026-06-29T00:00:00Z
 okf_version: "0.1"
 status: draft
 references:
-  - docs/specs/p11-t44-browser-ui-design.html
+  - docs/contracts/design/arkeology-studio-tokens.html
   - docs/specs/p11-t44-browser-ui.md
   - docs/specs/p11-t43-mcp-app-infrastructure.md
   - src/arkeology/static/arkeology-studio.html
@@ -25,7 +25,7 @@ revised:
 Review of the Arkeology studio visual identity / design under two lenses — the **frontend-design**
 skill (tokens, type scale, accessibility, UX patterns) and the **code-review** skill
 (spec alignment, correctness, maintainability). Subject of record:
-`docs/specs/p11-t44-browser-ui-design.html` (the approved visual companion), grounded in the
+`docs/contracts/design/arkeology-studio-tokens.html` (the approved visual companion), grounded in the
 normative spec `p11-t44-browser-ui.md`, the CSP declared in `p11-t43`, and the shipped
 `src/arkeology/static/arkeology-studio.html`.
 
@@ -247,4 +247,4 @@ Python files (`artifact.py`, `config.py`, `tools/health.py`, `tools/migrate_arti
 they are not part of this design fix and would have widened the change set and risk. If any are
 desirable, they belong in a separate, intentional change. The committed set for this review is:
 `resources.py`, `tests/unit/test_resources.py`, `static/arkeology-studio.html`,
-`docs/specs/p11-t44-browser-ui-design.html`, plus the T43/T44 spec edits.
+`docs/contracts/design/arkeology-studio-tokens.html`, plus the T43/T44 spec edits.

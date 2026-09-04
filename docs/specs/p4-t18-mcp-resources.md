@@ -9,7 +9,8 @@ feature: p4-t18-mcp-resources
 status: ready
 phase: 4
 task: 18
-references: []
+references:
+  - docs/contracts/modules/arkeology.resources.md
 authored:
   by: "architect"
   date: "2026-05-31"

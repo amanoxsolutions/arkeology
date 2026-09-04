@@ -1,0 +1,85 @@
+---
+type: Contract
+title: arkeology.tools.list
+description: The list_artifacts MCP tool — metadata-only listings from the vector index with metadata filtering and cross-scope gate enforcement, with link fields resolved from the union of both durable stores.
+tags: []
+timestamp: 2026-09-04T00:00:00Z
+okf_version: "0.1"
+references:
+  - docs/specs/p3-t10-list-artifacts.md
+  - docs/specs/p10-t41-rename-feature-tags-to-tags.md
+  - docs/specs/p12-t58-commit-refs-cap-references-removal.md
+  - docs/specs/p12-t59-remove-references-filter-param.md
+authored:
+  by: "tech-writer"
+  date: 2026-09-04
+revised:
+  by: ""
+  date: YYYY-MM-DD
+---
+
+# arkeology.tools.list
+
+## Scope
+
+The browse boundary: filtered, metadata-only enumeration with no embedding call and no content
+fetch. Distinct from `search_artifacts`, which is semantic and returns content.
+
+## Symbols
+
+### list_artifacts
+
+```python
+async def list_artifacts(
+    *,
+    settings: Settings,
+    s3: S3ClientInterface,
+    vectors: VectorsClientInterface,
+    bedrock: BedrockClientInterface | None = None,
+    type: str | None = None,
+    tags: list[str] | None = None,
+    commit_refs: list[str] | None = None,
+    team: str | None = None,
+    project: str | None = None,
+    tier: int | None = None,
+    status: str = "active",
+) -> dict[str, Any]: ...
+```
+
+**Errors**
+
+Never raises. Every failure is a returned dict carrying an `"error"` key.
+
+- `validation_error` — an invalid filter value, e.g. a `type` outside `ARTIFACT_TYPES`.
+- `credential_error` — an AWS call raised `CredentialError`, including during the concurrent
+  link-field resolution.
+- `internal_error` — any otherwise unhandled exception.
+
+**Invariants**
+
+- Metadata-only. No Bedrock embedding call, and no S3 object body is fetched.
+- The cross-scope gate applies to every candidate: own-scope always listable; foreign-scope listable
+  only at `tier == 3` and `visibility == "shared"`.
+- `status` defaults to `"active"`, so archived artifacts are excluded unless explicitly requested.
+- `commit_refs` and `references` are resolved via the union-of-both-durable-stores model, **not**
+  read off whichever single section vector happened to be returned. A multi-section artifact can
+  otherwise surface an arbitrary section's stale copy.
+- `tags` filtering matches an individual element, relying on vector metadata storing `tags` as
+  `list[str]`.
+- There is **no** `references` filter parameter. It was removed outright when `references` stopped
+  being written to vector metadata; this is a deliberate breaking change, not an omission.
+- `references` returned to a foreign-scope reader is filtered to independently-readable targets,
+  which costs one additional batched query page.
+
+**Preconditions**
+
+- Filter values must be well-formed for their field; `tier` is an int, `status` one of the artifact
+  status values.
+
+**Postconditions**
+
+- Returns `{"artifacts": [...]}` — metadata per artifact, never `content`.
+- One entry per artifact, not per section vector, regardless of how many section vectors an
+  artifact has.
+- A link-field read failure for one artifact degrades that artifact's `commit_refs`/`references` to
+  empty rather than aborting the whole listing.

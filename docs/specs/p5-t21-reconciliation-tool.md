@@ -9,7 +9,8 @@ feature: p5-t21-reconciliation-tool
 status: ready
 phase: 5
 task: 21
-references: []
+references:
+  - docs/contracts/modules/arkeology.tools.reconcile.md
 authored:
   by: "architect"
   date: "2026-05-31"

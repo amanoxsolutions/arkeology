@@ -10,6 +10,7 @@ status: ready
 phase: 10
 task: 37
 references:
+  - docs/contracts/modules/arkeology.tools.propose_commit_links.md
   - docs/brainstorming/brainstorming-2026-06-06-artifact-commit-refs.md
   - docs/specs/p10-t35-filter-range-operators.md
   - docs/specs/p10-t36-commit-refs-metadata-fields.md

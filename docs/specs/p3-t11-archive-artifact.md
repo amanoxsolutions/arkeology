@@ -9,7 +9,8 @@ feature: p3-t11-archive-artifact
 status: ready
 phase: 3
 task: 11
-references: []
+references:
+  - docs/contracts/modules/arkeology.tools.archive.md
 authored:
   by: "architect"
   date: "2026-05-30"

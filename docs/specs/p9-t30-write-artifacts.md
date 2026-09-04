@@ -9,7 +9,8 @@ feature: p9-t30-write-artifacts
 phase: 9
 task: 30
 status: complete
-references: []
+references:
+  - docs/contracts/modules/arkeology.tools.write_artifacts.md
 authored:
   by: "architect"
   date: "2026-06-03"

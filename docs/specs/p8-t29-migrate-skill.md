@@ -9,7 +9,8 @@ feature: p8-t29-migrate-skill
 phase: 8
 task: 29
 status: superseded
-references: []
+references:
+  - docs/contracts/modules/arkeology.tools.migrate_artifacts.md
 authored:
   by: "architect"
   date: "2026-06-02"

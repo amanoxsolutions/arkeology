@@ -10,6 +10,8 @@ status: ready
 phase: 12
 task: 58
 references:
+  - docs/contracts/data/s3vectors.artifact.md
+  - docs/contracts/modules/arkeology.tools.link_metadata.md
   - docs/architecture-decisions/adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal.md
   - docs/specs/p12-t57-guard-coverage.md
   - docs/specs/p12-t46-references-field.md

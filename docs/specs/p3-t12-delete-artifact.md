@@ -9,7 +9,8 @@ feature: p3-t12-delete-artifact
 status: ready
 phase: 3
 task: 12
-references: []
+references:
+  - docs/contracts/modules/arkeology.tools.delete.md
 authored:
   by: "architect"
   date: "2026-05-30"

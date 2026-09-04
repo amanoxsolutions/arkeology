@@ -9,7 +9,8 @@ feature: p3-t14-health-check
 status: ready
 phase: 3
 task: 14
-references: []
+references:
+  - docs/contracts/modules/arkeology.tools.health.md
 authored:
   by: "architect"
   date: "2026-05-30"

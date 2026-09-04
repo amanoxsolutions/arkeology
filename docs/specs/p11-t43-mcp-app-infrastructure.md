@@ -10,6 +10,7 @@ status: complete
 phase: 11
 task: 43
 references:
+  - docs/contracts/modules/arkeology.tools.studio.md
   - docs/architecture-decisions/adr-2026-06-24-mcp-apps-visual-reading-interface.md
   - docs/planning-artifacts/requirements.md
 authored:

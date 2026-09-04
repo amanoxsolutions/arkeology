@@ -1,3 +1,28 @@
+<!--
+  CONTRACT — Design (token layer) for Arkeology Studio.
+
+  type:        Contract
+  title:       arkeology-studio-tokens
+  description: The normative colour, typography, and dimension token layer for the Arkeology
+               Studio MCP App, plus a rendered visual-identity reference page exercising it.
+  okf_version: "0.1"
+  references:
+    - docs/specs/p11-t44-browser-ui.md
+    - docs/specs/p11-t43-mcp-app-infrastructure.md
+    - docs/reviews/review-2026-06-29-arkeology-studio-design.md
+  authored:    tech-writer, 2026-09-04
+
+  Format is CSS custom properties rather than DTCG — declared in AGENTS.md's
+  `Contract format:` design sub-bullet. The consumer
+  (src/arkeology/static/arkeology-studio.html) is plain CSS with no build step to
+  compile DTCG tokens into, so DTCG would need a generator nothing else in the repo
+  would use.
+
+  AUTHORITY: the `:root` / `[data-theme="light"]` token blocks below are normative. The
+  implementation mirrors them; where the two disagree, this file is correct and the
+  implementation has drifted. The rest of the page is an illustrative rendering of those
+  tokens, not part of the contract.
+-->
 <title>arkeology studio — Visual Identity</title>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }

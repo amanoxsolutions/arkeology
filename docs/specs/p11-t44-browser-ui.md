@@ -15,7 +15,7 @@ references:
   - docs/architecture-decisions/adr-2026-08-12-studio-link-resolution.md
   - docs/architecture-decisions/adr-2026-07-03-artifact-cross-referencing.md
   - docs/specs/p11-t43-mcp-app-infrastructure.md
-  - docs/specs/p11-t44-browser-ui-design.html
+  - docs/contracts/design/arkeology-studio-tokens.html
   - https://gofastmcp.com/apps/overview
   - https://gofastmcp.com/python-sdk/fastmcp-apps-app
   - https://gofastmcp.com/apps/fastmcp-app

@@ -9,7 +9,8 @@ feature: p10-t42-mcp-data-resources
 status: ready
 phase: 10
 task: 42
-references: []
+references:
+  - docs/contracts/modules/arkeology.resources.md
 authored:
   by: "architect"
   date: "2026-06-23"

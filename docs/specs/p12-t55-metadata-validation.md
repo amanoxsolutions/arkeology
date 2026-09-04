@@ -10,6 +10,8 @@ status: ready
 phase: 12
 task: 55
 references:
+  - docs/contracts/data/s3vectors.artifact.md
+  - docs/contracts/data/s3.artifact.md
   - docs/planning-artifacts/requirements.md
   - docs/planning-artifacts/plan.md
   - docs/architecture-decisions/adr-2026-07-03-annotation-backed-link-storage.md

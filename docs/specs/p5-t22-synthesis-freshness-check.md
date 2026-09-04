@@ -9,7 +9,8 @@ feature: p5-t22-synthesis-freshness-check
 status: ready
 phase: 5
 task: 22
-references: []
+references:
+  - docs/contracts/modules/arkeology.tools.freshness.md
 authored:
   by: "architect"
   date: "2026-05-31"

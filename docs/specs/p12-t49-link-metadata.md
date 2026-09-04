@@ -10,6 +10,7 @@ status: ready
 phase: 12
 task: 49
 references:
+  - docs/contracts/modules/arkeology.tools.link_metadata.md
   - docs/architecture-decisions/adr-2026-07-03-annotation-backed-link-storage.md
   - docs/specs/p10-t38-link-commit.md
   - docs/specs/p12-t45-s3-annotation-client.md

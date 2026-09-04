@@ -9,7 +9,8 @@ feature: p2-t9-read-artifact
 status: ready
 phase: 2
 task: 9
-references: []
+references:
+  - docs/contracts/modules/arkeology.tools.read.md
 authored:
   by: "architect"
   date: "2026-05-30"

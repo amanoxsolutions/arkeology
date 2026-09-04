@@ -9,13 +9,16 @@ feature: p1-t3-aws-client-layer
 status: ready
 phase: 1
 task: 3
-references: []
+references:
+  - docs/architecture-decisions/adr-2026-05-29-hexagonal-architecture.md
+  - docs/reviews/review-2026-05-31-fix-17-minor-client-layer-improvements.md
+  - docs/specs/p7-t25-moto-migration.md
 authored:
   by: "architect"
   date: "2026-05-29"
 revised:
-  by: ""
-  date: ""
+  by: "architect"
+  date: "2026-09-04"
 ---
 
 # T3 — AWS Client Layer
@@ -39,9 +42,9 @@ credentials configured. All AWS calls are replaced by in-memory fakes that imple
 interface.
 
 **Acceptance criteria:**
-- Given a unit test that uses `FakeS3Client`, when the test calls `put_object()` and then `get_object()` with the same key, then the stored content is returned — no AWS call is made.
-- Given a unit test that uses `FakeVectorsClient`, when the test calls `put_vector()` and then `query_vectors()` with a matching filter, then the vector is returned — no AWS call is made.
-- Given a unit test that simulates a credential failure by calling `FakeBedrockClient.set_credential_failure(True)`, when any method is called, then a `CredentialError` is raised — not a raw exception.
+- Given a unit test using the moto-backed `s3_client` fixture, when the test calls `put_object()` and then `get_object()` with the same key, then the stored content is returned — no real AWS call is made.
+- Given a unit test using the moto-backed `vectors_client` fixture, when the test calls `put_vector()` and then `query_vectors()` with a matching filter, then the vector is returned — no real AWS call is made.
+- Given a unit test that simulates a credential failure via `mocker.patch.object(client, "<method>", side_effect=CredentialError(...))`, when the patched method is called, then a `CredentialError` is raised — not a raw exception.
 
 ### Story 2 — Credential errors never reach callers as raw exceptions (P1)
 
@@ -66,25 +69,31 @@ Every boto3 client is configured to use HTTPS endpoints. An unencrypted connecti
 - WHEN a concrete client is instantiated THE SYSTEM SHALL create the boto3 session using HTTPS (the boto3 default — must not be overridden to HTTP).
 - WHEN `AWS_PROFILE` is set in the environment THE SYSTEM SHALL create the boto3 session with `boto3.Session(profile_name=profile)`.
 - WHEN `AWS_PROFILE` is not set THE SYSTEM SHALL create the boto3 session with `boto3.Session()` and rely on the standard credential chain.
-- WHEN a fake client method is called with `set_credential_failure(True)` active THE SYSTEM SHALL raise `CredentialError` as the concrete implementations do.
+- WHEN a unit test patches a client method with `mocker.patch.object(..., side_effect=CredentialError(...))` THE SYSTEM SHALL raise `CredentialError` at that call site, exactly as the concrete implementations do — never via a hand-rolled fake's own failure toggle.
 - WHEN any AWS API call fails with a non-credential error THE SYSTEM SHALL re-raise the original exception — not swallow it, not wrap it in `CredentialError`.
 
 ## Boundaries
 
 **Always:**
-- Three interfaces, three concrete implementations, three fakes — one per AWS service (S3, S3 Vectors, Bedrock).
-- Interfaces are abstract base classes (Python `abc.ABC`, `abc.abstractmethod`).
-- Fakes live under `src/arkeology/clients/fakes/` and are used exclusively in tests — never imported in production code paths.
-- Fakes must implement every method on their corresponding interface — incomplete fakes cause unit test gaps.
+- Three interfaces, three concrete implementations. Only Bedrock gets a hand-written fake
+  (`FakeBedrockClient`) — S3 and S3 Vectors are exercised in unit tests via moto instead, per
+  `p7-t25-moto-migration.md`, which deleted this task's original `FakeS3Client`/
+  `FakeVectorsClient` design and superseded it.
+- Interfaces use `typing.Protocol` structural subtyping (ADR-003) — `abc.ABC`/
+  `abc.abstractmethod` are never used in client code.
+- The surviving fake lives under `src/arkeology/clients/fakes/` and is used exclusively in
+  tests — never imported in production code paths.
+- The surviving fake must implement every method on its corresponding interface — an
+  incomplete fake causes unit test gaps.
 - `CredentialError` is defined in `errors.py` and imported by the clients — it does not live inside the `clients/` package.
-- The credential error wrapping is in the concrete client methods, not in the abstract interface.
+- The credential error wrapping is in the concrete client methods, not in the interface.
 - boto3 client objects are created once per concrete client instance (not per call).
 
 **Ask First:**
 - Nothing — all constraints are defined.
 
 **Never:**
-- Do not make boto3 calls in the abstract interface or in the fakes.
+- Do not make boto3 calls in the interface or in the fakes.
 - Do not use `os.environ` directly inside client implementations — credentials are handled via boto3's session mechanism.
 - Do not create a new boto3 session per API call — sessions are created once at client initialisation.
 - Do not catch non-credential AWS errors and convert them to `CredentialError` — only the specific credential-related error codes warrant that treatment.
@@ -97,17 +106,16 @@ Every boto3 client is configured to use HTTPS endpoints. An unencrypted connecti
 |------|--------|-------|
 | `src/arkeology/errors.py` | Create | Defines `CredentialError` and other base error types |
 | `src/arkeology/clients/__init__.py` | Create | Empty package marker |
-| `src/arkeology/clients/interfaces.py` | Create | Abstract base classes for all three clients |
+| `src/arkeology/clients/interfaces.py` | Create | `typing.Protocol` interfaces for all three clients |
 | `src/arkeology/clients/s3.py` | Create | Concrete S3 boto3 implementation |
 | `src/arkeology/clients/vectors.py` | Create | Concrete S3 Vectors boto3 implementation |
 | `src/arkeology/clients/bedrock.py` | Create | Concrete Bedrock boto3 implementation |
 | `src/arkeology/clients/fakes/__init__.py` | Create | Empty package marker |
-| `src/arkeology/clients/fakes/fake_s3.py` | Create | In-memory S3 fake |
-| `src/arkeology/clients/fakes/fake_vectors.py` | Create | In-memory S3 Vectors fake |
-| `src/arkeology/clients/fakes/fake_bedrock.py` | Create | Deterministic embedding fake |
-| `tests/unit/clients/test_fake_s3.py` | Create | Full interface coverage via fake |
-| `tests/unit/clients/test_fake_vectors.py` | Create | Full interface coverage via fake |
+| `src/arkeology/clients/fakes/fake_s3.py` | Superseded | Deleted by `p7-t25-moto-migration.md` — S3 is exercised via moto in unit tests instead |
+| `src/arkeology/clients/fakes/fake_vectors.py` | Superseded | Deleted by `p7-t25-moto-migration.md` — S3 Vectors is exercised via moto (plus a `query_vectors` extension) instead |
+| `src/arkeology/clients/fakes/fake_bedrock.py` | Create | Deterministic embedding fake — the only fake that survives (moto's `invoke_model` is a generic stub, not deterministic per-text embeddings) |
 | `tests/unit/clients/test_fake_bedrock.py` | Create | Full interface coverage via fake |
+| `tests/unit/conftest.py` | Modify | moto-backed `s3_client`/`vectors_client` fixtures cover `S3ClientInterface`/`VectorsClientInterface` — see `p7-t25-moto-migration.md` |
 | `tests/integration/clients/test_s3_client.py` | Create | Real AWS calls (requires credentials + provisioned S3 bucket) |
 | `tests/integration/clients/test_vectors_client.py` | Create | Real AWS calls (requires credentials + provisioned S3 Vectors index) |
 | `tests/integration/clients/test_bedrock_client.py` | Create | Real AWS calls (requires credentials + model access) |
@@ -132,11 +140,19 @@ Contains:
 
 ---
 
-## `clients/interfaces.py` — Abstract Base Classes
+## `clients/interfaces.py` — Protocol Interfaces
+
+All three interfaces are `typing.Protocol` classes (ADR-003) — structural subtyping, not
+inheritance. Concrete implementations and fakes satisfy them by shape alone; `abc.ABC`/
+`abc.abstractmethod` are never used here. This corrects the original draft of this section,
+which specified `ABC`/`abstractmethod` — the initial T3 implementation shipped that way and
+was migrated to `Protocol` shortly after by
+`review-2026-05-31-fix-17-minor-client-layer-improvements.md`, aligning it with ADR-003
+(authored the same day as this spec).
 
 ### `S3ClientInterface`
 
-Methods the interface must declare (each marked `@abstractmethod`):
+Methods this task establishes:
 
 | Method | Parameters | Returns | Description |
 |--------|-----------|---------|-------------|
@@ -145,27 +161,54 @@ Methods the interface must declare (each marked `@abstractmethod`):
 | `head_object` | `key: str` | `dict[str, Any]` | Retrieve object metadata without content; raises `KeyError` if not found |
 | `list_objects` | `prefix: str` | `list[str]` | List all object keys under prefix |
 | `head_bucket` | `bucket: str` | `None` | Check bucket existence and accessibility; raises on error |
+| `delete_object` | `key: str` | `None` | Delete object by key; silently ignores missing keys |
+
+*Extended after T3 shipped, by later tasks: `put_object` gained `if_none_match`/`if_match`
+conditional-write keyword arguments and now returns the object's ETag, and four annotation
+methods (`put_object_annotation`, `get_object_annotation`, `list_object_annotations`,
+`delete_object_annotation`) were added — both under ADR-011 /
+`p12-t45-s3-annotation-client.md`. This table reflects only what T3 itself established; the
+current full interface is `src/arkeology/clients/interfaces.py`.*
 
 ### `VectorsClientInterface`
 
-Methods the interface must declare:
+Methods this task establishes:
 
 | Method | Parameters | Returns | Description |
 |--------|-----------|---------|-------------|
 | `put_vector` | `key: str, vector: list[float], metadata: dict[str, Any]` | `None` | Upsert a vector with key and metadata |
 | `get_vectors` | `keys: list[str]` | `list[dict[str, Any]]` | Retrieve vectors (with metadata) by key list |
-| `query_vectors` | `vector: list[float], top_k: int, filter: dict[str, Any] \| None` | `list[dict[str, Any]]` | Semantic search; each result has `key`, `score`, and `metadata` |
+| `query_vectors` | `vector: list[float], top_k: int, filter_expr: dict[str, Any] \| None` | `list[dict[str, Any]]` | Semantic search; each result has `key`, `score`, and `metadata` |
 | `delete_vectors` | `keys: list[str]` | `None` | Delete vectors by key list |
-| `describe_index` | None | `dict[str, Any]` | Return index metadata including `dimensions` field |
-| `list_vectors_by_metadata` | `filter: dict[str, Any]` | `list[str]` | Return all keys matching a metadata filter (used by list_artifacts and reconcile) |
+| `describe_index` | None | `dict[str, Any]` | Return index metadata including `dimension` field |
+| `list_vectors_by_metadata` | `filter_expr: dict[str, Any]` | `list[str]` | Return all keys matching a metadata filter (used by list_artifacts and reconcile) |
+
+The parameter is `filter_expr`, never the bare name `filter` — `filter` is a Python builtin
+and shadowing it was corrected by the same review-fix-17 pass that migrated `ABC` to
+`Protocol` (see above).
+
+*Extended after T3 shipped: `put_vectors_batch` (batched writes, chunked at the 500-item
+`PutVectors` API limit) and `get_vectors`' `include_data` flag (skip fetching embedding data
+when only metadata is needed) were added by later hardening work — current signatures live
+in `src/arkeology/clients/interfaces.py`.*
 
 ### `BedrockClientInterface`
 
-Methods the interface must declare:
+Methods this task establishes:
 
 | Method | Parameters | Returns | Description |
 |--------|-----------|---------|-------------|
-| `embed` | `text: str, model_id: str` | `list[float]` | Generate embedding for text using specified model |
+| `embed` | `text: str, model_id: str, dimensions: int` | `list[float]` | Generate an embedding for text using the specified model and output dimension |
+
+`dimensions` must be passed explicitly — omitting it lets Bedrock fall back to the model's
+default output dimension, which will not match the configured `BEDROCK_EMBEDDING_DIMENSIONS`
+or the S3 Vectors index dimension. (This parameter was missing from T3's initial
+implementation and added immediately after, still within this task's own delivery — no
+separate spec.)
+
+*Extended after T3 shipped: `invoke_text_model(model_id: str, prompt: str) -> str` was added
+by `p9-t30-write-artifacts.md` for Nova Lite description enrichment in the migration tooling
+— it is not part of T3's own scope.*
 
 ---
 
@@ -220,10 +263,10 @@ The vectors bucket name and index name are provided to the constructor.
 
 Wraps `boto3.client("bedrock-runtime")`.
 
-- `embed` → `client.invoke_model(modelId=model_id, body=json.dumps({"inputText": text, "dimensions": N, "normalize": True}), contentType="application/json")`
+- `embed` → `client.invoke_model(modelId=model_id, body=json.dumps({"inputText": text, "dimensions": dimensions, "normalize": True}), contentType="application/json")`
   - Parse the response body JSON to extract the `embedding` field (a list of floats).
   - For Titan Text Embeddings v2 specifically: the response shape is `{"embedding": [...], "inputTextTokenCount": N}`.
-  - The `dimensions` parameter in the request body controls the output dimension (256, 512, or 1024 for Titan v2). Leave it out to use the model default.
+  - `dimensions` is the `embed` parameter (256, 512, or 1024 for Titan v2) — always pass it explicitly; do not omit it and rely on the model default (see the interface table above).
   
 > **Important:** The exact request/response shape for Titan Text Embeddings v2 and other models must be verified against the Bedrock documentation. Do not assume the shape above is final — write an integration test that calls real Bedrock and verify the response structure.
 
@@ -231,57 +274,41 @@ Wraps `boto3.client("bedrock-runtime")`.
 
 ## Fakes
 
+`FakeS3Client` and `FakeVectorsClient` below describe this task's *original* design. Both were
+deleted by `p7-t25-moto-migration.md`: S3 and S3 Vectors are exercised in unit tests via
+moto-backed real clients instead (a `query_vectors` cosine-similarity extension covers the one
+operation moto does not implement). Only `FakeBedrockClient` survives — moto's `invoke_model`
+returns a generic stub, not deterministic per-text embeddings, so a hash-derived fake is still
+needed there. Credential-failure simulation for any client, including Bedrock, no longer uses a
+fake's own toggle method — it uses `mocker.patch.object(client, "<method>",
+side_effect=CredentialError(...))` (see `p7-t25-moto-migration.md`).
+
 ### Design principles
 
-- Fakes are full, stateful implementations that satisfy the interface contract.
-- They store data in Python dicts/lists in memory — they are reset at construction.
-- They support `set_credential_failure(True/False)` to simulate auth failures on demand.
-- They do not simulate network latency or partial failures (beyond credential failure).
-- They are deterministic: given the same inputs, they always return the same outputs.
-- They are not mocks — do not use `unittest.mock` to build them.
+- The surviving fake is a full, stateful implementation that satisfies its interface contract.
+- It stores data in memory — reset at construction.
+- It does not simulate network latency or partial failures.
+- It is deterministic: given the same inputs, it always returns the same outputs.
+- It is not a mock — do not use `unittest.mock` to build it.
 
-### `FakeS3Client`
+### `FakeS3Client` (deleted — superseded by moto, see above)
 
-Internals:
-- `_objects: dict[str, tuple[str, dict]]` — maps key → (content, metadata)
-- `_credential_failure: bool`
-
-Behaviour:
-- `put_object`: stores `(body, metadata)` under `key`.
-- `get_object`: returns stored content; raises `KeyError` if key absent.
-- `head_object`: returns stored metadata dict; raises `KeyError` if absent.
-- `list_objects(prefix)`: returns all keys that start with `prefix`.
-- `head_bucket`: always succeeds unless `_credential_failure` is True.
-- Any method: if `_credential_failure` is True, raises `CredentialError` before doing anything else.
-
-### `FakeVectorsClient`
-
-Internals:
-- `_vectors: dict[str, tuple[list[float], dict]]` — maps key → (vector, metadata)
-- `_credential_failure: bool`
-
-Behaviour:
-- `put_vector`: upserts `(vector, metadata)` under `key`.
-- `get_vectors(keys)`: returns list of `{"key": k, "metadata": m, "data": {"float32": v}}` for found keys; omits missing keys silently.
-- `query_vectors(vector, top_k, filter)`: returns the `top_k` stored vectors sorted by cosine similarity to `vector`, filtered by `filter`. The filter implementation must support the metadata filter operators used in Phase 2+:
-  - `{"field": {"$eq": value}}` — exact match (also handles list fields: true if value is in the list)
-  - `{"field": {"$nin": [v1, v2, ...]}}` — not in list
-  - `{"$and": [expr, expr, ...]}` — logical AND of sub-expressions
-  Return format: `[{"key": k, "score": s, "metadata": m}]` ordered by score descending.
-- `delete_vectors(keys)`: removes each key from `_vectors`; silently ignores missing keys.
-- `describe_index()`: returns `{"dimension": 1024}` by default. The dimension is configurable at fake construction time via `FakeVectorsClient(dimension=1024)`.
-- `list_vectors_by_metadata(filter)`: return all keys whose metadata matches `filter`.
-- Cosine similarity: implement a simple dot-product / (norm_a * norm_b) formula. This does not need to be numerically perfect — it needs to return meaningful ordering for test assertions.
+### `FakeVectorsClient` (deleted — superseded by moto, see above)
 
 ### `FakeBedrockClient`
 
 Internals:
-- `_credential_failure: bool`
 - `_dimension: int` (default 1024)
 
 Behaviour:
-- `embed(text, model_id)`: returns a deterministic vector of length `_dimension`. The values do not need to be semantically meaningful — a simple hash-derived fixed vector is fine. The same `text` must always return the same vector (determinism matters for test repeatability). A straightforward approach: hash the text to a seed, use it to generate a fixed-length list of floats in [-1, 1] range, normalise to unit length.
-- If `_credential_failure` is True: raises `CredentialError`.
+- `embed(text, model_id, dimensions)`: returns a deterministic vector of length `dimensions`.
+  The values do not need to be semantically meaningful — a simple hash-derived fixed vector is
+  fine. The same `text` must always return the same vector (determinism matters for test
+  repeatability). A straightforward approach: hash the text to a seed, use it to generate a
+  fixed-length list of floats in [-1, 1] range, normalise to unit length. `model_id` is accepted
+  for interface compatibility but does not affect the output.
+- Does not simulate credential failures itself — a test needing that patches the fake's `embed`
+  method directly (see above), not a `set_credential_failure` toggle.
 
 ---
 
@@ -291,11 +318,16 @@ T3 is where TDD discipline is most critical. The entire client layer follows a s
 test-first sequence across three distinct Red/Green cycles. Do not skip ahead — the fakes are your
 test substrate for all of Phase 2 and 3.
 
+*Historical note: this workflow describes T3 as originally executed, including
+`FakeS3Client`/`FakeVectorsClient`, which `p7-t25-moto-migration.md` later deleted (see the
+Fakes section above). It is kept as the record of how this task itself was delivered, not as
+current guidance — do not re-create either fake if revisiting this task.*
+
 ### Cycle 1 — Interfaces + Fake unit tests + Fakes
 
 **Step 1 — Write `clients/interfaces.py`** (no tests yet).
-The abstract base classes are design, not implementation. Write the three ABCs with all `@abstractmethod`
-declarations. There is nothing to test-drive here; the interface is the specification.
+The `typing.Protocol` interfaces are design, not implementation. Write the three Protocol
+classes. There is nothing to test-drive here; the interface is the specification.
 
 **Step 2 — Write the unit tests (Red).**
 Write `tests/unit/clients/test_fake_s3.py`, `test_fake_vectors.py`, and `test_fake_bedrock.py`
@@ -348,6 +380,11 @@ write the test first, confirm it fails, then implement.
 ---
 
 ## Test Cases
+
+*Historical note: `test_fake_s3.py` and `test_fake_vectors.py` below were deleted by
+`p7-t25-moto-migration.md` along with the fakes they tested. Current unit-test coverage for
+`S3ClientInterface`/`VectorsClientInterface` lives in the moto-backed tool tests instead — see
+that spec for the replacement test list.*
 
 ### Unit tests — write these before writing the fakes (Cycle 1 Step 2)
 

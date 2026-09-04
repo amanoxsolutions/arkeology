@@ -9,7 +9,8 @@ feature: p2-t7-write-artifact
 status: ready
 phase: 2
 task: 7
-references: []
+references:
+  - docs/contracts/modules/arkeology.tools.write.md
 authored:
   by: "architect"
   date: "2026-05-30"

@@ -10,6 +10,7 @@ status: ready
 phase: 12
 task: 45
 references:
+  - docs/contracts/data/s3-annotations.artifact.md
   - docs/architecture-decisions/adr-2026-07-03-annotation-backed-link-storage.md
   - docs/architecture-decisions/adr-2026-07-03-artifact-cross-referencing.md
   - docs/brainstorming/brainstorming-2026-07-01-artifact-cross-referencing.md

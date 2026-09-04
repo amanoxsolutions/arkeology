@@ -9,7 +9,8 @@ feature: p3-t13-purge-archived
 status: ready
 phase: 3
 task: 13
-references: []
+references:
+  - docs/contracts/modules/arkeology.tools.purge.md
 authored:
   by: "architect"
   date: "2026-05-30"

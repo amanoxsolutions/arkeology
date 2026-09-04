@@ -9,13 +9,15 @@ feature: p2-t6-artifact-model
 status: ready
 phase: 2
 task: 6
-references: []
+references:
+  - docs/contracts/data/s3.artifact.md
+  - docs/architecture-decisions/adr-2026-05-29-deterministic-artifact-ids.md
 authored:
   by: "architect"
   date: "2026-05-30"
 revised:
-  by: ""
-  date: ""
+  by: "architect"
+  date: "2026-09-04"
 ---
 
 # T6 — Artifact Model and Key Generation
@@ -179,21 +181,35 @@ Artifact model validation:
 
 ## Key Generation Format — Decision
 
-**Use the slug approach.** Format:
+**Use a slug plus a deterministic hash suffix.** Format:
 
-- Tier 2: `{type}-{date}-{title_slug}` — e.g., `code-review-2026-05-30-fix-auth-bug`
-- Tier 3: `{type}-{title_slug}` — e.g., `adr-use-postgres-for-sessions`
+- Tier 2: `{type_slug}-{date}-{title_slug}-{hash}` — e.g., `code-review-2026-05-30-fix-auth-bug-a1b2c3d4`
+- Tier 3: `{type_slug}-{title_slug}-{hash}` — e.g., `adr-use-postgres-for-sessions-a1b2c3d4`
 
-**Why slugs, not hashes:**
+`hash` is the first 8 hex characters of a SHA-256 digest of the full, original
+(un-normalised, un-truncated) title. It is **always** appended — never only when a
+collision is detected.
 
-1. **Collisions are intentional.** Two titles that normalise to the same slug — e.g.,
-   `"Fix Auth Bug"` and `"Fix auth bug!"` — represent the same artifact. The normalisation
-   acts as a natural deduplication step, which is exactly what the idempotency contract
-   requires.
-2. **Debuggability.** The S3 console, CloudTrail, and log lines all show human-readable
-   keys. No cross-referencing a lookup table to understand what a key refers to.
-3. **Scale.** This is a single-team project store. The probability of two genuinely distinct
-   artifacts producing the same slug is negligible.
+**Why a slug at all, and why a hash on top of it:**
+
+1. **Debuggability (the slug).** The S3 console, CloudTrail, and log lines all show a
+   human-readable prefix. A pure hash key would not be legible without a separate lookup
+   table.
+2. **Collision safety (the hash).** A slug-only scheme silently collapsed any two titles
+   that happened to normalise to the same slug onto one key — most destructively for three
+   cases nobody intended to collide: titles with no Latin/digit content (all fell back to
+   the constant slug `"artifact"`), titles differing only past the 60-character truncation
+   point, and titles differing only in punctuation the normalisation strips. Because the
+   hash is taken from the untouched, full original title, two textually different titles
+   essentially never share a generated key now, even when their slugs collide — their
+   hashes still differ. See the 2026-07-02 revision in
+   `adr-2026-05-29-deterministic-artifact-ids.md` for the incident and the full resolution;
+   this section reflects that resolution, not the original, slug-only design.
+3. **The reject-by-default write semantic is unaffected.** The only titles that still
+   produce the same generated key are ones whose raw text is identical — for tier 2 that is
+   the same-day idempotent retry (Story 1); for tier 3 that is the intended living-document
+   update. Either way, a write to an already-existing generated key is still rejected unless
+   the caller passes an explicit `overwrite` flag.
 
 **Normalisation rules for `title_slug`:**
 - Lowercase the title.
@@ -206,7 +222,8 @@ Artifact model validation:
 - Unicode: transliterate accented characters to ASCII equivalents before slugifying (e.g.,
   `é` → `e`); characters with no ASCII equivalent are dropped.
 
-Document these rules in the `artifact.py` module docstring. Add a test case for each rule.
+Document these rules — and the hash-suffix rule above — in the `artifact.py` module
+docstring. Add a test case for each rule.
 
 ## Open Questions
 
