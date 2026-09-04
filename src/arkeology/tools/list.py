@@ -22,10 +22,9 @@ from arkeology.constants import ArtifactStatus, ErrorCode
 from arkeology.errors import CredentialError, InvalidFilterValueError
 from arkeology.tools._errors import credential_error_response
 from arkeology.tools._reference_filter import resolve_readable_targets
-from arkeology.tools._scope import is_cross_scope_readable, is_own_scope
+from arkeology.tools._scope import build_scope_filter, is_cross_scope_readable, is_own_scope
 from arkeology.tools._search_helper import (
     build_artifact_summary,
-    build_scope_filter,
     build_user_filters,
     coerce_list_field,
     fetch_vectors_by_metadata,
@@ -141,7 +140,7 @@ async def _list_artifacts_inner(
             clauses.append({"commit_refs": {"$eq": ref}})
 
     # ── Step 1b: Scope filter (shared with search.py / synthesise.py) ─────────
-    clauses.append(build_scope_filter(settings))
+    clauses.append(build_scope_filter(settings.write_prefix, settings.read_prefixes_list))
 
     combined_filter: dict[str, Any] = {"$and": clauses} if len(clauses) > 1 else clauses[0]
 

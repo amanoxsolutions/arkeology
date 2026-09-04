@@ -1,9 +1,13 @@
 """arkeology.tools._search_helper — shared vector re-fetch loop for search and synthesise.
 
-This private module contains the scope-filter construction and deduplicating
-re-fetch loop shared between search_artifacts and synthesise_artifacts. Both
-tools call _run_search_loop with their respective parameters; tool-specific
-logic (content fetching, response shape) is handled by each tool independently.
+This private module contains the deduplicating re-fetch loop shared between
+search_artifacts and synthesise_artifacts. Both tools call run_search_loop with
+their respective parameters; tool-specific logic (content fetching, response
+shape) is handled by each tool independently.
+
+The cross-scope scope filter is *not* built here — ``run_search_loop`` delegates
+to ``_scope.build_scope_filter``, so every implementation of the access gate stays
+in ``_scope.py`` and inside the declared mutation-testing Scope.
 """
 
 import asyncio
@@ -27,6 +31,7 @@ from arkeology.errors import (
     InvalidFilterValueError,
     VectorDistanceMissingError,
 )
+from arkeology.tools._scope import build_scope_filter
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +60,7 @@ def fetch_vectors_by_metadata(
     *,
     include_data: bool = False,
 ) -> list[dict[str, Any]]:
-    """Fetch vector entries matching a metadata filter (F-3): the ``list_vectors_by_metadata``
+    """Fetch vector entries matching a metadata filter: the ``list_vectors_by_metadata``
     → ``get_vectors`` two-step idiom, consolidated so every call site short-circuits
     identically on an empty key list rather than issuing a pointless ``get_vectors([])``
     call.
@@ -77,37 +82,6 @@ def fetch_vectors_by_metadata(
     if not keys:
         return []
     return vectors.get_vectors(keys, include_data=include_data)
-
-
-def build_scope_filter(settings: Settings) -> dict[str, Any]:
-    """Build the S3 Vectors scope filter for the current deployment.
-
-    Own-scope artifacts are always visible. Foreign-scope artifacts are
-    included only when tier=3 and visibility="shared".
-
-    Args:
-        settings: Server configuration with write_prefix and read_prefixes.
-
-    Returns:
-        A metadata filter dict suitable for passing to query_vectors.
-    """
-    read_prefixes = settings.read_prefixes_list
-    write_prefix = settings.write_prefix
-
-    if read_prefixes:
-        return {
-            "$or": [
-                {"scope": {"$eq": write_prefix}},
-                {
-                    "$and": [
-                        {"scope": {"$in": read_prefixes}},
-                        {"tier": {"$eq": 3}},
-                        {"visibility": {"$eq": "shared"}},
-                    ]
-                },
-            ]
-        }
-    return {"scope": {"$eq": write_prefix}}
 
 
 def coerce_list_field(meta: dict[str, Any], key: str) -> list[str]:
@@ -132,7 +106,7 @@ def coerce_list_field(meta: dict[str, Any], key: str) -> list[str]:
 
 
 def derive_last_edited_at(last_edited_ulid: str | None) -> str | None:
-    """Derive an ISO 8601 timestamp from a ``last_edited_ulid`` (F-6).
+    """Derive an ISO 8601 timestamp from a ``last_edited_ulid``.
 
     A ULID encodes its creation timestamp in its first 48 bits — this decodes it.
     Returns ``None`` for a falsy input (no ULID recorded) or a malformed ULID that
@@ -213,7 +187,7 @@ def build_artifact_summary(
     source_artifacts_val: list[str],
 ) -> dict[str, Any]:
     """Build the ~14-key artifact summary dict shared by ``list_artifacts`` and
-    ``search_artifacts`` (F-4).
+    ``search_artifacts``.
 
     Both tools construct this same set of fields from vector metadata; each layers
     its own extra keys on top (``list_artifacts`` adds ``commit_refs``/``references``;
@@ -247,7 +221,7 @@ def build_artifact_summary(
 
 
 def clamp_top_k(top_k: int) -> tuple[int, bool] | dict[str, Any]:
-    """Validate and clamp a caller-supplied ``top_k`` (F-5).
+    """Validate and clamp a caller-supplied ``top_k``.
 
     Mirrors the identical rejection-and-clamp logic previously duplicated in
     ``search.py`` and ``synthesise.py``: a non-positive ``top_k`` is rejected; any
@@ -342,7 +316,7 @@ async def run_search_loop(
             mid-loop, ``False`` otherwise.
         On credential error: ``{"error": "credential_error", "message": str}``
     """
-    scope_filter = build_scope_filter(settings)
+    scope_filter = build_scope_filter(settings.write_prefix, settings.read_prefixes_list)
     seen_ids: set[str] = set()
     results: list[dict[str, Any]] = []
     fetch_exhausted = False

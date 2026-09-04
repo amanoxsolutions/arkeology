@@ -1,16 +1,27 @@
-"""arkeology.tools._scope — shared scope-check predicates.
+"""arkeology.tools._scope — the cross-scope access gate, and nothing else.
 
-Centralises the two scope-related checks previously re-implemented independently
-at each call site across the tool modules (review findings I-3 and F-1):
+Sole home of the gate, in both of the forms it takes. Keeping them in one small
+module is deliberate and load-bearing: it is what allows the mutation-testing
+`only_mutate` list to cover AGENTS.md's whole declared Scope with two entries.
+`only_mutate` accepts file globs, not function names, so a gate implementation
+added to a larger module drops out of mutation coverage without anything failing.
+Add gate logic here, and have call sites delegate.
 
 - ``is_own_scope``: the mandatory own-scope membership test
   (``artifact_id.startswith(scope + "/")``) — AGENTS.md's own highest-friction
-  correctness rule, manually re-typed at 10+ call sites with no structural guard
+  correctness rule, previously re-typed at 10+ call sites with no structural guard
   against a future dropped ``"/"``.
-- ``is_cross_scope_readable``: the cross-scope readability predicate (own-scope
-  always readable; foreign-scope readable iff ``tier == 3`` and
-  ``visibility == "shared"``), independently hand-rolled in ``list.py``,
-  ``freshness.py``, ``read.py``, and ``_reference_filter.py``.
+- ``is_cross_scope_readable``: the gate as an in-process predicate, applied to a
+  candidate already fetched (own-scope always readable; foreign-scope readable iff
+  ``tier == 3`` and ``visibility == "shared"``). Used by the read and delete paths.
+  Previously hand-rolled in ``list.py``, ``freshness.py``, ``read.py``, and
+  ``_reference_filter.py``.
+- ``build_scope_filter``: the same rule as a server-side S3 Vectors filter, so
+  foreign candidates failing the gate are never fetched. Used by the search,
+  synthesise, and list paths.
+
+The two gate forms must agree on every candidate; the agreement is pinned by a
+test in ``tests/unit/test_tools__scope.py`` rather than left to review.
 """
 
 from typing import Any
@@ -67,3 +78,42 @@ def is_cross_scope_readable(
     tier = int(meta.get("tier", 0))
     visibility = str(meta.get("visibility", ""))
     return is_foreign and tier == 3 and visibility == "shared"
+
+
+def build_scope_filter(own_scope: str, read_prefixes: list[str]) -> dict[str, Any]:
+    """Return the same gate as ``is_cross_scope_readable``, as an S3 Vectors filter.
+
+    ``is_cross_scope_readable`` gates one candidate already in hand; this gates the
+    query itself, so foreign artifacts that fail the gate are never fetched. The search,
+    synthesise, and list paths all filter server-side with this. Both forms must reach
+    the same verdict on the same candidate — see the agreement test in
+    ``tests/unit/test_tools__scope.py``.
+
+    Own-scope artifacts are always included. Foreign-scope artifacts are included only
+    when ``tier == 3`` **and** ``visibility == "shared"``. Dropping either clause fails
+    **open** — foreign tier-2 or ``hidden`` artifacts become reachable from another
+    scope — which is why both are pinned by direct tests rather than only exercised
+    through the tool suites.
+
+    Args:
+        own_scope: The caller's own write_prefix (no trailing slash).
+        read_prefixes: The caller's configured foreign read prefixes. Empty means no
+            foreign artifact is admissible at all.
+
+    Returns:
+        A metadata filter dict suitable for passing to ``query_vectors``.
+    """
+    if read_prefixes:
+        return {
+            "$or": [
+                {"scope": {"$eq": own_scope}},
+                {
+                    "$and": [
+                        {"scope": {"$in": read_prefixes}},
+                        {"tier": {"$eq": 3}},
+                        {"visibility": {"$eq": "shared"}},
+                    ]
+                },
+            ]
+        }
+    return {"scope": {"$eq": own_scope}}

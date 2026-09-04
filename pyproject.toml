@@ -58,9 +58,24 @@ plugins = ["pydantic.mypy"]
 # fails with ModuleNotFoundError. Bound the scope with `only_mutate` instead.
 source_paths = ["src/arkeology"]
 # Bounded to AGENTS.md's declared mutation-testing Scope: the cross-scope access gate.
-# `_scope.py` is the single source of truth for both scope predicates; `_reference_filter.py`
-# is the only other module that applies the gate rather than delegating to it. Widening
-# this past the declared scope is a convention change, not a config tweak.
+#
+# `_scope.py` holds every implementation of the gate, in both of the forms it takes:
+# `is_cross_scope_readable` (the in-process predicate, applied to a candidate already
+# fetched — the read and delete paths) and `build_scope_filter` (the same rule as a
+# server-side S3 Vectors filter, so foreign candidates are never fetched — the search,
+# synthesise, and list paths). Keeping both here is what lets this list stay at two
+# entries and still cover the whole declared Scope; a new gate implementation added
+# outside `_scope.py` would silently fall out of mutation coverage.
+#
+# `_reference_filter.py` is listed for a different reason. It does *not* implement the
+# gate — it delegates to `is_cross_scope_readable`. It is here because its own candidate
+# loop can drop readable results independently of the gate's verdict, which is a defect
+# class no amount of mutating `_scope.py` would reach.
+#
+# `only_mutate` accepts glob patterns only (`*` or `.py` suffix — see mutmut's
+# `configuration.py`), so there is no way to narrow it to a single function. That is why
+# gate logic belongs in a module small enough to mutate whole. Widening this list past
+# the declared Scope is a convention change, not a config tweak.
 only_mutate = [
     "src/arkeology/tools/_scope.py",
     "src/arkeology/tools/_reference_filter.py",
