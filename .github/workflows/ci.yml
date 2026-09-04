@@ -42,7 +42,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: astral-sh/setup-uv@v10
+      # Pinned to a full version on purpose. Unlike actions/*, setup-uv publishes no
+      # major-version alias tags after v6 — `v7` through `v10` do not exist as refs, only
+      # full semver tags do, so `@v10` fails with "unable to resolve action". Bump this
+      # deliberately; do not "tidy" it to a bare major.
+      - uses: astral-sh/setup-uv@v10.0.1
         with:
           enable-cache: true
 
