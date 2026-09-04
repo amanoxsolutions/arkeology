@@ -14,3 +14,4 @@ dev_server.py
 .serena/
 .tokensave/
 node_modules/
+mutants/

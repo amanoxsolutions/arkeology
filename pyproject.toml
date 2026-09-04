@@ -30,6 +30,7 @@ dev = [
     "boto3-stubs[s3,bedrock-runtime,sts,s3vectors]~=1.43",
     "pre-commit~=4.6",
     "types-pyyaml~=6.0",
+    "mutmut~=3.7",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -49,6 +50,25 @@ strict = true
 python_version = "3.14"
 mypy_path = "src"
 plugins = ["pydantic.mypy"]
+
+[tool.mutmut]
+# `source_paths` must be the whole package, not just the files under test: mutmut copies
+# these paths into a `mutants/` tree and runs pytest from there, so narrowing it to
+# individual modules leaves the rest of the package missing and every conftest import
+# fails with ModuleNotFoundError. Bound the scope with `only_mutate` instead.
+source_paths = ["src/arkeology"]
+# Bounded to AGENTS.md's declared mutation-testing Scope: the cross-scope access gate.
+# `_scope.py` is the single source of truth for both scope predicates; `_reference_filter.py`
+# is the only other module that applies the gate rather than delegating to it. Widening
+# this past the declared scope is a convention change, not a config tweak.
+only_mutate = [
+    "src/arkeology/tools/_scope.py",
+    "src/arkeology/tools/_reference_filter.py",
+]
+pytest_add_cli_args_test_selection = ["tests/unit/", "-m", "not integration"]
+# `test_skill_artifact_id_drift.py` reads SKILL.md files from `plugins/` relative to the
+# repo root, which becomes `mutants/` during a run — without this it fails on a missing file.
+also_copy = ["plugins"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
