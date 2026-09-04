@@ -24,7 +24,7 @@ async def test_all_healthy_all_ok(
 ) -> None:
     """All components healthy → all entries have status='ok'."""
     settings = _make_settings(monkeypatch, READ_PREFIXES="")
-    bedrock = FakeBedrockClient(dimension=8)
+    bedrock = FakeBedrockClient()
 
     result = await health_check(
         settings=settings, s3=s3_client, vectors=vectors_client_8, bedrock=bedrock
@@ -43,7 +43,7 @@ async def test_response_keys_present_no_read_prefixes(
 ) -> None:
     """No read prefixes → response has s3, vectors, bedrock, write_prefix; no read_prefix keys."""
     settings = _make_settings(monkeypatch, READ_PREFIXES="")
-    bedrock = FakeBedrockClient(dimension=8)
+    bedrock = FakeBedrockClient()
 
     result = await health_check(
         settings=settings, s3=s3_client, vectors=vectors_client_8, bedrock=bedrock
@@ -64,7 +64,7 @@ async def test_two_read_prefixes_two_keys(
 ) -> None:
     """Two read prefixes configured → two 'read_prefix:...' keys in response."""
     settings = _make_settings(monkeypatch, READ_PREFIXES="team-a,team-b")
-    bedrock = FakeBedrockClient(dimension=8)
+    bedrock = FakeBedrockClient()
 
     result = await health_check(
         settings=settings, s3=s3_client, vectors=vectors_client_8, bedrock=bedrock
@@ -96,7 +96,7 @@ async def test_s3_head_bucket_credential_error(
             original=Exception("simulated"),
         ),
     )
-    bedrock = FakeBedrockClient(dimension=8)
+    bedrock = FakeBedrockClient()
 
     result = await health_check(
         settings=settings, s3=s3_client, vectors=vectors_client_8, bedrock=bedrock
@@ -112,7 +112,7 @@ async def test_vectors_describe_index_not_found_error(
 ) -> None:
     """describe_index raises VectorIndexNotFoundError → vectors entry is 'error'; others 'ok'."""
     settings = _make_settings(monkeypatch, READ_PREFIXES="")
-    bedrock = FakeBedrockClient(dimension=8)
+    bedrock = FakeBedrockClient()
 
     result = await health_check(
         settings=settings, s3=s3_client, vectors=vectors_client_no_index, bedrock=bedrock
@@ -130,7 +130,7 @@ async def test_bedrock_embed_credential_error(
 ) -> None:
     """embed raises CredentialError → bedrock entry is 'error'; others 'ok'."""
     settings = _make_settings(monkeypatch, READ_PREFIXES="")
-    bedrock = FakeBedrockClient(dimension=8)
+    bedrock = FakeBedrockClient()
     mocker.patch.object(
         bedrock,
         "embed",
@@ -155,7 +155,7 @@ async def test_write_prefix_put_object_failure(
     """put_object raises on write-prefix probe → write_prefix entry is 'error'; others 'ok'."""
     settings = _make_settings(monkeypatch, READ_PREFIXES="")
     mocker.patch.object(s3_client, "put_object", side_effect=RuntimeError("Simulated put failure"))
-    bedrock = FakeBedrockClient(dimension=8)
+    bedrock = FakeBedrockClient()
 
     result = await health_check(
         settings=settings, s3=s3_client, vectors=vectors_client_8, bedrock=bedrock
@@ -176,7 +176,7 @@ async def test_read_prefix_list_objects_failure(
     mocker.patch.object(
         s3_client, "list_objects", side_effect=RuntimeError("Simulated list failure")
     )
-    bedrock = FakeBedrockClient(dimension=8)
+    bedrock = FakeBedrockClient()
 
     result = await health_check(
         settings=settings, s3=s3_client, vectors=vectors_client_8, bedrock=bedrock
@@ -204,7 +204,7 @@ async def test_all_failures_all_error_no_exception(
     mocker.patch.object(s3_client, "head_bucket", side_effect=RuntimeError("simulated"))
     mocker.patch.object(s3_client, "put_object", side_effect=RuntimeError("simulated"))
     mocker.patch.object(s3_client, "list_objects", side_effect=RuntimeError("simulated"))
-    bedrock = FakeBedrockClient(dimension=8)
+    bedrock = FakeBedrockClient()
     mocker.patch.object(
         bedrock,
         "embed",
@@ -232,7 +232,7 @@ async def test_ok_entries_have_no_message(
 ) -> None:
     """'ok' entries have no 'message' field (or it is absent/null)."""
     settings = _make_settings(monkeypatch, READ_PREFIXES="")
-    bedrock = FakeBedrockClient(dimension=8)
+    bedrock = FakeBedrockClient()
 
     result = await health_check(
         settings=settings, s3=s3_client, vectors=vectors_client_8, bedrock=bedrock
@@ -261,7 +261,7 @@ async def test_error_entries_have_nonempty_message(
             original=Exception("simulated"),
         ),
     )
-    bedrock = FakeBedrockClient(dimension=8)
+    bedrock = FakeBedrockClient()
     mocker.patch.object(
         bedrock,
         "embed",
@@ -287,7 +287,7 @@ async def test_status_field_only_ok_or_error(
 ) -> None:
     """status field is always 'ok' or 'error' — no other values."""
     settings = _make_settings(monkeypatch, READ_PREFIXES="team-x")
-    bedrock = FakeBedrockClient(dimension=8)
+    bedrock = FakeBedrockClient()
 
     result = await health_check(
         settings=settings, s3=s3_client, vectors=vectors_client_8, bedrock=bedrock
@@ -312,7 +312,7 @@ async def test_bedrock_text_model_absent_when_not_configured(
 ) -> None:
     """When BEDROCK_TEXT_MODEL is not set, bedrock_text_model key is absent from result."""
     settings = _make_settings(monkeypatch, READ_PREFIXES="")
-    bedrock = FakeBedrockClient(dimension=8)
+    bedrock = FakeBedrockClient()
 
     result = await health_check(
         settings=settings, s3=s3_client, vectors=vectors_client_8, bedrock=bedrock
@@ -330,7 +330,7 @@ async def test_bedrock_text_model_ok_when_configured(
     settings = _make_settings(
         monkeypatch, READ_PREFIXES="", BEDROCK_TEXT_MODEL="amazon.nova-lite-v1:0"
     )
-    bedrock = FakeBedrockClient(dimension=8)
+    bedrock = FakeBedrockClient()
 
     result = await health_check(
         settings=settings, s3=s3_client, vectors=vectors_client_8, bedrock=bedrock
@@ -349,7 +349,7 @@ async def test_bedrock_text_model_error_on_invoke_failure(
     settings = _make_settings(
         monkeypatch, READ_PREFIXES="", BEDROCK_TEXT_MODEL="amazon.nova-lite-v1:0"
     )
-    bedrock = FakeBedrockClient(dimension=8)
+    bedrock = FakeBedrockClient()
     mocker.patch.object(bedrock, "invoke_text_model", side_effect=RuntimeError("model unreachable"))
 
     result = await health_check(
@@ -372,7 +372,7 @@ async def test_bedrock_text_model_credential_error_returns_cause(
     settings = _make_settings(
         monkeypatch, READ_PREFIXES="", BEDROCK_TEXT_MODEL="amazon.nova-lite-v1:0"
     )
-    bedrock = FakeBedrockClient(dimension=8)
+    bedrock = FakeBedrockClient()
     mocker.patch.object(
         bedrock,
         "invoke_text_model",
@@ -401,7 +401,7 @@ async def test_bedrock_text_model_failure_does_not_skip_other_probes(
     settings = _make_settings(
         monkeypatch, READ_PREFIXES="", BEDROCK_TEXT_MODEL="amazon.nova-lite-v1:0"
     )
-    bedrock = FakeBedrockClient(dimension=8)
+    bedrock = FakeBedrockClient()
     mocker.patch.object(bedrock, "invoke_text_model", side_effect=RuntimeError("model unreachable"))
 
     result = await health_check(
@@ -437,7 +437,7 @@ async def test_s3_probe_credential_error_returns_cause(
             original=Exception("simulated"),
         ),
     )
-    bedrock = FakeBedrockClient(dimension=8)
+    bedrock = FakeBedrockClient()
 
     result = await health_check(
         settings=settings, s3=s3_client, vectors=vectors_client_8, bedrock=bedrock
@@ -465,7 +465,7 @@ async def test_vectors_probe_credential_error_returns_cause(
             original=Exception("simulated"),
         ),
     )
-    bedrock = FakeBedrockClient(dimension=8)
+    bedrock = FakeBedrockClient()
 
     result = await health_check(
         settings=settings, s3=s3_client, vectors=vectors_client_8, bedrock=bedrock
@@ -484,7 +484,7 @@ async def test_bedrock_probe_credential_error_returns_cause(
 ) -> None:
     """Bedrock probe CredentialError → cause is 'credential_error'."""
     settings = _make_settings(monkeypatch, READ_PREFIXES="")
-    bedrock = FakeBedrockClient(dimension=8)
+    bedrock = FakeBedrockClient()
     mocker.patch.object(
         bedrock,
         "embed",
@@ -510,7 +510,7 @@ async def test_generic_error_has_no_cause_field(
     settings = _make_settings(monkeypatch, READ_PREFIXES="")
     mocker.patch.object(s3_client, "head_bucket", side_effect=RuntimeError("boom"))
     mocker.patch.object(s3_client, "put_object", side_effect=RuntimeError("boom"))
-    bedrock = FakeBedrockClient(dimension=8)
+    bedrock = FakeBedrockClient()
 
     result = await health_check(
         settings=settings, s3=s3_client, vectors=vectors_client_8, bedrock=bedrock
@@ -538,7 +538,7 @@ async def test_credential_error_in_one_probe_does_not_skip_others(
             original=Exception("simulated"),
         ),
     )
-    bedrock = FakeBedrockClient(dimension=8)
+    bedrock = FakeBedrockClient()
 
     result = await health_check(
         settings=settings, s3=s3_client, vectors=vectors_client_8, bedrock=bedrock
@@ -570,7 +570,7 @@ async def test_credential_error_on_write_prefix_probe_key_present(
     - Expected: result["write_prefix"] is present (either 'ok' or 'error' — but present).
     """
     settings = _make_settings(monkeypatch, READ_PREFIXES="")
-    bedrock = FakeBedrockClient(dimension=8)
+    bedrock = FakeBedrockClient()
 
     # Only fail on the probe key write; allow head_bucket to succeed normally.
     probe_key = f"{settings.write_prefix}/_arkeology_health_probe"
@@ -618,7 +618,7 @@ async def test_probe_object_cleaned_up_when_get_object_fails(
     - Expected: s3.delete_object is called (best-effort cleanup).
     """
     settings = _make_settings(monkeypatch, READ_PREFIXES="")
-    bedrock = FakeBedrockClient(dimension=8)
+    bedrock = FakeBedrockClient()
 
     probe_key = f"{settings.write_prefix}/_arkeology_health_probe"
 

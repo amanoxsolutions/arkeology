@@ -40,18 +40,20 @@ def test_embed_different_inputs_produce_different_vectors() -> None:
     assert v1 != v2
 
 
-def test_embed_default_dimension_is_1024() -> None:
-    """Default dimension is 1024 when 1024 is passed as dimensions."""
-    client = FakeBedrockClient()
-    result = client.embed("hello", _MODEL_ID, 1024)
-    assert len(result) == 1024
+def test_embed_returns_a_vector_of_the_requested_length() -> None:
+    """``dimensions`` is a required argument to ``embed`` and is the only thing that
+    determines the returned vector's length.
 
-
-def test_embed_custom_dimension() -> None:
-    """Custom dimension is respected when passed as argument."""
+    There is no client-level default to fall back on: ``FakeBedrockClient()`` takes no
+    constructor arguments, matching ``BedrockClientInterface.embed``, where the real
+    client also derives length from the per-call ``dimensions`` value. These two cases
+    previously read as "default" vs "custom" dimension, which described a constructor
+    parameter that was assigned and never used.
+    """
     client = FakeBedrockClient()
-    result = client.embed("hello", _MODEL_ID, 512)
-    assert len(result) == 512
+    for dimensions in (8, 512, 1024, 2048):
+        result = client.embed("hello", _MODEL_ID, dimensions)
+        assert len(result) == dimensions, f"dimensions={dimensions}"
 
 
 # ---------------------------------------------------------------------------

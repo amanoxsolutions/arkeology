@@ -57,7 +57,7 @@ async def test_write_artifacts_all_succeed(
         pytest.fail("arkeology.tools.write_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     descriptors = [_make_descriptor(i) for i in range(10)]
 
     result = await write_artifacts(
@@ -98,7 +98,7 @@ async def test_write_artifacts_invalid_entry_isolated(
         pytest.fail("arkeology.tools.write_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     descriptors = [_make_descriptor(i) for i in range(10)]
     # Inject an invalid type into entry index 4
     descriptors[4] = _make_descriptor(4, type="not_a_valid_type")
@@ -147,7 +147,7 @@ async def test_write_artifacts_concurrency_1_sequential_order(
         pytest.fail("arkeology.tools.write_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
 
     titles_in_embed_order: list[str] = []
     original_embed = bedrock.embed
@@ -209,7 +209,7 @@ async def test_write_artifacts_partial_failure_logged_and_in_response(
 
     log_path = tmp_path / "failures.jsonl"
     settings = _make_settings(monkeypatch, FAILURE_LOG_PATH=str(log_path), tmp_path=tmp_path)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
 
     # Make put_vectors_batch fail for the second artifact (call index 1)
     call_count = 0
@@ -268,7 +268,7 @@ async def test_write_artifacts_concurrency_2_all_succeed(
         pytest.fail("arkeology.tools.write_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     descriptors = [_make_descriptor(i) for i in range(5)]
 
     result = await write_artifacts(
@@ -307,7 +307,7 @@ async def test_write_artifacts_missing_required_field_validation_error(
         pytest.fail("arkeology.tools.write_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
 
     descriptors = [_make_descriptor(i) for i in range(3)]
     # Remove 'content' from entry 1 to simulate what happens when the agent
@@ -354,7 +354,7 @@ async def test_write_artifacts_invalid_file_extension_validation_error(
         pytest.fail("arkeology.tools.write_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
 
     descriptors = [_make_descriptor(0), _make_descriptor(1, file_extension="txt")]
 
@@ -401,7 +401,7 @@ async def test_write_artifacts_wrong_type_tier_is_validation_error_not_internal(
         pytest.fail("arkeology.tools.write_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
 
     descriptors = [
         _make_descriptor(0),
@@ -447,7 +447,7 @@ async def test_write_artifacts_concurrency_15_in_range_no_warning(
         pytest.fail("arkeology.tools.write_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     descriptors = [_make_descriptor(i) for i in range(3)]
 
     result = await write_artifacts(
@@ -489,7 +489,7 @@ async def test_write_artifacts_concurrency_above_15_capped_warns(
         pytest.fail("arkeology.tools.write_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     semaphore_spy = mocker.patch("asyncio.Semaphore", wraps=asyncio_module.Semaphore)
     descriptors = [_make_descriptor(i) for i in range(3)]
 
@@ -542,7 +542,7 @@ async def test_write_artifacts_concurrency_below_1_substituted_warns(
         pytest.fail("arkeology.tools.write_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     semaphore_spy = mocker.patch("asyncio.Semaphore", wraps=asyncio_module.Semaphore)
     descriptors = [_make_descriptor(i) for i in range(3)]
 
@@ -593,7 +593,7 @@ async def test_write_artifacts_concurrency_omitted_defaults_to_3_no_warning(
         pytest.fail("arkeology.tools.write_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     semaphore_spy = mocker.patch("asyncio.Semaphore", wraps=asyncio_module.Semaphore)
     descriptors = [_make_descriptor(i) for i in range(2)]
 
@@ -639,7 +639,7 @@ async def test_duplicate_artifact_ids_second_entry_is_validation_error(
         pytest.fail("arkeology.tools.write_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
 
     # Both descriptors produce the same artifact ID (same type/tier/date/title)
     d1 = _make_descriptor(0)
@@ -677,7 +677,7 @@ async def test_duplicate_non_adjacent_third_entry_is_validation_error(
         pytest.fail("arkeology.tools.write_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
 
     d_unique = _make_descriptor(1)  # distinct from d_dup
     d_dup_a = _make_descriptor(0)  # first occurrence of id 0
@@ -720,7 +720,7 @@ async def test_write_artifacts_existing_key_without_overwrite_is_validation_erro
         pytest.fail("arkeology.tools.write_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     descriptor = _make_descriptor(0)
 
     first = await write_artifacts(
@@ -759,7 +759,7 @@ async def test_write_artifacts_batch_level_overwrite_true_allows_update(
         pytest.fail("arkeology.tools.write_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     descriptor = _make_descriptor(0)
 
     await write_artifacts(
@@ -798,7 +798,7 @@ async def test_write_artifacts_per_descriptor_overwrite_overrides_batch_default(
         pytest.fail("arkeology.tools.write_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     descriptor = _make_descriptor(0)
 
     await write_artifacts(
@@ -848,7 +848,7 @@ async def test_write_artifacts_descriptor_references_round_trips_to_annotation_o
         pytest.fail("arkeology.tools.write_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     descriptor = _make_descriptor(0, references=["a-1"])
 
     result = await write_artifacts(
@@ -892,7 +892,7 @@ async def test_write_artifacts_top_level_error_does_not_leak_raw_aws_details(
         pytest.fail("arkeology.tools.write_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     raw_aws_message = (
         "An error occurred (AccessDenied) when calling the PutObject operation: "
         "User: arn:aws:iam::123456789012:role/internal-deploy-role is not authorized "
@@ -940,7 +940,7 @@ async def test_write_artifacts_per_descriptor_error_does_not_leak_raw_aws_detail
         pytest.fail("arkeology.tools.write_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     raw_aws_message = (
         "An error occurred (AccessDenied) when calling the PutObject operation: "
         "User: arn:aws:iam::123456789012:role/internal-deploy-role is not authorized "

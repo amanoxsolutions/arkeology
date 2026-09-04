@@ -66,7 +66,7 @@ async def test_migrate_artifacts_dry_run_nova_lite_calls_for_missing(
         pytest.fail("arkeology.tools.migrate_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch, BEDROCK_TEXT_MODEL="amazon.nova-lite-v1:0")
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     mock_invoke = mocker.patch.object(
         bedrock, "invoke_text_model", create=True, return_value=_FAKE_DESCRIPTION
     )
@@ -114,7 +114,7 @@ async def test_migrate_artifacts_dry_run_no_writes(
         pytest.fail("arkeology.tools.migrate_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     mocker.patch.object(bedrock, "invoke_text_model", create=True, return_value=_FAKE_DESCRIPTION)
 
     put_spy = mocker.spy(s3_client, "put_object")
@@ -162,7 +162,7 @@ async def test_migrate_artifacts_dry_run_clips_long_agent_description(
         pytest.fail("arkeology.tools.migrate_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     mocker.patch.object(bedrock, "invoke_text_model", create=True, return_value=_FAKE_DESCRIPTION)
 
     long_description = "x" * 300
@@ -206,7 +206,7 @@ async def test_migrate_artifacts_false_writes_all_and_calls_nova_for_missing(
         pytest.fail("arkeology.tools.migrate_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch, BEDROCK_TEXT_MODEL="amazon.nova-lite-v1:0")
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     mock_invoke = mocker.patch.object(
         bedrock, "invoke_text_model", create=True, return_value=_FAKE_DESCRIPTION
     )
@@ -252,7 +252,7 @@ async def test_migrate_artifacts_false_no_nova_when_all_have_descriptions(
         pytest.fail("arkeology.tools.migrate_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     mock_invoke = mocker.patch.object(
         bedrock, "invoke_text_model", create=True, return_value=_FAKE_DESCRIPTION
     )
@@ -300,7 +300,7 @@ async def test_migrate_artifacts_idempotent(
         pytest.fail("arkeology.tools.migrate_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     mocker.patch.object(bedrock, "invoke_text_model", create=True, return_value=_FAKE_DESCRIPTION)
 
     descriptors = [_make_descriptor(i) for i in range(5)]
@@ -353,7 +353,7 @@ async def test_migrate_artifacts_clips_long_nova_description_and_logs(
         pytest.fail("arkeology.tools.migrate_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch, BEDROCK_TEXT_MODEL="amazon.nova-lite-v1:0")
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     long_nova_output = "z" * 400  # exceeds 280-char limit
     mocker.patch.object(bedrock, "invoke_text_model", create=True, return_value=long_nova_output)
 
@@ -385,7 +385,7 @@ async def test_migrate_artifacts_clips_long_nova_description_and_logs(
 def test_migrate_artifacts_description_clip_length_matches_artifact_constant() -> None:
     """migrate_artifacts._MAX_DESCRIPTION_LENGTH must reference (not duplicate)
     arkeology.artifact.DESCRIPTION_MAX_LENGTH — the same limit Artifact.validate_description
-    enforces (I-1), so the two can never independently drift out of sync."""
+    enforces, so the two can never independently drift out of sync."""
     from arkeology.artifact import DESCRIPTION_MAX_LENGTH
     from arkeology.tools.migrate_artifacts import _MAX_DESCRIPTION_LENGTH
 
@@ -416,7 +416,7 @@ async def test_migrate_artifacts_concurrency_2_limits_nova_calls(
         pytest.fail("arkeology.tools.migrate_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch, BEDROCK_TEXT_MODEL="amazon.nova-lite-v1:0")
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     mock_invoke = mocker.patch.object(
         bedrock, "invoke_text_model", create=True, return_value=_FAKE_DESCRIPTION
     )
@@ -470,7 +470,7 @@ async def test_migrate_artifacts_missing_description_no_text_model_returns_error
     settings = _make_settings(monkeypatch)
     assert settings.bedrock_text_model is None, "BEDROCK_TEXT_MODEL must be None for this test"
 
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     mock_invoke = mocker.patch.object(
         bedrock, "invoke_text_model", create=True, return_value=_FAKE_DESCRIPTION
     )
@@ -519,7 +519,7 @@ async def test_migrate_artifacts_concurrency_above_15_capped_warns(
         pytest.fail("arkeology.tools.migrate_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch, BEDROCK_TEXT_MODEL="amazon.nova-lite-v1:0")
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     mock_invoke = mocker.patch.object(
         bedrock, "invoke_text_model", create=True, return_value=_FAKE_DESCRIPTION
     )
@@ -576,7 +576,7 @@ async def test_migrate_artifacts_concurrency_below_1_substituted_warns(
         pytest.fail("arkeology.tools.migrate_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch, BEDROCK_TEXT_MODEL="amazon.nova-lite-v1:0")
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     mock_invoke = mocker.patch.object(
         bedrock, "invoke_text_model", create=True, return_value=_FAKE_DESCRIPTION
     )
@@ -633,7 +633,7 @@ async def test_migrate_artifacts_in_range_concurrency_5_dry_run_true_uses_semaph
         pytest.fail("arkeology.tools.migrate_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch, BEDROCK_TEXT_MODEL="amazon.nova-lite-v1:0")
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     mocker.patch.object(bedrock, "invoke_text_model", create=True, return_value=_FAKE_DESCRIPTION)
     semaphore_spy = mocker.patch("asyncio.Semaphore", wraps=asyncio_module.Semaphore)
 
@@ -684,7 +684,7 @@ async def test_migrate_artifacts_in_range_concurrency_5_dry_run_false_forwards_5
         pytest.fail("arkeology.tools.migrate_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     mocker.patch.object(bedrock, "invoke_text_model", create=True, return_value=_FAKE_DESCRIPTION)
     semaphore_spy = mocker.patch("asyncio.Semaphore", wraps=asyncio_module.Semaphore)
 
@@ -750,7 +750,7 @@ async def test_single_nova_lite_failure_does_not_abort_migration(
         pytest.fail("arkeology.tools.migrate_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch, BEDROCK_TEXT_MODEL="amazon.nova-lite-v1:0")
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
 
     call_count: dict[str, int] = {"n": 0}
 
@@ -807,7 +807,7 @@ async def test_a1_migrate_writes_only_new_and_skips_pre_existing_key(
         pytest.fail("arkeology.tools.migrate_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     mocker.patch.object(bedrock, "invoke_text_model", create=True, return_value=_FAKE_DESCRIPTION)
 
     # Prior write — same type/team/project/tier/date/title as descriptor 0 below, so it
@@ -873,7 +873,7 @@ async def test_a1_migrate_rerun_over_full_corpus_is_idempotent_and_non_destructi
         pytest.fail("arkeology.tools.migrate_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     mocker.patch.object(bedrock, "invoke_text_model", create=True, return_value=_FAKE_DESCRIPTION)
 
     descriptors = [_make_descriptor(i) for i in range(4)]
@@ -970,7 +970,7 @@ async def test_failed_generation_skipped_not_written_with_empty_description(
         pytest.fail("arkeology.tools.migrate_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch, BEDROCK_TEXT_MODEL="amazon.nova-lite-v1:0")
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
 
     def invoke_side_effect(model: str, prompt: str) -> str:
         if "Title: FAIL_ME" in prompt:
@@ -1034,7 +1034,7 @@ async def test_dry_run_reports_generation_failed_without_empty_description_write
         pytest.fail("arkeology.tools.migrate_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch, BEDROCK_TEXT_MODEL="amazon.nova-lite-v1:0")
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
 
     def invoke_side_effect(model: str, prompt: str) -> str:
         raise RuntimeError("simulated Nova Lite failure")
@@ -1081,7 +1081,7 @@ async def test_generation_prompt_content_is_bounded(
         pytest.fail("arkeology.tools.migrate_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch, BEDROCK_TEXT_MODEL="amazon.nova-lite-v1:0")
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     mock_invoke = mocker.patch.object(
         bedrock, "invoke_text_model", create=True, return_value=_FAKE_DESCRIPTION
     )
@@ -1124,7 +1124,7 @@ async def test_migrate_artifacts_dry_run_false_threads_references_to_annotation_
         pytest.fail("arkeology.tools.migrate_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     descriptors = [_make_descriptor(0, references=["a-1"])]
 
     result = await migrate_artifacts(
@@ -1185,7 +1185,7 @@ async def test_t56_dry_run_false_rewrites_content_before_write_and_embed(
         pytest.fail("arkeology.tools.migrate_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     embed_spy = mocker.spy(bedrock, "embed")
     put_spy = mocker.spy(s3_client, "put_object")
 
@@ -1252,7 +1252,7 @@ async def test_t56_resolved_references_map_never_leaks_into_write_result(
         pytest.fail("arkeology.tools.migrate_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     descriptor = _make_descriptor(
         0,
         content=_T56_CONTENT,
@@ -1298,7 +1298,7 @@ async def test_t56_dry_run_true_descriptor_echo_already_rewritten_and_key_absent
         pytest.fail("arkeology.tools.migrate_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     descriptor = _make_descriptor(
         0,
         content=_T56_CONTENT,
@@ -1337,7 +1337,7 @@ async def test_t56_descriptor_without_map_is_unaffected(
         pytest.fail("arkeology.tools.migrate_artifacts is not yet implemented")
 
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     descriptor = _make_descriptor(0, content=_T56_CONTENT)
 
     result = await migrate_artifacts(
@@ -1368,7 +1368,7 @@ async def test_t56_write_artifacts_direct_call_ignores_resolved_references_map(
     from arkeology.tools.write_artifacts import write_artifacts
 
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     descriptor = _make_descriptor(
         0,
         content=_T56_CONTENT,
@@ -1409,7 +1409,7 @@ async def test_t61_skipped_existing_unchanged_when_vectors_indexed(
     from arkeology.tools.migrate_artifacts import migrate_artifacts
 
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     descriptor = _make_descriptor(0)
 
     first = await migrate_artifacts(
@@ -1453,7 +1453,7 @@ async def test_t61_skipped_unindexed_when_s3_exists_but_no_vectors(
     from arkeology.tools.migrate_artifacts import migrate_artifacts
 
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     descriptor = _make_descriptor(0)
 
     first = await migrate_artifacts(
@@ -1513,7 +1513,7 @@ async def test_t61_no_vector_existence_query_for_genuinely_new_candidate(
     from arkeology.tools.migrate_artifacts import migrate_artifacts
 
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     spy = mocker.spy(vectors_client, "list_vectors_by_metadata")
 
     result = await migrate_artifacts(
@@ -1542,7 +1542,7 @@ async def test_t61_mixed_corpus_all_three_categories_classified_independently(
     from arkeology.tools.migrate_artifacts import migrate_artifacts
 
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
 
     fully_migrated = _make_descriptor(0)
     to_be_unindexed = _make_descriptor(1)
@@ -1596,7 +1596,7 @@ async def test_t61_credential_error_from_vector_existence_query(
     from arkeology.tools.migrate_artifacts import migrate_artifacts
 
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     descriptor = _make_descriptor(0)
 
     await migrate_artifacts(
@@ -1647,7 +1647,7 @@ async def test_i6_malformed_file_extension_rejected_at_pre_check_no_head_object(
     from arkeology.tools.migrate_artifacts import migrate_artifacts
 
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     descriptor = _make_descriptor(0, file_extension="txt")
     head_spy = mocker.spy(s3_client, "head_object")
 
@@ -1678,7 +1678,7 @@ async def test_i6_well_formed_file_extension_unaffected(
     from arkeology.tools.migrate_artifacts import migrate_artifacts
 
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     descriptor = _make_descriptor(0, file_extension=".txt")
 
     result = await migrate_artifacts(

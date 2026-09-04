@@ -55,8 +55,7 @@ def _deterministic_unit_vector(text: str, dimension: int) -> list[float]:
 class FakeBedrockClient:
     """Deterministic in-memory Bedrock client for use in unit tests."""
 
-    def __init__(self, dimension: int = 1024) -> None:
-        self._dimension = dimension
+    def __init__(self) -> None:
         self._throttle_remaining: int = 0
         self._timeout_remaining: int = 0
 

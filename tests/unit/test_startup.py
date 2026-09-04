@@ -47,7 +47,7 @@ def test_all_checks_pass(
     vectors_client: VectorsClientImpl,
 ) -> None:
     """All healthy moto-backed clients → validate_startup returns None with no exception."""
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     result = validate_startup(
         settings=settings, s3=s3_client, vectors=vectors_client, bedrock=bedrock
     )
@@ -197,7 +197,7 @@ def test_check5_dimension_mismatch_raises_startup_error(
 ) -> None:
     """Default BEDROCK_EMBEDDING_DIMENSIONS=1024 but index reports 512 → mismatch error."""
     mocker.patch.object(vectors_client, "describe_index", return_value={"dimension": 512})
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     with pytest.raises(StartupValidationError) as exc_info:
         validate_startup(settings=settings, s3=s3_client, vectors=vectors_client, bedrock=bedrock)
     assert exc_info.value.check == "vector_index_dimension"
@@ -211,7 +211,7 @@ def test_check5_passes_when_dimensions_match(
     vectors_client: VectorsClientImpl,
 ) -> None:
     """BEDROCK_EMBEDDING_DIMENSIONS=1024 (default) and index=1024 → passes."""
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     validate_startup(settings=settings, s3=s3_client, vectors=vectors_client, bedrock=bedrock)
 
 
@@ -226,7 +226,7 @@ def test_check5_dimension_comparison_itself_never_calls_embed(
     check 6 does call embed once (see test_check6_embedding_probe_calls_embed_once);
     this test still isolates check 5's own behaviour by asserting exactly one call
     total (attributable to check 6, not check 5)."""
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     spy = mocker.spy(bedrock, "embed")
     validate_startup(settings=settings, s3=s3_client, vectors=vectors_client, bedrock=bedrock)
     assert spy.call_count == 1, (
@@ -280,7 +280,7 @@ def test_check5_explicit_dimensions_override_skips_registry_and_probe(
     settings_custom = Settings()
     mocker.patch.object(vectors_client, "describe_index", return_value={"dimension": 2048})
 
-    bedrock = FakeBedrockClient(dimension=2048)
+    bedrock = FakeBedrockClient()
     spy = mocker.spy(bedrock, "embed")
     validate_startup(
         settings=settings_custom, s3=s3_client, vectors=vectors_client, bedrock=bedrock
@@ -298,7 +298,7 @@ def test_check5_explicit_dimensions_override_mismatch_raises(
     monkeypatch.setenv("BEDROCK_EMBEDDING_DIMENSIONS", "512")
     settings_custom = Settings()
     mocker.patch.object(vectors_client, "describe_index", return_value={"dimension": 2048})
-    bedrock = FakeBedrockClient(dimension=512)
+    bedrock = FakeBedrockClient()
     with pytest.raises(StartupValidationError) as exc_info:
         validate_startup(
             settings=settings_custom,
@@ -324,7 +324,7 @@ def test_check6_embedding_probe_calls_embed_once(
 
     Red: validate_startup has no embedding-probe check yet; spy.call_count stays 0 → FAILED.
     """
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     spy = mocker.spy(bedrock, "embed")
 
     validate_startup(settings=settings, s3=s3_client, vectors=vectors_client, bedrock=bedrock)
@@ -345,7 +345,7 @@ def test_check6_embedding_probe_wrong_dimension_raises_startup_error(
     vector — check 5's configuration-only comparison cannot catch this; only an actual
     probe call can.
     """
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     mocker.patch.object(bedrock, "embed", return_value=[0.1] * 999)
 
     with pytest.raises(StartupValidationError) as exc_info:
@@ -363,7 +363,7 @@ def test_check6_embedding_probe_credential_error_propagates(
 ) -> None:
     """embed() raises CredentialError (e.g. unentitled model) → propagates as-is,
     not wrapped in StartupValidationError (reuses the credential classification)."""
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     mocker.patch.object(
         bedrock,
         "embed",
@@ -386,7 +386,7 @@ def test_check6_embedding_probe_other_error_raises_startup_error(
 ) -> None:
     """embed() raises a non-credential exception → StartupValidationError, not a raw
     traceback."""
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     mocker.patch.object(bedrock, "embed", side_effect=RuntimeError("model unreachable"))
 
     with pytest.raises(StartupValidationError) as exc_info:
@@ -405,7 +405,7 @@ def test_check6_embedding_probe_failure_prevents_check7_text_model_probe(
     (check 7) runs — even when BEDROCK_TEXT_MODEL is configured."""
     monkeypatch.setenv("BEDROCK_TEXT_MODEL", "amazon.nova-lite-v1:0")
     settings_with_model = Settings()
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     mocker.patch.object(bedrock, "embed", side_effect=RuntimeError("model unreachable"))
     spy = mocker.spy(bedrock, "invoke_text_model")
 
@@ -434,7 +434,7 @@ def test_check6_text_model_configured_invoke_called(
     """
     monkeypatch.setenv("BEDROCK_TEXT_MODEL", "amazon.nova-lite-v1:0")
     settings_with_model = Settings()
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     mock_invoke = mocker.patch.object(
         bedrock, "invoke_text_model", create=True, return_value="Probe OK."
     )
@@ -462,7 +462,7 @@ def test_check6_text_model_unreachable_startup_fails(
     """
     monkeypatch.setenv("BEDROCK_TEXT_MODEL", "amazon.nova-lite-v1:0")
     settings_with_model = Settings()
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     mocker.patch.object(
         bedrock,
         "invoke_text_model",
@@ -493,7 +493,7 @@ def test_check6_text_model_absent_invoke_skipped(
 
     Red: Settings.bedrock_text_model does not exist yet; getattr returns sentinel → FAILED.
     """
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     mock_invoke = mocker.patch.object(
         bedrock, "invoke_text_model", create=True, return_value="should not be called"
     )
@@ -690,7 +690,7 @@ def test_check6_credential_error_propagates_not_wrapped(
     """
     monkeypatch.setenv("BEDROCK_TEXT_MODEL", "amazon.nova-lite-v1:0")
     settings_with_model = Settings()
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     mocker.patch.object(
         bedrock,
         "invoke_text_model",

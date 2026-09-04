@@ -299,7 +299,7 @@ async def test_write_and_reconcile_embed_identical_truncated_text(
     long_body = "a" * 500
     content = f"## Long Section\n\n{long_body}"
 
-    write_bedrock = FakeBedrockClient(dimension=8)
+    write_bedrock = FakeBedrockClient()
     write_embed_spy = mocker.spy(write_bedrock, "embed")
 
     write_result = await write_artifact(
@@ -339,7 +339,7 @@ async def test_write_and_reconcile_embed_identical_truncated_text(
         },
     )
 
-    reconcile_bedrock = FakeBedrockClient(dimension=8)
+    reconcile_bedrock = FakeBedrockClient()
     reconcile_embed_spy = mocker.spy(reconcile_bedrock, "embed")
 
     reconcile_result = await reconcile_index(

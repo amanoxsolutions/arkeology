@@ -60,13 +60,13 @@ def settings_with_read_prefix(monkeypatch: pytest.MonkeyPatch) -> Settings:
 @pytest.fixture
 def bedrock_8() -> FakeBedrockClient:
     """FakeBedrockClient with 8-dim embeddings (matches vectors_client_8)."""
-    return FakeBedrockClient(dimension=8)
+    return FakeBedrockClient()
 
 
 @pytest.fixture
 def bedrock_1024() -> FakeBedrockClient:
     """FakeBedrockClient with 1024-dim embeddings (matches vectors_client)."""
-    return FakeBedrockClient(dimension=1024)
+    return FakeBedrockClient()
 
 
 # ---------------------------------------------------------------------------

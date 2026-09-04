@@ -120,7 +120,7 @@ async def test_no_failure_log_runs_without_error(
     vectors_reconcile: VectorsClientImpl,
 ) -> None:
     """No failure log file → tool runs without error; failure_log_entries_before is 0."""
-    bedrock = FakeBedrockClient(dimension=DIMENSION)
+    bedrock = FakeBedrockClient()
 
     result = await reconcile_index(
         settings=reconcile_settings,
@@ -142,7 +142,7 @@ async def test_failure_log_resolvable_entry_reconciled(
     with source='failure_log'; log cleared."""
     artifact_id = "artifacts/implementation-note-2026-01-01-test-artifact"
     s3_reconcile.put_object(artifact_id, _CONTENT_NO_SECTIONS, {**_BASE_S3_META})
-    bedrock = FakeBedrockClient(dimension=DIMENSION)
+    bedrock = FakeBedrockClient()
 
     _write_failure_log(
         reconcile_settings.failure_log_path,
@@ -173,7 +173,7 @@ async def test_failure_log_unresolvable_entry_kept_in_failed(
     """Failure log with one unresolvable entry (S3 object absent) → entry kept;
     in failed with reason containing 'not found'."""
     missing_id = "artifacts/implementation-note-2026-01-01-nonexistent"
-    bedrock = FakeBedrockClient(dimension=DIMENSION)
+    bedrock = FakeBedrockClient()
 
     _write_failure_log(
         reconcile_settings.failure_log_path,
@@ -205,7 +205,7 @@ async def test_failure_log_duplicate_artifact_id_deduplication(
     (put_vector not doubled)."""
     artifact_id = "artifacts/implementation-note-2026-01-01-dedup-target"
     s3_reconcile.put_object(artifact_id, _CONTENT_NO_SECTIONS, {**_BASE_S3_META})
-    bedrock = FakeBedrockClient(dimension=DIMENSION)
+    bedrock = FakeBedrockClient()
 
     # Two entries for the same artifact_id — should only trigger one re-index
     _write_failure_log(
@@ -242,7 +242,7 @@ async def test_failure_log_mixed_entries_one_reconciled_one_failed(
     existing_id = "artifacts/implementation-note-2026-01-01-existing"
     missing_id = "artifacts/implementation-note-2026-01-01-missing"
     s3_reconcile.put_object(existing_id, _CONTENT_NO_SECTIONS, {**_BASE_S3_META})
-    bedrock = FakeBedrockClient(dimension=DIMENSION)
+    bedrock = FakeBedrockClient()
 
     _write_failure_log(
         reconcile_settings.failure_log_path,
@@ -278,7 +278,7 @@ async def test_failure_log_foreign_scope_entry_skipped(
     """Failure log entry whose artifact_id starts with a foreign scope prefix →
     skipped (not reconciled, not failed); log entry is retained."""
     foreign_id = "other-team/implementation-note-2026-01-01-foreign"
-    bedrock = FakeBedrockClient(dimension=DIMENSION)
+    bedrock = FakeBedrockClient()
 
     _write_failure_log(
         reconcile_settings.failure_log_path,
@@ -313,7 +313,7 @@ async def test_orphan_scan_no_s3_objects_zero_orphans(
     vectors_reconcile: VectorsClientImpl,
 ) -> None:
     """No S3 objects → orphans_found is 0."""
-    bedrock = FakeBedrockClient(dimension=DIMENSION)
+    bedrock = FakeBedrockClient()
 
     result = await reconcile_index(
         settings=reconcile_settings,
@@ -343,7 +343,7 @@ async def test_orphan_scan_s3_object_with_matching_vector_not_reindexed(
         {"artifact_id": artifact_id, "scope": "artifacts"},
     )
 
-    bedrock = FakeBedrockClient(dimension=DIMENSION)
+    bedrock = FakeBedrockClient()
     # Install spy AFTER seed so pre-seed call is not counted
     spy = mocker.spy(vectors_reconcile, "put_vector")
 
@@ -367,7 +367,7 @@ async def test_orphan_scan_s3_object_no_vectors_reindexed(
     """S3 object with no vector entries → re-indexed; orphans_found is 1; source='orphan_scan'."""
     artifact_id = "artifacts/implementation-note-2026-01-01-orphan"
     s3_reconcile.put_object(artifact_id, _CONTENT_NO_SECTIONS, {**_BASE_S3_META})
-    bedrock = FakeBedrockClient(dimension=DIMENSION)
+    bedrock = FakeBedrockClient()
 
     result = await reconcile_index(
         settings=reconcile_settings,
@@ -396,7 +396,7 @@ async def test_orphan_scan_key_not_under_write_prefix_slash_not_touched(
 
     s3_reconcile.put_object(own_id, _CONTENT_NO_SECTIONS, {**_BASE_S3_META})
     s3_reconcile.put_object(foreign_id, _CONTENT_NO_SECTIONS, {**_BASE_S3_META})
-    bedrock = FakeBedrockClient(dimension=DIMENSION)
+    bedrock = FakeBedrockClient()
 
     result = await reconcile_index(
         settings=reconcile_settings,
@@ -427,7 +427,7 @@ async def test_reindex_artifact_two_sections_puts_two_vectors(
     """Artifact with two ## sections → put_vector called twice; sections_indexed is 2."""
     artifact_id = "artifacts/implementation-note-2026-01-01-two-sections"
     s3_reconcile.put_object(artifact_id, _CONTENT_TWO_SECTIONS, {**_BASE_S3_META})
-    bedrock = FakeBedrockClient(dimension=DIMENSION)
+    bedrock = FakeBedrockClient()
     spy = mocker.spy(vectors_reconcile, "put_vector")
 
     result = await reconcile_index(
@@ -456,7 +456,7 @@ async def test_reindex_artifact_no_sections_puts_one_vector(
     sections_indexed is 1."""
     artifact_id = "artifacts/implementation-note-2026-01-01-no-sections"
     s3_reconcile.put_object(artifact_id, _CONTENT_NO_SECTIONS, {**_BASE_S3_META})
-    bedrock = FakeBedrockClient(dimension=DIMENSION)
+    bedrock = FakeBedrockClient()
     spy = mocker.spy(vectors_reconcile, "put_vector")
 
     result = await reconcile_index(
@@ -496,7 +496,7 @@ async def test_reindex_preserves_commit_refs_and_last_edited_ulid(
     apply_link_annotations(
         s3_reconcile, artifact_id, commit_refs=["abc123", "def456"], references=[]
     )
-    bedrock = FakeBedrockClient(dimension=DIMENSION)
+    bedrock = FakeBedrockClient()
 
     result = await reconcile_index(
         settings=reconcile_settings,
@@ -539,7 +539,7 @@ async def test_reindex_restores_link_fields_from_annotations(
         commit_refs=["abc123", "def456"],
         references=["implementation-note-2026-01-01-other"],
     )
-    bedrock = FakeBedrockClient(dimension=DIMENSION)
+    bedrock = FakeBedrockClient()
 
     result = await reconcile_index(
         settings=reconcile_settings,
@@ -569,7 +569,7 @@ async def test_reindex_clean_state_omits_empty_link_fields(
     Vectors rejects empty arrays)."""
     artifact_id = "artifacts/implementation-note-2026-01-01-clean-state"
     s3_reconcile.put_object(artifact_id, _CONTENT_NO_SECTIONS, {**_BASE_S3_META})
-    bedrock = FakeBedrockClient(dimension=DIMENSION)
+    bedrock = FakeBedrockClient()
 
     result = await reconcile_index(
         settings=reconcile_settings,
@@ -604,7 +604,7 @@ async def test_reindex_annotations_unavailable_degrades(
         "get_object_annotation",
         side_effect=RuntimeError("simulated annotation feature unavailable"),
     )
-    bedrock = FakeBedrockClient(dimension=DIMENSION)
+    bedrock = FakeBedrockClient()
 
     result = await reconcile_index(
         settings=reconcile_settings,
@@ -645,7 +645,7 @@ async def test_failure_log_replay_and_orphan_scan_both_restore(
     s3_reconcile.put_object(orphan_id, _CONTENT_NO_SECTIONS, {**_BASE_S3_META})
     apply_link_annotations(s3_reconcile, orphan_id, commit_refs=["bbb2222"], references=[])
 
-    bedrock = FakeBedrockClient(dimension=DIMENSION)
+    bedrock = FakeBedrockClient()
 
     result = await reconcile_index(
         settings=reconcile_settings,
@@ -709,7 +709,7 @@ async def test_reindex_from_failure_log_preserves_vector_only_link_fields(
         reconcile_settings.failure_log_path,
         [{**_BASE_LOG_ENTRY, "artifact_id": artifact_id}],
     )
-    bedrock = FakeBedrockClient(dimension=DIMENSION)
+    bedrock = FakeBedrockClient()
 
     result = await reconcile_index(
         settings=reconcile_settings,
@@ -750,7 +750,7 @@ async def test_reindex_credential_error_from_annotation_read_propagates(
         "get_object_annotation",
         side_effect=CredentialError("expired", "s3", Exception("boom")),
     )
-    bedrock = FakeBedrockClient(dimension=DIMENSION)
+    bedrock = FakeBedrockClient()
 
     result = await reconcile_index(
         settings=reconcile_settings,
@@ -776,7 +776,7 @@ async def test_response_always_has_all_six_fields(
     vectors_reconcile: VectorsClientImpl,
 ) -> None:
     """All 6 fields always present in non-error response regardless of workload."""
-    bedrock = FakeBedrockClient(dimension=DIMENSION)
+    bedrock = FakeBedrockClient()
 
     result = await reconcile_index(
         settings=reconcile_settings,
@@ -805,7 +805,7 @@ async def test_total_reconciled_equals_len_reconciled(
     """total_reconciled always equals len(reconciled)."""
     artifact_id = "artifacts/implementation-note-2026-01-01-for-total-check"
     s3_reconcile.put_object(artifact_id, _CONTENT_NO_SECTIONS, {**_BASE_S3_META})
-    bedrock = FakeBedrockClient(dimension=DIMENSION)
+    bedrock = FakeBedrockClient()
 
     result = await reconcile_index(
         settings=reconcile_settings,
@@ -835,7 +835,7 @@ async def test_scope_gate_own_scope_scanned_foreign_ignored(
 
     s3_reconcile.put_object(own_id, _CONTENT_NO_SECTIONS, {**_BASE_S3_META})
     s3_reconcile.put_object(foreign_id, _CONTENT_NO_SECTIONS, {**_BASE_S3_META})
-    bedrock = FakeBedrockClient(dimension=DIMENSION)
+    bedrock = FakeBedrockClient()
 
     result = await reconcile_index(
         settings=reconcile_settings,
@@ -863,7 +863,7 @@ async def test_list_vectors_exception_returns_internal_error(
 ) -> None:
     """Unexpected exception from list_vectors_by_metadata → returns
     {'error': 'internal_error', 'message': ...}."""
-    bedrock = FakeBedrockClient(dimension=DIMENSION)
+    bedrock = FakeBedrockClient()
     mocker.patch.object(
         vectors_reconcile,
         "list_vectors_by_metadata",
@@ -893,7 +893,7 @@ async def test_credential_error_on_list_objects_returns_credential_error(
     mocker: MockerFixture,
 ) -> None:
     """CredentialError from s3.list_objects → response is credential_error."""
-    bedrock = FakeBedrockClient(dimension=DIMENSION)
+    bedrock = FakeBedrockClient()
     mocker.patch.object(
         s3_reconcile,
         "list_objects",
@@ -922,7 +922,7 @@ async def test_health_probe_key_excluded_from_orphans(
 ) -> None:
     """S3 has only _arkeology_health_probe key → orphans_found == 0."""
     s3_reconcile.put_object("artifacts/_arkeology_health_probe", "probe", {})
-    bedrock = FakeBedrockClient(dimension=DIMENSION)
+    bedrock = FakeBedrockClient()
 
     result = await reconcile_index(
         settings=reconcile_settings,
@@ -958,7 +958,7 @@ async def test_health_probe_excluded_but_real_orphan_found(
             "description": "An orphan",
         },
     )
-    bedrock = FakeBedrockClient(dimension=DIMENSION)
+    bedrock = FakeBedrockClient()
 
     result = await reconcile_index(
         settings=reconcile_settings,
@@ -979,7 +979,7 @@ async def test_nested_probe_key_also_excluded(
 ) -> None:
     """Probe key at nested path (endswith match) → excluded."""
     s3_reconcile.put_object("artifacts/subdir/_arkeology_health_probe", "probe", {})
-    bedrock = FakeBedrockClient(dimension=DIMENSION)
+    bedrock = FakeBedrockClient()
 
     result = await reconcile_index(
         settings=reconcile_settings,
@@ -998,7 +998,7 @@ async def test_annotation_probe_key_excluded_from_orphans(
 ) -> None:
     """Setup skill's `_arkeology_annotation_probe` leftover is never treated as an orphan."""
     s3_reconcile.put_object("artifacts/_arkeology_annotation_probe", "probe", {})
-    bedrock = FakeBedrockClient(dimension=DIMENSION)
+    bedrock = FakeBedrockClient()
 
     result = await reconcile_index(
         settings=reconcile_settings,
@@ -1033,7 +1033,7 @@ async def test_annotation_probe_excluded_but_real_orphan_found(
             "description": "An orphan",
         },
     )
-    bedrock = FakeBedrockClient(dimension=DIMENSION)
+    bedrock = FakeBedrockClient()
 
     result = await reconcile_index(
         settings=reconcile_settings,
@@ -1055,7 +1055,7 @@ async def test_future_probe_key_excluded_without_code_change(
 ) -> None:
     """Any key whose final segment starts with `_arkeology_` is excluded — no per-name patch."""
     s3_reconcile.put_object("artifacts/nested/_arkeology_some_future_probe", "probe", {})
-    bedrock = FakeBedrockClient(dimension=DIMENSION)
+    bedrock = FakeBedrockClient()
 
     result = await reconcile_index(
         settings=reconcile_settings,
@@ -1094,7 +1094,7 @@ async def test_credential_error_on_bedrock_embed_returns_credential_error(
             "description": "An orphan",
         },
     )
-    bedrock = FakeBedrockClient(dimension=DIMENSION)
+    bedrock = FakeBedrockClient()
     mocker.patch.object(
         bedrock,
         "embed",
@@ -1135,7 +1135,7 @@ async def test_credential_error_on_vectors_put_returns_credential_error(
             "description": "An orphan",
         },
     )
-    bedrock = FakeBedrockClient(dimension=DIMENSION)
+    bedrock = FakeBedrockClient()
     mocker.patch.object(
         vectors_reconcile,
         "put_vector",
@@ -1188,7 +1188,7 @@ async def test_startup_probe_key_excluded_from_orphan_scan(
         [1.0] + [0.0] * (DIMENSION - 1),
         {"artifact_id": "artifacts/code-review-2026-01-01-real", "scope": "artifacts"},
     )
-    bedrock = FakeBedrockClient(dimension=DIMENSION)
+    bedrock = FakeBedrockClient()
 
     result = await reconcile_index(
         settings=reconcile_settings,
@@ -1234,7 +1234,7 @@ async def test_phase3_dangling_vector_pruned(
         },
     )
 
-    bedrock = FakeBedrockClient(dimension=DIMENSION)
+    bedrock = FakeBedrockClient()
     spy = mocker.spy(vectors_reconcile, "delete_vectors")
 
     result = await reconcile_index(
@@ -1280,7 +1280,7 @@ async def test_phase3_multi_section_artifact_all_keys_pruned(
             base_meta,
         )
 
-    bedrock = FakeBedrockClient(dimension=DIMENSION)
+    bedrock = FakeBedrockClient()
     spy = mocker.spy(vectors_reconcile, "delete_vectors")
 
     result = await reconcile_index(
@@ -1316,7 +1316,7 @@ async def test_phase3_no_dangling_vectors(
         {"artifact_id": artifact_id, "scope": "artifacts"},
     )
 
-    bedrock = FakeBedrockClient(dimension=DIMENSION)
+    bedrock = FakeBedrockClient()
 
     result = await reconcile_index(
         settings=reconcile_settings,
@@ -1352,7 +1352,7 @@ async def test_phase2_and_phase3_both_run(
         {"artifact_id": dangling_id, "scope": "artifacts"},
     )
 
-    bedrock = FakeBedrockClient(dimension=DIMENSION)
+    bedrock = FakeBedrockClient()
 
     result = await reconcile_index(
         settings=reconcile_settings,
@@ -1407,7 +1407,7 @@ async def test_phase3_race_written_after_vector_listing_not_pruned(
         settings=reconcile_settings,
         s3=s3_reconcile,
         vectors=vectors_reconcile,
-        bedrock=FakeBedrockClient(dimension=DIMENSION),
+        bedrock=FakeBedrockClient(),
     )
 
     assert "error" not in result
@@ -1439,7 +1439,7 @@ async def test_phase3_foreign_scope_not_pruned(
         },
     )
 
-    bedrock = FakeBedrockClient(dimension=DIMENSION)
+    bedrock = FakeBedrockClient()
 
     result = await reconcile_index(
         settings=reconcile_settings,
@@ -1471,7 +1471,7 @@ async def test_phase3_credential_error_on_delete(
         {"artifact_id": artifact_id, "scope": "artifacts"},
     )
 
-    bedrock = FakeBedrockClient(dimension=DIMENSION)
+    bedrock = FakeBedrockClient()
     mocker.patch.object(
         vectors_reconcile,
         "delete_vectors",
@@ -1513,7 +1513,7 @@ async def test_phase3_unexpected_error_on_delete_continues(
     vectors_reconcile.put_vector(vec_key_fail, [1.0] + [0.0] * (DIMENSION - 1), base_meta_fail)
     vectors_reconcile.put_vector(vec_key_ok, [1.0] + [0.0] * (DIMENSION - 1), base_meta_ok)
 
-    bedrock = FakeBedrockClient(dimension=DIMENSION)
+    bedrock = FakeBedrockClient()
 
     # Patch delete_vectors to fail for the first artifact's keys, succeed for the second
     original_delete = vectors_reconcile.delete_vectors
@@ -1546,7 +1546,7 @@ async def test_response_schema_includes_new_fields(
 ) -> None:
     """A reconcile_index call with nothing to do returns all three new Phase 3 fields:
     dangling_artifacts_found, dangling_vectors_pruned, dangling_artifacts."""
-    bedrock = FakeBedrockClient(dimension=DIMENSION)
+    bedrock = FakeBedrockClient()
 
     result = await reconcile_index(
         settings=reconcile_settings,
@@ -1593,7 +1593,7 @@ async def test_phase1_failure_not_duplicated_as_phase2_orphan(
         [{**_BASE_LOG_ENTRY, "artifact_id": artifact_id}],
     )
 
-    bedrock = FakeBedrockClient(dimension=DIMENSION)
+    bedrock = FakeBedrockClient()
     mocker.patch.object(
         bedrock,
         "embed",
@@ -1636,7 +1636,7 @@ async def test_reindex_preserves_non_ascii_title(
     s3_reconcile.put_object(
         artifact_id, _CONTENT_NO_SECTIONS, {**_BASE_S3_META, "title": non_ascii_title}
     )
-    bedrock = FakeBedrockClient(dimension=DIMENSION)
+    bedrock = FakeBedrockClient()
 
     result = await reconcile_index(
         settings=reconcile_settings,
@@ -1672,7 +1672,7 @@ async def test_reconcile_orphan_scan_calls_run_off_event_loop(
     asyncio.to_thread."""
     artifact_id = "artifacts/implementation-note-2026-01-01-off-loop-orphan"
     s3_reconcile.put_object(artifact_id, _CONTENT_NO_SECTIONS, {**_BASE_S3_META})
-    bedrock = FakeBedrockClient(dimension=DIMENSION)
+    bedrock = FakeBedrockClient()
     main_thread = threading.current_thread()
     seen_threads: list[threading.Thread] = []
 
@@ -1732,7 +1732,7 @@ async def test_reconcile_dangling_prune_calls_run_off_event_loop(
         [0.1] * DIMENSION,
         {"artifact_id": dangling_id, "scope": "artifacts"},
     )
-    bedrock = FakeBedrockClient(dimension=DIMENSION)
+    bedrock = FakeBedrockClient()
     main_thread = threading.current_thread()
     seen_threads: list[threading.Thread] = []
 
@@ -1799,7 +1799,7 @@ async def test_failure_log_entry_oversize_link_fields_rejected_reported_in_faile
     s3_reconcile.put_object(oversize_id, _CONTENT_NO_SECTIONS, {**_BASE_S3_META})
     s3_reconcile.put_object(normal_id, _CONTENT_NO_SECTIONS, {**_BASE_S3_META})
     apply_link_annotations(s3_reconcile, oversize_id, commit_refs=[_HUGE_COMMIT_REF], references=[])
-    bedrock = FakeBedrockClient(dimension=DIMENSION)
+    bedrock = FakeBedrockClient()
     put_vector_spy = mocker.spy(vectors_reconcile, "put_vector")
 
     _write_failure_log(
@@ -1848,7 +1848,7 @@ async def test_orphan_scan_oversize_link_fields_rejected_reported_in_failed(
     s3_reconcile.put_object(oversize_id, _CONTENT_NO_SECTIONS, {**_BASE_S3_META})
     s3_reconcile.put_object(normal_id, _CONTENT_NO_SECTIONS, {**_BASE_S3_META})
     apply_link_annotations(s3_reconcile, oversize_id, commit_refs=[_HUGE_COMMIT_REF], references=[])
-    bedrock = FakeBedrockClient(dimension=DIMENSION)
+    bedrock = FakeBedrockClient()
     put_vector_spy = mocker.spy(vectors_reconcile, "put_vector")
 
     result = await reconcile_index(
@@ -1890,7 +1890,7 @@ async def test_reindex_commit_refs_over_cap_truncated_references_omitted(
         commit_refs=full_commit_refs,
         references=["implementation-note-2026-01-01-other"],
     )
-    bedrock = FakeBedrockClient(dimension=DIMENSION)
+    bedrock = FakeBedrockClient()
 
     result = await reconcile_index(
         settings=reconcile_settings,
@@ -1938,7 +1938,7 @@ async def test_failure_log_entry_below_threshold_fails_increments_and_stays_in_f
         entry["reconcile_attempts"] = prior_attempts
     _write_failure_log(reconcile_settings.failure_log_path, [entry])
 
-    bedrock = FakeBedrockClient(dimension=DIMENSION)
+    bedrock = FakeBedrockClient()
     mocker.patch.object(bedrock, "embed", side_effect=RuntimeError("simulated embed failure"))
 
     result = await reconcile_index(
@@ -1982,7 +1982,7 @@ async def test_failure_log_entry_at_threshold_skipped_and_reported_stuck(
         reconcile_settings.failure_log_path,
         [{**_BASE_LOG_ENTRY, "artifact_id": artifact_id, "reconcile_attempts": CAS_MAX_ATTEMPTS}],
     )
-    bedrock = FakeBedrockClient(dimension=DIMENSION)
+    bedrock = FakeBedrockClient()
     spy = mocker.spy(reconcile_module, "_reindex_artifact")
 
     result = await reconcile_index(
@@ -2018,7 +2018,7 @@ async def test_failure_log_entry_succeeds_pruned_regardless_of_prior_attempts(
         reconcile_settings.failure_log_path,
         [{**_BASE_LOG_ENTRY, "artifact_id": artifact_id, "reconcile_attempts": 2}],
     )
-    bedrock = FakeBedrockClient(dimension=DIMENSION)
+    bedrock = FakeBedrockClient()
 
     result = await reconcile_index(
         settings=reconcile_settings,
@@ -2042,7 +2042,7 @@ async def test_response_omits_stuck_failures_when_none(
     """A run with no entries crossing the retry threshold omits 'stuck_failures'
     entirely from the response, matching the optional-field convention used by
     skipped_existing/generation_failed-style fields elsewhere."""
-    bedrock = FakeBedrockClient(dimension=DIMENSION)
+    bedrock = FakeBedrockClient()
 
     result = await reconcile_index(
         settings=reconcile_settings,
@@ -2067,7 +2067,7 @@ async def test_orphan_scan_failure_never_produces_stuck_failures(
     ephemeral per call and there is no replay loop to bound."""
     artifact_id = "artifacts/implementation-note-2026-01-01-orphan-always-fails"
     s3_reconcile.put_object(artifact_id, _CONTENT_NO_SECTIONS, {**_BASE_S3_META})
-    bedrock = FakeBedrockClient(dimension=DIMENSION)
+    bedrock = FakeBedrockClient()
     mocker.patch.object(bedrock, "embed", side_effect=RuntimeError("simulated embed failure"))
 
     for _ in range(4):
@@ -2099,7 +2099,7 @@ async def test_three_consecutive_runs_cross_threshold_into_stuck_failures(
         reconcile_settings.failure_log_path,
         [{**_BASE_LOG_ENTRY, "artifact_id": artifact_id}],
     )
-    bedrock = FakeBedrockClient(dimension=DIMENSION)
+    bedrock = FakeBedrockClient()
     mocker.patch.object(bedrock, "embed", side_effect=RuntimeError("simulated embed failure"))
 
     for run in (1, 2):
@@ -2161,7 +2161,7 @@ async def test_fetch_and_reindex_shared_helper_used_by_both_phases(
         reconcile_settings.failure_log_path,
         [{**_BASE_LOG_ENTRY, "artifact_id": replay_id}],
     )
-    bedrock = FakeBedrockClient(dimension=DIMENSION)
+    bedrock = FakeBedrockClient()
 
     fetch_spy = mocker.spy(reconcile_module, "_fetch_and_reindex")
     head_object_spy = mocker.spy(s3_reconcile, "head_object")
@@ -2216,7 +2216,7 @@ async def test_orphan_cleanup_entry_repaired_by_direct_delete_no_reindex(
         reconcile_settings.failure_log_path,
         [{**_BASE_LOG_ENTRY, "artifact_id": artifact_id, "orphan_keys": [stale_key]}],
     )
-    bedrock = FakeBedrockClient(dimension=DIMENSION)
+    bedrock = FakeBedrockClient()
     delete_spy = mocker.spy(vectors_reconcile, "delete_vectors")
     head_spy = mocker.spy(s3_reconcile, "head_object")
     get_spy = mocker.spy(s3_reconcile, "get_object")
@@ -2279,7 +2279,7 @@ async def test_orphan_cleanup_and_reindex_entries_same_artifact_resolved_indepen
             {**_BASE_LOG_ENTRY, "artifact_id": artifact_id, "orphan_keys": [stale_key]},
         ],
     )
-    bedrock = FakeBedrockClient(dimension=DIMENSION)
+    bedrock = FakeBedrockClient()
     mocker.patch.object(vectors_reconcile, "delete_vectors", side_effect=RuntimeError("boom"))
 
     result = await reconcile_index(
@@ -2344,7 +2344,7 @@ async def test_orphan_cleanup_entry_at_threshold_skipped_and_reported_stuck(
             }
         ],
     )
-    bedrock = FakeBedrockClient(dimension=DIMENSION)
+    bedrock = FakeBedrockClient()
     mocker.patch.object(vectors_reconcile, "delete_vectors", side_effect=RuntimeError("boom"))
 
     result_run_1 = await reconcile_index(
@@ -2407,7 +2407,7 @@ async def test_orphan_cleanup_partially_absent_keys_still_resolves(
         reconcile_settings.failure_log_path,
         [{**_BASE_LOG_ENTRY, "artifact_id": artifact_id, "orphan_keys": [present_key, absent_key]}],
     )
-    bedrock = FakeBedrockClient(dimension=DIMENSION)
+    bedrock = FakeBedrockClient()
 
     result = await reconcile_index(
         settings=reconcile_settings,

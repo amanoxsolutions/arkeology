@@ -162,7 +162,7 @@ async def test_synthesise_returns_results_with_content(
 ) -> None:
     """Query with no filters → results contain full content."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=8)
+    bedrock = FakeBedrockClient()
     _seed_all(s3_client, vectors_client_8)
 
     result = await synthesise_artifacts(
@@ -187,7 +187,7 @@ async def test_synthesise_result_has_all_required_fields(
 ) -> None:
     """Each result dict contains all required fields including content."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=8)
+    bedrock = FakeBedrockClient()
     _seed_all(s3_client, vectors_client_8)
 
     result = await synthesise_artifacts(
@@ -233,7 +233,7 @@ async def test_synthesise_result_missing_tier_metadata_defaults_gracefully(
     internal_error for the whole response, not just the malformed artifact.
     """
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=8)
+    bedrock = FakeBedrockClient()
 
     s3_client.put_object("artifacts/no-tier-artifact", _CONTENT, {**_BASE_S3_META})
     vectors_client_8.put_vector(
@@ -271,7 +271,7 @@ async def test_synthesise_tags_is_list(
 ) -> None:
     """tags in results is a list, not a comma-separated string."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=8)
+    bedrock = FakeBedrockClient()
     _seed_all(s3_client, vectors_client_8)
 
     result = await synthesise_artifacts(
@@ -294,7 +294,7 @@ async def test_synthesise_content_matches_s3_content(
 ) -> None:
     """content in results matches what was written to S3."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=8)
+    bedrock = FakeBedrockClient()
     _seed_all(s3_client, vectors_client_8)
 
     result = await synthesise_artifacts(
@@ -323,7 +323,7 @@ async def test_synthesise_top_k_limits_results(
 ) -> None:
     """top_k=2 → at most 2 results."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=8)
+    bedrock = FakeBedrockClient()
     _seed_all(s3_client, vectors_client_8)
 
     result = await synthesise_artifacts(
@@ -345,7 +345,7 @@ async def test_synthesise_top_k_default_is_10(
 ) -> None:
     """top_k absent → at most 10 results."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=8)
+    bedrock = FakeBedrockClient()
     _seed_all(s3_client, vectors_client_8)
 
     result = await synthesise_artifacts(
@@ -362,7 +362,7 @@ async def test_synthesise_top_k_above_ceiling_clamped(
 ) -> None:
     """top_k=150 → clamped to 100; no error."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=8)
+    bedrock = FakeBedrockClient()
     _seed_all(s3_client, vectors_client_8)
 
     result = await synthesise_artifacts(
@@ -388,7 +388,7 @@ async def test_synthesise_top_k_zero_returns_validation_error(
     no-match query.
     """
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=8)
+    bedrock = FakeBedrockClient()
     _seed_all(s3_client, vectors_client_8)
 
     result = await synthesise_artifacts(
@@ -412,7 +412,7 @@ async def test_synthesise_top_k_negative_returns_validation_error(
 ) -> None:
     """top_k=-5 has no floor guard in the clamp — must return validation_error."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=8)
+    bedrock = FakeBedrockClient()
     _seed_all(s3_client, vectors_client_8)
 
     result = await synthesise_artifacts(
@@ -439,7 +439,7 @@ async def test_synthesise_filter_type_typo_returns_validation_error(
     zero-match query.
     """
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=8)
+    bedrock = FakeBedrockClient()
     _seed_all(s3_client, vectors_client_8)
 
     result = await synthesise_artifacts(
@@ -468,7 +468,7 @@ async def test_synthesise_foreign_tier2_excluded(
 ) -> None:
     """Foreign-scope tier 2 artifact excluded from results."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=8)
+    bedrock = FakeBedrockClient()
     _seed_all(s3_client, vectors_client_8)
 
     result = await synthesise_artifacts(
@@ -491,7 +491,7 @@ async def test_synthesise_foreign_tier3_shared_included(
 ) -> None:
     """Foreign-scope tier 3 shared artifact included with full content."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=8)
+    bedrock = FakeBedrockClient()
     _seed_all(s3_client, vectors_client_8)
 
     result = await synthesise_artifacts(
@@ -518,7 +518,7 @@ async def test_synthesise_foreign_tier3_hidden_excluded(
 ) -> None:
     """Foreign-scope tier 3 hidden artifact excluded from results."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=8)
+    bedrock = FakeBedrockClient()
     _seed_all(s3_client, vectors_client_8)
 
     result = await synthesise_artifacts(
@@ -547,7 +547,7 @@ async def test_synthesise_s3_read_failure_skips_artifact(
 ) -> None:
     """S3 get_object raises KeyError for one artifact → that artifact skipped; others returned."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=8)
+    bedrock = FakeBedrockClient()
     _seed_all(s3_client, vectors_client_8)
 
     call_count: dict[str, int] = {"n": 0}
@@ -586,7 +586,7 @@ async def test_synthesise_s3_read_failure_reports_skip_count(
     difference between "fewer results legitimately matched" and "a result was
     dropped due to a fetch error"."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=8)
+    bedrock = FakeBedrockClient()
     _seed_all(s3_client, vectors_client_8)
 
     call_count: dict[str, int] = {"n": 0}
@@ -622,7 +622,7 @@ async def test_synthesise_empty_search_returns_empty_list(
 ) -> None:
     """Search returns no results → empty list, no error."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=8)
+    bedrock = FakeBedrockClient()
 
     result = await synthesise_artifacts(
         settings=settings,
@@ -645,7 +645,7 @@ async def test_synthesise_empty_search_includes_zero_results_field(
     — synthesise_artifacts currently returns a bare
     {"artifacts": []} with no equivalent signal that nothing matched."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=8)
+    bedrock = FakeBedrockClient()
 
     result = await synthesise_artifacts(
         settings=settings,
@@ -674,7 +674,7 @@ async def test_synthesise_embed_credential_error(
 ) -> None:
     """Embed call raises CredentialError → structured error response."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=8)
+    bedrock = FakeBedrockClient()
     mocker.patch.object(
         bedrock,
         "embed",
@@ -702,7 +702,7 @@ async def test_synthesise_query_vectors_credential_error(
 ) -> None:
     """query_vectors raises CredentialError → structured error response."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=8)
+    bedrock = FakeBedrockClient()
     _seed_all(s3_client, vectors_client_8)
     mocker.patch.object(
         vectors_client_8,
@@ -734,7 +734,7 @@ async def test_synthesise_get_object_credential_error_is_hard_failure(
 ) -> None:
     """get_object raises CredentialError (not KeyError) → structured error (hard failure)."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=8)
+    bedrock = FakeBedrockClient()
     _seed_all(s3_client, vectors_client_8)
     mocker.patch.object(
         s3_client,
@@ -773,7 +773,7 @@ async def test_synthesise_vector_distance_missing_mid_loop_returns_partial_with_
     synthesise_artifacts's own response assembly, not just search_artifacts's.
     """
     settings = _make_settings(monkeypatch, SEARCH_MAX_ITERATIONS="5", SEARCH_FETCH_TOP_K="1")
-    bedrock = FakeBedrockClient(dimension=8)
+    bedrock = FakeBedrockClient()
     _seed_all(s3_client, vectors_client_8)
 
     original_query_vectors = vectors_client_8.query_vectors
@@ -826,7 +826,7 @@ async def test_synthesise_top_k_over_limit_clamped(
 ) -> None:
     """top_k=200 → response contains clamped: True and effective_top_k: 100."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=8)
+    bedrock = FakeBedrockClient()
     _seed_all(s3_client, vectors_client_8)
 
     result = await synthesise_artifacts(
@@ -849,7 +849,7 @@ async def test_synthesise_top_k_within_limit_not_clamped(
 ) -> None:
     """top_k=5 → response does not contain clamped: True."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=8)
+    bedrock = FakeBedrockClient()
     _seed_all(s3_client, vectors_client_8)
 
     result = await synthesise_artifacts(
@@ -907,7 +907,7 @@ async def test_synthesise_response_size_budget_default_unaffected(
     """Normal-sized artifacts well under the default 1 MB budget → response
     unaffected: no truncated/included fields, all matching results included."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=8)
+    bedrock = FakeBedrockClient()
     for i in range(3):
         aid = f"artifacts/normal-{i}"
         s3_client.put_object(aid, _content_of_size(1000), {**_BASE_S3_META})
@@ -937,7 +937,7 @@ async def test_synthesise_byte_budget_stops_assembly(
     exceeding it; response sets truncated=True and included matches the actual
     number of results returned."""
     settings = _make_settings(monkeypatch, SYNTHESISE_MAX_RESPONSE_BYTES="1500")
-    bedrock = FakeBedrockClient(dimension=8)
+    bedrock = FakeBedrockClient()
     for i in range(3):
         aid = f"artifacts/big-{i}"
         s3_client.put_object(aid, _content_of_size(1000), {**_BASE_S3_META})
@@ -966,7 +966,7 @@ async def test_synthesise_count_ceiling_and_byte_budget_both_active(
     """top_k over the 100 ceiling AND an unusually small byte budget → both guards
     apply simultaneously; clamped/effective_top_k and truncated/included co-occur."""
     settings = _make_settings(monkeypatch, SYNTHESISE_MAX_RESPONSE_BYTES="1000")
-    bedrock = FakeBedrockClient(dimension=8)
+    bedrock = FakeBedrockClient()
     for i in range(3):
         aid = f"artifacts/ceiling-{i}"
         s3_client.put_object(aid, _content_of_size(800), {**_BASE_S3_META})
@@ -996,7 +996,7 @@ async def test_synthesise_single_oversized_first_result_included_anyway(
     """The single top-ranked candidate alone exceeds the budget → included anyway
     (never zero results for a single relevant oversized hit), with truncated=True."""
     settings = _make_settings(monkeypatch, SYNTHESISE_MAX_RESPONSE_BYTES="500")
-    bedrock = FakeBedrockClient(dimension=8)
+    bedrock = FakeBedrockClient()
     aid = "artifacts/oversized-solo"
     s3_client.put_object(aid, _content_of_size(1000), {**_BASE_S3_META})
     _mock_search_loop(mocker, [_entry(aid, 1.0)])

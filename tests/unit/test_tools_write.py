@@ -102,7 +102,7 @@ async def test_three_section_content_indexes_three_sections(
 ) -> None:
     """Three-section content → sections_indexed == 3 and 3 vectors in index."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
 
     result = await write_artifact(
         s3=s3_client,
@@ -135,7 +135,7 @@ async def test_h2_heading_slug_collision_indexes_both_sections_distinctly(
     slugs) once fixed.
     """
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
 
     content = (
         "## Notes\n\n"
@@ -171,7 +171,7 @@ async def test_no_section_content_indexes_one_document_fallback(
 ) -> None:
     """No-section content → sections_indexed == 1 (document-level fallback)."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
 
     result = await write_artifact(
         s3=s3_client,
@@ -191,7 +191,7 @@ async def test_s3_contains_content_at_correct_key(
 ) -> None:
     """After write_artifact, S3 contains the content at the returned artifact_id key."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
 
     result = await write_artifact(
         s3=s3_client,
@@ -213,7 +213,7 @@ async def test_returned_artifact_id_is_full_s3_key(
 ) -> None:
     """Returned artifact_id is the full S3 key including write_prefix."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
 
     result = await write_artifact(
         s3=s3_client,
@@ -234,7 +234,7 @@ async def test_section_vector_keys_contain_hash_separator(
 ) -> None:
     """Vector keys for sections have format {s3_key}#{section_slug}."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
 
     result = await write_artifact(
         s3=s3_client,
@@ -259,7 +259,7 @@ async def test_document_fallback_vector_key_has_no_hash(
 ) -> None:
     """Document-level fallback vector key equals {s3_key} (no # suffix)."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
 
     result = await write_artifact(
         s3=s3_client,
@@ -282,7 +282,7 @@ async def test_vector_metadata_includes_artifact_id_and_scope(
 ) -> None:
     """Each vector's metadata includes artifact_id (full S3 key) and scope (write_prefix)."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
 
     result = await write_artifact(
         s3=s3_client,
@@ -307,7 +307,7 @@ async def test_response_has_artifact_id_and_sections_indexed(
 ) -> None:
     """Response dict has keys 'artifact_id' and 'sections_indexed'."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
 
     result = await write_artifact(
         s3=s3_client,
@@ -333,7 +333,7 @@ async def test_same_key_write_without_overwrite_returns_validation_error(
 ) -> None:
     """Writing to an already-existing key without overwrite=True → validation_error."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
 
     await write_artifact(
         s3=s3_client,
@@ -361,7 +361,7 @@ async def test_same_key_write_without_overwrite_does_not_mutate_s3_content(
 ) -> None:
     """A rejected same-key write leaves the existing S3 object's content untouched."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
 
     first = await write_artifact(
         s3=s3_client,
@@ -393,7 +393,7 @@ async def test_same_key_write_without_overwrite_does_not_mutate_vectors(
 ) -> None:
     """A rejected same-key write does not add, remove, or change any existing vectors."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
 
     await write_artifact(
         s3=s3_client,
@@ -423,7 +423,7 @@ async def test_same_key_write_with_overwrite_true_succeeds(
 ) -> None:
     """Writing to an already-existing key WITH overwrite=True → succeeds and updates content."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
 
     first = await write_artifact(
         s3=s3_client,
@@ -467,7 +467,7 @@ async def test_conditional_put_race_returns_validation_error_no_vectors_written(
     rejected with the same validation_error shape, and no embedding/vector work happens.
     """
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
 
     # Key already exists (the "other" concurrent writer already won).
     await write_artifact(
@@ -508,7 +508,7 @@ async def test_overwrite_false_put_object_called_with_if_none_match_true(
     """overwrite=False → the actual s3.put_object call requests the atomic
     conditional-create (if_none_match=True), not just a friendly pre-check."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     spy = mocker.spy(s3_client, "put_object")
 
     await write_artifact(
@@ -534,7 +534,7 @@ async def test_overwrite_true_put_object_called_without_if_none_match(
     instead, whose conditional-update guard is if_match (not if_none_match) —
     and which also asserts the if_match token equals the object's pre-write ETag."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
 
     first = await write_artifact(
         s3=s3_client,
@@ -573,7 +573,7 @@ async def test_tier2_write_twice_same_date_one_s3_object(
 ) -> None:
     """Write same tier 2 artifact twice (same date, overwrite=True) → exactly 1 S3 object."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
 
     await write_artifact(
         s3=s3_client,
@@ -602,7 +602,7 @@ async def test_tier2_write_twice_same_date_vector_count_unchanged(
     """Write same tier 2 artifact twice (same date, overwrite=True) → vector count unchanged
     (upsert)."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
 
     result1 = await write_artifact(
         s3=s3_client,
@@ -632,7 +632,7 @@ async def test_tier2_different_dates_produce_distinct_keys(
 ) -> None:
     """Write same tier 2 artifact on two different dates → 2 distinct S3 keys."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
 
     kwargs_day1 = {**_BASE_WRITE_KWARGS, "date": "2026-05-30"}
     kwargs_day2 = {**_BASE_WRITE_KWARGS, "date": "2026-05-31"}
@@ -660,7 +660,7 @@ async def test_tier3_rewrite_fewer_sections_cleans_orphans(
 ) -> None:
     """Tier 3: first write 3 sections, re-write 2 → orphan section C key is absent."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
 
     three_section_content = "## Alpha\n\nBody A.\n\n## Beta\n\nBody B.\n\n## Gamma\n\nBody C."
     two_section_content = "## Alpha\n\nBody A.\n\n## Beta\n\nBody B."
@@ -700,7 +700,7 @@ async def test_tier3_rewrite_more_sections(
 ) -> None:
     """Tier 3: first write 1 section, re-write 3 → 3 vectors after re-write."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
 
     three_section_content = "## Alpha\n\nBody A.\n\n## Beta\n\nBody B.\n\n## Gamma\n\nBody C."
     kwargs_1 = {**_BASE_WRITE_KWARGS, "tier": 3, "content": "## Alpha\n\nBody A."}
@@ -732,7 +732,7 @@ async def test_tier3_rewrite_identical_sections_count_unchanged(
 ) -> None:
     """Tier 3: re-write with identical sections → vector count unchanged."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
 
     content = "## Alpha\n\nBody A.\n\n## Beta\n\nBody B."
     kwargs = {**_BASE_WRITE_KWARGS, "tier": 3, "content": content}
@@ -765,7 +765,7 @@ async def test_tier3_different_dates_same_artifact_id(
 ) -> None:
     """Tier 3: writes with different dates, same type+title → same artifact_id."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
 
     kwargs_day1 = {**_BASE_WRITE_KWARGS, "tier": 3, "date": "2026-05-30"}
     kwargs_day2 = {**_BASE_WRITE_KWARGS, "tier": 3, "date": "2026-06-15"}
@@ -797,7 +797,7 @@ async def test_validation_description_too_long_no_s3_call(
 ) -> None:
     """description > 280 chars → validation_error response; S3 put_object NOT called."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
 
     kwargs = {**_BASE_WRITE_KWARGS, "description": "x" * 281}
     result = await write_artifact(
@@ -816,7 +816,7 @@ async def test_validation_invalid_type_no_s3_call(
 ) -> None:
     """Invalid type → validation_error response; S3 put_object NOT called."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
 
     kwargs = {**_BASE_WRITE_KWARGS, "type": "invalid_type"}
     result = await write_artifact(
@@ -835,7 +835,7 @@ async def test_validation_invalid_tier_no_s3_call(
 ) -> None:
     """Invalid tier → validation_error response; S3 put_object NOT called."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
 
     kwargs = {**_BASE_WRITE_KWARGS, "tier": 1}
     result = await write_artifact(
@@ -863,7 +863,7 @@ async def test_validation_wrong_type_tier_string_returns_validation_error(
     the outer blanket ``except Exception`` and surfaced as internal_error.
     """
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
 
     kwargs = {**_BASE_WRITE_KWARGS, "tier": "2"}
     result = await write_artifact(
@@ -884,7 +884,7 @@ async def test_validation_invalid_visibility_no_s3_call(
 ) -> None:
     """Invalid visibility → validation_error response; S3 put_object NOT called."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
 
     kwargs = {**_BASE_WRITE_KWARGS, "visibility": "public"}
     result = await write_artifact(
@@ -909,7 +909,7 @@ async def test_s3_credential_failure_returns_error_bedrock_not_called(
 ) -> None:
     """S3 credential failure → error in response; bedrock.embed NOT called."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     spy = mocker.spy(bedrock, "embed")
     mocker.patch.object(
         s3_client,
@@ -944,7 +944,7 @@ async def test_bedrock_credential_failure_returns_error(
     point — a failure-log entry is written, hence the tmp-path-scoped log)."""
     log_path = tmp_path / "failures.jsonl"
     settings = _make_settings(monkeypatch, FAILURE_LOG_PATH=str(log_path))
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     mocker.patch.object(
         bedrock,
         "embed",
@@ -974,7 +974,7 @@ async def test_vector_metadata_tags_is_list(
 ) -> None:
     """After successful write, tags in vector metadata is a list (not a string)."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
 
     kwargs = {**_BASE_WRITE_KWARGS, "tags": ["auth", "security"]}
     result = await write_artifact(
@@ -1005,7 +1005,7 @@ async def test_s3_metadata_tags_and_source_artifacts_are_strings(
     """After successful write, S3 metadata stores tags and source_artifacts
     as comma-joined strings (not lists), per S3 metadata constraints."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
 
     kwargs = {
         **_BASE_WRITE_KWARGS,
@@ -1048,8 +1048,8 @@ def _non_throttle_error() -> botocore.exceptions.ClientError:
 class _ThrottleThenSucceedBedrock(FakeBedrockClient):
     """Raises ThrottlingException on the first embed call, then succeeds."""
 
-    def __init__(self, **kwargs: int) -> None:
-        super().__init__(**kwargs)
+    def __init__(self) -> None:
+        super().__init__()
         self._call_count = 0
 
     def embed(self, text: str, model_id: str, dimensions: int) -> list[float]:
@@ -1192,7 +1192,7 @@ async def test_put_vector_failure_returns_partial_write_with_log(
     """S3 write succeeds, put_vectors_batch raises → partial_write error; failure log written."""
     log_path = tmp_path / "failures.jsonl"
     settings = _make_settings(monkeypatch, FAILURE_LOG_PATH=str(log_path))
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     mocker.patch.object(
         vectors_client,
         "put_vectors_batch",
@@ -1225,7 +1225,7 @@ async def test_failure_log_entry_contains_all_required_fields(
     """Failure log entry contains all required fields with correct types."""
     log_path = tmp_path / "failures.jsonl"
     settings = _make_settings(monkeypatch, FAILURE_LOG_PATH=str(log_path))
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     mocker.patch.object(
         vectors_client,
         "put_vectors_batch",
@@ -1277,7 +1277,7 @@ async def test_failure_log_appends_across_multiple_failures(
     """
     log_path = tmp_path / "failures.jsonl"
     settings = _make_settings(monkeypatch, FAILURE_LOG_PATH=str(log_path))
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     mocker.patch.object(
         vectors_client,
         "put_vectors_batch",
@@ -1313,7 +1313,7 @@ async def test_bedrock_credential_error_writes_failure_log(
     artifact's missing vector index entry."""
     log_path = tmp_path / "failures.jsonl"
     settings = _make_settings(monkeypatch, FAILURE_LOG_PATH=str(log_path))
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     mocker.patch.object(
         bedrock,
         "embed",
@@ -1347,7 +1347,7 @@ async def test_put_vector_credential_error_writes_failure_log(
     response; a failure-log entry IS written."""
     log_path = tmp_path / "failures.jsonl"
     settings = _make_settings(monkeypatch, FAILURE_LOG_PATH=str(log_path))
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     mocker.patch.object(
         vectors_client,
         "put_vectors_batch",
@@ -1387,7 +1387,7 @@ async def test_new_artifact_skips_orphan_cleanup(
 ) -> None:
     """New artifact (head_object 404) → list_vectors_by_metadata NOT called."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     spy = mocker.spy(vectors_client, "list_vectors_by_metadata")
 
     await write_artifact(
@@ -1409,7 +1409,7 @@ async def test_existing_artifact_runs_orphan_cleanup(
 ) -> None:
     """Existing artifact (head_object returns meta) → list_vectors_by_metadata called."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
 
     await write_artifact(
         s3=s3_client,
@@ -1450,7 +1450,7 @@ async def test_orphan_cleanup_list_failure_does_not_fail_write(
     new section vectors are indexed, so the result must still report success.
     """
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
 
     await write_artifact(
         s3=s3_client,
@@ -1504,7 +1504,7 @@ async def test_orphan_cleanup_delete_failure_does_not_fail_write(
     content is written and the new section vectors are indexed regardless.
     """
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
 
     three = "## Alpha\n\nBody A.\n\n## Beta\n\nBody B.\n\n## Gamma\n\nBody C."
     two = "## Alpha\n\nBody A.\n\n## Beta\n\nBody B."
@@ -1544,7 +1544,7 @@ async def test_orphan_cleanup_credential_failure_does_not_fail_write(
     cleanup is best-effort (the write already succeeded before Step 8).
     """
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
 
     await write_artifact(
         s3=s3_client,
@@ -1649,7 +1649,7 @@ async def test_orphan_delete_transient_error_then_success_retries_and_succeeds(
     response, and no failure-log entry is written."""
     log_path = tmp_path / "failures.jsonl"
     settings = _make_settings(monkeypatch, FAILURE_LOG_PATH=str(log_path))
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     artifact_id = await _seed_artifact_with_orphan(s3_client, vectors_client, bedrock, settings)
 
     kwargs_2 = {**_BASE_WRITE_KWARGS, "tier": 3, "content": _TWO_SECTION_OVERWRITE_CONTENT}
@@ -1690,7 +1690,7 @@ async def test_orphan_delete_transient_error_exhausted_logs_failure(
     set exactly, and the write still returns its normal success response."""
     log_path = tmp_path / "failures.jsonl"
     settings = _make_settings(monkeypatch, FAILURE_LOG_PATH=str(log_path))
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     artifact_id = await _seed_artifact_with_orphan(s3_client, vectors_client, bedrock, settings)
 
     kwargs_2 = {**_BASE_WRITE_KWARGS, "tier": 3, "content": _TWO_SECTION_OVERWRITE_CONTENT}
@@ -1736,7 +1736,7 @@ async def test_orphan_delete_credential_error_not_retried_logs_failure(
     success response."""
     log_path = tmp_path / "failures.jsonl"
     settings = _make_settings(monkeypatch, FAILURE_LOG_PATH=str(log_path))
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     artifact_id = await _seed_artifact_with_orphan(s3_client, vectors_client, bedrock, settings)
 
     kwargs_2 = {**_BASE_WRITE_KWARGS, "tier": 3, "content": _TWO_SECTION_OVERWRITE_CONTENT}
@@ -1782,7 +1782,7 @@ async def test_orphan_delete_non_transient_error_not_retried_logs_failure(
     the write still returns its normal success response."""
     log_path = tmp_path / "failures.jsonl"
     settings = _make_settings(monkeypatch, FAILURE_LOG_PATH=str(log_path))
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     artifact_id = await _seed_artifact_with_orphan(s3_client, vectors_client, bedrock, settings)
 
     kwargs_2 = {**_BASE_WRITE_KWARGS, "tier": 3, "content": _TWO_SECTION_OVERWRITE_CONTENT}
@@ -1826,7 +1826,7 @@ async def test_head_object_credential_error_returns_credential_error(
 ) -> None:
     """CredentialError raised by head_object → credential_error response; write not attempted."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     mocker.patch.object(
         s3_client,
         "head_object",
@@ -1883,7 +1883,7 @@ async def test_write_sections_embeds_all_concurrently(
 ) -> None:
     """8-section document → embed called 8 times; put_vectors_batch called exactly once."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     embed_spy = mocker.spy(bedrock, "embed")
     batch_spy = mocker.spy(vectors_client, "put_vectors_batch")
 
@@ -1908,7 +1908,7 @@ async def test_write_sections_batch_put_called_once(
 ) -> None:
     """5-section document → put_vectors_batch called exactly once (not 5 times)."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     batch_spy = mocker.spy(vectors_client, "put_vectors_batch")
 
     content = _make_sections_content(5)
@@ -1927,8 +1927,8 @@ class _FailOnSecondEmbedBedrock(FakeBedrockClient):
 
     import threading
 
-    def __init__(self, **kwargs: int) -> None:
-        super().__init__(**kwargs)
+    def __init__(self) -> None:
+        super().__init__()
         self._call_count = 0
         self._lock = __import__("threading").Lock()
 
@@ -1950,7 +1950,7 @@ async def test_write_any_embed_failure_aborts_atomically(
 ) -> None:
     """Any embed failure → put_vectors_batch never called; response contains partial_write."""
     settings = _make_settings(monkeypatch)
-    bedrock = _FailOnSecondEmbedBedrock(dimension=1024)
+    bedrock = _FailOnSecondEmbedBedrock()
     batch_spy = mocker.spy(vectors_client, "put_vectors_batch")
 
     # 8 sections: the 2nd embed call will raise, aborting the whole batch
@@ -1977,7 +1977,7 @@ async def test_write_embed_credential_error_aborts(
     written; a failure-log entry IS written since S3 already succeeded."""
     log_path = tmp_path / "failures.jsonl"
     settings = _make_settings(monkeypatch, FAILURE_LOG_PATH=str(log_path))
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     mocker.patch.object(
         bedrock,
         "embed",
@@ -2008,7 +2008,7 @@ async def test_write_sections_semaphore_default(
 ) -> None:
     """10-section write completes without error under default SECTION_CONCURRENCY=5."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
 
     content = _make_sections_content(10)
     kwargs = {**_BASE_WRITE_KWARGS, "content": content}
@@ -2107,7 +2107,7 @@ async def test_short_section_skipped(
 ) -> None:
     """Sections shorter than EMBED_MIN_SECTION_LENGTH are skipped; only longer ones are embedded."""
     settings = _make_settings(monkeypatch, EMBED_MIN_SECTION_LENGTH="50")
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     embed_spy = mocker.spy(bedrock, "embed")
 
     # Section 1: 10 chars (skipped). Sections 2 & 3: 200 chars each (pass filter).
@@ -2136,7 +2136,7 @@ async def test_all_sections_short_falls_back_to_document(
 ) -> None:
     """When all sections are filtered by min-length, document-level embed is used as fallback."""
     settings = _make_settings(monkeypatch, EMBED_MIN_SECTION_LENGTH="50")
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     embed_spy = mocker.spy(bedrock, "embed")
 
     # Both sections have bodies of only 10 chars — both below the 50-char threshold
@@ -2162,7 +2162,7 @@ async def test_min_length_zero_skips_no_sections(
 ) -> None:
     """EMBED_MIN_SECTION_LENGTH=0 disables the filter — all sections are embedded."""
     settings = _make_settings(monkeypatch, EMBED_MIN_SECTION_LENGTH="0")
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     embed_spy = mocker.spy(bedrock, "embed")
 
     # Mix of very short and longer sections; with min=0 all 4 pass
@@ -2192,7 +2192,7 @@ async def test_sections_capped_at_max(
 ) -> None:
     """25-section document with EMBED_MAX_SECTIONS=20 → only 20 sections are embedded."""
     settings = _make_settings(monkeypatch, EMBED_MAX_SECTIONS="20")
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     embed_spy = mocker.spy(bedrock, "embed")
 
     content = _make_sections_content(25)
@@ -2216,7 +2216,7 @@ async def test_sections_under_cap_not_truncated(
 ) -> None:
     """10-section document with EMBED_MAX_SECTIONS=20 → all 10 sections are embedded (no cap)."""
     settings = _make_settings(monkeypatch, EMBED_MAX_SECTIONS="20")
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     embed_spy = mocker.spy(bedrock, "embed")
 
     content = _make_sections_content(10)
@@ -2240,7 +2240,7 @@ async def test_length_filter_then_cap(
 ) -> None:
     """Filter applied first, then cap: 30 sections (5 short) → 25 pass filter, capped at 20."""
     settings = _make_settings(monkeypatch, EMBED_MIN_SECTION_LENGTH="50", EMBED_MAX_SECTIONS="20")
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     embed_spy = mocker.spy(bedrock, "embed")
 
     # 25 long sections (120 chars) + 5 short sections (10 chars)
@@ -2267,7 +2267,7 @@ async def test_all_filtered_then_capped_falls_back(
     """All sections filtered by a very large min-length → document-level fallback (1 embed)."""
     # Set min-length so large that all section bodies are below threshold
     settings = _make_settings(monkeypatch, EMBED_MIN_SECTION_LENGTH="10000")
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     embed_spy = mocker.spy(bedrock, "embed")
 
     content = _make_sections_content(5, body_length=50)  # 50 chars each — far below 10000
@@ -2302,7 +2302,7 @@ async def test_section_body_truncated_before_embed(
     """
     # Red: EMBED_MAX_SECTION_LENGTH is not a Settings field yet; write.py never truncates.
     settings = _make_settings(monkeypatch, EMBED_MAX_SECTION_LENGTH="100")
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     embed_spy = mocker.spy(bedrock, "embed")
 
     body = "a" * 200
@@ -2334,7 +2334,7 @@ async def test_section_full_body_stored_in_s3_despite_embed_truncation(
     The truncation is embedding-input-only; the stored content is always the original.
     """
     settings = _make_settings(monkeypatch, EMBED_MAX_SECTION_LENGTH="100")
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     embed_spy = mocker.spy(bedrock, "embed")
 
     body = "a" * 200
@@ -2370,7 +2370,7 @@ async def test_sections_under_max_length_are_all_embedded(
     and bedrock.embed must receive the full (untruncated) body for each section.
     """
     settings = _make_settings(monkeypatch, EMBED_MAX_SECTION_LENGTH="200")
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     embed_spy = mocker.spy(bedrock, "embed")
 
     body_a = "a" * 50  # well under the 200-char limit
@@ -2410,7 +2410,7 @@ async def test_embed_max_section_length_zero_disables_truncation(
     Zero is the special sentinel that disables the truncation guard entirely.
     """
     settings = _make_settings(monkeypatch, EMBED_MAX_SECTION_LENGTH="0")
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     embed_spy = mocker.spy(bedrock, "embed")
 
     body = "b" * 500
@@ -2446,7 +2446,7 @@ async def test_section_truncation_logged_at_debug(
     under that module's logger.
     """
     settings = _make_settings(monkeypatch, EMBED_MAX_SECTION_LENGTH="50")
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
 
     body = "c" * 200  # body exceeds the 50-char limit
     content = f"## Long Section\n\n{body}"
@@ -2481,7 +2481,7 @@ async def test_write_response_includes_last_edited_ulid(
 ) -> None:
     """write_artifact response includes 'last_edited_ulid' as a non-empty string."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
 
     result = await write_artifact(
         s3=s3_client,
@@ -2504,7 +2504,7 @@ async def test_write_successive_ulids_are_monotonic(
 ) -> None:
     """Two successive write_artifact calls produce monotonically ordered ULIDs."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
 
     result1 = await write_artifact(
         s3=s3_client,
@@ -2533,7 +2533,7 @@ async def test_write_last_edited_ulid_in_s3_metadata(
 ) -> None:
     """S3 put_object is called with 'last_edited_ulid' in the metadata dict."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     spy = mocker.spy(s3_client, "put_object")
 
     await write_artifact(
@@ -2559,7 +2559,7 @@ async def test_write_last_edited_ulid_in_vector_metadata(
 ) -> None:
     """put_vectors_batch is called with 'last_edited_ulid' in each vector's metadata."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     spy = mocker.spy(vectors_client, "put_vectors_batch")
 
     await write_artifact(
@@ -2586,7 +2586,7 @@ async def test_write_commit_refs_stored_in_annotation_and_vector_metadata(
     """commit_refs=['abc1234'] stored as a comma-joined S3 annotation (T47/ADR-011,
     NOT S3 user-defined metadata) and as list[str] in vector metadata."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     s3_spy = mocker.spy(s3_client, "put_object")
     vec_spy = mocker.spy(vectors_client, "put_vectors_batch")
 
@@ -2618,7 +2618,7 @@ async def test_write_empty_commit_refs_annotation_absent(
     """commit_refs=[] → no commit_refs annotation is written, no S3 metadata key, and
     the field is omitted from vector metadata."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     s3_spy = mocker.spy(s3_client, "put_object")
     vec_spy = mocker.spy(vectors_client, "put_vectors_batch")
 
@@ -2657,7 +2657,7 @@ async def test_write_references_never_stored_in_vector_metadata(
     though non-empty — the S3 annotation is its sole durable store and sole read
     surface as of T58."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     vec_spy = mocker.spy(vectors_client, "put_vectors_batch")
 
     await write_artifact(
@@ -2682,7 +2682,7 @@ async def test_write_empty_references_omitted_from_vector_metadata(
 ) -> None:
     """references=[] (or omitted) omits the 'references' key from vector metadata."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     vec_spy = mocker.spy(vectors_client, "put_vectors_batch")
 
     await write_artifact(
@@ -2712,7 +2712,7 @@ async def test_write_references_not_stored_in_s3_metadata(
     in T47 (ADR-011). This spec only covers vector metadata + read/list surfacing.
     """
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     s3_spy = mocker.spy(s3_client, "put_object")
 
     await write_artifact(
@@ -2742,7 +2742,7 @@ async def test_write_references_stored_in_annotation_not_vector_metadata(
     """references=['a-1', 'b-2'] is written as a comma-joined S3 annotation — its sole
     durable store as of T58 — and never appears in vector metadata."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     vec_spy = mocker.spy(vectors_client, "put_vectors_batch")
 
     result = await write_artifact(
@@ -2767,7 +2767,7 @@ async def test_write_empty_references_annotation_absent(
 ) -> None:
     """references=[] → no references annotation is written."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
 
     result = await write_artifact(
         s3=s3_client,
@@ -2792,7 +2792,7 @@ async def test_write_fresh_artifact_no_link_fields_skips_annotation_delete_calls
     has nothing to clear — apply_link_annotations must not issue pointless
     delete_object_annotation round trips for fields that never had a value."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     delete_spy = mocker.spy(s3_client, "delete_object_annotation")
 
     result = await write_artifact(
@@ -2821,7 +2821,7 @@ async def test_write_annotations_written_after_put_object_before_put_vectors_bat
     put_vectors_batch, so a failed vector write can self-heal from the durable side
     via a later reconcile_index (T48)."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
 
     call_order: list[str] = []
 
@@ -2869,7 +2869,7 @@ async def test_write_with_link_fields_triggers_no_extra_embed_call(
     """Supplying commit_refs/references triggers no additional Bedrock embed call — the
     annotation write is metadata-only and never re-embeds (Story 1 AC)."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     embed_spy = mocker.spy(bedrock, "embed")
 
     await write_artifact(
@@ -2899,7 +2899,7 @@ async def test_tier3_overwrite_preserves_commit_refs_and_replaces_references(
     reference (no new commit_refs), and the post-write references must be exactly the
     supplied list — not unioned with the prior stored value (ADR-011 decision 4)."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     tier3_kwargs = {**_BASE_WRITE_KWARGS, "tier": 3}
 
     first = await write_artifact(
@@ -2957,7 +2957,7 @@ async def test_tier3_overwrite_omitted_references_clears_field(
     so a write that no longer lists it must shed it (ADR-011 decision 4,
     operator-confirmed intended)."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     tier3_kwargs = {**_BASE_WRITE_KWARGS, "tier": 3}
 
     first = await write_artifact(
@@ -3003,7 +3003,7 @@ async def test_link_metadata_backfilled_reference_dropped_by_subsequent_overwrit
     ["a-1"], dropping "z-9". This is the expected, intentional consequence of
     references being a claim about current state, not a defect."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     tier3_kwargs = {**_BASE_WRITE_KWARGS, "tier": 3}
 
     first = await write_artifact(
@@ -3055,7 +3055,7 @@ async def test_tier2_explicit_overwrite_preserves_prior_link_fields(
     preserves prior commit_refs/references — the same read-forward + merge applies
     regardless of tier."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
 
     first = await write_artifact(
         s3=s3_client,
@@ -3098,7 +3098,7 @@ async def test_write_credential_error_from_annotation_write_is_structured(
     already succeeded by this point — the annotation write happens after PutObject."""
     log_path = tmp_path / "failures.jsonl"
     settings = _make_settings(monkeypatch, FAILURE_LOG_PATH=str(log_path))
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     mocker.patch.object(
         s3_client,
         "put_object_annotation",
@@ -3133,9 +3133,9 @@ async def test_write_overwrite_cas_put_object_credential_error_includes_artifact
 ) -> None:
     """A CredentialError raised by the overwrite CAS retry loop's ``s3.put_object``
     call surfaces ``artifact_id`` in its response, matching its two sibling
-    CredentialError handlers in the same loop iteration (E-1)."""
+    CredentialError handlers in the same loop iteration."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
 
     first = await write_artifact(
         s3=s3_client,
@@ -3181,7 +3181,7 @@ async def test_write_annotation_unavailable_still_succeeds_with_warning(
     lose the artifact (ADR-011 decision 5): content and vectors are still persisted and
     the response carries a non-empty top-level 'warning' instead of an 'error'."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     mocker.patch.object(
         s3_client,
         "put_object_annotation",
@@ -3224,7 +3224,7 @@ async def test_write_without_link_fields_no_warning_when_annotations_available(
 ) -> None:
     """A normal write with annotations available carries no 'warning' field."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
 
     result = await write_artifact(
         s3=s3_client,
@@ -3251,7 +3251,7 @@ async def test_file_extension_txt_produces_key_ending_in_txt(
 ) -> None:
     """file_extension='.txt' → returned artifact_id ends with '.txt'."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
 
     result = await write_artifact(
         s3=s3_client,
@@ -3274,7 +3274,7 @@ async def test_file_extension_without_dot_returns_validation_error(
 ) -> None:
     """file_extension without leading dot → validation_error; no AWS calls made."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
 
     result = await write_artifact(
         s3=s3_client,
@@ -3298,7 +3298,7 @@ async def test_default_file_extension_is_md(
 ) -> None:
     """Default file_extension → returned artifact_id ends with '.md'."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
 
     result = await write_artifact(
         s3=s3_client,
@@ -3336,7 +3336,7 @@ async def test_partial_write_embed_message_includes_failure_log_path(
     """
     log_path = tmp_path / "failures.jsonl"
     settings = _make_settings(monkeypatch, FAILURE_LOG_PATH=str(log_path))
-    bedrock = _FailOnSecondEmbedBedrock(dimension=1024)
+    bedrock = _FailOnSecondEmbedBedrock()
 
     content = _make_sections_content(3)
     kwargs = {**_BASE_WRITE_KWARGS, "content": content}
@@ -3360,7 +3360,7 @@ async def test_partial_write_put_vector_message_includes_failure_log_path(
     """partial_write on put_vectors_batch failure → message includes the failure log path."""
     log_path = tmp_path / "failures.jsonl"
     settings = _make_settings(monkeypatch, FAILURE_LOG_PATH=str(log_path))
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     mocker.patch.object(
         vectors_client,
         "put_vectors_batch",
@@ -3435,7 +3435,7 @@ async def test_embed_uses_dedicated_executor(
     import arkeology.tools.write as write_module
 
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     submit_spy = mocker.spy(write_module._EMBED_EXECUTOR, "submit")
 
     content = _make_sections_content(3)
@@ -3461,7 +3461,7 @@ async def test_doc_fallback_embed_uses_dedicated_executor(
     import arkeology.tools.write as write_module
 
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     submit_spy = mocker.spy(write_module._EMBED_EXECUTOR, "submit")
 
     # No H2 headings → falls through to document-level embedding
@@ -3501,7 +3501,7 @@ async def test_oversize_s3_metadata_rejected_before_any_write(
     """
     log_path = tmp_path / "failures.jsonl"
     settings = _make_settings(monkeypatch, FAILURE_LOG_PATH=str(log_path))
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     head_spy = mocker.spy(s3_client, "head_object")
     put_spy = mocker.spy(s3_client, "put_object")
     batch_spy = mocker.spy(vectors_client, "put_vectors_batch")
@@ -3537,7 +3537,7 @@ async def test_oversize_tags_rejected_before_any_write(
     """
     log_path = tmp_path / "failures.jsonl"
     settings = _make_settings(monkeypatch, FAILURE_LOG_PATH=str(log_path))
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     head_spy = mocker.spy(s3_client, "head_object")
     put_spy = mocker.spy(s3_client, "put_object")
     batch_spy = mocker.spy(vectors_client, "put_vectors_batch")
@@ -3568,7 +3568,7 @@ async def test_oversize_metadata_leaves_nothing_for_reconcile_to_replay(
     """
     log_path = tmp_path / "failures.jsonl"
     settings = _make_settings(monkeypatch, FAILURE_LOG_PATH=str(log_path))
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
 
     oversize_source = "a" * (S3_USER_METADATA_MAX_BYTES + 200)
     kwargs = {**_BASE_WRITE_KWARGS, "source_artifacts": [oversize_source]}
@@ -3598,7 +3598,7 @@ async def test_control_char_in_title_rejected_as_validation_error(
     validation_error — never a raw exception (previously this reached urllib3 as a bare
     ValueError once the value hit S3's HTTP-header transport)."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     put_spy = mocker.spy(s3_client, "put_object")
 
     kwargs = {**_BASE_WRITE_KWARGS, "title": "Bad\ntitle"}
@@ -3620,7 +3620,7 @@ async def test_non_ascii_title_written_and_read_back_via_vector_metadata(
     """A non-Latin title writes successfully; the vector metadata (search's title source)
     holds the raw, undamaged UTF-8 title — never a percent-encoded or stripped copy."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
 
     kwargs = {**_ONE_SECTION_KWARGS, "title": "日本語のタイトル"}
     result = await write_artifact(
@@ -3679,7 +3679,7 @@ async def test_overwrite_merged_commit_refs_exceeding_filterable_budget_rejected
     """
     log_path = tmp_path / "failures.jsonl"
     settings = _make_settings(monkeypatch, FAILURE_LOG_PATH=str(log_path))
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     tier3_kwargs = {**_BASE_WRITE_KWARGS, "tier": 3}
 
     existing_refs = _make_link_field_batch("a")
@@ -3736,7 +3736,7 @@ async def test_overwrite_merged_commit_refs_under_budget_still_succeeds(
     must not reject writes that were always going to fit.
     """
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     tier3_kwargs = {**_BASE_WRITE_KWARGS, "tier": 3}
 
     first = await write_artifact(
@@ -3782,7 +3782,7 @@ async def test_write_fresh_commit_refs_over_cap_vector_capped_annotation_full(
     carrying only the last 20, while the annotation carries the complete, uncapped
     list of 21."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     vec_spy = mocker.spy(vectors_client, "put_vectors_batch")
     refs = [f"sha{i:04d}" for i in range(21)]
 
@@ -3813,7 +3813,7 @@ async def test_write_overwrite_merged_commit_refs_over_cap_vector_capped_annotat
     the last 20 of the merged list, while the annotation carries the complete, uncapped
     merge."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     tier3_kwargs = {**_ONE_SECTION_KWARGS, "tier": 3}
     existing_refs = [f"existing{i:03d}" for i in range(15)]
     new_refs = [f"new{i:03d}" for i in range(10)]
@@ -3868,7 +3868,7 @@ async def test_overwrite_read_forward_preserves_annotation_only_value(
     wipes the S3 annotation, and the read-forward never saw the value to re-apply it.
     """
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     tier3_kwargs = {**_BASE_WRITE_KWARGS, "tier": 3}
 
     first = await write_artifact(
@@ -3919,7 +3919,7 @@ async def test_overwrite_put_object_called_with_if_match_from_captured_etag(
     """An overwriting write's put_object call is conditional on the object's ETag
     captured by the existence check (if_match), not merely if_none_match=False."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     tier3_kwargs = {**_BASE_WRITE_KWARGS, "tier": 3}
 
     first = await write_artifact(
@@ -3953,7 +3953,7 @@ async def test_overwrite_annotation_apply_uses_new_etag_from_put_object(
     """The annotation re-apply following an overwriting write's put_object uses that
     put_object call's NEW ETag (ETag1) as if_match, not the pre-write ETag (ETag0)."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     tier3_kwargs = {**_BASE_WRITE_KWARGS, "tier": 3}
 
     first = await write_artifact(
@@ -3993,7 +3993,7 @@ async def test_fresh_write_annotation_apply_has_no_if_match(
     """A fresh (non-overwriting) write has nothing to race against (ADR-011 decision 6)
     — its annotation apply is unconditional (if_match=None)."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     annotation_spy = mocker.spy(s3_client, "put_object_annotation")
 
     result = await write_artifact(
@@ -4022,7 +4022,7 @@ async def test_overwrite_cas_conflict_then_retry_succeeds_with_both_contribution
     the concurrent writer's contribution and this call's own supplied value — not
     one silently dropped."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     tier3_kwargs = {**_BASE_WRITE_KWARGS, "tier": 3}
 
     first = await write_artifact(
@@ -4082,7 +4082,7 @@ async def test_overwrite_annotation_conflict_retries_whole_cycle(
     landing between this call's own put_object and its annotation write) retries the
     WHOLE cycle — including a fresh put_object — not just the annotation call."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     tier3_kwargs = {**_BASE_WRITE_KWARGS, "tier": 3}
 
     first = await write_artifact(
@@ -4135,7 +4135,7 @@ async def test_overwrite_persistent_cas_conflict_returns_conflict_error(
     entry is produced, and the original artifact/annotation are untouched."""
     log_path = tmp_path / "failures.jsonl"
     settings = _make_settings(monkeypatch, FAILURE_LOG_PATH=str(log_path))
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     tier3_kwargs = {**_BASE_WRITE_KWARGS, "tier": 3}
 
     first = await write_artifact(
@@ -4185,7 +4185,7 @@ async def test_overwrite_persistent_annotation_conflict_after_durable_write_logs
     existing partial-write discipline)."""
     log_path = tmp_path / "failures.jsonl"
     settings = _make_settings(monkeypatch, FAILURE_LOG_PATH=str(log_path))
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     tier3_kwargs = {**_BASE_WRITE_KWARGS, "tier": 3}
 
     first = await write_artifact(
@@ -4237,7 +4237,7 @@ async def test_overwrite_vector_writes_remain_unconditional_despite_cas_retry(
     called with no conditional parameter, regardless of CAS retry outcome on the
     object side (no S3 Vectors CAS surface exists; ADR-011 decision 6)."""
     settings = _make_settings(monkeypatch)
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     tier3_kwargs = {**_BASE_WRITE_KWARGS, "tier": 3}
 
     first = await write_artifact(
@@ -4309,7 +4309,7 @@ async def test_create_annotation_write_unknown_error_returns_partial_write(
     durably written by this point and must not be lost."""
     log_path = tmp_path / "failures.jsonl"
     settings = _make_settings(monkeypatch, FAILURE_LOG_PATH=str(log_path))
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
     mocker.patch.object(
         s3_client, "put_object_annotation", side_effect=_unknown_annotation_client_error()
     )
@@ -4345,7 +4345,7 @@ async def test_overwrite_annotation_write_unknown_error_returns_partial_write(
     a failure-log entry rather than an uncaught exception."""
     log_path = tmp_path / "failures.jsonl"
     settings = _make_settings(monkeypatch, FAILURE_LOG_PATH=str(log_path))
-    bedrock = FakeBedrockClient(dimension=1024)
+    bedrock = FakeBedrockClient()
 
     first = await write_artifact(
         s3=s3_client,
