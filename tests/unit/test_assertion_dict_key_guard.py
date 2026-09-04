@@ -51,15 +51,17 @@ ALLOWLIST: set[str] = {
     "decisions/B.md",
     "dir/sibling.md",
     # test_server.py / test_tools_migrate_artifacts.py / test_tools_archive.py /
-    # test_tools_link_metadata.py / test_tools_write.py: real src/ parameter names
-    # asserted via a mock's captured call kwargs (e.g. call_args.kwargs["if_match"]).
-    # Keyword-argument names are AST identifiers, not string-literal constants, so
-    # they are structurally invisible to the src/ literal collector even when correct.
+    # test_tools_link_metadata.py / test_tools_write.py / test_tools__reference_filter.py:
+    # real src/ parameter names asserted via a mock's captured call kwargs (e.g.
+    # call_args.kwargs["if_match"]). Keyword-argument names are AST identifiers, not
+    # string-literal constants, so they are structurally invisible to the src/ literal
+    # collector even when correct.
     "artifact_concurrency",
     "artifact_ids",
     "since_ulid",
     "if_match",
     "if_none_match",
+    "include_data",
     # test_tools_link_metadata.py: purely local test counter dict
     # (call_count = {"n": 0}), unrelated to any src/ dict.
     "n",
