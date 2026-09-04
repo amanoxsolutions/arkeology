@@ -33,9 +33,37 @@ browser UI handles rendering; Claude's role ends after the initial `arkeology_st
 
 ## Conventions
 - **Testing approach:** tdd
-- **Mutation testing:** enabled
+- **Mutation testing:** enabled, but **manual and local only** — run on demand, wired to no CI
+  job, no pre-commit hook, and no schedule. A full run takes **40+ minutes**, because mutmut
+  re-runs the entire unit suite once to map tests to functions before any mutant executes; that
+  cost is why it is not a per-commit check. Nothing reminds you, so run it deliberately after
+  changing any file named in `only_mutate` (see `[tool.mutmut]` in `pyproject.toml`).
+
+    Do **not** compare the survivor count against a remembered number, and do not record one.
+    Most surviving mutants are provably equivalent — the mutated expression cannot change the
+    gate's outcome — so a raw count carries no signal, and it decays two independent ways: it
+    shifts whenever the mutation Scope changes, and mutmut's mutant names are *positional* per
+    function (`__mutmut_21`), so inserting any mutatable expression earlier in a function
+    silently renumbers every mutant after it. Instead, read each survivor's diff with
+    `mutmut show` and check it against the equivalent-mutant classes already triaged by
+    mutated expression (`meta.get("tier", 0)` → `1`, and similar) in the cross-scope-gate
+    mutation-survivor issue. A survivor matching none of those classes is the thing worth
+    investigating.
+
+    ```bash
+    uv run mutmut run          # 40+ min; exits 0 even when mutants survive
+    uv run mutmut results      # the survivor list
+    uv run mutmut show <name>  # one mutant's diff
+    ```
+
+    Run it alone. It writes instrumented bytecode into the real `src/**/__pycache__/`, so
+    running it alongside the test suite produces bogus failures in untouched files — see
+    High-Friction Areas.
   - **Scope:** the cross-scope access gate — the tier + visibility check applied to foreign-scope
-    artifacts in every read, search, and delete path, and every `startswith(scope + "/")` scope guard
+    artifacts in every read, search, and delete path, and every `startswith(scope + "/")` scope guard.
+    That whole Scope lives in `_scope.py`, which is what keeps `only_mutate` to two entries; a gate
+    implementation added outside it drops out of mutation coverage silently. `_reference_filter.py`
+    is the second entry, for its candidate loop rather than for the gate, which it delegates.
   - **Tool:** python — mutmut
 - **Integration target:** real AWS (S3, S3 Vectors, Bedrock), with credentials and resource names
   read from `.env`; fixtures are provisioned as an ephemeral run-scoped
@@ -77,6 +105,7 @@ browser UI handles rendering; Claude's role ends after the initial `arkeology_st
 | `src/arkeology/server.py`         | FastMCP app, tool registration                             |
 | `src/arkeology/startup.py`        | Seven-check startup validation sequence                    |
 | `src/arkeology/tools/`            | MCP tool implementations (write, search, read, and more)   |
+| `src/arkeology/tools/_scope.py`    | The cross-scope access gate — sole home of both its forms: `is_cross_scope_readable` (in-process predicate) and `build_scope_filter` (server-side vector filter), plus `is_own_scope` |
 | `src/arkeology/tools/_search_helper.py` | Shared vector re-fetch loop used by search + synthesise |
 | `src/arkeology/tools/_section_pipeline.py` | Shared write-path section embedding pipeline (min-length filter, max-sections cap, truncation) — used by `write.py` and `reconcile.py` |
 | `src/arkeology/tools/archive.py`  | archive_artifact MCP tool                                  |
@@ -112,6 +141,7 @@ browser UI handles rendering; Claude's role ends after the initial `arkeology_st
 | `tests/integration/`              | Integration tests (real AWS, @pytest.mark.integration)     |
 | `docs/planning-artifacts/`        | Vision, requirements, and plan                              |
 | `docs/specs/`                     | Per-task feature specs                                     |
+| `docs/contracts/`                 | Normative interface contracts — `modules/` (importable Python surface), `data/` (persisted shapes), `design/` (Studio token layer). Authority over the implementation; a disagreement is a contract bug until decided otherwise |
 | `.docs/`                          | Agent scratchpad (gitignored)                              |
 
 ## Component Dependencies
@@ -189,6 +219,21 @@ one makes all persisted memory inaccessible:
 
 ## High-Friction Areas
 
+- **Never run `mutmut run` concurrently with the test suite in the same checkout, and clear
+  `__pycache__` afterwards**: a mutmut run writes its *instrumented* bytecode into the real
+  `src/**/__pycache__/`, not only into `mutants/`. A stale instrumented `.pyc` is visibly larger
+  than a clean one (6,486 bytes vs a 5,256-byte `_scope.py` source) and makes the imported
+  function disagree with its own file — `inspect.getsource` shows correct code while the callable
+  returns the mutated result. This presents as a large batch of inexplicable failures in
+  *unmodified* test files, and the access-control tests fail first because the gate is what is
+  being mutated. Recovery:
+
+    ```bash
+    find src tests -name __pycache__ -type d -exec rm -rf {} +
+    ```
+
+  Suspect this before suspecting your own change whenever tests fail in files you did not touch.
+
 - **Vector index dimension is immutable**: Once the S3 Vectors index is created, its
   dimension cannot be changed without deleting and recreating the index (losing all
   vectors). A `BEDROCK_EMBEDDING_DIMENSIONS` change after go-live requires a full
@@ -217,18 +262,43 @@ one makes all persisted memory inaccessible:
   where `1.0` is most similar and `−1.0` is most dissimilar. Do not negate scores or treat
   them as distances; the conversion is already applied before results are returned to callers.
 
-## CI and Quality Gates
+## Quality Gates
 
-Run before pushing:
+**There is no CI.** This repository has no `.github/workflows/` and nothing runs automatically on
+push, on pull request, or on a schedule. Every gate below is enforced by you remembering to run
+it.
+
+`.pre-commit-config.yaml` gives you a fast local pre-filter. **Install it once per clone** — the
+hooks do nothing until you do:
+
+```bash
+uv run pre-commit install
+```
+
+Every hook runs the project's own pinned tooling via `uv run` (`language: system`), never an
+independently-versioned upstream mirror, so a hook and its gate below can never disagree about
+tool versions or typing stubs — `pyproject.toml` is the single source of truth for both. It is
+still **not a substitute** for the list below: `pytest` (~4 min) and `npm test` are deliberately
+absent, because a hook slow enough to invite `--no-verify` is worse than no hook.
+
+Run the full list by hand before pushing:
 
 ```bash
 uv run pytest tests/unit/ -q -m 'not integration'    # must pass
-uv run ruff check src/ tests/                        # must be clean
-uv run ruff format --check src/ tests/               # must be clean
+uv run ruff check src/ tests/ scripts/ plugins/      # must be clean
+uv run ruff format --check src/ tests/ scripts/ plugins/  # must be clean
 uv run mypy src/                                     # must be clean
-uv run arkeology                                     # must start without error (requires .env)
+uv run arkeology                                     # must start without error — needs a .env,
+                                                     # which is NOT in the repo, so a fresh clone
+                                                     # cannot run this gate until one is created
 npm test                                             # must pass (arkeology-studio.html link-sanitisation guard)
 ```
+
+The ruff scope is deliberately `src/ tests/ scripts/ plugins/` and **not** `.`: ruff formats
+Python code blocks embedded in Markdown, so `.` would rewrite code samples inside archival
+brainstorming documents, specs, and reviews. It is also deliberately not just `src/ tests/`,
+which is what previously let `scripts/validate.py` — the pre-commit validator itself — sit
+unformatted without any gate noticing.
 
 Integration tests (require real AWS credentials in `.env`):
 

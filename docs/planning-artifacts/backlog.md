@@ -69,6 +69,50 @@ Items that were promoted to a phase are **not** listed here — see the phase hi
   Source: [`adr-2026-05-29-tier-based-access-control.md`](../architecture-decisions/adr-2026-05-29-tier-based-access-control.md)
   (Revision 2026-07-02).
 
+- **B-9 — Cross-scope gate raises on malformed foreign metadata, aborting the whole
+  operation.** `is_cross_scope_readable` coerces `tier` with a bare `int(meta.get("tier", 0))`.
+  That coercion is required — `read_artifact` passes S3 object metadata where `tier` is a
+  stringified int, while `list_artifacts` and `search_artifacts` pass vector metadata where it
+  is an int — but it is unguarded, so a non-numeric or non-scalar value raises instead of
+  denying:
+
+  | `tier` value | Result |
+  |---|---|
+  | `3`, `"3"` | readable (both encodings, pinned by test) |
+  | `2`, `"2"` | denied (pinned by test) |
+  | absent | denied (pinned by test) |
+  | `"abc"` | **raises `ValueError`** |
+  | `None`, `[3]` | **raises `TypeError`** |
+
+  Confidentiality is unaffected: the exception is caught by the tool's outer
+  `try/except Exception` and returned as `internal_error`, so nothing leaks. **Availability is
+  the problem.** The gate is applied per candidate inside a loop in `list.py`,
+  `_reference_filter.py`, and `freshness.py`, so one artifact with malformed metadata aborts the
+  entire listing or reference resolution for that scope rather than skipping that one candidate.
+
+  Why this is not hypothetical: cross-scope reads consume metadata **this deployment did not
+  write**. Own-scope metadata is written from a validated `Artifact` whose `tier` is constrained
+  to `{2, 3}`, but a foreign scope's records come from another team's deployment — possibly a
+  different version, a partially-completed `migrate_artifacts` run, or a manually-edited record.
+  A data-quality problem in another team's scope becomes an outage in yours.
+
+  Two candidate fixes, needs a decision before spec:
+  1. **Coerce defensively in the gate** — treat an uncoercible `tier` (or `visibility`) as
+     not-readable and log at warning level. Fail closed per candidate, which is the standard
+     posture for an access-control predicate, and the loops keep running. Cost: silently
+     tolerates corruption that currently surfaces loudly.
+  2. **Guard at the loop** — leave the gate strict and have each call site skip a candidate
+     whose gate evaluation raises. Keeps the gate's contract sharp but repeats the guard at
+     three-plus call sites, which is the duplication `_scope.py` exists to prevent.
+
+  Option 1 is the smaller and more consistent change; option 2 preserves the loud signal. Either
+  way the fix belongs in or beside `_scope.py`, inside the declared mutation-testing Scope, and
+  wants a test per malformed shape.
+
+  Found while investigating the mutation-survivor issue's claim that the gate had no
+  absent/malformed metadata coverage — the absent cases turned out to be covered, the malformed
+  ones not.
+
 ## OKF interoperability
 
 - **B-2 — OKF export adapter (+ governance).** `arkeology export --okf <scope>` emitting an OKF

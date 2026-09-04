@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- `build_scope_filter` moved from `arkeology.tools._search_helper` to
+  `arkeology.tools._scope`, joining `is_cross_scope_readable` so that every implementation
+  of the cross-scope access gate lives in one module. Its signature changed from
+  `build_scope_filter(settings)` to `build_scope_filter(own_scope, read_prefixes)`, keeping
+  the gate free of any configuration dependency. Both are private helpers — no MCP tool
+  signature, response shape, or stored data shape changes
+- the ruff quality gate now covers `scripts/` and `plugins/` in addition to `src/` and
+  `tests/`, which had left the repository's non-package Python unlinted
+- `.pre-commit-config.yaml` now runs the project's own pinned tooling via `uv run` instead
+  of independently-versioned upstream mirrors, which had drifted to ruff 0.11 and mypy 1.x
+  while the project ran ruff 0.16 and mypy 2.x
+
+### Added
+- CI: `.github/workflows/ci.yml` runs the ruff, mypy, pytest, and `npm test` gates on push
+  to `main` and on every pull request — the repository's first automated checks
+- direct unit tests for `build_scope_filter`, asserting the gate's semantics by evaluating
+  the returned filter rather than comparing it literally, plus a test pinning that both
+  forms of the gate agree on the same candidate
+- a test pinning that `tier` gates identically whether it arrives as an `int` (vector
+  metadata) or a stringified int (S3 object metadata), which the read and list paths
+  respectively depend on
+
+### Fixed
+- corrected the normative contracts under `docs/contracts/` where they misstated the
+  implementation: the Studio design-token layer still defined tokens for the removed `prd`
+  artifact type and omitted the `vision`, `requirements`, and `--text-h4` tokens actually
+  in use; `read_artifact`'s contract claimed a gated foreign artifact is indistinguishable
+  from an absent one, which its own governing spec forbids; `health_check`'s contract
+  declared all probes read-only despite the write-prefix probe performing a real
+  put/get/delete cycle, and omitted the conditional `bedrock_text_model` key;
+  `write_artifact`'s contract omitted the `warning` key returned when the durable
+  annotation write is unavailable; the S3 data contract mislabelled per-field encoding when
+  transport encoding is applied uniformly to every value; the resources contract omitted
+  the `ui://` Studio resource and its content-security-policy origin allow-list
+- `scripts/validate.py` formatting, which no quality gate had ever checked
+
 ## [0.6.0] - 2026-08-28
 
 ### Changed
