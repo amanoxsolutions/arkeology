@@ -57,7 +57,8 @@ plugins = ["pydantic.mypy"]
 # individual modules leaves the rest of the package missing and every conftest import
 # fails with ModuleNotFoundError. Bound the scope with `only_mutate` instead.
 source_paths = ["src/arkeology"]
-# Bounded to AGENTS.md's declared mutation-testing Scope: the cross-scope access gate.
+# Bounded to AGENTS.md's declared mutation-testing Scope, which covers two invariants whose
+# silent failure is unrecoverable: the cross-scope access gate, and the durable link-field read.
 #
 # `_scope.py` holds every implementation of the gate, in both of the forms it takes:
 # `is_cross_scope_readable` (the in-process predicate, applied to a candidate already
@@ -76,9 +77,17 @@ source_paths = ["src/arkeology"]
 # `configuration.py`), so there is no way to narrow it to a single function. That is why
 # gate logic belongs in a module small enough to mutate whole. Widening this list past
 # the declared Scope is a convention change, not a config tweak.
+# `annotations.py` is the second invariant, added 2026-09-06 when S3 object annotations became
+# the sole source of truth for `commit_refs`/`references` (ADR-011, revision of 2026-09-05). The
+# load-bearing rule there is that a failed annotation READ raises, while a genuinely absent
+# annotation returns empty. Invert that distinction and every test can still pass while the
+# read-modify-write paths — reconcile rebuilding vector metadata, an overwriting write, an archive
+# restoring after its re-PUT — write an empty result back over good data. There is no second store
+# to recover from any more, which is precisely why it belongs in this Scope.
 only_mutate = [
     "src/arkeology/tools/_scope.py",
     "src/arkeology/tools/_reference_filter.py",
+    "src/arkeology/annotations.py",
 ]
 pytest_add_cli_args_test_selection = ["tests/unit/", "-m", "not integration"]
 # `test_skill_artifact_id_drift.py` reads SKILL.md files from `plugins/` relative to the

@@ -59,11 +59,27 @@ browser UI handles rendering; Claude's role ends after the initial `arkeology_st
     Run it alone. It writes instrumented bytecode into the real `src/**/__pycache__/`, so
     running it alongside the test suite produces bogus failures in untouched files — see
     High-Friction Areas.
-  - **Scope:** the cross-scope access gate — the tier + visibility check applied to foreign-scope
-    artifacts in every read, search, and delete path, and every `startswith(scope + "/")` scope guard.
-    That whole Scope lives in `_scope.py`, which is what keeps `only_mutate` to two entries; a gate
-    implementation added outside it drops out of mutation coverage silently. `_reference_filter.py`
-    is the second entry, for its candidate loop rather than for the gate, which it delegates.
+  - **Scope:** two invariants whose silent failure is unrecoverable — a mutation that survives here
+    is a bug no ordinary test would catch.
+
+    1. **The cross-scope access gate** — the tier + visibility check applied to foreign-scope
+       artifacts in every read, search, and delete path, and every `startswith(scope + "/")` scope
+       guard. That whole Scope lives in `_scope.py`; a gate implementation added outside it drops out
+       of mutation coverage silently. `_reference_filter.py` is in `only_mutate` for its candidate
+       loop rather than for the gate, which it delegates.
+    2. **The durable link-field read** (`annotations.py`, added 2026-09-06) — since S3 object
+       annotations became the sole source of truth for `commit_refs`/`references`, the load-bearing
+       rule is that a failed annotation *read* raises while a genuinely *absent* annotation returns
+       empty. Invert that distinction and the suite still passes while the read-modify-write paths —
+       reconcile rebuilding vector metadata, an overwriting write, an archive restoring after its
+       re-PUT — write an empty result back over good data. There is no second store to recover from,
+       which is why this now sits alongside the gate.
+
+    Adding a *file* to `only_mutate` does **not** renumber the existing files' mutants: names are
+    positional per function, so a new file only adds names of its own. Confirmed on 2026-09-06 —
+    admitting `annotations.py` left all ten pre-existing survivor names identical. Renumbering
+    happens when a mutatable expression is inserted earlier *within a function*, which is the case
+    the no-remembered-counts rule above exists for.
   - **Tool:** python — mutmut
 - **Integration target:** real AWS (S3, S3 Vectors, Bedrock), with credentials and resource names
   read from `.env`; fixtures are provisioned as an ephemeral run-scoped
