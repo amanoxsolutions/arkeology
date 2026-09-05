@@ -1,7 +1,7 @@
 ---
 type: Contract
 title: arkeology.tools.propose_commit_links
-description: The propose_commit_links MCP tool — read-only discovery of own-scope artifacts carrying no commit_refs, optionally bounded to those written since a session-start ULID, deciding eligibility from the union of both durable stores.
+description: The propose_commit_links MCP tool — read-only discovery of own-scope artifacts carrying no commit_refs, optionally bounded to those written since a session-start ULID, deciding eligibility from each artifact's durable S3 object annotations.
 tags: []
 timestamp: 2026-09-04T00:00:00Z
 okf_version: "0.1"
@@ -54,14 +54,16 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
 - **Strictly read-only.** No write to S3, to annotations, or to the vector index, under any
   argument combination. The tool has no confirmation gate because it needs none.
 - Own scope only. A foreign-scope artifact is never proposed.
-- Eligibility — whether `commit_refs` is empty — is decided from the union-of-both-durable-stores
-  read, **not** from a single vector's metadata. A multi-section artifact whose `commit_refs` live
-  on a section vector other than the one deduplication kept would otherwise be silently
-  re-proposed as unlinked on every call.
+- Eligibility — whether `commit_refs` is empty — is decided from the artifact's S3 object
+  annotations, their sole source of truth, **not** from a single vector's metadata. The vector copy
+  is a capped, derived filter index, so a multi-section artifact whose `commit_refs` live on another
+  section vector, or which aged out of the cap, would otherwise be silently re-proposed as unlinked
+  on every call.
 - Per-candidate link-field reads are issued **concurrently**, not one sequential call per candidate.
-- A non-`CredentialError` failure on one candidate's link-field read degrades that candidate to
-  "not yet linked" rather than aborting the call. A supplementary read failure for one candidate
-  must not hide every other candidate's proposal.
+- A failure on any candidate's link-field read aborts the call rather than degrading that candidate
+  to "not yet linked". Annotations are the sole source of truth, so a degraded candidate would be
+  indistinguishable from a genuinely unlinked one and would be proposed for linking on the strength
+  of a transient error.
 - `since_ulid` is optional. When absent, all unlinked own-scope artifacts are returned regardless of
   age — absence means "no lower bound", never "none".
 - `s3` is required, not optional. The server injects a real client into every tool call, so this

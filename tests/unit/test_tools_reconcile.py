@@ -786,16 +786,16 @@ async def test_reindex_clean_state_omits_empty_link_fields(
     assert "references" not in vmeta
 
 
-async def test_reindex_annotations_unavailable_degrades(
+async def test_reindex_annotation_read_failure_fails_the_artifact(
     reconcile_settings: Settings,
     s3_reconcile: S3ClientImpl,
     vectors_reconcile: VectorsClientImpl,
     mocker: MockerFixture,
 ) -> None:
-    """When reading annotations fails for reasons other than absence (feature
-    unavailable in this region/bucket type, AccessDenied, or any other exception),
-    reconcile logs the failure and treats both link fields as empty for that
-    artifact — the run must still complete (ADR-011 decision 5), not abort."""
+    """A failed annotation read must fail that artifact, never be treated as "no link
+    fields". Reconcile rebuilds vector metadata from what it read, so degrading to empty
+    here would write the emptiness back over the artifact's real link fields. The run
+    still completes — the failure is reported per artifact, not as an aborted run."""
     artifact_id = "artifacts/implementation-note-2026-01-01-annotations-unavailable"
     s3_reconcile.put_object(artifact_id, _CONTENT_NO_SECTIONS, {**_BASE_S3_META})
     mocker.patch.object(
@@ -813,14 +813,10 @@ async def test_reindex_annotations_unavailable_degrades(
     )
 
     assert "error" not in result
-    reconciled_ids = [e["artifact_id"] for e in result["reconciled"]]
-    assert artifact_id in reconciled_ids
+    assert artifact_id not in [e["artifact_id"] for e in result["reconciled"]]
+    assert artifact_id in [e["artifact_id"] for e in result["failed"]]
     keys = vectors_reconcile.list_vectors_by_metadata({"artifact_id": {"$eq": artifact_id}})
-    items = vectors_reconcile.get_vectors(keys)
-    assert items, "reconcile should still have indexed vectors for the artifact"
-    vmeta = items[0]["metadata"]
-    assert "commit_refs" not in vmeta
-    assert "references" not in vmeta
+    assert keys == [], "no vectors may be written from an unreadable link-field state"
 
 
 async def test_failure_log_replay_and_orphan_scan_both_restore(
@@ -875,24 +871,26 @@ async def test_failure_log_replay_and_orphan_scan_both_restore(
 # ---------------------------------------------------------------------------
 
 
-async def test_reindex_from_failure_log_preserves_vector_only_link_fields(
+async def test_reindex_from_failure_log_rebuilds_commit_refs_from_the_annotation(
     reconcile_settings: Settings,
     s3_reconcile: S3ClientImpl,
     vectors_reconcile: VectorsClientImpl,
 ) -> None:
-    """RED: an artifact whose commit_refs/references live ONLY in vector metadata
-    (e.g. a T52 annotation-unavailable deployment, where the annotation write degraded
-    but the vector write still carried the fields) must survive a reconcile re-index
-    with commit_refs intact. Re-index is forced here via a failure-log entry so
-    ``_reindex_artifact`` runs even though a vector is already indexed. Before the fix,
-    reconcile read annotations only (empty, since none were ever written), and
-    overwrote vector metadata from that — erasing the only durable copy of the fields.
-    As of T58, references is read (union-of-both-stores, for backward-read
-    compatibility with this pre-T58 vector) but never re-written into vector metadata.
+    """Reconcile rebuilds the derived vector-metadata copy of commit_refs from the
+    annotation, the sole source of truth — not from whatever the pre-existing vector
+    happened to carry. A value present only on the old vector is not preserved: that
+    copy is a derived filter index. Re-index is forced via a failure-log entry so
+    ``_reindex_artifact`` runs even though a vector is already indexed. references is
+    never written into vector metadata at all.
     """
     artifact_id = "artifacts/implementation-note-2026-01-01-vector-only-links"
     s3_reconcile.put_object(artifact_id, _CONTENT_NO_SECTIONS, {**_BASE_S3_META})
-    # No apply_link_annotations call — simulates an annotation-unavailable deployment.
+    apply_link_annotations(
+        s3_reconcile,
+        artifact_id,
+        commit_refs=["abc123"],
+        references=["implementation-note-2026-01-01-other"],
+    )
     vectors_reconcile.put_vector(
         artifact_id,
         [0.1] * DIMENSION,
@@ -900,7 +898,7 @@ async def test_reindex_from_failure_log_preserves_vector_only_link_fields(
             "artifact_id": artifact_id,
             "scope": reconcile_settings.write_prefix,
             "type": "implementation_note",
-            "commit_refs": ["abc123"],
+            "commit_refs": ["stale-vector-only-sha"],
             "references": ["implementation-note-2026-01-01-other"],
         },
     )
@@ -923,8 +921,9 @@ async def test_reindex_from_failure_log_preserves_vector_only_link_fields(
     assert items, "reconcile should have re-indexed vectors for the artifact"
     vmeta = items[0]["metadata"]
     assert vmeta.get("commit_refs") == ["abc123"]
-    # T58: references is never re-written into vector metadata, even when it was
-    # present on the pre-existing vector and read via the union.
+    # The annotation copy itself is untouched by the rebuild.
+    assert s3_reconcile.get_object_annotation(artifact_id, "commit_refs") == "abc123"
+    # references is never re-written into vector metadata.
     assert "references" not in vmeta
 
 

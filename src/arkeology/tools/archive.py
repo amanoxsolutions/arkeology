@@ -15,11 +15,11 @@ appear in the warning.
 
 The status flip is an in-place S3 re-PUT, which clears the object's S3 annotations
 (ADR-011). This tool therefore reads the current
-commit_refs/references link fields forward (via the union-of-both-stores authority
-model, ``annotations.read_current_link_fields``) before the re-PUT and re-applies
-them afterward (``annotations.apply_link_annotations``), mirroring write.py's
-Step 4a/4b pattern — including its ``AnnotationUnavailableError`` graceful degrade
-(warn, don't fail the archive) while still aborting on ``CredentialError``.
+commit_refs/references link fields forward from their sole source of truth, the
+durable annotations (``annotations.read_link_annotations``), before the re-PUT and
+re-applies them afterward (``annotations.apply_link_annotations``), mirroring write.py's
+Step 4a/4b pattern — including its treatment of a failed annotation write as a partial
+archive (failure-log entry, structured error) rather than a success.
 """
 
 import asyncio
@@ -29,7 +29,8 @@ from typing import Any
 from arkeology.annotations import (
     CAS_MAX_ATTEMPTS,
     apply_link_annotations,
-    read_current_link_fields,
+    merge_link_field,
+    read_link_annotations,
 )
 from arkeology.clients.interfaces import (
     BedrockClientInterface,
@@ -38,7 +39,7 @@ from arkeology.clients.interfaces import (
 )
 from arkeology.config import Settings
 from arkeology.constants import ArtifactStatus, ErrorCode
-from arkeology.errors import AnnotationUnavailableError, ArtifactConflictError, CredentialError
+from arkeology.errors import ArtifactConflictError, CredentialError
 from arkeology.failure_log import append_failure_entry, build_failure_entry
 from arkeology.tools._errors import credential_error_response
 from arkeology.tools._scope import is_own_scope
@@ -234,9 +235,8 @@ async def _archive_artifact_inner(
     # guarded by an ETag compare-and-swap (ADR-011 decision 6) ────────────────
     # PutObject clears S3 annotations, so the in-place status re-PUT would otherwise
     # silently destroy the durable commit_refs/references annotation trail. Read the
-    # current values forward as the union of both durable stores (neither the
-    # annotation copy nor the vector-metadata copy is sole authority; see
-    # ``annotations.read_current_link_fields``) so they can be re-applied after the
+    # current values forward from the annotations, their sole source of truth (see
+    # ``annotations.read_link_annotations``), so they can be re-applied after the
     # re-PUT. Archive has no caller-supplied references to replace *from* — unlike
     # the overwrite path in ``tools/write.py``,
     # it must continue to read-forward and re-apply BOTH commit_refs and references
@@ -255,11 +255,14 @@ async def _archive_artifact_inner(
     # structured conflict error is returned.
     current_s3_meta: dict[str, Any] = s3_meta
     current_etag = s3_meta.get("ETag")
-    annotation_warning: str | None = None
     updated_s3_meta: dict[str, str] = {}
     last_attempt_object_written = False
     # Bound before the loop so the retries-exhausted branch and the vector-flip
-    # handlers below can also record the last attempt's read-forward values.
+    # handlers below can also record the read-forward values, and so each attempt
+    # *accumulates* into them rather than replacing them. This attempt's own status
+    # re-PUT clears the object's annotations, so a retry after a failed re-apply reads
+    # them back as absent — replacing here would silently archive away the link fields
+    # the first attempt had already read.
     current_commit_refs: list[str] = []
     current_references: list[str] = []
 
@@ -273,11 +276,13 @@ async def _archive_artifact_inner(
             current_etag = current_s3_meta.get("ETag")
 
         try:
-            current_commit_refs, current_references = await asyncio.to_thread(
-                read_current_link_fields, s3, vectors, artifact_id
+            fresh_commit_refs, fresh_references = await asyncio.to_thread(
+                read_link_annotations, s3, artifact_id
             )
         except CredentialError as exc:
             return credential_error_response(exc)
+        current_commit_refs = merge_link_field(current_commit_refs, fresh_commit_refs)
+        current_references = merge_link_field(current_references, fresh_references)
 
         # Strip the reserved "ETag" sentinel key (added by head_object for the CAS
         # token) before reusing this dict as the literal metadata for put_object —
@@ -304,8 +309,10 @@ async def _archive_artifact_inner(
         last_attempt_object_written = True
 
         try:
-            # T52 / ADR-011 decision 5: annotation availability is a feature-level
-            # concern, not a hard failure — the archive itself must still succeed.
+            # Annotations are the sole durable store for commit_refs/references, so a
+            # failed re-apply is a partial archive (status flipped, link fields lost to
+            # the re-PUT), never a success: it records a failure-log entry for
+            # reconcile_index and surfaces a structured error.
             await asyncio.to_thread(
                 apply_link_annotations,
                 s3,
@@ -318,16 +325,6 @@ async def _archive_artifact_inner(
             # Someone changed the object between our put_object and this annotation
             # write — retry the whole cycle, including a fresh status re-PUT.
             continue
-        except AnnotationUnavailableError as exc:
-            logger.warning(
-                "Annotation re-apply unavailable for key=%s after archive status update; "
-                "the durable commit_refs/references copy may be stale until the next "
-                "reconcile_index run: %s",
-                artifact_id,
-                exc,
-            )
-            annotation_warning = str(exc)
-            break
         except CredentialError as exc:
             # The S3 status flip above has already succeeded — this is a
             # partial archive, not a clean failure.
@@ -434,6 +431,4 @@ async def _archive_artifact_inner(
             f"artifact(s): {', '.join(referrers)}. Archiving is reversible, so those references "
             "remain valid unless this artifact is later permanently deleted."
         )
-    if annotation_warning is not None:
-        result["annotation_warning"] = annotation_warning
     return result

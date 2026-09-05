@@ -120,6 +120,18 @@ def is_annotation_unavailable_error(exc: botocore.exceptions.ClientError) -> boo
     return _error_code(exc) in ANNOTATION_UNAVAILABLE_ERROR_CODES
 
 
+def is_annotation_permission_error(exc: botocore.exceptions.ClientError) -> bool:
+    """Return True if an annotation failure is a missing IAM action rather than an
+    unsupported region or bucket type.
+
+    Both conditions raise the same ``AnnotationUnavailableError``, but an operator
+    fixes them differently — one is an IAM policy edit, the other requires relocating
+    the bucket — so the startup gate splits them by error code here rather than
+    re-deriving the code at its own call site.
+    """
+    return _error_code(exc) == "AccessDenied"
+
+
 @contextmanager
 def wrap_credential_errors(service: str) -> Iterator[None]:
     """Translate credential ``ClientError``s into :class:`CredentialError`.

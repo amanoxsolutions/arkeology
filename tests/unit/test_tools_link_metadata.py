@@ -13,6 +13,7 @@ from typing import Any
 import pytest
 from pytest_mock import MockerFixture
 
+from arkeology.annotations import apply_link_annotations
 from arkeology.artifact import VECTOR_FILTERABLE_METADATA_MAX_BYTES
 from arkeology.clients.fakes.fake_bedrock import FakeBedrockClient
 from arkeology.clients.s3 import S3ClientImpl
@@ -101,7 +102,10 @@ def _seed_all(s3: S3ClientImpl, vectors: VectorsClientImpl) -> None:
     vectors.put_vector(KEY_A1, _unit_vec(1.0), meta_a)
     vectors.put_vector(KEY_A2, _unit_vec(1.1), meta_a)
 
-    # artifact-own-B: one vector, commit_refs=["prev123"]
+    # artifact-own-B: one vector, commit_refs=["prev123"] — written to the durable
+    # annotation (its sole source of truth) and mirrored into the derived vector copy,
+    # exactly as a real write does.
+    apply_link_annotations(s3, ID_B, commit_refs=["prev123"], references=[])
     meta_b: dict[str, Any] = {
         **_BASE_META,
         "artifact_id": ID_B,
@@ -1522,6 +1526,7 @@ async def test_link_metadata_oversize_only_after_merge_rejected(
     # Existing indexed commit_refs on artifact-own-A: 15 large entries. The most
     # recent 10 of these survive capping alongside the supplied entries below.
     existing_refs = [f"existing{i:04d}" + "x" * 88 for i in range(15)]
+    apply_link_annotations(s3_client, ID_A, commit_refs=existing_refs, references=[])
     meta_a: dict[str, Any] = {
         **_BASE_META,
         "artifact_id": ID_A,

@@ -58,8 +58,8 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
   metadata entries. A partial flip that updates one store leaves the artifact inconsistent between
   browse and read paths.
 - The status flip is an in-place S3 re-PUT, which **clears the object's annotations**. This tool
-  therefore reads the current link fields forward via the union-of-both-stores model before the
-  re-PUT and re-applies them afterwards. Removing that read-forward silently destroys
+  therefore reads the current link fields forward from the annotations, their sole source of truth,
+  before the re-PUT and re-applies them afterwards. Removing that read-forward silently destroys
   `commit_refs` and `references` on every archive.
 - The re-PUT is guarded by ETag compare-and-swap.
 - **Any** failure of the annotation re-apply after the status flip is durable leaves a failure-log
@@ -71,9 +71,11 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
 - That entry also carries the read-forward `commit_refs` and `references` as two **optional**
   fields, for the same reason the write path does: they have no other surviving source once the
   re-PUT cleared the annotations. Absence means "nothing to restore", never "clear the field".
-- `AnnotationUnavailableError` degrades gracefully — warn, do not fail the archive — while
-  `CredentialError` aborts. Archiving is not the tool whose purpose is the durable link write, so
-  unlike `link_metadata` it does not surface `annotation_unavailable` as a hard error.
+- A failed re-apply is never reported as a success, whatever its cause. `AnnotationUnavailableError`
+  is handled like any other unknown failure — failure-log entry, then a structured error — because
+  annotations are the sole durable store for both link fields and the re-PUT has already cleared
+  them. At runtime an unavailability failure means post-setup IAM drift: startup check 8 proves
+  availability before the server accepts a request.
 - The own-scope `referenced_by` check is **warn-but-don't-block**, with reversible-action phrasing.
   It never prevents the archive.
 - The check covers `source_artifacts` **only**. `references`-based referrers are not detected,
@@ -90,6 +92,7 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
 **Postconditions**
 
 - On success, returns `{"artifact_id": str, "status": "inactive"}`, plus `"warning"` (referring
-  artifact ids) and `"warning_message"` when own-scope referrers were found.
+  artifact ids) and `"warning_message"` when own-scope referrers were found. There is no
+  `"annotation_warning"` key: a failed link-field re-apply is an error, not a warning.
 - The artifact remains fully readable by `read_artifact` — archiving is not deletion.
 - Link fields are unchanged in value across the operation.

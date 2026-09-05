@@ -84,9 +84,15 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
 - Metadata budgets are validated against the **actual serialized representations about to be
   written**, before any `head_object` / `put_object` / `put_vectors_batch` and before any
   failure-log append. A rejected write touches neither store nor the log.
-- On a tier-3 overwriting write, existing link fields are read forward from the union of both
-  durable stores and merged, then the budget check is **re-run** against the enlarged metadata
-  before any write.
+- On a tier-3 overwriting write, existing link fields are read forward from the object's
+  annotations, their sole source of truth, and merged, then the budget check is **re-run** against
+  the enlarged metadata before any write.
+- A failed annotation write is **never reported as a success**. The S3 object is already durable at
+  that point, so it returns `partial_write` (or `credential_error` on the credential branch) and
+  appends the failure-log entry carrying the values it was applying, which is what lets
+  `reconcile_index` restore them. An annotation-unavailable failure is treated identically: startup
+  check 8 proves availability before the server accepts a request, so at runtime it means
+  post-setup IAM drift, not a deployment to degrade around.
 - `commit_refs` is accretive on overwrite — a union-merge, because it is a git-derived audit trail.
   `references` has **plain replace semantics** — it mirrors the supplied value exactly, and omitting
   it clears the field. The two are deliberately different and must not be unified.
@@ -126,18 +132,14 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
 
 **Postconditions**
 
-- On success, returns `{"artifact_id": str, "sections_indexed": int, "last_edited_ulid": str}`,
-  plus a fourth key `"warning": str` **only** when the durable annotation write was unavailable
-  (see below).
+- On success, returns `{"artifact_id": str, "sections_indexed": int, "last_edited_ulid": str}` and
+  nothing else. There is no success-with-a-warning shape.
 - On success all three stores agree: object content present, annotations reflecting the final link
-  fields, and one vector per indexed section — **unless** a `"warning"` key is present.
-- Annotations are unavailable on directory and Outposts buckets, and can become unavailable through
-  IAM drift. The write path degrades gracefully rather than failing: content and vectors are still
-  persisted, the tool still returns success, and the response carries a top-level `"warning"`
-  describing that no durable `commit_refs`/`references` copy was stored. A caller that needs the
-  link fields to be durable must check for `"warning"` — a bare check for the absence of `"error"`
-  is not sufficient. (`link_metadata` is the deliberate exception: its whole purpose is the durable
-  write, so it surfaces `annotation_unavailable` as an error instead of absorbing it.)
+  fields, and one vector per indexed section.
+- A failed annotation write returns `partial_write`, never success. Annotations are the sole durable
+  store for both link fields, so telling the caller the write succeeded while that data was not
+  persisted is what this forbids. Absence of an `"error"` key is therefore a sufficient check that
+  the link fields are durable.
 - On `partial_write` the S3 object is durable and a failure-log entry exists; the artifact is
   content-complete but unsearchable until reconciled.
 - A failure-log entry written because the **annotation** write failed also records the

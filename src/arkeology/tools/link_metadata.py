@@ -3,7 +3,7 @@
 Generalizes and supersedes ``link_commit`` (p10-t38): backfills ``commit_refs``
 and/or ``references`` onto existing own-scope artifacts by fetching the current
 vectors + embeddings, reading the current link-field state as the union of both
-durable stores (``annotations.read_current_link_fields``; neither the S3 annotation
+durable annotations (``annotations.read_link_annotations``; the S3 annotation
 copy nor the vector-metadata copy is sole authority),
 merging and deduplicating the supplied values into that union, and dual-writing
 the result — durable S3 annotations first (``apply_link_annotations``), then
@@ -21,11 +21,10 @@ scan does not see it — and the vector copy would stay stale indefinitely, sile
 omitting the artifact from every server-side filter on the linked field.
 
 If annotations are unavailable (unsupported region/bucket type) or access is
-denied, the durable write is this tool's contract: it returns a structured
-``annotation_unavailable`` error rather than reporting the artifact as linked
-(ADR-011 decision 5, T52). This differs from the write path (``write.py``),
-where the same condition degrades to a warning because the artifact's content
-and vectors must never be lost.
+denied, this tool returns a structured ``annotation_unavailable`` error rather
+than reporting the artifact as linked. At runtime that condition means post-setup
+IAM drift: the startup gate refuses to start a deployment that cannot use
+annotations at all.
 """
 
 import asyncio
@@ -38,7 +37,7 @@ from arkeology.annotations import (
     CAS_MAX_ATTEMPTS,
     apply_link_annotations,
     merge_link_field,
-    read_current_link_fields,
+    read_link_annotations,
 )
 from arkeology.artifact import Artifact, cap_commit_refs_for_vectors, check_metadata_budgets
 from arkeology.clients.interfaces import (
@@ -69,7 +68,6 @@ _LINK_CONCURRENCY = 5
 
 def _apply_link_metadata_with_cas(
     s3: S3ClientInterface,
-    vectors: VectorsClientInterface,
     artifact_id: str,
     supplied_commit_refs: list[str],
     supplied_references: list[str],
@@ -77,7 +75,7 @@ def _apply_link_metadata_with_cas(
 ) -> tuple[list[str], list[str]]:
     """Apply the CAS-guarded annotation dual-write for one artifact_id (ADR-011
     decision 6): capture the object's current ETag, read-forward + merge the current
-    link-field state (union of both durable stores), check the merged state against
+    link-field state from the durable annotations, check the merged state against
     the write-path metadata size budgets (T57), and write the merged annotations
     conditionally on that ETag. On a detected concurrent change (``ArtifactConflictError``
     from the annotation write — a content-changing operation, e.g. an overwriting
@@ -93,7 +91,6 @@ def _apply_link_metadata_with_cas(
 
     Args:
         s3: S3 client.
-        vectors: S3 Vectors client.
         artifact_id: The artifact's S3 key.
         supplied_commit_refs: This call's supplied commit_refs values (merged in).
         supplied_references: This call's supplied references values (merged in).
@@ -121,9 +118,7 @@ def _apply_link_metadata_with_cas(
         if attempt > 0:
             current_etag = s3.head_object(artifact_id).get("ETag")
 
-        existing_commit_refs, existing_references = read_current_link_fields(
-            s3, vectors, artifact_id
-        )
+        existing_commit_refs, existing_references = read_link_annotations(s3, artifact_id)
         merged_commit_refs = merge_link_field(existing_commit_refs, supplied_commit_refs)
         merged_references = merge_link_field(existing_references, supplied_references)
 
@@ -379,13 +374,12 @@ async def _link_metadata_inner(
 
                 # ── Read-forward + merge, guarded by an ETag compare-and-swap (ADR-011
                 # decision 6) ─────────────────────────────────────────────────────────
-                # Read-forward the current state as the union of BOTH durable stores —
-                # never vector metadata alone. A vector-only
-                # read misses a value that lives only in the S3 annotation (e.g. a prior
-                # link_metadata call whose annotation write succeeded but whose vector
-                # write failed), and merging supplied=[] against that missing value would
-                # make the annotation write delete the annotation instead of healing it.
-                # See ``annotations.read_current_link_fields``. The whole fetch-merge-reput
+                # Read-forward the current state from the durable annotations, their
+                # sole source of truth — never vector metadata, which holds a capped,
+                # derived filter copy of commit_refs and no references at all. Merging
+                # supplied=[] against a vector-only read would make the annotation write
+                # delete the annotation instead of healing it.
+                # See ``annotations.read_link_annotations``. The whole fetch-merge-reput
                 # cycle races every other read-modify-write cycle on the same artifact's
                 # durable link-field state, so it is guarded by a bounded ETag
                 # compare-and-swap retry (``_apply_link_metadata_with_cas``): on a detected
@@ -396,7 +390,6 @@ async def _link_metadata_inner(
                 merged_commit_refs, merged_references = await asyncio.to_thread(
                     _apply_link_metadata_with_cas,
                     s3,
-                    vectors,
                     artifact_id,
                     supplied_commit_refs,
                     supplied_references,
@@ -496,11 +489,10 @@ async def _link_metadata_inner(
         if kind == "credential_error":
             return credential_error_response(r["exc"])
         if kind == "annotation_unavailable":
-            # T52 / ADR-011 decision 5: the durable annotation write is link_metadata's
-            # contract (it exists precisely to make commit_refs/references durable), so
-            # unlike the write path's graceful degrade, this is not silently absorbed —
-            # it is reported as a structured, actionable error and this artifact_id is
-            # never counted as linked.
+            # The durable annotation write is link_metadata's contract (it exists
+            # precisely to make commit_refs/references durable), so this is never
+            # absorbed — it is reported as a structured, actionable error and this
+            # artifact_id is never counted as linked.
             #
             # linked/skipped progress accumulated on other artifact_ids in this same
             # call must not be discarded — only included when non-zero, so a call

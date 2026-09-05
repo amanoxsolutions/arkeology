@@ -8,7 +8,7 @@ import asyncio
 import logging
 from typing import Any
 
-from arkeology.annotations import read_current_link_fields
+from arkeology.annotations import read_link_annotations
 from arkeology.clients.interfaces import (
     BedrockClientInterface,
     S3ClientInterface,
@@ -45,7 +45,7 @@ async def read_artifact(
     Args:
         settings: Server configuration.
         s3: S3 client for content and metadata retrieval.
-        vectors: S3 Vectors client for reading commit_refs/references from vector metadata.
+        vectors: S3 Vectors client, used only for cross-scope reference filtering.
         bedrock: Bedrock client (unused; injected for interface consistency).
         artifact_id: Full S3 key of the artifact to retrieve.
 
@@ -123,33 +123,19 @@ async def _read_artifact_inner(
     except CredentialError as exc:
         return credential_error_response(exc)
 
-    # ── Step 4: Read commit_refs / references (union of both durable stores) ──
-    # commit_refs and references are durably stored as S3 object annotations
-    # (ADR-011) and dual-written to vector metadata by link_metadata and the
-    # write path. Neither store is sole authority (see
-    # annotations.read_current_link_fields), so this reads the order-preserving
-    # dedup union of both rather than an arbitrary single vector's own metadata —
-    # a multi-section artifact indexes one vector per section, and picking just
-    # one (e.g. the first key returned by list_vectors_by_metadata) risks
-    # surfacing a stale value from the partial-write CAS retry window.
-    commit_refs: list[str] = []
-    references: list[str] = []
-    if vectors is not None:
-        try:
-            # Off the event loop — blocking boto3 calls.
-            commit_refs, references = await asyncio.to_thread(
-                read_current_link_fields, s3, vectors, artifact_id
-            )
-        except CredentialError as exc:
-            return credential_error_response(exc)
-        except Exception:
-            # commit_refs / references are supplementary — degrade to [] rather than
-            # aborting an otherwise-successful read on a transient vector error.
-            logger.warning(
-                "Failed to read commit_refs/references for %s; returning []",
-                artifact_id,
-                exc_info=True,
-            )
+    # ── Step 4: Read commit_refs / references from the durable annotations ────
+    # The S3 object annotations are the sole source of truth for both fields. The
+    # vector-metadata copy of commit_refs is a derived filter index — capped, missing
+    # references entirely, and only reachable by paginating the whole index, since S3
+    # Vectors has no server-side filter for it — so it is never read back here. A
+    # failure propagates rather than degrading to []: reporting "no links" for what is
+    # really a transient failure is what a later read-modify-write cycle would write
+    # back over good data.
+    try:
+        # Off the event loop — blocking boto3 calls.
+        commit_refs, references = await asyncio.to_thread(read_link_annotations, s3, artifact_id)
+    except CredentialError as exc:
+        return credential_error_response(exc)
 
     # ── Step 4b: Cross-scope reference filtering (ADR-012) ────────────────────
     # Only foreign-scope reads need filtering: own-scope reads/entries are never

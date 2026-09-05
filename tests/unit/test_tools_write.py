@@ -3204,16 +3204,20 @@ async def test_write_overwrite_cas_put_object_credential_error_includes_artifact
 
 
 @pytest.mark.asyncio
-async def test_write_annotation_unavailable_still_succeeds_with_warning(
+async def test_write_annotation_unavailable_reports_partial_write(
     monkeypatch: pytest.MonkeyPatch,
     s3_client: S3ClientImpl,
     vectors_client: VectorsClientImpl,
     mocker: pytest.MonkeyPatch,
+    tmp_path: pytest.TempPathFactory,
 ) -> None:
-    """An AnnotationUnavailableError raised by the durable annotation write must never
-    lose the artifact (ADR-011 decision 5): content and vectors are still persisted and
-    the response carries a non-empty top-level 'warning' instead of an 'error'."""
-    settings = _make_settings(monkeypatch)
+    """An AnnotationUnavailableError raised by the durable annotation write is never
+    reported as a successful write. Annotations are the sole durable store for
+    commit_refs/references, so the caller must not be told the write succeeded: the S3
+    object is durable, so this is a partial_write carrying a failure-log entry with the
+    values it was applying, which is what lets reconcile_index restore them."""
+    log_path = tmp_path / "failures.jsonl"
+    settings = _make_settings(monkeypatch, FAILURE_LOG_PATH=str(log_path))
     bedrock = FakeBedrockClient()
     mocker.patch.object(
         s3_client,
@@ -3231,22 +3235,19 @@ async def test_write_annotation_unavailable_still_succeeds_with_warning(
         **{**_BASE_WRITE_KWARGS, "commit_refs": ["abc1234"]},
     )
 
-    assert "error" not in result
-    assert result["artifact_id"]
-    assert result["sections_indexed"] == 3
-    assert result.get("warning")
+    assert result["error"] == "partial_write"
+    assert "warning" not in result
 
-    # Content is durably stored despite the annotation failure.
+    # Content is durably stored — this is a partial write, not a lost one.
     stored_content = s3_client.get_object(result["artifact_id"])
     assert stored_content == _BASE_WRITE_KWARGS["content"]
 
-    # Vectors carry the supplied commit_refs even though the durable annotation
-    # copy could not be written.
-    keys = vectors_client.list_vectors_by_metadata({"artifact_id": {"$eq": result["artifact_id"]}})
-    entries = vectors_client.get_vectors(keys)
-    assert entries
-    for entry in entries:
-        assert entry["metadata"]["commit_refs"] == ["abc1234"]
+    # The failure-log entry carries the link fields the failed write was applying, so
+    # reconcile_index can restore them.
+    entries = [json.loads(line) for line in log_path.read_text().splitlines()]
+    assert [e["artifact_id"] for e in entries] == [result["artifact_id"]]
+    assert entries[0]["failure_step"] == "annotation_write"
+    assert entries[0]["commit_refs"] == ["abc1234"]
 
 
 @pytest.mark.asyncio

@@ -71,12 +71,13 @@ scope so artifacts from different projects do not mix. Agents can only write to 
 
 ## Step 2 — Pre-flight checks
 
-Run these eight checks in order. **Checks 1–7 are blocking** — stop at the first failure
-and report which check failed and why; do not continue until the operator resolves the
-issue. **Check 8 is feature-level and non-blocking** (see its own section below) — S3
-object annotations back only the `commit_refs` / `references` link-tracking feature, not
-the core content/vector/embedding store, so a Check 8 failure never stops the
-installation (ADR-011 decision 5: annotation availability is never a hard startup gate).
+**All eight checks are blocking.** Stop at the first failure and report which check failed
+and why; do not continue until the operator has resolved it. Check 8 (S3 object annotation
+availability) is blocking like the rest: annotations are the sole durable store for
+`commit_refs` / `references`, so a deployment without them cannot run the server at all —
+it refuses to start. A region or bucket type that does not support annotations is an
+unsupported deployment, not a degraded one (ADR-011, revision of 2026-09-05, reversing its
+original decision 5; requirements C-08 and FR-57).
 
 If `AWS_PROFILE` was provided in Step 1, add `--profile <profile>` to every `aws` command
 below (e.g. `aws --profile mydev-eu sts get-caller-identity`).
@@ -174,16 +175,17 @@ format (e.g. bare `amazon.nova-lite-v1:0` instead of the cross-region inference 
 `eu.amazon.nova-lite-v1:0` for EU). Instruct the operator to enable the model in the
 Bedrock console and verify the model ID format before proceeding.
 
-**Check 8 — S3 object annotation availability + IAM (feature-level, non-blocking)**
+**Check 8 — S3 object annotation availability + IAM (blocking)**
 
-S3 object annotations are the durable store behind Arkeology's `commit_refs` /
-`references` link-tracking feature (`link_metadata`, and the write path's automatic
-link-field persistence). They require four IAM actions beyond core S3 storage, and are
-unavailable in some regions and on some bucket types — none of which affects the core
-memory server (content, search, embeddings). This check probes both, but **unlike
-Checks 1–7, a failure here does not stop the installation** — report the outcome and let
-the operator decide whether to proceed; the feature simply degrades gracefully at
-runtime (a `warning` on `write_artifact`, a structured error from `link_metadata`).
+S3 object annotations are the **sole durable store** for Arkeology's `commit_refs` /
+`references` link fields — they are not a secondary copy of anything. The vector index holds
+only a capped, most-recent-20 `commit_refs` window used for server-side filtering, and no
+`references` at all, so it cannot stand in for the annotation store. They require four IAM
+actions beyond core S3 storage, and are unavailable in some regions and on some bucket types.
+
+**A failure here stops the installation.** The server verifies the same condition at startup
+and refuses to run without it, so completing setup against a deployment that fails this check
+produces an installation that cannot start. Do not offer to proceed anyway.
 
 The four required IAM actions:
 
@@ -286,23 +288,22 @@ PYEOF
 
 Interpreting the result:
 
-- **`ANNOTATIONS_OK`** — annotations are available and IAM is correctly configured.
-  `commit_refs` / `references` will be durably tracked. Continue to Step 3.
-- **`ANNOTATIONS_FAILED: AccessDenied ...`** — the bucket/region supports annotations but
-  the caller's IAM policy is missing one or more of the four actions listed above. Show
-  the operator the failing action and ask them to add it to the deployment's IAM policy,
-  then re-run this check. Or, if they choose, proceed anyway — `link_metadata` will
-  return a structured `annotation_unavailable` error and `write_artifact` will succeed
-  with a `warning` until the policy is fixed.
-- **`ANNOTATIONS_FAILED: NotImplemented ...`** (or a similar region/bucket-type
-  rejection) — the bucket's region or type does not support annotations at all (see the
-  unavailable list above). No IAM change will fix this. Inform the operator the
-  `commit_refs` / `references` feature will not be durable on this bucket — core memory
-  (content, search, embeddings) is fully unaffected — and let them decide whether to
-  proceed, migrate to a supported bucket/region, or accept the limitation.
-- Any other failure (e.g. the throwaway object/bucket itself is unreachable) — report the
-  raw error and let the operator decide whether it is safe to proceed; this check never
-  blocks Step 3 by itself.
+- **`ANNOTATIONS_OK`** — annotations are available and IAM is correctly configured. Continue
+  to Step 3.
+- **`ANNOTATIONS_FAILED: AccessDenied ...`** — the bucket and region support annotations, but
+  the caller's IAM policy is missing one or more of the four actions listed above. Show the
+  operator the failing action, ask them to add it to the deployment's IAM policy, then re-run
+  this check. **Do not proceed until it passes** — the server will refuse to start.
+- **`ANNOTATIONS_FAILED: NotImplemented ...`** (or a similar region/bucket-type rejection) —
+  the bucket's region or type does not support annotations at all (see the unavailable list
+  above). No IAM change will fix this. The operator must move the artifact bucket to a
+  supported region and bucket type before Arkeology can be installed. **Stop here.** Do not
+  offer to continue with the link-tracking feature disabled: it cannot be disabled, because
+  the annotation store is the only place the link fields live.
+- Any other failure (for example the throwaway object or the bucket itself being unreachable)
+  — report the raw error and stop; an unexplained failure of this probe is not a safe basis
+  for installing.
+
 - **`PROBE_CLEANUP_FAILED`** (aws-cli path), or a `delete_object` error from the boto3
   path's `finally:` block — the probe object could not be removed and is still in the
   bucket. Report the exact key, `<WRITE_PREFIX>/_arkeology_annotation_probe`, and give the
@@ -317,8 +318,7 @@ Interpreting the result:
   whose final path segment begins with `_arkeology_`, so it is never mistaken for an
   artifact — but never leave one behind silently.
 
-Once Checks 1–7 pass, proceed to Step 3 (Check 8's outcome is reported but never blocks
-progression).
+Once all eight checks pass, proceed to Step 3.
 
 ---
 

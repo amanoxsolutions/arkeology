@@ -88,9 +88,14 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
 - **Absence of either field means "nothing to restore", never "clear the field".** Entries written
   before the fields existed carry neither and must replay unchanged, leaving the object's
   annotations exactly as they are.
-- The restored value is the **union** of the entry's copy and the artifact's current value, never a
-  replacement. A value re-added between the failure and the reconcile lives only in the current
-  copy; replacing would trade one silent loss for another.
+- The restored value is the **union** of the entry's copy and the artifact's current annotation
+  value, never a replacement. A value re-added between the failure and the reconcile lives only in
+  the current copy; replacing would trade one silent loss for another.
+- The rebuilt vector metadata's `commit_refs` is derived from the artifact's annotation, its sole
+  source of truth, never carried over from the vector being replaced. A failed annotation read fails
+  that artifact — it is reported under `failed` and no vectors are written for it — because rebuilding
+  from a spurious empty would write that emptiness over the artifact's real link fields. The run
+  itself still completes; the failure is per artifact.
 - Failure-log entries are classified by their own shape — the presence of `orphan_keys` marks the
   cheap orphan-cleanup kind — so a reindex-kind and an orphan-cleanup-kind entry for the same
   artifact are processed and pruned independently.

@@ -491,17 +491,20 @@ async def test_source_artifacts_deserialized_to_list(
 # ---------------------------------------------------------------------------
 
 
-async def test_read_commit_refs_single_sha_from_vector_metadata(
+async def test_read_commit_refs_single_sha_from_annotation(
     monkeypatch: pytest.MonkeyPatch,
     s3_client: S3ClientImpl,
     vectors_client_2: VectorsClientImpl,
 ) -> None:
-    """commit_refs: ['abc1234'] in vector metadata → response returns ['abc1234'].
+    """commit_refs: ['abc1234'] in the durable annotation → response returns ['abc1234'].
 
     Write-time path: SHA was stored at write time alongside the artifact.
     """
     settings = _make_settings(monkeypatch)
     s3_client.put_object("artifacts/with-vector-ref", "Content.", {**_BASE_METADATA})
+    apply_link_annotations(
+        s3_client, "artifacts/with-vector-ref", commit_refs=["abc1234"], references=[]
+    )
     vectors_client_2.put_vector(
         key="artifacts/with-vector-ref#section-0",
         vector=[1.0, 0.0],
@@ -518,12 +521,12 @@ async def test_read_commit_refs_single_sha_from_vector_metadata(
     assert result["commit_refs"] == ["abc1234"]
 
 
-async def test_read_commit_refs_multiple_shas_from_vector_metadata(
+async def test_read_commit_refs_multiple_shas_from_annotation(
     monkeypatch: pytest.MonkeyPatch,
     s3_client: S3ClientImpl,
     vectors_client_2: VectorsClientImpl,
 ) -> None:
-    """commit_refs: ['prev123', 'new456'] in vector metadata → response returns both SHAs.
+    """commit_refs: ['prev123', 'new456'] in the annotation → response returns both SHAs.
 
     Simulates post-link_metadata state where S3 object metadata has no commit_refs at all.
     """
@@ -531,6 +534,9 @@ async def test_read_commit_refs_multiple_shas_from_vector_metadata(
     # S3 object metadata intentionally has no commit_refs key — link_metadata writes vector
     # metadata and the durable S3 annotation copy, never object metadata
     s3_client.put_object("artifacts/post-link-commit", "Content.", {**_BASE_METADATA})
+    apply_link_annotations(
+        s3_client, "artifacts/post-link-commit", commit_refs=["prev123", "new456"], references=[]
+    )
     vectors_client_2.put_vector(
         key="artifacts/post-link-commit#section-0",
         vector=[0.0, 1.0],
@@ -550,13 +556,22 @@ async def test_read_commit_refs_multiple_shas_from_vector_metadata(
     assert result["commit_refs"] == ["prev123", "new456"]
 
 
-async def test_read_commit_refs_returns_empty_list_when_vectors_is_none(
+async def test_read_own_scope_never_touches_the_vectors_client(
     monkeypatch: pytest.MonkeyPatch,
     s3_client: S3ClientImpl,
 ) -> None:
-    """vectors=None → commit_refs is [] (graceful degradation when client not injected)."""
+    """An own-scope read reaches no method on the vectors client at all — passing None
+    for it must still produce a complete response. Link fields come from the object's
+    annotations, and cross-scope reference filtering is skipped for own-scope reads, so
+    any vector call on this path is one that should not be there."""
     settings = _make_settings(monkeypatch)
     s3_client.put_object("artifacts/no-vectors-client", "Content.", {**_BASE_METADATA})
+    apply_link_annotations(
+        s3_client,
+        "artifacts/no-vectors-client",
+        commit_refs=["abc1234"],
+        references=["adr-one"],
+    )
 
     result = await read_artifact(
         s3=s3_client,
@@ -565,18 +580,21 @@ async def test_read_commit_refs_returns_empty_list_when_vectors_is_none(
         artifact_id="artifacts/no-vectors-client",
     )
 
-    assert result["commit_refs"] == []
+    assert "error" not in result
+    assert result["commit_refs"] == ["abc1234"]
+    assert result["references"] == ["adr-one"]
 
 
-async def test_read_commit_refs_returns_empty_list_when_no_vector_entries(
+async def test_read_link_fields_empty_when_no_annotations_set(
     monkeypatch: pytest.MonkeyPatch,
     s3_client: S3ClientImpl,
     vectors_client_2: VectorsClientImpl,
 ) -> None:
-    """list_vectors_by_metadata returns [] (artifact not indexed) → commit_refs is []."""
+    """An artifact carrying no link annotations reads back as [], not as an error. An
+    absent annotation genuinely means "no values" — only a failed read raises."""
     settings = _make_settings(monkeypatch)
     s3_client.put_object("artifacts/not-indexed", "Content.", {**_BASE_METADATA})
-    # No vectors seeded for this artifact_id
+    # No apply_link_annotations call — the object exists with no annotations on it.
 
     result = await read_artifact(
         s3=s3_client,
@@ -585,27 +603,29 @@ async def test_read_commit_refs_returns_empty_list_when_no_vector_entries(
         artifact_id="artifacts/not-indexed",
     )
 
+    assert "error" not in result
     assert result["commit_refs"] == []
+    assert result["references"] == []
 
 
-async def test_read_commit_refs_credential_error_from_list_vectors_by_metadata(
+async def test_read_commit_refs_credential_error_from_annotation_read(
     monkeypatch: pytest.MonkeyPatch,
     s3_client: S3ClientImpl,
     vectors_client_2: VectorsClientImpl,
     mocker: MockerFixture,
 ) -> None:
-    """list_vectors_by_metadata raises CredentialError → structured error returned.
+    """The link-field annotation read raises CredentialError → structured error returned.
 
     No raw exception must escape to the MCP caller.
     """
     settings = _make_settings(monkeypatch)
     s3_client.put_object("artifacts/cred-fail", "Content.", {**_BASE_METADATA})
     mocker.patch.object(
-        vectors_client_2,
-        "list_vectors_by_metadata",
+        s3_client,
+        "get_object_annotation",
         side_effect=CredentialError(
-            message="Simulated credential failure on list_vectors_by_metadata.",
-            service="s3vectors",
+            message="Simulated credential failure on get_object_annotation.",
+            service="s3",
             original=Exception("simulated"),
         ),
     )
@@ -621,51 +641,21 @@ async def test_read_commit_refs_credential_error_from_list_vectors_by_metadata(
     assert result["error"] == "credential_error"
 
 
-async def test_read_non_credential_vector_error_degrades_to_empty_commit_refs(
-    monkeypatch: pytest.MonkeyPatch,
-    s3_client: S3ClientImpl,
-    vectors_client_2: VectorsClientImpl,
-    mocker: MockerFixture,
-) -> None:
-    """Non-credential error from list_vectors_by_metadata → read succeeds with commit_refs=[].
-
-    commit_refs are supplementary — a transient vector failure must not abort
-    an otherwise-successful read and return an error response.
-    """
-    settings = _make_settings(monkeypatch)
-    s3_client.put_object("artifacts/vec-error", "Content.", {**_BASE_METADATA})
-    mocker.patch.object(
-        vectors_client_2,
-        "list_vectors_by_metadata",
-        side_effect=RuntimeError("Simulated transient vector failure"),
-    )
-
-    result = await read_artifact(
-        s3=s3_client,
-        vectors=vectors_client_2,
-        settings=settings,
-        artifact_id="artifacts/vec-error",
-    )
-
-    # Read must succeed — no "error" key
-    assert "error" not in result, f"Expected success but got error: {result}"
-    assert result["artifact_id"] == "artifacts/vec-error"
-    # commit_refs degrades gracefully to []
-    assert result["commit_refs"] == []
-
-
-async def test_read_references_from_vector_metadata(
+async def test_read_references_from_annotation(
     monkeypatch: pytest.MonkeyPatch,
     s3_client: S3ClientImpl,
     vectors_client_2: VectorsClientImpl,
 ) -> None:
-    """references: ['adr-one'] in vector metadata → response returns ['adr-one']."""
+    """references: ['adr-one'] in the durable annotation → response returns ['adr-one']."""
     settings = _make_settings(monkeypatch)
     s3_client.put_object("artifacts/with-reference", "Content.", {**_BASE_METADATA})
+    apply_link_annotations(
+        s3_client, "artifacts/with-reference", commit_refs=[], references=["adr-one"]
+    )
     vectors_client_2.put_vector(
         key="artifacts/with-reference#section-0",
         vector=[1.0, 0.0],
-        metadata={"artifact_id": "artifacts/with-reference", "references": ["adr-one"]},
+        metadata={"artifact_id": "artifacts/with-reference"},
     )
 
     result = await read_artifact(
@@ -697,24 +687,6 @@ async def test_read_references_returns_empty_list_when_absent(
         vectors=vectors_client_2,
         settings=settings,
         artifact_id="artifacts/no-reference",
-    )
-
-    assert result["references"] == []
-
-
-async def test_read_references_returns_empty_list_when_vectors_is_none(
-    monkeypatch: pytest.MonkeyPatch,
-    s3_client: S3ClientImpl,
-) -> None:
-    """vectors=None → references is [] (graceful degradation when client not injected)."""
-    settings = _make_settings(monkeypatch)
-    s3_client.put_object("artifacts/no-vectors-client-ref", "Content.", {**_BASE_METADATA})
-
-    result = await read_artifact(
-        s3=s3_client,
-        vectors=None,
-        settings=settings,
-        artifact_id="artifacts/no-vectors-client-ref",
     )
 
     assert result["references"] == []
@@ -828,37 +800,29 @@ async def test_read_s3_calls_run_off_event_loop(
     )
 
 
-async def test_read_vector_calls_run_off_event_loop(
+async def test_read_link_field_calls_run_off_event_loop(
     monkeypatch: pytest.MonkeyPatch,
     s3_client: S3ClientImpl,
     vectors_client_2: VectorsClientImpl,
     mocker: MockerFixture,
 ) -> None:
-    """list_vectors_by_metadata and get_vectors (commit_refs/references lookup) execute
-    on a worker thread, never on the calling event-loop thread."""
+    """The commit_refs/references annotation read executes on a worker thread, never on
+    the calling event-loop thread."""
     settings = _make_settings(monkeypatch)
     s3_client.put_object("artifacts/with-vector-ref", "Content.", {**_BASE_METADATA})
-    vectors_client_2.put_vector(
-        key="artifacts/with-vector-ref#section-0",
-        vector=[1.0, 0.0],
-        metadata={"artifact_id": "artifacts/with-vector-ref", "commit_refs": ["abc1234"]},
+    apply_link_annotations(
+        s3_client, "artifacts/with-vector-ref", commit_refs=["abc1234"], references=[]
     )
     main_thread = threading.current_thread()
     seen_threads: list[threading.Thread] = []
 
-    original_list = vectors_client_2.list_vectors_by_metadata
-    original_get_vectors = vectors_client_2.get_vectors
+    original_get_annotation = s3_client.get_object_annotation
 
-    def spy_list(*args: Any, **kwargs: Any) -> Any:
+    def spy_get_annotation(*args: Any, **kwargs: Any) -> Any:
         seen_threads.append(threading.current_thread())
-        return original_list(*args, **kwargs)
+        return original_get_annotation(*args, **kwargs)
 
-    def spy_get_vectors(*args: Any, **kwargs: Any) -> Any:
-        seen_threads.append(threading.current_thread())
-        return original_get_vectors(*args, **kwargs)
-
-    mocker.patch.object(vectors_client_2, "list_vectors_by_metadata", side_effect=spy_list)
-    mocker.patch.object(vectors_client_2, "get_vectors", side_effect=spy_get_vectors)
+    mocker.patch.object(s3_client, "get_object_annotation", side_effect=spy_get_annotation)
 
     result = await read_artifact(
         s3=s3_client,
@@ -868,9 +832,9 @@ async def test_read_vector_calls_run_off_event_loop(
     )
 
     assert result["commit_refs"] == ["abc1234"]
-    assert seen_threads, "list_vectors_by_metadata/get_vectors were never called"
+    assert seen_threads, "get_object_annotation was never called"
     assert all(t is not main_thread for t in seen_threads), (
-        "Vector calls ran on the event-loop thread — they must be offloaded"
+        "The annotation read ran on the event-loop thread — it must be offloaded"
     )
 
 
@@ -929,13 +893,16 @@ async def test_read_cross_scope_reference_filtering_keeps_readable_target(
         "Content.",
         {**_BASE_METADATA, "tier": "3", "visibility": "shared", "team": "network"},
     )
+    apply_link_annotations(
+        s3_client,
+        "other-team/t3-with-refs2",
+        commit_refs=[],
+        references=["other-team/shared-target"],
+    )
     vectors_client_2.put_vector(
         key="other-team/t3-with-refs2#section-0",
         vector=[1.0, 0.0],
-        metadata={
-            "artifact_id": "other-team/t3-with-refs2",
-            "references": ["other-team/shared-target"],
-        },
+        metadata={"artifact_id": "other-team/t3-with-refs2"},
     )
     vectors_client_2.put_vector(
         key="other-team/shared-target#section-0",
@@ -962,13 +929,16 @@ async def test_read_own_scope_references_unfiltered(
     the reference is returned as-is regardless of the target's own accessibility."""
     settings = _make_settings(monkeypatch)
     s3_client.put_object("artifacts/own-with-refs", "Content.", {**_BASE_METADATA})
+    apply_link_annotations(
+        s3_client,
+        "artifacts/own-with-refs",
+        commit_refs=[],
+        references=["other-team/hidden-target-x"],
+    )
     vectors_client_2.put_vector(
         key="artifacts/own-with-refs#section-0",
         vector=[1.0, 0.0],
-        metadata={
-            "artifact_id": "artifacts/own-with-refs",
-            "references": ["other-team/hidden-target-x"],
-        },
+        metadata={"artifact_id": "artifacts/own-with-refs"},
     )
 
     result = await read_artifact(
@@ -1026,13 +996,16 @@ async def test_read_cross_scope_reference_resolving_into_own_scope_kept(
         "Content.",
         {**_BASE_METADATA, "tier": "3", "visibility": "shared", "team": "network"},
     )
+    apply_link_annotations(
+        s3_client,
+        "other-team/t3-with-refs4",
+        commit_refs=[],
+        references=["artifacts/own-hidden-target"],
+    )
     vectors_client_2.put_vector(
         key="other-team/t3-with-refs4#section-0",
         vector=[1.0, 0.0],
-        metadata={
-            "artifact_id": "other-team/t3-with-refs4",
-            "references": ["artifacts/own-hidden-target"],
-        },
+        metadata={"artifact_id": "other-team/t3-with-refs4"},
     )
 
     result = await read_artifact(
@@ -1045,23 +1018,29 @@ async def test_read_cross_scope_reference_resolving_into_own_scope_kept(
     assert result["references"] == ["artifacts/own-hidden-target"]
 
 
-async def test_read_own_scope_reference_filtering_issues_no_extra_vector_query(
+async def test_read_own_scope_performs_no_vector_index_scan_at_all(
     monkeypatch: pytest.MonkeyPatch,
     s3_client: S3ClientImpl,
     vectors_client_2: VectorsClientImpl,
     mocker: MockerFixture,
 ) -> None:
-    """Own-scope read → reference filtering is skipped entirely; list_vectors_by_metadata
-    is called exactly once (the pre-existing Step 4 commit_refs/references lookup)."""
+    """The regression guard for the retired union read model: annotations are the sole
+    source of truth for the link fields, so an own-scope read scans the vector index
+    zero times. S3 Vectors has no server-side filter for commit_refs, so every such scan
+    paginates the whole index in memory — reintroducing one is the exact performance
+    regression this pins."""
     settings = _make_settings(monkeypatch)
     s3_client.put_object("artifacts/own-with-refs-spy", "Content.", {**_BASE_METADATA})
+    apply_link_annotations(
+        s3_client,
+        "artifacts/own-with-refs-spy",
+        commit_refs=["sha-annotation"],
+        references=["other-team/some-target"],
+    )
     vectors_client_2.put_vector(
         key="artifacts/own-with-refs-spy#section-0",
         vector=[1.0, 0.0],
-        metadata={
-            "artifact_id": "artifacts/own-with-refs-spy",
-            "references": ["other-team/some-target"],
-        },
+        metadata={"artifact_id": "artifacts/own-with-refs-spy"},
     )
     spy = mocker.spy(vectors_client_2, "list_vectors_by_metadata")
 
@@ -1073,65 +1052,23 @@ async def test_read_own_scope_reference_filtering_issues_no_extra_vector_query(
     )
 
     assert result["references"] == ["other-team/some-target"]
-    assert spy.call_count == 1
+    assert result["commit_refs"] == ["sha-annotation"]
+    assert spy.call_count == 0
 
 
 # ---------------------------------------------------------------------------
-# commit_refs/references — union of both durable stores (ADR-011), regression
-# tests for the bug where read_artifact read an arbitrary single section vector's
-# metadata instead of delegating to read_current_link_fields.
+# commit_refs/references — annotations are the sole source of truth
 # ---------------------------------------------------------------------------
 
 
-async def test_read_commit_refs_references_union_across_diverging_section_vectors(
+async def test_read_link_fields_come_from_annotations_not_vector_metadata(
     monkeypatch: pytest.MonkeyPatch,
     s3_client: S3ClientImpl,
     vectors_client_2: VectorsClientImpl,
 ) -> None:
-    """Two section vectors for the same artifact_id carry DIFFERENT commit_refs/
-    references (simulating a partial-write/CAS-retry divergence) — read_artifact
-    must return the union of both, not an arbitrary single section vector's value."""
-    settings = _make_settings(monkeypatch)
-    s3_client.put_object("artifacts/diverging-sections", "Content.", {**_BASE_METADATA})
-    vectors_client_2.put_vector(
-        key="artifacts/diverging-sections#section-a",
-        vector=[1.0, 0.0],
-        metadata={
-            "artifact_id": "artifacts/diverging-sections",
-            "commit_refs": ["sha-a"],
-            "references": ["ref-a"],
-        },
-    )
-    vectors_client_2.put_vector(
-        key="artifacts/diverging-sections#section-b",
-        vector=[0.0, 1.0],
-        metadata={
-            "artifact_id": "artifacts/diverging-sections",
-            "commit_refs": ["sha-b"],
-            "references": ["ref-b"],
-        },
-    )
-
-    result = await read_artifact(
-        s3=s3_client,
-        vectors=vectors_client_2,
-        settings=settings,
-        artifact_id="artifacts/diverging-sections",
-    )
-
-    assert set(result["commit_refs"]) == {"sha-a", "sha-b"}
-    assert set(result["references"]) == {"ref-a", "ref-b"}
-
-
-async def test_read_commit_refs_references_union_of_annotation_and_vector_stores(
-    monkeypatch: pytest.MonkeyPatch,
-    s3_client: S3ClientImpl,
-    vectors_client_2: VectorsClientImpl,
-) -> None:
-    """commit_refs/references present only as an S3 annotation (not in vector
-    metadata) must still surface in read_artifact's response — proves read_artifact
-    delegates to annotations.read_current_link_fields's union-of-both-durable-stores
-    model rather than reading vector metadata alone."""
+    """The vector-metadata copy of commit_refs is a derived filter index, never a source
+    of truth: when the two stores disagree, read_artifact returns the annotation values
+    alone and no trace of the vector copy."""
     settings = _make_settings(monkeypatch)
     s3_client.put_object("artifacts/annotation-only-ref", "Content.", {**_BASE_METADATA})
     apply_link_annotations(
@@ -1157,5 +1094,38 @@ async def test_read_commit_refs_references_union_of_annotation_and_vector_stores
         artifact_id="artifacts/annotation-only-ref",
     )
 
-    assert set(result["commit_refs"]) == {"sha-annotation", "sha-vector"}
-    assert set(result["references"]) == {"ref-annotation", "ref-vector"}
+    assert result["commit_refs"] == ["sha-annotation"]
+    assert result["references"] == ["ref-annotation"]
+
+
+async def test_read_annotation_failure_errors_rather_than_reporting_empty_link_fields(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """A transient annotation read failure must surface as an error, never as a
+    successful read reporting empty link fields — an empty result indistinguishable from
+    "no links" is what a read-modify-write caller would later write back over good
+    data."""
+    settings = _make_settings(monkeypatch)
+    s3_client.put_object("artifacts/annotation-read-fails", "Content.", {**_BASE_METADATA})
+    apply_link_annotations(
+        s3_client,
+        "artifacts/annotation-read-fails",
+        commit_refs=["sha-annotation"],
+        references=[],
+    )
+    mocker.patch.object(
+        s3_client, "get_object_annotation", side_effect=RuntimeError("transient S3 failure")
+    )
+
+    result = await read_artifact(
+        s3=s3_client,
+        vectors=vectors_client_2,
+        settings=settings,
+        artifact_id="artifacts/annotation-read-fails",
+    )
+
+    assert "error" in result
+    assert result.get("commit_refs") != []

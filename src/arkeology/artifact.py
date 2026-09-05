@@ -122,7 +122,7 @@ def cap_commit_refs_for_vectors(commit_refs: list[str]) -> list[str]:
 
     The vector-metadata copy of ``commit_refs`` is a bounded, most-recent-N view of the
     field — it is NOT a completeness guarantee. The annotation-backed copy
-    (:func:`arkeology.annotations.read_current_link_fields`) is the only complete,
+    (:func:`arkeology.annotations.read_link_annotations`) is the only complete,
     authoritative representation of ``commit_refs``; callers that need the full list
     (e.g. before writing the durable annotation) must never call this helper.
 

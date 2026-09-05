@@ -1,6 +1,6 @@
 """Startup validation sequence for arkeology.
 
-Performs seven checks in order before the server enters its MCP event loop:
+Performs eight checks in order before the server enters its MCP event loop:
   1. Credential check (via head_bucket on ARTIFACT_BUCKET)
   2. Write prefix access (read + write round-trip using a probe object)
   3. Read prefix access (list_objects on each entry in READ_PREFIXES)
@@ -10,6 +10,9 @@ Performs seven checks in order before the server enters its MCP event loop:
      returned vector's dimension matches — catches a wrong/unentitled embedding model
      that check 5's configuration-only comparison cannot detect)
   7. Text model accessibility (invoke_text_model probe, only when BEDROCK_TEXT_MODEL is set)
+  8. S3 object annotation availability + the four annotation IAM actions (put/get/list/
+     delete round trip on a probe object) — annotations are the sole durable store for
+     commit_refs/references, so a deployment without them refuses to start
 
 All checks use the client interfaces — no direct boto3 calls.
 Failures raise StartupValidationError; credential errors propagate as CredentialError.
@@ -21,13 +24,19 @@ from typing import Any
 import botocore.exceptions
 from ulid import ULID
 
+from arkeology.clients.credentials import is_annotation_permission_error
 from arkeology.clients.interfaces import (
     BedrockClientInterface,
     S3ClientInterface,
     VectorsClientInterface,
 )
 from arkeology.config import Settings
-from arkeology.errors import CredentialError, StartupValidationError, VectorIndexNotFoundError
+from arkeology.errors import (
+    AnnotationUnavailableError,
+    CredentialError,
+    StartupValidationError,
+    VectorIndexNotFoundError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +50,12 @@ _PROBE_KEY_SUFFIX = "_arkeology_startup_probe"
 # error, not something "aws sso login" can fix.
 _BUCKET_NOT_FOUND_CODES = frozenset({"404", "NoSuchBucket", "NotFound"})
 
+# Key suffix and annotation name for the check-8 annotation probe object. Like the write
+# probe above it starts with the reserved "_arkeology_" marker (reconcile_index skips any
+# key whose final path segment begins with it) and carries a per-invocation ULID.
+_ANNOTATION_PROBE_KEY_SUFFIX = "_arkeology_annotation_probe"
+_ANNOTATION_PROBE_NAME = "arkeology_probe"
+
 # Short probe string embedded during check 6. Content is irrelevant — only the
 # returned vector's dimension and the absence of a credential/entitlement failure matter.
 _EMBED_PROBE_TEXT = "arkeology startup embedding probe"
@@ -52,7 +67,7 @@ def validate_startup(
     vectors: VectorsClientInterface,
     bedrock: BedrockClientInterface,
 ) -> None:
-    """Run all seven startup checks in order.
+    """Run all eight startup checks in order.
 
     Args:
         settings: Validated server configuration.
@@ -74,7 +89,8 @@ def validate_startup(
     _check_model_dimension(settings, index_info)
     _check_embedding_probe(settings, bedrock)
     _check_text_model(settings, bedrock)
-    logger.info("Startup validation passed (7/7 checks). arkeology is ready.")
+    _check_annotations(settings, s3)
+    logger.info("Startup validation passed (8/8 checks). arkeology is ready.")
 
 
 # ── Individual checks ──────────────────────────────────────────────────────────
@@ -84,7 +100,7 @@ def _check_credentials(settings: Settings, s3: S3ClientInterface) -> None:
     """Check 1: Verify credentials are valid via head_bucket on ARTIFACT_BUCKET."""
     try:
         s3.head_bucket(settings.artifact_bucket)
-        logger.debug("Check 1/7 passed: credentials valid")
+        logger.debug("Check 1/8 passed: credentials valid")
     except CredentialError as exc:
         raise StartupValidationError(
             check="credentials",
@@ -164,7 +180,7 @@ def _check_write_prefix(settings: Settings, s3: S3ClientInterface) -> None:
         except Exception as cleanup_exc:
             logger.warning("Failed to clean up write probe '%s': %s", probe_key, cleanup_exc)
 
-    logger.debug("Check 2/7 passed: write prefix '%s' is readable and writable", write_prefix)
+    logger.debug("Check 2/8 passed: write prefix '%s' is readable and writable", write_prefix)
 
 
 def _check_read_prefixes(settings: Settings, s3: S3ClientInterface) -> None:
@@ -172,7 +188,7 @@ def _check_read_prefixes(settings: Settings, s3: S3ClientInterface) -> None:
     read_prefixes = settings.read_prefixes_list
 
     if not read_prefixes:
-        logger.debug("Check 3/7 skipped: no foreign read prefixes configured")
+        logger.debug("Check 3/8 skipped: no foreign read prefixes configured")
         return
 
     for prefix in read_prefixes:
@@ -213,7 +229,7 @@ def _check_read_prefixes(settings: Settings, s3: S3ClientInterface) -> None:
                     ),
                 ) from exc
 
-    logger.debug("Check 3/7 passed: %d foreign read prefix(es) accessible", len(read_prefixes))
+    logger.debug("Check 3/8 passed: %d foreign read prefix(es) accessible", len(read_prefixes))
 
 
 def _check_vector_index(settings: Settings, vectors: VectorsClientInterface) -> dict[str, Any]:
@@ -246,7 +262,7 @@ def _check_vector_index(settings: Settings, vectors: VectorsClientInterface) -> 
         ) from exc
     dim = index_info.get("dimension")
     logger.debug(
-        "Check 4/7 passed: vector index '%s' found with dimension %s",
+        "Check 4/8 passed: vector index '%s' found with dimension %s",
         settings.vectors_index,
         dim,
     )
@@ -292,7 +308,7 @@ def _check_model_dimension(
         )
 
     logger.debug(
-        "Check 5/7 passed: BEDROCK_EMBEDDING_DIMENSIONS=%d matches index dimension %d",
+        "Check 5/8 passed: BEDROCK_EMBEDDING_DIMENSIONS=%d matches index dimension %d",
         model_dim,
         index_dim,
     )
@@ -339,7 +355,7 @@ def _check_embedding_probe(settings: Settings, bedrock: BedrockClientInterface) 
             ),
         )
 
-    logger.debug("Check 6/7 passed: embedding probe returned dimension %d", len(vector))
+    logger.debug("Check 6/8 passed: embedding probe returned dimension %d", len(vector))
 
 
 def _check_text_model(settings: Settings, bedrock: BedrockClientInterface) -> None:
@@ -348,13 +364,13 @@ def _check_text_model(settings: Settings, bedrock: BedrockClientInterface) -> No
     When settings.bedrock_text_model is None, this check is skipped entirely.
     """
     if settings.bedrock_text_model is None:
-        logger.debug("Check 7/7 skipped: BEDROCK_TEXT_MODEL not configured")
+        logger.debug("Check 7/8 skipped: BEDROCK_TEXT_MODEL not configured")
         return
 
     try:
         bedrock.invoke_text_model(settings.bedrock_text_model, "ping")
         logger.debug(
-            "Check 7/7 passed: BEDROCK_TEXT_MODEL '%s' is reachable",
+            "Check 7/8 passed: BEDROCK_TEXT_MODEL '%s' is reachable",
             settings.bedrock_text_model,
         )
     except CredentialError:
@@ -369,3 +385,77 @@ def _check_text_model(settings: Settings, bedrock: BedrockClientInterface) -> No
                 f"bedrock:InvokeModel for this model. Error: {exc}"
             ),
         ) from exc
+
+
+def _annotation_failure_message(settings: Settings, exc: AnnotationUnavailableError) -> str:
+    """Build the check-8 failure message for the cause the operator must act on.
+
+    ``AnnotationUnavailableError`` covers two conditions with different remedies: a
+    missing IAM action (an IAM policy edit fixes it) and a region or bucket type that
+    does not offer annotations at all (only relocating the bucket fixes it). Reporting
+    one message for both sends the operator down the wrong path.
+    """
+    original = exc.original
+    if isinstance(original, botocore.exceptions.ClientError) and is_annotation_permission_error(
+        original
+    ):
+        return (
+            "S3 object annotation check failed: bucket "
+            f"'{settings.artifact_bucket}' and its region support object annotations, but "
+            "the caller's IAM policy is missing one or more of the four required actions "
+            "— s3:PutObjectAnnotation, s3:GetObjectAnnotation, s3:ListObjectAnnotations, "
+            "s3:DeleteObjectAnnotation. Add the missing action(s) to the deployment's IAM "
+            "policy and restart the server."
+        )
+    return (
+        "S3 object annotation check failed: bucket "
+        f"'{settings.artifact_bucket}' does not support object annotations — its region "
+        "or bucket type is unsupported. No IAM change fixes this: annotations are "
+        "unavailable in the UAE and Bahrain regions and on directory buckets (the bucket "
+        "type the S3 Express One Zone storage class uses) and Outposts buckets. Move the "
+        "artifact bucket to a supported region and bucket type before starting the server."
+    )
+
+
+def _check_annotations(settings: Settings, s3: S3ClientInterface) -> None:
+    """Check 8: Verify S3 object annotations work and all four IAM actions are granted.
+
+    Annotations are the sole durable store for ``commit_refs`` / ``references``, so a
+    deployment that cannot use them is unsupported rather than degraded — this check
+    refuses to start (requirements C-08 and FR-57). The probe writes a throwaway object
+    into WRITE_PREFIX and round-trips one annotation through all four operations, so a
+    policy granting three of the four actions fails here rather than at first use.
+    """
+    probe_key = f"{settings.write_prefix}/{_ANNOTATION_PROBE_KEY_SUFFIX}_{ULID()}"
+    try:
+        s3.put_object(probe_key, "annotation-probe", {})
+        s3.put_object_annotation(probe_key, _ANNOTATION_PROBE_NAME, "probe")
+        s3.get_object_annotation(probe_key, _ANNOTATION_PROBE_NAME)
+        s3.list_object_annotations(probe_key)
+        s3.delete_object_annotation(probe_key, _ANNOTATION_PROBE_NAME)
+    except CredentialError:
+        raise
+    except AnnotationUnavailableError as exc:
+        raise StartupValidationError(
+            check="annotations",
+            message=_annotation_failure_message(settings, exc),
+        ) from exc
+    except Exception as exc:
+        raise StartupValidationError(
+            check="annotations",
+            message=(
+                "S3 object annotation check failed: the put/get/list/delete round trip on "
+                f"probe object '{probe_key}' did not complete. Annotations are the sole "
+                "durable store for commit_refs/references, so the server cannot start "
+                f"without them. Error: {exc}"
+            ),
+        ) from exc
+    finally:
+        # Unconditional — a failed probe still leaves the object behind, and abandoning
+        # the sequence at the first error is exactly what would strand it.
+        try:
+            s3.delete_object(probe_key)
+        except Exception as cleanup_exc:
+            logger.warning("Failed to clean up annotation probe '%s': %s", probe_key, cleanup_exc)
+
+    logger.debug("Check 8/8 passed: S3 object annotations available with all four IAM actions")

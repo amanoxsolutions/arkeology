@@ -65,13 +65,13 @@ class AnnotationUnavailableError(ArkeologyError):
     required IAM permission.
 
     Distinct from :class:`CredentialError`: this signals an annotation-specific
-    limitation, not a general credential/authentication failure. Annotations
-    back only the mutable ``commit_refs`` / ``references`` link fields
-    (ADR-011) — core content, vector, and embedding operations are unaffected
-    and must keep functioning when this error is raised. Per ADR-011
-    decision 5, callers degrade gracefully (a warning on the write path, a
-    structured error from ``link_metadata``) rather than treating this as a
-    hard failure, and it is never used as a startup gate.
+    limitation, not a general credential/authentication failure. Annotations are
+    the sole durable store for the mutable ``commit_refs`` / ``references`` link
+    fields, so this is a hard error, never a degrade: startup check 8 refuses to
+    start a deployment that cannot use annotations, and at runtime this error means
+    post-setup drift (an IAM policy edited after installation). Callers surface it
+    as a structured error and record a failure-log entry where a durable write had
+    already partially landed; none of them report the operation as successful.
 
     Attributes:
         message: Human-readable, actionable explanation (required IAM actions,

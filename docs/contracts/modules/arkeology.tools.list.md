@@ -1,7 +1,7 @@
 ---
 type: Contract
 title: arkeology.tools.list
-description: The list_artifacts MCP tool — metadata-only listings from the vector index with metadata filtering and cross-scope gate enforcement, with link fields resolved from the union of both durable stores.
+description: The list_artifacts MCP tool — metadata-only listings from the vector index with metadata filtering and cross-scope gate enforcement, with link fields resolved from each artifact's durable S3 object annotations.
 tags: []
 timestamp: 2026-09-04T00:00:00Z
 okf_version: "0.1"
@@ -61,16 +61,22 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
 - The cross-scope gate applies to every candidate: own-scope always listable; foreign-scope listable
   only at `tier == 3` and `visibility == "shared"`.
 - `status` defaults to `"active"`, so archived artifacts are excluded unless explicitly requested.
-- `commit_refs` and `references` are resolved via the union-of-both-durable-stores model, **not**
-  read off whichever single section vector happened to be returned. A multi-section artifact can
-  otherwise surface an arbitrary section's stale copy.
+- `commit_refs` and `references` are resolved from each artifact's S3 object annotations, their sole
+  source of truth, **not** read off whichever single section vector happened to be returned. A
+  multi-section artifact can otherwise surface an arbitrary section's stale, capped copy.
+- The whole call issues **exactly one** vector-index scan — its own page query — regardless of page
+  size. The retired union read model cost one additional full index scan per artifact in the page,
+  because the vector copy of `commit_refs` has no server-side filter and can only be matched in
+  memory. A page of 200 artifacts performed 200 such scans.
+- A failed annotation read for any artifact in the page surfaces as an error rather than degrading
+  that artifact to empty link fields.
 - `tags` filtering matches an individual element, relying on vector metadata storing `tags` as
   `list[str]`.
 - The `commit_refs` **filter** is a server-side `$eq` against the vector-metadata copy, which
   `s3vectors.artifact` caps to the most-recent 20 entries. Filtering therefore searches that bounded
   window, **not** an artifact's full commit history: an artifact linked to 25 commits is not returned
   for any of its five oldest SHAs, even though `read_artifact` and this tool's own returned
-  `commit_refs` field (union-of-both-durable-stores) do show them. The asymmetry is inherent to the
+  `commit_refs` field (annotation-sourced) do show them. The asymmetry is inherent to the
   vector cap and cannot be closed inside the filter — a caller needing an exhaustive commit lookup
   must read candidates and match `commit_refs` itself.
 - There is **no** `references` filter parameter. It was removed outright when `references` stopped

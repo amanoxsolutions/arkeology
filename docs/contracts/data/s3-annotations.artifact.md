@@ -1,7 +1,7 @@
 ---
 type: Contract
 title: s3-annotations.artifact
-description: The S3 object-annotation store holding an artifact's mutable link fields — the complete, authoritative commit_refs and references copies, their comma-joined payload encoding, the union-of-both-stores read authority model, and the compare-and-swap guard on every mutation.
+description: The S3 object-annotation store holding an artifact's mutable link fields — the sole authoritative commit_refs and references copies, their comma-joined payload encoding, the raise-never-degrade read rule, and the compare-and-swap guard on every mutation.
 tags: []
 timestamp: 2026-09-04T00:00:00Z
 okf_version: "0.1"
@@ -110,7 +110,7 @@ def apply_link_annotations(
 **Preconditions**
 
 - The values passed must already be the final, merged values. This symbol does not merge — callers
-  resolve the union first, via `read_current_link_fields`.
+  read the current state first, via `read_link_annotations`.
 - The object at `key` must exist.
 - On any read-modify-write cycle, `if_match` must carry the ETag captured at read time. Omitting it
   reverts to unconditional behaviour and reopens the lost-update race.
@@ -131,11 +131,18 @@ def read_link_annotations(s3: S3ClientInterface, key: str) -> tuple[list[str], l
 **Errors**
 
 - `CredentialError` — raised when credentials are invalid or expired.
+- `AnnotationUnavailableError` — raised when annotations are unavailable for the bucket or the
+  caller lacks the required IAM permission. At runtime this means post-setup drift: startup check 8
+  proves availability before the server accepts any request.
+- Any transient failure from the underlying `GetObjectAnnotation` call propagates unchanged.
 
 **Invariants**
 
 - Returns `(commit_refs, references)`, each `[]` when its annotation is absent. An absent annotation
   is indistinguishable from a cleared one by design — both mean "no values".
+- **Never degrades a failure to `[]`.** An empty return means the annotations really are absent.
+  Every failure raises, because every read-modify-write cycle on the link fields writes what it read
+  straight back, and an empty result caused by a transient failure would be written over good data.
 
 **Preconditions**
 
@@ -143,46 +150,9 @@ def read_link_annotations(s3: S3ClientInterface, key: str) -> tuple[list[str], l
 
 **Postconditions**
 
-- Reads this store only. A caller needing current truth must use `read_current_link_fields`
-  instead; this symbol alone is not authoritative.
-
-### read_current_link_fields
-
-```python
-def read_current_link_fields(
-    s3: S3ClientInterface,
-    vectors: VectorsClientInterface,
-    artifact_id: str,
-) -> tuple[list[str], list[str]]: ...
-```
-
-**Errors**
-
-- `CredentialError` — re-raised, never swallowed, from either store. It signals a general
-  authentication failure very likely to break the surrounding operation, so treating it as "no link
-  fields" would be a silent data-loss path.
-
-**Invariants**
-
-- Returns the **order-preserving dedup union of both stores**, annotation values first, vector
-  values second. Neither store is sole authority.
-- The annotation side degrades gracefully on any non-`CredentialError` failure — an unsupported
-  region or bucket type, `AccessDenied` — falling back to the vector copy for that store rather than
-  aborting the caller.
-- The vector side unions across **all** of the artifact's section vectors, not just the first key.
-
-**Preconditions**
-
-- None beyond the artifact existing in at least one store.
-
-**Postconditions**
-
-- Each returned list is `[]` only when the field is absent from **both** stores.
-- This is the only correct input to a link-field merge. It exists to close two real data-loss paths:
-  an annotation-unavailable deployment holding values in vector metadata only (where an
-  annotation-only read reports them absent and a `reconcile_index` rebuild would erase the sole
-  durable copy), and a partial dual-write leaving the annotation copy ahead of the vector copy
-  (where a vector-only read misses the newer value and the next overwrite drops it).
+- This is the sole read surface for the current link-field state, and the only correct input to a
+  link-field merge. The vector-metadata copy of `commit_refs` is a derived filter index and must
+  never be read back as authority.
 
 ## Storage Shape
 

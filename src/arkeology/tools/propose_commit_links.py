@@ -4,7 +4,7 @@ Read-only discovery tool: returns own-scope artifacts that have no commit_refs,
 optionally bounded to those written since a given session-start ULID.
 
 Makes no writes to S3 or the vector index. Eligibility (``commit_refs`` empty or not)
-is decided from ``annotations.read_current_link_fields`` — the union-of-both-stores
+is decided from ``annotations.read_link_annotations`` — the sole-source-of-truth
 helper ``read.py``/``list.py`` already use — rather than a single vector's ``meta``, so
 a multi-section artifact whose ``commit_refs`` live on a section vector other than the
 one the initial dedup keeps is never silently re-proposed as unlinked (T58).
@@ -14,7 +14,7 @@ import asyncio
 import logging
 from typing import Any
 
-from arkeology.annotations import read_current_link_fields
+from arkeology.annotations import read_link_annotations
 from arkeology.clients.interfaces import (
     BedrockClientInterface,
     S3ClientInterface,
@@ -43,7 +43,7 @@ async def propose_commit_links(
     Args:
         settings: Server configuration.
         s3: S3 client, used to resolve each candidate's current commit_refs via the
-            union-of-both-stores helper (``annotations.read_current_link_fields``).
+            durable annotation store (``annotations.read_link_annotations``).
         vectors: S3 Vectors client.
         bedrock: Bedrock client (unused; injected for interface consistency).
         commit_sha: The commit SHA to associate (echoed in the response).
@@ -125,10 +125,10 @@ async def _propose_commit_links_inner(
 
     # ── Step 5: Resolve each candidate's current commit_refs from the union of both
     # durable stores ────────────────────────────────────────────────────────────────
-    # A single vector's `meta.get("commit_refs")` misses a value set (via link_metadata)
-    # on a different section vector, and — after T58's vector-metadata entry cap — can
-    # also miss a value that aged out of that one vector's capped window. Resolving via
-    # read_current_link_fields (annotation ∪ every section vector) closes both gaps.
+    # A single vector's `meta.get("commit_refs")` holds only a capped, derived copy — it
+    # misses a value set on a different section vector and one that aged out of that
+    # vector's capped window. The durable annotation is the complete value, so
+    # read_link_annotations closes both gaps.
     # These are additional round trips beyond the single batched list_vectors_by_metadata
     # + get_vectors fetch above — the same accepted cost list.py/read.py already carry
     # for the identical fix — so they run off the event loop and in parallel via
@@ -136,9 +136,7 @@ async def _propose_commit_links_inner(
     # bounded-concurrency setting: a candidate page is small relative to a single
     # artifact's section count, so an unbounded gather is the proportionate choice here.
     async def _fetch_commit_refs(artifact_id: str) -> list[str]:
-        commit_refs, _references = await asyncio.to_thread(
-            read_current_link_fields, s3, vectors, artifact_id
-        )
+        commit_refs, _references = await asyncio.to_thread(read_link_annotations, s3, artifact_id)
         return commit_refs
 
     distinct_ids = [artifact_id for artifact_id, _meta in base_entries]
@@ -152,19 +150,17 @@ async def _propose_commit_links_inner(
             if isinstance(result, CredentialError):
                 return credential_error_response(result)
             if isinstance(result, BaseException):
-                # commit_refs is supplementary to this discovery — degrade this one
-                # candidate to [] (treated as not-yet-linked) rather than aborting the
-                # whole call on a transient per-artifact vector/annotation error,
-                # mirroring list.py's existing degrade-on-error behaviour for the same
-                # helper.
+                # No degrade to []: annotations are the sole source of truth, so an
+                # artifact whose read merely failed would be indistinguishable from a
+                # genuinely unlinked one and would be proposed for linking on the
+                # strength of a transient error.
                 logger.warning(
-                    "Failed to read commit_refs for %s; degrading to []",
+                    "Failed to read commit_refs for %s",
                     artifact_id,
                     exc_info=result,
                 )
-                commit_refs_by_id[artifact_id] = []
-            else:
-                commit_refs_by_id[artifact_id] = result
+                raise result
+            commit_refs_by_id[artifact_id] = result
 
     # ── Step 6: Filter already-linked candidates, build response entries ──────
     candidates: list[dict[str, Any]] = []

@@ -7,6 +7,7 @@ the write path (T47) and are designed to be reused, unmodified, by reconcile_ind
 """
 
 import pytest
+from pytest_mock import MockerFixture
 
 from arkeology.annotations import (
     COMMIT_REFS_ANNOTATION,
@@ -14,12 +15,10 @@ from arkeology.annotations import (
     apply_link_annotations,
     decode_link_list,
     encode_link_list,
-    read_current_link_fields,
     read_link_annotations,
 )
 from arkeology.clients.s3 import S3ClientImpl
-from arkeology.clients.vectors import VectorsClientImpl
-from arkeology.errors import ArtifactConflictError, CredentialError
+from arkeology.errors import AnnotationUnavailableError, ArtifactConflictError, CredentialError
 
 # ---------------------------------------------------------------------------
 # encode_link_list / decode_link_list
@@ -237,32 +236,43 @@ def test_read_link_annotations_credential_error_propagates(
 
 
 # ---------------------------------------------------------------------------
-# read_current_link_fields — vector-metadata side must union across ALL section
-# vectors, not just the first
+# read_link_annotations must raise, never degrade a failure to []
 # ---------------------------------------------------------------------------
 
 
-def test_read_current_link_fields_unions_vector_metadata_across_all_section_vectors(
+def test_read_link_annotations_transient_failure_propagates(
     s3_client: S3ClientImpl,
-    vectors_client_2: VectorsClientImpl,
+    mocker: MockerFixture,
 ) -> None:
-    """An artifact with multiple section vectors, where a link field is only set on a
-    NON-first section vector (in list_vectors_by_metadata's return order), must still
-    have that value included in the union — sampling only the first vector's metadata
-    silently drops link-field state living on any other section vector."""
-    s3_client.put_object(key="artifacts/multi.md", body="content", metadata={"title": "Multi"})
-
-    base_meta = {"artifact_id": "artifacts/multi.md", "scope": "artifacts"}
-    vectors_client_2.put_vector("artifacts/multi.md#alpha", [0.1, 0.2], dict(base_meta))
-    vectors_client_2.put_vector(
-        "artifacts/multi.md#beta",
-        [0.3, 0.4],
-        {**base_meta, "commit_refs": ["abc1234"], "references": ["ref-1"]},
+    """A non-credential, non-KeyError failure must propagate. Annotations are the sole
+    source of truth, so returning [] here is indistinguishable from "this artifact has
+    no links" — and every read-modify-write caller would write that emptiness back over
+    the real values."""
+    s3_client.put_object(key="artifacts/transient.md", body="content", metadata={})
+    apply_link_annotations(
+        s3_client, "artifacts/transient.md", commit_refs=["abc1234"], references=["ref-1"]
+    )
+    mocker.patch.object(
+        s3_client, "get_object_annotation", side_effect=RuntimeError("transient S3 failure")
     )
 
-    commit_refs, references = read_current_link_fields(
-        s3_client, vectors_client_2, "artifacts/multi.md"
+    with pytest.raises(RuntimeError):
+        read_link_annotations(s3_client, "artifacts/transient.md")
+
+
+def test_read_link_annotations_annotation_unavailable_propagates(
+    s3_client: S3ClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """Post-setup IAM drift (annotations became unreadable after installation) is a hard
+    error, not a degrade — the startup gate proves availability at boot, so a failure
+    here means something changed underneath the server."""
+    s3_client.put_object(key="artifacts/drifted.md", body="content", metadata={})
+    mocker.patch.object(
+        s3_client,
+        "get_object_annotation",
+        side_effect=AnnotationUnavailableError("simulated", "s3", Exception("boom")),
     )
 
-    assert commit_refs == ["abc1234"]
-    assert references == ["ref-1"]
+    with pytest.raises(AnnotationUnavailableError):
+        read_link_annotations(s3_client, "artifacts/drifted.md")

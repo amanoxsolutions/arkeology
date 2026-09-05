@@ -2,16 +2,15 @@
 
 Returns metadata-only listings from the vector index with metadata filtering
 and cross-scope gate enforcement. Vector metadata supplies every field except
-commit_refs/references, which are read via the union-of-both-durable-stores
-model (``annotations.read_current_link_fields``) so a multi-section artifact
-never surfaces an arbitrary single section vector's possibly-stale copy.
+commit_refs/references, which are read from each artifact's durable S3 object
+annotations (``annotations.read_link_annotations``) — their sole source of truth.
 """
 
 import asyncio
 import logging
 from typing import Any
 
-from arkeology.annotations import read_current_link_fields
+from arkeology.annotations import read_link_annotations
 from arkeology.clients.interfaces import (
     BedrockClientInterface,
     S3ClientInterface,
@@ -56,7 +55,7 @@ async def list_artifacts(
         settings: Server configuration.
         s3: S3 client, used to read the durable commit_refs/references
             annotation copy per distinct artifact in the page (see
-            annotations.read_current_link_fields).
+            annotations.read_link_annotations).
         vectors: S3 Vectors client.
         bedrock: Bedrock client (unused; injected for interface consistency).
         type: Optional artifact type filter.
@@ -180,20 +179,19 @@ async def _list_artifacts_inner(
 
         gated_entries.append((artifact_id, is_own, meta))
 
-    # ── Step 4b: commit_refs/references — union of both durable stores ────────
+    # ── Step 4b: commit_refs/references from the durable annotations ──────────
     # Fetched only for entries that survived the cross-scope gate above (never
     # for foreign-scope entries that failed it) and only once per distinct
-    # artifact_id (gated_entries is already deduplicated). Each fetch is a
-    # blocking S3 + S3 Vectors round trip via read_current_link_fields, so this
-    # is N sequential-cost lookups for a page of N distinct artifacts — there is
-    # no batched alternative (unlike the single-query resolve_readable_targets
-    # below), so they run off the event loop and in parallel via asyncio.gather
-    # rather than one at a time. No new bounded-concurrency setting (compare
-    # write.py's SECTION_CONCURRENCY): a listing page is small relative to a
-    # single artifact's section count, so an unbounded gather is the
-    # proportionate choice here.
+    # artifact_id (gated_entries is already deduplicated). Each fetch is a pair of
+    # blocking S3 annotation GETs, so this is N sequential-cost lookups for a page
+    # of N distinct artifacts — there is no batched alternative (unlike the
+    # single-query resolve_readable_targets below), so they run off the event loop
+    # and in parallel via asyncio.gather rather than one at a time. No new
+    # bounded-concurrency setting (compare write.py's SECTION_CONCURRENCY): a
+    # listing page is small relative to a single artifact's section count, so an
+    # unbounded gather is the proportionate choice here.
     async def _fetch_link_fields(artifact_id: str) -> tuple[list[str], list[str]]:
-        return await asyncio.to_thread(read_current_link_fields, s3, vectors, artifact_id)
+        return await asyncio.to_thread(read_link_annotations, s3, artifact_id)
 
     distinct_ids = [artifact_id for artifact_id, _, _ in gated_entries]
     link_fields_by_id: dict[str, tuple[list[str], list[str]]] = {}
@@ -206,17 +204,17 @@ async def _list_artifacts_inner(
             if isinstance(result, CredentialError):
                 return credential_error_response(result)
             if isinstance(result, BaseException):
-                # commit_refs / references are supplementary — degrade this one
-                # artifact to [] rather than aborting the whole page on a
-                # transient per-artifact vector/annotation error.
+                # No degrade to []: annotations are the sole source of truth for both
+                # fields, so a page that silently reported "no links" for an artifact
+                # whose annotation read merely failed would be indistinguishable from
+                # one that genuinely has none.
                 logger.warning(
-                    "Failed to read commit_refs/references for %s; degrading to []",
+                    "Failed to read commit_refs/references for %s",
                     artifact_id,
                     exc_info=result,
                 )
-                link_fields_by_id[artifact_id] = ([], [])
-            else:
-                link_fields_by_id[artifact_id] = result
+                raise result
+            link_fields_by_id[artifact_id] = result
 
     # ── Step 5: Cross-scope reference filtering (ADR-012) ─────────────────────
     # Own-scope entries are never filtered. Foreign entries' references are

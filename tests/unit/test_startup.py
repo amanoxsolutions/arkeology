@@ -1,20 +1,31 @@
 """Unit tests for the startup validation sequence.
 
-All seven checks are tested via moto-backed clients — no real AWS calls are made.
+All eight checks are tested via moto-backed clients — no real AWS calls are made.
 Tests verify the correct StartupValidationError check field and that failing
 checks prevent subsequent checks from running.
 """
 
 import logging
 
+import botocore.exceptions
 import pytest
 
 from arkeology.clients.fakes.fake_bedrock import FakeBedrockClient
 from arkeology.clients.s3 import S3ClientImpl
 from arkeology.clients.vectors import VectorsClientImpl
 from arkeology.config import Settings
-from arkeology.errors import CredentialError, StartupValidationError
+from arkeology.errors import AnnotationUnavailableError, CredentialError, StartupValidationError
 from arkeology.startup import validate_startup
+from arkeology.tools.reconcile import _PROBE_KEY_MARKER
+
+# The four IAM actions check 8 must prove are granted, named by the client method that
+# exercises each one.
+ANNOTATION_METHODS = (
+    "put_object_annotation",
+    "get_object_annotation",
+    "list_object_annotations",
+    "delete_object_annotation",
+)
 
 
 @pytest.fixture
@@ -828,3 +839,131 @@ def test_check3_read_prefix_grants_list_but_denies_object_read_still_fails(
             bedrock=bedrock,
         )
     assert exc_info.value.check == "read_prefix"
+
+
+# ---------------------------------------------------------------------------
+# Check 8: S3 object annotation availability + the four required IAM actions
+# ---------------------------------------------------------------------------
+
+
+def _annotation_client_error(code: str) -> botocore.exceptions.ClientError:
+    """Build a botocore ClientError carrying the given S3 error code."""
+    return botocore.exceptions.ClientError(
+        {"Error": {"Code": code, "Message": "simulated"}}, "PutObjectAnnotation"
+    )
+
+
+def _annotation_unavailable(code: str) -> AnnotationUnavailableError:
+    """Build the AnnotationUnavailableError the S3 client raises for the given code."""
+    return AnnotationUnavailableError("simulated", "s3", _annotation_client_error(code))
+
+
+@pytest.mark.parametrize("method", ANNOTATION_METHODS)
+def test_check8_missing_iam_action_refuses_start(
+    settings: Settings,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+    method: str,
+) -> None:
+    """Each of the four annotation IAM actions is exercised: denying any one of them
+    refuses startup with check='annotations' and a message naming the four actions."""
+    mocker.patch.object(s3_client, method, side_effect=_annotation_unavailable("AccessDenied"))
+    bedrock = FakeBedrockClient()
+    with pytest.raises(StartupValidationError) as exc_info:
+        validate_startup(settings=settings, s3=s3_client, vectors=vectors_client, bedrock=bedrock)
+    assert exc_info.value.check == "annotations"
+    message = exc_info.value.message
+    for action in (
+        "s3:PutObjectAnnotation",
+        "s3:GetObjectAnnotation",
+        "s3:ListObjectAnnotations",
+        "s3:DeleteObjectAnnotation",
+    ):
+        assert action in message
+
+
+def test_check8_unsupported_region_or_bucket_type_refuses_start(
+    settings: Settings,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """A region/bucket-type rejection is not fixable by an IAM change — the message must
+    say so and point at relocating the bucket, not at editing a policy."""
+    mocker.patch.object(
+        s3_client, "put_object_annotation", side_effect=_annotation_unavailable("NotImplemented")
+    )
+    bedrock = FakeBedrockClient()
+    with pytest.raises(StartupValidationError) as exc_info:
+        validate_startup(settings=settings, s3=s3_client, vectors=vectors_client, bedrock=bedrock)
+    assert exc_info.value.check == "annotations"
+    assert "No IAM change" in exc_info.value.message
+
+
+def test_check8_permission_and_unavailability_messages_are_distinguishable(
+    settings: Settings,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """The two causes an operator acts on differently must not share one message: an
+    AccessDenied says 'fix the IAM policy', an unsupported region/bucket type says
+    'relocate the bucket'."""
+    bedrock = FakeBedrockClient()
+    messages = []
+    for code in ("AccessDenied", "NotImplemented"):
+        mocker.patch.object(
+            s3_client, "put_object_annotation", side_effect=_annotation_unavailable(code)
+        )
+        with pytest.raises(StartupValidationError) as exc_info:
+            validate_startup(
+                settings=settings, s3=s3_client, vectors=vectors_client, bedrock=bedrock
+            )
+        messages.append(exc_info.value.message)
+    assert messages[0] != messages[1]
+    assert "IAM policy" in messages[0]
+    assert "No IAM change" in messages[1]
+
+
+def test_check8_probe_object_is_always_cleaned_up(
+    settings: Settings,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """The annotation probe writes a real object into WRITE_PREFIX; cleanup is
+    unconditional, so a failed probe leaves nothing stranded."""
+    mocker.patch.object(
+        s3_client, "put_object_annotation", side_effect=_annotation_unavailable("AccessDenied")
+    )
+    bedrock = FakeBedrockClient()
+    with pytest.raises(StartupValidationError):
+        validate_startup(settings=settings, s3=s3_client, vectors=vectors_client, bedrock=bedrock)
+    leftovers = [
+        key
+        for key in s3_client.list_objects(settings.write_prefix)
+        if "_arkeology_annotation_probe" in key
+    ]
+    assert leftovers == []
+
+
+def test_check8_probe_key_uses_the_reserved_probe_marker(
+    settings: Settings,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """The probe object lands in WRITE_PREFIX, so its final path segment must start with
+    the reserved marker reconcile_index skips — otherwise a probe that outlives a crashed
+    startup is reindexed as if it were an artifact."""
+    put_spy = mocker.spy(s3_client, "put_object")
+    bedrock = FakeBedrockClient()
+    validate_startup(settings=settings, s3=s3_client, vectors=vectors_client, bedrock=bedrock)
+    annotation_probe_keys = [
+        call.args[0] for call in put_spy.call_args_list if "annotation_probe" in call.args[0]
+    ]
+    assert annotation_probe_keys
+    for key in annotation_probe_keys:
+        assert key.startswith(f"{settings.write_prefix}/")
+        assert key.rsplit("/", 1)[-1].startswith(_PROBE_KEY_MARKER)

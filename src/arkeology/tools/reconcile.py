@@ -14,7 +14,7 @@ from arkeology.annotations import (
     CAS_MAX_ATTEMPTS,
     apply_link_annotations,
     merge_link_field,
-    read_current_link_fields,
+    read_link_annotations,
 )
 from arkeology.artifact import (
     cap_commit_refs_for_vectors,
@@ -115,7 +115,7 @@ def _restore_entry_link_fields(
     if not (recorded_commit_refs or recorded_references):
         return
 
-    current_commit_refs, current_references = read_current_link_fields(s3, vectors, artifact_id)
+    current_commit_refs, current_references = read_link_annotations(s3, artifact_id)
     # ponytail: read-merge-write without compare-and-swap. A link_metadata call landing
     # between the read above and the write below is clobbered. The window is the two
     # calls' latency, against a repair path that only runs on an artifact already known
@@ -152,11 +152,7 @@ def _reindex_artifact(
         settings: Server configuration.
         s3: S3 client, used to read the durable commit_refs/references annotations
             (ADR-011).
-        vectors: Vectors client, used both for upsert and to read the existing indexed
-            vector-metadata copy of commit_refs/references before it is overwritten,
-            so the union-of-both-stores authority model
-            (``read_current_link_fields``) never loses a value that lives only in the
-            vector copy (e.g. an annotation-unavailable deployment).
+        vectors: Vectors client, used to upsert the rebuilt section vectors.
         bedrock: Bedrock client for embedding.
 
     Returns:
@@ -167,6 +163,11 @@ def _reindex_artifact(
             invalid credentials — propagated to the caller rather than swallowed,
             aborting the reconcile run with a structured credential error instead of
             silently continuing without link fields.
+        Exception: Any other failure reading the durable link annotations propagates
+            too, failing this artifact rather than rebuilding its vector metadata from a
+            spurious empty — which would write that emptiness over its real link fields.
+            The caller converts it into a structured ``failed`` entry, so the run itself
+            still completes.
         MetadataTooLargeError: If the rebuilt vector_metadata breaches any of the
             three metadata size budgets (T57) — propagated to the caller, which
             reports it as a structured `failed` entry (or, once an entry's
@@ -183,7 +184,7 @@ def _reindex_artifact(
     # removes it from the rebuilt vector metadata below; it is never referenced again in
     # this function. Mirrors write.py's `_existing_references` naming for the same
     # deliberately-unused-tuple-element pattern.
-    commit_refs_list, _references_list = read_current_link_fields(s3, vectors, artifact_id)
+    commit_refs_list, _references_list = read_link_annotations(s3, artifact_id)
 
     vector_metadata: dict[str, Any] = {
         "artifact_id": artifact_id,
@@ -205,13 +206,12 @@ def _reindex_artifact(
     #
     # commit_refs is capped to the most-recently-appended
     # COMMIT_REFS_VECTOR_METADATA_MAX_ENTRIES entries for this vector-metadata copy only
-    # (T58) — the annotation-backed commit_refs_list read above (via
-    # read_current_link_fields) is already the complete, uncapped union.
+    # (T58) — the annotation-backed commit_refs_list read above is already the complete,
+    # uncapped value. The capped copy is a derived filter index, so the cap is a property
+    # of the index rather than a limit on what is stored.
     #
-    # references is never written to vector metadata (T58) — read_current_link_fields
-    # still reads it (for backward-read compatibility with pre-T58 vectors, and to
-    # surface it via read_artifact/list_artifacts), but the rebuilt vector metadata here
-    # must never carry it: the annotation is its sole durable store going forward.
+    # references is never written to vector metadata (T58) — the annotation is its sole
+    # durable store.
     if tags:
         vector_metadata["tags"] = tags
     if source_artifacts_list:

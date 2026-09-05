@@ -11,6 +11,7 @@ import botocore.exceptions
 import pytest
 from pytest_mock import MockerFixture
 
+from arkeology.annotations import apply_link_annotations
 from arkeology.clients.s3 import S3ClientImpl
 from arkeology.clients.vectors import VectorsClientImpl
 from arkeology.config import Settings
@@ -673,9 +674,10 @@ async def test_archive_get_vectors_credential_error(
 ) -> None:
     """get_vectors raises CredentialError → structured error.
 
-    This fails during the Step 3 own-scope referrer check (``find_referrers`` also
-    calls ``get_vectors``, and it runs before the S3 status flip) — no failure-log
-    entry is expected since nothing has been written yet."""
+    The first get_vectors call the flow reaches is the Step 5-6 vector status flip
+    (Step 3's referrer lookup matches no keys and short-circuits, and the link-field
+    read-forward reads annotations, not vectors). The S3 status flip is durable by then,
+    so this is a partial archive and a failure-log entry is required."""
     settings = _make_settings(monkeypatch, tmp_path=tmp_path)
     s3_client.put_object("artifacts/active-review", _CONTENT, {**_BASE_S3_META, "status": "active"})
     vectors_client_2.put_vector(
@@ -700,7 +702,7 @@ async def test_archive_get_vectors_credential_error(
     )
 
     assert result.get("error") == "credential_error"
-    assert not settings.failure_log_path.exists()
+    assert settings.failure_log_path.exists()
 
 
 async def test_archive_put_vector_credential_error(
@@ -1126,17 +1128,20 @@ async def test_archive_preserves_commit_refs_and_references_annotations(
     )
 
 
-async def test_archive_preserves_link_fields_sourced_from_vector_metadata_only(
+async def test_archive_preserves_link_fields_read_from_the_annotation(
     monkeypatch: pytest.MonkeyPatch,
     s3_client: S3ClientImpl,
     vectors_client_2: VectorsClientImpl,
 ) -> None:
-    """When commit_refs/references exist only in vector metadata (no annotation —
-    e.g. an annotation-unavailable deployment per T52), archiving must still
-    re-apply them as the durable annotation copy, per the union-of-both-stores
-    authority model (read_current_link_fields)."""
+    """The status re-PUT clears the object's annotations, so archiving must read the
+    link fields forward from the annotation beforehand and re-apply them afterwards. A
+    value present only in vector metadata is not read back — that copy is a derived
+    filter index, not a source of truth."""
     settings = _make_settings(monkeypatch)
     _seed_all(s3_client, vectors_client_2)
+    apply_link_annotations(
+        s3_client, "artifacts/active-review", commit_refs=["abc1234"], references=["ref-1"]
+    )
     vectors_client_2.put_vector(
         "artifacts/active-review#summary",
         [1.0, 0.0],
@@ -1144,7 +1149,7 @@ async def test_archive_preserves_link_fields_sourced_from_vector_metadata_only(
             **_BASE_VECTOR_META,
             "artifact_id": "artifacts/active-review",
             "status": "active",
-            "commit_refs": ["abc1234"],
+            "commit_refs": ["vector-only-sha"],
         },
     )
 
@@ -1159,19 +1164,22 @@ async def test_archive_preserves_link_fields_sourced_from_vector_metadata_only(
     assert "error" not in result
     assert result["status"] == "inactive"
     assert s3_client.get_object_annotation("artifacts/active-review", "commit_refs") == "abc1234"
+    assert s3_client.get_object_annotation("artifacts/active-review", "references") == "ref-1"
 
 
-async def test_archive_annotation_unavailable_still_succeeds_with_warning(
+async def test_archive_annotation_unavailable_reports_a_partial_archive(
     monkeypatch: pytest.MonkeyPatch,
     s3_client: S3ClientImpl,
     vectors_client_2: VectorsClientImpl,
     mocker: MockerFixture,
+    tmp_path: Path,
 ) -> None:
-    """An AnnotationUnavailableError raised while re-applying link annotations after
-    the status re-PUT must never fail the archive (ADR-011 decision 5, mirroring the
-    write path's graceful degrade): the artifact is still archived and the response
-    carries a warning instead of an error."""
-    settings = _make_settings(monkeypatch)
+    """An AnnotationUnavailableError raised while re-applying link annotations after the
+    status re-PUT is never reported as a successful archive. The re-PUT has already
+    cleared the annotations and annotations are the sole durable store for both fields,
+    so this is a partial archive: a failure-log entry for reconcile_index plus a
+    structured error."""
+    settings = _make_settings(monkeypatch, tmp_path=tmp_path)
     _seed_all(s3_client, vectors_client_2)
     s3_client.put_object_annotation("artifacts/active-review", "commit_refs", "abc1234")
     mocker.patch.object(
@@ -1190,9 +1198,11 @@ async def test_archive_annotation_unavailable_still_succeeds_with_warning(
         artifact_id="artifacts/active-review",
     )
 
-    assert "error" not in result
-    assert result["status"] == "inactive"
-    assert result.get("annotation_warning")
+    assert "error" in result
+    assert settings.failure_log_path.exists()
+    entries = [json.loads(line) for line in settings.failure_log_path.read_text().splitlines()]
+    assert [e["artifact_id"] for e in entries] == ["artifacts/active-review"]
+    assert entries[0]["commit_refs"] == ["abc1234"]
 
 
 async def test_archive_annotation_credential_error_aborts(

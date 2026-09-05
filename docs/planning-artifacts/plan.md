@@ -360,6 +360,36 @@ clause does not need a dedicated spec. Testing approach: **TDD** (NFR-07).
     budget loop — necessarily so, since the running byte total decides whether the next candidate is
     fetched at all, and batching would pay for bytes the budget discards.
 
+77. **Make S3 object annotations the sole source of truth for link fields, gated at startup** —
+    *(operator decision, 2026-09-05: reverses ADR-011 decision 5; requirements C-08 and FR-57 flipped from
+    Should/degrade-gracefully to Must/gate-startup)*. The union-of-both-durable-stores read model existed
+    only to serve deployments where annotations were unavailable, and it cost a **full vector-index scan
+    per artifact** on every read — the index API has no server-side filter for `commit_refs`, so the read
+    is implemented as paginate-everything-and-match-in-memory. A `list_artifacts` page of 200 artifacts
+    performed 200 full scans; a single `read_artifact` performed one. What those scans returned was at
+    most the capped most-recent-20 `commit_refs` and never any `references`, a strictly poorer copy of
+    what annotations already hold complete. Steps:
+
+    1. **Requirements** — C-08 and FR-57 rewritten as Must. ✅
+    2. **ADR-011** — dated Revision recording the reversal and its rationale. ✅
+    3. **Setup skill** — Check 8 becomes blocking; a region or bucket type without annotation support is
+       an unsupported deployment, not a degraded one. ✅
+    4. **Startup** — an eighth check probing annotation availability and the four IAM actions, refusing
+       to start on failure. ✅
+    5. **Code** — retire the union: annotations become the only read source; **annotation read failures
+       must raise rather than return empty** (the safety-critical half — with the union gone, an empty
+       result from a transient failure would be written back over good data on the read-modify-write
+       paths); delete the per-artifact vector scan. Vector `commit_refs` keeps being written purely as a
+       derived filter index, never read back. ✅
+    6. **Documentation** — update every surface that describes the old model: `README.md`,
+       `SERVER-REFERENCE.md`, `AGENTS.md`, the contracts (`s3vectors.artifact` restated as a derived
+       filter index rather than a store; `s3-annotations.artifact`; the read, list, write, archive,
+       reconcile, link_metadata and propose_commit_links module contracts), and the remaining skills.
+       Known stale items to fix in this sweep: `AGENTS.md`'s repository-structure table still calls
+       `startup.py` a "Seven-check startup validation sequence" (there are now eight), and its Component
+       Dependencies section still describes annotation unavailability as degrading gracefully rather than
+       refusing to start.
+
 ## Risks and Open Questions
 
 - **~~S3 Vectors `PutVector` upsert behaviour~~** — **CLOSED (2026-05-31, T17 confirmed)**: `PutVectors` silently overwrites an existing key (upsert confirmed). 44 integration tests passed green; tier 3 overwrite logic is correct as written; no code change required.

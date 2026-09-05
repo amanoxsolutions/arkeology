@@ -22,8 +22,9 @@ revised:
 
 The metadata dict written alongside each artifact's embedding vector in S3 Vectors, and the
 validation layer in front of it. This is the artifact's *searchable* representation: it exists to
-be filtered on, not to be authoritative. Artifact content lives only in S3, and the complete
-`commit_refs` / `references` values live only in the S3 object annotation copy.
+be filtered on, not to be authoritative. Artifact content lives only in S3, and the
+`commit_refs` / `references` values live only in the S3 object annotation copy — this store's
+`commit_refs` is a derived index of that copy, written but never read back.
 
 ## Symbols
 
@@ -86,7 +87,7 @@ omitted rather than written as `[]`:
 |---|---|---|
 | `tags` | `list[str]` | Stored as a list so `$eq` matches an individual element. |
 | `source_artifacts` | `list[str]` | Non-filterable. |
-| `commit_refs` | `list[str]` | Capped to the most-recent 20 entries. |
+| `commit_refs` | `list[str]` | Capped to the most-recent 20 entries. A **derived filter index**: written so the index can answer "which artifacts carry commit ref X" as a server-side filter clause, never read back as a source of truth. |
 
 Never present: `references`. The field was removed from this representation entirely; the
 annotation copy is its sole durable store and sole read surface.
@@ -115,13 +116,16 @@ before any failure-log append:
 - `tags` stays a `list[str]` here. A consumer may rely on `$eq` element-in-list filtering; it must
   not expect the comma-joined string form used in S3 object metadata. Both representations are
   correct and intentionally different — neither is being migrated toward the other.
-- A reader must tolerate a `references` key on vectors written before its removal shipped. No path
-  writes it going forward, but the union-of-both-stores read helper keeps reading it for
-  backward-read compatibility.
+- A reader must tolerate a `references` key on vectors written before its removal shipped, but no
+  path reads or writes it. The union-of-both-durable-stores read model that once read it back is
+  retired; the annotation copy is the sole source of truth for both link fields.
 - A reader must tolerate `tags`, `source_artifacts`, and `commit_refs` being absent rather than
   empty.
-- `commit_refs` here is a bounded, most-recent-N view. A consumer may never treat its contents as
-  the complete set, and may never derive a count of an artifact's total commit references from it.
+- `commit_refs` here is a bounded, most-recent-N **derived** view. A consumer may never treat its
+  contents as the complete set, may never derive a count of an artifact's total commit references
+  from it, and may never read it back as the current link-field state. Its one job is serving the
+  server-side filter clause; the complete value lives in the annotation copy. The cap is therefore
+  a property of the index, not a limit on stored data.
 - The 20-entry cap is calibrated against real AWS write-rejection behaviour for the current
   filterable-key mix, not derived from the byte budget above — the local approximation
   under-measures what AWS actually rejects. Changing the set of filterable vector-metadata keys

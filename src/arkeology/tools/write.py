@@ -19,7 +19,8 @@ from ulid import ULID
 from arkeology.annotations import (
     CAS_MAX_ATTEMPTS,
     apply_link_annotations,
-    read_current_link_fields,
+    merge_link_field,
+    read_link_annotations,
 )
 from arkeology.artifact import (
     Artifact,
@@ -36,7 +37,6 @@ from arkeology.clients.interfaces import (
 from arkeology.config import Settings
 from arkeology.constants import ErrorCode
 from arkeology.errors import (
-    AnnotationUnavailableError,
     ArtifactCollisionError,
     ArtifactConflictError,
     CredentialError,
@@ -600,9 +600,8 @@ async def _write_artifact_inner(  # noqa: PLR0913
     # PutObject clears S3 annotations, so an in-place re-PUT (a tier-3 living-document
     # update, or an explicit tier-2 replacement) would otherwise silently lose the
     # accumulated commit_refs trail. commit_refs is a durable, backfill-only audit trail
-    # with no frontmatter counterpart: read its current value forward as the union of
-    # both durable stores (neither the annotation copy nor the vector-metadata copy is
-    # sole authority; see ``annotations.read_current_link_fields``)
+    # with no frontmatter counterpart: read its current value forward from the durable
+    # annotations, its sole source of truth (see ``annotations.read_link_annotations``),
     # and merge it with the value supplied to this write (union, dedup, order-preserving)
     # before either store is touched.
     #
@@ -631,11 +630,15 @@ async def _write_artifact_inner(  # noqa: PLR0913
     # if_none_match="*" guard addresses a different race (the create-collision guard).
     final_commit_refs = refs
     final_references = references
-    annotation_warning: str | None = None
 
     if is_existing and overwrite:
         current_etag = initial_etag
         last_attempt_object_written = False
+        # Accumulated across attempts rather than replaced. This attempt's own
+        # put_object clears the object's annotations, so a retry after a failed
+        # annotation apply reads them back as absent — re-reading into a fresh variable
+        # would drop the commit_refs trail the first attempt had already read forward.
+        carried_commit_refs: list[str] = []
         for attempt in range(CAS_MAX_ATTEMPTS):
             last_attempt_object_written = False
             if attempt > 0:
@@ -651,7 +654,7 @@ async def _write_artifact_inner(  # noqa: PLR0913
 
             try:
                 existing_commit_refs, _existing_references = await asyncio.to_thread(
-                    read_current_link_fields, s3, vectors, s3_key
+                    read_link_annotations, s3, s3_key
                 )
             except CredentialError as exc:
                 return {
@@ -659,7 +662,8 @@ async def _write_artifact_inner(  # noqa: PLR0913
                     "message": str(exc),
                     "artifact_id": s3_key,
                 }
-            final_commit_refs = list(dict.fromkeys(existing_commit_refs + refs))
+            carried_commit_refs = merge_link_field(carried_commit_refs, existing_commit_refs)
+            final_commit_refs = list(dict.fromkeys(carried_commit_refs + refs))
 
             if final_commit_refs:
                 vector_metadata["commit_refs"] = cap_commit_refs_for_vectors(final_commit_refs)
@@ -710,15 +714,6 @@ async def _write_artifact_inner(  # noqa: PLR0913
                 # Someone changed the object between our put_object and this annotation
                 # write — retry the whole cycle, including a fresh put_object.
                 continue
-            except AnnotationUnavailableError as exc:
-                logger.warning(
-                    "Annotation write unavailable for key=%s; content and vectors will "
-                    "still be persisted without a durable commit_refs/references copy: %s",
-                    s3_key,
-                    exc,
-                )
-                annotation_warning = str(exc)
-                break
             except CredentialError as exc:
                 # The S3 put above has already succeeded — this is a partial
                 # write, not a clean failure.
@@ -804,19 +799,19 @@ async def _write_artifact_inner(  # noqa: PLR0913
         # and a later reconcile_index run rebuilds vectors from it (T48).
         # Metadata-only: never triggers a re-embed.
         #
-        # T52 / ADR-011 decision 5: annotation availability is a feature-level
-        # concern, not a hard failure. When annotations are unavailable (unsupported
-        # region/bucket type) or access is denied, the content and vectors already
-        # written (or about to be written below) must never be lost — record a
-        # warning and keep going, rather than aborting like the CredentialError
-        # branch below (a real credential failure is very likely to also break the
-        # upcoming Bedrock/vector calls, so aborting there remains correct).
+        # Annotations are the sole durable store for commit_refs/references, so a
+        # failed annotation write is never reported as a successful write: every
+        # failure below records a failure-log entry (the repair path reconcile_index
+        # replays) and returns a structured error. An annotation-unavailable failure
+        # is post-startup IAM drift — the startup gate already rejects a deployment
+        # that never had annotations — and is handled by the generic branch.
         _ = new_etag  # no CAS token needed — nothing preceded this write to race
         # This is a fresh create (atomic if_none_match put above), so the
         # key had zero prior annotations a moment ago. When neither field was supplied,
         # there is nothing to write and nothing to clear — skip the call entirely
         # rather than issuing two pointless delete_object_annotation round trips (and,
-        # on an annotation-unavailable deployment, a spurious warning for a no-op).
+        # on a deployment whose annotation permissions have since drifted, a spurious
+        # partial_write for a no-op).
         try:
             if final_commit_refs or final_references:
                 await asyncio.to_thread(
@@ -826,14 +821,6 @@ async def _write_artifact_inner(  # noqa: PLR0913
                     commit_refs=final_commit_refs,
                     references=final_references,
                 )
-        except AnnotationUnavailableError as exc:
-            logger.warning(
-                "Annotation write unavailable for key=%s; content and vectors will still "
-                "be persisted without a durable commit_refs/references copy: %s",
-                s3_key,
-                exc,
-            )
-            annotation_warning = str(exc)
         except CredentialError as exc:
             # The S3 put above has already succeeded — this is a partial write,
             # not a clean failure. Without a failure-log entry here, a credential
@@ -1100,6 +1087,4 @@ async def _write_artifact_inner(  # noqa: PLR0913
         "sections_indexed": len(new_keys),
         "last_edited_ulid": last_edited_ulid,
     }
-    if annotation_warning is not None:
-        result["warning"] = annotation_warning
     return result

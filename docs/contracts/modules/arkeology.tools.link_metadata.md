@@ -68,11 +68,12 @@ delegation rule. It raises nothing.
   `data["float32"]`.
 - `last_edited_ulid` is never altered.
 - Stored artifact content is never mutated — this tool writes metadata only.
-- Existing values are read as the **union of both durable stores**, never from vector metadata
-  alone, and supplied values are merged into that union per field, preserving first-seen order
-  and de-duplicating.
+- Existing values are read from the object's **annotations**, their sole source of truth, never from
+  vector metadata, and supplied values are merged into them per field, preserving first-seen order
+  and de-duplicating. A failed annotation read raises rather than returning empty — merging supplied
+  values into a spurious empty would delete the annotation instead of extending it.
 - The merge is accretive for both fields. A field with no supplied values re-writes its existing
-  unioned value unchanged, never `[]`.
+  value unchanged, never `[]`.
 - The annotation store always receives the **full, uncapped** value for both fields.
 - Vector metadata never receives a `references` key under any circumstance, and receives at most
   the most-recently-appended 20 `commit_refs` entries.

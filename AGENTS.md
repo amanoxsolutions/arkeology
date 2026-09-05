@@ -213,6 +213,7 @@ one makes all persisted memory inaccessible:
 - Never print to stdout — it corrupts the MCP stdio transport; use `logging.getLogger(__name__)` to write to stderr
 - Never bypass the cross-scope gate — read and search tools must always check tier + visibility for foreign-scope artifacts
 - Never store artifact content in S3 Vectors metadata — content belongs in S3 only
+- Never add fallback paths, degraded modes, or dual-store reads to work around an AWS feature being unavailable in some region or on some bucket type. Require a supported deployment and fail fast at startup instead. Arkeology gated annotation availability this way after the graceful-degradation alternative cost a full vector-index scan per artifact on every read, to produce a strictly poorer copy of data the required store already held in full — the workaround was far more expensive than the requirement it avoided. If a feature is genuinely optional, say so once and let it be absent; do not build a second code path to simulate it.
 - Never generate random or UUID artifact keys — keys are fully deterministic from artifact attributes
 - All tool public functions delegate to an `_inner` variant wrapped in `try/except Exception` — never let raw exceptions escape to the MCP caller
 - The synthesis reference check in `delete_artifact` is scoped to own scope only — foreign-scope synthesis identifiers must never appear in delete warnings

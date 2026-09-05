@@ -409,26 +409,57 @@ reverse-lookup consequences.
 
 ## Revision — 2026-09-05
 
-Decision 2 and the storage-mechanism alternatives table above state that a failed vector write
-"self-heals on the next reconcile run". When this ADR was written, nothing made that true.
-`reconcile_index` visits exactly two populations: artifacts named by a failure-log entry, and S3
-keys with **zero** vectors. `link_metadata` wrote no failure-log entry, and an artifact whose
-annotation write succeeded but whose vector write failed still has its (now stale) vectors — so it
-fell into neither population and was never revisited. The annotation-first write ordering was
-therefore doing only half its job: it made the durable copy correct, but the repair it was supposed
-to enable had no trigger. The two copies stayed divergent indefinitely, which is invisible on a
-union read (`read_artifact`) and silently wrong on every server-side metadata filter (a
-`list_artifacts` or Studio facet query on the linked value omits the artifact).
+Two changes, both made on the same day. The first supplies a trigger the ADR assumed existed; the
+second reverses decision 5.
+
+### The self-heal claim now has a trigger
+
+Decision 2 and the storage-mechanism alternatives table state that a failed vector write "self-heals
+on the next reconcile run". Nothing made that true. `reconcile_index` visits exactly two populations:
+artifacts named by a failure-log entry, and S3 keys with **zero** vectors. `link_metadata` wrote no
+failure-log entry, and an artifact whose annotation write succeeded but whose vector write failed
+still has its (now stale) vectors — so it fell into neither and was never revisited. The two copies
+stayed divergent indefinitely: invisible on a read, and silently wrong on every server-side filter of
+the linked value.
 
 `link_metadata` now appends a failure-log entry when a vector write fails after a successful
-annotation write, recording the `commit_refs`/`references` it was applying, in the same
-reindex-kind shape the write and archive paths already produce. That places the artifact in the
-first population, so Phase 1's existing replay re-applies the recorded link fields and re-indexes
-from the annotation copy — which is what decision 3 already promised reconcile would do. The
-self-heal claim is now a description of behaviour rather than an aspiration.
+annotation write, recording the values it was applying, in the same reindex-kind shape the write and
+archive paths already produce. That puts the artifact in the first population, so the existing replay
+re-applies them and re-indexes from the annotation copy. Annotation-first ordering is unchanged; only
+the missing trigger was supplied.
 
-The decision itself is unchanged: annotation-first, vectors-second, with reconcile as the repair
-path. Only the missing trigger has been supplied. The normative statement lives in
-[`docs/contracts/modules/arkeology.tools.link_metadata.md`](../contracts/modules/arkeology.tools.link_metadata.md),
-which also records the `vector_write_failed` response key the fix added so a caller can see which
-artifacts are awaiting that repair.
+### Annotation availability becomes a hard startup gate — this reverses decision 5
+
+Decision 5 made annotation availability "a feature-level concern, not a hard server-startup gate", and
+the union-of-both-durable-stores read model existed to serve it: since a deployment might have no
+annotations, every read of the link fields also consulted the vector copy in case it was the only one.
+
+The cost was not understood at the time. The vector copy is not addressable by metadata — the index
+API has no server-side filter for it — so "read this artifact's vector link fields" is *paginate the
+entire index and match in memory*, *once per artifact*. A `list_artifacts` page of 200 artifacts
+performed 200 full index scans; a single `read_artifact` performed one. What they returned was at most
+the capped most-recent-20 `commit_refs`, and never any `references` — a strictly poorer copy of what
+annotations already hold in full.
+
+The operator decided that a supported region and bucket type, with the required permissions, is a
+deployment requirement rather than something to degrade around. Requirements C-08 and FR-57 changed
+from *Should — degrades gracefully* to *Must — verified before the server accepts any request*.
+
+Consequences:
+
+- Annotations are the **sole source of truth** for both link fields, on every path. The union read
+  model is retired, and with it the per-artifact index scan.
+- Vector `commit_refs` becomes a **derived filter index**: still written, never read back. Its only
+  job is answering "which artifacts carry commit ref X". Its most-recent-20 cap is therefore a
+  property of the index, not a limit on stored data.
+- **An annotation read failure must raise rather than return empty.** This is the safety-critical
+  half. Previously a transient failure degraded silently to empty and the union covered for it. With
+  the union gone, an empty result on a read-modify-write path — reconcile rebuilding vector metadata,
+  an overwriting write, or an archive restoring after the re-PUT that clears annotations — would be
+  written back over good data. Removing the union without this would trade a performance problem for a
+  data-loss one.
+
+Decision 5's reasoning still holds for what it optimised: link storage is a narrower capability than
+content, vectors and embeddings, and gating startup on it does cost availability. That trade is now
+made deliberately the other way, with a deployment lacking annotation support treated as unsupported
+rather than degraded.

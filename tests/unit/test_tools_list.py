@@ -1,6 +1,7 @@
 """Unit tests for arkeology.tools.list.
 
-Tests list_artifacts() using moto-backed VectorsClientImpl — no S3 or Bedrock calls.
+Tests list_artifacts() using moto-backed VectorsClientImpl and S3ClientImpl — the link
+fields are read from each artifact's S3 object annotations. No Bedrock calls.
 """
 
 import math
@@ -190,13 +191,14 @@ def _seed_vectors(vectors: VectorsClientImpl) -> None:
 async def test_no_filters_returns_own_scope_and_foreign_tier3_shared(
     monkeypatch: pytest.MonkeyPatch,
     vectors_client_8: VectorsClientImpl,
+    s3_client: S3ClientImpl,
 ) -> None:
     """No filters → own-scope active artifacts and foreign-scope tier 3 shared returned."""
     settings = _make_settings(monkeypatch)
     _seed_vectors(vectors_client_8)
 
     result = await list_artifacts(
-        settings=settings, vectors=vectors_client_8, s3=None, bedrock=None
+        settings=settings, vectors=vectors_client_8, s3=s3_client, bedrock=None
     )
 
     ids = [a["artifact_id"] for a in result["artifacts"]]
@@ -208,13 +210,14 @@ async def test_no_filters_returns_own_scope_and_foreign_tier3_shared(
 async def test_default_status_active_excludes_inactive(
     monkeypatch: pytest.MonkeyPatch,
     vectors_client_8: VectorsClientImpl,
+    s3_client: S3ClientImpl,
 ) -> None:
     """No status filter → status defaults to 'active'; inactive artifacts absent."""
     settings = _make_settings(monkeypatch)
     _seed_vectors(vectors_client_8)
 
     result = await list_artifacts(
-        settings=settings, vectors=vectors_client_8, s3=None, bedrock=None
+        settings=settings, vectors=vectors_client_8, s3=s3_client, bedrock=None
     )
 
     ids = [a["artifact_id"] for a in result["artifacts"]]
@@ -224,13 +227,14 @@ async def test_default_status_active_excludes_inactive(
 async def test_status_inactive_override_returns_only_inactive(
     monkeypatch: pytest.MonkeyPatch,
     vectors_client_8: VectorsClientImpl,
+    s3_client: S3ClientImpl,
 ) -> None:
     """status='inactive' → only inactive artifacts returned."""
     settings = _make_settings(monkeypatch)
     _seed_vectors(vectors_client_8)
 
     result = await list_artifacts(
-        settings=settings, vectors=vectors_client_8, s3=None, bedrock=None, status="inactive"
+        settings=settings, vectors=vectors_client_8, s3=s3_client, bedrock=None, status="inactive"
     )
 
     ids = [a["artifact_id"] for a in result["artifacts"]]
@@ -242,6 +246,7 @@ async def test_status_inactive_override_returns_only_inactive(
 async def test_status_all_returns_active_and_inactive(
     monkeypatch: pytest.MonkeyPatch,
     vectors_client_8: VectorsClientImpl,
+    s3_client: S3ClientImpl,
 ) -> None:
     """status='all' → both active and inactive own-scope artifacts returned;
     previously the browser Studio's "All" filter was unreachable because omitting the
@@ -250,7 +255,7 @@ async def test_status_all_returns_active_and_inactive(
     _seed_vectors(vectors_client_8)
 
     result = await list_artifacts(
-        settings=settings, vectors=vectors_client_8, s3=None, bedrock=None, status="all"
+        settings=settings, vectors=vectors_client_8, s3=s3_client, bedrock=None, status="all"
     )
 
     ids = [a["artifact_id"] for a in result["artifacts"]]
@@ -266,13 +271,14 @@ async def test_status_all_returns_active_and_inactive(
 async def test_filter_type_code_review(
     monkeypatch: pytest.MonkeyPatch,
     vectors_client_8: VectorsClientImpl,
+    s3_client: S3ClientImpl,
 ) -> None:
     """type='code_review' → only code reviews in results."""
     settings = _make_settings(monkeypatch)
     _seed_vectors(vectors_client_8)
 
     result = await list_artifacts(
-        settings=settings, vectors=vectors_client_8, s3=None, bedrock=None, type="code_review"
+        settings=settings, vectors=vectors_client_8, s3=s3_client, bedrock=None, type="code_review"
     )
 
     assert len(result["artifacts"]) > 0
@@ -283,13 +289,14 @@ async def test_filter_type_code_review(
 async def test_filter_tags(
     monkeypatch: pytest.MonkeyPatch,
     vectors_client_8: VectorsClientImpl,
+    s3_client: S3ClientImpl,
 ) -> None:
     """tags=['auth'] → only artifacts with 'auth' tag."""
     settings = _make_settings(monkeypatch)
     _seed_vectors(vectors_client_8)
 
     result = await list_artifacts(
-        settings=settings, vectors=vectors_client_8, s3=None, bedrock=None, tags=["auth"]
+        settings=settings, vectors=vectors_client_8, s3=s3_client, bedrock=None, tags=["auth"]
     )
 
     assert len(result["artifacts"]) > 0
@@ -300,6 +307,7 @@ async def test_filter_tags(
 async def test_filter_type_and_tags_intersection(
     monkeypatch: pytest.MonkeyPatch,
     vectors_client_8: VectorsClientImpl,
+    s3_client: S3ClientImpl,
 ) -> None:
     """type='code_review' + tags=['auth'] → intersection of both constraints."""
     settings = _make_settings(monkeypatch)
@@ -308,7 +316,7 @@ async def test_filter_type_and_tags_intersection(
     result = await list_artifacts(
         settings=settings,
         vectors=vectors_client_8,
-        s3=None,
+        s3=s3_client,
         bedrock=None,
         type="code_review",
         tags=["auth"],
@@ -323,13 +331,14 @@ async def test_filter_type_and_tags_intersection(
 async def test_filter_team(
     monkeypatch: pytest.MonkeyPatch,
     vectors_client_8: VectorsClientImpl,
+    s3_client: S3ClientImpl,
 ) -> None:
     """team='platform' → only platform team artifacts."""
     settings = _make_settings(monkeypatch)
     _seed_vectors(vectors_client_8)
 
     result = await list_artifacts(
-        settings=settings, vectors=vectors_client_8, s3=None, bedrock=None, team="platform"
+        settings=settings, vectors=vectors_client_8, s3=s3_client, bedrock=None, team="platform"
     )
 
     assert len(result["artifacts"]) > 0
@@ -340,13 +349,14 @@ async def test_filter_team(
 async def test_filter_project(
     monkeypatch: pytest.MonkeyPatch,
     vectors_client_8: VectorsClientImpl,
+    s3_client: S3ClientImpl,
 ) -> None:
     """project='infra' → only infra project artifacts."""
     settings = _make_settings(monkeypatch)
     _seed_vectors(vectors_client_8)
 
     result = await list_artifacts(
-        settings=settings, vectors=vectors_client_8, s3=None, bedrock=None, project="infra"
+        settings=settings, vectors=vectors_client_8, s3=s3_client, bedrock=None, project="infra"
     )
 
     for artifact in result["artifacts"]:
@@ -356,13 +366,14 @@ async def test_filter_project(
 async def test_filter_tier3(
     monkeypatch: pytest.MonkeyPatch,
     vectors_client_8: VectorsClientImpl,
+    s3_client: S3ClientImpl,
 ) -> None:
     """tier=3 → only tier 3 artifacts."""
     settings = _make_settings(monkeypatch)
     _seed_vectors(vectors_client_8)
 
     result = await list_artifacts(
-        settings=settings, vectors=vectors_client_8, s3=None, bedrock=None, tier=3
+        settings=settings, vectors=vectors_client_8, s3=s3_client, bedrock=None, tier=3
     )
 
     assert len(result["artifacts"]) > 0
@@ -373,13 +384,18 @@ async def test_filter_tier3(
 async def test_no_matching_artifacts_returns_empty_list(
     monkeypatch: pytest.MonkeyPatch,
     vectors_client_8: VectorsClientImpl,
+    s3_client: S3ClientImpl,
 ) -> None:
     """Filters that match no artifacts → empty list, no error."""
     settings = _make_settings(monkeypatch)
     _seed_vectors(vectors_client_8)
 
     result = await list_artifacts(
-        settings=settings, vectors=vectors_client_8, s3=None, bedrock=None, type="session_summary"
+        settings=settings,
+        vectors=vectors_client_8,
+        s3=s3_client,
+        bedrock=None,
+        type="session_summary",
     )
 
     assert result["artifacts"] == []
@@ -393,6 +409,7 @@ async def test_no_matching_artifacts_returns_empty_list(
 async def test_filter_type_typo_returns_validation_error(
     monkeypatch: pytest.MonkeyPatch,
     vectors_client_8: VectorsClientImpl,
+    s3_client: S3ClientImpl,
 ) -> None:
     """type='cod_review' (typo, not a real artifact type) must return
     validation_error — distinguishable from the legitimate zero-match case
@@ -402,7 +419,7 @@ async def test_filter_type_typo_returns_validation_error(
     _seed_vectors(vectors_client_8)
 
     result = await list_artifacts(
-        settings=settings, vectors=vectors_client_8, s3=None, bedrock=None, type="cod_review"
+        settings=settings, vectors=vectors_client_8, s3=s3_client, bedrock=None, type="cod_review"
     )
 
     assert result.get("error") == "validation_error", (
@@ -413,13 +430,14 @@ async def test_filter_type_typo_returns_validation_error(
 async def test_filter_tier_out_of_range_returns_validation_error(
     monkeypatch: pytest.MonkeyPatch,
     vectors_client_8: VectorsClientImpl,
+    s3_client: S3ClientImpl,
 ) -> None:
     """tier=99 (not 2 or 3) must return validation_error, not a silent empty list."""
     settings = _make_settings(monkeypatch)
     _seed_vectors(vectors_client_8)
 
     result = await list_artifacts(
-        settings=settings, vectors=vectors_client_8, s3=None, bedrock=None, tier=99
+        settings=settings, vectors=vectors_client_8, s3=s3_client, bedrock=None, tier=99
     )
 
     assert result.get("error") == "validation_error", (
@@ -430,13 +448,14 @@ async def test_filter_tier_out_of_range_returns_validation_error(
 async def test_filter_status_typo_returns_validation_error(
     monkeypatch: pytest.MonkeyPatch,
     vectors_client_8: VectorsClientImpl,
+    s3_client: S3ClientImpl,
 ) -> None:
     """status='actve' (typo) must return validation_error, not a silent empty list."""
     settings = _make_settings(monkeypatch)
     _seed_vectors(vectors_client_8)
 
     result = await list_artifacts(
-        settings=settings, vectors=vectors_client_8, s3=None, bedrock=None, status="actve"
+        settings=settings, vectors=vectors_client_8, s3=s3_client, bedrock=None, status="actve"
     )
 
     assert result.get("error") == "validation_error", (
@@ -452,13 +471,14 @@ async def test_filter_status_typo_returns_validation_error(
 async def test_deduplication_two_sections_one_record(
     monkeypatch: pytest.MonkeyPatch,
     vectors_client_8: VectorsClientImpl,
+    s3_client: S3ClientImpl,
 ) -> None:
     """Two section vectors for same artifact_id → exactly one record in results."""
     settings = _make_settings(monkeypatch)
     _seed_vectors(vectors_client_8)
 
     result = await list_artifacts(
-        settings=settings, vectors=vectors_client_8, s3=None, bedrock=None
+        settings=settings, vectors=vectors_client_8, s3=s3_client, bedrock=None
     )
 
     ids = [a["artifact_id"] for a in result["artifacts"]]
@@ -469,13 +489,14 @@ async def test_deduplication_two_sections_one_record(
 async def test_result_has_required_fields(
     monkeypatch: pytest.MonkeyPatch,
     vectors_client_8: VectorsClientImpl,
+    s3_client: S3ClientImpl,
 ) -> None:
     """Each result contains all required metadata fields; no 'content' field."""
     settings = _make_settings(monkeypatch)
     _seed_vectors(vectors_client_8)
 
     result = await list_artifacts(
-        settings=settings, vectors=vectors_client_8, s3=None, bedrock=None
+        settings=settings, vectors=vectors_client_8, s3=s3_client, bedrock=None
     )
 
     assert len(result["artifacts"]) > 0
@@ -505,13 +526,14 @@ async def test_result_has_required_fields(
 async def test_tags_in_response_is_list(
     monkeypatch: pytest.MonkeyPatch,
     vectors_client_8: VectorsClientImpl,
+    s3_client: S3ClientImpl,
 ) -> None:
     """tags in response is a list, not a comma-separated string."""
     settings = _make_settings(monkeypatch)
     _seed_vectors(vectors_client_8)
 
     result = await list_artifacts(
-        settings=settings, vectors=vectors_client_8, s3=None, bedrock=None
+        settings=settings, vectors=vectors_client_8, s3=s3_client, bedrock=None
     )
 
     for artifact in result["artifacts"]:
@@ -526,13 +548,14 @@ async def test_tags_in_response_is_list(
 async def test_foreign_tier3_shared_included(
     monkeypatch: pytest.MonkeyPatch,
     vectors_client_8: VectorsClientImpl,
+    s3_client: S3ClientImpl,
 ) -> None:
     """Foreign-scope tier 3 shared artifact appears in results."""
     settings = _make_settings(monkeypatch)
     _seed_vectors(vectors_client_8)
 
     result = await list_artifacts(
-        settings=settings, vectors=vectors_client_8, s3=None, bedrock=None
+        settings=settings, vectors=vectors_client_8, s3=s3_client, bedrock=None
     )
 
     ids = [a["artifact_id"] for a in result["artifacts"]]
@@ -542,13 +565,14 @@ async def test_foreign_tier3_shared_included(
 async def test_foreign_tier2_excluded(
     monkeypatch: pytest.MonkeyPatch,
     vectors_client_8: VectorsClientImpl,
+    s3_client: S3ClientImpl,
 ) -> None:
     """Foreign-scope tier 2 artifact is excluded from results."""
     settings = _make_settings(monkeypatch)
     _seed_vectors(vectors_client_8)
 
     result = await list_artifacts(
-        settings=settings, vectors=vectors_client_8, s3=None, bedrock=None
+        settings=settings, vectors=vectors_client_8, s3=s3_client, bedrock=None
     )
 
     ids = [a["artifact_id"] for a in result["artifacts"]]
@@ -558,13 +582,14 @@ async def test_foreign_tier2_excluded(
 async def test_foreign_tier3_hidden_excluded(
     monkeypatch: pytest.MonkeyPatch,
     vectors_client_8: VectorsClientImpl,
+    s3_client: S3ClientImpl,
 ) -> None:
     """Foreign-scope tier 3 hidden artifact is excluded from results."""
     settings = _make_settings(monkeypatch)
     _seed_vectors(vectors_client_8)
 
     result = await list_artifacts(
-        settings=settings, vectors=vectors_client_8, s3=None, bedrock=None
+        settings=settings, vectors=vectors_client_8, s3=s3_client, bedrock=None
     )
 
     ids = [a["artifact_id"] for a in result["artifacts"]]
@@ -580,6 +605,7 @@ async def test_list_vectors_by_metadata_credential_error_returns_structured(
     monkeypatch: pytest.MonkeyPatch,
     vectors_client_8: VectorsClientImpl,
     mocker: MockerFixture,
+    s3_client: S3ClientImpl,
 ) -> None:
     """list_vectors_by_metadata raises CredentialError → structured error response."""
     settings = _make_settings(monkeypatch)
@@ -594,7 +620,7 @@ async def test_list_vectors_by_metadata_credential_error_returns_structured(
     )
 
     result = await list_artifacts(
-        settings=settings, vectors=vectors_client_8, s3=None, bedrock=None
+        settings=settings, vectors=vectors_client_8, s3=s3_client, bedrock=None
     )
 
     assert result.get("error") == "credential_error"
@@ -604,6 +630,7 @@ async def test_get_vectors_credential_error_returns_structured(
     monkeypatch: pytest.MonkeyPatch,
     vectors_client_8: VectorsClientImpl,
     mocker: MockerFixture,
+    s3_client: S3ClientImpl,
 ) -> None:
     """get_vectors raises CredentialError → structured error response."""
     settings = _make_settings(monkeypatch)
@@ -619,7 +646,7 @@ async def test_get_vectors_credential_error_returns_structured(
     )
 
     result = await list_artifacts(
-        settings=settings, vectors=vectors_client_8, s3=None, bedrock=None
+        settings=settings, vectors=vectors_client_8, s3=s3_client, bedrock=None
     )
 
     assert result.get("error") == "credential_error"
@@ -634,6 +661,7 @@ async def test_list_vectors_called_with_scope_filter(
     monkeypatch: pytest.MonkeyPatch,
     vectors_client_8: VectorsClientImpl,
     mocker: MockerFixture,
+    s3_client: S3ClientImpl,
 ) -> None:
     """list_artifacts with a known scope → filter arg contains scope clause."""
     settings = _make_settings(monkeypatch)
@@ -641,7 +669,7 @@ async def test_list_vectors_called_with_scope_filter(
 
     spy = mocker.spy(vectors_client_8, "list_vectors_by_metadata")
 
-    await list_artifacts(settings=settings, vectors=vectors_client_8, s3=None, bedrock=None)
+    await list_artifacts(settings=settings, vectors=vectors_client_8, s3=s3_client, bedrock=None)
 
     assert spy.call_count >= 1
     all_filter_args = [str(call.args[0]) for call in spy.call_args_list]
@@ -657,6 +685,7 @@ async def test_list_vectors_called_with_scope_filter(
 async def test_list_result_includes_source_artifacts(
     monkeypatch: pytest.MonkeyPatch,
     vectors_client_8: VectorsClientImpl,
+    s3_client: S3ClientImpl,
 ) -> None:
     """Artifact with source_artifacts metadata → present in result dict."""
     settings = _make_settings(monkeypatch)
@@ -673,7 +702,7 @@ async def test_list_result_includes_source_artifacts(
     )
 
     result = await list_artifacts(
-        settings=settings, vectors=vectors_client_8, s3=None, bedrock=None
+        settings=settings, vectors=vectors_client_8, s3=s3_client, bedrock=None
     )
 
     artifacts = result.get("artifacts", [])
@@ -690,10 +719,19 @@ async def test_list_result_includes_source_artifacts(
 async def test_list_commit_refs_filter_returns_matching_artifacts(
     monkeypatch: pytest.MonkeyPatch,
     vectors_client_8: VectorsClientImpl,
+    s3_client: S3ClientImpl,
 ) -> None:
-    """list_artifacts with commit_refs=['abc1234'] returns only matching artifacts."""
+    """list_artifacts with commit_refs=['abc1234'] returns only matching artifacts.
+
+    The filter clause is the one thing that legitimately reads the vector-metadata copy
+    of commit_refs: that copy exists as a derived, server-side filter index. Only the
+    vector copy is seeded here, and only artifact ids are asserted — the value returned
+    in each entry's commit_refs field comes from the annotation, which this test does
+    not exercise.
+    """
     settings = _make_settings(monkeypatch)
-    # artifact with matching commit ref
+    # Filter-index data only — deliberately no annotation, so a regression that sourced
+    # the filter from annotations instead would fail here.
     vectors_client_8.put_vector(
         "artifacts/with-ref#summary",
         _unit_vec(3.0),
@@ -716,7 +754,7 @@ async def test_list_commit_refs_filter_returns_matching_artifacts(
     result = await list_artifacts(
         settings=settings,
         vectors=vectors_client_8,
-        s3=None,
+        s3=s3_client,
         bedrock=None,
         commit_refs=["abc1234"],
     )
@@ -730,8 +768,10 @@ async def test_list_commit_refs_filter_returns_matching_artifacts(
 async def test_list_no_commit_refs_filter_returns_all(
     monkeypatch: pytest.MonkeyPatch,
     vectors_client_8: VectorsClientImpl,
+    s3_client: S3ClientImpl,
 ) -> None:
-    """list_artifacts without commit_refs filter returns artifacts with and without commit_refs."""
+    """Omitting the commit_refs argument adds no filter clause, so an artifact carrying
+    no commit_refs in the filter index is listed alongside one that does."""
     settings = _make_settings(monkeypatch)
     vectors_client_8.put_vector(
         "artifacts/with-ref2#summary",
@@ -754,7 +794,7 @@ async def test_list_no_commit_refs_filter_returns_all(
     result = await list_artifacts(
         settings=settings,
         vectors=vectors_client_8,
-        s3=None,
+        s3=s3_client,
         bedrock=None,
     )
 
@@ -767,9 +807,12 @@ async def test_list_no_commit_refs_filter_returns_all(
 async def test_list_result_includes_commit_refs_field(
     monkeypatch: pytest.MonkeyPatch,
     vectors_client_8: VectorsClientImpl,
+    s3_client: S3ClientImpl,
 ) -> None:
-    """Each artifact entry includes 'commit_refs' list."""
+    """Each artifact entry includes 'commit_refs' list, sourced from the annotation."""
     settings = _make_settings(monkeypatch)
+    s3_client.put_object("artifacts/with-ref3", "Content.", {"title": "x"})
+    apply_link_annotations(s3_client, "artifacts/with-ref3", commit_refs=["abc1234"], references=[])
     vectors_client_8.put_vector(
         "artifacts/with-ref3#summary",
         _unit_vec(3.4),
@@ -783,7 +826,7 @@ async def test_list_result_includes_commit_refs_field(
     result = await list_artifacts(
         settings=settings,
         vectors=vectors_client_8,
-        s3=None,
+        s3=s3_client,
         bedrock=None,
     )
 
@@ -793,25 +836,32 @@ async def test_list_result_includes_commit_refs_field(
     assert with_ref[0]["commit_refs"] == ["abc1234"]
 
 
-async def test_list_result_commit_refs_empty_when_absent(
+async def test_list_result_commit_refs_empty_when_no_annotation(
     monkeypatch: pytest.MonkeyPatch,
     vectors_client_8: VectorsClientImpl,
+    s3_client: S3ClientImpl,
 ) -> None:
-    """Artifact without commit_refs in vector metadata → commit_refs=[] in response."""
+    """An artifact carrying no commit_refs annotation reports commit_refs=[]. The stale
+    value on its vector is a derived filter-index entry and must not surface in the
+    returned field."""
     settings = _make_settings(monkeypatch)
+    # The object exists with no annotations on it, so [] here means "genuinely none"
+    # rather than "the key was missing".
+    s3_client.put_object("artifacts/no-ref3", "Content.", {"title": "x"})
     vectors_client_8.put_vector(
         "artifacts/no-ref3#summary",
         _unit_vec(3.5),
         {
             **_BASE_VECTOR_META,
             "artifact_id": "artifacts/no-ref3",
+            "commit_refs": ["stale-filter-index-sha"],
         },
     )
 
     result = await list_artifacts(
         settings=settings,
         vectors=vectors_client_8,
-        s3=None,
+        s3=s3_client,
         bedrock=None,
     )
 
@@ -829,6 +879,7 @@ async def test_list_result_commit_refs_empty_when_absent(
 async def test_list_references_kwarg_rejected(
     monkeypatch: pytest.MonkeyPatch,
     vectors_client_8: VectorsClientImpl,
+    s3_client: S3ClientImpl,
 ) -> None:
     """list_artifacts no longer accepts a references= filter parameter (T59):
     since T58 stopped writing references into vector metadata, the old
@@ -841,7 +892,7 @@ async def test_list_references_kwarg_rejected(
         await list_artifacts(  # type: ignore[call-arg]
             settings=settings,
             vectors=vectors_client_8,
-            s3=None,
+            s3=s3_client,
             bedrock=None,
             references=["a-1"],
         )
@@ -850,9 +901,14 @@ async def test_list_references_kwarg_rejected(
 async def test_list_no_references_filter_returns_all(
     monkeypatch: pytest.MonkeyPatch,
     vectors_client_8: VectorsClientImpl,
+    s3_client: S3ClientImpl,
 ) -> None:
     """list_artifacts without a references filter returns artifacts with and without references."""
     settings = _make_settings(monkeypatch)
+    s3_client.put_object("artifacts/with-ref-field2", "Content.", {"title": "x"})
+    apply_link_annotations(
+        s3_client, "artifacts/with-ref-field2", commit_refs=[], references=["c-3"]
+    )
     vectors_client_8.put_vector(
         "artifacts/with-ref-field2#summary",
         _unit_vec(4.4),
@@ -874,7 +930,7 @@ async def test_list_no_references_filter_returns_all(
     result = await list_artifacts(
         settings=settings,
         vectors=vectors_client_8,
-        s3=None,
+        s3=s3_client,
         bedrock=None,
     )
 
@@ -887,9 +943,14 @@ async def test_list_no_references_filter_returns_all(
 async def test_list_result_includes_references_field(
     monkeypatch: pytest.MonkeyPatch,
     vectors_client_8: VectorsClientImpl,
+    s3_client: S3ClientImpl,
 ) -> None:
-    """Each artifact entry includes 'references' list."""
+    """Each artifact entry includes 'references' list, sourced from the annotation."""
     settings = _make_settings(monkeypatch)
+    s3_client.put_object("artifacts/with-ref-field3", "Content.", {"title": "x"})
+    apply_link_annotations(
+        s3_client, "artifacts/with-ref-field3", commit_refs=[], references=["a-1"]
+    )
     vectors_client_8.put_vector(
         "artifacts/with-ref-field3#summary",
         _unit_vec(4.6),
@@ -903,7 +964,7 @@ async def test_list_result_includes_references_field(
     result = await list_artifacts(
         settings=settings,
         vectors=vectors_client_8,
-        s3=None,
+        s3=s3_client,
         bedrock=None,
     )
 
@@ -916,6 +977,7 @@ async def test_list_result_includes_references_field(
 async def test_list_result_references_empty_when_absent(
     monkeypatch: pytest.MonkeyPatch,
     vectors_client_8: VectorsClientImpl,
+    s3_client: S3ClientImpl,
 ) -> None:
     """Artifact without references in vector metadata → references=[] in response."""
     settings = _make_settings(monkeypatch)
@@ -931,7 +993,7 @@ async def test_list_result_references_empty_when_absent(
     result = await list_artifacts(
         settings=settings,
         vectors=vectors_client_8,
-        s3=None,
+        s3=s3_client,
         bedrock=None,
     )
 
@@ -944,6 +1006,7 @@ async def test_list_result_references_empty_when_absent(
 async def test_list_result_includes_last_edited_ulid(
     monkeypatch: pytest.MonkeyPatch,
     vectors_client_8: VectorsClientImpl,
+    s3_client: S3ClientImpl,
 ) -> None:
     """Artifact with last_edited_ulid in vector metadata → field present in response."""
     settings = _make_settings(monkeypatch)
@@ -960,7 +1023,7 @@ async def test_list_result_includes_last_edited_ulid(
     result = await list_artifacts(
         settings=settings,
         vectors=vectors_client_8,
-        s3=None,
+        s3=s3_client,
         bedrock=None,
     )
 
@@ -973,6 +1036,7 @@ async def test_list_result_includes_last_edited_ulid(
 async def test_list_legacy_artifact_last_edited_ulid_is_none(
     monkeypatch: pytest.MonkeyPatch,
     vectors_client_8: VectorsClientImpl,
+    s3_client: S3ClientImpl,
 ) -> None:
     """Artifact without last_edited_ulid in vector metadata → last_edited_ulid=None."""
     settings = _make_settings(monkeypatch)
@@ -988,7 +1052,7 @@ async def test_list_legacy_artifact_last_edited_ulid_is_none(
     result = await list_artifacts(
         settings=settings,
         vectors=vectors_client_8,
-        s3=None,
+        s3=s3_client,
         bedrock=None,
     )
 
@@ -1006,6 +1070,7 @@ async def test_list_legacy_artifact_last_edited_ulid_is_none(
 async def test_more_than_100_artifacts_all_returned(
     monkeypatch: pytest.MonkeyPatch,
     vectors_client_8: VectorsClientImpl,
+    s3_client: S3ClientImpl,
 ) -> None:
     """Seeding 105 artifacts (one section vector each) → all 105 returned without error.
 
@@ -1029,7 +1094,7 @@ async def test_more_than_100_artifacts_all_returned(
     result = await list_artifacts(
         settings=settings,
         vectors=vectors_client_8,
-        s3=None,
+        s3=s3_client,
         bedrock=None,
     )
 
@@ -1048,6 +1113,7 @@ async def test_more_than_100_artifacts_all_returned(
 async def test_vector_missing_tier_key_does_not_raise(
     monkeypatch: pytest.MonkeyPatch,
     vectors_client_8: VectorsClientImpl,
+    s3_client: S3ClientImpl,
 ) -> None:
     """M17: A vector whose metadata dict has no "tier" key causes int(meta["tier"]) to raise
     KeyError at list.py line ~200.  After the fix, the artifact is returned with a safe
@@ -1079,7 +1145,7 @@ async def test_vector_missing_tier_key_does_not_raise(
     result = await list_artifacts(
         settings=settings,
         vectors=vectors_client_8,
-        s3=None,
+        s3=s3_client,
         bedrock=None,
     )
 
@@ -1099,6 +1165,7 @@ async def test_list_vector_calls_run_off_event_loop(
     monkeypatch: pytest.MonkeyPatch,
     vectors_client_8: VectorsClientImpl,
     mocker: MockerFixture,
+    s3_client: S3ClientImpl,
 ) -> None:
     """list_vectors_by_metadata and get_vectors execute on a worker thread, never on
     the calling event-loop thread — proves the calls are routed through
@@ -1123,7 +1190,7 @@ async def test_list_vector_calls_run_off_event_loop(
     mocker.patch.object(vectors_client_8, "get_vectors", side_effect=spy_get_vectors)
 
     result = await list_artifacts(
-        settings=settings, vectors=vectors_client_8, s3=None, bedrock=None
+        settings=settings, vectors=vectors_client_8, s3=s3_client, bedrock=None
     )
 
     assert "error" not in result
@@ -1142,6 +1209,7 @@ async def test_list_cross_scope_reference_filtering_batched_across_page(
     monkeypatch: pytest.MonkeyPatch,
     vectors_client_8: VectorsClientImpl,
     mocker: MockerFixture,
+    s3_client: S3ClientImpl,
 ) -> None:
     """Multiple foreign tier-3-shared entries on the same page, each referencing a
     distinct target → unreadable targets dropped, readable targets kept, and the
@@ -1149,6 +1217,10 @@ async def test_list_cross_scope_reference_filtering_batched_across_page(
     list_vectors_by_metadata call (batched, not per-entry)."""
     settings = _make_settings(monkeypatch)
     # Foreign entry A references a foreign tier-2 target (unreadable).
+    s3_client.put_object("other-team/t3-with-refs-a", "Content.", {"title": "x"})
+    apply_link_annotations(
+        s3_client, "other-team/t3-with-refs-a", commit_refs=[], references=["other-team/t2-target"]
+    )
     vectors_client_8.put_vector(
         "other-team/t3-with-refs-a#summary",
         _unit_vec(2.1),
@@ -1172,6 +1244,10 @@ async def test_list_cross_scope_reference_filtering_batched_across_page(
         },
     )
     # Foreign entry B references a foreign tier-3-shared target (readable).
+    s3_client.put_object("other-team/t3-with-refs-b", "Content.", {"title": "x"})
+    apply_link_annotations(
+        s3_client, "other-team/t3-with-refs-b", commit_refs=[], references=["other-team/t3-target"]
+    )
     vectors_client_8.put_vector(
         "other-team/t3-with-refs-b#summary",
         _unit_vec(2.3),
@@ -1198,29 +1274,36 @@ async def test_list_cross_scope_reference_filtering_batched_across_page(
     spy = mocker.spy(vectors_client_8, "list_vectors_by_metadata")
 
     result = await list_artifacts(
-        settings=settings, vectors=vectors_client_8, s3=None, bedrock=None
+        settings=settings, vectors=vectors_client_8, s3=s3_client, bedrock=None
     )
 
     artifacts = {a["artifact_id"]: a for a in result.get("artifacts", [])}
     assert artifacts["other-team/t3-with-refs-a"]["references"] == []
     assert artifacts["other-team/t3-with-refs-b"]["references"] == ["other-team/t3-target"]
-    # One call for the main page query, one per distinct gated artifact for the
-    # commit_refs/references union fetch (Step 4b: t3-with-refs-a, t3-with-refs-b,
-    # t3-target — the N+1 cost of the union-of-both-durable-stores read), plus one
-    # batched call for cross-scope reference resolution (Step 5).
-    assert spy.call_count == 5
+    # One call for the main page query plus one batched call for cross-scope reference
+    # resolution (Step 5). Step 4b reads annotations, not the vector index, so the page's
+    # link fields cost no scan at all.
+    assert spy.call_count == 2
 
 
 async def test_list_own_scope_reference_filtering_issues_no_extra_vector_query(
     monkeypatch: pytest.MonkeyPatch,
     vectors_client_8: VectorsClientImpl,
     mocker: MockerFixture,
+    s3_client: S3ClientImpl,
 ) -> None:
     """A page containing only own-scope entries never triggers cross-scope reference
     filtering (Step 5) — references are returned unfiltered and no batched
-    resolve_readable_targets query is issued. The only calls are the main page query
-    and the one-per-distinct-artifact commit_refs/references union fetch (Step 4b)."""
+    resolve_readable_targets query is issued. The main page query is the only vector-index
+    scan the whole call makes."""
     settings = _make_settings(monkeypatch)
+    s3_client.put_object("artifacts/own-with-refs-spy", "Content.", {"title": "x"})
+    apply_link_annotations(
+        s3_client,
+        "artifacts/own-with-refs-spy",
+        commit_refs=[],
+        references=["other-team/does-not-exist"],
+    )
     vectors_client_8.put_vector(
         "artifacts/own-with-refs-spy#summary",
         _unit_vec(2.5),
@@ -1233,22 +1316,30 @@ async def test_list_own_scope_reference_filtering_issues_no_extra_vector_query(
     spy = mocker.spy(vectors_client_8, "list_vectors_by_metadata")
 
     result = await list_artifacts(
-        settings=settings, vectors=vectors_client_8, s3=None, bedrock=None
+        settings=settings, vectors=vectors_client_8, s3=s3_client, bedrock=None
     )
 
     artifacts = {a["artifact_id"]: a for a in result.get("artifacts", [])}
     assert artifacts["artifacts/own-with-refs-spy"]["references"] == ["other-team/does-not-exist"]
-    # Main page query (1) + Step 4b's per-artifact link-field fetch (1) — no Step 5 call.
-    assert spy.call_count == 2
+    # Main page query only — Step 4b reads annotations, and there is no Step 5 call.
+    assert spy.call_count == 1
 
 
 async def test_list_cross_scope_reference_missing_target_stripped(
     monkeypatch: pytest.MonkeyPatch,
     vectors_client_8: VectorsClientImpl,
+    s3_client: S3ClientImpl,
 ) -> None:
     """Foreign tier-3-shared entry referencing a target with no matching vector entry
     (deleted or never existed) → target stripped, fail safe."""
     settings = _make_settings(monkeypatch)
+    s3_client.put_object("other-team/t3-with-missing-ref", "Content.", {"title": "x"})
+    apply_link_annotations(
+        s3_client,
+        "other-team/t3-with-missing-ref",
+        commit_refs=[],
+        references=["other-team/does-not-exist"],
+    )
     vectors_client_8.put_vector(
         "other-team/t3-with-missing-ref#summary",
         _unit_vec(2.6),
@@ -1263,7 +1354,7 @@ async def test_list_cross_scope_reference_missing_target_stripped(
     )
 
     result = await list_artifacts(
-        settings=settings, vectors=vectors_client_8, s3=None, bedrock=None
+        settings=settings, vectors=vectors_client_8, s3=s3_client, bedrock=None
     )
 
     artifacts = {a["artifact_id"]: a for a in result.get("artifacts", [])}
@@ -1273,10 +1364,18 @@ async def test_list_cross_scope_reference_missing_target_stripped(
 async def test_list_cross_scope_reference_resolving_into_own_scope_kept(
     monkeypatch: pytest.MonkeyPatch,
     vectors_client_8: VectorsClientImpl,
+    s3_client: S3ClientImpl,
 ) -> None:
     """Foreign tier-3-shared entry referencing a target in the reader's own scope →
     kept, even though no vector entry exists for that own-scope target."""
     settings = _make_settings(monkeypatch)
+    s3_client.put_object("other-team/t3-with-own-ref", "Content.", {"title": "x"})
+    apply_link_annotations(
+        s3_client,
+        "other-team/t3-with-own-ref",
+        commit_refs=[],
+        references=["artifacts/own-hidden-target"],
+    )
     vectors_client_8.put_vector(
         "other-team/t3-with-own-ref#summary",
         _unit_vec(2.7),
@@ -1291,7 +1390,7 @@ async def test_list_cross_scope_reference_resolving_into_own_scope_kept(
     )
 
     result = await list_artifacts(
-        settings=settings, vectors=vectors_client_8, s3=None, bedrock=None
+        settings=settings, vectors=vectors_client_8, s3=s3_client, bedrock=None
     )
 
     artifacts = {a["artifact_id"]: a for a in result.get("artifacts", [])}
@@ -1299,60 +1398,18 @@ async def test_list_cross_scope_reference_resolving_into_own_scope_kept(
 
 
 # ---------------------------------------------------------------------------
-# commit_refs/references — union of both durable stores (ADR-011), regression
-# tests for the bug where list_artifacts read an arbitrary single section
-# vector's metadata instead of delegating to read_current_link_fields.
+# commit_refs/references — annotations are the sole source of truth
 # ---------------------------------------------------------------------------
 
 
-async def test_list_commit_refs_references_union_across_diverging_section_vectors(
-    monkeypatch: pytest.MonkeyPatch,
-    vectors_client_8: VectorsClientImpl,
-) -> None:
-    """Two section vectors for the same artifact_id carry DIFFERENT commit_refs/
-    references (simulating a partial-write/CAS-retry divergence) — list_artifacts
-    must return the union of both, not an arbitrary single section vector's value."""
-    settings = _make_settings(monkeypatch)
-    vectors_client_8.put_vector(
-        "artifacts/diverging-sections#summary",
-        _unit_vec(5.5),
-        {
-            **_BASE_VECTOR_META,
-            "artifact_id": "artifacts/diverging-sections",
-            "commit_refs": ["sha-summary"],
-            "references": ["ref-summary"],
-        },
-    )
-    vectors_client_8.put_vector(
-        "artifacts/diverging-sections#details",
-        _unit_vec(5.6),
-        {
-            **_BASE_VECTOR_META,
-            "artifact_id": "artifacts/diverging-sections",
-            "commit_refs": ["sha-details"],
-            "references": ["ref-details"],
-        },
-    )
-
-    result = await list_artifacts(
-        settings=settings, vectors=vectors_client_8, s3=None, bedrock=None
-    )
-
-    artifacts = {a["artifact_id"]: a for a in result.get("artifacts", [])}
-    entry = artifacts["artifacts/diverging-sections"]
-    assert set(entry["commit_refs"]) == {"sha-summary", "sha-details"}
-    assert set(entry["references"]) == {"ref-summary", "ref-details"}
-
-
-async def test_list_commit_refs_references_union_of_annotation_and_vector_stores(
+async def test_list_link_fields_come_from_annotations_not_vector_metadata(
     monkeypatch: pytest.MonkeyPatch,
     s3_client: S3ClientImpl,
     vectors_client_8: VectorsClientImpl,
 ) -> None:
-    """commit_refs/references present only as an S3 annotation (not in vector
-    metadata) must still surface in list_artifacts's response — proves list_artifacts
-    delegates to annotations.read_current_link_fields's union-of-both-durable-stores
-    model rather than reading vector metadata alone."""
+    """When the two stores disagree, the annotation wins outright. The vector-metadata
+    copy of commit_refs is a capped, derived filter index, never a source of truth, and
+    references is not written to vector metadata at all."""
     settings = _make_settings(monkeypatch)
     s3_client.put_object("artifacts/list-annotation-only-ref", "Content.", {"title": "x"})
     apply_link_annotations(
@@ -1378,5 +1435,68 @@ async def test_list_commit_refs_references_union_of_annotation_and_vector_stores
 
     artifacts = {a["artifact_id"]: a for a in result.get("artifacts", [])}
     entry = artifacts["artifacts/list-annotation-only-ref"]
-    assert set(entry["commit_refs"]) == {"sha-annotation", "sha-vector"}
-    assert set(entry["references"]) == {"ref-annotation", "ref-vector"}
+    assert entry["commit_refs"] == ["sha-annotation"]
+    assert entry["references"] == ["ref-annotation"]
+
+
+async def test_list_page_costs_exactly_one_vector_index_scan(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """The regression guard for the retired union read model: a page of N own-scope
+    artifacts costs exactly one vector-index scan — its own page query — not one more per
+    artifact. The vector copy of commit_refs has no server-side filter, so reading it back
+    means paginating the whole index in memory, once per artifact."""
+    settings = _make_settings(monkeypatch)
+    for n, seed in enumerate((6.1, 6.2, 6.3)):
+        artifact_id = f"artifacts/scan-count-{n}"
+        s3_client.put_object(artifact_id, "Content.", {"title": "x"})
+        apply_link_annotations(s3_client, artifact_id, commit_refs=[f"sha-{n}"], references=[])
+        vectors_client_8.put_vector(
+            f"{artifact_id}#summary",
+            _unit_vec(seed),
+            {**_BASE_VECTOR_META, "artifact_id": artifact_id},
+        )
+    spy = mocker.spy(vectors_client_8, "list_vectors_by_metadata")
+
+    result = await list_artifacts(
+        settings=settings, vectors=vectors_client_8, s3=s3_client, bedrock=None
+    )
+
+    artifacts = {a["artifact_id"]: a for a in result.get("artifacts", [])}
+    for n in range(3):
+        assert artifacts[f"artifacts/scan-count-{n}"]["commit_refs"] == [f"sha-{n}"]
+    assert spy.call_count == 1
+
+
+async def test_list_annotation_failure_errors_rather_than_degrading_the_page(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """One artifact's failed annotation read fails the call. Annotations are the sole
+    source of truth, so silently reporting empty link fields would be indistinguishable
+    from an artifact that genuinely has none."""
+    settings = _make_settings(monkeypatch)
+    s3_client.put_object("artifacts/degrade-guard", "Content.", {"title": "x"})
+    apply_link_annotations(
+        s3_client, "artifacts/degrade-guard", commit_refs=["abc1234"], references=[]
+    )
+    vectors_client_8.put_vector(
+        "artifacts/degrade-guard#summary",
+        _unit_vec(6.4),
+        {**_BASE_VECTOR_META, "artifact_id": "artifacts/degrade-guard"},
+    )
+    mocker.patch.object(
+        s3_client, "get_object_annotation", side_effect=RuntimeError("transient S3 failure")
+    )
+
+    result = await list_artifacts(
+        settings=settings, vectors=vectors_client_8, s3=s3_client, bedrock=None
+    )
+
+    assert "error" in result
+    assert "artifacts" not in result

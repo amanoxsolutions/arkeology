@@ -1,7 +1,8 @@
 """Unit tests for arkeology.tools.propose_commit_links.
 
-Tests propose_commit_links() using moto-backed VectorsClientImpl.
-No S3 or Bedrock calls — all data is seeded directly into the vector index.
+Tests propose_commit_links() using moto-backed VectorsClientImpl and S3ClientImpl —
+candidates are seeded into the vector index and their commit_refs into the durable S3
+object annotations, their sole source of truth. No Bedrock calls.
 """
 
 import math
@@ -10,6 +11,7 @@ from typing import Any
 import pytest
 from pytest_mock import MockerFixture
 
+from arkeology.annotations import apply_link_annotations
 from arkeology.clients.s3 import S3ClientImpl
 from arkeology.clients.vectors import VectorsClientImpl
 from arkeology.config import Settings
@@ -66,7 +68,7 @@ _BASE_META: dict[str, Any] = {
 }
 
 
-def _seed_standard(vectors: VectorsClientImpl) -> None:
+def _seed_standard(vectors: VectorsClientImpl, s3: S3ClientImpl) -> None:
     """Seed four artifacts as described in the spec.
 
     A: own-scope, ULID_LOW, no commit_refs  → candidate
@@ -98,7 +100,10 @@ def _seed_standard(vectors: VectorsClientImpl) -> None:
             "title": "Artifact B",
         },
     )
-    # artifact-C: own scope, new ULID, already linked
+    # artifact-C: own scope, new ULID, already linked. The annotation is the sole source
+    # of truth for commit_refs; the vector copy below is the derived filter index.
+    s3.put_object("artifacts/artifact-c", "Content.", {"title": "Artifact C"})
+    apply_link_annotations(s3, "artifacts/artifact-c", commit_refs=["abc123"], references=[])
     vectors.put_vector(
         "artifacts/artifact-c#summary",
         _unit_vec(0.8),
@@ -136,7 +141,7 @@ async def test_since_ulid_returns_only_b(
 ) -> None:
     """since_ulid=ULID_MID → only artifact-B returned (A too old, C linked, D foreign)."""
     settings = _make_settings(monkeypatch)
-    _seed_standard(vectors_client_2)
+    _seed_standard(vectors_client_2, s3_client)
 
     result = await propose_commit_links(
         settings=settings,
@@ -162,7 +167,7 @@ async def test_since_ulid_empty_range_returns_empty_proposed(
 ) -> None:
     """since_ulid beyond all ULIDs → proposed is [] (not an error)."""
     settings = _make_settings(monkeypatch)
-    _seed_standard(vectors_client_2)
+    _seed_standard(vectors_client_2, s3_client)
 
     # Use a ULID higher than ULID_HIGH so nothing qualifies
     future_ulid = "01ZZ0000000000000000000000"
@@ -191,7 +196,7 @@ async def test_no_since_ulid_returns_a_and_b(
 ) -> None:
     """No since_ulid → A and B in proposed (C linked, D foreign)."""
     settings = _make_settings(monkeypatch)
-    _seed_standard(vectors_client_2)
+    _seed_standard(vectors_client_2, s3_client)
 
     result = await propose_commit_links(
         settings=settings,
@@ -217,6 +222,8 @@ async def test_all_linked_returns_empty_proposed(
     """All own-scope artifacts have commit_refs → proposed is []."""
     settings = _make_settings(monkeypatch)
     # Only seed artifact-C (linked)
+    s3_client.put_object("artifacts/artifact-c", "Content.", {"title": "Artifact C"})
+    apply_link_annotations(s3_client, "artifacts/artifact-c", commit_refs=["abc123"], references=[])
     vectors_client_2.put_vector(
         "artifacts/artifact-c#summary",
         _unit_vec(0.8),
@@ -252,7 +259,7 @@ async def test_response_shape_has_commit_sha(
 ) -> None:
     """Response always includes 'commit_sha' matching the supplied value."""
     settings = _make_settings(monkeypatch)
-    _seed_standard(vectors_client_2)
+    _seed_standard(vectors_client_2, s3_client)
 
     result = await propose_commit_links(
         settings=settings,
@@ -272,7 +279,7 @@ async def test_entry_has_required_fields(
 ) -> None:
     """Each proposed entry has artifact_id, title, type, last_edited_ulid, last_edited_at."""
     settings = _make_settings(monkeypatch)
-    _seed_standard(vectors_client_2)
+    _seed_standard(vectors_client_2, s3_client)
 
     result = await propose_commit_links(
         settings=settings,
@@ -296,7 +303,7 @@ async def test_entry_last_edited_at_is_iso8601(
 ) -> None:
     """Entry with known last_edited_ulid → last_edited_at is a non-empty ISO-8601 string."""
     settings = _make_settings(monkeypatch)
-    _seed_standard(vectors_client_2)
+    _seed_standard(vectors_client_2, s3_client)
 
     result = await propose_commit_links(
         settings=settings,
@@ -416,7 +423,7 @@ async def test_foreign_scope_excluded(
 ) -> None:
     """Foreign-scope artifact with no commit_refs is NOT in proposed."""
     settings = _make_settings(monkeypatch)
-    _seed_standard(vectors_client_2)
+    _seed_standard(vectors_client_2, s3_client)
 
     result = await propose_commit_links(
         settings=settings,
@@ -506,7 +513,7 @@ async def test_get_vectors_credential_error_returns_structured(
 ) -> None:
     """get_vectors raises CredentialError → structured error response."""
     settings = _make_settings(monkeypatch)
-    _seed_standard(vectors_client_2)
+    _seed_standard(vectors_client_2, s3_client)
     mocker.patch.object(
         vectors_client_2,
         "get_vectors",
@@ -529,7 +536,7 @@ async def test_get_vectors_credential_error_returns_structured(
 
 
 # ---------------------------------------------------------------------------
-# T58 — eligibility sourced from read_current_link_fields (union of both stores),
+# T58 — eligibility is sourced from read_link_annotations, the sole source of truth,
 # never from a single vector's meta
 # ---------------------------------------------------------------------------
 
@@ -539,13 +546,15 @@ async def test_commit_refs_on_non_first_section_vector_excluded_from_proposed(
     vectors_client_2: VectorsClientImpl,
     s3_client: S3ClientImpl,
 ) -> None:
-    """A multi-section artifact whose commit_refs live on a section vector other than
-    the one the initial dedup (seen_ids) happens to keep as representative is still
-    correctly excluded from proposed — eligibility comes from
-    annotations.read_current_link_fields (the union across every section vector plus
-    the annotation), never from the single representative vector's own meta."""
+    """A multi-section artifact whose vector-metadata commit_refs live on a section
+    vector other than the one the initial dedup (seen_ids) happens to keep as
+    representative is still correctly excluded from proposed — eligibility comes from
+    annotations.read_link_annotations, the complete durable copy, never from the single
+    representative vector's own meta."""
     settings = _make_settings(monkeypatch)
     artifact_id = "artifacts/multi-section-linked-elsewhere"
+    s3_client.put_object(artifact_id, "Content.", {"title": "Multi-section"})
+    apply_link_annotations(s3_client, artifact_id, commit_refs=["sha1"], references=[])
     meta_no_refs = {
         **_BASE_META,
         "artifact_id": artifact_id,
@@ -580,7 +589,7 @@ async def test_commit_refs_over_cap_still_excluded_from_proposed(
     """An artifact whose full commit_refs (annotation-sourced) exceeds the 20-entry
     vector-metadata cap (Story 2) is still correctly excluded from proposed —
     eligibility is decided via the annotation-backed, uncapped union
-    (read_current_link_fields), never from the vector's already-capped copy alone.
+    (read_link_annotations), never from the vector's already-capped copy alone.
     Asserts the annotation is actually consulted (not merely that the capped vector
     copy happens to already be non-empty)."""
     settings = _make_settings(monkeypatch)
@@ -619,19 +628,19 @@ async def test_commit_refs_resolution_credential_error_returns_structured(
     mocker: MockerFixture,
 ) -> None:
     """A CredentialError raised while resolving a candidate's commit_refs (the
-    per-candidate read_current_link_fields call, not the initial
+    per-candidate read_link_annotations call, not the initial
     list_vectors_by_metadata/get_vectors fetch) returns the same structured
     credential-error response as the other two CredentialError paths.
 
-    Patches read_current_link_fields itself (the collaborator propose_commit_links.py
+    Patches read_link_annotations itself (the collaborator propose_commit_links.py
     calls) rather than an underlying client method, so this test targets exactly the
     exception-handling contract this task adds, independent of annotations.py's own
     internal (and separately-tested) error handling.
     """
     settings = _make_settings(monkeypatch)
-    _seed_standard(vectors_client_2)
+    _seed_standard(vectors_client_2, s3_client)
     mocker.patch(
-        "arkeology.tools.propose_commit_links.read_current_link_fields",
+        "arkeology.tools.propose_commit_links.read_link_annotations",
         side_effect=CredentialError(
             message="Credential failure resolving commit_refs (simulated).",
             service="s3",
@@ -650,32 +659,30 @@ async def test_commit_refs_resolution_credential_error_returns_structured(
     assert result.get("error") == "credential_error"
 
 
-async def test_commit_refs_resolution_non_credential_error_degrades_candidate(
+async def test_commit_refs_resolution_non_credential_error_aborts_the_call(
     monkeypatch: pytest.MonkeyPatch,
     vectors_client_2: VectorsClientImpl,
     s3_client: S3ClientImpl,
     mocker: MockerFixture,
 ) -> None:
-    """A non-CredentialError raised while resolving one candidate's commit_refs
-    degrades that candidate to commit_refs=[] (treated as not-yet-linked) rather than
-    aborting the whole call — mirroring list.py's existing degrade-on-error behaviour
-    for the same helper. Artifact C (which genuinely has commit_refs on its vector) is
-    forced to error and therefore, correctly, appears in `proposed` despite actually
-    being linked — this proves the call did not abort and the degrade landed on
-    exactly the failing candidate, not the other two."""
+    """A non-CredentialError raised while resolving one candidate's commit_refs aborts
+    the call rather than degrading that candidate to commit_refs=[]. Annotations are the
+    sole source of truth, so a degraded candidate would be indistinguishable from a
+    genuinely unlinked one — artifact C, which really is linked, would be proposed for
+    linking again on the strength of a transient error."""
     settings = _make_settings(monkeypatch)
-    _seed_standard(vectors_client_2)
+    _seed_standard(vectors_client_2, s3_client)
 
-    def _fake_read_current_link_fields(
-        s3_arg: S3ClientImpl, vectors_arg: VectorsClientImpl, artifact_id: str
+    def _fake_read_link_annotations(
+        s3_arg: S3ClientImpl, artifact_id: str
     ) -> tuple[list[str], list[str]]:
         if artifact_id == "artifacts/artifact-c":
             raise RuntimeError("transient (simulated)")
         return ([], [])
 
     mocker.patch(
-        "arkeology.tools.propose_commit_links.read_current_link_fields",
-        side_effect=_fake_read_current_link_fields,
+        "arkeology.tools.propose_commit_links.read_link_annotations",
+        side_effect=_fake_read_link_annotations,
     )
 
     result = await propose_commit_links(
@@ -686,8 +693,5 @@ async def test_commit_refs_resolution_non_credential_error_degrades_candidate(
         commit_sha=COMMIT_SHA,
     )
 
-    assert "error" not in result
-    ids = [e["artifact_id"] for e in result["proposed"]]
-    assert "artifacts/artifact-a" in ids
-    assert "artifacts/artifact-b" in ids
-    assert "artifacts/artifact-c" in ids
+    assert result.get("error") == "internal_error"
+    assert "proposed" not in result

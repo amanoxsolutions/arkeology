@@ -46,7 +46,7 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
 - `not_found` — the artifact does not exist in any readable scope.
 - `access_denied` — the artifact exists in a foreign scope but fails the tier and visibility gate.
 - `credential_error` — an AWS call raised `CredentialError`, at the metadata fetch, the content
-  fetch, the link-field union read, or the foreign-scope reference filtering step.
+  fetch, the link-field annotation read, or the foreign-scope reference filtering step.
 - `internal_error` — any otherwise unhandled exception.
 
 **Invariants**
@@ -73,7 +73,13 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
 **Postconditions**
 
 - On success, returns all artifact fields including `content`.
-- `commit_refs` and `references` are sourced from the union of both durable stores, never from
-  vector metadata alone.
+- `commit_refs` and `references` are sourced from the artifact's S3 object annotations, their sole
+  source of truth, and never from vector metadata.
+- An own-scope read issues **zero** vector-index scans. The vector-metadata copy of `commit_refs` is
+  a derived filter index with no server-side filter of its own, so reading it back would mean
+  paginating the whole index once per artifact. Reintroducing that is the regression this forbids.
+- A failed annotation read surfaces as an error. It is never degraded into a successful read
+  reporting empty link fields, which a caller could not distinguish from an artifact that has
+  none.
 - Denial reveals nothing beyond the error code — no title, no metadata, no content, no
   `references`. The error code itself does distinguish denial from absence, by design.

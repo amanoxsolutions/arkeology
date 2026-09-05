@@ -8,6 +8,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- **the server now refuses to start where S3 object annotations are unavailable.** A new
+  eighth startup check round-trips one annotation through all four required IAM actions on
+  a throwaway probe object, and distinguishes the two causes an operator acts on
+  differently: a missing IAM action (fixable in the policy) versus a region or bucket type
+  that does not offer annotations at all (only fixable by relocating the bucket).
+  Annotations are now the sole durable store for `commit_refs`/`references`, so a
+  deployment that cannot use them is unsupported rather than degraded
+- **a write whose durable link write fails no longer reports success.** `write_artifact`
+  previously returned a success response carrying a top-level `warning` when the annotation
+  write was unavailable; it now returns `partial_write` with a failure-log entry recording
+  the values it was applying, so `reconcile_index` can restore them. `archive_artifact`
+  likewise no longer returns an `annotation_warning` alongside a successful archive. A
+  caller can now treat the absence of an `error` key as proof the link fields are durable
+- link fields are read from the S3 object annotations alone. The union-of-both-durable-stores
+  read model is retired, and with it a full vector-index scan per artifact on every read:
+  the index API has no server-side filter for `commit_refs`, so reading the vector copy back
+  meant paginating the whole index in memory, once per artifact. A `list_artifacts` page of
+  200 artifacts performed 200 such scans, to return at most a capped most-recent-20
+  `commit_refs` and never any `references`. The vector copy is still written — it is the
+  derived filter index answering "which artifacts carry commit ref X" — but never read back
 - `build_scope_filter` moved from `arkeology.tools._search_helper` to
   `arkeology.tools._scope`, joining `is_cross_scope_readable` so that every implementation
   of the cross-scope access gate lives in one module. Its signature changed from
@@ -47,6 +67,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   listed, a foreign-scope tier-2 one is not, matching `list_artifacts`' default scope
 
 ### Fixed
+- an annotation read failure now raises instead of degrading to empty. With the union read
+  model retired there is no second copy to cover for it, and an empty result caused by a
+  transient failure would have been written straight back over good data by any of the three
+  read-modify-write paths: `reconcile_index` rebuilding vector metadata, an overwriting
+  `write_artifact`, and `archive_artifact` restoring the link fields after the status re-PUT
+  that clears annotations
 - `link_metadata` now records a failure-log entry when the vector write fails after the
   annotation write has succeeded, which is what makes the self-heal its contract and ADR-011
   promise actually happen. `reconcile_index` visits only artifacts named by a failure-log
