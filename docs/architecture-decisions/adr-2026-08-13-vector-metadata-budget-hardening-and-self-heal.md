@@ -37,7 +37,7 @@ vector index entry does not.
 Three findings converge on this one incident, and this document treats them as one design, not three
 patches:
 
-1. **Calibration gap.** `check_metadata_budgets`'s byte-counting approximation (`artifact.py:180-232`)
+1. **Calibration gap.** `check_metadata_budgets`'s byte-counting approximation (in `artifact.py`)
    under-counts relative to AWS's real accounting for this payload shape. The spec that introduced it
    (`p12-t55-metadata-validation.md`) named this exact risk as a deferred, unresolved open question and
    the named closure (a real-AWS integration test asserting oversize rejection) was never written.
@@ -101,24 +101,24 @@ implement.
   `test_tools_write.py` as originally proposed), and run against a live index on 2026-08-13. See
   "D2 — Final Decision" below for the measured results and the operator's final numeric decision.
 - **Guard coverage, verified by direct grep of the current codebase**: `check_metadata_budgets` is
-  called only at `write.py:405` (fresh create, pre-`put_object`) and `write.py:538` (inside the
-  overwrite CAS retry loop, post-merge, pre-write). `link_metadata.py` (`_apply_link_metadata_with_cas`
-  at line 49, `_link_metadata_inner` calling it at line 282 then `vectors.put_vectors_batch(batch)` at
-  line 307) and `reconcile.py` (`_reindex_artifact` at line 44, `vectors.put_vector` at lines 146 and
-  160) contain no call to it anywhere.
-- **`migrate_artifacts` skip logic, verified by direct read of `migrate_artifacts.py:321-374`**: Step 5
-  decides skip vs. write purely from `s3.head_object(candidate_key)` (line 360). If the object exists,
+  called only from `write.py` — once on the fresh-create path before `put_object`, and once inside the
+  overwrite CAS retry loop after the merge and before the write. Neither `link_metadata.py`
+  (`_apply_link_metadata_with_cas`, and `_link_metadata_inner`'s call through to
+  `vectors.put_vectors_batch`) nor `reconcile.py` (`_reindex_artifact` and its `vectors.put_vector`
+  calls) contains a call to it anywhere.
+- **`migrate_artifacts` skip logic, verified by direct read of `migrate_artifacts.py`**: Step 5
+  decides skip vs. write purely from `s3.head_object(candidate_key)`. If the object exists,
   the candidate is unconditionally reported `skipped_existing`, regardless of whether it has a live
-  vector-index entry. Step 3.5 (T56 content-reference rewrite, lines 288+) runs **before** Step 5, in
+  vector-index entry. Step 3.5 (T56 content-reference rewrite) runs **before** Step 5, in
   both `dry_run` modes — so by the time a candidate reaches Step 6 (`write_artifacts` delegation), its
   `content` already carries the `arkeology://artifact/{id}` rewrite. This matters for the self-heal
   design below: content already in S3 from *any* successful (even if vector-rejected) first attempt
   already has the correct T56 rewrite baked in.
-- **`reconcile_index` failure-log replay, verified by direct read of `reconcile.py:218-302`**: Phase 1
+- **`reconcile_index` failure-log replay, verified by direct read of `reconcile.py`**: Phase 1
   replays every failure-log entry every run; an entry is pruned only if the artifact resolves into
   `resolved_ids`. An entry that fails identically every time (e.g. a genuinely oversize `references`
   list) is never pruned and is replayed forever — this is precisely the "self-perpetuating failure-log
-  replay" `p12-t55`'s own TL;dr states must never happen. Phase 2 (orphan scan, lines 317-337) would
+  replay" `p12-t55`'s own TL;dr states must never happen. Phase 2 (the orphan scan) would
   independently pick up "S3 exists, not indexed, not already in the failure log" artifacts and attempt
   `_reindex_artifact` on them, but its `failed` list is ephemeral per call — not persisted back to the
   failure log — so an orphan-scan failure does not itself create a replay loop, it simply reports
@@ -172,8 +172,8 @@ Alternatives Considered below for the options weighed and why each was not adopt
   [adr-2026-07-03-artifact-cross-referencing.md](adr-2026-07-03-artifact-cross-referencing.md) D13), are
   descoped — a deliberate, operator-confirmed capability loss (brainstorming doc OQ6), not an oversight.
 - **`commit_refs` stays in S3 Vectors metadata, filterable, capped at the most recent 20 entries**,
-  because it is load-bearing for a real, shipped server-side `$eq` filter clause (`list.py:141-143`,
-  `list_artifacts(commit_refs=[...])`). A bounded, most-recently-appended subset is promoted into vector
+  because it is load-bearing for a real, shipped server-side `$eq` filter clause (the `commit_refs`
+  clause built in `list.py`, backing `list_artifacts(commit_refs=[...])`). A bounded, most-recently-appended subset is promoted into vector
   metadata for filtering (both fields are already order-preserving, so "most recent" is exactly "last
   N"), while the complete, uncapped list stays durable in annotations.
 
@@ -252,7 +252,7 @@ permanent-un-retryable state the incident left behind.
 
 | Option | Pros | Cons |
 |--------|------|------|
-| **Chosen** — split by field: `references` removed from S3 Vectors metadata entirely (annotation-only, unbounded); `commit_refs` stays filterable, capped at the most-recent 20 entries | Retires the overflow failure mode for `references` outright; `commit_refs`'s cap is evidence-based (well under the measured 36-entry real boundary) and keeps its load-bearing `$eq` filter (`list.py:141-143`) working | Descopes `list_artifacts(references=[...])` filtering (`search_artifacts` has no `references` parameter and is unaffected) and the `references`-half of the delete/archive reverse-lookup warning; `commit_refs` entries older than the most-recent 20 no longer match `$eq` filters |
+| **Chosen** — split by field: `references` removed from S3 Vectors metadata entirely (annotation-only, unbounded); `commit_refs` stays filterable, capped at the most-recent 20 entries | Retires the overflow failure mode for `references` outright; `commit_refs`'s cap is evidence-based (well under the measured 36-entry real boundary) and keeps its load-bearing `$eq` filter (the `commit_refs` clause in `list.py`) working | Descopes `list_artifacts(references=[...])` filtering (`search_artifacts` has no `references` parameter and is unaffected) and the `references`-half of the delete/archive reverse-lookup warning; `commit_refs` entries older than the most-recent 20 no longer match `$eq` filters |
 | A — Tighten the local byte threshold with a calibrated safety margin (closes the deferred `p12-t55` integration test) | Smallest diff; keeps the current one-representation architecture | Closes the bug, not the capability gap — a legitimately-large list (this incident's own 14-entry `references`) still gets rejected outright |
 | B — Cap a filterable subset for *both* fields, keep the full list in annotations | A write is never rejected for "too many" entries | Silent false negatives on `references`'s `$eq` filtering and the delete/archive reverse-lookup warning — a completeness regression against this project's own "never silently lose a link" principle ([adr-2026-07-03-annotation-backed-link-storage.md](adr-2026-07-03-annotation-backed-link-storage.md)) |
 | C — Upstream guidance + actionable rejection messaging | Zero data-integrity risk; cheap, consistent with existing AGENTS.md guidance | Doesn't solve the legitimately-large-artifact case alone — hub-style artifacts (`plan.md`, `backlog.md`) are a real, legitimate pattern this project's own docs exhibit |

@@ -87,6 +87,12 @@ counterpart. `references` mirrors the artifact's current state: an overwriting w
 the existing value outright with exactly what is supplied — omitting `references` on a write
 CLEARS it, so re-supply the full intended list rather than relying on a prior value surviving.
 
+Filtering `list_artifacts(commit_refs=[...])` searches only an artifact's most-recent 20
+commit refs — the filterable index copy is capped at that many entries. An artifact linked to
+more commits than that will not be found by its oldest SHAs, even though `read_artifact` and
+the `commit_refs` field returned by `list_artifacts` both still show the complete list. Use the
+filter for recent work; read the field when you need the whole history.
+
 ## System-generated fields
 
 These fields are set by the server and returned in tool responses. They cannot be supplied
@@ -607,9 +613,12 @@ async def _artifacts_listing_content(
     vectors: VectorsClientInterface,
     bedrock: BedrockClientInterface | None,
 ) -> str:
-    """Fetch the active own-scope artifact listing for the arkeology://artifacts resource.
+    """Fetch the active readable-scope artifact listing for the arkeology://artifacts resource.
 
-    Delegates to ``list_artifacts`` with ``status="active"`` and no other filters.
+    Delegates to ``list_artifacts`` with ``status="active"`` and no other filters, so the
+    listing carries exactly what that tool returns by default: active own-scope artifacts
+    plus any foreign-scope artifact that passes the cross-scope gate (tier 3 and shared).
+    It is deliberately not own-scope-only — the resource mirrors the tool.
 
     Returns:
         A markdown string.  On error, returns a minimal markdown error message.
@@ -653,8 +662,9 @@ def register_data_resources(
       default) only matches a single path segment and would reject every real
       artifact_id. Includes a ``lastModified`` annotation derived
       from ``last_edited_ulid`` when present.
-    - ``arkeology://artifacts`` — static listing; returns a markdown table of all active
-      own-scope artifacts.
+    - ``arkeology://artifacts`` — static listing; returns a markdown table of every active
+      artifact readable in this scope (own-scope plus gate-passing foreign tier-3 shared),
+      matching ``list_artifacts``' default scope.
 
     This function must be called after the AWS clients are constructed (i.e. from
     ``register_tools()`` in ``server.py``), not at module load time.
@@ -707,10 +717,13 @@ def register_data_resources(
         "arkeology://artifacts",
         mime_type="text/markdown",
         annotations=Annotations(audience=["user"]),
-        description="Markdown index of all active own-scope artifacts.",
+        description=(
+            "Markdown index of all active artifacts readable in this scope — own-scope "
+            "plus shared tier-3 artifacts from readable foreign scopes."
+        ),
     )
     async def _artifacts_resource() -> str:
-        """Return a markdown listing of all active own-scope artifacts."""
+        """Return a markdown listing of every active artifact readable in this scope."""
         try:
             return await _artifacts_listing_content(
                 settings=settings,

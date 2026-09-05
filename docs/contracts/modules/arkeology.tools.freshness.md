@@ -57,8 +57,11 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
 - Source lookup applies the cross-scope gate. It must not query source artifacts by bare
   `artifact_id` with no scope clause and no tier/visibility check: that was a real gate-bypass
   defect, leaking the existence, archival state, and update recency of foreign tier-2 and hidden
-  artifacts that `read_artifact` would deny. Sources gated out are classified as
-  inaccessible, not as missing.
+  artifacts that `read_artifact` would deny. A source that fails the gate is reported in
+  `missing_sources`, **indistinguishable from a genuinely absent one** — that collapse is deliberate,
+  not an approximation. A separate "inaccessible" category would itself leak the fact that a foreign
+  tier-2 or hidden artifact exists, which is the very disclosure this invariant exists to prevent, so
+  no such category may be added.
 - Own-scope only for the destructive path.
 - Staleness is determined by comparing source update recency against the synthesis, so a synthesis
   is stale when at least one source changed after it was written.

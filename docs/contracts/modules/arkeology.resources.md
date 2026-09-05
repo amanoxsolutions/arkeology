@@ -1,7 +1,7 @@
 ---
 type: Contract
 title: arkeology.resources
-description: The MCP resource surface — five pure read-only schema resources describing the artifact model and two client-backed data resources returning artifact content and an own-scope index, both under the arkeology:// scheme, plus the ui:// resource serving the Arkeology Studio MCP App and declaring its content-security policy.
+description: The MCP resource surface — five pure read-only schema resources describing the artifact model and two client-backed data resources returning artifact content and a readable-scope index, both under the arkeology:// scheme, plus the ui:// resource serving the Arkeology Studio MCP App and declaring its content-security policy.
 tags: []
 timestamp: 2026-09-04T00:00:00Z
 okf_version: "0.1"
@@ -91,7 +91,13 @@ result does.
   Changing `{id*}` back to `{id}` breaks the entire resource.
 - `arkeology://artifact/{id*}` applies **the same cross-scope gate as `read_artifact`**. A resource
   read is not a gate bypass, and must never become one.
-- `arkeology://artifacts` returns **active own-scope** artifacts only.
+- `arkeology://artifacts` delegates to `list_artifacts` with `status="active"` and **no other
+  filters**, so its scope is exactly `list_artifacts`' default scope: active own-scope artifacts
+  **plus** foreign-scope artifacts that pass the cross-scope gate (`tier == 3` and
+  `visibility == "shared"`). It is not own-scope-only, and must not be narrowed to own-scope without
+  also narrowing `list_artifacts` — the resource exists to mirror the tool, and a reader who can
+  reach a shared artifact through `list_artifacts` or `search_artifacts` would otherwise find it
+  absent from the human-facing index.
 - A handler failure returns a Markdown error body, never an empty document — an empty listing and a
   failed listing must stay distinguishable to a reader.
 - The per-artifact `lastModified` annotation is **deliberately waived** on the template resource: a

@@ -237,6 +237,69 @@ async def test_write_artifacts_mcp_layer_forwards_overwrite(
 
 
 # ---------------------------------------------------------------------------
+# MCP tool layer — file_extension is reachable by MCP callers
+# ---------------------------------------------------------------------------
+
+
+async def test_write_artifact_mcp_layer_forwards_file_extension(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """write_artifact MCP tool forwards file_extension to the underlying _write_artifact,
+    and defaults it to ".md" when the caller omits it — the module contract lists it in
+    the signature, so the MCP wrapper must expose it rather than silently pinning ".md"."""
+    settings = _make_settings(monkeypatch)
+    mock_write = AsyncMock(return_value={"artifact_id": "artifacts/test"})
+    monkeypatch.setattr("arkeology.server._write_artifact", mock_write)
+
+    register_tools(
+        settings=settings,
+        s3=MagicMock(),
+        vectors=MagicMock(),
+        bedrock=MagicMock(),
+    )
+    tool = await _app.get_tool("write_artifact")
+    common = {
+        "type": "code_review",
+        "team": "platform",
+        "project": "arkeology",
+        "tier": 2,
+        "date": "2026-06-12",
+        "title": "Test",
+        "description": "A test.",
+        "content": "## Summary\n\nOK.",
+        "visibility": "shared",
+    }
+    await tool.fn(**common, file_extension=".txt")
+    await tool.fn(**common)
+
+    assert mock_write.call_args_list[0].kwargs["file_extension"] == ".txt"
+    assert mock_write.call_args_list[1].kwargs["file_extension"] == ".md"
+
+
+async def test_write_artifacts_mcp_layer_forwards_file_extension(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """write_artifacts MCP tool forwards the batch-level file_extension to
+    _write_artifacts, and defaults it to ".md" when the caller omits it."""
+    settings = _make_settings(monkeypatch)
+    mock_write_batch = AsyncMock(return_value={"results": []})
+    monkeypatch.setattr("arkeology.server._write_artifacts", mock_write_batch)
+
+    register_tools(
+        settings=settings,
+        s3=MagicMock(),
+        vectors=MagicMock(),
+        bedrock=MagicMock(),
+    )
+    tool = await _app.get_tool("write_artifacts")
+    await tool.fn(artifacts=[], file_extension=".txt")
+    await tool.fn(artifacts=[])
+
+    assert mock_write_batch.call_args_list[0].kwargs["file_extension"] == ".txt"
+    assert mock_write_batch.call_args_list[1].kwargs["file_extension"] == ".md"
+
+
+# ---------------------------------------------------------------------------
 # MCP tool layer — write_artifacts exposes artifact_concurrency
 # ---------------------------------------------------------------------------
 

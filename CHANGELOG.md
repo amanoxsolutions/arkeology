@@ -19,6 +19,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `.pre-commit-config.yaml` now runs the project's own pinned tooling via `uv run` instead
   of independently-versioned upstream mirrors, which had drifted to ruff 0.11 and mypy 1.x
   while the project ran ruff 0.16 and mypy 2.x
+- documented that filtering `list_artifacts(commit_refs=[...])` searches only an artifact's
+  most-recent 20 commit refs — the filterable index copy is capped at that many entries, so
+  an artifact linked to more commits is not matched on its oldest SHAs even though the
+  returned `commit_refs` field still shows the full list. Behaviour is unchanged; the
+  window was previously undocumented in the list contract and the runtime schema resource
+- the `arkeology://artifacts` resource is now documented as returning `list_artifacts`'
+  default scope — own-scope artifacts plus shared tier-3 artifacts from readable foreign
+  scopes — rather than own-scope only, which the contract and docstrings had claimed while
+  the code always applied the wider gate. Behaviour is unchanged
+- the freshness contract now records that a synthesis source failing the cross-scope gate is
+  reported as missing, deliberately indistinguishable from a genuinely absent one, because a
+  separate "inaccessible" category would leak the existence of foreign tier-2 and hidden
+  artifacts. Behaviour is unchanged
 
 ### Added
 - CI: `.github/workflows/ci.yml` runs the ruff, mypy, pytest, and `npm test` gates on push
@@ -29,8 +42,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - a test pinning that `tier` gates identically whether it arrives as an `int` (vector
   metadata) or a stringified int (S3 object metadata), which the read and list paths
   respectively depend on
+- a test pinning that the `arkeology://artifacts` resource applies the cross-scope gate
+  rather than listing own-scope artifacts only — a foreign-scope tier-3 shared artifact is
+  listed, a foreign-scope tier-2 one is not, matching `list_artifacts`' default scope
 
 ### Fixed
+- the `write_artifact` and `write_artifacts` MCP tools now accept and forward
+  `file_extension`, which both module contracts list and both underlying functions
+  implement but neither FastMCP wrapper declared — so no MCP caller could set the S3
+  key extension on a single write or as a batch default. It was already reachable per
+  descriptor inside `write_artifacts`, so this exposes no new capability
 - `archive_artifact` double-encoded non-ASCII and `%`-bearing S3 metadata values on every
   archive (a title of `Café review` became `Caf%25C3%25A9 review`): `put_object`
   percent-encoded values for transport but `head_object` returned them still encoded, so

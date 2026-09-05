@@ -52,17 +52,20 @@ async def list_artifacts(
     Applies cross-scope gate: own-scope artifacts always visible; foreign-scope
     artifacts only when tier=3 AND visibility="shared".
 
-        Args:
-            settings: Server configuration.
-            s3: S3 client, used to read the durable commit_refs/references
-                annotation copy per distinct artifact in the page (see
-                annotations.read_current_link_fields).
-            vectors: S3 Vectors client.
-            bedrock: Bedrock client (unused; injected for interface consistency).
-            type: Optional artifact type filter.
-            tags: Optional list of tags; all must match (AND semantics).
-            commit_refs: Optional list of commit refs; all must match (AND semantics).
-            team: Optional team filter.
+    Args:
+        settings: Server configuration.
+        s3: S3 client, used to read the durable commit_refs/references
+            annotation copy per distinct artifact in the page (see
+            annotations.read_current_link_fields).
+        vectors: S3 Vectors client.
+        bedrock: Bedrock client (unused; injected for interface consistency).
+        type: Optional artifact type filter.
+        tags: Optional list of tags; all must match (AND semantics).
+        commit_refs: Optional list of commit refs; all must match (AND semantics).
+            Filters the capped most-recent-20 vector-metadata copy, not the full
+            durable list, so an artifact with more than 20 linked commits is not
+            matched on its oldest SHAs.
+        team: Optional team filter.
         project: Optional project filter.
         tier: Optional tier filter.
         status: Status filter (default "active"). Pass "all" to return

@@ -5,6 +5,7 @@ using moto-backed clients and FakeBedrockClient.
 """
 
 import asyncio
+import math
 
 import fastmcp
 import pytest
@@ -44,6 +45,13 @@ _FOREIGN_TIER2_WRITE_KWARGS: dict = {
     "tier": 2,
     "visibility": "shared",
 }
+
+
+def _unit_vec_8(seed: float) -> list[float]:
+    """Return a deterministic 8-dimension unit vector (matches vectors_client_8)."""
+    raw = [seed + i * 0.1 for i in range(8)]
+    norm = math.sqrt(sum(v * v for v in raw))
+    return [v / norm for v in raw]
 
 
 # ---------------------------------------------------------------------------
@@ -618,3 +626,76 @@ async def test_arkeology_artifact_template_gates_full_key_foreign_scope_tier2(
     text = contents[0].content
     assert "error" in text.lower() or "denied" in text.lower()
     assert "Foreign content" not in text
+
+
+# ---------------------------------------------------------------------------
+# Test 10: arkeology://artifacts applies the cross-scope gate
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_artifacts_resource_applies_cross_scope_gate(
+    settings_with_read_prefix: Settings,
+    vectors_client_8: VectorsClientImpl,
+    s3_client: S3ClientImpl,
+    bedrock_8: FakeBedrockClient,
+) -> None:
+    """arkeology://artifacts mirrors list_artifacts' default scope: a foreign-scope tier-3
+    shared artifact is listed, a foreign-scope tier-2 artifact is not. The resource is
+    deliberately not own-scope-only (p10-t42 SHALL: scope and filters match the tool's
+    defaults), so this pins the gate rather than an own-scope-only listing."""
+    # Arrange — one readable and one gated foreign-scope artifact in the vector index
+    base_meta = {
+        "scope": "foreign-scope",
+        "team": "network",
+        "project": "other-proj",
+        "date": "2026-06-23",
+        "status": "active",
+        "author_role": "developer",
+    }
+    vectors_client_8.put_vector(
+        "foreign-scope/t3-shared-adr#summary",
+        _unit_vec_8(0.9),
+        {
+            **base_meta,
+            "artifact_id": "foreign-scope/t3-shared-adr",
+            "tier": 3,
+            "visibility": "shared",
+            "type": "adr",
+            "title": "Foreign Tier3 Shared",
+            "description": "Readable across scopes.",
+            "tags": [],
+        },
+    )
+    vectors_client_8.put_vector(
+        "foreign-scope/t2-review#summary",
+        _unit_vec_8(0.5),
+        {
+            **base_meta,
+            "artifact_id": "foreign-scope/t2-review",
+            "tier": 2,
+            "visibility": "shared",
+            "type": "code_review",
+            "title": "Foreign Tier2 Review",
+            "description": "Blocked by the cross-scope gate.",
+            "tags": [],
+        },
+    )
+
+    from arkeology.resources import _artifacts_listing_content
+
+    # Act
+    content = await _artifacts_listing_content(
+        settings=settings_with_read_prefix,
+        s3=s3_client,
+        vectors=vectors_client_8,
+        bedrock=bedrock_8,
+    )
+
+    # Assert
+    assert "foreign-scope/t3-shared-adr" in content, (
+        f"foreign tier-3 shared artifact should be listed, got: {content}"
+    )
+    assert "foreign-scope/t2-review" not in content, (
+        f"foreign tier-2 artifact should be gated out, got: {content}"
+    )

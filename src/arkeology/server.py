@@ -80,9 +80,13 @@ def register_tools(
         commit_refs: list[str] | None = None,
         references: list[str] | None = None,
         status: str = "active",
+        file_extension: str = ".md",
         overwrite: bool = False,
     ) -> dict[str, Any]:
         """Write an artifact to S3 and index its sections in S3 Vectors.
+
+        file_extension is the extension of the generated S3 key, including the
+        leading dot (default ".md").
 
         A write whose generated key already exists is rejected with a
         validation_error unless overwrite=True is passed explicitly.
@@ -107,6 +111,7 @@ def register_tools(
             commit_refs=commit_refs,
             references=references,
             status=status,
+            file_extension=file_extension,
             overwrite=overwrite,
         )
 
@@ -277,11 +282,16 @@ def register_tools(
         artifacts: list[dict[str, Any]],
         overwrite: bool = False,
         artifact_concurrency: int = 3,
+        file_extension: str = ".md",
     ) -> dict[str, Any]:
         """Write a list of artifact descriptors concurrently.
 
         overwrite is a batch-level default for the collision guard; each
         descriptor may include its own "overwrite" key to override it.
+
+        file_extension is a batch-level default for the generated S3 key
+        extension, including the leading dot (default ".md"); each descriptor
+        may include its own "file_extension" key to override it.
 
         artifact_concurrency bounds how many artifacts are written concurrently
         (p10-t39). Must be in [1, 15]; values above 15 are capped to 15 and values
@@ -297,6 +307,7 @@ def register_tools(
             artifacts=artifacts,
             overwrite=overwrite,
             artifact_concurrency=artifact_concurrency,
+            file_extension=file_extension,
         )
 
     @_app.tool()

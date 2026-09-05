@@ -66,6 +66,13 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
   otherwise surface an arbitrary section's stale copy.
 - `tags` filtering matches an individual element, relying on vector metadata storing `tags` as
   `list[str]`.
+- The `commit_refs` **filter** is a server-side `$eq` against the vector-metadata copy, which
+  `s3vectors.artifact` caps to the most-recent 20 entries. Filtering therefore searches that bounded
+  window, **not** an artifact's full commit history: an artifact linked to 25 commits is not returned
+  for any of its five oldest SHAs, even though `read_artifact` and this tool's own returned
+  `commit_refs` field (union-of-both-durable-stores) do show them. The asymmetry is inherent to the
+  vector cap and cannot be closed inside the filter — a caller needing an exhaustive commit lookup
+  must read candidates and match `commit_refs` itself.
 - There is **no** `references` filter parameter. It was removed outright when `references` stopped
   being written to vector metadata; this is a deliberate breaking change, not an omission.
 - `references` returned to a foreign-scope reader is filtered to independently-readable targets,
