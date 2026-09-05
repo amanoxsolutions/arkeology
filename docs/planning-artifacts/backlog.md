@@ -18,7 +18,7 @@ reference it:
 - **`B-…`** — deferred backlog items (features, improvements, or design-first items that
   require brainstorming before they can be specced).
   When a `B-` item is completed, delete its entire row from `docs/planning-artifacts/backlog.md`
-  and remove all cross-references to it in specs, ADRs, the review register, and `plan.md`.
+  and remove all cross-references to it in specs, ADRs, and `plan.md`.
 
 Items that were promoted to a phase are **not** listed here — see the phase history in
 [`plan.md`](plan.md).

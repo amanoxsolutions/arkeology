@@ -8,7 +8,6 @@ okf_version: "0.1"
 references:
   - docs/specs/p5-t22-synthesis-freshness-check.md
   - docs/specs/p3-t16-synthesise-artifacts.md
-  - docs/reviews/review-2026-07-02-full-project-review.md
 authored:
   by: "tech-writer"
   date: 2026-09-04

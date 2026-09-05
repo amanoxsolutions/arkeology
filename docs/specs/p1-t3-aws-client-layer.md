@@ -11,7 +11,6 @@ phase: 1
 task: 3
 references:
   - docs/architecture-decisions/adr-2026-05-29-hexagonal-architecture.md
-  - docs/reviews/review-2026-05-31-fix-17-minor-client-layer-improvements.md
   - docs/specs/p7-t25-moto-migration.md
 authored:
   by: "architect"
@@ -146,8 +145,7 @@ All three interfaces are `typing.Protocol` classes (ADR-003) — structural subt
 inheritance. Concrete implementations and fakes satisfy them by shape alone; `abc.ABC`/
 `abc.abstractmethod` are never used here. This corrects the original draft of this section,
 which specified `ABC`/`abstractmethod` — the initial T3 implementation shipped that way and
-was migrated to `Protocol` shortly after by
-`review-2026-05-31-fix-17-minor-client-layer-improvements.md`, aligning it with ADR-003
+was migrated to `Protocol` shortly after by a code review fix, aligning it with ADR-003
 (authored the same day as this spec).
 
 ### `S3ClientInterface`

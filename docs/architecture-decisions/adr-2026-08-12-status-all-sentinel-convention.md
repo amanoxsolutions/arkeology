@@ -52,12 +52,11 @@ time asked whether the other tool taking the same argument needed the same treat
 in the specs said it did. A convention was created without being written down as one, which is
 indistinguishable from no convention at all.
 
-The record is in fact less forgiving than "nobody noticed". A later remediation pass — the entry
-in `docs/planning-artifacts/review-remediation-plan-2026-07-06.md` that added enum validation for
-the `type`, `tier`, and `status` filter values — edited **both** tools in the same change, and its
-own completion note states that it preserved the `status="all"` sentinel in `list_artifacts`. The
-sentinel was therefore in view, named, and handled on one path while the other path had validation
-tightened around it. The divergence survived the one moment most likely to catch it, because the
+The record is in fact less forgiving than "nobody noticed". A later remediation pass that added
+enum validation for the `type`, `tier`, and `status` filter values edited **both** tools in the
+same change, and its own completion note states that it preserved the `status="all"` sentinel in
+`list_artifacts`. The sentinel was therefore in view, named, and handled on one path while the
+other path had validation tightened around it. The divergence survived the one moment most likely to catch it, because the
 work was framed as "validate filter values in each tool" rather than "make this parameter behave
 the same way everywhere it appears". That framing is what this ADR replaces.
 

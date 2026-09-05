@@ -10,7 +10,6 @@ status: ready
 phase: 13
 task: 67
 references:
-  - docs/reviews/review-2026-08-13-full-codebase-max.md
   - docs/specs/p12-t62-bounded-reconcile-retry.md
   - docs/architecture-decisions/adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal.md
   - src/arkeology/clients/bedrock.py
