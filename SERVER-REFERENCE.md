@@ -256,7 +256,7 @@ format for each supported IDE.
 | `VECTORS_INDEX` | Yes | — | S3 Vectors index name |
 | `AWS_PROFILE` | No | SDK default chain | Named AWS profile to use |
 | `WRITE_PREFIX` | No | `artifacts` | Prefix for all artifact writes — must not be empty |
-| `READ_PREFIXES` | No | *(none)* | Comma-separated foreign read scopes (e.g. `shared/org,shared/platform`) |
+| `READ_PREFIXES` | No | *(none)* | Comma-separated foreign read scopes (e.g. `shared/org,shared/platform`). Each must sit outside `WRITE_PREFIX` — a prefix equal to or beneath it is rejected at startup, because artifacts there would read as own-scope and become eligible for archive, delete and purge. Nesting the other way (`WRITE_PREFIX=team/proj`, `READ_PREFIXES=team`) is valid. Duplicates are ignored. |
 | `BEDROCK_EMBEDDING_MODEL` | No | `amazon.titan-embed-text-v2:0` | Bedrock embedding model ID |
 | `BEDROCK_EMBEDDING_DIMENSIONS` | No | `1024` | Embedding dimensions — must match the S3 Vectors index dimension |
 | `SEARCH_FETCH_TOP_K` | No | `25` | Section vectors requested from S3 Vectors per search iteration |

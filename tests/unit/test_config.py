@@ -5,6 +5,7 @@ Tests use monkeypatch to isolate environment variables.
 """
 
 import pytest
+from pydantic import ValidationError
 
 from arkeology.config import Settings
 
@@ -359,6 +360,110 @@ def test_read_prefixes_strips_surrounding_slashes_keeps_internal(
     monkeypatch.setenv("READ_PREFIXES", "/network/,shared/org/")
     settings = Settings()
     assert settings.read_prefixes_list == ["network", "shared/org"]
+
+
+# --- READ_PREFIXES must not overlap WRITE_PREFIX ---
+
+
+def test_read_prefix_nested_under_write_prefix_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A read prefix beneath the write prefix defeats every own-scope guard.
+
+    With WRITE_PREFIX='team' and READ_PREFIXES='team/proj', is_own_scope() returns
+    True for the foreign deployment's artifacts, so archive_artifact,
+    delete_artifact, purge_archived and link_metadata all accept them. Only the
+    server can refuse this, so it refuses at construction.
+    """
+    _required_env(monkeypatch)
+    monkeypatch.setenv("WRITE_PREFIX", "team")
+    monkeypatch.setenv("READ_PREFIXES", "team/proj")
+    with pytest.raises(ValidationError) as exc_info:
+        Settings()
+    message = str(exc_info.value)
+    assert "team/proj" in message
+    assert "WRITE_PREFIX" in message
+
+
+def test_read_prefix_equal_to_write_prefix_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A read prefix equal to the write prefix is runtime-harmless but is an
+    unambiguous operator error — the write scope is already readable — so it is
+    surfaced rather than silently ignored."""
+    _required_env(monkeypatch)
+    monkeypatch.setenv("WRITE_PREFIX", "team")
+    monkeypatch.setenv("READ_PREFIXES", "shared/org,team")
+    with pytest.raises(ValidationError) as exc_info:
+        Settings()
+    assert "team" in str(exc_info.value)
+
+
+def test_read_prefix_overlap_detected_after_slash_normalisation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The comparison runs on normalised values, so surrounding slashes cannot
+    hide an overlap: WRITE_PREFIX='team/' and READ_PREFIXES='/team/proj/' are the
+    same pair as the unnormalised form and are rejected identically."""
+    _required_env(monkeypatch)
+    monkeypatch.setenv("WRITE_PREFIX", "team/")
+    monkeypatch.setenv("READ_PREFIXES", "/team/proj/")
+    with pytest.raises(ValidationError):
+        Settings()
+
+
+def test_write_prefix_nested_under_read_prefix_is_valid(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """'Write to my sub-scope, subscribe to the whole org' is a legitimate shape.
+
+    build_scope_filter matches foreign artifacts by exact equality on the stored
+    scope value, so a server writing under 'team' stores scope='team' and never
+    equals 'team/proj'; and is_cross_scope_readable is consulted only after the
+    own-scope check has failed, so own scope always wins. Pinned so a later
+    tightening of the overlap rule cannot forbid it.
+    """
+    _required_env(monkeypatch)
+    monkeypatch.setenv("WRITE_PREFIX", "team/proj")
+    monkeypatch.setenv("READ_PREFIXES", "team")
+    settings = Settings()
+    assert settings.effective_read_scopes == ["team/proj", "team"]
+
+
+def test_read_prefixes_nested_among_themselves_are_valid(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Read prefixes may nest within each other: the foreign vector clause is an
+    exact-match $in and the in-process foreign test is an any() over prefixes, so
+    an overlapping pair costs nothing and grants nothing extra."""
+    _required_env(monkeypatch)
+    monkeypatch.setenv("WRITE_PREFIX", "platform")
+    monkeypatch.setenv("READ_PREFIXES", "team,team/proj")
+    settings = Settings()
+    assert settings.read_prefixes_list == ["team", "team/proj"]
+
+
+def test_sibling_prefixes_sharing_a_textual_prefix_are_valid(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """'team-abc' is not beneath 'team-a' — this is the exact false-prefix case the
+    scope + '/' rule exists to allow, and it must stay constructible."""
+    _required_env(monkeypatch)
+    monkeypatch.setenv("WRITE_PREFIX", "team-a")
+    monkeypatch.setenv("READ_PREFIXES", "team-abc")
+    settings = Settings()
+    assert settings.read_prefixes_list == ["team-abc"]
+
+
+def test_duplicate_read_prefixes_are_deduplicated_in_order(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Duplicates are harmless, so they are silently collapsed rather than rejected.
+    First-seen order is preserved."""
+    _required_env(monkeypatch)
+    monkeypatch.setenv("READ_PREFIXES", "shared/org,shared/platform,/shared/org/,shared/org")
+    settings = Settings()
+    assert settings.read_prefixes_list == ["shared/org", "shared/platform"]
 
 
 # --- effective_read_scopes ---

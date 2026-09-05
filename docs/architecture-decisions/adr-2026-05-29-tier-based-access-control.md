@@ -11,8 +11,9 @@ authored:
   by: architect
   date: "2026-05-29"
 revised:
-  by: "analyst"
-  date: "2026-07-02"
+  by: "architect"
+  date: "2026-09-05"
+  reason: "Records the one-directional prefix-nesting constraint the access model depends on, and why the reverse nesting is safe"
 ---
 
 # Tier-Based Cross-Scope Access Control Model
@@ -55,6 +56,25 @@ validates that each prefix is accessible.
 A subtle but critical implementation detail: the scope check must use
 `artifact_id.startswith(scope + "/")`, never bare `startswith(scope)`. A bare prefix check
 allows a scope of `"team-a"` to incorrectly match keys under `"team-abc/"`.
+
+A second, related constraint on the configuration itself — added 2026-09-05 after a review
+found it unenforced — is that **no read prefix may sit at or beneath the write prefix**. With
+`WRITE_PREFIX=team` and `READ_PREFIXES=team/proj`, the own-scope test above answers `True` for
+the other deployment's artifacts, so they pass every own-scope-only gate and become eligible
+for archive, delete, purge, and link backfill. Configuration validation now rejects this, and
+the server refuses to start.
+
+The constraint is deliberately *not* full disjointness between the two settings, which is what
+this decision originally implied. The precise requirement is one-directional, because the two
+scope tests use different matching semantics: `build_scope_filter` selects foreign artifacts by
+**exact** equality on the stored `scope` value (`{"scope": {"$in": read_prefixes}}`), while
+`is_own_scope` matches hierarchically on the key. The reverse nesting — a write prefix beneath a
+read prefix, as in `WRITE_PREFIX=team/proj` with `READ_PREFIXES=team` — is therefore safe and
+remains supported: a foreign server writing under `team` stores `scope="team"`, which never
+equals `team/proj`, and the own-scope check is consulted before the foreign one, so own always
+wins. That shape is a legitimate deployment ("write to my sub-scope, subscribe to the whole
+org") and must not be forbidden. Nesting among read prefixes is likewise harmless, for the same
+exact-match reason.
 
 ## Decision
 

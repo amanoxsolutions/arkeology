@@ -48,6 +48,11 @@ class RunScope:
 def generate_run_scope() -> RunScope:
     """Build a fresh :class:`RunScope` with a new, unique run ID."""
     run_id = str(ULID()).lower()
+    # The foreign prefix must be a SIBLING of the write prefix, never nested beneath
+    # it. Settings rejects any read prefix equal to or under the write prefix, because
+    # the own-scope test would then answer True for foreign artifacts. The "-foreign"
+    # suffix keeps this a sibling; renaming it to "{run_id}/foreign" would make every
+    # integration run fail at Settings construction.
     return RunScope(
         run_id=run_id,
         write_prefix=f"{_RUN_PREFIX_ROOT}/{run_id}",

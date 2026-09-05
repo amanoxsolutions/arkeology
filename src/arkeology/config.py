@@ -287,7 +287,10 @@ class Settings(BaseSettings):
             normalized = stripped.strip("/")
             if normalized:
                 clean.append(normalized)
-        return ",".join(clean)
+        # Duplicates are harmless — every consumer either $in-matches or any()s over
+        # this list — so collapse them silently instead of rejecting. dict.fromkeys
+        # keeps first-seen order.
+        return ",".join(dict.fromkeys(clean))
 
     @field_validator("LOG_LEVEL")
     @classmethod
@@ -457,6 +460,38 @@ class Settings(BaseSettings):
             if val is not None and not str(val).strip():
                 raise ValueError(f"{field_name} must be a non-empty string")
         return values
+
+    @model_validator(mode="after")
+    def check_read_prefixes_outside_write_prefix(self) -> Settings:
+        """Reject a read prefix at or beneath the write prefix.
+
+        The scope model assumes the write scope and every foreign read scope are
+        disjoint. A read prefix nested under the write prefix breaks that: every
+        own-scope guard is a ``startswith(write_prefix + "/")`` test, so the other
+        deployment's artifacts read as this server's own and become eligible for
+        the own-scope-only mutating tools. A read prefix equal to the write prefix
+        is harmless at runtime but never intentional.
+
+        Runs after both fields are normalised, so surrounding slashes cannot hide
+        an overlap. The inverse shape — a write prefix nested under a read prefix —
+        is deliberately allowed: it is the legitimate "write to my sub-scope,
+        subscribe to the whole org" deployment, safe because foreign artifacts are
+        matched on exact scope equality and because the own-scope check is
+        consulted first. Read prefixes overlapping each other are allowed for the
+        same reason.
+        """
+        write = self.WRITE_PREFIX
+        for prefix in self.read_prefixes_list:
+            if prefix == write or prefix.startswith(write + "/"):
+                raise ValueError(
+                    f"READ_PREFIXES entry '{prefix}' is at or beneath WRITE_PREFIX "
+                    f"'{write}'. Read prefixes name other deployments' scopes and must "
+                    f"sit outside the write scope: artifacts under '{write}/' are "
+                    "treated as this server's own, so they would bypass the cross-scope "
+                    "gate and become eligible for archive, delete and purge. Move the "
+                    f"read prefix outside '{write}', or narrow WRITE_PREFIX."
+                )
+        return self
 
 
 def load_settings(**kwargs: Any) -> Settings:

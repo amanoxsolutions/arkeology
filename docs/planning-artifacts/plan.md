@@ -20,7 +20,7 @@ This project runs as a **single open phase**, not a pre-planned roadmap. Complet
 - **Status legend:** ⬜ pending · 🔄 in progress · 🔍 in review · ✅ done · 🔴 blocked
 - **Delivery model:** each **Phase** is a coherent slice of value delivered as a set of tasks. A phase ends when we judge it done.
 
-**Current state:** Phase 14 — Consistency Review Remediation is open, closing the findings of the 2026-09-05 whole-repository consistency review; T71 is done. Prior phases below remain as delivered. Phase 12 — Artifact Cross-Referencing + Annotation-Backed Link Storage: all planned tasks **T45–T69** implemented, unit-tested (suite green), and merged to `main` (the `phase-12-cross-referencing` branch is merged; work is trunk-based on `main` per AGENTS.md); skills consolidated under `plugins/arkeology/skills/`; specs, ADR-011/ADR-012, and user docs aligned. **T57–T62** (added 2026-08-13) delivered the post-implementation remediation for a real vector-metadata-budget-overflow incident (guard coverage, `commit_refs`/`references` split-store fix, migration self-heal, bounded reconcile retry — see `adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal.md`, Accepted). Two closely-related review findings were folded directly into those specs rather than getting their own task numbers: I-4 (control-character validation gap) into T57's spec, and I-2 (`propose_commit_links.py` first-vector-only bug) into T58's spec — both touched the exact same file/function T57/T58 already opened. H-2 was folded into T62's spec (same file, already reopened by T62). Four other findings (F-1, F-3, H-1, I-3) were batched into follow-up task **T63**, and a further six batches of review-2026-08-13 remediation — **T64–T69** (I-6, J-2, C-1, J-1, cleanup-hygiene batch 2, and convention-class cleanup) — landed 2026-08-19/20, closing out every open finding from that review. No task in the phase remains open. Not yet released: latest tag is v0.5.0 (Phase 11 — Visual Reading Interface); `CHANGELOG.md`'s `[Unreleased]` section carries the accumulated Phase 12 changes pending a version cut.
+**Current state:** Phase 14 — Consistency Review Remediation is open, closing the findings of the 2026-09-05 whole-repository consistency review; T71–T74 are done. Prior phases below remain as delivered. Phase 12 — Artifact Cross-Referencing + Annotation-Backed Link Storage: all planned tasks **T45–T69** implemented, unit-tested (suite green), and merged to `main` (the `phase-12-cross-referencing` branch is merged; work is trunk-based on `main` per AGENTS.md); skills consolidated under `plugins/arkeology/skills/`; specs, ADR-011/ADR-012, and user docs aligned. **T57–T62** (added 2026-08-13) delivered the post-implementation remediation for a real vector-metadata-budget-overflow incident (guard coverage, `commit_refs`/`references` split-store fix, migration self-heal, bounded reconcile retry — see `adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal.md`, Accepted). Two closely-related review findings were folded directly into those specs rather than getting their own task numbers: I-4 (control-character validation gap) into T57's spec, and I-2 (`propose_commit_links.py` first-vector-only bug) into T58's spec — both touched the exact same file/function T57/T58 already opened. H-2 was folded into T62's spec (same file, already reopened by T62). Four other findings (F-1, F-3, H-1, I-3) were batched into follow-up task **T63**, and a further six batches of review-2026-08-13 remediation — **T64–T69** (I-6, J-2, C-1, J-1, cleanup-hygiene batch 2, and convention-class cleanup) — landed 2026-08-19/20, closing out every open finding from that review. No task in the phase remains open. Not yet released: latest tag is v0.5.0 (Phase 11 — Visual Reading Interface); `CHANGELOG.md`'s `[Unreleased]` section carries the accumulated Phase 12 changes pending a version cut.
 
 ---
 
@@ -278,7 +278,7 @@ clause does not need a dedicated spec. Testing approach: **TDD** (NFR-07).
     the stores. Artifacts written before the guard converge on the split form at the next
     `reconcile_index`, which rebuilds vector metadata from the S3 side through the same coercion.
 
-72. **Resolve a failure-log entry whose artifact no longer exists, instead of replaying it forever** —
+72. ✅ **Resolve a failure-log entry whose artifact no longer exists, instead of replaying it forever** —
     `reconcile.py`'s `_process_failure_log_entry` caught `KeyError` from `head_object` and returned a bare
     `failed` result with no `reconcile_attempts`. Since the end-of-run rewrite retains every entry that
     was not resolved, and only counter-bearing paths reach `stuck_failures`, an entry whose artifact had
@@ -292,6 +292,20 @@ clause does not need a dedicated spec. Testing approach: **TDD** (NFR-07).
     `docs/contracts/modules/arkeology.tools.reconcile.md`, plus the `Revision — 2026-09-05` section added
     to `docs/specs/p12-t62-bounded-reconcile-retry.md` recording which of its acceptance criteria is
     superseded and in what respect.
+
+73. ✅ **Refuse to start when a read prefix sits at or beneath the write prefix** — `Settings` normalised
+    each prefix but never compared them, so `WRITE_PREFIX=team` with `READ_PREFIXES=team/proj` made
+    `is_own_scope` answer `True` for the other deployment's artifacts: they passed every own-scope-only
+    gate (`archive_artifact`, `delete_artifact`, `purge_archived`, `link_metadata`) and Phase 2 of
+    `reconcile_index` re-indexed them under the local scope. Fix: a `model_validator(mode="after")` on
+    `Settings` rejecting a read prefix equal to or nested under the write prefix, running after both
+    fields are normalised so slash-hidden forms are caught; duplicate read prefixes are de-duplicated
+    rather than rejected. The constraint is deliberately one-directional — a write prefix *beneath* a
+    read prefix, nesting among read prefixes, and sibling prefixes sharing a textual prefix all stay
+    valid, each pinned by a test. `adr-2026-05-29-tier-based-access-control.md` records why: the foreign
+    clause matches `scope` by exact equality while `is_own_scope` matches the key hierarchically, so only
+    the one direction is unsafe. Caller-visible: a previously-accepted configuration now refuses to start.
+
 
 ## Risks and Open Questions
 

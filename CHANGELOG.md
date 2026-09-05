@@ -47,6 +47,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   listed, a foreign-scope tier-2 one is not, matching `list_artifacts`' default scope
 
 ### Fixed
+- a read prefix at or beneath the write prefix is now rejected at startup. The scope model
+  assumes disjoint scopes, and every own-scope guard is a `startswith(write_prefix + "/")`
+  test, so with `WRITE_PREFIX=team` and `READ_PREFIXES=team/proj` another deployment's
+  artifacts read as this server's own: they passed the own-scope-only tools
+  (`archive_artifact`, `delete_artifact`, `purge_archived`, `link_metadata`) and
+  `reconcile_index` re-indexed them under the wrong scope. Caller-visible: a configuration
+  that was previously accepted now refuses to start, with an error naming the offending
+  read prefix, the write prefix, and the consequence. A read prefix *equal* to the write
+  prefix is rejected too — harmless at runtime, but never intentional. Three shapes stay
+  valid and are pinned by tests: a write prefix nested under a read prefix (the legitimate
+  "write to my sub-scope, subscribe to the whole org" deployment), read prefixes nested
+  among themselves, and siblings that merely share a textual prefix (`team-a` / `team-abc`).
+  Duplicate read prefixes are silently de-duplicated rather than rejected
 - `reconcile_index` no longer replays a failure-log entry whose artifact has since been
   deleted. Such an entry was reported in `failed` with reason `S3 object not found` on
   every run forever, and `failure_log_entries_after` never dropped, because a `failed`
