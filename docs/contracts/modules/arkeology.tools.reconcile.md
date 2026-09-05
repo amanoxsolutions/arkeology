@@ -66,6 +66,19 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
 - The automatic retry loop is **bounded**. An entry reaching the maximum attempt count is no longer
   auto-retried and is surfaced in `stuck_failures`, so a genuinely unfixable entry fails loudly
   once rather than retrying forever.
+- A failure-log entry whose S3 object **no longer exists** is **resolved, not retried** — it is pruned
+  from the log and reported in `reconciled` with the `failure_log_obsolete` source. There is nothing
+  left to reconcile: the artifact is gone, and Phase 3 already prunes any vectors it left behind. This
+  is deliberately not routed through the attempt counter, because `stuck_failures` asks an operator to
+  fix an underlying cause and a deleted artifact presents none. Classifying it `failed` instead would
+  breach the bounded-retry invariant above: `failed` entries are retained in the rewritten log and do
+  not increment the counter, so such an entry would be replayed and re-reported on every run forever
+  and `failure_log_entries_after` would never drop. Safety rests on three properties that must hold
+  together — the absence check distinguishes a genuine 404 from a transient or credential failure,
+  which keep their existing counter-bearing paths; the dangling-vector prune re-checks existence at
+  prune time, so it cannot race a concurrent write; and if the object reappears after the entry is
+  pruned, the orphan scan re-indexes any S3 key carrying zero vectors on the following run. Weakening
+  any one of the three invalidates this classification.
 - Failure-log entries are classified by their own shape — the presence of `orphan_keys` marks the
   cheap orphan-cleanup kind — so a reindex-kind and an orphan-cleanup-kind entry for the same
   artifact are processed and pruned independently.
@@ -78,6 +91,14 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
   respect to already-consistent artifacts.
 
 **Postconditions**
+
+- Every `reconciled` entry carries a `source` discriminator naming which mechanism dealt with it:
+  `failure_log` (replayed from the failure log and re-indexed), `orphan_scan` (an S3 key found with no
+  vectors and re-indexed), `orphan_vector_cleanup` (leftover orphan vector keys deleted, nothing
+  re-indexed), or `failure_log_obsolete` (entry dropped because its artifact no longer exists, nothing
+  re-indexed). `reconciled` therefore means "this entry was dealt with", not "this artifact was
+  re-indexed" — two of the four sources index nothing, and a consumer counting re-index work must
+  filter on `source` rather than on the list's length.
 
 - Returns `reconciled`, `failed`, `failure_log_entries_before`, `failure_log_entries_after`,
   `orphans_found`, `total_reconciled`, `dangling_artifacts_found`, `dangling_vectors_pruned`, and

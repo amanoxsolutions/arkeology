@@ -291,6 +291,16 @@ async def reconcile_index(
             non-empty, ``stuck_failures`` — failure-log entries whose
             ``reconcile_attempts`` has reached ``CAS_MAX_ATTEMPTS`` and are no longer
             auto-retried.
+
+            Every ``reconciled`` entry carries a ``source`` discriminator naming the
+            mechanism that dealt with it: ``"failure_log"`` (replayed and re-indexed),
+            ``"orphan_scan"`` (an S3 key found with no vectors and re-indexed),
+            ``"orphan_vector_cleanup"`` (leftover orphan vector keys deleted, nothing
+            re-indexed), or ``"failure_log_obsolete"`` (entry dropped because its
+            artifact no longer exists, nothing re-indexed). ``reconciled`` therefore
+            means "dealt with", not "re-indexed" — two of the four sources index
+            nothing and carry no ``sections_indexed``, so a caller counting re-index
+            work must filter on ``source`` rather than on the list's length.
         On error: ``{"error": "credential_error" | "internal_error", "message": str(exc)}``.
     """
     try:
@@ -461,10 +471,30 @@ async def _reconcile_index_inner(
                 except CredentialError as exc:
                     return {"kind": "credential_error", "exc": exc}
                 except KeyError:
+                    # The artifact has been deleted since the entry was logged, so there
+                    # is nothing left to reconcile — resolve the entry (pruning it from
+                    # the log) rather than failing it. Classifying it `failed` would
+                    # replay and re-report it on every run forever: `failed` entries are
+                    # retained by the end-of-run rewrite and never increment
+                    # reconcile_attempts, so they can never reach stuck_failures either.
+                    # Deliberately not counter-bearing: stuck_failures asks an operator to
+                    # fix an underlying cause, and a deleted artifact presents none. Only
+                    # a genuine 404 reaches here — head_object raises CredentialError for
+                    # a permission failure and re-raises every other error, both of which
+                    # keep their existing paths. Any vectors the artifact left behind are
+                    # pruned by Phase 3, and if the object reappears the orphan scan
+                    # re-indexes it.
                     return {
-                        "kind": "failed",
+                        "kind": "resolved",
                         "artifact_id": artifact_id,
-                        "reason": "S3 object not found",
+                        "entry": {
+                            "artifact_id": artifact_id,
+                            # raw_meta is unavailable — the object is gone — so the title
+                            # comes from the failure-log entry, as the orphan-cleanup
+                            # producer above does. No sections_indexed: nothing was indexed.
+                            "title": entry.get("title", ""),
+                            "source": "failure_log_obsolete",
+                        },
                     }
                 except Exception as exc:
                     return {"kind": "failed", "artifact_id": artifact_id, "reason": str(exc)}

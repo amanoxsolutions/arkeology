@@ -33,6 +33,31 @@ now possible and must be resolved independently. The `reconcile_attempts`/
 `CAS_MAX_ATTEMPTS`/`stuck_failures` mechanism this spec introduces is unchanged and now
 applies to both kinds identically. See that spec for the full rationale.
 
+## Revision — 2026-09-05
+
+Story 4's acceptance criterion below states that Phase 1's existing `head_object` `KeyError` →
+"S3 object not found" handling "stays exactly where it is, ahead of the shared helper". That remains
+correct about **placement** — the branch was deliberately kept out of the extracted
+`_fetch_and_reindex` helper, and still is. It is superseded only as regards **classification**.
+
+As written, that branch returned a bare `failed` result carrying no `reconcile_attempts`. Because the
+end-of-run rewrite retains every entry that was not resolved, and because only the counter-bearing
+paths can ever reach `stuck_failures`, an entry whose artifact had since been deleted was replayed and
+re-reported as `failed` on every subsequent run, forever, with `failure_log_entries_after` never
+dropping — the precise "self-perpetuating failure-log replay" outcome this task's own Problem
+Statement set out to make impossible. The bounded-retry rule introduced here should have swept this
+branch in; it did not, because the branch sits ahead of the replay attempt rather than inside it.
+
+That branch now resolves the entry instead: the entry is pruned and reported in `reconciled` with the
+`failure_log_obsolete` source, since a deleted artifact leaves nothing to reconcile and no operator
+action to request. It is not routed through `reconcile_attempts`. The normative statement of this
+behaviour, including the three properties its safety depends on, lives in
+[`docs/contracts/modules/arkeology.tools.reconcile.md`](../contracts/modules/arkeology.tools.reconcile.md),
+which is the authority; this note records only what changed relative to the frozen scope below.
+
+Nothing else in this spec is affected: the `reconcile_attempts` counter, `CAS_MAX_ATTEMPTS`,
+`stuck_failures`, and the shared-helper extraction all stand as delivered.
+
 <!-- SCOPE BLOCK — frozen after approval -->
 
 ## TL;DR

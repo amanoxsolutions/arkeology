@@ -47,6 +47,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   listed, a foreign-scope tier-2 one is not, matching `list_artifacts`' default scope
 
 ### Fixed
+- `reconcile_index` no longer replays a failure-log entry whose artifact has since been
+  deleted. Such an entry was reported in `failed` with reason `S3 object not found` on
+  every run forever, and `failure_log_entries_after` never dropped, because a `failed`
+  entry is retained by the end-of-run log rewrite and never increments the retry counter
+  that leads to `stuck_failures`. Caller-visible: the entry now appears once in
+  `reconciled` with the new `source` value `failure_log_obsolete` and is then pruned from
+  the log. It is deliberately not routed through the retry counter — `stuck_failures` asks
+  an operator to fix an underlying cause, and a deleted artifact presents none
 - a comma inside a `tags` or `source_artifacts` element is now rejected with
   `validation_error` on every write path. Both fields are stored comma-joined in S3 object
   metadata and as a native list in the vector index, so an element carrying a literal comma

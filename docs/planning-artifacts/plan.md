@@ -20,7 +20,7 @@ This project runs as a **single open phase**, not a pre-planned roadmap. Complet
 - **Status legend:** ⬜ pending · 🔄 in progress · 🔍 in review · ✅ done · 🔴 blocked
 - **Delivery model:** each **Phase** is a coherent slice of value delivered as a set of tasks. A phase ends when we judge it done.
 
-**Current state:** Phase 12 — Artifact Cross-Referencing + Annotation-Backed Link Storage: all planned tasks **T45–T69** implemented, unit-tested (suite green), and merged to `main` (the `phase-12-cross-referencing` branch is merged; work is trunk-based on `main` per AGENTS.md); skills consolidated under `plugins/arkeology/skills/`; specs, ADR-011/ADR-012, and user docs aligned. **T57–T62** (added 2026-08-13) delivered the post-implementation remediation for a real vector-metadata-budget-overflow incident (guard coverage, `commit_refs`/`references` split-store fix, migration self-heal, bounded reconcile retry — see `adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal.md`, Accepted). Two closely-related review findings were folded directly into those specs rather than getting their own task numbers: I-4 (control-character validation gap) into T57's spec, and I-2 (`propose_commit_links.py` first-vector-only bug) into T58's spec — both touched the exact same file/function T57/T58 already opened. H-2 was folded into T62's spec (same file, already reopened by T62). Four other findings (F-1, F-3, H-1, I-3) were batched into follow-up task **T63**, and a further six batches of review-2026-08-13 remediation — **T64–T69** (I-6, J-2, C-1, J-1, cleanup-hygiene batch 2, and convention-class cleanup) — landed 2026-08-19/20, closing out every open finding from that review. No task in the phase remains open. Not yet released: latest tag is v0.5.0 (Phase 11 — Visual Reading Interface); `CHANGELOG.md`'s `[Unreleased]` section carries the accumulated Phase 12 changes pending a version cut.
+**Current state:** Phase 14 — Consistency Review Remediation is open, closing the findings of the 2026-09-05 whole-repository consistency review; T71 is done. Prior phases below remain as delivered. Phase 12 — Artifact Cross-Referencing + Annotation-Backed Link Storage: all planned tasks **T45–T69** implemented, unit-tested (suite green), and merged to `main` (the `phase-12-cross-referencing` branch is merged; work is trunk-based on `main` per AGENTS.md); skills consolidated under `plugins/arkeology/skills/`; specs, ADR-011/ADR-012, and user docs aligned. **T57–T62** (added 2026-08-13) delivered the post-implementation remediation for a real vector-metadata-budget-overflow incident (guard coverage, `commit_refs`/`references` split-store fix, migration self-heal, bounded reconcile retry — see `adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal.md`, Accepted). Two closely-related review findings were folded directly into those specs rather than getting their own task numbers: I-4 (control-character validation gap) into T57's spec, and I-2 (`propose_commit_links.py` first-vector-only bug) into T58's spec — both touched the exact same file/function T57/T58 already opened. H-2 was folded into T62's spec (same file, already reopened by T62). Four other findings (F-1, F-3, H-1, I-3) were batched into follow-up task **T63**, and a further six batches of review-2026-08-13 remediation — **T64–T69** (I-6, J-2, C-1, J-1, cleanup-hygiene batch 2, and convention-class cleanup) — landed 2026-08-19/20, closing out every open finding from that review. No task in the phase remains open. Not yet released: latest tag is v0.5.0 (Phase 11 — Visual Reading Interface); `CHANGELOG.md`'s `[Unreleased]` section carries the accumulated Phase 12 changes pending a version cut.
 
 ---
 
@@ -253,6 +253,45 @@ Goal: replace the `prd` artifact type with two new types, `vision` and `requirem
 70. ✅ **Rename `prd` type to `vision` + `requirements`** — remove `"prd"` from `ARTIFACT_TYPES` in `artifact.py`; add `"vision"` and `"requirements"` (16 types total, up from 15). `resources.py`: replace the `prd` description entry with two new description entries (`vision`, `requirements`); update the tier 3 "Use for" line to drop `prd` and add `vision`, `requirements`. Migration skill (`skills/migrating-to-arkeology/SKILL.md`): split the Pass 1 filename-stem row — `vision` → `type=vision`, tier 3; `prd`/`product-requirements`/`requirements` (legacy single-document convention) → `type=requirements`, tier 3 (its content is predominantly requirements-shaped, and "requirements" is literally part of the name); update the Step 7 removal-guidance row accordingly; update `schema.yaml`'s inline `ARTIFACT_TYPES` comment. `setting-up-arkeology/SKILL.md` and `references/agents-snippet.md`: update tier 3 type lists and the AGENTS.md type-table entry. `src/arkeology/static/arkeology-studio.html`: replace the `prd` type-filter option, colour variable, and label with `vision` and `requirements` entries. `README.md` and `SERVER-REFERENCE.md`: update type tables/lists. `CHANGELOG.md`: add a `[Unreleased]` **Breaking** entry — callers writing or filtering on `type="prd"` must switch to `type="vision"` or `type="requirements"`.
 
 ---
+
+## Phase 14 — Consistency Review Remediation
+
+Goal: close the findings from the whole-repository consistency review of 2026-09-05 (ADRs, specs and
+contracts against the source). Most are documentation-authority corrections rather than behaviour
+changes; the code-level ones are defect fixes against preconditions the contracts already state. No
+new spec files — each task entry below, together with the contract it corrects, is the scope of
+record, per AGENTS.md's working convention that a fix enforcing an already-documented contract
+clause does not need a dedicated spec. Testing approach: **TDD** (NFR-07).
+
+71. ✅ **Reject a literal comma inside a `tags` or `source_artifacts` element** — `Artifact.validate_tags`
+    and `validate_source_artifacts` in `artifact.py` enforced only `_require_no_control_chars`, while
+    `validate_commit_refs`/`validate_references` also enforce `_require_no_comma`. The
+    `s3.artifact` contract's Storage Shape section already requires that no element of a comma-joined
+    field contain a comma, because the payload format has no escaping. Without the guard a tag `"a,b"`
+    reached S3 object metadata as the raw string `a,b` and vector metadata as `["a,b"]`, so
+    `read_artifact` (S3-sourced, split by `coerce_list_field`) reported `["a", "b"]` while
+    `list_artifacts`/`search_artifacts` (vector-sourced) reported `["a,b"]` for the same artifact, and a
+    `tags=["a"]` filter missed it. Fix: add the `_require_no_comma` call to both validators. `Artifact`
+    is constructed only in `write.py`, and `write_artifacts` and `migrate_artifacts` both delegate
+    through it, so the model validator is the single choke point for every write path — no per-caller
+    guard. Caller-visible: such a write now returns `validation_error` rather than silently diverging
+    the stores. Artifacts written before the guard converge on the split form at the next
+    `reconcile_index`, which rebuilds vector metadata from the S3 side through the same coercion.
+
+72. **Resolve a failure-log entry whose artifact no longer exists, instead of replaying it forever** —
+    `reconcile.py`'s `_process_failure_log_entry` caught `KeyError` from `head_object` and returned a bare
+    `failed` result with no `reconcile_attempts`. Since the end-of-run rewrite retains every entry that
+    was not resolved, and only counter-bearing paths reach `stuck_failures`, an entry whose artifact had
+    been deleted was replayed and re-reported on every run forever, with `failure_log_entries_after`
+    never dropping — the "self-perpetuating failure-log replay" outcome T62 existed to prevent. T62's
+    bounded-retry rule never reached this branch because it sits ahead of the replay attempt rather than
+    inside it. Fix: that branch resolves the entry, pruning it from the log and reporting it once in
+    `reconciled` under a new `failure_log_obsolete` source; it is not routed through the attempt counter,
+    since a deleted artifact presents no cause for an operator to fix. The `CredentialError` and generic
+    exception branches are unchanged. Scope of record: the Invariants and Postconditions of
+    `docs/contracts/modules/arkeology.tools.reconcile.md`, plus the `Revision — 2026-09-05` section added
+    to `docs/specs/p12-t62-bounded-reconcile-retry.md` recording which of its acceptance criteria is
+    superseded and in what respect.
 
 ## Risks and Open Questions
 

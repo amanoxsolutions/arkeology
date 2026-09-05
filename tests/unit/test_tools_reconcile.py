@@ -165,13 +165,15 @@ async def test_failure_log_resolvable_entry_reconciled(
     assert result["failure_log_entries_after"] == 0
 
 
-async def test_failure_log_unresolvable_entry_kept_in_failed(
+async def test_failure_log_entry_for_deleted_artifact_resolved_and_pruned(
     reconcile_settings: Settings,
     s3_reconcile: S3ClientImpl,
     vectors_reconcile: VectorsClientImpl,
 ) -> None:
-    """Failure log with one unresolvable entry (S3 object absent) → entry kept;
-    in failed with reason containing 'not found'."""
+    """A failure-log entry whose S3 object no longer exists has nothing left to
+    reconcile: the artifact is gone. It is resolved rather than failed — reported once in
+    reconciled with source='failure_log_obsolete', absent from failed and from
+    stuck_failures, and pruned from the log so the log actually drains."""
     missing_id = "artifacts/implementation-note-2026-01-01-nonexistent"
     bedrock = FakeBedrockClient()
 
@@ -188,11 +190,91 @@ async def test_failure_log_unresolvable_entry_kept_in_failed(
     )
 
     assert "error" not in result
-    failed_ids = [e["artifact_id"] for e in result["failed"]]
-    assert missing_id in failed_ids
-    failed_entry = next(e for e in result["failed"] if e["artifact_id"] == missing_id)
-    assert "not found" in failed_entry["reason"].lower()
-    assert result["failure_log_entries_after"] >= 1
+    reconciled_ids = [e["artifact_id"] for e in result["reconciled"]]
+    assert reconciled_ids.count(missing_id) == 1
+    obsolete_entry = next(e for e in result["reconciled"] if e["artifact_id"] == missing_id)
+    assert obsolete_entry["source"] == "failure_log_obsolete"
+    assert obsolete_entry["title"] == _BASE_LOG_ENTRY["title"]
+    # Nothing was indexed, so no section count is reported.
+    assert "sections_indexed" not in obsolete_entry
+
+    assert missing_id not in [e["artifact_id"] for e in result["failed"]]
+    assert missing_id not in [e["artifact_id"] for e in result.get("stuck_failures", [])]
+    assert result["failure_log_entries_after"] < result["failure_log_entries_before"]
+    assert result["failure_log_entries_after"] == 0
+
+
+async def test_failure_log_entry_for_deleted_artifact_not_replayed_on_second_run(
+    reconcile_settings: Settings,
+    s3_reconcile: S3ClientImpl,
+    vectors_reconcile: VectorsClientImpl,
+) -> None:
+    """The entry pruned for a deleted artifact is gone for good: a second run over the
+    same state reports it in neither reconciled nor failed, which is the whole point of
+    resolving it rather than failing it."""
+    missing_id = "artifacts/implementation-note-2026-01-01-gone-for-good"
+    bedrock = FakeBedrockClient()
+
+    _write_failure_log(
+        reconcile_settings.failure_log_path,
+        [{**_BASE_LOG_ENTRY, "artifact_id": missing_id}],
+    )
+
+    first = await reconcile_index(
+        settings=reconcile_settings,
+        s3=s3_reconcile,
+        vectors=vectors_reconcile,
+        bedrock=bedrock,
+    )
+    assert "error" not in first
+
+    second = await reconcile_index(
+        settings=reconcile_settings,
+        s3=s3_reconcile,
+        vectors=vectors_reconcile,
+        bedrock=bedrock,
+    )
+
+    assert "error" not in second
+    assert missing_id not in [e["artifact_id"] for e in second["reconciled"]]
+    assert missing_id not in [e["artifact_id"] for e in second["failed"]]
+    assert missing_id not in [e["artifact_id"] for e in second.get("stuck_failures", [])]
+    assert second["failure_log_entries_before"] == 0
+
+
+async def test_failure_log_credential_error_on_head_object_aborts_run(
+    reconcile_settings: Settings,
+    s3_reconcile: S3ClientImpl,
+    vectors_reconcile: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """A CredentialError from the replay's head_object still aborts the whole run with the
+    structured credential-error response — only a genuine 404 resolves the entry, and the
+    failure log is left untouched so the entry survives to be retried."""
+    artifact_id = "artifacts/implementation-note-2026-01-01-cred-head"
+    bedrock = FakeBedrockClient()
+
+    _write_failure_log(
+        reconcile_settings.failure_log_path,
+        [{**_BASE_LOG_ENTRY, "artifact_id": artifact_id}],
+    )
+    mocker.patch.object(
+        s3_reconcile,
+        "head_object",
+        side_effect=CredentialError(message="Simulated.", service="s3", original=Exception("sim")),
+    )
+
+    result = await reconcile_index(
+        settings=reconcile_settings,
+        s3=s3_reconcile,
+        vectors=vectors_reconcile,
+        bedrock=bedrock,
+    )
+
+    assert result.get("error") == "credential_error"
+    assert "reconciled" not in result
+    log_lines = reconcile_settings.failure_log_path.read_text(encoding="utf-8").splitlines()
+    assert [json.loads(line)["artifact_id"] for line in log_lines] == [artifact_id]
 
 
 async def test_failure_log_duplicate_artifact_id_deduplication(
@@ -232,13 +314,15 @@ async def test_failure_log_duplicate_artifact_id_deduplication(
     assert reconciled_ids.count(artifact_id) == 1
 
 
-async def test_failure_log_mixed_entries_one_reconciled_one_failed(
+async def test_failure_log_mixed_entries_each_resolved_by_its_own_source(
     reconcile_settings: Settings,
     s3_reconcile: S3ClientImpl,
     vectors_reconcile: VectorsClientImpl,
 ) -> None:
-    """Mixed entries: one resolvable, one not → one in reconciled, one in failed;
-    log retains only unresolved."""
+    """Mixed entries: one whose S3 object exists, one whose object is gone. Both are
+    resolved and pruned, but by different mechanisms — the first is re-indexed
+    (source='failure_log'), the second is dropped as obsolete
+    (source='failure_log_obsolete'). Neither lands in failed, and the log drains fully."""
     existing_id = "artifacts/implementation-note-2026-01-01-existing"
     missing_id = "artifacts/implementation-note-2026-01-01-missing"
     s3_reconcile.put_object(existing_id, _CONTENT_NO_SECTIONS, {**_BASE_S3_META})
@@ -260,14 +344,11 @@ async def test_failure_log_mixed_entries_one_reconciled_one_failed(
     )
 
     assert "error" not in result
-    reconciled_ids = [e["artifact_id"] for e in result["reconciled"]]
-    failed_ids = [e["artifact_id"] for e in result["failed"]]
-    assert existing_id in reconciled_ids
-    assert missing_id not in reconciled_ids
-    assert missing_id in failed_ids
-    assert existing_id not in failed_ids
-    # Log retains only the unresolved entry
-    assert result["failure_log_entries_after"] == 1
+    sources = {e["artifact_id"]: e["source"] for e in result["reconciled"]}
+    assert sources[existing_id] == "failure_log"
+    assert sources[missing_id] == "failure_log_obsolete"
+    assert result["failed"] == []
+    assert result["failure_log_entries_after"] == 0
 
 
 async def test_failure_log_foreign_scope_entry_skipped(
