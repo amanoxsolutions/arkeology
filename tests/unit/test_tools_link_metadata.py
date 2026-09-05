@@ -7,6 +7,7 @@ existing float32 embeddings — with zero Bedrock calls (ADR-011 / T49, AC-59).
 """
 
 import math
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -18,7 +19,9 @@ from arkeology.clients.s3 import S3ClientImpl
 from arkeology.clients.vectors import VectorsClientImpl
 from arkeology.config import Settings
 from arkeology.errors import AnnotationUnavailableError, ArtifactConflictError, CredentialError
+from arkeology.failure_log import read_failure_entries
 from arkeology.tools.link_metadata import link_metadata
+from arkeology.tools.reconcile import reconcile_index
 from tests.unit.conftest import _make_settings as _make_settings_base
 
 # ---------------------------------------------------------------------------
@@ -1693,3 +1696,190 @@ async def test_link_metadata_clean_value_still_succeeds_after_delegation_change(
     assert result.get("linked") == 1
     assert s3_client.get_object_annotation(ID_A, "commit_refs") == "clean-sha"
     assert s3_client.get_object_annotation(ID_A, "references") == "clean-ref"
+
+
+# ---------------------------------------------------------------------------
+# Story — a failed vector write is recorded so reconcile_index can heal it
+# ---------------------------------------------------------------------------
+
+# Content whose H2 headings produce exactly the section vector keys seeded below, so a
+# reconcile re-index rewrites those same keys rather than leaving stale siblings behind.
+_SELFHEAL_CONTENT = "## Overview\n\nSome overview text.\n\n## Details\n\nSome detail text."
+
+_SELFHEAL_ID = f"{OWN_PREFIX}/artifact-selfheal"
+_SELFHEAL_KEYS = [f"{_SELFHEAL_ID}#overview", f"{_SELFHEAL_ID}#details"]
+
+_SELFHEAL_S3_META: dict[str, str] = {
+    "type": "code_review",
+    "team": "platform",
+    "project": "arkeology",
+    "tier": "2",
+    "date": "2026-06-01",
+    "status": "active",
+    "title": "Self Heal Artifact",
+    "visibility": "shared",
+    "tags": "",
+    "author_role": "developer",
+    "description": "A test artifact.",
+    "source_artifacts": "",
+}
+
+
+def _seed_selfheal_artifact(s3: S3ClientImpl, vectors: VectorsClientImpl) -> None:
+    """Seed one own-scope artifact whose vector keys match what a re-index rebuilds."""
+    s3.put_object(_SELFHEAL_ID, _SELFHEAL_CONTENT, dict(_SELFHEAL_S3_META))
+    meta: dict[str, Any] = {
+        **_BASE_META,
+        "artifact_id": _SELFHEAL_ID,
+        "title": "Self Heal Artifact",
+    }
+    for i, key in enumerate(_SELFHEAL_KEYS):
+        vectors.put_vector(key, _unit_vec(1.0 + i * 0.1), meta)
+
+
+async def test_link_metadata_vector_write_failure_logs_entry_and_keeps_results(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """A vector write that fails after a successful annotation write is recorded in the
+    failure log — carrying the exact link fields it was applying — and the call still
+    reports what the other artifact_ids achieved instead of collapsing to
+    internal_error."""
+    settings = _make_settings_base(monkeypatch, tmp_path=tmp_path)
+    bedrock = FakeBedrockClient()
+    _seed_all(s3_client, vectors_client_2)
+
+    real_batch = vectors_client_2.put_vectors_batch
+
+    def _fail_for_a(batch: list[dict[str, Any]]) -> None:
+        if batch and batch[0]["metadata"]["artifact_id"] == ID_A:
+            raise RuntimeError("simulated vector write failure")
+        real_batch(batch)
+
+    mocker.patch.object(vectors_client_2, "put_vectors_batch", side_effect=_fail_for_a)
+
+    result = await link_metadata(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=bedrock,
+        artifact_ids=[ID_A, ID_B],
+        commit_refs=["abc1234"],
+        references=["a-1"],
+    )
+
+    # The batch's other artifact still reports its result — no internal_error.
+    assert result.get("error") is None
+    assert result.get("linked") == 1
+    assert result.get("vector_write_failed") == [ID_A]
+
+    # The durable side of the failed artifact is correct — only the vector copy is stale.
+    assert s3_client.get_object_annotation(ID_A, "commit_refs") == "abc1234"
+
+    entries = read_failure_entries(settings.failure_log_path)
+    assert [e["artifact_id"] for e in entries] == [ID_A]
+    assert entries[0]["failure_step"] == "put_vector"
+    assert entries[0]["commit_refs"] == ["abc1234"]
+    assert entries[0]["references"] == ["a-1"]
+    assert "orphan_keys" not in entries[0]
+
+
+async def test_link_metadata_vector_write_failure_self_heals_on_reconcile(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """End to end: after a failed vector write leaves the annotation copy and the vector
+    copy divergent, a reconcile_index run converges them — the promise both the contract
+    and ADR-011 make about annotation-first ordering."""
+    settings = _make_settings_base(monkeypatch, tmp_path=tmp_path, BEDROCK_EMBEDDING_DIMENSIONS="2")
+    bedrock = FakeBedrockClient()
+    _seed_selfheal_artifact(s3_client, vectors_client_2)
+
+    mocker.patch.object(
+        vectors_client_2,
+        "put_vectors_batch",
+        side_effect=RuntimeError("simulated vector write failure"),
+    )
+
+    link_result = await link_metadata(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=bedrock,
+        artifact_ids=[_SELFHEAL_ID],
+        commit_refs=["abc1234"],
+    )
+    assert link_result.get("vector_write_failed") == [_SELFHEAL_ID]
+
+    # Divergent: the annotation has the value, the vector copy does not.
+    assert s3_client.get_object_annotation(_SELFHEAL_ID, "commit_refs") == "abc1234"
+    for item in vectors_client_2.get_vectors(_SELFHEAL_KEYS):
+        assert "commit_refs" not in item["metadata"]
+
+    # reconcile_index rebuilds vectors via put_vector, never put_vectors_batch, so the
+    # failure injected above is out of its path either way; dropped here so the run is
+    # unambiguously against an unpatched client.
+    mocker.stopall()
+
+    reconcile_result = await reconcile_index(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=bedrock,
+    )
+
+    assert reconcile_result.get("error") is None
+    assert _SELFHEAL_ID in [e["artifact_id"] for e in reconcile_result["reconciled"]]
+    assert reconcile_result["failure_log_entries_after"] == 0
+
+    # Converged: every vector of the artifact now carries the linked commit.
+    items = vectors_client_2.get_vectors(_SELFHEAL_KEYS)
+    assert len(items) == len(_SELFHEAL_KEYS)
+    for item in items:
+        assert item["metadata"]["commit_refs"] == ["abc1234"]
+
+
+async def test_link_metadata_vector_write_credential_failure_still_logs_entry(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """A credential failure on the vector write leaves the same divergence as any other
+    failure, so it is recorded too — the aborting credential_error response is unchanged,
+    but it no longer loses the only trace reconcile_index could repair from."""
+    settings = _make_settings_base(monkeypatch, tmp_path=tmp_path)
+    bedrock = FakeBedrockClient()
+    _seed_all(s3_client, vectors_client_2)
+
+    mocker.patch.object(
+        vectors_client_2,
+        "put_vectors_batch",
+        side_effect=CredentialError(
+            message="Credential failure (simulated).",
+            service="s3vectors",
+            original=Exception("simulated"),
+        ),
+    )
+
+    result = await link_metadata(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=bedrock,
+        artifact_ids=[ID_A],
+        commit_refs=["abc1234"],
+    )
+
+    assert result.get("error") == "credential_error"
+
+    entries = read_failure_entries(settings.failure_log_path)
+    assert [e["artifact_id"] for e in entries] == [ID_A]
+    assert entries[0]["commit_refs"] == ["abc1234"]

@@ -16,6 +16,7 @@ from arkeology.clients.s3 import S3ClientImpl
 from arkeology.clients.vectors import VectorsClientImpl
 from arkeology.config import Settings
 from arkeology.errors import CredentialError, VectorDistanceMissingError
+from arkeology.tools.search import search_artifacts
 from arkeology.tools.synthesise import synthesise_artifacts
 from tests.unit.conftest import _make_settings as _make_settings_base
 
@@ -1013,3 +1014,126 @@ async def test_synthesise_single_oversized_first_result_included_anyway(
     assert [a["artifact_id"] for a in result["artifacts"]] == [aid]
     assert result.get("truncated") is True
     assert result.get("included") == 1
+
+
+# ---------------------------------------------------------------------------
+# Result-entry completeness — the fields the contract promises
+# ---------------------------------------------------------------------------
+
+_LINKED_ULID = "01KT07NV00FN74309G4MXHQ1KN"
+_SOURCES = ["artifacts/src-a", "artifacts/src-b"]
+
+
+async def test_synthesise_entry_carries_score_sources_and_last_edited(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
+) -> None:
+    """A result entry carries every metadata field plus content — including score,
+    source_artifacts, last_edited_ulid and last_edited_at — and its score is the same
+    value search_artifacts reports for the same artifact and query, so a caller can rank
+    or age-discount synthesis results exactly as it ranks search results."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient()
+    aid = "artifacts/synthesis-with-links"
+    s3_client.put_object(
+        aid,
+        _CONTENT,
+        {
+            **_BASE_S3_META,
+            "source_artifacts": ",".join(_SOURCES),
+            "last_edited_ulid": _LINKED_ULID,
+        },
+    )
+    vectors_client_8.put_vector(
+        f"{aid}#summary",
+        _unit_vec(1.0),
+        {
+            **_BASE_VECTOR_META,
+            "artifact_id": aid,
+            "source_artifacts": _SOURCES,
+            "last_edited_ulid": _LINKED_ULID,
+        },
+    )
+
+    synthesised = await synthesise_artifacts(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_8,
+        bedrock=bedrock,
+        query="review",
+        top_k=5,
+    )
+    searched = await search_artifacts(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_8,
+        bedrock=bedrock,
+        query="review",
+        top_k=5,
+    )
+
+    entry = next(a for a in synthesised["artifacts"] if a["artifact_id"] == aid)
+    search_entry = next(a for a in searched["artifacts"] if a["artifact_id"] == aid)
+
+    assert entry["content"] == _CONTENT
+    assert entry["source_artifacts"] == _SOURCES
+    assert entry["last_edited_ulid"] == _LINKED_ULID
+    assert entry["last_edited_at"] == search_entry["last_edited_at"]
+    assert entry["score"] == pytest.approx(search_entry["score"])
+
+
+async def test_synthesise_surfaces_fetch_exhausted(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """A budget-limited result set is distinguishable from an exhaustive one: when the
+    re-fetch loop reports exhaustion, synthesise surfaces it under the same key and with
+    the same meaning as search_artifacts."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient()
+    aid = "artifacts/exhausted"
+    s3_client.put_object(aid, _CONTENT, {**_BASE_S3_META})
+    mocker.patch(
+        "arkeology.tools.synthesise.run_search_loop",
+        new=AsyncMock(return_value=([_entry(aid, 1.0)], True, False)),
+    )
+
+    result = await synthesise_artifacts(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_8,
+        bedrock=bedrock,
+        query="review",
+        top_k=10,
+    )
+
+    assert result.get("fetch_exhausted") is True
+
+
+async def test_synthesise_omits_fetch_exhausted_when_loop_not_exhausted(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """The flag means something: a complete result set carries no fetch_exhausted key at
+    all, matching search_artifacts' include-only-when-true convention."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient()
+    aid = "artifacts/not-exhausted"
+    s3_client.put_object(aid, _CONTENT, {**_BASE_S3_META})
+    _mock_search_loop(mocker, [_entry(aid, 1.0)])
+
+    result = await synthesise_artifacts(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_8,
+        bedrock=bedrock,
+        query="review",
+        top_k=10,
+    )
+
+    assert "fetch_exhausted" not in result

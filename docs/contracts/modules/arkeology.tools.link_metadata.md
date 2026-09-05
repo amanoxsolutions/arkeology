@@ -13,8 +13,8 @@ authored:
   by: "tech-writer"
   date: 2026-09-04
 revised:
-  by: ""
-  date: YYYY-MM-DD
+  by: "developer"
+  date: 2026-09-05
 ---
 
 # arkeology.tools.link_metadata
@@ -76,8 +76,12 @@ delegation rule. It raises nothing.
 - The annotation store always receives the **full, uncapped** value for both fields.
 - Vector metadata never receives a `references` key under any circumstance, and receives at most
   the most-recently-appended 20 `commit_refs` entries.
-- Writes are ordered annotation-first, vectors-second, so a failed vector write self-heals on the
-  next `reconcile_index` run rather than losing the value.
+- Writes are ordered annotation-first, vectors-second. A failed vector write leaves the durable
+  annotation copy correct and the vector copy stale, and appends a failure-log entry carrying the
+  values that were applied. That entry is what makes the repair happen: `reconcile_index`'s
+  failure-log replay re-indexes the artifact from the annotation copy on its next run, converging
+  the two copies. Ordering alone would not — an artifact that still has vectors is invisible to
+  the orphan scan.
 - Each `artifact_id` retries its compare-and-swap cycle independently of the others.
 - Where two different abort-worthy outcomes occur in the same concurrent batch, the returned error
   is decided deterministically in the original `artifact_ids` order.
@@ -99,3 +103,9 @@ delegation rule. It raises nothing.
 - On an `annotation_unavailable`, `validation_error`-from-budget, or `conflict` return, partial
   progress accumulated on other `artifact_ids` in the same call is preserved and reported via
   `linked` / `skipped` keys, included only when non-zero.
+- An `artifact_id` whose annotation write succeeded but whose vector write failed is reported in a
+  `vector_write_failed` list of ids, included only when non-empty. It is counted in neither
+  `linked` (its vector copy is stale) nor `skipped` (its annotation copy was written), and a
+  failure-log entry recording the applied `commit_refs` / `references` is queued for
+  `reconcile_index`. A single such failure never discards the results the rest of the batch
+  achieved.

@@ -406,3 +406,29 @@ dual-written, but its vector-metadata copy is now capped at the most-recent 20 e
 against a real-AWS-measured rejection boundary); the annotation copy stays the complete, uncapped record
 for both fields. See that ADR for the full rationale and the descoped `references`-filtering and
 reverse-lookup consequences.
+
+## Revision — 2026-09-05
+
+Decision 2 and the storage-mechanism alternatives table above state that a failed vector write
+"self-heals on the next reconcile run". When this ADR was written, nothing made that true.
+`reconcile_index` visits exactly two populations: artifacts named by a failure-log entry, and S3
+keys with **zero** vectors. `link_metadata` wrote no failure-log entry, and an artifact whose
+annotation write succeeded but whose vector write failed still has its (now stale) vectors — so it
+fell into neither population and was never revisited. The annotation-first write ordering was
+therefore doing only half its job: it made the durable copy correct, but the repair it was supposed
+to enable had no trigger. The two copies stayed divergent indefinitely, which is invisible on a
+union read (`read_artifact`) and silently wrong on every server-side metadata filter (a
+`list_artifacts` or Studio facet query on the linked value omits the artifact).
+
+`link_metadata` now appends a failure-log entry when a vector write fails after a successful
+annotation write, recording the `commit_refs`/`references` it was applying, in the same
+reindex-kind shape the write and archive paths already produce. That places the artifact in the
+first population, so Phase 1's existing replay re-applies the recorded link fields and re-indexes
+from the annotation copy — which is what decision 3 already promised reconcile would do. The
+self-heal claim is now a description of behaviour rather than an aspiration.
+
+The decision itself is unchanged: annotation-first, vectors-second, with reconcile as the repair
+path. Only the missing trigger has been supplied. The normative statement lives in
+[`docs/contracts/modules/arkeology.tools.link_metadata.md`](../contracts/modules/arkeology.tools.link_metadata.md),
+which also records the `vector_write_failed` response key the fix added so a caller can see which
+artifacts are awaiting that repair.

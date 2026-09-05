@@ -19,9 +19,11 @@ from arkeology.constants import ArtifactStatus, ErrorCode
 from arkeology.errors import CredentialError, InvalidFilterValueError
 from arkeology.tools._errors import credential_error_response
 from arkeology.tools._search_helper import (
+    build_artifact_summary,
     build_user_filters,
     clamp_top_k,
     coerce_list_field,
+    derive_last_edited_at,
     run_search_loop,
 )
 
@@ -57,7 +59,12 @@ async def synthesise_artifacts(
 
     Returns:
         On success: ``{"artifacts": [...]}`` — each entry includes all metadata
-            fields plus ``content``. ``"index_corruption_detected": True`` is
+            fields plus ``content``, ``score`` (the same ``1.0 - cosine_distance``
+            value ``search_artifacts`` reports) and ``last_edited_at``.
+            ``"fetch_exhausted": True`` is included when the re-fetch loop ran out
+            of candidates before filling ``top_k``, so a budget-limited result set
+            is distinguishable from an exhaustive one.
+            ``"index_corruption_detected": True`` is
             included when the re-fetch loop stopped because a vector result was
             missing its ``distance`` field — a soft signal of possible S3
             Vectors index corruption; whatever results were already collected
@@ -136,12 +143,11 @@ async def _synthesise_artifacts_inner(
     if isinstance(loop_result, dict):
         return loop_result
 
-    # fetch_exhausted is currently only surfaced by search_artifacts;
-    # synthesise_artifacts does not expose it (no test/spec currently requires it).
-    # index_corruption_detected IS surfaced here too (T66/C-1) — unlike
-    # fetch_exhausted, this is an observability signal an operator needs
-    # regardless of which tool triggered the re-fetch loop.
-    search_results, _fetch_exhausted, index_corruption_detected = loop_result
+    # Both flags are surfaced, for the same reason: each is an observability signal the
+    # caller needs regardless of which tool triggered the re-fetch loop. Dropping
+    # fetch_exhausted would silently convert an incomplete result set into one
+    # indistinguishable from an exhaustive one.
+    search_results, fetch_exhausted, index_corruption_detected = loop_result
 
     if not search_results:
         zero_response: dict[str, Any] = {"artifacts": [], "zero_results": True}
@@ -181,25 +187,20 @@ async def _synthesise_artifacts_inner(
             truncated = True
             break
 
-        tags_val = coerce_list_field(meta, "tags")
-
-        artifacts.append(
-            {
-                "artifact_id": artifact_id,
-                "content": content,
-                "type": meta.get("type"),
-                "team": meta.get("team"),
-                "project": meta.get("project"),
-                "tier": int(meta.get("tier", 0)),
-                "date": meta.get("date"),
-                "status": meta.get("status"),
-                "title": meta.get("title"),
-                "visibility": meta.get("visibility"),
-                "tags": tags_val,
-                "author_role": meta.get("author_role") or None,
-                "description": meta.get("description"),
-            }
+        # The same summary search_artifacts builds, from the same helper, so the two
+        # tools cannot drift into reporting different fields for the same artifact —
+        # plus this tool's own additions: the content that is its whole point, and the
+        # score the search loop already computed for the ranking it returned.
+        summary = build_artifact_summary(
+            meta,
+            artifact_id,
+            coerce_list_field(meta, "tags"),
+            coerce_list_field(meta, "source_artifacts"),
         )
+        summary["content"] = content
+        summary["score"] = entry["score"]
+        summary["last_edited_at"] = derive_last_edited_at(summary["last_edited_ulid"])
+        artifacts.append(summary)
         total_content_bytes += content_bytes
         if total_content_bytes > max_response_bytes:
             # The single oversized-first-result edge case: this one result already
@@ -222,6 +223,8 @@ async def _synthesise_artifacts_inner(
         response["included"] = len(artifacts)
     if skipped_count:
         response["skipped_count"] = skipped_count
+    if fetch_exhausted:
+        response["fetch_exhausted"] = True
     if index_corruption_detected:
         response["index_corruption_detected"] = True
     return response

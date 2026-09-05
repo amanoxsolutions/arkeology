@@ -20,7 +20,7 @@ This project runs as a **single open phase**, not a pre-planned roadmap. Complet
 - **Status legend:** ⬜ pending · 🔄 in progress · 🔍 in review · ✅ done · 🔴 blocked
 - **Delivery model:** each **Phase** is a coherent slice of value delivered as a set of tasks. A phase ends when we judge it done.
 
-**Current state:** Phase 14 — Consistency Review Remediation is open, closing the findings of the 2026-09-05 whole-repository consistency review; T71–T75 are done. Prior phases below remain as delivered. Phase 12 — Artifact Cross-Referencing + Annotation-Backed Link Storage: all planned tasks **T45–T69** implemented, unit-tested (suite green), and merged to `main` (the `phase-12-cross-referencing` branch is merged; work is trunk-based on `main` per AGENTS.md); skills consolidated under `plugins/arkeology/skills/`; specs, ADR-011/ADR-012, and user docs aligned. **T57–T62** (added 2026-08-13) delivered the post-implementation remediation for a real vector-metadata-budget-overflow incident (guard coverage, `commit_refs`/`references` split-store fix, migration self-heal, bounded reconcile retry — see `adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal.md`, Accepted). Two closely-related review findings were folded directly into those specs rather than getting their own task numbers: I-4 (control-character validation gap) into T57's spec, and I-2 (`propose_commit_links.py` first-vector-only bug) into T58's spec — both touched the exact same file/function T57/T58 already opened. H-2 was folded into T62's spec (same file, already reopened by T62). Four other findings (F-1, F-3, H-1, I-3) were batched into follow-up task **T63**, and a further six batches of review-2026-08-13 remediation — **T64–T69** (I-6, J-2, C-1, J-1, cleanup-hygiene batch 2, and convention-class cleanup) — landed 2026-08-19/20, closing out every open finding from that review. No task in the phase remains open. Not yet released: latest tag is v0.5.0 (Phase 11 — Visual Reading Interface); `CHANGELOG.md`'s `[Unreleased]` section carries the accumulated Phase 12 changes pending a version cut.
+**Current state:** Phase 14 — Consistency Review Remediation is open, closing the findings of the 2026-09-05 whole-repository consistency review; T71–T76 are done. Prior phases below remain as delivered. Phase 12 — Artifact Cross-Referencing + Annotation-Backed Link Storage: all planned tasks **T45–T69** implemented, unit-tested (suite green), and merged to `main` (the `phase-12-cross-referencing` branch is merged; work is trunk-based on `main` per AGENTS.md); skills consolidated under `plugins/arkeology/skills/`; specs, ADR-011/ADR-012, and user docs aligned. **T57–T62** (added 2026-08-13) delivered the post-implementation remediation for a real vector-metadata-budget-overflow incident (guard coverage, `commit_refs`/`references` split-store fix, migration self-heal, bounded reconcile retry — see `adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal.md`, Accepted). Two closely-related review findings were folded directly into those specs rather than getting their own task numbers: I-4 (control-character validation gap) into T57's spec, and I-2 (`propose_commit_links.py` first-vector-only bug) into T58's spec — both touched the exact same file/function T57/T58 already opened. H-2 was folded into T62's spec (same file, already reopened by T62). Four other findings (F-1, F-3, H-1, I-3) were batched into follow-up task **T63**, and a further six batches of review-2026-08-13 remediation — **T64–T69** (I-6, J-2, C-1, J-1, cleanup-hygiene batch 2, and convention-class cleanup) — landed 2026-08-19/20, closing out every open finding from that review. No task in the phase remains open. Not yet released: latest tag is v0.5.0 (Phase 11 — Visual Reading Interface); `CHANGELOG.md`'s `[Unreleased]` section carries the accumulated Phase 12 changes pending a version cut.
 
 ---
 
@@ -339,6 +339,26 @@ clause does not need a dedicated spec. Testing approach: **TDD** (NFR-07).
     rather than being imported privately across tool modules. Documented in the reconcile, write and
     archive contracts. Known ceiling, commented in place: the restore is read-merge-write without
     compare-and-swap.
+
+76. ✅ **Give `link_metadata`'s promised self-heal an actual trigger, and return the fields
+    `synthesise_artifacts`' contract promises** — two contract-versus-code divergences. (a) The
+    `link_metadata` contract and ADR-011 both stated that a failed vector write "self-heals on the next
+    `reconcile_index` run", but nothing made it true: reconcile re-indexes only failure-log entries and S3
+    keys with *zero* vectors, and a partially-linked artifact is neither, so the annotation and vector
+    copies stayed divergent forever and every server-side filter on the linked field silently omitted the
+    artifact. Worse, the exception escaped `asyncio.gather`, collapsing the whole call to `internal_error`
+    and discarding the results of artifacts that had already succeeded. Fix: record a reindex-kind
+    failure-log entry via `build_failure_entry` carrying the applied link fields (making the existing
+    Phase 1 restore the repair path), and contain the failure per artifact behind an outcome marker as
+    `write_artifacts` already does, reporting affected ids in a new `vector_write_failed` list present only
+    when non-empty. ADR-011 carries a dated Revision recording that its self-heal claim is now backed by a
+    mechanism. (b) `synthesise_artifacts` omitted `score`, `source_artifacts`, `last_edited_ulid`,
+    `last_edited_at` and `fetch_exhausted` despite its contract promising them; entries are now built from
+    `build_artifact_summary`, the same helper `search_artifacts` uses, so the two cannot drift apart again.
+    Also corrected a third, previously unrecorded contract falsehood found while implementing: the
+    synthesise contract claimed content is fetched in batch, when it is fetched per result inside the
+    budget loop — necessarily so, since the running byte total decides whether the next candidate is
+    fetched at all, and batching would pay for bytes the budget discards.
 
 ## Risks and Open Questions
 

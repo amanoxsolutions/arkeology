@@ -12,8 +12,8 @@ authored:
   by: "tech-writer"
   date: 2026-09-04
 revised:
-  by: ""
-  date: YYYY-MM-DD
+  by: "developer"
+  date: 2026-09-05
 ---
 
 # arkeology.tools.synthesise
@@ -62,7 +62,11 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
   restricted to `tier == 3` and `visibility == "shared"`.
 - The re-fetch loop is the shared `_search_helper.run_search_loop`, identical to
   `search_artifacts`. Fixes belong in that helper, never here.
-- Content is fetched in batch from S3 after the vector search resolves, not per result serially.
+- Content is fetched from S3 **per result, inside the budget loop** — deliberately not batched ahead
+  of the loop. The running byte total decides whether the next candidate is fetched at all, so a
+  batch fetch would retrieve content the budget then discards, paying S3 reads and bandwidth for
+  bytes that never reach the caller. The serial shape is what makes the budget an actual bound on
+  work done rather than only on the response size.
 - `score` follows the same `1.0 - cosine_distance` convention as `search_artifacts`.
 
 **Preconditions**
@@ -73,7 +77,13 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
 
 **Postconditions**
 
-- Returns `{"artifacts": [...]}` where each entry carries all metadata fields **plus** `content`.
+- Returns `{"artifacts": [...]}` where each entry carries all metadata fields **plus** `content`,
+  `score`, and `last_edited_at`. The metadata fields are the same set `search_artifacts` returns,
+  built from the same shared helper, so the two tools cannot report different fields for the same
+  artifact.
+- `fetch_exhausted: True` is included when the re-fetch loop ran out of candidates before filling
+  `top_k`, under the same key and with the same meaning as in `search_artifacts`. Omitting it would
+  silently convert an incomplete result set into one indistinguishable from an exhaustive one.
 - `index_corruption_detected: True` is included when the loop stopped because a vector result was
   missing its `distance` field. Whatever was already collected is still returned — never a hard
   error, so a partially corrupt index degrades rather than blocks recall.

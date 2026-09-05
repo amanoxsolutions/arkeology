@@ -47,6 +47,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   listed, a foreign-scope tier-2 one is not, matching `list_artifacts`' default scope
 
 ### Fixed
+- `link_metadata` now records a failure-log entry when the vector write fails after the
+  annotation write has succeeded, which is what makes the self-heal its contract and ADR-011
+  promise actually happen. `reconcile_index` visits only artifacts named by a failure-log
+  entry and S3 keys with zero vectors, and such an artifact fell into neither — it still had
+  its (now stale) vectors — so the two durable copies stayed divergent indefinitely and a
+  `list_artifacts(commit_refs=[sha])` or Studio facet query silently omitted it while
+  `read_artifact` showed the link. The entry carries the `commit_refs`/`references` that were
+  applied, so the existing failure-log replay restores them and re-indexes from the annotation
+  copy. The failure is also contained per artifact: it previously escaped `asyncio.gather` and
+  collapsed the whole call to `internal_error`, discarding the `linked`/`skipped` counts for
+  artifacts that had already succeeded. Caller-visible: affected ids are now reported in a new
+  `vector_write_failed` list, included only when non-empty, and counted in neither `linked`
+  nor `skipped`
 - `archive_artifact` now records a failure-log entry when an unknown error (not a conflict,
   not annotation-unavailable, not a credential failure) breaks the annotation re-apply that
   follows the status flip. Such an error previously reached the blanket handler and returned
@@ -74,6 +87,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   "write to my sub-scope, subscribe to the whole org" deployment), read prefixes nested
   among themselves, and siblings that merely share a textual prefix (`team-a` / `team-abc`).
   Duplicate read prefixes are silently de-duplicated rather than rejected
+- `synthesise_artifacts` result entries now carry `score`, `source_artifacts`,
+  `last_edited_ulid` and `last_edited_at`, which its contract promised but the response omitted
+  — the score was computed by the search loop and then discarded, so a caller following the
+  contract to rank or age-discount results got a `KeyError`. The entries are now built from the
+  same shared helper `search_artifacts` uses, so the two tools cannot drift into reporting
+  different fields for the same artifact, and `score` is the same `1.0 - cosine_distance` value
+  in both. The response also surfaces `fetch_exhausted` under the same key and meaning as
+  `search_artifacts`, so a budget-limited synthesis result set is distinguishable from an
+  exhaustive one
 - `reconcile_index` no longer discards a failure-log entry appended while it was running.
   It read the log at the start of the replay and, minutes later, wrote back only the
   entries it had read minus the resolved ones, so a partial write recorded in between — by

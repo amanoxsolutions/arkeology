@@ -12,8 +12,13 @@ unchanged (ADR-011, T49).
 
 No Bedrock call is made, no artifact content is mutated, and
 ``last_edited_ulid`` is never touched. If the vector write fails after the
-annotation write succeeds, the durable side is already correct and a later
-``reconcile_index`` run (T48) rebuilds vector metadata from it.
+annotation write succeeds, the durable side is already correct but the two copies
+have diverged, so a failure-log entry is written carrying the values that were
+applied. That entry is the trigger: ``reconcile_index``'s failure-log replay
+re-indexes the artifact from the annotation copy and the two converge. Without
+it nothing would ever revisit the artifact — it still has vectors, so the orphan
+scan does not see it — and the vector copy would stay stale indefinitely, silently
+omitting the artifact from every server-side filter on the linked field.
 
 If annotations are unavailable (unsupported region/bucket type) or access is
 denied, the durable write is this tool's contract: it returns a structured
@@ -49,6 +54,7 @@ from arkeology.errors import (
     CredentialError,
     MetadataTooLargeError,
 )
+from arkeology.failure_log import append_failure_entry, build_failure_entry
 from arkeology.tools._errors import credential_error_response
 from arkeology.tools._scope import is_own_scope
 from arkeology.tools._search_helper import fetch_vectors_by_metadata
@@ -149,6 +155,61 @@ def _apply_link_metadata_with_cas(
     raise ArtifactConflictError(artifact_id)
 
 
+def _record_vector_write_failure(
+    settings: Settings,
+    *,
+    artifact_id: str,
+    vector_metadata: dict[str, Any],
+    reason: str,
+    commit_refs: list[str],
+    references: list[str],
+) -> None:
+    """Append a failure-log entry for a vector write that failed after the annotation
+    write succeeded.
+
+    Without it, the divergence is permanent and invisible: the artifact still has
+    vectors, so ``reconcile_index``'s orphan scan never revisits it, and nothing else
+    ever compares the two stores. A stale vector copy means the field is missing from
+    every server-side metadata filter, so a search or list filtered on the linked value
+    silently omits the artifact while ``read_artifact`` (a union read) shows it.
+
+    The entry makes the artifact a failure-log replay candidate, which is what turns
+    the annotation-first write order into an actual repair: Phase 1 re-applies the
+    recorded link fields and re-indexes from the annotation copy, converging the two.
+
+    Args:
+        settings: Server configuration (for ``failure_log_path``).
+        artifact_id: S3 key of the artifact whose vector copy is now stale.
+        vector_metadata: The artifact's currently indexed vector metadata, the source of
+            the descriptive fields the entry carries. Taken from the vectors already
+            fetched by this call — no extra AWS round trip on a failure path.
+        reason: Human-readable failure reason.
+        commit_refs: The merged value the annotation write persisted, recorded so the
+            replay restores it even if the annotation copy is cleared before reconcile
+            runs (an overwriting ``write_artifact`` re-PUT does exactly that).
+        references: As ``commit_refs``.
+    """
+    tier_raw = vector_metadata.get("tier", 2)
+    try:
+        tier = int(tier_raw)
+    except TypeError, ValueError:
+        tier = 2
+    append_failure_entry(
+        settings.failure_log_path,
+        build_failure_entry(
+            artifact_id=artifact_id,
+            title=str(vector_metadata.get("title", "")),
+            artifact_type=str(vector_metadata.get("type", "")),
+            tier=tier,
+            date=str(vector_metadata.get("date", "")),
+            failure_step="put_vector",
+            reason=reason,
+            commit_refs=commit_refs,
+            references=references,
+        ),
+    )
+
+
 def _validate_supplied_link_values(values: list[str], field: str) -> str | None:
     """Reject empty/whitespace-only elements, then delegate the control-character and
     comma checks to ``Artifact.validate_commit_refs`` / ``validate_references`` — the
@@ -220,7 +281,14 @@ async def link_metadata(
                 "linked": int,
                 "skipped": int,
                 "next_since_ulid": str,
+                # only when non-empty:
+                "vector_write_failed": list[str],
             }
+
+        ``vector_write_failed`` lists the artifact_ids whose annotation write
+        succeeded but whose vector write did not. They are counted in neither
+        ``linked`` nor ``skipped``, and each has a failure-log entry queued for
+        ``reconcile_index`` to replay.
 
         On error: ``{"error": str, "message": str}``
     """
@@ -359,7 +427,32 @@ async def _link_metadata_inner(
                         }
                     )
 
-                await asyncio.to_thread(vectors.put_vectors_batch, batch)
+                try:
+                    await asyncio.to_thread(vectors.put_vectors_batch, batch)
+                except Exception as exc:
+                    # The annotation write above already succeeded, so the two durable
+                    # copies are now divergent. Record it before deciding how to report
+                    # it — including on the credential branch, where the divergence is
+                    # no less real than on any other failure — so reconcile_index has
+                    # something to replay. Re-raised credential errors keep their
+                    # existing abort-the-whole-call handling below.
+                    _record_vector_write_failure(
+                        settings,
+                        artifact_id=artifact_id,
+                        vector_metadata=items[0]["metadata"],
+                        reason=str(exc),
+                        commit_refs=merged_commit_refs,
+                        references=merged_references,
+                    )
+                    if isinstance(exc, CredentialError):
+                        raise
+                    logger.warning(
+                        "link_metadata vector write failed for artifact_id=%s: %s — "
+                        "annotation copy is correct, recorded for reconcile_index",
+                        artifact_id,
+                        exc,
+                    )
+                    return {"kind": "vector_write_failed", "artifact_id": artifact_id}
             except KeyError:
                 # M10: the vector index still carries this artifact_id (an orphaned
                 # vector — e.g. a prior write's S3 put succeeded but a later delete or a
@@ -388,6 +481,10 @@ async def _link_metadata_inner(
 
     linked = sum(1 for r in results if r["kind"] == "linked")
     skipped = sum(1 for r in results if r["kind"] == "skip")
+    # Neither linked (the vector copy is stale) nor skipped (the artifact was very much
+    # touched — its annotation copy was written): reported on its own key so the caller
+    # can see that reconcile_index owes it a repair.
+    vector_write_failed = [r["artifact_id"] for r in results if r["kind"] == "vector_write_failed"]
 
     # ── Abort-worthy outcomes take priority over the normal linked/skipped summary,
     # decided deterministically in original artifact_ids order (matches the exact
@@ -447,8 +544,11 @@ async def _link_metadata_inner(
     # ── Generate cursor ONCE after processing all artifacts ──────────────────
     next_since_ulid = str(ULID())
 
-    return {
+    response: dict[str, Any] = {
         "linked": linked,
         "skipped": skipped,
         "next_since_ulid": next_since_ulid,
     }
+    if vector_write_failed:
+        response["vector_write_failed"] = vector_write_failed
+    return response
