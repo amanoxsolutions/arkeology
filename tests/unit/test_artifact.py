@@ -759,9 +759,28 @@ def test_tags_element_with_control_char_rejected() -> None:
         Artifact(**kwargs)
 
 
+def test_tags_element_with_comma_rejected() -> None:
+    """A literal comma in a tags element diverges the two stores — S3 object metadata
+    comma-joins tags into a single string while vector metadata keeps a native list[str],
+    so the S3 read path splits one tag back into two while the vector read path does not.
+    Rejected at validation time rather than switching either encoding."""
+    kwargs = {**VALID_ARTIFACT_KWARGS, "tags": ["auth", "a,b"]}
+    with pytest.raises(ValidationError, match="tags"):
+        Artifact(**kwargs)
+
+
 def test_source_artifacts_element_with_control_char_rejected() -> None:
     """A control character in a source_artifacts element → ValidationError naming the field."""
     kwargs = {**VALID_ARTIFACT_KWARGS, "source_artifacts": ["adr-\x01one"]}
+    with pytest.raises(ValidationError, match="source_artifacts"):
+        Artifact(**kwargs)
+
+
+def test_source_artifacts_element_with_comma_rejected() -> None:
+    """A literal comma in a source_artifacts element diverges the two stores — mirrors
+    the tags comma rejection, the field being comma-joined into S3 object metadata the
+    same way."""
+    kwargs = {**VALID_ARTIFACT_KWARGS, "source_artifacts": ["adr-one,adr-two"]}
     with pytest.raises(ValidationError, match="source_artifacts"):
         Artifact(**kwargs)
 

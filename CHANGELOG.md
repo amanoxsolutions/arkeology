@@ -47,6 +47,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   listed, a foreign-scope tier-2 one is not, matching `list_artifacts`' default scope
 
 ### Fixed
+- a comma inside a `tags` or `source_artifacts` element is now rejected with
+  `validation_error` on every write path. Both fields are stored comma-joined in S3 object
+  metadata and as a native list in the vector index, so an element carrying a literal comma
+  split into two on the `read_artifact` path while `list_artifacts` and `search_artifacts`
+  returned it whole, and a tag filter for either half matched nothing. `commit_refs` and
+  `references` already rejected commas for the same reason. Caller-visible: a write that
+  previously succeeded and silently diverged the two stores is now refused before anything
+  is written. Data written before this guard converges on its next `reconcile_index` run
 - the `write_artifact` and `write_artifacts` MCP tools now accept and forward
   `file_extension`, which both module contracts list and both underlying functions
   implement but neither FastMCP wrapper declared — so no MCP caller could set the S3

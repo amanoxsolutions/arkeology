@@ -219,12 +219,15 @@ def _require_no_control_chars(field: str, value: str) -> None:
 def _require_no_comma(field: str, value: str) -> None:
     """Raise ``ValueError`` if ``value`` contains a literal comma.
 
-    ``commit_refs``/``references`` are comma-joined into a single string for their
-    S3 annotation payload (:func:`arkeology.annotations.encode_link_list`), while
-    vector metadata stores each as a native ``list[str]``. A literal comma inside one
-    element would decode back into extra elements on the annotation side
-    (:func:`arkeology.annotations.decode_link_list`) while the vector-metadata side
-    keeps it as a single element, silently diverging the two stores. Reject rather
+    Every list-valued metadata field is comma-joined into a single string on one of its
+    two storage sides while vector metadata keeps a native ``list[str]`` on the other:
+    ``commit_refs``/``references`` via their S3 annotation payload
+    (:func:`arkeology.annotations.encode_link_list`), ``tags``/``source_artifacts`` via
+    S3 user-defined object metadata, whose API only accepts string values. A literal
+    comma inside one element decodes back into extra elements on the comma-joined side
+    (:func:`arkeology.annotations.decode_link_list`,
+    :func:`arkeology.tools._search_helper.coerce_list_field`) while the vector-metadata
+    side keeps it as a single element, silently diverging the two stores. Reject rather
     than escape/encode — the comma-join encoding itself stays untouched.
 
     Args:
@@ -614,6 +617,7 @@ class Artifact(BaseModel):
     def validate_tags(cls, v: list[str]) -> list[str]:
         for item in v:
             _require_no_control_chars("tags", item)
+            _require_no_comma("tags", item)
         return v
 
     @field_validator("source_artifacts")
@@ -621,6 +625,7 @@ class Artifact(BaseModel):
     def validate_source_artifacts(cls, v: list[str]) -> list[str]:
         for item in v:
             _require_no_control_chars("source_artifacts", item)
+            _require_no_comma("source_artifacts", item)
         return v
 
     @field_validator("commit_refs")

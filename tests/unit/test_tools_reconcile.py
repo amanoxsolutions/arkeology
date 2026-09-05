@@ -514,6 +514,40 @@ async def test_reindex_preserves_commit_refs_and_last_edited_ulid(
     assert vmeta.get("last_edited_ulid") == ulid
 
 
+async def test_reindex_splits_comma_bearing_stored_tags(
+    reconcile_settings: Settings,
+    s3_reconcile: S3ClientImpl,
+    vectors_reconcile: VectorsClientImpl,
+) -> None:
+    """Artifacts stored before tags/source_artifacts rejected commas can carry a comma
+    inside a single element, which the S3 read path splits into two elements while the
+    vector read path returns one — the two stores disagree. Reconcile rebuilds vector
+    metadata from the S3 side through the same comma-splitting coercion, so after a
+    reconcile both stores agree on the split form. This pins that self-heal path; the
+    seed bypasses Artifact validation deliberately, since a write can no longer produce
+    this shape.
+    """
+    artifact_id = "artifacts/implementation-note-2026-01-01-legacy-comma-tags"
+    meta = {**_BASE_S3_META, "tags": "a,b", "source_artifacts": "adr-one,adr-two"}
+    s3_reconcile.put_object(artifact_id, _CONTENT_NO_SECTIONS, meta)
+    bedrock = FakeBedrockClient()
+
+    result = await reconcile_index(
+        settings=reconcile_settings,
+        s3=s3_reconcile,
+        vectors=vectors_reconcile,
+        bedrock=bedrock,
+    )
+    assert "error" not in result
+
+    keys = vectors_reconcile.list_vectors_by_metadata({"artifact_id": {"$eq": artifact_id}})
+    items = vectors_reconcile.get_vectors(keys)
+    assert items, "reconcile should have indexed vectors for the artifact"
+    vmeta = items[0]["metadata"]
+    assert vmeta.get("tags") == ["a", "b"]
+    assert vmeta.get("source_artifacts") == ["adr-one", "adr-two"]
+
+
 # ---------------------------------------------------------------------------
 # T48 — reconcile rebuilds commit_refs / references from durable annotations
 # ---------------------------------------------------------------------------

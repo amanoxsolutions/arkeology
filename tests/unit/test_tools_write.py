@@ -9,6 +9,7 @@ import logging
 
 import botocore.exceptions
 import pytest
+from pytest_mock import MockerFixture
 
 from arkeology.artifact import S3_USER_METADATA_MAX_BYTES, VECTOR_FILTERABLE_METADATA_MAX_BYTES
 from arkeology.clients.fakes.fake_bedrock import FakeBedrockClient
@@ -894,6 +895,38 @@ async def test_validation_invalid_visibility_no_s3_call(
     assert result.get("error") == "validation_error"
     assert "message" in result
     assert len(s3_client.list_objects("")) == 0
+
+
+@pytest.mark.parametrize("field", ["tags", "source_artifacts"])
+async def test_validation_comma_in_list_element_rejected_before_any_write(
+    field: str,
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """A comma inside a tags or source_artifacts element makes the two stores disagree:
+    S3 object metadata comma-joins the list into one string, so the read path splits the
+    element back into two, while vector metadata keeps it whole and the list/search path
+    returns one. The write must be rejected with validation_error before any storage
+    operation — no put_object, no put_vectors_batch."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient()
+    put_spy = mocker.spy(s3_client, "put_object")
+    batch_spy = mocker.spy(vectors_client, "put_vectors_batch")
+
+    kwargs = {**_BASE_WRITE_KWARGS, field: ["a,b"]}
+
+    result = await write_artifact(
+        s3=s3_client, vectors=vectors_client, bedrock=bedrock, settings=settings, **kwargs
+    )
+
+    assert result.get("error") == "validation_error", result
+    assert field in result["message"]
+    assert put_spy.call_count == 0
+    assert batch_spy.call_count == 0
+    assert len(s3_client.list_objects("")) == 0
+    assert len(vectors_client.list_vectors_by_metadata({})) == 0
 
 
 # ---------------------------------------------------------------------------
