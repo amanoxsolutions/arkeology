@@ -105,7 +105,10 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
   `dangling_artifacts`.
 - `stuck_failures` is present **only when non-empty**, so its presence is itself the signal that
   manual intervention is required.
-- A successfully reconciled entry is pruned from the failure log, so
-  `failure_log_entries_after < failure_log_entries_before` on any productive run.
+- A successfully reconciled entry is pruned from the failure log. `failure_log_entries_after`
+  counts what the log holds after the end-of-run rewrite, which re-reads it under the appender's
+  lock and removes only the entries this run resolved — so an entry another writer appended while
+  the run was in flight is retained and counted, and `failure_log_entries_after` is not guaranteed
+  to be lower than `failure_log_entries_before` when that happens.
 - An artifact rejected by the budget check is not silently retried into the same failure; it lands
   in `failed` or `stuck_failures`.

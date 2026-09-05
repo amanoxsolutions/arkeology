@@ -306,6 +306,18 @@ clause does not need a dedicated spec. Testing approach: **TDD** (NFR-07).
     clause matches `scope` by exact equality while `is_own_scope` matches the key hierarchically, so only
     the one direction is unsafe. Caller-visible: a previously-accepted configuration now refuses to start.
 
+74. ✅ **Do not drop failure-log entries appended while a reconcile is running** — `reconcile_index` read
+    the log at Phase 1 start and rewrote it at the end with no lock, while `append_failure_entry` takes
+    an exclusive `flock`, so an entry logged by a concurrent write during the multi-minute replay was
+    silently overwritten. Holding the lock across the whole phase was rejected: it would block every
+    failing write for minutes, which is worse than the bug. Fix: `read_failure_entries` and
+    `rewrite_failure_log` in `failure_log.py` (keeping lock handling in the module that already owns it);
+    the rewrite re-reads and writes back inside one hold of the appender's own lock, applying a
+    caller-supplied transform, so entries appended mid-run survive. Retry counts moved from in-place
+    mutation into an `(artifact_id, kind)`-keyed update map, since the rewrite now works on freshly-read
+    dicts. The reconcile contract's claim that a productive run always leaves fewer entries than it
+    started with was corrected — that no longer holds when a concurrent append lands. A microsecond-wide
+    residual window around the unlink is documented in place with its upgrade path.
 
 ## Risks and Open Questions
 

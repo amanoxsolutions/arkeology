@@ -6,7 +6,6 @@ index.
 """
 
 import asyncio
-import json
 import logging
 from pathlib import Path
 from typing import Any
@@ -24,6 +23,7 @@ from arkeology.clients.interfaces import (
 from arkeology.config import Settings
 from arkeology.constants import ArtifactStatus, ErrorCode
 from arkeology.errors import CredentialError
+from arkeology.failure_log import read_failure_entries, rewrite_failure_log
 from arkeology.tools._errors import credential_error_response
 from arkeology.tools._scope import is_own_scope
 from arkeology.tools._search_helper import coerce_list_field
@@ -345,16 +345,7 @@ async def _reconcile_index_inner(
     failure_log_entries_after = 0
 
     if log_path.exists():
-        raw_lines = log_path.read_text(encoding="utf-8").splitlines()
-        entries: list[dict[str, Any]] = []
-        for raw_line in raw_lines:
-            entry_line = raw_line.strip()
-            if entry_line:
-                try:
-                    entries.append(json.loads(entry_line))
-                except json.JSONDecodeError:
-                    logger.warning("Skipping malformed failure log line: %s", entry_line)
-
+        entries: list[dict[str, Any]] = read_failure_entries(log_path)
         failure_log_entries_before = len(entries)
 
         # Deduplicate by (artifact_id, kind) — attempt re-processing once per unique
@@ -374,6 +365,10 @@ async def _reconcile_index_inner(
                 unique_entries.append(entry)
 
         resolved_keys: set[tuple[str, str]] = set()
+        # New attempt counts to stamp onto retained entries, keyed the same way as
+        # resolved_keys. Carried by key rather than mutated in place because the
+        # end-of-run rewrite re-reads the log and works on fresh entry dicts.
+        attempt_updates: dict[tuple[str, str], int] = {}
 
         # Bounded concurrency: each entry's head_object + re-index is independent
         # of every other's, mirroring write_artifacts.py's asyncio.Semaphore-gated
@@ -564,7 +559,7 @@ async def _reconcile_index_inner(
                 stuck_failures.append(stuck_entry)
                 failed_ids.add(r["artifact_id"])
             elif kind == "stuck_new":
-                entry["reconcile_attempts"] = r["reconcile_attempts"]
+                attempt_updates[(r["artifact_id"], _entry_kind(entry))] = r["reconcile_attempts"]
                 stuck_entry = {
                     "artifact_id": r["artifact_id"],
                     "reason": r["reason"],
@@ -575,29 +570,33 @@ async def _reconcile_index_inner(
                 stuck_failures.append(stuck_entry)
                 failed_ids.add(r["artifact_id"])
             elif kind == "failed_new":
-                entry["reconcile_attempts"] = r["reconcile_attempts"]
+                attempt_updates[(r["artifact_id"], _entry_kind(entry))] = r["reconcile_attempts"]
                 failed_entry = {"artifact_id": r["artifact_id"], "reason": r["reason"]}
                 if "orphan_keys" in r:
                     failed_entry["orphan_keys"] = r["orphan_keys"]
                 failed.append(failed_entry)
                 failed_ids.add(r["artifact_id"])
 
-        # Rewrite the failure log — retain only entries whose (artifact_id, kind) was
-        # NOT resolved (T67: a co-existing reindex entry and orphan-cleanup entry for
-        # the same artifact_id are pruned independently, never as a side effect of the
-        # other's resolution).
-        remaining_entries = [
-            e for e in entries if (e.get("artifact_id", ""), _entry_kind(e)) not in resolved_keys
-        ]
-        failure_log_entries_after = len(remaining_entries)
+        def _prune(current: list[dict[str, Any]]) -> list[dict[str, Any]]:
+            """Retain every entry whose (artifact_id, kind) was NOT resolved.
 
-        if remaining_entries:
-            log_path.write_text(
-                "".join(json.dumps(e) + "\n" for e in remaining_entries),
-                encoding="utf-8",
-            )
-        else:
-            log_path.unlink(missing_ok=True)
+            T67: a co-existing reindex entry and orphan-cleanup entry for the same
+            artifact_id are pruned independently, never as a side effect of the
+            other's resolution. ``current`` is re-read under the log's lock, so an
+            entry another writer appended during the replay above is present here and
+            is retained — the run must not overwrite what it never processed.
+            """
+            kept: list[dict[str, Any]] = []
+            for candidate in current:
+                key = (candidate.get("artifact_id", ""), _entry_kind(candidate))
+                if key in resolved_keys:
+                    continue
+                if key in attempt_updates:
+                    candidate["reconcile_attempts"] = attempt_updates[key]
+                kept.append(candidate)
+            return kept
+
+        failure_log_entries_after = len(rewrite_failure_log(log_path, _prune))
 
     # ── Phase 2: Orphan scan ──────────────────────────────────────────────────
     try:

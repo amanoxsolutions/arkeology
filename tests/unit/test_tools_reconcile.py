@@ -20,6 +20,7 @@ from arkeology.clients.s3 import S3ClientImpl
 from arkeology.clients.vectors import VectorsClientImpl
 from arkeology.config import Settings
 from arkeology.errors import CredentialError
+from arkeology.failure_log import append_failure_entry
 from arkeology.tools import reconcile as reconcile_module
 from arkeology.tools.reconcile import reconcile_index
 from tests.unit.conftest import _make_settings as _make_settings_base
@@ -163,6 +164,89 @@ async def test_failure_log_resolvable_entry_reconciled(
     reconciled_entry = next(e for e in result["reconciled"] if e["artifact_id"] == artifact_id)
     assert reconciled_entry["source"] == "failure_log"
     assert result["failure_log_entries_after"] == 0
+
+
+async def test_failure_log_removed_when_every_entry_resolved(
+    reconcile_settings: Settings,
+    s3_reconcile: S3ClientImpl,
+    vectors_reconcile: VectorsClientImpl,
+) -> None:
+    """Draining the log to nothing removes the file rather than leaving an empty one."""
+    artifact_id = "artifacts/implementation-note-2026-01-01-test-artifact"
+    s3_reconcile.put_object(artifact_id, _CONTENT_NO_SECTIONS, {**_BASE_S3_META})
+
+    _write_failure_log(
+        reconcile_settings.failure_log_path,
+        [{**_BASE_LOG_ENTRY, "artifact_id": artifact_id}],
+    )
+
+    result = await reconcile_index(
+        settings=reconcile_settings,
+        s3=s3_reconcile,
+        vectors=vectors_reconcile,
+        bedrock=FakeBedrockClient(),
+    )
+
+    assert result["failure_log_entries_after"] == 0
+    assert not reconcile_settings.failure_log_path.exists()
+
+
+async def test_failure_log_entry_appended_during_replay_survives_the_rewrite(
+    reconcile_settings: Settings,
+    s3_reconcile: S3ClientImpl,
+    vectors_reconcile: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """An entry appended between the log read and the end-of-run rewrite is kept.
+
+    Several server processes can share one failure log and FastMCP serves tool calls
+    concurrently, so a partial write can be recorded while a replay is still running.
+    The rewrite must remove only the keys it resolved, never everything it did not
+    read, or the artifact the entry names is never reconciled — the exact loss the
+    log exists to prevent.
+    """
+    artifact_id = "artifacts/implementation-note-2026-01-01-test-artifact"
+    s3_reconcile.put_object(artifact_id, _CONTENT_NO_SECTIONS, {**_BASE_S3_META})
+    late_id = "artifacts/implementation-note-2026-01-02-late-artifact"
+
+    _write_failure_log(
+        reconcile_settings.failure_log_path,
+        [{**_BASE_LOG_ENTRY, "artifact_id": artifact_id}],
+    )
+
+    real_head_object = s3_reconcile.head_object
+    appended = threading.Event()
+
+    def _append_once_then_head(key: str) -> dict[str, Any]:
+        """Stand in for a concurrent writer recording a partial write mid-replay."""
+        if not appended.is_set():
+            appended.set()
+            append_failure_entry(
+                reconcile_settings.failure_log_path,
+                {**_BASE_LOG_ENTRY, "artifact_id": late_id},
+            )
+        return real_head_object(key)
+
+    mocker.patch.object(s3_reconcile, "head_object", side_effect=_append_once_then_head)
+
+    result = await reconcile_index(
+        settings=reconcile_settings,
+        s3=s3_reconcile,
+        vectors=vectors_reconcile,
+        bedrock=FakeBedrockClient(),
+    )
+
+    assert "error" not in result
+    assert appended.is_set()
+    assert artifact_id in [e["artifact_id"] for e in result["reconciled"]]
+    assert result["failure_log_entries_after"] == 1
+    assert reconcile_settings.failure_log_path.exists()
+    remaining = [
+        json.loads(line)
+        for line in reconcile_settings.failure_log_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert [e["artifact_id"] for e in remaining] == [late_id]
 
 
 async def test_failure_log_entry_for_deleted_artifact_resolved_and_pruned(

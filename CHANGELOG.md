@@ -60,6 +60,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   "write to my sub-scope, subscribe to the whole org" deployment), read prefixes nested
   among themselves, and siblings that merely share a textual prefix (`team-a` / `team-abc`).
   Duplicate read prefixes are silently de-duplicated rather than rejected
+- `reconcile_index` no longer discards a failure-log entry appended while it was running.
+  It read the log at the start of the replay and, minutes later, wrote back only the
+  entries it had read minus the resolved ones, so a partial write recorded in between — by
+  a concurrent tool call or another server process sharing the same log — was overwritten
+  and its artifact never reconciled. The end-of-run rewrite now re-reads the log under the
+  same exclusive lock the appender takes and removes only the entries it actually
+  resolved. The log is still deleted when it genuinely drains to empty
 - `reconcile_index` no longer replays a failure-log entry whose artifact has since been
   deleted. Such an entry was reported in `failed` with reason `S3 object not found` on
   every run forever, and `failure_log_entries_after` never dropped, because a `failed`
