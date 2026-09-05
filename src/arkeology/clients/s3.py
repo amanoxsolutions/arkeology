@@ -10,7 +10,7 @@ from typing import Any
 import boto3
 import botocore.exceptions
 
-from arkeology.artifact import encode_metadata_value
+from arkeology.artifact import decode_metadata_value, encode_metadata_value
 from arkeology.clients.credentials import (
     _ANNOTATION_UNAVAILABLE_MESSAGE,
     _CREDENTIAL_ERROR_MESSAGE,
@@ -130,7 +130,12 @@ class S3ClientImpl:
         with wrap_credential_errors("s3"):
             try:
                 response = self._s3.head_object(Bucket=self._bucket, Key=key)
-                metadata = dict(response.get("Metadata", {}))
+                # Symmetric with put_object's _transport_safe_metadata: decode every
+                # value so callers only ever see (and re-supply) plain Unicode text —
+                # a read-modify-write that re-PUTs this dict cannot double-encode.
+                metadata = {
+                    k: decode_metadata_value(v) for k, v in response.get("Metadata", {}).items()
+                }
                 # Reserved capitalised key (ADR-011 decision 6) — every real
                 # user-defined metadata key is lowercase, so this cannot collide.
                 # Lets a single head_object round trip capture both the metadata

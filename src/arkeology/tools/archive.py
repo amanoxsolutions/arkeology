@@ -32,7 +32,6 @@ from arkeology.annotations import (
     apply_link_annotations,
     read_current_link_fields,
 )
-from arkeology.artifact import decode_metadata_value
 from arkeology.clients.interfaces import (
     BedrockClientInterface,
     S3ClientInterface,
@@ -85,7 +84,7 @@ def _record_partial_archive_failure(
         settings.failure_log_path,
         {
             "artifact_id": artifact_id,
-            "title": decode_metadata_value(s3_meta.get("title", "")),
+            "title": s3_meta.get("title", ""),
             "type": s3_meta.get("type", ""),
             "tier": tier,
             "date": s3_meta.get("date", ""),

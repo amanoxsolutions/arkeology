@@ -77,13 +77,15 @@ class S3ClientInterface(Protocol):
             key: S3 object key.
 
         Returns:
-            Dict containing the object's metadata, plus a reserved capitalised
+            Dict containing the object's metadata, with every user-defined value
+            transport-decoded (symmetric with ``put_object``'s encoding, so callers
+            never see or need to handle percent-escapes), plus a reserved capitalised
             ``"ETag"`` key holding the object's current ETag (quoted, as returned by
             S3). Every real user-defined metadata key is lowercase, so ``"ETag"``
             cannot collide with one — this lets a single ``head_object`` round trip
             capture both the metadata and the compare-and-swap token needed for a
             subsequent conditional write (ADR-011 decision 6), avoiding a second
-            round trip.
+            round trip. ``"ETag"`` itself is never encoded and so is never decoded.
 
         Raises:
             KeyError: If the key does not exist.

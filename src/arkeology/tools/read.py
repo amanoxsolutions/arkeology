@@ -9,7 +9,6 @@ import logging
 from typing import Any
 
 from arkeology.annotations import read_current_link_fields
-from arkeology.artifact import decode_metadata_value
 from arkeology.clients.interfaces import (
     BedrockClientInterface,
     S3ClientInterface,
@@ -102,14 +101,6 @@ async def _read_artifact_inner(
             "error": ErrorCode.NOT_FOUND,
             "message": f"Artifact '{artifact_id}' not found.",
         }
-
-    # T55 (Story 4): S3 user-metadata values are transport-encoded (percent-encoded)
-    # on write to preserve non-ASCII content losslessly (see arkeology.artifact and
-    # arkeology.clients.s3). Decode every value here so this is the single symmetric
-    # decode point — plain ASCII values decode to themselves unchanged — ensuring
-    # read_artifact and search_artifacts (which sources title from the raw, never-encoded
-    # vector metadata) always agree on the title.
-    meta = {key: decode_metadata_value(value) for key, value in meta.items()}
 
     # Foreign scope: gate on tier == 3 and visibility == "shared".
     # Own scope: no gate — existence is already confirmed above.

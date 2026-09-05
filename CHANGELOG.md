@@ -31,6 +31,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   respectively depend on
 
 ### Fixed
+- `archive_artifact` double-encoded non-ASCII and `%`-bearing S3 metadata values on every
+  archive (a title of `Café review` became `Caf%25C3%25A9 review`): `put_object`
+  percent-encoded values for transport but `head_object` returned them still encoded, so
+  the archive status re-PUT re-encoded what it had read. `S3ClientImpl.head_object` now
+  decodes every value (except the reserved `ETag`), making the transport encoding symmetric
+  and owned by the client; the ad-hoc decode sites in `read_artifact`, `reconcile_index`,
+  and `archive_artifact`'s failure-log entry are removed as redundant
 - corrected the normative contracts under `docs/contracts/` where they misstated the
   implementation: the Studio design-token layer still defined tokens for the removed `prd`
   artifact type and omitted the `vision`, `requirements`, and `--text-h4` tokens actually

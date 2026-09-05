@@ -15,7 +15,6 @@ from arkeology.annotations import CAS_MAX_ATTEMPTS, read_current_link_fields
 from arkeology.artifact import (
     cap_commit_refs_for_vectors,
     check_metadata_budgets,
-    decode_metadata_value,
 )
 from arkeology.clients.interfaces import (
     BedrockClientInterface,
@@ -109,11 +108,6 @@ def _reindex_artifact(
             reconcile_attempts crosses CAS_MAX_ATTEMPTS, `stuck_failures` — see T62)
             rather than crashing.
     """
-    # Decode transport-encoded S3 user-metadata values (see
-    # arkeology.artifact.encode_metadata_value) so a non-ASCII title (and any other
-    # metadata value) is rebuilt into vector metadata as the original Unicode text, not
-    # the percent-encoded transport form. Plain ASCII values decode to themselves.
-    raw_s3_meta = {key: decode_metadata_value(value) for key, value in raw_s3_meta.items()}
     title = raw_s3_meta.get("title", "")
     artifact_type = raw_s3_meta.get("type", "")
     tier_raw = raw_s3_meta.get("tier", "2")
@@ -268,7 +262,7 @@ async def _fetch_and_reindex(
     )
     return {
         "artifact_id": artifact_id,
-        "title": decode_metadata_value(raw_meta.get("title", "")),
+        "title": raw_meta.get("title", ""),
         "sections_indexed": n,
         "source": source,
     }

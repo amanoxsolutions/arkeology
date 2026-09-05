@@ -26,27 +26,27 @@ def test_put_object_ascii_metadata_unchanged(s3_client: S3ClientImpl) -> None:
 
 
 def test_put_object_unicode_em_dash_percent_encoded_lossless(s3_client: S3ClientImpl) -> None:
-    """Metadata with an em dash (U+2014) succeeds; the stored (transport-encoded) value is
-    ASCII-only but decodes back to the original em dash \u2014, which is preserved rather
-    than dropped (T55 replaces the old NFKD-ASCII-strip, which silently destroyed non-Latin
-    content)."""
+    """Metadata with an em dash (U+2014) succeeds; the value on the wire is ASCII-only but
+    head_object returns the original em dash \u2014, which is preserved rather than dropped
+    (T55 replaces the old NFKD-ASCII-strip, which silently destroyed non-Latin content)."""
     metadata = {"title": "A title \u2014 with em dash", "artifact_type": "adr"}
     # Must not raise ParamValidationError
     s3_client.put_object(key="test/emdash.md", body="content", metadata=metadata)
-    stored = s3_client.head_object("test/emdash.md")
-    stored["title"].encode("ascii")  # raises UnicodeEncodeError if non-ASCII leaked through
-    assert decode_metadata_value(stored["title"]) == "A title \u2014 with em dash"
+    on_wire = s3_client._s3.head_object(Bucket=s3_client._bucket, Key="test/emdash.md")
+    on_wire["Metadata"]["title"].encode("ascii")  # UnicodeEncodeError if non-ASCII leaked
+    assert decode_metadata_value(on_wire["Metadata"]["title"]) == "A title \u2014 with em dash"
+    assert s3_client.head_object("test/emdash.md")["title"] == "A title \u2014 with em dash"
 
 
 def test_put_object_accented_letters_percent_encoded_lossless(s3_client: S3ClientImpl) -> None:
     """Metadata with accented letters (caf\u00e9) round-trips losslessly: transport-encoded
-    to ASCII on the wire, but decode_metadata_value recovers the original \u00e9, not a
-    stripped 'e'."""
+    to ASCII on the wire, but head_object recovers the original \u00e9, not a stripped 'e'."""
     metadata = {"title": "caf\u00e9", "artifact_type": "note"}
     s3_client.put_object(key="test/accented.md", body="content", metadata=metadata)
-    stored = s3_client.head_object("test/accented.md")
-    stored["title"].encode("ascii")  # raises UnicodeEncodeError if non-ASCII leaked through
-    assert decode_metadata_value(stored["title"]) == "caf\u00e9"
+    on_wire = s3_client._s3.head_object(Bucket=s3_client._bucket, Key="test/accented.md")
+    on_wire["Metadata"]["title"].encode("ascii")  # UnicodeEncodeError if non-ASCII leaked
+    assert decode_metadata_value(on_wire["Metadata"]["title"]) == "caf\u00e9"
+    assert s3_client.head_object("test/accented.md")["title"] == "caf\u00e9"
 
 
 def test_put_object_literal_percent_sign_round_trips(s3_client: S3ClientImpl) -> None:
@@ -56,6 +56,27 @@ def test_put_object_literal_percent_sign_round_trips(s3_client: S3ClientImpl) ->
     s3_client.put_object(key="test/percent.md", body="content", metadata=metadata)
     stored = s3_client.head_object("test/percent.md")
     assert decode_metadata_value(stored["title"]) == "100% done"
+
+
+@pytest.mark.parametrize("value", ["Caf\u00e9", "Z\u00fcrich", "100% done", "50%25 literal"])
+def test_head_object_returns_decoded_values_symmetric_with_put_object(
+    s3_client: S3ClientImpl, value: str
+) -> None:
+    """The transport encoding is owned by the client and symmetric (contract
+    ``docs/contracts/data/s3.artifact.md`` › Storage Shape): ``head_object`` returns every
+    metadata value exactly as it was supplied to ``put_object`` — no percent-escapes leak
+    to tool code, so a read-modify-write that re-supplies ``head_object`` output to
+    ``put_object`` cannot double-encode."""
+    s3_client.put_object(key="test/sym.md", body="content", metadata={"title": value})
+    stored = s3_client.head_object("test/sym.md")
+    assert stored["title"] == value
+
+
+def test_head_object_etag_not_decoded(s3_client: S3ClientImpl) -> None:
+    """The reserved ``ETag`` key is passed through untouched — it is never encoded on the
+    way in, so it must not be decoded on the way out."""
+    etag = s3_client.put_object(key="test/etag.md", body="content", metadata={"title": "x"})
+    assert s3_client.head_object("test/etag.md")["ETag"] == etag
 
 
 # ---------------------------------------------------------------------------

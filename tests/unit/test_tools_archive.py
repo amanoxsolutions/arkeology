@@ -15,6 +15,7 @@ from arkeology.clients.vectors import VectorsClientImpl
 from arkeology.config import Settings
 from arkeology.errors import AnnotationUnavailableError, ArtifactConflictError, CredentialError
 from arkeology.tools.archive import archive_artifact
+from arkeology.tools.read import read_artifact
 from tests.unit.conftest import _make_settings as _make_settings_base
 
 
@@ -1014,6 +1015,70 @@ async def test_archive_partial_archive_failure_log_decodes_non_ascii_title(
     assert settings.failure_log_path.exists()
     entries = [json.loads(line) for line in settings.failure_log_path.read_text().splitlines()]
     assert entries[0]["title"] == non_ascii_title
+
+
+async def test_archive_does_not_double_encode_non_ascii_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+) -> None:
+    """The status re-PUT re-supplies ``head_object`` output to ``put_object``. Because the
+    S3 client's transport encoding is symmetric, a non-ASCII title must survive one — and
+    a second — archive cycle byte-for-byte, never accumulating percent-escapes
+    (``Caf%C3%A9`` → ``Caf%25C3%25A9``)."""
+    settings = _make_settings(monkeypatch)
+    non_ascii_title = "Caf\u00e9 review"
+    s3_client.put_object(
+        "artifacts/active-review",
+        _CONTENT,
+        {**_BASE_S3_META, "status": "active", "title": non_ascii_title},
+    )
+    vectors_client_2.put_vector(
+        "artifacts/active-review#summary",
+        [1.0, 0.0],
+        {
+            **_BASE_VECTOR_META,
+            "artifact_id": "artifacts/active-review",
+            "status": "active",
+            "title": non_ascii_title,
+        },
+    )
+
+    result = await archive_artifact(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=None,
+        artifact_id="artifacts/active-review",
+    )
+    assert result.get("status") == "inactive"
+    assert s3_client.head_object("artifacts/active-review")["title"] == non_ascii_title
+
+    read = await read_artifact(
+        settings=settings, s3=s3_client, artifact_id="artifacts/active-review"
+    )
+    assert read["title"] == non_ascii_title
+
+    # A second archive of a half-archived artifact re-PUTs again — still no accumulation.
+    vectors_client_2.put_vector(
+        "artifacts/active-review#summary",
+        [1.0, 0.0],
+        {
+            **_BASE_VECTOR_META,
+            "artifact_id": "artifacts/active-review",
+            "status": "active",
+            "title": non_ascii_title,
+        },
+    )
+    result = await archive_artifact(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=None,
+        artifact_id="artifacts/active-review",
+    )
+    assert result.get("status") == "inactive"
+    assert s3_client.head_object("artifacts/active-review")["title"] == non_ascii_title
 
 
 # ---------------------------------------------------------------------------
