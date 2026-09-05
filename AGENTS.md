@@ -103,7 +103,7 @@ browser UI handles rendering; Claude's role ends after the initial `arkeology_st
 | `src/arkeology/references.py`     | Pure migration reference-resolution helpers (AWS-free, I/O-free) |
 | `src/arkeology/resources.py`      | FastMCP resource registrations                             |
 | `src/arkeology/server.py`         | FastMCP app, tool registration                             |
-| `src/arkeology/startup.py`        | Seven-check startup validation sequence                    |
+| `src/arkeology/startup.py`        | Eight-check startup validation sequence                    |
 | `src/arkeology/tools/`            | MCP tool implementations (write, search, read, and more)   |
 | `src/arkeology/tools/_scope.py`    | The cross-scope access gate — sole home of both its forms: `is_cross_scope_readable` (in-process predicate) and `build_scope_filter` (server-side vector filter), plus `is_own_scope` |
 | `src/arkeology/tools/_search_helper.py` | Shared vector re-fetch loop used by search + synthesise |
@@ -149,10 +149,16 @@ browser UI handles rendering; Claude's role ends after the initial `arkeology_st
 This server depends on three AWS services at runtime. Loss or misconfiguration of any
 one makes all persisted memory inaccessible:
 
-- **Amazon S3** (`ARTIFACT_BUCKET`): stores full artifact content. A bucket deletion or
-  IAM policy change that removes `s3:GetObject` / `s3:PutObject` / `s3:DeleteObject`
-  prevents all reads and writes. The bucket name is baked into the deployment; renaming
-  it requires updating `ARTIFACT_BUCKET` and re-running startup validation.
+- **Amazon S3** (`ARTIFACT_BUCKET`): stores full artifact content, and — via object
+  annotations — the sole authoritative copy of `commit_refs` and `references`. A bucket
+  deletion or IAM policy change that removes `s3:GetObject` / `s3:PutObject` /
+  `s3:DeleteObject` prevents all reads and writes. The four annotation actions
+  (`s3:PutObjectAnnotation` / `s3:GetObjectAnnotation` / `s3:ListObjectAnnotations` /
+  `s3:DeleteObjectAnnotation`) are equally mandatory: the last startup check round-trips all
+  four and refuses to start if any fails, and a region or bucket type without annotation
+  support is an unsupported deployment rather than a degraded one. The bucket name is baked
+  into the deployment; renaming it requires updating `ARTIFACT_BUCKET` and re-running startup
+  validation.
 
 - **Amazon S3 Vectors** (`VECTORS_BUCKET` + `VECTORS_INDEX`): stores all vector embeddings
   and metadata. The vector index dimension is immutable — once created it cannot be changed

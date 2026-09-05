@@ -20,8 +20,8 @@ authored:
   by: "architect"
   date: "2026-07-03"
 revised:
-  by: "architect"
-  date: "2026-08-17"
+  by: "tech-writer"
+  date: "2026-09-06"
 ---
 
 # T48 — `reconcile_index` Rebuilds `commit_refs` + `references` from Annotations
@@ -38,6 +38,32 @@ revised:
 > The T57 guard-coverage addition (a `check_metadata_budgets` call before this spec's `put_vector`
 > calls) is layered on top of this spec's rebuild logic and is unaffected by it. See
 > `docs/specs/p12-t57-guard-coverage.md` and `docs/specs/p12-t58-commit-refs-cap-references-removal.md`.
+
+## Revision — 2026-09-06
+
+What `_reindex_artifact` reads to rebuild vector metadata is superseded. This spec — and the
+2026-08-17 note above it — describe reconcile sourcing both link fields from the **union of both
+durable stores**, deliberately still reading a `references` key out of vector metadata for
+backward-read compatibility. That fallback is gone. The `## Revision — 2026-09-05` section of
+[adr-2026-07-03-annotation-backed-link-storage.md](../architecture-decisions/adr-2026-07-03-annotation-backed-link-storage.md) makes the S3 object annotation the
+**sole** source of truth, so reconcile now reads the annotation copy alone.
+
+What replaces it:
+
+- The read goes through `annotations.read_link_annotations`, which consults the annotation and
+  nothing else. The helpers this spec names — `read_current_link_fields` and its
+  `_read_vector_link_fields` half — no longer exist anywhere in the codebase.
+- That read **raises** on failure rather than returning empty. Absence of an annotation still
+  returns a true empty; a failed read never masquerades as one, because an empty value on a
+  read-modify-write path would be written straight back over good link data.
+- No path may fall back to a vector-metadata copy of either field. That copy is a derived filter
+  index — capped for `commit_refs`, absent entirely for `references` — and never an authority.
+- The raise-on-failure rule matters most precisely here: reconcile's whole job is to rebuild vector
+  metadata from what it reads, so a read degraded to empty would write emptiness over good data.
+
+Unchanged and still correct: reconcile restores from annotations rather than standard object
+metadata, which is what closed ADR-011's OQ2, and the 2026-08-17 narrowing that only `commit_refs`
+is written back into the rebuilt vector metadata.
 
 <!-- SCOPE BLOCK — frozen after approval -->
 

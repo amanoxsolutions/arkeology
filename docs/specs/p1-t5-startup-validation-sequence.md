@@ -1,7 +1,7 @@
 ---
 type: spec
 title: T5 — Startup Validation Sequence
-description: Feature spec for a startup validation sequence that verifies credentials, S3 prefix access, vector index existence, and embedding dimension before accepting any MCP tool call. Originally five checks; a sixth (text-model accessibility) was added later in p9-t30.
+description: Feature spec for a startup validation sequence that verifies credentials, S3 prefix access, vector index existence, and embedding dimension before accepting any MCP tool call. Originally five checks; the running sequence is now eight — see the Revision sections.
 tags: []
 timestamp: 2026-05-29T00:00:00Z
 okf_version: "0.1"
@@ -14,11 +14,28 @@ authored:
   by: "architect"
   date: "2026-05-29"
 revised:
-  by: "developer"
-  date: "2026-07-05"
+  by: "tech-writer"
+  date: "2026-09-06"
 ---
 
 # T5 — Startup Validation Sequence
+
+## Revision — 2026-09-06
+
+An **eighth** check — S3 object annotation availability — was appended after check 7, so the
+running sequence is eight checks and every log message and the success line now read `/8`. The
+check writes a throwaway probe object into `WRITE_PREFIX` and round-trips one annotation through
+all four operations (`PutObjectAnnotation`, `GetObjectAnnotation`, `ListObjectAnnotations`,
+`DeleteObjectAnnotation`), so a policy granting three of the four fails here rather than at first
+use. The probe object is deleted unconditionally, including when the probe itself failed. Its
+position last is deliberate: it writes into `WRITE_PREFIX`, which check 2 has already proved
+readable and writable.
+
+It is a hard gate rather than a warning because annotations are the sole source of truth for the
+`commit_refs` and `references` link fields, so a region or bucket type without annotation support
+is an unsupported deployment rather than a degraded one. See the `## Revision — 2026-09-05`
+section of [adr-2026-07-03-annotation-backed-link-storage.md](../architecture-decisions/adr-2026-07-03-annotation-backed-link-storage.md), which reverses that ADR's
+decision 5, and requirement FR-57.
 
 <!-- SCOPE BLOCK -->
 

@@ -123,12 +123,12 @@ async def _propose_commit_links_inner(
         seen_ids.add(artifact_id)
         base_entries.append((artifact_id, meta))
 
-    # ── Step 5: Resolve each candidate's current commit_refs from the union of both
-    # durable stores ────────────────────────────────────────────────────────────────
+    # ── Step 5: Resolve each candidate's current commit_refs from the durable
+    # annotation store ──────────────────────────────────────────────────────────────
     # A single vector's `meta.get("commit_refs")` holds only a capped, derived copy — it
     # misses a value set on a different section vector and one that aged out of that
-    # vector's capped window. The durable annotation is the complete value, so
-    # read_link_annotations closes both gaps.
+    # vector's capped window. The annotation is the sole source of truth and holds the
+    # complete value, so read_link_annotations closes both gaps.
     # These are additional round trips beyond the single batched list_vectors_by_metadata
     # + get_vectors fetch above — the same accepted cost list.py/read.py already carry
     # for the identical fix — so they run off the event loop and in parallel via

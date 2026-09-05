@@ -21,7 +21,7 @@ authored:
   date: "2026-07-03"
 revised:
   by: "tech-writer"
-  date: "2026-07-04"
+  date: "2026-09-06"
 ---
 
 # T49 — `link_metadata` Tool (generalizes and supersedes `link_commit`)
@@ -45,6 +45,34 @@ revised:
 >    (`cap_commit_refs_for_vectors`); the annotation copy (`apply_link_annotations`) stays the full,
 >    uncapped merged list regardless of length. See
 >    `docs/specs/p12-t58-commit-refs-cap-references-removal.md`.
+
+## Revision — 2026-09-06
+
+The pipeline summary's description of how existing state is read before the merge is superseded.
+This spec describes the step as reading the existing state as the **union of both durable stores**.
+The `## Revision — 2026-09-05` section of
+[adr-2026-07-03-annotation-backed-link-storage.md](../architecture-decisions/adr-2026-07-03-annotation-backed-link-storage.md) makes the S3 object annotation the
+**sole** source of truth, so that step now reads the annotation alone.
+
+What replaces it:
+
+- The read goes through `annotations.read_link_annotations`, which consults the annotation and
+  nothing else. The helpers this spec names — `read_current_link_fields` and its
+  `_read_vector_link_fields` half — no longer exist anywhere in the codebase.
+- That read **raises** on failure rather than returning empty. Absence of an annotation still
+  returns a true empty; a failed read never masquerades as one, because an empty value on a
+  read-modify-write path would be written straight back over good link data.
+
+**The merge itself is unchanged and still correct.** `merge_link_field` combines the existing value
+with the values supplied to this call, deduplicating and preserving order, and that is exactly what
+still happens. Only the *source* of the existing value changed. The fetch-merge-reput shape, the
+absence of any Bedrock call, the untouched `last_edited_ulid`, the own-scope-only rule, and the
+durable-annotation-first write ordering are all as specified below.
+
+One addition since: when the vector write fails after the annotation write has succeeded, the tool
+appends a failure-log entry recording the values it applied. That entry is what makes the artifact
+a `reconcile_index` replay candidate; annotation-first ordering alone never triggered the self-heal
+this spec assumes.
 
 <!-- SCOPE BLOCK — frozen after approval -->
 

@@ -2964,7 +2964,7 @@ async def test_tier3_overwrite_preserves_commit_refs_and_replaces_references(
     assert result["artifact_id"] == artifact_id
 
     # PutObject cleared the annotations; the write path must have read commit_refs
-    # forward from the durable stores and re-applied it (union), while references is
+    # forward from the durable annotation and re-applied it (union), while references is
     # replaced outright with exactly the value supplied to this call.
     assert s3_client.get_object_annotation(artifact_id, "commit_refs") == "abc1234"
     assert s3_client.get_object_annotation(artifact_id, "references") == "b-2"
@@ -3199,7 +3199,7 @@ async def test_write_overwrite_cas_put_object_credential_error_includes_artifact
 
 
 # ---------------------------------------------------------------------------
-# T52 — annotation availability graceful degrade (write path)
+# T52 — annotation-unavailable handling (write path)
 # ---------------------------------------------------------------------------
 
 
@@ -3671,8 +3671,8 @@ async def test_non_ascii_title_written_and_read_back_via_vector_metadata(
 # ---------------------------------------------------------------------------
 # T55 budget re-check must cover the T47 read-forward
 # merge on an overwrite. Step 3c only measures the *supplied* commit_refs/
-# references; the Step 4a merge unions them with the values already indexed
-# in vector metadata and can push the enlarged list past the 2 KB filterable
+# references; the Step 4a merge unions them with the values already held in
+# the durable annotation and can push the enlarged list past the 2 KB filterable
 # budget with no re-check in between — reintroducing the exact deterministic
 # partial-write / failure-log-replay loop T55 exists to prevent.
 # ---------------------------------------------------------------------------
@@ -3705,7 +3705,7 @@ async def test_overwrite_merged_commit_refs_exceeding_filterable_budget_rejected
     mocker: pytest.MonkeyPatch,
 ) -> None:
     """A tier-3 overwrite whose *supplied* commit_refs pass the pre-merge Step 3c
-    check, but whose union with the *already-indexed* commit_refs (read forward by
+    check, but whose union with the artifact's *existing* commit_refs (read forward by
     Step 4a) breaches the vector filterable-metadata budget, must be rejected with
     validation_error — with NO put_object, NO put_vectors_batch, and NO failure-log
     entry on the overwrite attempt. The original artifact and vectors must be left
@@ -3884,7 +3884,7 @@ async def test_write_overwrite_merged_commit_refs_over_cap_vector_capped_annotat
 
 
 # ---------------------------------------------------------------------------
-# Union-of-both-stores authority model
+# Annotation authority model
 # ---------------------------------------------------------------------------
 
 
@@ -3897,7 +3897,7 @@ async def test_overwrite_read_forward_preserves_annotation_only_value(
     """RED: after a partial dual-write (e.g. an out-of-band ``link_metadata`` call)
     leaves the annotation copy ahead of the vector copy — the annotation holds a value
     vector metadata lacks — a tier-3 overwrite's Step 4a read-forward must preserve the
-    union of both stores. Before the fix, Step 4a sourced the existing link fields from
+    annotation's value. Before the fix, Step 4a sourced the existing link fields from
     vector metadata only, so the annotation-only value was silently dropped: PutObject
     wipes the S3 annotation, and the read-forward never saw the value to re-apply it.
     """

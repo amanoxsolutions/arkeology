@@ -727,7 +727,7 @@ async def test_reindex_restores_link_fields_from_annotations(
     NO commit_refs/references keys at all (the post-T47 reality) but whose durable
     annotations carry both fields — reconcile must source the rebuilt commit_refs from
     the annotations, not from S3 metadata; references is read from the annotation too
-    (union-of-both-stores) but, as of T58, is never re-written into vector metadata —
+    (its sole source of truth) but, as of T58, is never re-written into vector metadata —
     it remains readable only via the annotation.
     """
     artifact_id = "artifacts/implementation-note-2026-01-01-from-annotations"
@@ -754,7 +754,7 @@ async def test_reindex_restores_link_fields_from_annotations(
     vmeta = items[0]["metadata"]
     assert vmeta.get("commit_refs") == ["abc123", "def456"]
     # T58: references is never re-written into vector metadata, even though it was
-    # read (union-of-both-stores) from the annotation above.
+    # read from the annotation above.
     assert "references" not in vmeta
 
 
@@ -867,7 +867,7 @@ async def test_failure_log_replay_and_orphan_scan_both_restore(
 
 
 # ---------------------------------------------------------------------------
-# Union-of-both-stores authority model
+# Annotation authority model
 # ---------------------------------------------------------------------------
 
 

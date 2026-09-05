@@ -2,13 +2,12 @@
 
 Generalizes and supersedes ``link_commit`` (p10-t38): backfills ``commit_refs``
 and/or ``references`` onto existing own-scope artifacts by fetching the current
-vectors + embeddings, reading the current link-field state as the union of both
-durable annotations (``annotations.read_link_annotations``; the S3 annotation
-copy nor the vector-metadata copy is sole authority),
-merging and deduplicating the supplied values into that union, and dual-writing
-the result — durable S3 annotations first (``apply_link_annotations``), then
-vector metadata second, reusing each vector's existing float32 embedding
-unchanged (ADR-011, T49).
+vectors + embeddings, reading the current link-field state from the durable S3
+annotations (``annotations.read_link_annotations`` — the sole source of truth for
+both link fields), merging and deduplicating the supplied values into that state,
+and writing the result to the annotations first (``apply_link_annotations``), then
+to vector metadata second as a derived filter index, reusing each vector's existing
+float32 embedding unchanged (ADR-011, T49).
 
 No Bedrock call is made, no artifact content is mutated, and
 ``last_edited_ulid`` is never touched. If the vector write fails after the
@@ -166,7 +165,7 @@ def _record_vector_write_failure(
     vectors, so ``reconcile_index``'s orphan scan never revisits it, and nothing else
     ever compares the two stores. A stale vector copy means the field is missing from
     every server-side metadata filter, so a search or list filtered on the linked value
-    silently omits the artifact while ``read_artifact`` (a union read) shows it.
+    silently omits the artifact while ``read_artifact`` (which reads the annotation) shows it.
 
     The entry makes the artifact a failure-log replay candidate, which is what turns
     the annotation-first write order into an actual repair: Phase 1 re-applies the

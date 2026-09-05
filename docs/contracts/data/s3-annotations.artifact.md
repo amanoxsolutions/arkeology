@@ -181,15 +181,22 @@ carry a far larger ceiling than either object metadata (2 KB) or vector filterab
   `put_object`. Any refactor that drops that read-forward silently loses link data on every tier-3
   living-document update.
 - Durable-first write ordering must be preserved: annotations are written before vector metadata, so
-  a failed vector write self-heals on the next `reconcile_index` rather than losing the value. The
-  reverse order makes the loss permanent.
+  a failed vector write self-heals on the next `reconcile_index` rather than losing the value. That
+  self-heal depends on the failing writer recording a failure-log entry, which is what makes the
+  artifact a replay candidate; ordering alone does not trigger it. The reverse order makes the loss
+  permanent.
 - The payload format has no escaping, so no element may contain a comma. A future value shape that
   needs commas requires a payload format change, not a workaround at a call site.
 - A reader must tolerate both annotations being absent on any artifact written before the annotation
   split shipped, and must treat absence as `[]` rather than as an error.
-- Annotations are unavailable on directory buckets and Outposts buckets. Every path touching them
-  must degrade gracefully rather than fail, except `link_metadata`, whose entire purpose is the
-  durable write and which therefore surfaces `annotation_unavailable` instead of absorbing it.
-- `reconcile_index` reads both fields from here to rebuild vector metadata losslessly. It must keep
-  reading a `references` key from vector metadata too, for backward-read compatibility with vectors
-  written before that field's removal.
+- Annotations are unavailable in the UAE and Bahrain regions and on directory buckets (the bucket
+  type the S3 Express One Zone storage class uses) and Outposts buckets. Such a deployment is
+  **unsupported, not degraded**: the startup sequence's annotation check refuses to start the
+  server, so no path may carry a fallback for this store being absent. A runtime annotation failure
+  therefore means post-setup IAM drift, and surfaces as a structured error — `annotation_unavailable`
+  from `link_metadata`, `partial_write` from `write_artifact`, a recorded partial archive from
+  `archive_artifact` — never as a successful operation.
+- `reconcile_index` reads both fields from here to rebuild vector metadata losslessly, and from
+  here alone. The union-of-both-durable-stores read model is retired: no path may fall back to a
+  vector-metadata copy of either field, because that copy is a derived filter index (capped for
+  `commit_refs`, absent for `references`) and never an authority.

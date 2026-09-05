@@ -1092,7 +1092,7 @@ async def test_archive_does_not_double_encode_non_ascii_metadata(
 # object's S3 annotations, so without a read-forward / re-apply step the durable
 # commit_refs/references annotation trail (ADR-011) is silently destroyed. These
 # tests assert the read-forward + re-apply invariant holds, mirroring write.py's
-# Step 4a/4b pattern and its AnnotationUnavailableError graceful degrade.
+# Step 4a/4b pattern and its treatment of a failed annotation write as a partial write.
 
 
 async def test_archive_preserves_commit_refs_and_references_annotations(
@@ -1213,8 +1213,8 @@ async def test_archive_annotation_credential_error_aborts(
     tmp_path: Path,
 ) -> None:
     """A CredentialError raised while re-applying link annotations after the status
-    re-PUT still aborts the archive with a structured credential error, unlike the
-    AnnotationUnavailableError graceful degrade. The S3 status flip has already
+    re-PUT still aborts the archive with a structured credential error, mirroring the
+    AnnotationUnavailableError partial-archive path. The S3 status flip has already
     succeeded by this point, so a failure-log entry must be written — otherwise
     the partial archive (S3 inactive, vectors still active) leaves no repairable trace."""
     settings = _make_settings(monkeypatch, tmp_path=tmp_path)
@@ -1422,13 +1422,13 @@ async def test_archive_persistent_annotation_conflict_after_durable_flip_logs_pa
     a failure-log entry — the object side was already durably written before the
     conflict was hit, so the entry must not be falsely omitted.
 
-    commit_refs is seeded into BOTH durable stores (annotation AND vector metadata)
-    so the union-of-both-stores read-forward stays non-empty across every retry
-    attempt, even though each attempt's own status-flip put_object wipes the
-    annotation copy (PutObject clears annotations) before the (persistently
-    failing) annotation re-apply would otherwise restore it — isolating the
-    conflict-then-exhaustion behaviour from the (separately accepted, ADR-011)
-    residual of a value that exists only in the annotation."""
+    commit_refs is seeded into the annotation — its sole source of truth — so the
+    first attempt's read-forward picks it up, and archive accumulates the read-forward
+    values across attempts so they stay non-empty on every retry, even though each
+    attempt's own status-flip put_object wipes the annotation copy (PutObject clears
+    annotations) before the (persistently failing) annotation re-apply would otherwise
+    restore it. The parallel vector-metadata seed below is vestigial from the retired
+    union read model and no longer feeds the read-forward."""
     settings = _make_settings(monkeypatch, tmp_path=tmp_path)
     _seed_all(s3_client, vectors_client_2)
     s3_client.put_object_annotation("artifacts/active-review", "commit_refs", "abc1234")

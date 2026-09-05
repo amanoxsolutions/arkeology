@@ -526,11 +526,9 @@ class Artifact(BaseModel):
             removals, and swaps in the frontmatter are all reflected one-for-one, and
             a write supplying no references clears the field (ADR-011 decision 4). The
             S3 annotation copy is the sole durable store for this field: as of T58,
-            references is never written to S3 Vectors metadata under any code path
-            (``read_artifact``/``list_artifacts`` source it exclusively from the
-            annotation via the union-of-both-stores helper, which still reads a
-            vector-metadata copy for backward compatibility with vectors written
-            before T58 shipped).
+            references is never written to S3 Vectors metadata under any code path, and
+            ``read_artifact``/``list_artifacts`` source it exclusively from the
+            annotation (:func:`arkeology.annotations.read_link_annotations`).
     """
 
     type: str  # noqa: A003

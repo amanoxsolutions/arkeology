@@ -138,12 +138,14 @@ skill or starting the server manually:
   Titan Text v2). These index attributes — dimension, distance metric, and the non-filterable
   metadata keys — are fixed at index creation and immutable; changing any of them later requires
   deleting and recreating the index, which loses all stored vectors
-- **S3 object annotations** (optional) — back the `commit_refs` / `references` link-tracking
-  feature (`link_metadata` and the write path's dual-write). Unavailable in the UAE and Bahrain
+- **S3 object annotations** (required) — the sole source of truth for the `commit_refs` /
+  `references` link fields (`link_metadata`, the write path's durable link write,
+  `reconcile_index`, and `archive_artifact`). Unavailable in the UAE and Bahrain
   regions and on directory buckets (the bucket type the S3 Express One Zone storage class uses)
-  and Outposts buckets — no IAM change fixes a bucket of one of these types. The `setting-up-arkeology` skill probes availability and IAM
-  permissions during setup; the core server starts and serves content, search, and embeddings
-  normally when annotations are unavailable — only this one feature degrades. See the
+  and Outposts buckets — no IAM change fixes a bucket of one of these types. A deployment
+  without annotation support is unsupported, not degraded: the last startup check round-trips
+  all four annotation operations and the server refuses to start if any of them fails. The
+  `setting-up-arkeology` skill runs the same probe during setup. See the
   [Server Reference](SERVER-REFERENCE.md#minimum-iam-policy) for the required IAM actions
 - **Amazon Bedrock** — embedding model access (`amazon.titan-embed-text-v2:0` by default)
   enabled in your AWS region; a Nova Lite model is only required when using `migrate_artifacts`.

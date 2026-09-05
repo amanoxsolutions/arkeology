@@ -115,7 +115,7 @@ graph TD
 | Entry point | `__main__.py` | Logging, config parsing, client construction, startup validation, tool registration, server start |
 | Server | `server.py` | FastMCP app instance; tool registration closures that bind injected clients |
 | Configuration | `config.py` | All env-var parsing and validation (pydantic-settings); computed properties |
-| Startup validation | `startup.py` | Seven sequential checks; hard `sys.exit(1)` on any failure |
+| Startup validation | `startup.py` | Eight sequential checks; hard `sys.exit(1)` on any failure |
 | Domain | `artifact.py` | `Artifact` model, deterministic ID generation, section parsing — zero AWS dependencies |
 | Tools | `tools/*.py` | MCP tool implementations; receive `settings`, `s3`, `vectors`, `bedrock` as injected dependencies |
 | Search helper | `tools/_search_helper.py` | Shared re-fetch loop used by both `search_artifacts` and `synthesise_artifacts` |
@@ -153,7 +153,7 @@ index and embedding model.
 
 ## Startup Validation Sequence
 
-The server performs seven checks in order before entering the MCP event loop. Any failure is a
+The server performs eight checks in order before entering the MCP event loop. Any failure is a
 hard stop — the server never starts in a partially functional state.
 
 ```mermaid
@@ -165,9 +165,10 @@ graph LR
     C5["Check 5\nEmbedding model dimension\nmatches index dimension"]
     C6["Check 6\nEmbedding model probe\nembeds a probe string, asserts dimension"]
     C7["Check 7\nBEDROCK_TEXT_MODEL\naccessible (when configured)"]
+    C8["Check 8\nS3 object annotations\nput/get/list/delete round trip"]
     READY["Server ready\nMCP event loop"]
 
-    C1 --> C2 --> C3 --> C4 --> C5 --> C6 --> C7 --> READY
+    C1 --> C2 --> C3 --> C4 --> C5 --> C6 --> C7 --> C8 --> READY
 ```
 
 ---
@@ -188,7 +189,7 @@ Key architectural choices are recorded as ADRs in this directory:
 | [ADR-008](adr-2026-06-02-async-concurrent-embedding.md) | Async semaphore-bounded concurrent embedding |
 | [ADR-009](adr-2026-06-16-artifact-commit-traceability.md) | Artifact commit traceability — ULID timestamps, vector-only commit links, agent-driven protocol *(vector-only commit-link storage superseded by ADR-011; ULID + AGENTS.md protocol still in force)* |
 | [ADR-010](adr-2026-06-24-mcp-apps-visual-reading-interface.md) | MCP Apps as the visual reading interface — `arkeology_studio` tool via `fastmcp[apps]`, Direction 4 AWS-hosted SPA retired |
-| [ADR-011](adr-2026-07-03-annotation-backed-link-storage.md) | Annotation-backed durable storage for the mutable link fields (`commit_refs` + `references`) — dual-written with vector metadata, `link_metadata` generalizes `link_commit`, reconcile rebuilds from annotations, overwrite preservation, availability handled without a startup gate |
+| [ADR-011](adr-2026-07-03-annotation-backed-link-storage.md) | Annotation-backed durable storage for the mutable link fields (`commit_refs` + `references`) — annotations are the sole source of truth and vector `commit_refs` is a derived filter index only, `link_metadata` generalizes `link_commit`, reconcile rebuilds from annotations, overwrite preservation, availability enforced as a hard startup gate |
 | [ADR-012](adr-2026-07-03-artifact-cross-referencing.md) | Artifact cross-referencing design — `references` promoted to a first-class `Artifact` field (resolved bare ids, `$eq`-queryable); frontmatter-only migration rewrite with bounded normalization; `arkeology://artifact/{id}` content-rewrite format; forward-reference resolution via a manifest-wide path→id map; mutability split by representation; deferred backfill skill; unified own-scope `referenced_by` delete/archive warning *(storage mechanism recorded in ADR-011)* |
 | [ADR-013](adr-2026-08-12-studio-link-resolution.md) | Studio-side resolution of `arkeology://artifact/{id}` links on the human read surface — a click loads the target in the studio's own detail view via the existing `read_artifact` call; a read-surface convenience, not a second addressing mechanism; non-artifact, malformed, and raw-path links render as inert text; no client-side access control (the ADR-007 gate stays sole authority) *(does not re-open ADR-012's rewrite format or its mixed-addressing steady state)* |
 | [ADR-014](adr-2026-08-12-status-all-sentinel-convention.md) | `status="all"` as a cross-tool convention — a pre-validation sentinel meaning "omit the status clause entirely" (never a literal match against a non-existent stored status), binding on every query-shaped tool exposing a `status` parameter; extended from `list_artifacts` to `search_artifacts` as a strict widening, with unrecognised values still failing validation and the active-only default unchanged |

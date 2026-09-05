@@ -230,14 +230,15 @@ Attach the following policy to the IAM user or role that runs Arkeology. Replace
 }
 ```
 
-Two statements above are conditional on which features you use:
-- `S3ObjectAnnotations` backs the `commit_refs` / `references` link-tracking feature
-  (`link_metadata` and the write path's dual-write). It is optional — the server degrades this
-  one feature gracefully, rather than failing startup, when these actions are absent. This
-  statement is unavailable in the UAE and Bahrain regions and on directory buckets (the bucket
-  type the S3 Express One Zone storage class uses) and Outposts buckets — see
-  [Prerequisites](README.md#prerequisites) for the operational
-  impact and the `setting-up-arkeology` skill's availability probe.
+`S3ObjectAnnotations` is mandatory, not optional. Object annotations are the sole source of
+truth for the `commit_refs` and `references` link fields, so the last startup check round-trips
+all four annotation actions and the server refuses to start when any of them is denied.
+Annotations are also unavailable in the UAE and Bahrain regions and on directory buckets (the
+bucket type the S3 Express One Zone storage class uses) and Outposts buckets; such a deployment
+is unsupported rather than degraded — see [Prerequisites](README.md#prerequisites) and the
+`setting-up-arkeology` skill's availability probe.
+
+One statement above is conditional on which features you use:
 - `BedrockTextModel` is required only if you use `migrate_artifacts`. In `us-east-1`, use the
   foundation-model ARN shown above; in all other regions, replace it with the cross-region
   inference profile ARN, e.g. `arn:aws:bedrock:eu-west-1::inference-profile/eu.amazon.nova-lite-v1:0`.

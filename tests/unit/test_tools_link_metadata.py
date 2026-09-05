@@ -728,7 +728,7 @@ async def test_link_metadata_put_object_annotation_credential_error(
 
 
 # ---------------------------------------------------------------------------
-# T52 — annotation availability graceful degrade (link_metadata)
+# T52 — annotation-unavailable handling (link_metadata)
 # ---------------------------------------------------------------------------
 
 
@@ -856,7 +856,7 @@ async def test_link_metadata_put_vectors_batch_credential_error(
 
 
 # ---------------------------------------------------------------------------
-# Story 6 — union read + only-touch-supplied-fields
+# Story 6 — annotation read + only-touch-supplied-fields
 # ---------------------------------------------------------------------------
 
 
@@ -934,12 +934,12 @@ async def test_link_metadata_idempotent_supply_preserves_other_fields_annotation
     assert s3_client.get_object_annotation(ID_B, "references") == "ref-xyz"
 
 
-async def test_link_metadata_union_read_heals_vector_copy_missing_annotation_value(
+async def test_link_metadata_annotation_read_heals_vector_copy_missing_value(
     monkeypatch: pytest.MonkeyPatch,
     s3_client: S3ClientImpl,
     vectors_client_2: VectorsClientImpl,
 ) -> None:
-    """The union read heals a state where the annotation holds a commit_refs value
+    """The annotation read heals a state where the annotation holds a commit_refs value
     the vector copy lacks — after linking a new value, the vector metadata must contain
     BOTH the pre-existing annotation-only value and the newly supplied one."""
     settings = _make_settings(monkeypatch)

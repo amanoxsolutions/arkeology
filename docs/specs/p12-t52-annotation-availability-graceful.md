@@ -1,7 +1,7 @@
 ---
 type: spec
 title: T52 — Annotation Availability + IAM Probe, Runtime Graceful Handling, README + AGENTS.md
-description: Add a one-time annotation availability + IAM-permission probe to the setting-up-arkeology skill (aws-cli ≥ 2.35.14 guard or boto3 uv run fallback); document the four required IAM actions and the unavailable regions/bucket types in the README; handle annotation-unavailable / AccessDenied gracefully at runtime in link_metadata and the write path; add arkeology:// referencing + reference-healing guidance to the AGENTS.md snippet. Not a hard startup gate.
+description: Add a one-time annotation availability + IAM-permission probe to the setting-up-arkeology skill (aws-cli ≥ 2.35.14 guard or boto3 uv run fallback); document the four required IAM actions and the unavailable regions/bucket types in the README; handle annotation-unavailable / AccessDenied gracefully at runtime in link_metadata and the write path; add arkeology:// referencing + reference-healing guidance to the AGENTS.md snippet. SUPERSEDED 2026-09-06 — annotation availability is now a hard startup gate; see the Revision section.
 tags: []
 timestamp: 2026-07-03T00:00:00Z
 okf_version: "0.1"
@@ -21,11 +21,36 @@ authored:
   by: "architect"
   date: "2026-07-03"
 revised:
-  by: ""
-  date: ""
+  by: "tech-writer"
+  date: "2026-09-06"
 ---
 
 # T52 — Annotation Availability + IAM Probe, Runtime Graceful Handling, README + AGENTS.md
+
+## Revision — 2026-09-06
+
+The frozen scope below specifies the **opposite** of the model now in force. It is retained only
+as the historical record of what T52 delivered. The `## Revision — 2026-09-05` section of
+[adr-2026-07-03-annotation-backed-link-storage.md](../architecture-decisions/adr-2026-07-03-annotation-backed-link-storage.md) reverses that ADR's decision 5, and
+requirements C-08 and FR-57 moved from *Should — degrades gracefully* to *Must — verified before
+the server accepts any request*.
+
+What this spec gets wrong as of that reversal:
+
+- **Annotation availability is a hard startup gate.** The startup sequence gained an eighth check
+  that round-trips all four annotation operations against a throwaway probe object. A deployment
+  that cannot use annotations is unsupported, and the server refuses to start rather than running
+  with the link fields degraded.
+- **A failed durable link write is no longer reported as a success.** `write_artifact` returns
+  `partial_write` with a failure-log entry, and `archive_artifact` records a partial archive.
+- **An annotation read failure raises rather than returning empty.** Absence of an annotation
+  still returns an empty value; a failed read never masquerades as one, because an empty read on a
+  read-modify-write path would be written back over good data.
+
+What survives unchanged: the `setting-up-arkeology` skill's one-time availability and IAM probe,
+the four required IAM actions, and the documented unavailable regions and bucket types. The
+runtime `annotation_unavailable` structured error also survives, but it now signals post-setup IAM
+drift on a deployment the startup gate already proved good — not a supported degraded mode.
 
 <!-- SCOPE BLOCK — frozen after approval -->
 

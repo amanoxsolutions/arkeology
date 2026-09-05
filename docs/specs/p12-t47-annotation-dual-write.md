@@ -21,8 +21,8 @@ authored:
   by: "architect"
   date: "2026-07-03"
 revised:
-  by: "architect"
-  date: "2026-08-17"
+  by: "tech-writer"
+  date: "2026-09-06"
 ---
 
 # T47 — Annotation Dual-Write in the Write Path + Tier-3 Overwrite Preservation
@@ -45,6 +45,33 @@ revised:
 > filterable-metadata budget. The pre-write budget check that measures both (representation-driven, so
 > it stays correct whichever order T46/T47/T55 land in) is specced in
 > `docs/specs/p12-t55-metadata-validation.md` (T55), which must land before/with this task.
+
+## Revision — 2026-09-06
+
+The read-forward constraint below is superseded. This spec states normatively that the overwrite
+read-forward sources its prior value from the **union of both durable stores**, and that neither
+the S3 annotation copy nor the vector-metadata copy is sole authority. Both halves are now false.
+The `## Revision — 2026-09-05` section of [adr-2026-07-03-annotation-backed-link-storage.md](../architecture-decisions/adr-2026-07-03-annotation-backed-link-storage.md)
+reverses that: the S3 object annotation is the **sole** source of truth for both link fields, and
+the vector `commit_refs` copy is a derived filter index — still written, never read back.
+
+What replaces it:
+
+- The read goes through `annotations.read_link_annotations`, which consults the annotation and
+  nothing else. The helpers this spec names — `read_current_link_fields` and its
+  `_read_vector_link_fields` half — no longer exist anywhere in the codebase.
+- That read **raises** on failure rather than returning empty. Absence of an annotation still
+  returns a true empty; a failed read never masquerades as one, because an empty value on a
+  read-modify-write path would be written straight back over good link data.
+- Because each attempt's own `put_object` clears the object's annotations, the read-forward value
+  **accumulates across compare-and-swap attempts** rather than being recomputed per attempt. A
+  retry re-reads the annotations as absent, so replacing rather than accumulating would silently
+  discard what the earlier attempt had already read forward.
+- A failed durable link write is no longer reported as a success: `write_artifact` returns
+  `partial_write` and records a failure-log entry.
+
+Unchanged: durable-first write ordering, the compare-and-swap guard, `apply_link_annotations`
+always receiving the full uncapped value, no re-embed, and `last_edited_ulid` left untouched.
 
 <!-- SCOPE BLOCK — frozen after approval -->
 

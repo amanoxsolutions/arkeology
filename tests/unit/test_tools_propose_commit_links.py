@@ -588,7 +588,7 @@ async def test_commit_refs_over_cap_still_excluded_from_proposed(
 ) -> None:
     """An artifact whose full commit_refs (annotation-sourced) exceeds the 20-entry
     vector-metadata cap (Story 2) is still correctly excluded from proposed —
-    eligibility is decided via the annotation-backed, uncapped union
+    eligibility is decided via the annotation-backed, uncapped value
     (read_link_annotations), never from the vector's already-capped copy alone.
     Asserts the annotation is actually consulted (not merely that the capped vector
     copy happens to already be non-empty)."""

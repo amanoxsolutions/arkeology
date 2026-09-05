@@ -194,9 +194,10 @@ The four required IAM actions:
 - `s3:ListObjectAnnotations`
 - `s3:DeleteObjectAnnotation`
 
-Annotations are **unavailable** in the UAE and Bahrain regions, and on **S3 Express One
-Zone**, **Outposts**, and **directory** buckets — no IAM change fixes a bucket in one of
-these categories; the operator must accept the degraded feature or relocate the bucket.
+Annotations are **unavailable** in the UAE and Bahrain regions, and on **directory** buckets
+(the bucket type the S3 Express One Zone storage class uses) and **Outposts** buckets — no IAM
+change fixes a bucket in one of these categories. There is no degraded mode to accept: the
+operator must relocate the bucket, or Arkeology cannot be deployed there.
 
 First determine the AWS CLI version already captured in Check 1:
 
