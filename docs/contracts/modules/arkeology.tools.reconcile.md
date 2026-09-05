@@ -79,6 +79,18 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
   prune time, so it cannot race a concurrent write; and if the object reappears after the entry is
   pruned, the orphan scan re-indexes any S3 key carrying zero vectors on the following run. Weakening
   any one of the three invalidates this classification.
+- A failure-log entry may carry two **optional** link-field copies, `commit_refs` and `references`,
+  recorded by whichever producer wrote it when an annotation re-apply failed after the object had
+  already been re-PUT. Phase 1 re-applies them before re-indexing, so the rebuilt vector metadata is
+  derived from the restored value. This is the only path by which they can come back: the re-PUT
+  cleared the annotation copy, `references` is in vector metadata nowhere, and the vector
+  `commit_refs` copy is capped, so every entry past that cap would otherwise be lost permanently.
+- **Absence of either field means "nothing to restore", never "clear the field".** Entries written
+  before the fields existed carry neither and must replay unchanged, leaving the object's
+  annotations exactly as they are.
+- The restored value is the **union** of the entry's copy and the artifact's current value, never a
+  replacement. A value re-added between the failure and the reconcile lives only in the current
+  copy; replacing would trade one silent loss for another.
 - Failure-log entries are classified by their own shape — the presence of `orphan_keys` marks the
   cheap orphan-cleanup kind — so a reindex-kind and an orphan-cleanup-kind entry for the same
   artifact are processed and pruned independently.

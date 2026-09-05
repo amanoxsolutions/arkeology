@@ -62,6 +62,15 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
   re-PUT and re-applies them afterwards. Removing that read-forward silently destroys
   `commit_refs` and `references` on every archive.
 - The re-PUT is guarded by ETag compare-and-swap.
+- **Any** failure of the annotation re-apply after the status flip is durable leaves a failure-log
+  entry — credential, compare-and-swap exhaustion, or an unknown transient error alike. At that
+  point S3 says `inactive`, the re-PUT has cleared the annotations, and the vectors still say
+  `active`; without an entry `reconcile_index` sees a fully indexed artifact and never repairs any
+  of it. The unknown-error case is re-raised after recording, so it still surfaces as
+  `internal_error` to the caller.
+- That entry also carries the read-forward `commit_refs` and `references` as two **optional**
+  fields, for the same reason the write path does: they have no other surviving source once the
+  re-PUT cleared the annotations. Absence means "nothing to restore", never "clear the field".
 - `AnnotationUnavailableError` degrades gracefully — warn, do not fail the archive — while
   `CredentialError` aborts. Archiving is not the tool whose purpose is the durable link write, so
   unlike `link_metadata` it does not surface `annotation_unavailable` as a hard error.

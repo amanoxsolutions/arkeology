@@ -10,7 +10,12 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from arkeology.annotations import CAS_MAX_ATTEMPTS, read_current_link_fields
+from arkeology.annotations import (
+    CAS_MAX_ATTEMPTS,
+    apply_link_annotations,
+    merge_link_field,
+    read_current_link_fields,
+)
 from arkeology.artifact import (
     cap_commit_refs_for_vectors,
     check_metadata_budgets,
@@ -62,6 +67,66 @@ def _entry_kind(entry: dict[str, Any]) -> str:
     pruned independently.
     """
     return "orphan_cleanup" if "orphan_keys" in entry else "reindex"
+
+
+def _restore_entry_link_fields(
+    entry: dict[str, Any],
+    artifact_id: str,
+    s3: S3ClientInterface,
+    vectors: VectorsClientInterface,
+) -> None:
+    """Re-apply the link-field copy a failed annotation write recorded on ``entry``.
+
+    The producers of that entry (the write path's overwrite cycle and the archive
+    path's status flip) both re-PUT the object, which clears its annotations, and both
+    record the values they were about to re-apply when the re-apply itself failed. The
+    entry is then the only surviving source for them: ``references`` is not in vector
+    metadata at all, and the vector ``commit_refs`` copy holds at most the most-recent
+    :data:`~arkeology.artifact.COMMIT_REFS_VECTOR_METADATA_MAX_ENTRIES` entries, so
+    everything past that window exists nowhere else.
+
+    The restored value is the union of the entry's copy and whatever the artifact
+    currently holds, never a replacement — a value re-added between the failure and
+    this reconcile lives only in the current copy, and dropping it would trade one
+    silent loss for another.
+
+    An entry written before these fields existed carries neither, which means "nothing
+    to restore" and not "clear the link fields": such an entry is a no-op here, leaving
+    the object's annotations exactly as they are. Non-list values from a hand-edited log
+    are ignored on the same terms.
+
+    Args:
+        entry: The failure-log entry being replayed.
+        artifact_id: Full S3 key of the artifact.
+        s3: S3 client.
+        vectors: Vectors client, for the vector-metadata half of the current value.
+
+    Raises:
+        CredentialError: Propagated from either store.
+    """
+    entry_commit_refs = entry.get("commit_refs")
+    entry_references = entry.get("references")
+    recorded_commit_refs = (
+        [str(ref) for ref in entry_commit_refs] if isinstance(entry_commit_refs, list) else []
+    )
+    recorded_references = (
+        [str(ref) for ref in entry_references] if isinstance(entry_references, list) else []
+    )
+    if not (recorded_commit_refs or recorded_references):
+        return
+
+    current_commit_refs, current_references = read_current_link_fields(s3, vectors, artifact_id)
+    # ponytail: read-merge-write without compare-and-swap. A link_metadata call landing
+    # between the read above and the write below is clobbered. The window is the two
+    # calls' latency, against a repair path that only runs on an artifact already known
+    # to be broken; add if_match plus ArtifactConflictError retry (as the write and
+    # archive paths do) if that loss is ever observed.
+    apply_link_annotations(
+        s3,
+        artifact_id,
+        commit_refs=merge_link_field(recorded_commit_refs, current_commit_refs),
+        references=merge_link_field(recorded_references, current_references),
+    )
 
 
 def _reindex_artifact(
@@ -495,6 +560,13 @@ async def _reconcile_index_inner(
                     return {"kind": "failed", "artifact_id": artifact_id, "reason": str(exc)}
 
                 try:
+                    # Before the re-index, not after: the annotation copy is what the
+                    # rebuilt vector metadata is derived from, so restoring it first is
+                    # what puts the recorded commit_refs back into the index too.
+                    # Off the event loop — blocking boto3 calls.
+                    await asyncio.to_thread(
+                        _restore_entry_link_fields, entry, artifact_id, s3, vectors
+                    )
                     reconciled_entry = await _fetch_and_reindex(
                         artifact_id, raw_meta, "failure_log", settings, s3, vectors, bedrock
                     )

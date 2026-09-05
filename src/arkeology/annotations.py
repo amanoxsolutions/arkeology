@@ -67,6 +67,27 @@ def decode_link_list(payload: str) -> list[str]:
     return [item for item in payload.split(",") if item]
 
 
+def merge_link_field(existing: list[str], supplied: list[str]) -> list[str]:
+    """Merge ``supplied`` values into ``existing``, deduplicating and order-preserving.
+
+    The single union rule for both mutable link fields, shared by ``link_metadata``'s
+    fetch-merge-reput and ``reconcile_index``'s restore of the copy a failed annotation
+    write recorded on its failure-log entry. Both combine two partial views of the same
+    field and must never let one side drop a value the other holds.
+
+    Args:
+        existing: The current value of the field — typically the order-preserving dedup
+            union of both durable stores (:func:`read_current_link_fields`), so neither
+            store is treated as sole authority.
+        supplied: The values to merge in (may be empty, in which case the existing value
+            is returned unchanged, only deduplicated).
+
+    Returns:
+        The merged, deduplicated, order-preserving list.
+    """
+    return list(dict.fromkeys(existing + supplied))
+
+
 def apply_link_annotations(
     s3: S3ClientInterface,
     key: str,

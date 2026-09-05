@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+import botocore.exceptions
 import pytest
 from pytest_mock import MockerFixture
 
@@ -1535,3 +1536,54 @@ async def test_archive_preserves_references_even_with_no_commit_refs(
     # field rather than piggybacking on a commit_refs value.
     with pytest.raises(KeyError):
         s3_client.get_object_annotation("artifacts/active-review", "commit_refs")
+
+
+async def test_archive_annotation_unknown_error_records_partial_archive_with_link_fields(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+    mocker: MockerFixture,
+    tmp_path: Path,
+) -> None:
+    """An unknown error from the annotation re-apply — neither a conflict, nor
+    annotation-unavailable, nor a credential failure (e.g. SlowDown) — must still
+    record a failure-log entry.
+
+    By this point the status flip is durably written, the re-PUT has wiped the
+    object's annotations, and every vector still says ``active``. Letting the
+    exception reach the catch-all leaves that state with nothing recording it:
+    ``reconcile_index`` sees no reason to touch the artifact.
+
+    The entry must also carry the read-forward link fields. They have no other
+    surviving source — the annotation copy was cleared by the re-PUT, ``references``
+    is not in vector metadata at all, and the vector ``commit_refs`` copy is capped.
+    """
+    settings = _make_settings(monkeypatch, tmp_path=tmp_path)
+    _seed_all(s3_client, vectors_client_2)
+    s3_client.put_object_annotation("artifacts/active-review", "commit_refs", "abc1234")
+    s3_client.put_object_annotation("artifacts/active-review", "references", "artifacts/some-adr")
+
+    mocker.patch.object(
+        s3_client,
+        "put_object_annotation",
+        side_effect=botocore.exceptions.ClientError(
+            {"Error": {"Code": "SlowDown", "Message": "Please reduce your request rate."}},
+            "PutObjectAnnotation",
+        ),
+    )
+
+    result = await archive_artifact(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=None,
+        artifact_id="artifacts/active-review",
+    )
+
+    assert "error" in result
+    assert settings.failure_log_path.exists()
+    entries = [json.loads(line) for line in settings.failure_log_path.read_text().splitlines()]
+    assert entries[-1]["artifact_id"] == "artifacts/active-review"
+    assert entries[-1]["failure_step"] == "archive_vector_flip"
+    assert entries[-1]["commit_refs"] == ["abc1234"]
+    assert entries[-1]["references"] == ["artifacts/some-adr"]

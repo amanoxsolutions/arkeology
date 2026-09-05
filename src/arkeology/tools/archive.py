@@ -24,7 +24,6 @@ Step 4a/4b pattern — including its ``AnnotationUnavailableError`` graceful deg
 
 import asyncio
 import logging
-from datetime import UTC, datetime
 from typing import Any
 
 from arkeology.annotations import (
@@ -40,7 +39,7 @@ from arkeology.clients.interfaces import (
 from arkeology.config import Settings
 from arkeology.constants import ArtifactStatus, ErrorCode
 from arkeology.errors import AnnotationUnavailableError, ArtifactConflictError, CredentialError
-from arkeology.failure_log import append_failure_entry
+from arkeology.failure_log import append_failure_entry, build_failure_entry
 from arkeology.tools._errors import credential_error_response
 from arkeology.tools._scope import is_own_scope
 from arkeology.tools._search_helper import fetch_vectors_by_metadata, find_referrers
@@ -49,7 +48,13 @@ logger = logging.getLogger(__name__)
 
 
 def _record_partial_archive_failure(
-    settings: Settings, *, artifact_id: str, s3_meta: dict[str, Any], reason: str
+    settings: Settings,
+    *,
+    artifact_id: str,
+    s3_meta: dict[str, Any],
+    reason: str,
+    commit_refs: list[str] | None = None,
+    references: list[str] | None = None,
 ) -> None:
     """Append a failure-log entry for a partially completed archive.
 
@@ -74,6 +79,14 @@ def _record_partial_archive_failure(
         s3_meta: The artifact's S3 object metadata (post status-flip), used to
             populate the failure-log entry's descriptive fields.
         reason: Human-readable failure reason.
+        commit_refs: The link fields read forward before the status re-PUT.
+            Recorded because that re-PUT cleared the object's annotations: if the
+            re-apply meant to restore them is what failed, this entry is the only
+            place the values still exist. ``references`` is not in vector metadata
+            at all and the vector ``commit_refs`` copy is capped, so whatever is not
+            recorded here is lost for good. Omitted when empty; see
+            :func:`~arkeology.failure_log.build_failure_entry`.
+        references: As ``commit_refs``.
     """
     tier_raw = s3_meta.get("tier", "2")
     try:
@@ -82,16 +95,17 @@ def _record_partial_archive_failure(
         tier = 2
     append_failure_entry(
         settings.failure_log_path,
-        {
-            "artifact_id": artifact_id,
-            "title": s3_meta.get("title", ""),
-            "type": s3_meta.get("type", ""),
-            "tier": tier,
-            "date": s3_meta.get("date", ""),
-            "failure_step": "archive_vector_flip",
-            "reason": reason,
-            "timestamp": datetime.now(UTC).isoformat(),
-        },
+        build_failure_entry(
+            artifact_id=artifact_id,
+            title=s3_meta.get("title", ""),
+            artifact_type=s3_meta.get("type", ""),
+            tier=tier,
+            date=s3_meta.get("date", ""),
+            failure_step="archive_vector_flip",
+            reason=reason,
+            commit_refs=commit_refs,
+            references=references,
+        ),
     )
 
 
@@ -244,6 +258,10 @@ async def _archive_artifact_inner(
     annotation_warning: str | None = None
     updated_s3_meta: dict[str, str] = {}
     last_attempt_object_written = False
+    # Bound before the loop so the retries-exhausted branch and the vector-flip
+    # handlers below can also record the last attempt's read-forward values.
+    current_commit_refs: list[str] = []
+    current_references: list[str] = []
 
     for attempt in range(CAS_MAX_ATTEMPTS):
         last_attempt_object_written = False
@@ -314,9 +332,32 @@ async def _archive_artifact_inner(
             # The S3 status flip above has already succeeded — this is a
             # partial archive, not a clean failure.
             _record_partial_archive_failure(
-                settings, artifact_id=artifact_id, s3_meta=updated_s3_meta, reason=str(exc)
+                settings,
+                artifact_id=artifact_id,
+                s3_meta=updated_s3_meta,
+                reason=str(exc),
+                commit_refs=current_commit_refs,
+                references=current_references,
             )
             return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
+        except Exception as exc:
+            # An unknown/transient annotation failure (e.g. SlowDown, RequestTimeout —
+            # not a conflict, not annotation-unavailable, not a credential failure) must
+            # not escape uncaught to the blanket internal_error handler. The status flip
+            # is already durable, the re-PUT has cleared the annotations, and every
+            # vector still says active: with no entry, reconcile_index sees a fully
+            # indexed artifact and never touches it. Re-raised after recording, matching
+            # the vector-flip handler below — the catch-all still logs the traceback and
+            # returns internal_error, but the repairable trace now exists.
+            _record_partial_archive_failure(
+                settings,
+                artifact_id=artifact_id,
+                s3_meta=updated_s3_meta,
+                reason=str(exc),
+                commit_refs=current_commit_refs,
+                references=current_references,
+            )
+            raise
         else:
             break
     else:
@@ -335,6 +376,8 @@ async def _archive_artifact_inner(
                     "Compare-and-swap retries exhausted while re-applying "
                     "commit_refs/references annotations after a durable status flip."
                 ),
+                commit_refs=current_commit_refs,
+                references=current_references,
             )
         return _conflict_response()
 
@@ -363,12 +406,22 @@ async def _archive_artifact_inner(
             await asyncio.to_thread(vectors.put_vector, key, vector_data, updated_meta)
     except CredentialError as exc:
         _record_partial_archive_failure(
-            settings, artifact_id=artifact_id, s3_meta=updated_s3_meta, reason=str(exc)
+            settings,
+            artifact_id=artifact_id,
+            s3_meta=updated_s3_meta,
+            reason=str(exc),
+            commit_refs=current_commit_refs,
+            references=current_references,
         )
         return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
     except Exception as exc:
         _record_partial_archive_failure(
-            settings, artifact_id=artifact_id, s3_meta=updated_s3_meta, reason=str(exc)
+            settings,
+            artifact_id=artifact_id,
+            s3_meta=updated_s3_meta,
+            reason=str(exc),
+            commit_refs=current_commit_refs,
+            references=current_references,
         )
         raise
 

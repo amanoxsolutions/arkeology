@@ -47,6 +47,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   listed, a foreign-scope tier-2 one is not, matching `list_artifacts`' default scope
 
 ### Fixed
+- `archive_artifact` now records a failure-log entry when an unknown error (not a conflict,
+  not annotation-unavailable, not a credential failure) breaks the annotation re-apply that
+  follows the status flip. Such an error previously reached the blanket handler and returned
+  `internal_error` having recorded nothing, leaving S3 flipped to `inactive`, the annotations
+  cleared by the re-PUT, and every vector still `active`, with no trace for `reconcile_index`
+  to repair from. The error still surfaces as `internal_error`; only the missing entry is new
+- the failure-log entry written when an annotation re-apply fails now carries the `commit_refs`
+  and `references` that re-apply was holding, and `reconcile_index` restores them. The
+  preceding object re-PUT clears the object's annotations, so the entry had been dropping the
+  only remaining copy: `references` is not in vector metadata at all and the vector
+  `commit_refs` copy keeps at most the most-recent 20 entries, making anything past that window
+  permanently unrecoverable without telling the caller. Both fields are optional and are
+  restored as a union with the artifact's current value, so an entry written before this change
+  replays unchanged and a value re-added in the meantime is not lost
 - a read prefix at or beneath the write prefix is now rejected at startup. The scope model
   assumes disjoint scopes, and every own-scope guard is a `startswith(write_prefix + "/")`
   test, so with `WRITE_PREFIX=team` and `READ_PREFIXES=team/proj` another deployment's

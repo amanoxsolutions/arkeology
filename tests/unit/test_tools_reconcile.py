@@ -13,7 +13,7 @@ import boto3
 import pytest
 from pytest_mock import MockerFixture
 
-from arkeology.annotations import CAS_MAX_ATTEMPTS, apply_link_annotations
+from arkeology.annotations import CAS_MAX_ATTEMPTS, apply_link_annotations, decode_link_list
 from arkeology.artifact import VECTOR_FILTERABLE_METADATA_MAX_BYTES
 from arkeology.clients.fakes.fake_bedrock import FakeBedrockClient
 from arkeology.clients.s3 import S3ClientImpl
@@ -2621,3 +2621,140 @@ async def test_orphan_cleanup_partially_absent_keys_still_resolves(
     assert reconciled_entry["source"] == "orphan_vector_cleanup"
     assert result["failure_log_entries_after"] == 0
     assert not reconcile_settings.failure_log_path.exists()
+
+
+# ---------------------------------------------------------------------------
+# Failure-log link-field restore
+# ---------------------------------------------------------------------------
+
+
+async def test_failure_log_entry_restores_link_fields_beyond_the_vector_cap(
+    reconcile_settings: Settings,
+    s3_reconcile: S3ClientImpl,
+    vectors_reconcile: VectorsClientImpl,
+) -> None:
+    """An entry carrying link fields has them re-applied as the durable annotation copy.
+
+    The commit_refs list here is deliberately longer than the vector-metadata cap: the
+    entries beyond that window exist nowhere else once the annotations were cleared, so
+    this is the case the entry's copy is the only possible source for. References are
+    never in vector metadata at all, so every value there is in the same position.
+    """
+    artifact_id = "artifacts/implementation-note-2026-01-01-test-artifact"
+    s3_reconcile.put_object(artifact_id, _CONTENT_NO_SECTIONS, {**_BASE_S3_META})
+    commit_refs = [f"sha{index:04d}" for index in range(25)]
+
+    _write_failure_log(
+        reconcile_settings.failure_log_path,
+        [
+            {
+                **_BASE_LOG_ENTRY,
+                "artifact_id": artifact_id,
+                "failure_step": "annotation_write",
+                "commit_refs": commit_refs,
+                "references": ["artifacts/some-adr"],
+            }
+        ],
+    )
+
+    result = await reconcile_index(
+        settings=reconcile_settings,
+        s3=s3_reconcile,
+        vectors=vectors_reconcile,
+        bedrock=FakeBedrockClient(),
+    )
+
+    assert "error" not in result
+    assert result["failure_log_entries_after"] == 0
+    restored = decode_link_list(s3_reconcile.get_object_annotation(artifact_id, "commit_refs"))
+    assert restored == commit_refs
+    assert decode_link_list(s3_reconcile.get_object_annotation(artifact_id, "references")) == [
+        "artifacts/some-adr"
+    ]
+
+
+async def test_failure_log_entry_without_link_fields_leaves_annotations_untouched(
+    reconcile_settings: Settings,
+    s3_reconcile: S3ClientImpl,
+    vectors_reconcile: VectorsClientImpl,
+) -> None:
+    """An entry written before link fields were recorded on it has neither field.
+
+    Absence means "nothing to restore", never "clear the link fields": replaying such an
+    entry must not raise and must leave the object's existing annotations intact.
+    """
+    artifact_id = "artifacts/implementation-note-2026-01-01-test-artifact"
+    s3_reconcile.put_object(artifact_id, _CONTENT_NO_SECTIONS, {**_BASE_S3_META})
+    apply_link_annotations(
+        s3_reconcile,
+        artifact_id,
+        commit_refs=["abc1234"],
+        references=["artifacts/some-adr"],
+    )
+
+    _write_failure_log(
+        reconcile_settings.failure_log_path,
+        [{**_BASE_LOG_ENTRY, "artifact_id": artifact_id}],
+    )
+
+    result = await reconcile_index(
+        settings=reconcile_settings,
+        s3=s3_reconcile,
+        vectors=vectors_reconcile,
+        bedrock=FakeBedrockClient(),
+    )
+
+    assert "error" not in result
+    assert result["failure_log_entries_after"] == 0
+    assert s3_reconcile.get_object_annotation(artifact_id, "commit_refs") == "abc1234"
+    assert s3_reconcile.get_object_annotation(artifact_id, "references") == "artifacts/some-adr"
+
+
+async def test_failure_log_entry_link_fields_union_with_the_current_value(
+    reconcile_settings: Settings,
+    s3_reconcile: S3ClientImpl,
+    vectors_reconcile: VectorsClientImpl,
+) -> None:
+    """The restore combines the entry's copy with the current value, never replaces it.
+
+    A value re-added between the failure and the reconcile lives only in the current
+    annotation copy; a replace would drop it, and a restore that skipped the entry's
+    copy would drop what the failed write was holding. Both must survive.
+    """
+    artifact_id = "artifacts/implementation-note-2026-01-01-test-artifact"
+    s3_reconcile.put_object(artifact_id, _CONTENT_NO_SECTIONS, {**_BASE_S3_META})
+    apply_link_annotations(
+        s3_reconcile,
+        artifact_id,
+        commit_refs=["shab222"],
+        references=["artifacts/adr-b"],
+    )
+
+    _write_failure_log(
+        reconcile_settings.failure_log_path,
+        [
+            {
+                **_BASE_LOG_ENTRY,
+                "artifact_id": artifact_id,
+                "commit_refs": ["shaa111"],
+                "references": ["artifacts/adr-a"],
+            }
+        ],
+    )
+
+    result = await reconcile_index(
+        settings=reconcile_settings,
+        s3=s3_reconcile,
+        vectors=vectors_reconcile,
+        bedrock=FakeBedrockClient(),
+    )
+
+    assert "error" not in result
+    assert decode_link_list(s3_reconcile.get_object_annotation(artifact_id, "commit_refs")) == [
+        "shaa111",
+        "shab222",
+    ]
+    assert decode_link_list(s3_reconcile.get_object_annotation(artifact_id, "references")) == [
+        "artifacts/adr-a",
+        "artifacts/adr-b",
+    ]

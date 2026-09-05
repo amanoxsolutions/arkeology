@@ -20,7 +20,7 @@ This project runs as a **single open phase**, not a pre-planned roadmap. Complet
 - **Status legend:** ⬜ pending · 🔄 in progress · 🔍 in review · ✅ done · 🔴 blocked
 - **Delivery model:** each **Phase** is a coherent slice of value delivered as a set of tasks. A phase ends when we judge it done.
 
-**Current state:** Phase 14 — Consistency Review Remediation is open, closing the findings of the 2026-09-05 whole-repository consistency review; T71–T74 are done. Prior phases below remain as delivered. Phase 12 — Artifact Cross-Referencing + Annotation-Backed Link Storage: all planned tasks **T45–T69** implemented, unit-tested (suite green), and merged to `main` (the `phase-12-cross-referencing` branch is merged; work is trunk-based on `main` per AGENTS.md); skills consolidated under `plugins/arkeology/skills/`; specs, ADR-011/ADR-012, and user docs aligned. **T57–T62** (added 2026-08-13) delivered the post-implementation remediation for a real vector-metadata-budget-overflow incident (guard coverage, `commit_refs`/`references` split-store fix, migration self-heal, bounded reconcile retry — see `adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal.md`, Accepted). Two closely-related review findings were folded directly into those specs rather than getting their own task numbers: I-4 (control-character validation gap) into T57's spec, and I-2 (`propose_commit_links.py` first-vector-only bug) into T58's spec — both touched the exact same file/function T57/T58 already opened. H-2 was folded into T62's spec (same file, already reopened by T62). Four other findings (F-1, F-3, H-1, I-3) were batched into follow-up task **T63**, and a further six batches of review-2026-08-13 remediation — **T64–T69** (I-6, J-2, C-1, J-1, cleanup-hygiene batch 2, and convention-class cleanup) — landed 2026-08-19/20, closing out every open finding from that review. No task in the phase remains open. Not yet released: latest tag is v0.5.0 (Phase 11 — Visual Reading Interface); `CHANGELOG.md`'s `[Unreleased]` section carries the accumulated Phase 12 changes pending a version cut.
+**Current state:** Phase 14 — Consistency Review Remediation is open, closing the findings of the 2026-09-05 whole-repository consistency review; T71–T75 are done. Prior phases below remain as delivered. Phase 12 — Artifact Cross-Referencing + Annotation-Backed Link Storage: all planned tasks **T45–T69** implemented, unit-tested (suite green), and merged to `main` (the `phase-12-cross-referencing` branch is merged; work is trunk-based on `main` per AGENTS.md); skills consolidated under `plugins/arkeology/skills/`; specs, ADR-011/ADR-012, and user docs aligned. **T57–T62** (added 2026-08-13) delivered the post-implementation remediation for a real vector-metadata-budget-overflow incident (guard coverage, `commit_refs`/`references` split-store fix, migration self-heal, bounded reconcile retry — see `adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal.md`, Accepted). Two closely-related review findings were folded directly into those specs rather than getting their own task numbers: I-4 (control-character validation gap) into T57's spec, and I-2 (`propose_commit_links.py` first-vector-only bug) into T58's spec — both touched the exact same file/function T57/T58 already opened. H-2 was folded into T62's spec (same file, already reopened by T62). Four other findings (F-1, F-3, H-1, I-3) were batched into follow-up task **T63**, and a further six batches of review-2026-08-13 remediation — **T64–T69** (I-6, J-2, C-1, J-1, cleanup-hygiene batch 2, and convention-class cleanup) — landed 2026-08-19/20, closing out every open finding from that review. No task in the phase remains open. Not yet released: latest tag is v0.5.0 (Phase 11 — Visual Reading Interface); `CHANGELOG.md`'s `[Unreleased]` section carries the accumulated Phase 12 changes pending a version cut.
 
 ---
 
@@ -318,6 +318,27 @@ clause does not need a dedicated spec. Testing approach: **TDD** (NFR-07).
     dicts. The reconcile contract's claim that a productive run always leaves fewer entries than it
     started with was corrected — that no longer holds when a concurrent append lands. A microsecond-wide
     residual window around the unlink is documented in place with its upgrade path.
+
+75. ✅ **Preserve the link fields only the failure-log entry can restore, and give `archive_artifact` the
+    branch that writes one** — two inseparable halves of one defect. `archive.py` caught only
+    `ArtifactConflictError`, `AnnotationUnavailableError` and `CredentialError` around the annotation
+    re-apply, so any other exception escaped to the catch-all: S3 flipped to `inactive`, annotations wiped
+    by the re-PUT, every vector still `active`, and **no failure-log entry**, leaving `reconcile_index`
+    looking at a fully-indexed artifact it would never touch. Separately, the entries both the write and
+    archive paths do write omitted the read-forward `commit_refs`/`references` — and since the re-PUT
+    clears annotations, `references` is absent from vector metadata entirely, and the vector `commit_refs`
+    copy is capped at 20 entries, everything past that window existed nowhere else once the re-apply
+    failed. Fix: `build_failure_entry` in `failure_log.py` as the single construction point both producers
+    use, carrying the uncapped link fields; `_restore_entry_link_fields` in reconcile Phase 1 re-applying
+    them *before* the re-index, so the rebuilt vector metadata derives from the restored annotation; and
+    the missing `except Exception` branch in archive, recording then re-raising to match that file's
+    existing vector-flip handler. The restore is a **union** with the artifact's current value, never a
+    replacement, so a link re-added between the failure and the repair is not traded away; and an entry
+    predating these fields carries neither, which means "nothing to restore", never "clear them".
+    `_merge_link_field` moved from `link_metadata.py` to `annotations.py` as public `merge_link_field`
+    rather than being imported privately across tool modules. Documented in the reconcile, write and
+    archive contracts. Known ceiling, commented in place: the restore is read-merge-write without
+    compare-and-swap.
 
 ## Risks and Open Questions
 

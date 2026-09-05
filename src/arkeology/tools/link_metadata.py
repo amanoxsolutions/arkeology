@@ -32,6 +32,7 @@ from ulid import ULID
 from arkeology.annotations import (
     CAS_MAX_ATTEMPTS,
     apply_link_annotations,
+    merge_link_field,
     read_current_link_fields,
 )
 from arkeology.artifact import Artifact, cap_commit_refs_for_vectors, check_metadata_budgets
@@ -117,8 +118,8 @@ def _apply_link_metadata_with_cas(
         existing_commit_refs, existing_references = read_current_link_fields(
             s3, vectors, artifact_id
         )
-        merged_commit_refs = _merge_link_field(existing_commit_refs, supplied_commit_refs)
-        merged_references = _merge_link_field(existing_references, supplied_references)
+        merged_commit_refs = merge_link_field(existing_commit_refs, supplied_commit_refs)
+        merged_references = merge_link_field(existing_references, supplied_references)
 
         # The pre-check must measure exactly what the real write assembles (T58 batch
         # loop in _link_metadata_inner below): commit_refs capped to the most-recent
@@ -181,22 +182,6 @@ def _validate_supplied_link_values(values: list[str], field: str) -> str | None:
     except ValueError as exc:
         return str(exc)
     return None
-
-
-def _merge_link_field(existing: list[str], supplied: list[str]) -> list[str]:
-    """Merge ``supplied`` values into ``existing``, deduplicating and order-preserving.
-
-    Args:
-        existing: The current value of the field — the order-preserving dedup union
-            of both durable stores (``annotations.read_current_link_fields``), so
-            neither store is treated as sole authority.
-        supplied: The values requested by this call (may be empty, in which case
-            the existing value is returned unchanged, only deduplicated).
-
-    Returns:
-        The merged, deduplicated, order-preserving list.
-    """
-    return list(dict.fromkeys(existing + supplied))
 
 
 async def link_metadata(

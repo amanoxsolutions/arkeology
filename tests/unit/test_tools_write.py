@@ -4413,3 +4413,59 @@ async def test_overwrite_annotation_write_unknown_error_returns_partial_write(
     entries = [json.loads(line) for line in log_path.read_text().splitlines()]
     assert entries[-1]["failure_step"] == "annotation_write"
     assert entries[-1]["artifact_id"] == result["artifact_id"]
+
+
+async def test_overwrite_annotation_write_unknown_error_records_link_fields(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    tmp_path: pytest.TempPathFactory,
+    mocker: MockerFixture,
+) -> None:
+    """The failure-log entry written when the overwrite path's annotation re-apply
+    fails must carry the link fields that write was applying.
+
+    The preceding put_object has already cleared the object's annotations, so those
+    values have no other durable source: `references` is never written to vector
+    metadata, and the vector `commit_refs` copy is capped. Without them on the entry,
+    `reconcile_index` cannot restore what the failed write was holding.
+
+    `commit_refs` is the read-forward union (prior value plus the value supplied to
+    this write); `references` has replace semantics, so it is exactly what this write
+    supplied.
+    """
+    log_path = tmp_path / "failures.jsonl"
+    settings = _make_settings(monkeypatch, FAILURE_LOG_PATH=str(log_path))
+    bedrock = FakeBedrockClient()
+
+    first = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        commit_refs=["sha0"],
+        references=["artifacts/prior-adr"],
+        **_BASE_WRITE_KWARGS,
+    )
+    assert "error" not in first
+
+    mocker.patch.object(
+        s3_client, "put_object_annotation", side_effect=_unknown_annotation_client_error()
+    )
+
+    result = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        overwrite=True,
+        commit_refs=["sha1"],
+        references=["artifacts/new-adr"],
+        **_BASE_WRITE_KWARGS,
+    )
+
+    assert result.get("error") == "partial_write"
+    entries = [json.loads(line) for line in log_path.read_text().splitlines()]
+    assert entries[-1]["failure_step"] == "annotation_write"
+    assert entries[-1]["commit_refs"] == ["sha0", "sha1"]
+    assert entries[-1]["references"] == ["artifacts/new-adr"]

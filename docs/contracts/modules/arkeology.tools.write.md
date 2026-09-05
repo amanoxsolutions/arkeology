@@ -140,4 +140,10 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
   write, so it surfaces `annotation_unavailable` as an error instead of absorbing it.)
 - On `partial_write` the S3 object is durable and a failure-log entry exists; the artifact is
   content-complete but unsearchable until reconciled.
+- A failure-log entry written because the **annotation** write failed also records the
+  `commit_refs` and `references` that write was applying, as two **optional** entry fields. The
+  preceding `put_object` has already cleared the object's annotations, so the entry is the only
+  remaining source `reconcile_index` can restore them from — `references` is never in vector
+  metadata and the vector `commit_refs` copy is capped. Both are recorded in full and uncapped, and
+  are omitted when empty; an absent field means "nothing to restore", never "clear the field".
 - On any `validation_error` nothing was written anywhere and no failure-log entry was created.

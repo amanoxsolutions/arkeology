@@ -10,7 +10,6 @@ import logging
 import random
 import time
 from concurrent.futures import ThreadPoolExecutor
-from datetime import UTC, datetime
 from typing import Any
 
 import botocore.exceptions
@@ -43,7 +42,7 @@ from arkeology.errors import (
     CredentialError,
     MetadataTooLargeError,
 )
-from arkeology.failure_log import append_failure_entry
+from arkeology.failure_log import append_failure_entry, build_failure_entry
 from arkeology.tools._errors import credential_error_response
 from arkeology.tools._section_pipeline import (
     build_document_embedding_text,
@@ -106,6 +105,8 @@ def _log_partial_write_failure(
     date: str,
     failure_step: str,
     reason: str,
+    commit_refs: list[str] | None = None,
+    references: list[str] | None = None,
     orphan_keys: list[str] | None = None,
 ) -> None:
     """Append a failure-log entry recording a partial write (S3 succeeded, a
@@ -131,25 +132,32 @@ def _log_partial_write_failure(
         failure_step: Stage that failed (e.g. ``"bedrock_embed"``, ``"put_vector"``,
             ``"annotation_write"``, ``"orphan_vector_cleanup"``).
         reason: Human-readable failure reason.
-        orphan_keys: T67 — when Step 8's ``delete_vectors`` retry is exhausted, the
-            exact list of stale vector keys that still need deleting. Included in the
-            written entry only when not ``None``; its presence (not a separate
-            ``kind``/``type`` field) is what distinguishes this failure-log entry kind
-            from every other (``reconcile_index``'s Phase 1 recognises it this way).
+        commit_refs: The link-field value the failed annotation write was applying —
+            passed on the ``annotation_write`` branches, where the preceding
+            ``put_object`` has already cleared the object's annotations and the entry
+            becomes the only source ``reconcile_index`` can restore from. Omitted from
+            the entry when empty; see :func:`~arkeology.failure_log.build_failure_entry`.
+        references: As ``commit_refs``. Note this is the value this write was applying
+            (``references`` has replace semantics), not a read-forward of the prior one.
+        orphan_keys: When Step 8's ``delete_vectors`` retry is exhausted, the exact list
+            of stale vector keys that still need deleting. See
+            :func:`~arkeology.failure_log.build_failure_entry` for how it is used.
     """
-    entry: dict[str, Any] = {
-        "artifact_id": artifact_id,
-        "title": title,
-        "type": artifact_type,
-        "tier": tier,
-        "date": date,
-        "failure_step": failure_step,
-        "reason": reason,
-        "timestamp": datetime.now(UTC).isoformat(),
-    }
-    if orphan_keys is not None:
-        entry["orphan_keys"] = orphan_keys
-    append_failure_entry(settings.failure_log_path, entry)
+    append_failure_entry(
+        settings.failure_log_path,
+        build_failure_entry(
+            artifact_id=artifact_id,
+            title=title,
+            artifact_type=artifact_type,
+            tier=tier,
+            date=date,
+            failure_step=failure_step,
+            reason=reason,
+            commit_refs=commit_refs,
+            references=references,
+            orphan_keys=orphan_keys,
+        ),
+    )
 
 
 def _record_partial_write(
@@ -162,6 +170,8 @@ def _record_partial_write(
     date: str,
     failure_step: str,
     reason: str,
+    commit_refs: list[str] | None = None,
+    references: list[str] | None = None,
 ) -> dict[str, Any]:
     """Append a failure-log entry and build the standard ``partial_write`` response.
 
@@ -178,6 +188,8 @@ def _record_partial_write(
         date: ISO-8601 date string.
         failure_step: Stage that failed (e.g. ``"bedrock_embed"``, ``"put_vector"``).
         reason: Human-readable failure reason.
+        commit_refs: Forwarded to :func:`_log_partial_write_failure`.
+        references: Forwarded to :func:`_log_partial_write_failure`.
 
     Returns:
         The ``partial_write`` error response dict (includes ``artifact_id``).
@@ -191,6 +203,8 @@ def _record_partial_write(
         date=date,
         failure_step=failure_step,
         reason=reason,
+        commit_refs=commit_refs,
+        references=references,
     )
     return {
         "error": ErrorCode.PARTIAL_WRITE,
@@ -209,6 +223,8 @@ def _record_partial_write_credential_error(
     date: str,
     failure_step: str,
     exc: CredentialError,
+    commit_refs: list[str] | None = None,
+    references: list[str] | None = None,
 ) -> dict[str, Any]:
     """Append a failure-log entry and build the standard ``credential_error`` response
     for a ``CredentialError`` raised after S3 has already been written durably.
@@ -229,6 +245,8 @@ def _record_partial_write_credential_error(
         failure_step: Stage that failed (e.g. ``"bedrock_embed"``, ``"put_vector"``,
             ``"annotation_write"``).
         exc: The ``CredentialError`` that was raised.
+        commit_refs: Forwarded to :func:`_log_partial_write_failure`.
+        references: Forwarded to :func:`_log_partial_write_failure`.
 
     Returns:
         The ``credential_error`` response dict (includes ``artifact_id``).
@@ -242,6 +260,8 @@ def _record_partial_write_credential_error(
         date=date,
         failure_step=failure_step,
         reason=str(exc),
+        commit_refs=commit_refs,
+        references=references,
     )
     return {
         "error": ErrorCode.CREDENTIAL_ERROR,
@@ -711,6 +731,8 @@ async def _write_artifact_inner(  # noqa: PLR0913
                     date=date,
                     failure_step="annotation_write",
                     exc=exc,
+                    commit_refs=final_commit_refs,
+                    references=final_references,
                 )
             except Exception as exc:
                 # An unknown/transient annotation failure (e.g. SlowDown,
@@ -729,6 +751,8 @@ async def _write_artifact_inner(  # noqa: PLR0913
                     date=date,
                     failure_step="annotation_write",
                     reason=str(exc),
+                    commit_refs=final_commit_refs,
+                    references=final_references,
                 )
             else:
                 break
@@ -753,6 +777,8 @@ async def _write_artifact_inner(  # noqa: PLR0913
                         "commit_refs/references annotations after a durable content "
                         "write."
                     ),
+                    commit_refs=final_commit_refs,
+                    references=final_references,
                 )
             return _conflict_response()
     else:
@@ -823,6 +849,8 @@ async def _write_artifact_inner(  # noqa: PLR0913
                 date=date,
                 failure_step="annotation_write",
                 exc=exc,
+                commit_refs=final_commit_refs,
+                references=final_references,
             )
         except Exception as exc:
             # Same unknown/transient-failure gap as the overwrite/CAS path above
@@ -838,6 +866,8 @@ async def _write_artifact_inner(  # noqa: PLR0913
                 date=date,
                 failure_step="annotation_write",
                 reason=str(exc),
+                commit_refs=final_commit_refs,
+                references=final_references,
             )
 
     # ── Step 5: Parse, filter, cap, and truncate sections (shared pipeline) ─────
