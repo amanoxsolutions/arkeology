@@ -6,6 +6,7 @@ Tests write_artifact() and its embedding helper functions using moto-backed clie
 import asyncio
 import json
 import logging
+from pathlib import Path
 
 import botocore.exceptions
 import pytest
@@ -4470,3 +4471,172 @@ async def test_overwrite_annotation_write_unknown_error_records_link_fields(
     assert entries[-1]["failure_step"] == "annotation_write"
     assert entries[-1]["commit_refs"] == ["sha0", "sha1"]
     assert entries[-1]["references"] == ["artifacts/new-adr"]
+
+
+# ---------------------------------------------------------------------------
+# CAS retry-attempt failures on an already-durable write
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_overwrite_cas_retry_after_concurrent_delete_returns_not_found(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """A concurrent delete between CAS attempts makes the retry's re-read head_object
+    raise KeyError. That must surface as a structured not_found, not escape uncaught to
+    the blanket internal_error handler, which tells the caller nothing about why the
+    write could not complete."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient()
+    tier3_kwargs = {**_BASE_WRITE_KWARGS, "tier": 3}
+
+    first = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        **{**tier3_kwargs, "commit_refs": ["sha0"]},
+    )
+    artifact_id = first["artifact_id"]
+
+    def _delete_then_conflict(*args: object, **kwargs: object) -> None:
+        # A concurrent caller deletes the object and changes it out from under the
+        # annotation write in the same window.
+        s3_client.delete_object(artifact_id)
+        raise ArtifactConflictError(artifact_id)
+
+    mocker.patch.object(s3_client, "put_object_annotation", side_effect=_delete_then_conflict)
+
+    result = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        overwrite=True,
+        **{**tier3_kwargs, "commit_refs": ["sha1"]},
+    )
+
+    assert result.get("error") == "not_found"
+    assert artifact_id in str(result)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failing_call", ["head_object", "get_object_annotation", "put_object"])
+async def test_overwrite_cas_retry_credential_error_records_partial_write(
+    failing_call: str,
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: MockerFixture,
+    tmp_path: Path,
+) -> None:
+    """A credential failure on a CAS *retry* attempt is never a clean failure: reaching
+    a retry means an earlier attempt's put_object already wrote the content durably and
+    cleared the object's annotations, so S3 holds this write's content while the index
+    still holds the previous content's vectors and the link fields survive nowhere.
+
+    That is the same repairable partial state the annotation-write credential branch
+    records, so every retry-attempt call must append a failure-log entry carrying the
+    read-forward link fields — without one, reconcile_index has no reason to look."""
+    settings = _make_settings(monkeypatch, tmp_path=tmp_path)
+    bedrock = FakeBedrockClient()
+    tier3_kwargs = {**_BASE_WRITE_KWARGS, "tier": 3}
+
+    first = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        **{**tier3_kwargs, "commit_refs": ["sha0"]},
+    )
+    artifact_id = first["artifact_id"]
+
+    conflicted = False
+    original_put_annotation = s3_client.put_object_annotation
+    original_failing = getattr(s3_client, failing_call)
+
+    def _conflict_once(*args: object, **kwargs: object) -> object:
+        nonlocal conflicted
+        if not conflicted:
+            conflicted = True
+            raise ArtifactConflictError(artifact_id)
+        return original_put_annotation(*args, **kwargs)  # type: ignore[arg-type]
+
+    def _fail_after_conflict(*args: object, **kwargs: object) -> object:
+        if conflicted:
+            raise CredentialError(message="Simulated.", service="s3", original=Exception("sim"))
+        return original_failing(*args, **kwargs)  # type: ignore[operator]
+
+    mocker.patch.object(s3_client, "put_object_annotation", side_effect=_conflict_once)
+    mocker.patch.object(s3_client, failing_call, side_effect=_fail_after_conflict)
+
+    result = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        overwrite=True,
+        **{
+            **tier3_kwargs,
+            "commit_refs": ["sha1"],
+            "references": ["artifacts/new-adr"],
+        },
+    )
+
+    assert result.get("error") == "credential_error"
+    assert result.get("artifact_id") == artifact_id
+    assert settings.failure_log_path.exists(), (
+        "A credential failure on a CAS retry left no failure-log entry, so the "
+        "partial write is invisible to reconcile_index"
+    )
+    entries = [json.loads(line) for line in settings.failure_log_path.read_text().splitlines()]
+    assert entries[-1]["artifact_id"] == artifact_id
+    assert entries[-1]["commit_refs"] == ["sha0", "sha1"]
+    assert entries[-1]["references"] == ["artifacts/new-adr"]
+
+
+@pytest.mark.asyncio
+async def test_first_attempt_credential_error_still_records_no_failure_entry(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: MockerFixture,
+    tmp_path: Path,
+) -> None:
+    """Pins existing behaviour: a credential failure on the *first* CAS attempt's
+    put_object wrote nothing durable, so it stays a clean credential_error with no
+    failure-log entry. The retry-attempt fix must not start logging this case."""
+    settings = _make_settings(monkeypatch, tmp_path=tmp_path)
+    bedrock = FakeBedrockClient()
+    tier3_kwargs = {**_BASE_WRITE_KWARGS, "tier": 3}
+
+    first = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        **{**tier3_kwargs, "commit_refs": ["sha0"]},
+    )
+    artifact_id = first["artifact_id"]
+
+    mocker.patch.object(
+        s3_client,
+        "put_object",
+        side_effect=CredentialError(message="Simulated.", service="s3", original=Exception("sim")),
+    )
+
+    result = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        overwrite=True,
+        **{**tier3_kwargs, "commit_refs": ["sha1"]},
+    )
+
+    assert result.get("error") == "credential_error"
+    assert result.get("artifact_id") == artifact_id
+    assert not settings.failure_log_path.exists()

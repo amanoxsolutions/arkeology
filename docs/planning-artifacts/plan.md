@@ -20,7 +20,7 @@ This project runs as a **single open phase**, not a pre-planned roadmap. Complet
 - **Status legend:** ⬜ pending · 🔄 in progress · 🔍 in review · ✅ done · 🔴 blocked
 - **Delivery model:** each **Phase** is a coherent slice of value delivered as a set of tasks. A phase ends when we judge it done.
 
-**Current state:** Phase 14 — Consistency Review Remediation is open, closing the findings of the 2026-09-05 whole-repository consistency review; T71–T76 are done. Prior phases below remain as delivered. Phase 12 — Artifact Cross-Referencing + Annotation-Backed Link Storage: all planned tasks **T45–T69** implemented, unit-tested (suite green), and merged to `main` (the `phase-12-cross-referencing` branch is merged; work is trunk-based on `main` per AGENTS.md); skills consolidated under `plugins/arkeology/skills/`; specs, ADR-011/ADR-012, and user docs aligned. **T57–T62** (added 2026-08-13) delivered the post-implementation remediation for a real vector-metadata-budget-overflow incident (guard coverage, `commit_refs`/`references` split-store fix, migration self-heal, bounded reconcile retry — see `adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal.md`, Accepted). Two closely-related review findings were folded directly into those specs rather than getting their own task numbers: I-4 (control-character validation gap) into T57's spec, and I-2 (`propose_commit_links.py` first-vector-only bug) into T58's spec — both touched the exact same file/function T57/T58 already opened. H-2 was folded into T62's spec (same file, already reopened by T62). Four other findings (F-1, F-3, H-1, I-3) were batched into follow-up task **T63**, and a further six batches of review-2026-08-13 remediation — **T64–T69** (I-6, J-2, C-1, J-1, cleanup-hygiene batch 2, and convention-class cleanup) — landed 2026-08-19/20, closing out every open finding from that review. No task in the phase remains open. Not yet released: latest tag is v0.5.0 (Phase 11 — Visual Reading Interface); `CHANGELOG.md`'s `[Unreleased]` section carries the accumulated Phase 12 changes pending a version cut.
+**Current state:** Phase 14 — Consistency Review Remediation is open, closing the findings of the 2026-09-05 whole-repository consistency review; T71–T78 are done. Prior phases below remain as delivered. Phase 12 — Artifact Cross-Referencing + Annotation-Backed Link Storage: all planned tasks **T45–T69** implemented, unit-tested (suite green), and merged to `main` (the `phase-12-cross-referencing` branch is merged; work is trunk-based on `main` per AGENTS.md); skills consolidated under `plugins/arkeology/skills/`; specs, ADR-011/ADR-012, and user docs aligned. **T57–T62** (added 2026-08-13) delivered the post-implementation remediation for a real vector-metadata-budget-overflow incident (guard coverage, `commit_refs`/`references` split-store fix, migration self-heal, bounded reconcile retry — see `adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal.md`, Accepted). Two closely-related review findings were folded directly into those specs rather than getting their own task numbers: I-4 (control-character validation gap) into T57's spec, and I-2 (`propose_commit_links.py` first-vector-only bug) into T58's spec — both touched the exact same file/function T57/T58 already opened. H-2 was folded into T62's spec (same file, already reopened by T62). Four other findings (F-1, F-3, H-1, I-3) were batched into follow-up task **T63**, and a further six batches of review-2026-08-13 remediation — **T64–T69** (I-6, J-2, C-1, J-1, cleanup-hygiene batch 2, and convention-class cleanup) — landed 2026-08-19/20, closing out every open finding from that review. No task in the phase remains open. Not yet released: latest tag is v0.5.0 (Phase 11 — Visual Reading Interface); `CHANGELOG.md`'s `[Unreleased]` section carries the accumulated Phase 12 changes pending a version cut.
 
 ---
 
@@ -389,6 +389,30 @@ clause does not need a dedicated spec. Testing approach: **TDD** (NFR-07).
        `startup.py` a "Seven-check startup validation sequence" (there are now eight), and its Component
        Dependencies section still describes annotation unavailability as degrading gracefully rather than
        refusing to start.
+
+78. ✅ **Code-behaviour minor findings from the 2026-09-05 consistency review** *(no dedicated spec —
+    each is a defect fix against behaviour the contracts already imply; this entry plus the contract
+    edits are the scope of record, per AGENTS.md's working convention)*. Six fixes:
+    **(a)** `check_synthesis_freshness` compared the artifact's subject `date` rather than its write
+    recency, so a tier-3 source overwritten in place under an unchanged date was never reported
+    stale, while a later-dated source written *before* the synthesis was wrongly flagged. Now uses
+    the monotonic `last_edited_ulid`, which every content write bumps and which link backfills,
+    archive status flips and reconcile re-indexes deliberately leave alone; `date` remains the
+    fallback where either side predates the ULID.
+    **(b)** `delete_artifact` failure responses gained `vectors_deleted`, so a half-deleted artifact
+    (vectors gone, S3 object standing, repairable by `reconcile_index`) is distinguishable from a
+    delete that never started; the error code still names what the caller must act on.
+    **(c/d)** Both compare-and-swap loops (`write_artifact` overwrite, `archive_artifact` status
+    flip) now return `not_found` when a concurrent delete removes the object between the first read
+    and a retry's re-read, and return the structured `credential_error` from a retry's re-read as the
+    first attempt already did — previously both escaped as `internal_error`. Nothing is written in
+    either case, so no failure-log entry is appended.
+    **(e)** The unbounded `$in` filters in freshness's source lookup and `_reference_filter`'s target
+    resolution are chunked via a new shared `fetch_vectors_by_artifact_ids`, reusing the existing
+    filter-expression byte budget the search loop already bounds its `$nin` list with rather than
+    introducing a second constant. Both id lists are caller-shaped and unbounded.
+    **(f)** `health_check` runs its probes off the event loop via `asyncio.to_thread`, matching every
+    other tool; they previously blocked the loop for the duration of the slowest probe.
 
 ## Risks and Open Questions
 

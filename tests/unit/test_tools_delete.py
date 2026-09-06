@@ -987,3 +987,74 @@ async def test_credential_error_on_delete_returns_credential_error(
     )
 
     assert result.get("error") == "credential_error"
+
+
+async def test_delete_s3_credential_error_reports_that_the_vectors_are_gone(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """A credential failure on the S3 delete leaves exactly the state partial_delete
+    describes — vectors gone, S3 object still present, artifact unsearchable but not
+    destroyed. The error code deliberately stays credential_error, so the response has
+    to carry that state itself or the caller cannot tell an unstarted delete from a
+    half-finished one."""
+    settings = _make_settings(monkeypatch)
+    s3_client.put_object("artifacts/t2-active", _CONTENT, {**_BASE_S3_META})
+    vectors_client_2.put_vector(
+        "artifacts/t2-active#summary",
+        [1.0, 0.0],
+        {**_BASE_VECTOR_META, "artifact_id": "artifacts/t2-active"},
+    )
+    mocker.patch.object(
+        s3_client,
+        "delete_object",
+        side_effect=CredentialError(message="Simulated.", service="s3", original=Exception("sim")),
+    )
+
+    result = await delete_artifact(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=None,
+        artifact_id="artifacts/t2-active",
+        confirm=True,
+    )
+
+    assert result.get("error") == "credential_error"
+    assert result.get("vectors_deleted") is True
+    assert vectors_client_2.list_vectors_by_metadata({}) == []
+    assert "artifacts/t2-active" in s3_client.list_objects("")
+
+
+async def test_delete_s3_failure_reports_that_the_vectors_are_gone(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """The same state reached by a non-credential S3 delete failure reports it through
+    the same key, so one field answers the question on either branch."""
+    settings = _make_settings(monkeypatch)
+    s3_client.put_object("artifacts/t2-active", _CONTENT, {**_BASE_S3_META})
+    vectors_client_2.put_vector(
+        "artifacts/t2-active#summary",
+        [1.0, 0.0],
+        {**_BASE_VECTOR_META, "artifact_id": "artifacts/t2-active"},
+    )
+    mocker.patch.object(
+        s3_client, "delete_object", side_effect=RuntimeError("Simulated S3 delete failure")
+    )
+
+    result = await delete_artifact(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=None,
+        artifact_id="artifacts/t2-active",
+        confirm=True,
+    )
+
+    assert result.get("error") == "partial_delete"
+    assert result.get("vectors_deleted") is True

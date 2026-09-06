@@ -5,12 +5,15 @@ This predicate is the single source of truth reused by read.py and list.py to fi
 `references` on cross-scope reads (ADR-012, "Cross-scope reference filtering").
 """
 
+import json
+
 import pytest
 from pytest_mock import MockerFixture
 
 from arkeology.clients.vectors import VectorsClientImpl
 from arkeology.config import Settings
 from arkeology.tools._reference_filter import resolve_readable_targets
+from arkeology.tools._search_helper import _NIN_EXCLUSION_BYTE_BUDGET
 from tests.unit.conftest import _make_settings as _make_settings_base
 
 
@@ -165,7 +168,7 @@ async def test_skip_guard_does_not_abort_remaining_candidates(
     """
     settings = _make_settings(monkeypatch)
     mocker.patch(
-        "arkeology.tools._reference_filter.fetch_vectors_by_metadata",
+        "arkeology.tools._reference_filter.fetch_vectors_by_artifact_ids",
         return_value=[
             {"metadata": {}},  # no artifact_id → candidate_id "" not in unresolved
             {
@@ -215,3 +218,43 @@ async def test_refetch_omits_embedding_data(
 
     assert spy.call_count == 1
     assert spy.call_args.kwargs["include_data"] is False
+
+
+async def test_chunks_the_in_filter_within_the_byte_budget(
+    monkeypatch: pytest.MonkeyPatch,
+    vectors_client_2: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """S3 Vectors rejects an oversized metadata-filter expression, so the batched
+    candidate lookup must chunk its $in list to the same byte budget the search
+    re-fetch loop bounds its $nin list to. An artifact referencing enough foreign-scope
+    targets to blow the budget must still resolve every readable one rather than
+    failing the whole read."""
+    settings = _make_settings(monkeypatch)
+    candidates = {f"other-team/adr-2026-01-01-bulk-reference-target-{i:03d}" for i in range(60)}
+    for candidate_id in sorted(candidates):
+        vectors_client_2.put_vector(
+            f"{candidate_id}#summary",
+            [1.0, 0.0],
+            {"artifact_id": candidate_id, "tier": 3, "visibility": "shared"},
+        )
+
+    spy = mocker.spy(vectors_client_2, "list_vectors_by_metadata")
+
+    readable = await resolve_readable_targets(vectors_client_2, settings, candidates)
+
+    assert readable == candidates
+    in_lists = [
+        call.args[0]["artifact_id"]["$in"]
+        for call in spy.call_args_list
+        if isinstance(call.args[0].get("artifact_id"), dict)
+        and "$in" in call.args[0]["artifact_id"]
+    ]
+    assert in_lists, "the candidate lookup issued no $in filter at all"
+    assert sum(len(chunk) for chunk in in_lists) == len(candidates)
+    for chunk in in_lists:
+        size = len(json.dumps(chunk).encode("utf-8"))
+        assert size <= _NIN_EXCLUSION_BYTE_BUDGET, (
+            f"an $in list of {size} bytes exceeds the filter-expression budget "
+            f"of {_NIN_EXCLUSION_BYTE_BUDGET}"
+        )

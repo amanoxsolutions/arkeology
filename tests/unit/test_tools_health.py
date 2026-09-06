@@ -3,7 +3,11 @@
 Tests health_check() using moto-backed S3 and S3 Vectors clients plus FakeBedrockClient.
 """
 
+import threading
+from typing import Any
+
 import pytest
+from pytest_mock import MockerFixture
 
 from arkeology.clients.fakes.fake_bedrock import FakeBedrockClient
 from arkeology.clients.s3 import S3ClientImpl
@@ -11,6 +15,10 @@ from arkeology.clients.vectors import VectorsClientImpl
 from arkeology.errors import CredentialError
 from arkeology.tools.health import health_check
 from tests.unit.conftest import _make_settings
+
+# Mirrors health.py's f"read_prefix:{prefix}" key construction, so the assertion
+# builds the key the same way the source does rather than hard-coding it.
+_READ_PREFIX = "other-team"
 
 # ---------------------------------------------------------------------------
 # All healthy
@@ -641,4 +649,48 @@ async def test_probe_object_cleaned_up_when_get_object_fails(
     assert probe_key in called_keys, (
         f"M22 Bug 2: s3.delete_object must be called for probe key '{probe_key}' as cleanup "
         f"even when get_object fails, but delete was only called for: {called_keys}"
+    )
+
+
+async def test_probes_run_off_the_event_loop(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """Every probe is a blocking boto3 round trip. Running them inline on the calling
+    event-loop thread blocks it for the full S3 + Vectors + Bedrock latency, so each
+    must be offloaded to a worker thread the way every other tool offloads its AWS
+    calls."""
+    settings = _make_settings(monkeypatch, READ_PREFIXES=_READ_PREFIX)
+    bedrock = FakeBedrockClient()
+    main_thread = threading.current_thread()
+    seen_threads: list[threading.Thread] = []
+
+    def _spy(target: Any, method: str) -> None:
+        original = getattr(target, method)
+
+        def _record(*args: Any, **kwargs: Any) -> Any:
+            seen_threads.append(threading.current_thread())
+            return original(*args, **kwargs)
+
+        mocker.patch.object(target, method, side_effect=_record)
+
+    for method in ("head_bucket", "put_object", "get_object", "delete_object", "list_objects"):
+        _spy(s3_client, method)
+    _spy(vectors_client_8, "describe_index")
+    _spy(bedrock, "embed")
+
+    result = await health_check(
+        settings=settings, s3=s3_client, vectors=vectors_client_8, bedrock=bedrock
+    )
+
+    assert result["s3"]["status"] == "ok"
+    assert result["vectors"]["status"] == "ok"
+    assert result["bedrock"]["status"] == "ok"
+    assert result["write_prefix"]["status"] == "ok"
+    assert result[f"read_prefix:{_READ_PREFIX}"]["status"] == "ok"
+    assert seen_threads, "no probe was ever called"
+    assert all(t is not main_thread for t in seen_threads), (
+        "health probes ran on the event-loop thread — they must be offloaded"
     )

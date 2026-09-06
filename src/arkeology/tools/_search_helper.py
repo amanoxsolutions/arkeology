@@ -13,6 +13,7 @@ in ``_scope.py`` and inside the declared mutation-testing Scope.
 import asyncio
 import json
 import logging
+from collections.abc import Collection
 from typing import Any
 
 from ulid import ULID
@@ -49,9 +50,9 @@ _TOP_K_CEILING = 100
 _NIN_EXCLUSION_BYTE_BUDGET = 1024
 
 
-def _nin_list_byte_size(seen_ids: set[str]) -> int:
-    """Return the UTF-8 byte size of ``seen_ids`` as it would appear in a $nin clause."""
-    return len(json.dumps(list(seen_ids)).encode("utf-8"))
+def _id_list_byte_size(artifact_ids: Collection[str]) -> int:
+    """Return the UTF-8 byte size of ``artifact_ids`` as it appears in a $nin/$in clause."""
+    return len(json.dumps(list(artifact_ids)).encode("utf-8"))
 
 
 def fetch_vectors_by_metadata(
@@ -82,6 +83,54 @@ def fetch_vectors_by_metadata(
     if not keys:
         return []
     return vectors.get_vectors(keys, include_data=include_data)
+
+
+def fetch_vectors_by_artifact_ids(
+    vectors: VectorsClientInterface,
+    artifact_ids: Collection[str],
+    *,
+    include_data: bool = False,
+) -> list[dict[str, Any]]:
+    """Fetch every vector entry whose ``artifact_id`` is one of ``artifact_ids``, split
+    across as many ``$in`` queries as the filter-expression byte budget requires.
+
+    S3 Vectors rejects an oversized metadata-filter expression, so an ``$in`` list built
+    from a caller-supplied set with no natural bound — a page's ``references``, every
+    synthesis's ``source_artifacts`` — has to be chunked exactly as ``run_search_loop``
+    bounds its ``$nin`` list, and against the same ``_NIN_EXCLUSION_BYTE_BUDGET``. A
+    single id longer than the whole budget still gets its own query rather than
+    producing an empty chunk forever.
+
+    Args:
+        vectors: S3 Vectors client.
+        artifact_ids: The artifact IDs to resolve. Order is normalised (sorted) so the
+            chunk boundaries are deterministic.
+        include_data: Whether to include each vector's float32 embedding in the result.
+
+    Returns:
+        The concatenated matches across every chunk. Empty when ``artifact_ids`` is.
+
+    Raises:
+        CredentialError: Propagated unchanged from any underlying call.
+    """
+    items: list[dict[str, Any]] = []
+    chunk: list[str] = []
+
+    def _flush() -> None:
+        if chunk:
+            items.extend(
+                fetch_vectors_by_metadata(
+                    vectors, {"artifact_id": {"$in": chunk}}, include_data=include_data
+                )
+            )
+
+    for artifact_id in sorted(artifact_ids):
+        if chunk and _id_list_byte_size([*chunk, artifact_id]) > _NIN_EXCLUSION_BYTE_BUDGET:
+            _flush()
+            chunk = []
+        chunk.append(artifact_id)
+    _flush()
+    return items
 
 
 def coerce_list_field(meta: dict[str, Any], key: str) -> list[str]:
@@ -328,7 +377,7 @@ async def run_search_loop(
             and_clauses.append(status_filter)
 
         if seen_ids:
-            nin_bytes = _nin_list_byte_size(seen_ids)
+            nin_bytes = _id_list_byte_size(seen_ids)
             if nin_bytes > _NIN_EXCLUSION_BYTE_BUDGET:
                 logger.debug(
                     "Search re-fetch loop stopping: $nin exclusion list reached %d bytes "

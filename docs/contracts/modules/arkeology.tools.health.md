@@ -44,6 +44,9 @@ Never raises, and never returns a top-level `error` for a component failure — 
 reported *inside* its own entry. Only a failure of the tool itself yields `internal_error`.
 
 **Invariants**
+- Every probe runs off the event loop via `asyncio.to_thread`, matching every other tool's
+  handling of blocking boto3 calls. Running them inline blocked the loop for the duration of
+  the slowest probe, which is the opposite of what a health check should cost.
 
 - Every probe is **independent**. A failing S3 probe must not prevent the Bedrock probe from running
   or being reported. A tool that short-circuited on first failure would hide exactly the correlated

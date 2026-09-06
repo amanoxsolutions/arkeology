@@ -265,6 +265,26 @@ async def _archive_artifact_inner(
     # the first attempt had already read.
     current_commit_refs: list[str] = []
     current_references: list[str] = []
+    # Distinct from last_attempt_object_written, which is reset per attempt: this one is
+    # never reset. Reaching a retry attempt at all means an earlier attempt's status
+    # re-PUT already landed durably and cleared the object's annotations, so any failure
+    # from that point on — on the re-read, the annotation read, the content fetch, or
+    # the re-PUT — leaves the same repairable partial-archive state as a failure on the
+    # annotation re-apply itself, not a clean no-op failure.
+    object_written = False
+
+    def _cas_credential_response(exc: CredentialError) -> dict[str, Any]:
+        """Credential response for a CAS-loop failure, logged when the flip is durable."""
+        if object_written:
+            _record_partial_archive_failure(
+                settings,
+                artifact_id=artifact_id,
+                s3_meta=updated_s3_meta,
+                reason=str(exc),
+                commit_refs=current_commit_refs,
+                references=current_references,
+            )
+        return credential_error_response(exc)
 
     for attempt in range(CAS_MAX_ATTEMPTS):
         last_attempt_object_written = False
@@ -272,7 +292,19 @@ async def _archive_artifact_inner(
             try:
                 current_s3_meta = await asyncio.to_thread(s3.head_object, artifact_id)
             except CredentialError as exc:
-                return credential_error_response(exc)
+                return _cas_credential_response(exc)
+            except KeyError:
+                # A concurrent caller deleted the object between attempts. There is
+                # nothing left to compare-and-swap against, and the vectors left behind
+                # are already reconcile_index's dangling-vector case, so say so plainly
+                # rather than letting the KeyError reach the catch-all.
+                return {
+                    "error": ErrorCode.NOT_FOUND,
+                    "message": (
+                        f"Artifact '{artifact_id}' was deleted by a concurrent caller "
+                        "while this archive was retrying its compare-and-swap cycle."
+                    ),
+                }
             current_etag = current_s3_meta.get("ETag")
 
         try:
@@ -280,7 +312,7 @@ async def _archive_artifact_inner(
                 read_link_annotations, s3, artifact_id
             )
         except CredentialError as exc:
-            return credential_error_response(exc)
+            return _cas_credential_response(exc)
         current_commit_refs = merge_link_field(current_commit_refs, fresh_commit_refs)
         current_references = merge_link_field(current_references, fresh_references)
 
@@ -294,7 +326,7 @@ async def _archive_artifact_inner(
         try:
             content = await asyncio.to_thread(s3.get_object, artifact_id)
         except CredentialError as exc:
-            return credential_error_response(exc)
+            return _cas_credential_response(exc)
 
         try:
             new_etag = await asyncio.to_thread(
@@ -305,8 +337,9 @@ async def _archive_artifact_inner(
             # whole cycle (re-read, re-merge, re-write).
             continue
         except CredentialError as exc:
-            return credential_error_response(exc)
+            return _cas_credential_response(exc)
         last_attempt_object_written = True
+        object_written = True
 
         try:
             # Annotations are the sole durable store for commit_refs/references, so a

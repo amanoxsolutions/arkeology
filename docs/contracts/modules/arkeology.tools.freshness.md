@@ -63,11 +63,15 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
   tier-2 or hidden artifact exists, which is the very disclosure this invariant exists to prevent, so
   no such category may be added.
 - Own-scope only for the destructive path.
-- Staleness is determined by comparing source update recency against the synthesis, so a synthesis
-  is stale when at least one source changed after it was written.
-
-**Preconditions**
-
+- Staleness is determined by comparing each source's **write recency** against the synthesis's,
+  using `last_edited_ulid` — monotonic, bumped by every content write, and deliberately left
+  untouched by operations that must not mark a synthesis stale (a link-field backfill, an archive
+  status flip, a reconcile re-index). It is **not** `date`, which is the artifact's *subject* date
+  rather than its write time. Comparing `date` was wrong in both directions: it missed a tier-3
+  source overwritten in place under an unchanged date, and it flagged a later-dated source that was
+  actually written before the synthesis and is therefore already reflected in it.
+- `date` remains the fallback when either side lacks a `last_edited_ulid` — artifacts written before
+  it was recorded compare no worse than they did before.
 - `confirm=True` only when the caller intends the malformed-synthesis deletion. It is not required
   for the audit.
 

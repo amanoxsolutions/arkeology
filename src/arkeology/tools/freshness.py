@@ -20,7 +20,10 @@ from arkeology.constants import ArtifactStatus, ErrorCode
 from arkeology.errors import CredentialError
 from arkeology.tools._errors import credential_error_response
 from arkeology.tools._scope import is_cross_scope_readable, is_own_scope
-from arkeology.tools._search_helper import fetch_vectors_by_metadata
+from arkeology.tools._search_helper import (
+    fetch_vectors_by_artifact_ids,
+    fetch_vectors_by_metadata,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -130,9 +133,11 @@ async def _check_synthesis_freshness_inner(
             all_source_ids.add(src_id)
 
     # ── Step 6: Fetch source metadata — one batched lookup for all unique sources ──
-    # One batched $in query rather than one list_vectors_by_metadata call per unique
+    # Batched $in queries rather than one list_vectors_by_metadata call per unique
     # source_id (which would be 1+N queries), mirroring the pattern already established
-    # in _reference_filter.py::resolve_readable_targets.
+    # in _reference_filter.py::resolve_readable_targets. The number of syntheses, and so
+    # the size of the id list, is unbounded, so the batching is chunked to the
+    # filter-expression byte budget — see ``fetch_vectors_by_artifact_ids``.
     # Cross-scope gate: identical to list.py's Step 5 — own-scope sources are
     # always readable; a foreign-scope source is only readable when it is tier 3 AND
     # visibility="shared". A gated-out source is treated exactly as an unresolved
@@ -146,10 +151,7 @@ async def _check_synthesis_freshness_inner(
         try:
             # Off the event loop — blocking boto3 calls.
             src_items = await asyncio.to_thread(
-                fetch_vectors_by_metadata,
-                vectors,
-                {"artifact_id": {"$in": sorted(all_source_ids)}},
-                include_data=False,
+                fetch_vectors_by_artifact_ids, vectors, all_source_ids
             )
         except CredentialError as exc:
             return credential_error_response(exc)
@@ -173,8 +175,18 @@ async def _check_synthesis_freshness_inner(
     archived_sources_report: list[dict[str, Any]] = []
     missing_sources_report: list[dict[str, Any]] = []
 
+    # A source is stale when it was *written* after the synthesis was built, which is
+    # what last_edited_ulid records: it is monotonic, it is bumped by every content
+    # write, and it is left untouched by the operations that must not mark a synthesis
+    # stale (a link-field backfill, an archive status flip, a reconcile re-index).
+    # ``date`` is the artifact's subject date, not its write time, so comparing it both
+    # misses a tier-3 source overwritten in place under an unchanged date and flags a
+    # later-dated source that was written before the synthesis and is already in it.
+    # Dates remain the fallback for either side missing a ULID — artifacts written
+    # before it was recorded compare no worse than they did.
     for aid, meta in valid_syntheses.items():
         synthesis_date: str = meta.get("date", "")
+        synthesis_ulid: str = str(meta.get("last_edited_ulid") or "")
         source_ids: list[str] = meta.get("source_artifacts", [])
 
         stale_srcs: list[str] = []
@@ -187,7 +199,12 @@ async def _check_synthesis_freshness_inner(
                 missing_srcs.append(src_id)
             else:
                 src_date: str = src_m.get("date", "")
-                if src_date > synthesis_date:
+                src_ulid: str = str(src_m.get("last_edited_ulid") or "")
+                if (
+                    src_ulid > synthesis_ulid
+                    if src_ulid and synthesis_ulid
+                    else src_date > synthesis_date
+                ):
                     stale_srcs.append(src_id)
                 if src_m.get("status") == ArtifactStatus.INACTIVE:
                     archived_srcs.append(src_id)

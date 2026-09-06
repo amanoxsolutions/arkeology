@@ -85,3 +85,9 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
 - On success both stores are clean: no S3 object, no section vectors.
 - On `delete_vectors_failed` nothing was deleted from either store.
 - On `partial_delete` the S3 object remains and is discoverable by `reconcile_index`.
+- Every failure response after the vector deletion has been attempted carries `vectors_deleted`
+  (bool). The error code still names what the caller must act on — a credential failure stays
+  `credential_error` — so `vectors_deleted` is the only thing distinguishing "the vectors are gone
+  and the S3 object still stands" from a delete that never started. Without it a caller cannot tell
+  a half-deleted artifact (unsearchable but not destroyed, and repairable by `reconcile_index`) from
+  one left completely intact.

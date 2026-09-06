@@ -3,6 +3,7 @@
 Tests check_synthesis_freshness() using moto-backed S3ClientImpl + VectorsClientImpl.
 """
 
+import json
 import threading
 from typing import Any
 
@@ -12,6 +13,7 @@ from pytest_mock import MockerFixture
 from arkeology.clients.s3 import S3ClientImpl
 from arkeology.clients.vectors import VectorsClientImpl
 from arkeology.errors import CredentialError
+from arkeology.tools._search_helper import _NIN_EXCLUSION_BYTE_BUDGET
 from arkeology.tools.freshness import check_synthesis_freshness
 from tests.unit.conftest import _make_settings
 
@@ -1201,3 +1203,158 @@ async def test_freshness_multiple_distinct_sources_batches_lookup_not_one_per_so
         "indicating one query per unique source_id (1+N) rather than a single "
         "batched lookup"
     )
+
+
+# ---------------------------------------------------------------------------
+# Staleness by write recency (last_edited_ulid)
+# ---------------------------------------------------------------------------
+
+# Two ULIDs whose only requirement here is lexicographic order — a ULID's leading
+# 48 bits are its write timestamp, so ordering them orders the writes.
+_OLDER_ULID = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+_NEWER_ULID = "01BRZ3NDEKTSV4RRFFQ69G5FAV"
+
+
+async def test_stale_source_edited_after_synthesis_on_the_same_date(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
+) -> None:
+    """A tier-3 source overwritten in place after the synthesis was built, on the same
+    calendar date, is stale: its write is newer even though its date did not move.
+    Comparing dates alone never reports it, so the synthesis silently describes content
+    that no longer exists."""
+    settings = _make_settings(monkeypatch)
+    synth_id = "artifacts/synthesis-same-date-newer-write"
+    src_id = "artifacts/implementation-note-same-date-newer-write"
+
+    vectors_client_8.put_vector(
+        f"{synth_id}#section",
+        DUMMY_VEC,
+        {**_synthesis_meta(synth_id, "2026-03-15", [src_id]), "last_edited_ulid": _OLDER_ULID},
+    )
+    vectors_client_8.put_vector(
+        src_id,
+        DUMMY_VEC,
+        {**_source_meta(src_id, "2026-03-15", tier=3), "last_edited_ulid": _NEWER_ULID},
+    )
+
+    result = await check_synthesis_freshness(
+        settings=settings, s3=s3_client, vectors=vectors_client_8
+    )
+
+    assert "error" not in result
+    stale_entry = next((e for e in result["stale"] if e["artifact_id"] == synth_id), None)
+    assert stale_entry is not None
+    assert src_id in stale_entry["stale_sources"]
+
+
+async def test_source_written_before_synthesis_is_not_stale_despite_a_later_date(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
+) -> None:
+    """A source carrying a later calendar date but written *before* the synthesis was
+    already included in it, so it is not stale. The date is the artifact's subject date,
+    not its write time; treating it as write time reports a synthesis that is perfectly
+    current."""
+    settings = _make_settings(monkeypatch)
+    synth_id = "artifacts/synthesis-later-dated-source"
+    src_id = "artifacts/implementation-note-later-dated-source"
+
+    vectors_client_8.put_vector(
+        f"{synth_id}#section",
+        DUMMY_VEC,
+        {**_synthesis_meta(synth_id, "2026-01-01", [src_id]), "last_edited_ulid": _NEWER_ULID},
+    )
+    vectors_client_8.put_vector(
+        src_id,
+        DUMMY_VEC,
+        {**_source_meta(src_id, "2026-06-01"), "last_edited_ulid": _OLDER_ULID},
+    )
+
+    result = await check_synthesis_freshness(
+        settings=settings, s3=s3_client, vectors=vectors_client_8
+    )
+
+    assert "error" not in result
+    assert synth_id not in [e["artifact_id"] for e in result["stale"]]
+
+
+async def test_stale_falls_back_to_date_when_a_source_has_no_write_ulid(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
+) -> None:
+    """An artifact written before write ULIDs were recorded has none, so it cannot be
+    compared by write recency. Staleness falls back to the dates rather than silently
+    reporting every such source as fresh."""
+    settings = _make_settings(monkeypatch)
+    synth_id = "artifacts/synthesis-ulid-fallback"
+    src_id = "artifacts/implementation-note-ulid-fallback"
+
+    vectors_client_8.put_vector(
+        f"{synth_id}#section",
+        DUMMY_VEC,
+        {**_synthesis_meta(synth_id, "2026-01-01", [src_id]), "last_edited_ulid": _NEWER_ULID},
+    )
+    # No last_edited_ulid on the source at all.
+    vectors_client_8.put_vector(src_id, DUMMY_VEC, _source_meta(src_id, "2026-06-01"))
+
+    result = await check_synthesis_freshness(
+        settings=settings, s3=s3_client, vectors=vectors_client_8
+    )
+
+    assert "error" not in result
+    stale_entry = next((e for e in result["stale"] if e["artifact_id"] == synth_id), None)
+    assert stale_entry is not None
+    assert src_id in stale_entry["stale_sources"]
+
+
+# ---------------------------------------------------------------------------
+# Source lookup filter size
+# ---------------------------------------------------------------------------
+
+
+async def test_source_lookup_chunks_the_in_filter_within_the_byte_budget(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """S3 Vectors rejects an oversized metadata-filter expression, so the source lookup
+    must chunk its $in list to the same byte budget the search re-fetch loop bounds its
+    $nin list to. A synthesis with enough sources to blow the budget must still resolve
+    every one of them rather than failing the whole audit."""
+    settings = _make_settings(monkeypatch)
+    synth_id = "artifacts/synthesis-many-sources"
+    src_ids = [f"artifacts/implementation-note-2026-01-01-bulk-source-{i:03d}" for i in range(60)]
+
+    vectors_client_8.put_vector(
+        f"{synth_id}#section", DUMMY_VEC, _synthesis_meta(synth_id, "2026-06-01", src_ids)
+    )
+    for src_id in src_ids:
+        vectors_client_8.put_vector(src_id, DUMMY_VEC, _source_meta(src_id, "2026-01-01"))
+
+    spy = mocker.spy(vectors_client_8, "list_vectors_by_metadata")
+
+    result = await check_synthesis_freshness(
+        settings=settings, s3=s3_client, vectors=vectors_client_8
+    )
+
+    assert "error" not in result
+    assert result["missing_sources"] == []
+    in_lists = [
+        call.args[0]["artifact_id"]["$in"]
+        for call in spy.call_args_list
+        if isinstance(call.args[0].get("artifact_id"), dict)
+        and "$in" in call.args[0]["artifact_id"]
+    ]
+    assert in_lists, "the source lookup issued no $in filter at all"
+    assert sum(len(chunk) for chunk in in_lists) >= len(src_ids)
+    for chunk in in_lists:
+        size = len(json.dumps(chunk).encode("utf-8"))
+        assert size <= _NIN_EXCLUSION_BYTE_BUDGET, (
+            f"an $in list of {size} bytes exceeds the filter-expression budget "
+            f"of {_NIN_EXCLUSION_BYTE_BUDGET}"
+        )

@@ -144,6 +144,11 @@ async def _delete_artifact_inner(
             return {"error": ErrorCode.DELETE_VECTORS_FAILED, "message": str(exc)}
 
     # ── Step 7: Delete S3 object ──────────────────────────────────────────────
+    # Both branches leave the same half-deleted state: the vector side is already
+    # clean and the S3 object still stands, so the artifact is unsearchable but not
+    # destroyed. The error code stays credential_error on a credential failure (a
+    # credential failure is what the caller has to act on), so ``vectors_deleted`` is
+    # what tells the two branches' shared state apart from an unstarted delete.
     try:
         await asyncio.to_thread(s3.delete_object, artifact_id)
     except CredentialError as exc:
@@ -151,12 +156,14 @@ async def _delete_artifact_inner(
             "error": ErrorCode.CREDENTIAL_ERROR,
             "message": str(exc),
             "artifact_id": artifact_id,
+            "vectors_deleted": bool(vec_keys),
         }
     except Exception as exc:
         return {
             "error": ErrorCode.PARTIAL_DELETE,
             "message": str(exc),
             "artifact_id": artifact_id,
+            "vectors_deleted": bool(vec_keys),
         }
 
     logger.info("Artifact deleted: key=%s", artifact_id)

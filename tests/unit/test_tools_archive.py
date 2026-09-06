@@ -1597,3 +1597,135 @@ async def test_archive_annotation_unknown_error_records_partial_archive_with_lin
     assert entries[-1]["failure_step"] == "archive_vector_flip"
     assert entries[-1]["commit_refs"] == ["abc1234"]
     assert entries[-1]["references"] == ["artifacts/some-adr"]
+
+
+# ---------------------------------------------------------------------------
+# CAS retry-attempt failures on an already-durable status flip
+# ---------------------------------------------------------------------------
+
+
+async def test_archive_cas_retry_after_concurrent_delete_returns_not_found(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """A concurrent delete between CAS attempts makes the retry's re-read head_object
+    raise KeyError. That must surface as a structured not_found, not escape uncaught to
+    the blanket internal_error handler, which tells the caller nothing about why the
+    archive could not complete."""
+    settings = _make_settings(monkeypatch)
+    _seed_all(s3_client, vectors_client_2)
+    s3_client.put_object_annotation("artifacts/active-review", "commit_refs", "abc1234")
+
+    def _delete_then_conflict(*args: object, **kwargs: object) -> None:
+        # A concurrent caller deletes the object and changes it out from under the
+        # annotation re-apply in the same window.
+        s3_client.delete_object("artifacts/active-review")
+        raise ArtifactConflictError("artifacts/active-review")
+
+    mocker.patch.object(s3_client, "put_object_annotation", side_effect=_delete_then_conflict)
+
+    result = await archive_artifact(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=None,
+        artifact_id="artifacts/active-review",
+    )
+
+    assert result.get("error") == "not_found"
+    assert "artifacts/active-review" in str(result)
+
+
+@pytest.mark.parametrize(
+    "failing_call", ["head_object", "get_object_annotation", "get_object", "put_object"]
+)
+async def test_archive_cas_retry_credential_error_records_partial_archive(
+    failing_call: str,
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+    mocker: MockerFixture,
+    tmp_path: Path,
+) -> None:
+    """A credential failure on a CAS *retry* attempt is never a clean failure: reaching
+    a retry means an earlier attempt's status re-PUT already landed durably and cleared
+    the object's annotations, while every vector still says active.
+
+    That is the same repairable partial-archive state the annotation-re-apply branches
+    record, so every retry-attempt call must append a failure-log entry carrying the
+    read-forward link fields — without one, reconcile_index sees a fully indexed
+    artifact and never touches it, and the link fields survive nowhere."""
+    settings = _make_settings(monkeypatch, tmp_path=tmp_path)
+    _seed_all(s3_client, vectors_client_2)
+    s3_client.put_object_annotation("artifacts/active-review", "commit_refs", "abc1234")
+    s3_client.put_object_annotation("artifacts/active-review", "references", "artifacts/some-adr")
+
+    conflicted = False
+    original_put_annotation = s3_client.put_object_annotation
+    original_failing = getattr(s3_client, failing_call)
+
+    def _conflict_once(*args: object, **kwargs: object) -> object:
+        nonlocal conflicted
+        if not conflicted:
+            conflicted = True
+            raise ArtifactConflictError("artifacts/active-review")
+        return original_put_annotation(*args, **kwargs)  # type: ignore[arg-type]
+
+    def _fail_after_conflict(*args: object, **kwargs: object) -> object:
+        if conflicted:
+            raise CredentialError(message="Simulated.", service="s3", original=Exception("sim"))
+        return original_failing(*args, **kwargs)  # type: ignore[operator]
+
+    mocker.patch.object(s3_client, "put_object_annotation", side_effect=_conflict_once)
+    mocker.patch.object(s3_client, failing_call, side_effect=_fail_after_conflict)
+
+    result = await archive_artifact(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=None,
+        artifact_id="artifacts/active-review",
+    )
+
+    assert result.get("error") == "credential_error"
+    assert settings.failure_log_path.exists(), (
+        "A credential failure on a CAS retry left no failure-log entry, so the "
+        "partial archive is invisible to reconcile_index"
+    )
+    entries = [json.loads(line) for line in settings.failure_log_path.read_text().splitlines()]
+    assert entries[-1]["artifact_id"] == "artifacts/active-review"
+    assert entries[-1]["failure_step"] == "archive_vector_flip"
+    assert entries[-1]["commit_refs"] == ["abc1234"]
+    assert entries[-1]["references"] == ["artifacts/some-adr"]
+
+
+async def test_archive_first_attempt_credential_error_records_no_failure_entry(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+    mocker: MockerFixture,
+    tmp_path: Path,
+) -> None:
+    """Pins existing behaviour: a credential failure on the *first* CAS attempt's status
+    re-PUT flipped nothing durable, so it stays a clean credential_error with no
+    failure-log entry. The retry-attempt fix must not start logging this case."""
+    settings = _make_settings(monkeypatch, tmp_path=tmp_path)
+    _seed_all(s3_client, vectors_client_2)
+    mocker.patch.object(
+        s3_client,
+        "put_object",
+        side_effect=CredentialError(message="Simulated.", service="s3", original=Exception("sim")),
+    )
+
+    result = await archive_artifact(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=None,
+        artifact_id="artifacts/active-review",
+    )
+
+    assert result.get("error") == "credential_error"
+    assert not settings.failure_log_path.exists()

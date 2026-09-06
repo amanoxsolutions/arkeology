@@ -44,7 +44,9 @@ async def archive_artifact(
 
 Never raises. Every failure is a returned dict carrying an `"error"` key.
 
-- `not_found` — no such artifact in the own scope.
+- `not_found` — no such artifact in the own scope, including the case where a concurrent delete
+  removes the object between the initial read and a compare-and-swap retry's re-read. Nothing has
+  been written in that case, so no failure-log entry is appended.
 - `access_denied` — the artifact is not in the own scope. Archiving is own-scope only; a foreign
   artifact can never be archived.
 - `conflict` — the bounded compare-and-swap retry cycle was exhausted on the status re-PUT.

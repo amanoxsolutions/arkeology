@@ -634,6 +634,35 @@ async def _write_artifact_inner(  # noqa: PLR0913
     if is_existing and overwrite:
         current_etag = initial_etag
         last_attempt_object_written = False
+        # Distinct from last_attempt_object_written, which is reset per attempt: this one
+        # is never reset. Reaching a retry attempt at all means an earlier attempt's
+        # put_object already wrote the content durably and cleared the object's
+        # annotations, so any failure from that point on — on the re-read, the
+        # annotation read, or the re-PUT — leaves the same repairable partial state as a
+        # failure on the annotation write itself, not a clean no-op failure.
+        object_written = False
+
+        def _cas_credential_response(exc: CredentialError) -> dict[str, Any]:
+            """Credential response for a CAS-loop failure, logged when content is durable."""
+            if not object_written:
+                return {
+                    "error": ErrorCode.CREDENTIAL_ERROR,
+                    "message": str(exc),
+                    "artifact_id": s3_key,
+                }
+            return _record_partial_write_credential_error(
+                settings,
+                artifact_id=s3_key,
+                title=title,
+                artifact_type=type,
+                tier=tier,
+                date=date,
+                failure_step="annotation_write",
+                exc=exc,
+                commit_refs=final_commit_refs,
+                references=final_references,
+            )
+
         # Accumulated across attempts rather than replaced. This attempt's own
         # put_object clears the object's annotations, so a retry after a failed
         # annotation apply reads them back as absent — re-reading into a fresh variable
@@ -646,9 +675,18 @@ async def _write_artifact_inner(  # noqa: PLR0913
                     head_meta_retry = await asyncio.to_thread(s3.head_object, s3_key)
                     current_etag = head_meta_retry.get("ETag")
                 except CredentialError as exc:
+                    return _cas_credential_response(exc)
+                except KeyError:
+                    # A concurrent caller deleted the object between attempts. There is
+                    # nothing left to compare-and-swap against, and the vectors left
+                    # behind are already reconcile_index's dangling-vector case, so say
+                    # so plainly rather than letting the KeyError reach the catch-all.
                     return {
-                        "error": ErrorCode.CREDENTIAL_ERROR,
-                        "message": str(exc),
+                        "error": ErrorCode.NOT_FOUND,
+                        "message": (
+                            f"Artifact '{s3_key}' was deleted by a concurrent caller "
+                            "while this write was retrying its compare-and-swap cycle."
+                        ),
                         "artifact_id": s3_key,
                     }
 
@@ -657,11 +695,7 @@ async def _write_artifact_inner(  # noqa: PLR0913
                     read_link_annotations, s3, s3_key
                 )
             except CredentialError as exc:
-                return {
-                    "error": ErrorCode.CREDENTIAL_ERROR,
-                    "message": str(exc),
-                    "artifact_id": s3_key,
-                }
+                return _cas_credential_response(exc)
             carried_commit_refs = merge_link_field(carried_commit_refs, existing_commit_refs)
             final_commit_refs = list(dict.fromkeys(carried_commit_refs + refs))
 
@@ -694,12 +728,9 @@ async def _write_artifact_inner(  # noqa: PLR0913
                 # whole cycle (re-read, re-merge, re-write).
                 continue
             except CredentialError as exc:
-                return {
-                    "error": ErrorCode.CREDENTIAL_ERROR,
-                    "message": str(exc),
-                    "artifact_id": s3_key,
-                }
+                return _cas_credential_response(exc)
             last_attempt_object_written = True
+            object_written = True
 
             try:
                 await asyncio.to_thread(

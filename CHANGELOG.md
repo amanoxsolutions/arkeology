@@ -67,6 +67,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   listed, a foreign-scope tier-2 one is not, matching `list_artifacts`' default scope
 
 ### Fixed
+- `check_synthesis_freshness` decides staleness by write recency (`last_edited_ulid`) instead of
+  the artifact's subject `date`. Comparing `date` was wrong in both directions: a tier-3 source
+  overwritten in place under an unchanged date was never reported stale, and a source carrying a
+  later subject date but written *before* the synthesis was flagged even though it is already
+  reflected in it. `date` remains the fallback when either side has no recorded write ULID
+- `delete_artifact` failure responses now carry `vectors_deleted`, so a caller can tell a
+  half-deleted artifact — vectors gone, S3 object still standing, unsearchable but not destroyed and
+  repairable by `reconcile_index` — from a delete that never started. The error code still names
+  what the caller must act on, so a credential failure remains `credential_error`
+- an overwriting `write_artifact` or an `archive_artifact` whose target is deleted by someone else
+  between the first read and a compare-and-swap retry now returns `not_found` rather than
+  `internal_error`, and a credential failure on a retry's re-read now returns the structured
+  `credential_error` the first attempt already returned. Nothing is written in either case, so no
+  failure-log entry is appended
+- the unbounded `$in` metadata filters in `check_synthesis_freshness`'s source lookup and
+  `_reference_filter`'s target resolution are chunked to the same filter-expression byte budget the
+  search loop already bounds its `$nin` list with. Both lists are caller-shaped and unbounded — a
+  page's `references`, every synthesis's `source_artifacts` — so a large enough corpus could build a
+  filter expression S3 Vectors rejects outright
+- `health_check` runs its probes off the event loop via `asyncio.to_thread`, matching every other
+  tool; they previously ran inline and blocked the loop for the duration of the slowest probe
 - an annotation read failure now raises instead of degrading to empty. With the union read
   model retired there is no second copy to cover for it, and an empty result caused by a
   transient failure would have been written straight back over good data by any of the three

@@ -70,7 +70,13 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
 - `conflict` — the bounded compare-and-swap retry cycle was exhausted on an overwriting write.
 - `partial_write` — the S3 object was written but indexing failed. A failure-log entry is appended
   so `reconcile_index` can complete the write later.
-- `credential_error` — an AWS call raised `CredentialError`.
+- `not_found` — an overwriting write whose target was deleted by someone else between the initial
+  existence check and a compare-and-swap retry. The retry's re-read finds the object gone, which is
+  not a conflict (nothing to re-merge against) and not an internal error; nothing has been written,
+  so no failure-log entry is appended.
+- `credential_error` — an AWS call raised `CredentialError`. This is returned from a retry attempt's
+  re-read as well as the first attempt, so a mid-retry credential expiry surfaces as the structured
+  response rather than as `internal_error`.
 - `internal_error` — any otherwise unhandled exception.
 
 **Invariants**

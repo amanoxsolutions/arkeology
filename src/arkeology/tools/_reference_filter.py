@@ -12,7 +12,7 @@ from typing import Any
 from arkeology.clients.interfaces import VectorsClientInterface
 from arkeology.config import Settings
 from arkeology.tools._scope import is_cross_scope_readable, is_own_scope
-from arkeology.tools._search_helper import fetch_vectors_by_metadata
+from arkeology.tools._search_helper import fetch_vectors_by_artifact_ids
 
 
 async def resolve_readable_targets(
@@ -43,10 +43,11 @@ async def resolve_readable_targets(
 
     Own-scope candidates are resolved by prefix alone (no vector-client call
     needed, mirroring read_artifact's Step 1 scope gate). The remaining
-    candidates are resolved via a single batched ``list_vectors_by_metadata``
-    query (using an ``$in`` filter on ``artifact_id``) followed by one
-    ``get_vectors`` call, so the whole candidate set costs at most one
-    additional round trip regardless of size.
+    candidates are resolved by batched ``$in`` lookups on ``artifact_id``, so the
+    whole candidate set costs one round trip per chunk rather than one per
+    candidate. The candidate set is caller-supplied and unbounded, so the
+    ``$in`` list is chunked to the filter-expression byte budget S3 Vectors
+    enforces — see ``fetch_vectors_by_artifact_ids``.
 
     Args:
         vectors: S3 Vectors client.
@@ -74,12 +75,7 @@ async def resolve_readable_targets(
         return readable
 
     # Off the event loop — blocking boto3 calls.
-    items = await asyncio.to_thread(
-        fetch_vectors_by_metadata,
-        vectors,
-        {"artifact_id": {"$in": sorted(unresolved)}},
-        include_data=False,
-    )
+    items = await asyncio.to_thread(fetch_vectors_by_artifact_ids, vectors, unresolved)
     for item in items:
         meta: dict[str, Any] = item.get("metadata", {})
         candidate_id = str(meta.get("artifact_id", ""))

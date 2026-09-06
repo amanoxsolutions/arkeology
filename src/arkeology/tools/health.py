@@ -6,6 +6,7 @@ structured per-component status report. Never raises — all exceptions are
 caught and reported as component-level "error" entries.
 """
 
+import asyncio
 import functools
 import logging
 from collections.abc import Callable
@@ -23,8 +24,12 @@ from arkeology.errors import CredentialError
 logger = logging.getLogger(__name__)
 
 
-def _probe(fn: Callable[[], Any]) -> dict[str, Any]:
+async def _probe(fn: Callable[[], Any]) -> dict[str, Any]:
     """Run a single connectivity probe and map the outcome to a status dict.
+
+    Every probe is a blocking boto3 round trip, so it runs on a worker thread rather
+    than the calling event loop — the same offloading every other tool applies to its
+    AWS calls.
 
     Returns ``{"status": "ok"}`` on success, an ``"error"`` dict with
     ``"cause": "credential_error"`` on :class:`CredentialError`, and a plain
@@ -37,7 +42,7 @@ def _probe(fn: Callable[[], Any]) -> dict[str, Any]:
         Status dict for the probed component.
     """
     try:
-        fn()
+        await asyncio.to_thread(fn)
         return {"status": "ok"}
     except CredentialError as exc:
         return {"status": "error", "message": str(exc), "cause": ErrorCode.CREDENTIAL_ERROR}
@@ -91,13 +96,13 @@ async def _health_check_inner(
     result: dict[str, Any] = {}
 
     # ── S3 bucket probe ───────────────────────────────────────────────────────
-    result["s3"] = _probe(lambda: s3.head_bucket(settings.artifact_bucket))
+    result["s3"] = await _probe(lambda: s3.head_bucket(settings.artifact_bucket))
 
     # ── Vectors index probe ───────────────────────────────────────────────────
-    result["vectors"] = _probe(vectors.describe_index)
+    result["vectors"] = await _probe(vectors.describe_index)
 
     # ── Bedrock embedding probe ───────────────────────────────────────────────
-    result["bedrock"] = _probe(
+    result["bedrock"] = await _probe(
         lambda: bedrock.embed(
             "health",
             settings.bedrock_embedding_model,
@@ -108,35 +113,34 @@ async def _health_check_inner(
     # ── Bedrock text model probe (only when BEDROCK_TEXT_MODEL is configured) ─
     if settings.bedrock_text_model is not None:
         text_model = settings.bedrock_text_model
-        result["bedrock_text_model"] = _probe(lambda: bedrock.invoke_text_model(text_model, "ping"))
+        result["bedrock_text_model"] = await _probe(
+            lambda: bedrock.invoke_text_model(text_model, "ping")
+        )
 
     # ── Write prefix probe (put + get + delete) ───────────────────────────────
+    # The whole round trip is one probe: it shares _probe's outcome mapping, and the
+    # probe_written flag is what lets the object be cleaned up when a step between the
+    # put and the delete is the one that failed.
     probe_key = f"{settings.write_prefix}/_arkeology_health_probe"
     probe_written = False
-    try:
+
+    def _write_prefix_roundtrip() -> None:
+        nonlocal probe_written
         s3.put_object(probe_key, "health-probe", {})
         probe_written = True
         s3.get_object(probe_key)
         s3.delete_object(probe_key)
         probe_written = False
-        result["write_prefix"] = {"status": "ok"}
-    except CredentialError as exc:
-        result["write_prefix"] = {
-            "status": "error",
-            "message": str(exc),
-            "cause": ErrorCode.CREDENTIAL_ERROR,
-        }
-    except Exception as exc:
-        result["write_prefix"] = {"status": "error", "message": str(exc)}
-    finally:
-        if probe_written:
-            try:
-                s3.delete_object(probe_key)
-            except Exception as cleanup_exc:
-                logger.warning("Failed to clean up health probe '%s': %s", probe_key, cleanup_exc)
+
+    result["write_prefix"] = await _probe(_write_prefix_roundtrip)
+    if probe_written:
+        try:
+            await asyncio.to_thread(s3.delete_object, probe_key)
+        except Exception as cleanup_exc:
+            logger.warning("Failed to clean up health probe '%s': %s", probe_key, cleanup_exc)
 
     # ── Read prefix probes ────────────────────────────────────────────────────
     for prefix in settings.read_prefixes_list:
-        result[f"read_prefix:{prefix}"] = _probe(functools.partial(s3.list_objects, prefix))
+        result[f"read_prefix:{prefix}"] = await _probe(functools.partial(s3.list_objects, prefix))
 
     return result
