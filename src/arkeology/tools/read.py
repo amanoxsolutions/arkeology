@@ -16,8 +16,8 @@ from arkeology.clients.interfaces import (
 )
 from arkeology.config import Settings
 from arkeology.constants import ErrorCode
-from arkeology.errors import CredentialError
-from arkeology.tools._errors import credential_error_response
+from arkeology.errors import AnnotationUnavailableError, CredentialError
+from arkeology.tools._errors import annotation_unavailable_response, credential_error_response
 from arkeology.tools._reference_filter import resolve_readable_targets
 from arkeology.tools._scope import is_cross_scope_readable, is_own_scope
 from arkeology.tools._search_helper import coerce_list_field
@@ -61,6 +61,11 @@ async def read_artifact(
             bedrock=bedrock,
             artifact_id=artifact_id,
         )
+    except AnnotationUnavailableError as exc:
+        # One condition, one code, from every tool that reads the durable link fields:
+        # startup check 8 proves the annotation store available before the server accepts
+        # a request, so this is post-setup IAM drift, not "something unexpected".
+        return annotation_unavailable_response(exc)
     except Exception as exc:
         logger.exception("Unexpected error in read_artifact")
         return {"error": ErrorCode.INTERNAL_ERROR, "message": str(exc)}

@@ -37,6 +37,7 @@ from arkeology.clients.interfaces import (
 from arkeology.config import Settings
 from arkeology.constants import ErrorCode
 from arkeology.errors import (
+    AnnotationUnavailableError,
     ArtifactCollisionError,
     ArtifactConflictError,
     CredentialError,
@@ -51,6 +52,17 @@ from arkeology.tools._section_pipeline import (
 )
 
 logger = logging.getLogger(__name__)
+
+# The steps an overwriting write can fail at once its put_object is durable. Every one of
+# them leaves the same repairable state — the content replaced, the object's annotations
+# cleared by that put_object, and the vectors still on the previous version — so they
+# differ only in what they tell an operator reading the log, which is reason enough not
+# to stamp them all as the annotation write.
+_STEP_CAS_REREAD = "write_cas_reread"
+_STEP_ANNOTATION_READ = "annotation_read"
+_STEP_BUDGET_RECHECK = "write_budget_recheck"
+_STEP_CONTENT_PUT = "write_content_put"
+_STEP_ANNOTATION_WRITE = "annotation_write"
 
 # T67 — Step 8 delete_vectors bounded inline retry, mirroring bedrock.py's _invoke shape
 # exactly: exactly one retry (2 total attempts), fixed sleep + jitter, retrying only the
@@ -107,6 +119,7 @@ def _log_partial_write_failure(
     reason: str,
     commit_refs: list[str] | None = None,
     references: list[str] | None = None,
+    last_edited_ulid: str | None = None,
     orphan_keys: list[str] | None = None,
 ) -> None:
     """Append a failure-log entry recording a partial write (S3 succeeded, a
@@ -139,6 +152,10 @@ def _log_partial_write_failure(
             the entry when empty; see :func:`~arkeology.failure_log.build_failure_entry`.
         references: As ``commit_refs``. Note this is the value this write was applying
             (``references`` has replace semantics), not a read-forward of the prior one.
+        last_edited_ulid: The ULID this write generated, passed on the same
+            ``annotation_write`` branches. ``reconcile_index`` compares it against the
+            artifact's current one to decide whether a later write has since superseded
+            the entry's ``references``; without it the replay unions unconditionally.
         orphan_keys: When Step 8's ``delete_vectors`` retry is exhausted, the exact list
             of stale vector keys that still need deleting. See
             :func:`~arkeology.failure_log.build_failure_entry` for how it is used.
@@ -155,6 +172,7 @@ def _log_partial_write_failure(
             reason=reason,
             commit_refs=commit_refs,
             references=references,
+            last_edited_ulid=last_edited_ulid,
             orphan_keys=orphan_keys,
         ),
     )
@@ -266,6 +284,86 @@ def _record_partial_write_credential_error(
     return {
         "error": ErrorCode.CREDENTIAL_ERROR,
         "message": str(exc),
+        "artifact_id": artifact_id,
+    }
+
+
+def _record_durable_write_failure(
+    settings: Settings,
+    *,
+    artifact_id: str,
+    title: str,
+    artifact_type: str,
+    tier: int,
+    date: str,
+    failure_step: str,
+    exc: Exception,
+    commit_refs: list[str],
+    references: list[str],
+    last_edited_ulid: str,
+) -> dict[str, Any]:
+    """Append the failure-log entry for a failure raised once the S3 object is already
+    durable, and build its structured response.
+
+    The entry is unconditional: the preceding ``put_object`` has cleared the object's
+    annotations, so this entry is the only surviving source of the link fields the
+    failed write was applying — whatever the failure's cause.
+
+    The code, in contrast, names that cause where one is separately diagnosable — a
+    credential expiry, an unavailable annotation store — and falls back to
+    ``partial_write``, which names the residual state, where none is. Which of the
+    three comes back never changes the durability facts.
+
+    Args:
+        settings: Server configuration (for ``failure_log_path``).
+        artifact_id: S3 key of the artifact whose object is already durable.
+        title: Artifact title.
+        artifact_type: Artifact type string.
+        tier: Artifact tier.
+        date: ISO-8601 date string.
+        failure_step: The step that actually failed, one of ``_STEP_*``. Nothing branches
+            on it — it is operator diagnostics — so it is stamped per call site rather
+            than fixed at the annotation write, which is only one of the several steps
+            that reach here. A budget breach stamped ``annotation_write`` sends whoever
+            reads the log after the oversize value's IAM permissions instead of after
+            the oversize value.
+        exc: The failure. Its type selects the error code; its text is the reason.
+        commit_refs: The link-field value the failed write was applying.
+        references: As ``commit_refs``.
+        last_edited_ulid: The ULID this write generated, the supersession token
+            ``reconcile_index`` decides the ``references`` restore on.
+
+    Returns:
+        The structured error response dict (includes ``artifact_id``).
+    """
+    _log_partial_write_failure(
+        settings,
+        artifact_id=artifact_id,
+        title=title,
+        artifact_type=artifact_type,
+        tier=tier,
+        date=date,
+        failure_step=failure_step,
+        reason=str(exc),
+        commit_refs=commit_refs,
+        references=references,
+        last_edited_ulid=last_edited_ulid,
+    )
+    if isinstance(exc, CredentialError):
+        return {
+            "error": ErrorCode.CREDENTIAL_ERROR,
+            "message": str(exc),
+            "artifact_id": artifact_id,
+        }
+    if isinstance(exc, AnnotationUnavailableError):
+        return {
+            "error": ErrorCode.ANNOTATION_UNAVAILABLE,
+            "message": str(exc),
+            "artifact_id": artifact_id,
+        }
+    return {
+        "error": ErrorCode.PARTIAL_WRITE,
+        "message": f"{exc} — failure recorded in {settings.failure_log_path}",
         "artifact_id": artifact_id,
     }
 
@@ -644,27 +742,57 @@ async def _write_artifact_inner(  # noqa: PLR0913
         # annotation read, or the re-PUT — leaves the same repairable partial state as a
         # failure on the annotation write itself, not a clean no-op failure.
         object_written = False
+        # Reassigned as the guarded region advances, so _cas_failure_response can stamp
+        # the entry with the step that actually raised rather than with the annotation
+        # write the region happens to end at. Every attempt starts at the read-forward.
+        current_step = _STEP_ANNOTATION_READ
 
-        def _cas_credential_response(exc: CredentialError) -> dict[str, Any]:
-            """Credential response for a CAS-loop failure, logged when content is durable."""
-            if not object_written:
+        def _cas_failure_response(exc: Exception) -> dict[str, Any]:
+            """Response for a CAS-loop failure, keyed on whether content is durable.
+
+            Reaching a retry at all means an earlier attempt's put_object already
+            replaced the content and cleared the object's annotations, so every failure
+            from that point on leaves the same repairable partial write — a SlowDown on
+            the re-read, a budget breach on the re-merge, and a credential expiry
+            alike. Recording only the credential case let the others escape to the
+            catch-all with nothing logged, leaving S3 holding this write's content, the
+            link fields gone, and the index still on the previous version: a state
+            reconcile_index cannot see, because the artifact still has vectors and so
+            the orphan scan skips it.
+
+            While nothing is durable the failure is still the clean one it always was —
+            a budget breach rejects with no write and no entry, and an unknown error
+            stays an internal_error.
+            """
+            if object_written:
+                return _record_durable_write_failure(
+                    settings,
+                    artifact_id=s3_key,
+                    title=title,
+                    artifact_type=type,
+                    tier=tier,
+                    date=date,
+                    failure_step=current_step,
+                    exc=exc,
+                    commit_refs=final_commit_refs,
+                    references=final_references,
+                    last_edited_ulid=last_edited_ulid,
+                )
+            if isinstance(exc, MetadataTooLargeError):
+                return {"error": ErrorCode.VALIDATION_ERROR, "message": str(exc)}
+            if isinstance(exc, CredentialError):
                 return {
                     "error": ErrorCode.CREDENTIAL_ERROR,
                     "message": str(exc),
                     "artifact_id": s3_key,
                 }
-            return _record_partial_write_credential_error(
-                settings,
-                artifact_id=s3_key,
-                title=title,
-                artifact_type=type,
-                tier=tier,
-                date=date,
-                failure_step="annotation_write",
-                exc=exc,
-                commit_refs=final_commit_refs,
-                references=final_references,
-            )
+            if isinstance(exc, AnnotationUnavailableError):
+                return {
+                    "error": ErrorCode.ANNOTATION_UNAVAILABLE,
+                    "message": str(exc),
+                    "artifact_id": s3_key,
+                }
+            raise exc
 
         # Accumulated across attempts rather than replaced. This attempt's own
         # put_object clears the object's annotations, so a retry after a failed
@@ -674,11 +802,10 @@ async def _write_artifact_inner(  # noqa: PLR0913
         for attempt in range(CAS_MAX_ATTEMPTS):
             last_attempt_object_written = False
             if attempt > 0:
+                current_step = _STEP_CAS_REREAD
                 try:
                     head_meta_retry = await asyncio.to_thread(s3.head_object, s3_key)
                     current_etag = head_meta_retry.get("ETag")
-                except CredentialError as exc:
-                    return _cas_credential_response(exc)
                 except KeyError:
                     # A concurrent caller deleted the object between attempts. There is
                     # nothing left to compare-and-swap against, and the vectors left
@@ -692,15 +819,18 @@ async def _write_artifact_inner(  # noqa: PLR0913
                         ),
                         "artifact_id": s3_key,
                     }
+                except Exception as exc:
+                    return _cas_failure_response(exc)
 
+            current_step = _STEP_ANNOTATION_READ
             try:
                 existing_commit_refs, _existing_references = await asyncio.to_thread(
                     read_link_annotations, s3, s3_key
                 )
-            except CredentialError as exc:
-                return _cas_credential_response(exc)
+            except Exception as exc:
+                return _cas_failure_response(exc)
             carried_commit_refs = merge_link_field(carried_commit_refs, existing_commit_refs)
-            final_commit_refs = list(dict.fromkeys(carried_commit_refs + refs))
+            final_commit_refs = merge_link_field(carried_commit_refs, refs)
 
             if final_commit_refs:
                 vector_metadata["commit_refs"] = cap_commit_refs_for_vectors(final_commit_refs)
@@ -713,15 +843,18 @@ async def _write_artifact_inner(  # noqa: PLR0913
             # filterable/total budgets over their limits even though references and the
             # s3_metadata side are unaffected (commit_refs lives in annotations, not S3
             # user metadata, post-T47). Re-check here — before any put_object or
-            # put_vectors_batch — so a breach is rejected with NO write and NO
-            # failure-log entry, matching the Step 3c guard exactly rather than
-            # reintroducing the deterministic partial-write / reconcile-replay loop
-            # T55 exists to prevent.
+            # put_vectors_batch — rather than reintroducing the deterministic
+            # partial-write / reconcile-replay loop T55 exists to prevent. On attempt 0
+            # that rejection is the clean no-op the Step 3c guard is; on a retry the
+            # previous attempt's put_object has already landed, so it is a durable
+            # partial write and _cas_failure_response records it as one.
+            current_step = _STEP_BUDGET_RECHECK
             try:
                 check_metadata_budgets(encoded_s3_metadata, vector_metadata)
             except MetadataTooLargeError as exc:
-                return {"error": ErrorCode.VALIDATION_ERROR, "message": str(exc)}
+                return _cas_failure_response(exc)
 
+            current_step = _STEP_CONTENT_PUT
             try:
                 new_etag = await asyncio.to_thread(
                     s3.put_object, s3_key, content, s3_metadata, if_match=current_etag
@@ -730,11 +863,12 @@ async def _write_artifact_inner(  # noqa: PLR0913
                 # Someone else changed the object since we read its ETag — retry the
                 # whole cycle (re-read, re-merge, re-write).
                 continue
-            except CredentialError as exc:
-                return _cas_credential_response(exc)
+            except Exception as exc:
+                return _cas_failure_response(exc)
             last_attempt_object_written = True
             object_written = True
 
+            current_step = _STEP_ANNOTATION_WRITE
             try:
                 await asyncio.to_thread(
                     apply_link_annotations,
@@ -748,41 +882,12 @@ async def _write_artifact_inner(  # noqa: PLR0913
                 # Someone changed the object between our put_object and this annotation
                 # write — retry the whole cycle, including a fresh put_object.
                 continue
-            except CredentialError as exc:
-                # The S3 put above has already succeeded — this is a partial
-                # write, not a clean failure.
-                return _record_partial_write_credential_error(
-                    settings,
-                    artifact_id=s3_key,
-                    title=title,
-                    artifact_type=type,
-                    tier=tier,
-                    date=date,
-                    failure_step="annotation_write",
-                    exc=exc,
-                    commit_refs=final_commit_refs,
-                    references=final_references,
-                )
             except Exception as exc:
-                # An unknown/transient annotation failure (e.g. SlowDown,
-                # RequestTimeout — not a conflict, not annotation-unavailable, not a
-                # credential failure) must not escape uncaught to the blanket
-                # internal_error handler: the content is already durably written on
-                # this attempt (last_attempt_object_written), so this is a partial
-                # write, and a failure-log entry is what lets reconcile_index repair
-                # the link-field state later.
-                return _record_partial_write(
-                    settings,
-                    artifact_id=s3_key,
-                    title=title,
-                    artifact_type=type,
-                    tier=tier,
-                    date=date,
-                    failure_step="annotation_write",
-                    reason=str(exc),
-                    commit_refs=final_commit_refs,
-                    references=final_references,
-                )
+                # The S3 put above has already succeeded, so this is a partial write,
+                # not a clean failure — whatever the cause. _cas_failure_response
+                # records the entry that lets reconcile_index repair the link-field
+                # state later and picks the code that names the cause.
+                return _cas_failure_response(exc)
             else:
                 break
         else:
@@ -800,7 +905,7 @@ async def _write_artifact_inner(  # noqa: PLR0913
                     artifact_type=type,
                     tier=tier,
                     date=date,
-                    failure_step="annotation_write",
+                    failure_step=_STEP_ANNOTATION_WRITE,
                     reason=(
                         "Compare-and-swap retries exhausted while re-applying "
                         "commit_refs/references annotations after a durable content "
@@ -808,6 +913,7 @@ async def _write_artifact_inner(  # noqa: PLR0913
                     ),
                     commit_refs=final_commit_refs,
                     references=final_references,
+                    last_edited_ulid=last_edited_ulid,
                 )
             return _conflict_response()
     else:
@@ -836,9 +942,9 @@ async def _write_artifact_inner(  # noqa: PLR0913
         # Annotations are the sole durable store for commit_refs/references, so a
         # failed annotation write is never reported as a successful write: every
         # failure below records a failure-log entry (the repair path reconcile_index
-        # replays) and returns a structured error. An annotation-unavailable failure
-        # is post-startup IAM drift — the startup gate already rejects a deployment
-        # that never had annotations — and is handled by the generic branch.
+        # replays) and returns a structured error naming the cause where one is
+        # diagnosable. An annotation-unavailable failure is post-startup IAM drift —
+        # the startup gate already rejects a deployment that never had annotations.
         _ = new_etag  # no CAS token needed — nothing preceded this write to race
         # This is a fresh create (atomic if_none_match put above), so the
         # key had zero prior annotations a moment ago. When neither field was supplied,
@@ -855,40 +961,24 @@ async def _write_artifact_inner(  # noqa: PLR0913
                     commit_refs=final_commit_refs,
                     references=final_references,
                 )
-        except CredentialError as exc:
-            # The S3 put above has already succeeded — this is a partial write,
-            # not a clean failure. Without a failure-log entry here, a credential
-            # failure after S3 success leaves no repairable trace, and for an
-            # overwrite=True rewrite the pre-overwrite vectors would silently
-            # survive forever (reconcile never sees a reason to touch this artifact).
-            return _record_partial_write_credential_error(
+        except Exception as exc:
+            # The S3 put above has already succeeded — this is a partial write, not a
+            # clean failure, whatever the cause. Without a failure-log entry here the
+            # failure leaves no repairable trace, and for an overwrite=True rewrite the
+            # pre-overwrite vectors would silently survive forever (reconcile never
+            # sees a reason to touch this artifact).
+            return _record_durable_write_failure(
                 settings,
                 artifact_id=s3_key,
                 title=title,
                 artifact_type=type,
                 tier=tier,
                 date=date,
-                failure_step="annotation_write",
+                failure_step=_STEP_ANNOTATION_WRITE,
                 exc=exc,
                 commit_refs=final_commit_refs,
                 references=final_references,
-            )
-        except Exception as exc:
-            # Same unknown/transient-failure gap as the overwrite/CAS path above
-            # — the S3 put has already succeeded by this point, so this is a partial
-            # write, not a clean failure; record it so reconcile_index can repair the
-            # link-field state later instead of letting it escape as internal_error.
-            return _record_partial_write(
-                settings,
-                artifact_id=s3_key,
-                title=title,
-                artifact_type=type,
-                tier=tier,
-                date=date,
-                failure_step="annotation_write",
-                reason=str(exc),
-                commit_refs=final_commit_refs,
-                references=final_references,
+                last_edited_ulid=last_edited_ulid,
             )
 
     # ── Step 5: Parse, filter, cap, and truncate sections (shared pipeline) ─────

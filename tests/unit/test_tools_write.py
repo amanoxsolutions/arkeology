@@ -12,7 +12,11 @@ import botocore.exceptions
 import pytest
 from pytest_mock import MockerFixture
 
-from arkeology.artifact import S3_USER_METADATA_MAX_BYTES, VECTOR_FILTERABLE_METADATA_MAX_BYTES
+from arkeology.artifact import (
+    COMMIT_REFS_VECTOR_METADATA_MAX_ENTRIES,
+    S3_USER_METADATA_MAX_BYTES,
+    VECTOR_FILTERABLE_METADATA_MAX_BYTES,
+)
 from arkeology.clients.fakes.fake_bedrock import FakeBedrockClient
 from arkeology.clients.s3 import S3ClientImpl
 from arkeology.clients.vectors import VectorsClientImpl
@@ -3205,53 +3209,6 @@ async def test_write_overwrite_cas_put_object_credential_error_includes_artifact
 
 
 @pytest.mark.asyncio
-async def test_write_annotation_unavailable_reports_partial_write(
-    monkeypatch: pytest.MonkeyPatch,
-    s3_client: S3ClientImpl,
-    vectors_client: VectorsClientImpl,
-    mocker: pytest.MonkeyPatch,
-    tmp_path: pytest.TempPathFactory,
-) -> None:
-    """An AnnotationUnavailableError raised by the durable annotation write is never
-    reported as a successful write. Annotations are the sole durable store for
-    commit_refs/references, so the caller must not be told the write succeeded: the S3
-    object is durable, so this is a partial_write carrying a failure-log entry with the
-    values it was applying, which is what lets reconcile_index restore them."""
-    log_path = tmp_path / "failures.jsonl"
-    settings = _make_settings(monkeypatch, FAILURE_LOG_PATH=str(log_path))
-    bedrock = FakeBedrockClient()
-    mocker.patch.object(
-        s3_client,
-        "put_object_annotation",
-        side_effect=AnnotationUnavailableError(
-            "S3 object annotations are unavailable for this bucket.", "s3", Exception("boom")
-        ),
-    )
-
-    result = await write_artifact(
-        s3=s3_client,
-        vectors=vectors_client,
-        bedrock=bedrock,
-        settings=settings,
-        **{**_BASE_WRITE_KWARGS, "commit_refs": ["abc1234"]},
-    )
-
-    assert result["error"] == "partial_write"
-    assert "warning" not in result
-
-    # Content is durably stored — this is a partial write, not a lost one.
-    stored_content = s3_client.get_object(result["artifact_id"])
-    assert stored_content == _BASE_WRITE_KWARGS["content"]
-
-    # The failure-log entry carries the link fields the failed write was applying, so
-    # reconcile_index can restore them.
-    entries = [json.loads(line) for line in log_path.read_text().splitlines()]
-    assert [e["artifact_id"] for e in entries] == [result["artifact_id"]]
-    assert entries[0]["failure_step"] == "annotation_write"
-    assert entries[0]["commit_refs"] == ["abc1234"]
-
-
-@pytest.mark.asyncio
 async def test_write_without_link_fields_no_warning_when_annotations_available(
     monkeypatch: pytest.MonkeyPatch,
     s3_client: S3ClientImpl,
@@ -4478,6 +4435,17 @@ async def test_overwrite_annotation_write_unknown_error_records_link_fields(
 # ---------------------------------------------------------------------------
 
 
+# The step each CAS-retry call site stamps on its failure-log entry. Nothing branches on
+# failure_step — it is operator diagnostics — so what it owes its reader is the step that
+# actually failed, not one value standing for all of them. None of these three is the
+# annotation write: the retry never reaches it.
+_CAS_RETRY_FAILURE_STEPS = {
+    "head_object": "write_cas_reread",
+    "get_object_annotation": "annotation_read",
+    "put_object": "write_content_put",
+}
+
+
 @pytest.mark.asyncio
 async def test_overwrite_cas_retry_after_concurrent_delete_returns_not_found(
     monkeypatch: pytest.MonkeyPatch,
@@ -4594,6 +4562,7 @@ async def test_overwrite_cas_retry_credential_error_records_partial_write(
     )
     entries = [json.loads(line) for line in settings.failure_log_path.read_text().splitlines()]
     assert entries[-1]["artifact_id"] == artifact_id
+    assert entries[-1]["failure_step"] == _CAS_RETRY_FAILURE_STEPS[failing_call]
     assert entries[-1]["commit_refs"] == ["sha0", "sha1"]
     assert entries[-1]["references"] == ["artifacts/new-adr"]
 
@@ -4640,3 +4609,282 @@ async def test_first_attempt_credential_error_still_records_no_failure_entry(
     assert result.get("error") == "credential_error"
     assert result.get("artifact_id") == artifact_id
     assert not settings.failure_log_path.exists()
+
+
+# ---------------------------------------------------------------------------
+# T74.2 — a failure-log entry for ANY exception once the object is durable
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failing_call", ["head_object", "get_object_annotation", "put_object"])
+async def test_overwrite_cas_retry_unknown_error_records_partial_write(
+    failing_call: str,
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: MockerFixture,
+    tmp_path: Path,
+) -> None:
+    """A *non-credential* failure on a CAS retry is exactly as durable a partial write
+    as a credential one, and must leave the same failure-log entry.
+
+    Reaching a retry means attempt 0's put_object already replaced the content and
+    cleared the object's annotations. Recording only for ``CredentialError`` lets a
+    SlowDown, a NonUtf8Payload, or any other transient escape to the catch-all with no
+    entry, leaving S3 holding this write's content, the link fields gone, and the
+    index still pointing at the previous version — a state reconcile_index cannot see,
+    because the artifact still has vectors and the orphan scan skips it.
+    """
+    settings = _make_settings(monkeypatch, tmp_path=tmp_path)
+    bedrock = FakeBedrockClient()
+    tier3_kwargs = {**_BASE_WRITE_KWARGS, "tier": 3}
+
+    first = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        **{**tier3_kwargs, "commit_refs": ["sha0"]},
+    )
+    artifact_id = first["artifact_id"]
+
+    conflicted = False
+    original_put_annotation = s3_client.put_object_annotation
+    original_failing = getattr(s3_client, failing_call)
+
+    def _conflict_once(*args: object, **kwargs: object) -> object:
+        nonlocal conflicted
+        if not conflicted:
+            conflicted = True
+            raise ArtifactConflictError(artifact_id)
+        return original_put_annotation(*args, **kwargs)  # type: ignore[arg-type]
+
+    def _fail_after_conflict(*args: object, **kwargs: object) -> object:
+        if conflicted:
+            raise _unknown_annotation_client_error()
+        return original_failing(*args, **kwargs)  # type: ignore[operator]
+
+    mocker.patch.object(s3_client, "put_object_annotation", side_effect=_conflict_once)
+    mocker.patch.object(s3_client, failing_call, side_effect=_fail_after_conflict)
+
+    result = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        overwrite=True,
+        **{
+            **tier3_kwargs,
+            "content": "## Summary\n\nUpdated content.",
+            "commit_refs": ["sha1"],
+            "references": ["artifacts/new-adr"],
+        },
+    )
+
+    assert "error" in result
+    assert settings.failure_log_path.exists(), (
+        "A non-credential failure on a CAS retry left no failure-log entry, so the "
+        "partial write is invisible to reconcile_index"
+    )
+    entries = [json.loads(line) for line in settings.failure_log_path.read_text().splitlines()]
+    assert entries[-1]["artifact_id"] == artifact_id
+    assert entries[-1]["failure_step"] == _CAS_RETRY_FAILURE_STEPS[failing_call]
+    assert entries[-1]["commit_refs"] == ["sha0", "sha1"]
+    assert entries[-1]["references"] == ["artifacts/new-adr"]
+
+
+@pytest.mark.asyncio
+async def test_overwrite_budget_breach_on_a_retry_records_the_durable_partial_write(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: MockerFixture,
+    tmp_path: Path,
+) -> None:
+    """The post-merge budget re-check is only a clean no-op rejection on attempt 0.
+
+    On a retry, attempt 0's put_object has already replaced the content and cleared
+    the annotations, so rejecting with "no write and no failure-log entry" states the
+    opposite of the truth: the write *is* durable and nothing records it. The same
+    object_written guard that covers every other retry failure has to cover this one.
+    """
+    settings = _make_settings(monkeypatch, tmp_path=tmp_path)
+    bedrock = FakeBedrockClient()
+    tier3_kwargs = {**_BASE_WRITE_KWARGS, "tier": 3}
+
+    first = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        **{**tier3_kwargs, "commit_refs": ["sha0"]},
+    )
+    artifact_id = first["artifact_id"]
+
+    conflicted = False
+    original_put_annotation = s3_client.put_object_annotation
+
+    def _conflict_once(*args: object, **kwargs: object) -> object:
+        nonlocal conflicted
+        if not conflicted:
+            conflicted = True
+            raise ArtifactConflictError(artifact_id)
+        return original_put_annotation(*args, **kwargs)  # type: ignore[arg-type]
+
+    # A concurrent link_metadata backfill lands between attempt 0 and attempt 1, so the
+    # retry's read-forward returns a value whose merge breaches the filterable budget
+    # even after the 20-entry vector cap has been applied.
+    oversize_refs = [
+        f"c{i:04d}" + "x" * (2 * _LINK_FIELD_ITEM_LEN)
+        for i in range(COMMIT_REFS_VECTOR_METADATA_MAX_ENTRIES)
+    ]
+
+    def _small_then_oversize(*_args: object, **_kwargs: object) -> tuple[list[str], list[str]]:
+        return (oversize_refs, []) if conflicted else (["sha0"], [])
+
+    mocker.patch.object(s3_client, "put_object_annotation", side_effect=_conflict_once)
+    mocker.patch("arkeology.tools.write.read_link_annotations", side_effect=_small_then_oversize)
+
+    result = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        overwrite=True,
+        **{
+            **tier3_kwargs,
+            "content": "## Summary\n\nUpdated content.",
+            "commit_refs": ["sha1"],
+        },
+    )
+
+    # partial_write, not validation_error: the budget breach is real, but on a retry it
+    # no longer describes a rejected write. The code has to name the residual state —
+    # content durable, link fields gone, index still on the previous version — because
+    # that is what the caller and reconcile_index have to act on.
+    assert result["error"] == "partial_write"
+    assert result["artifact_id"] == artifact_id
+    # Attempt 0's put_object landed: the content really was replaced.
+    assert "Updated content." in s3_client.get_object(artifact_id)
+    assert settings.failure_log_path.exists(), (
+        "The budget re-check rejected a retry as if nothing had been written, but "
+        "attempt 0's put_object had already replaced the content durably"
+    )
+    entries = [json.loads(line) for line in settings.failure_log_path.read_text().splitlines()]
+    assert entries[-1]["artifact_id"] == artifact_id
+    # The entry an operator is most likely to read: this breach replays deterministically
+    # (reconcile_index restores the same oversize commit_refs by union) and accumulates
+    # attempts until the artifact is reported stuck, so the stamp is the only thing
+    # telling them why it never clears. "annotation_write" here would send them after the
+    # annotation store and IAM drift instead of after the oversize value.
+    assert entries[-1]["failure_step"] == "write_budget_recheck"
+
+
+# ---------------------------------------------------------------------------
+# T74.1 — the write path records the last_edited_ulid it generated
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_overwrite_annotation_failure_entry_records_the_ulid_this_write_generated(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: MockerFixture,
+    tmp_path: Path,
+) -> None:
+    """The entry carries the ULID *this* write generated, not the one it replaced.
+
+    That token is what ``reconcile_index`` compares against the artifact's current
+    ULID to decide whether a later write has since superseded the entry's
+    ``references``. Recording the pre-overwrite ULID would make the entry look
+    superseded by its own write and its ``references`` would never be restored;
+    recording none at all makes every entry union unconditionally, which is the
+    behaviour the supersession rule replaces.
+    """
+    settings = _make_settings(monkeypatch, tmp_path=tmp_path)
+    bedrock = FakeBedrockClient()
+    tier3_kwargs = {**_BASE_WRITE_KWARGS, "tier": 3}
+
+    first = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        **{**tier3_kwargs, "references": ["artifacts/prior-adr"]},
+    )
+    artifact_id = first["artifact_id"]
+    ulid_before = first["last_edited_ulid"]
+
+    mocker.patch.object(
+        s3_client, "put_object_annotation", side_effect=_unknown_annotation_client_error()
+    )
+
+    result = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        overwrite=True,
+        **{**tier3_kwargs, "references": ["artifacts/new-adr"]},
+    )
+
+    assert "error" in result
+    entries = [json.loads(line) for line in settings.failure_log_path.read_text().splitlines()]
+    stored_ulid = s3_client.head_object(artifact_id)["last_edited_ulid"]
+    assert stored_ulid != ulid_before
+    assert entries[-1]["last_edited_ulid"] == stored_ulid
+
+
+# ---------------------------------------------------------------------------
+# T74.4 — one error code for AnnotationUnavailableError
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_write_annotation_unavailable_returns_the_annotation_unavailable_code(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: MockerFixture,
+    tmp_path: Path,
+) -> None:
+    """One condition, one code: an unavailable annotation store surfaces the same
+    ``annotation_unavailable`` here as it does from every other tool that can meet it.
+
+    ``partial_write`` names the residual state where no cause is separately
+    diagnosable; this cause *is* diagnosable — post-setup IAM drift — and an operator
+    should not have to know which tool they happened to call to recognise it. The
+    durability facts are unchanged either way, which the assertions below pin.
+    """
+    settings = _make_settings(monkeypatch, tmp_path=tmp_path)
+    bedrock = FakeBedrockClient()
+    mocker.patch.object(
+        s3_client,
+        "put_object_annotation",
+        side_effect=AnnotationUnavailableError(
+            "S3 object annotations are unavailable for this bucket.", "s3", Exception("boom")
+        ),
+    )
+
+    result = await write_artifact(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        **{**_BASE_WRITE_KWARGS, "commit_refs": ["abc1234"]},
+    )
+
+    assert result.get("error") == "annotation_unavailable"
+    # There is no success-with-a-warning shape: a failed annotation write is an error,
+    # never a warning attached to a success.
+    assert "warning" not in result
+    # The code names the cause; it does not change what was written.
+    assert s3_client.get_object(result["artifact_id"]) == _BASE_WRITE_KWARGS["content"]
+    entries = [json.loads(line) for line in settings.failure_log_path.read_text().splitlines()]
+    # Exactly one entry, for this artifact — not merely a last entry that looks right,
+    # which would still hold if the failure path appended the same entry twice.
+    assert [e["artifact_id"] for e in entries] == [result["artifact_id"]]
+    assert entries[-1]["failure_step"] == "annotation_write"
+    assert entries[-1]["commit_refs"] == ["abc1234"]

@@ -13,7 +13,12 @@ import boto3
 import pytest
 from pytest_mock import MockerFixture
 
-from arkeology.annotations import CAS_MAX_ATTEMPTS, apply_link_annotations, decode_link_list
+from arkeology.annotations import (
+    CAS_MAX_ATTEMPTS,
+    apply_link_annotations,
+    decode_link_list,
+    read_link_annotations,
+)
 from arkeology.artifact import VECTOR_FILTERABLE_METADATA_MAX_BYTES
 from arkeology.clients.fakes.fake_bedrock import FakeBedrockClient
 from arkeology.clients.s3 import S3ClientImpl
@@ -188,7 +193,10 @@ async def test_failure_log_removed_when_every_entry_resolved(
     )
 
     assert result["failure_log_entries_after"] == 0
-    assert not reconcile_settings.failure_log_path.exists()
+    # Drained, not unlinked. read_text raises if the file is gone, so this still pins
+    # that the log is emptied — an appender blocked on its lock while the rewrite ran
+    # would write into an unlinked inode and lose the entry it holds.
+    assert reconcile_settings.failure_log_path.read_text(encoding="utf-8").strip() == ""
 
 
 async def test_failure_log_entry_appended_during_replay_survives_the_rewrite(
@@ -2386,7 +2394,10 @@ async def test_failure_log_entry_succeeds_pruned_regardless_of_prior_attempts(
     reconciled_ids = [e["artifact_id"] for e in result["reconciled"]]
     assert artifact_id in reconciled_ids
     assert result["failure_log_entries_after"] == 0
-    assert not reconcile_settings.failure_log_path.exists()
+    # Drained, not unlinked. read_text raises if the file is gone, so this still pins
+    # that the log is emptied — an appender blocked on its lock while the rewrite ran
+    # would write into an unlinked inode and lose the entry it holds.
+    assert reconcile_settings.failure_log_path.read_text(encoding="utf-8").strip() == ""
 
 
 async def test_response_omits_stuck_failures_when_none(
@@ -2599,7 +2610,10 @@ async def test_orphan_cleanup_entry_repaired_by_direct_delete_no_reindex(
     }
     assert "sections_indexed" not in reconciled_entry
     assert result["failure_log_entries_after"] == 0
-    assert not reconcile_settings.failure_log_path.exists()
+    # Drained, not unlinked. read_text raises if the file is gone, so this still pins
+    # that the log is emptied — an appender blocked on its lock while the rewrite ran
+    # would write into an unlinked inode and lose the entry it holds.
+    assert reconcile_settings.failure_log_path.read_text(encoding="utf-8").strip() == ""
 
 
 async def test_orphan_cleanup_and_reindex_entries_same_artifact_resolved_independently(
@@ -2776,7 +2790,10 @@ async def test_orphan_cleanup_partially_absent_keys_still_resolves(
     assert reconciled_entry["orphan_keys_deleted"] == 2
     assert reconciled_entry["source"] == "orphan_vector_cleanup"
     assert result["failure_log_entries_after"] == 0
-    assert not reconcile_settings.failure_log_path.exists()
+    # Drained, not unlinked. read_text raises if the file is gone, so this still pins
+    # that the log is emptied — an appender blocked on its lock while the rewrite ran
+    # would write into an unlinked inode and lose the entry it holds.
+    assert reconcile_settings.failure_log_path.read_text(encoding="utf-8").strip() == ""
 
 
 # ---------------------------------------------------------------------------
@@ -2914,3 +2931,448 @@ async def test_failure_log_entry_link_fields_union_with_the_current_value(
         "artifacts/adr-a",
         "artifacts/adr-b",
     ]
+
+
+# ---------------------------------------------------------------------------
+# T74.1 — the references supersession rule (AC-68)
+#
+# A failure-log entry may record the artifact's last_edited_ulid as it stood when
+# the failure happened. references is restored only while that token still equals
+# the artifact's current one; commit_refs unions unconditionally, being append-only.
+# ---------------------------------------------------------------------------
+
+_ULID_AT_FAILURE = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+_ULID_AFTER_LATER_WRITE = "01BRZ3NDEKTSV4RRFFQ69G5FAV"
+
+
+def _seed_superseded_artifact(s3: S3ClientImpl) -> str:
+    """Seed the AC-68 scenario: a later overwrite has already replaced the link fields.
+
+    The artifact carries the ULID the *later* write generated, its annotations hold
+    what that write established, and the failure-log entry (written by the earlier,
+    failed write) still carries the pre-overwrite values under the older ULID.
+    """
+    artifact_id = "artifacts/implementation-note-2026-01-01-test-artifact"
+    s3.put_object(
+        artifact_id,
+        _CONTENT_NO_SECTIONS,
+        {**_BASE_S3_META, "last_edited_ulid": _ULID_AFTER_LATER_WRITE},
+    )
+    apply_link_annotations(
+        s3,
+        artifact_id,
+        commit_refs=["sha-added-later"],
+        references=["artifacts/adr-the-later-write-kept"],
+    )
+    return artifact_id
+
+
+_SUPERSEDED_ENTRY: dict[str, Any] = {
+    **_BASE_LOG_ENTRY,
+    "failure_step": "annotation_write",
+    "last_edited_ulid": _ULID_AT_FAILURE,
+    "commit_refs": ["sha-at-failure"],
+    "references": ["artifacts/adr-the-later-write-removed"],
+}
+
+
+async def test_superseded_entry_does_not_restore_the_references_a_later_write_removed(
+    reconcile_settings: Settings,
+    s3_reconcile: S3ClientImpl,
+    vectors_reconcile: VectorsClientImpl,
+) -> None:
+    """AC-68, removal half: a `references` value a later successful overwrite removed
+    stays removed across the replay.
+
+    Every write replaces `references` outright, so an entry whose recorded
+    `last_edited_ulid` no longer matches the artifact's describes a state a later write
+    has already superseded. Restoring the entry's copy over it resurrects exactly the
+    references that write deliberately dropped — the artifact must keep the list the
+    later write set, and nothing else.
+    """
+    artifact_id = _seed_superseded_artifact(s3_reconcile)
+    _write_failure_log(
+        reconcile_settings.failure_log_path,
+        [{**_SUPERSEDED_ENTRY, "artifact_id": artifact_id}],
+    )
+
+    result = await reconcile_index(
+        settings=reconcile_settings,
+        s3=s3_reconcile,
+        vectors=vectors_reconcile,
+        bedrock=FakeBedrockClient(),
+    )
+
+    assert "error" not in result
+    _commit_refs, references = read_link_annotations(s3_reconcile, artifact_id)
+    assert references == ["artifacts/adr-the-later-write-kept"]
+
+
+async def test_superseded_entry_still_restores_its_commit_refs_by_union(
+    reconcile_settings: Settings,
+    s3_reconcile: S3ClientImpl,
+    vectors_reconcile: VectorsClientImpl,
+) -> None:
+    """AC-68, accrual half: the same superseded entry's `commit_refs` is still restored.
+
+    `commit_refs` is an append-only audit trail on which removal is not a supported
+    operation, so supersession says nothing about it: the entry's copy and the value
+    the later write added are both real history, and only the union keeps both. A fix
+    that discarded the whole entry once the ULIDs diverge would lose the entry's copy —
+    which, past the vector cap, exists nowhere else.
+    """
+    artifact_id = _seed_superseded_artifact(s3_reconcile)
+    _write_failure_log(
+        reconcile_settings.failure_log_path,
+        [{**_SUPERSEDED_ENTRY, "artifact_id": artifact_id}],
+    )
+
+    result = await reconcile_index(
+        settings=reconcile_settings,
+        s3=s3_reconcile,
+        vectors=vectors_reconcile,
+        bedrock=FakeBedrockClient(),
+    )
+
+    assert "error" not in result
+    commit_refs, _references = read_link_annotations(s3_reconcile, artifact_id)
+    assert commit_refs == ["sha-at-failure", "sha-added-later"]
+
+
+async def test_unsuperseded_entry_restores_references_by_union(
+    reconcile_settings: Settings,
+    s3_reconcile: S3ClientImpl,
+    vectors_reconcile: VectorsClientImpl,
+) -> None:
+    """A matching `last_edited_ulid` means no write has landed since the failure, so the
+    entry's `references` copy is still current and is restored by union.
+
+    This is the case the entry exists for: `references` lives in no other store, so if
+    the supersession test rejected a matching token too the only surviving copy would be
+    thrown away on every replay.
+    """
+    artifact_id = "artifacts/implementation-note-2026-01-01-test-artifact"
+    s3_reconcile.put_object(
+        artifact_id,
+        _CONTENT_NO_SECTIONS,
+        {**_BASE_S3_META, "last_edited_ulid": _ULID_AT_FAILURE},
+    )
+    apply_link_annotations(
+        s3_reconcile,
+        artifact_id,
+        commit_refs=[],
+        references=["artifacts/adr-still-current"],
+    )
+    _write_failure_log(
+        reconcile_settings.failure_log_path,
+        [
+            {
+                **_BASE_LOG_ENTRY,
+                "artifact_id": artifact_id,
+                "failure_step": "annotation_write",
+                "last_edited_ulid": _ULID_AT_FAILURE,
+                "references": ["artifacts/adr-from-the-failed-write"],
+            }
+        ],
+    )
+
+    result = await reconcile_index(
+        settings=reconcile_settings,
+        s3=s3_reconcile,
+        vectors=vectors_reconcile,
+        bedrock=FakeBedrockClient(),
+    )
+
+    assert "error" not in result
+    _commit_refs, references = read_link_annotations(s3_reconcile, artifact_id)
+    assert references == [
+        "artifacts/adr-from-the-failed-write",
+        "artifacts/adr-still-current",
+    ]
+
+
+async def test_entry_without_a_ulid_token_restores_references_by_union(
+    reconcile_settings: Settings,
+    s3_reconcile: S3ClientImpl,
+    vectors_reconcile: VectorsClientImpl,
+) -> None:
+    """An entry carrying no `last_edited_ulid` unions, even when the artifact has one.
+
+    An absent token is missing evidence of supersession, not evidence of it. Treating
+    it as a mismatch would discard every entry written before the token existed — the
+    only surviving copy of values no later write had touched.
+    """
+    artifact_id = "artifacts/implementation-note-2026-01-01-test-artifact"
+    s3_reconcile.put_object(
+        artifact_id,
+        _CONTENT_NO_SECTIONS,
+        {**_BASE_S3_META, "last_edited_ulid": _ULID_AFTER_LATER_WRITE},
+    )
+    apply_link_annotations(
+        s3_reconcile,
+        artifact_id,
+        commit_refs=[],
+        references=["artifacts/adr-current"],
+    )
+    _write_failure_log(
+        reconcile_settings.failure_log_path,
+        [
+            {
+                **_BASE_LOG_ENTRY,
+                "artifact_id": artifact_id,
+                "failure_step": "annotation_write",
+                "references": ["artifacts/adr-from-a-tokenless-entry"],
+            }
+        ],
+    )
+
+    result = await reconcile_index(
+        settings=reconcile_settings,
+        s3=s3_reconcile,
+        vectors=vectors_reconcile,
+        bedrock=FakeBedrockClient(),
+    )
+
+    assert "error" not in result
+    _commit_refs, references = read_link_annotations(s3_reconcile, artifact_id)
+    assert references == ["artifacts/adr-from-a-tokenless-entry", "artifacts/adr-current"]
+
+
+async def test_supersession_is_detected_when_the_later_write_left_the_etag_unchanged(
+    reconcile_settings: Settings,
+    s3_reconcile: S3ClientImpl,
+    vectors_reconcile: VectorsClientImpl,
+) -> None:
+    """The supersession token has to be `last_edited_ulid`, never the object's ETag.
+
+    An overwriting write that changes only `references` leaves the body byte-identical,
+    so the ETag is unchanged — an ETag comparison would read "not superseded" and
+    restore precisely the removal this rule exists to preserve. The ULID moves on that
+    write regardless, which is why it is the token. The assertion on the two ETags is
+    what makes this test distinguish the two implementations rather than merely repeat
+    the removal case above.
+    """
+    artifact_id = "artifacts/implementation-note-2026-01-01-test-artifact"
+    s3_reconcile.put_object(
+        artifact_id,
+        _CONTENT_NO_SECTIONS,
+        {**_BASE_S3_META, "last_edited_ulid": _ULID_AT_FAILURE},
+    )
+    etag_at_failure = s3_reconcile.head_object(artifact_id)["ETag"]
+    apply_link_annotations(
+        s3_reconcile,
+        artifact_id,
+        commit_refs=["sha-at-failure"],
+        references=["artifacts/adr-the-later-write-removed"],
+    )
+    _write_failure_log(
+        reconcile_settings.failure_log_path,
+        [
+            {
+                **_BASE_LOG_ENTRY,
+                "artifact_id": artifact_id,
+                "failure_step": "annotation_write",
+                "last_edited_ulid": _ULID_AT_FAILURE,
+                "commit_refs": ["sha-at-failure"],
+                "references": ["artifacts/adr-the-later-write-removed"],
+            }
+        ],
+    )
+
+    # The later write: same body, new ULID, references cleared. The re-PUT wipes the
+    # annotations, exactly as real S3 does, and the write supplies no references.
+    s3_reconcile.put_object(
+        artifact_id,
+        _CONTENT_NO_SECTIONS,
+        {**_BASE_S3_META, "last_edited_ulid": _ULID_AFTER_LATER_WRITE},
+    )
+    etag_after_later_write = s3_reconcile.head_object(artifact_id)["ETag"]
+    assert etag_after_later_write == etag_at_failure
+
+    result = await reconcile_index(
+        settings=reconcile_settings,
+        s3=s3_reconcile,
+        vectors=vectors_reconcile,
+        bedrock=FakeBedrockClient(),
+    )
+
+    assert "error" not in result
+    commit_refs, references = read_link_annotations(s3_reconcile, artifact_id)
+    assert references == []
+    assert commit_refs == ["sha-at-failure"]
+
+
+# ---------------------------------------------------------------------------
+# T74.3 — prune and stamp by entry identity, not by (artifact_id, kind)
+# ---------------------------------------------------------------------------
+
+
+async def test_same_key_entry_appended_during_replay_survives_the_rewrite(
+    reconcile_settings: Settings,
+    s3_reconcile: S3ClientImpl,
+    vectors_reconcile: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """An entry appended mid-run for an artifact this run *resolved* must still be kept.
+
+    Pruning by ``(artifact_id, kind)`` drops it: the key is in the resolved set, so the
+    end-of-run rewrite discards an entry the run never read, let alone processed. The
+    artifact it names is then never repaired — it has vectors (the ones this run built
+    from the *old* content), so the orphan scan never revisits it either. Only the
+    entries the run actually read may be pruned.
+    """
+    artifact_id = "artifacts/implementation-note-2026-01-01-test-artifact"
+    s3_reconcile.put_object(artifact_id, _CONTENT_NO_SECTIONS, {**_BASE_S3_META})
+
+    _write_failure_log(
+        reconcile_settings.failure_log_path,
+        [{**_BASE_LOG_ENTRY, "artifact_id": artifact_id, "reason": "read at run start"}],
+    )
+
+    real_head_object = s3_reconcile.head_object
+    appended = threading.Event()
+
+    def _append_same_key_then_head(key: str) -> dict[str, Any]:
+        """Stand in for a concurrent partial write of the SAME artifact, mid-replay."""
+        if not appended.is_set():
+            appended.set()
+            append_failure_entry(
+                reconcile_settings.failure_log_path,
+                {
+                    **_BASE_LOG_ENTRY,
+                    "artifact_id": artifact_id,
+                    "reason": "appended mid-run",
+                },
+            )
+        return real_head_object(key)
+
+    mocker.patch.object(s3_reconcile, "head_object", side_effect=_append_same_key_then_head)
+
+    result = await reconcile_index(
+        settings=reconcile_settings,
+        s3=s3_reconcile,
+        vectors=vectors_reconcile,
+        bedrock=FakeBedrockClient(),
+    )
+
+    assert "error" not in result
+    assert appended.is_set()
+    assert result["failure_log_entries_after"] == 1
+    assert reconcile_settings.failure_log_path.exists()
+    remaining = [
+        json.loads(line)
+        for line in reconcile_settings.failure_log_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert [e["reason"] for e in remaining] == ["appended mid-run"]
+
+
+async def test_entry_appended_during_replay_is_not_stamped_with_attempts_it_never_earned(
+    reconcile_settings: Settings,
+    s3_reconcile: S3ClientImpl,
+    vectors_reconcile: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """A mid-run append must not inherit the attempt count of the entry the run failed.
+
+    Stamping by ``(artifact_id, kind)`` writes ``reconcile_attempts`` onto an entry
+    that has never been attempted once, so it reaches the bounded-retry ceiling — and
+    ``stuck_failures``, which asks an operator to intervene — sooner than its own
+    history justifies, and at the limit is retired without ever having been tried.
+    """
+    artifact_id = "artifacts/implementation-note-2026-01-01-test-artifact"
+    s3_reconcile.put_object(artifact_id, _CONTENT_NO_SECTIONS, {**_BASE_S3_META})
+
+    _write_failure_log(
+        reconcile_settings.failure_log_path,
+        [{**_BASE_LOG_ENTRY, "artifact_id": artifact_id, "reason": "read at run start"}],
+    )
+
+    real_head_object = s3_reconcile.head_object
+    appended = threading.Event()
+
+    def _append_same_key_then_head(key: str) -> dict[str, Any]:
+        if not appended.is_set():
+            appended.set()
+            append_failure_entry(
+                reconcile_settings.failure_log_path,
+                {
+                    **_BASE_LOG_ENTRY,
+                    "artifact_id": artifact_id,
+                    "reason": "appended mid-run",
+                },
+            )
+        return real_head_object(key)
+
+    mocker.patch.object(s3_reconcile, "head_object", side_effect=_append_same_key_then_head)
+    # Make the replay of the entry read at run start fail, so the run stamps an
+    # incremented reconcile_attempts for this artifact_id.
+    mocker.patch.object(
+        vectors_reconcile,
+        "put_vectors_batch",
+        side_effect=RuntimeError("Simulated vector write failure"),
+    )
+
+    result = await reconcile_index(
+        settings=reconcile_settings,
+        s3=s3_reconcile,
+        vectors=vectors_reconcile,
+        bedrock=FakeBedrockClient(),
+    )
+
+    assert "error" not in result
+    assert appended.is_set()
+    remaining = [
+        json.loads(line)
+        for line in reconcile_settings.failure_log_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert {entry["reason"] for entry in remaining} == {"read at run start", "appended mid-run"}
+    read_at_start = next(e for e in remaining if e["reason"] == "read at run start")
+    appended_mid_run = next(e for e in remaining if e["reason"] == "appended mid-run")
+    assert read_at_start["reconcile_attempts"] == 1
+    assert "reconcile_attempts" not in appended_mid_run
+
+
+# ---------------------------------------------------------------------------
+# T74.5 — a failure log that vanishes between the existence check and the read
+# ---------------------------------------------------------------------------
+
+
+async def test_failure_log_vanishing_after_the_existence_check_does_not_fail_the_run(
+    reconcile_settings: Settings,
+    s3_reconcile: S3ClientImpl,
+    vectors_reconcile: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """A concurrent run draining the log between ``exists()`` and the read is not an error.
+
+    Two reconcile runs share one log file, so the window is real. A log that is simply
+    gone means "nothing to replay" — turning it into ``internal_error`` discards the
+    orphan scan and the dangling-vector prune of an otherwise healthy run.
+    """
+    artifact_id = "artifacts/implementation-note-2026-01-01-test-artifact"
+    s3_reconcile.put_object(artifact_id, _CONTENT_NO_SECTIONS, {**_BASE_S3_META})
+    _write_failure_log(
+        reconcile_settings.failure_log_path,
+        [{**_BASE_LOG_ENTRY, "artifact_id": artifact_id}],
+    )
+
+    mocker.patch.object(
+        reconcile_module,
+        "read_failure_entries",
+        side_effect=FileNotFoundError(reconcile_settings.failure_log_path),
+    )
+
+    result = await reconcile_index(
+        settings=reconcile_settings,
+        s3=s3_reconcile,
+        vectors=vectors_reconcile,
+        bedrock=FakeBedrockClient(),
+    )
+
+    assert "error" not in result
+    assert result["failure_log_entries_before"] == 0
+    # The rest of the run still happened: the artifact has no vectors, so the orphan
+    # scan must have found and re-indexed it.
+    assert artifact_id in [e["artifact_id"] for e in result["reconciled"]]

@@ -16,7 +16,7 @@ authored:
   by: "tech-writer"
   date: 2026-09-04
 revised:
-  by: "tech-writer"
+  by: "architect"
   date: 2026-09-06
 ---
 
@@ -194,9 +194,24 @@ carry a far larger ceiling than either object metadata (2 KB) or vector filterab
   type the S3 Express One Zone storage class uses) and Outposts buckets. Such a deployment is
   **unsupported, not degraded**: the startup sequence's annotation check refuses to start the
   server, so no path may carry a fallback for this store being absent. A runtime annotation failure
-  therefore means post-setup IAM drift, and surfaces as a structured error — `annotation_unavailable`
-  from `link_metadata`, `partial_write` from `write_artifact`, a recorded partial archive from
-  `archive_artifact` — never as a successful operation.
+  therefore means post-setup IAM drift, and surfaces as a structured error — never as a successful
+  operation.
+- That structured error carries **one** code, `annotation_unavailable`, from every tool that can
+  meet the condition: `read_artifact`, `list_artifacts`, `propose_commit_links`, `link_metadata`,
+  `write_artifact`, and `archive_artifact` alike. One condition gets one code, because an operator
+  diagnosing an IAM drift should not have to know which tool they happened to call to recognise it,
+  and because `internal_error` says only "something unexpected" about a condition whose remedy is
+  known and documented. The exception-to-code mapping belongs in the shared tool-layer helper
+  module `_errors.py`, which already owns the `CredentialError` mapping for exactly this reason —
+  a mapping duplicated per tool is a mapping that drifts per tool, which is how the three-code
+  split arose. `reconcile_index` is not on the list because an annotation failure there fails one
+  artifact into its `failed` list rather than the run.
+- The code names the **cause**; it does not describe what was written. Where the condition is met
+  after a durable store write has already landed, the durability facts — the S3 object is durable, a
+  failure-log entry exists — hold exactly as they do under `partial_write`, and are stated as such
+  in `arkeology.tools.write`. `partial_write` is not a synonym for this condition and is not
+  reserved against it: it names the residual state where no cause is separately diagnosable, on the
+  same footing as the `credential_error` branch that has always pre-empted it.
 - `reconcile_index` reads both fields from here to rebuild vector metadata losslessly, and from
   here alone. The union-of-both-durable-stores read model is retired: no path may fall back to a
   vector-metadata copy of either field, because that copy is a derived filter index (capped for

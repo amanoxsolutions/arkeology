@@ -19,9 +19,11 @@ agent's context window, and an unbounded store would fill it — with ``total_co
 carrying the full pre-cap match count so a truncated listing is never mistaken for a
 complete one.
 
-If the inner ``list_artifacts`` call itself fails (e.g. expired credentials), the
-result is a structured error (``is_error=True``, ``structured_content={"error": ...,
-"message": ...}``) — never a coerced empty listing, and never capped or reordered.
+That fallback calls the public ``list_artifacts`` tool, so whatever it can fail with —
+expired credentials, an unavailable annotation store, anything added later — arrives
+already mapped to a code and comes back as a structured error (``is_error=True``,
+``structured_content={"error": ..., "message": ...}``): never a coerced empty listing,
+never capped or reordered, and never an uncoded failure.
 """
 
 import logging
@@ -34,7 +36,7 @@ from mcp.types import TextContent
 
 from arkeology.clients.interfaces import S3ClientInterface, VectorsClientInterface
 from arkeology.config import Settings
-from arkeology.tools.list import _list_artifacts_inner
+from arkeology.tools.list import list_artifacts
 
 logger = logging.getLogger(__name__)
 
@@ -70,15 +72,20 @@ async def _arkeology_studio_inner(
         )
 
     # Non-supporting host: include the artifact listing so the client has the data.
-    listing = await _list_artifacts_inner(settings=settings, s3=s3, vectors=vectors)
+    # The public tool, not _list_artifacts_inner: it maps every condition it can meet to
+    # a structured error dict, so the branch below carries a code. Calling the inner one
+    # let annotation-unavailable reach this module's catch-all as a bare exception and
+    # come back with is_error but no code at all, while credential_error on the same call
+    # got one.
+    listing = await list_artifacts(settings=settings, s3=s3, vectors=vectors)
     if "error" in listing:
-        # An error dict from the inner list call (e.g. expired credentials)
+        # An error dict from the list call (e.g. expired credentials)
         # must never be coerced into a successful empty listing — that would read as
         # "the store is empty" instead of "the store could not be reached"
         # (requirements.md FR-12).
         # Propagate it as a structured error so the caller can distinguish the two.
         logger.warning(
-            "arkeology_studio: inner list_artifacts call failed (%s); propagating a "
+            "arkeology_studio: list_artifacts call failed (%s); propagating a "
             "structured error instead of an empty listing",
             listing.get("error"),
         )
@@ -142,13 +149,13 @@ async def arkeology_studio(
       extension; contains ``{"write_prefix": …, "artifacts": […], "total_count": int}``
       so the client has the listing without a separate tool call. ``artifacts`` holds
       at most :data:`FALLBACK_LISTING_CAP` entries, newest first; ``total_count`` is
-      the pre-cap match count. If the inner listing call fails, ``is_error=True`` and
+      the pre-cap match count. If the listing call fails, ``is_error=True`` and
       ``structured_content`` instead carries ``{"error": ..., "message": ...}`` — never
       a coerced empty listing.
 
     Args:
         settings: Validated server configuration.
-        s3: S3 client — used by the inner list_artifacts call to read the durable
+        s3: S3 client — used by the list_artifacts call to read the durable
             commit_refs/references annotation copy for the non-UI fallback path.
         vectors: S3 Vectors client — used to fetch the artifact list for the
             non-UI fallback path.

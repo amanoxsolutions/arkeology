@@ -22,8 +22,8 @@ from arkeology.clients.interfaces import (
 )
 from arkeology.config import Settings
 from arkeology.constants import ErrorCode
-from arkeology.errors import CredentialError
-from arkeology.tools._errors import credential_error_response
+from arkeology.errors import AnnotationUnavailableError, CredentialError
+from arkeology.tools._errors import annotation_unavailable_response, credential_error_response
 from arkeology.tools._search_helper import derive_last_edited_at, fetch_vectors_by_metadata
 
 logger = logging.getLogger(__name__)
@@ -63,6 +63,11 @@ async def propose_commit_links(
             commit_sha=commit_sha,
             since_ulid=since_ulid,
         )
+    except AnnotationUnavailableError as exc:
+        # One condition, one code, from every tool that reads the durable link fields:
+        # startup check 8 proves the annotation store available before the server accepts
+        # a request, so this is post-setup IAM drift, not "something unexpected".
+        return annotation_unavailable_response(exc)
     except Exception as exc:
         logger.exception("Unexpected error in propose_commit_links")
         return {"error": ErrorCode.INTERNAL_ERROR, "message": str(exc)}

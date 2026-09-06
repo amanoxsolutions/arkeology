@@ -3,7 +3,8 @@
 Performs eight checks in order before the server enters its MCP event loop:
   1. Credential check (via head_bucket on ARTIFACT_BUCKET)
   2. Write prefix access (read + write round-trip using a probe object)
-  3. Read prefix access (list_objects on each entry in READ_PREFIXES)
+  3. Read prefix access (list_objects, then a get_object + annotation read on one
+     listed object, for each entry in READ_PREFIXES)
   4. Vector index existence (describe_index)
   5. Embedding model dimension vs. index dimension (from BEDROCK_EMBEDDING_DIMENSIONS)
   6. Embedding model probe (embeds a short string via bedrock.embed and asserts the
@@ -31,6 +32,7 @@ from arkeology.clients.interfaces import (
     VectorsClientInterface,
 )
 from arkeology.config import Settings
+from arkeology.constants import ANNOTATION_PROBE_NAME
 from arkeology.errors import (
     AnnotationUnavailableError,
     CredentialError,
@@ -54,7 +56,6 @@ _BUCKET_NOT_FOUND_CODES = frozenset({"404", "NoSuchBucket", "NotFound"})
 # probe above it starts with the reserved "_arkeology_" marker (reconcile_index skips any
 # key whose final path segment begins with it) and carries a per-invocation ULID.
 _ANNOTATION_PROBE_KEY_SUFFIX = "_arkeology_annotation_probe"
-_ANNOTATION_PROBE_NAME = "arkeology_probe"
 
 # Short probe string embedded during check 6. Content is irrelevant — only the
 # returned vector's dimension and the absence of a credential/entitlement failure matter.
@@ -184,7 +185,7 @@ def _check_write_prefix(settings: Settings, s3: S3ClientInterface) -> None:
 
 
 def _check_read_prefixes(settings: Settings, s3: S3ClientInterface) -> None:
-    """Check 3: Verify read access to each foreign read prefix."""
+    """Check 3: Verify read access — object *and* annotation — to each foreign read prefix."""
     read_prefixes = settings.read_prefixes_list
 
     if not read_prefixes:
@@ -226,6 +227,45 @@ def _check_read_prefixes(settings: Settings, s3: S3ClientInterface) -> None:
                         f"objects but cannot read object content (denied on "
                         f"'{keys[0]}'). Ensure the IAM policy includes s3:GetObject "
                         f"with condition StringLike s3:prefix '{prefix}*'."
+                    ),
+                ) from exc
+
+            # GetObject says nothing about GetObjectAnnotation, and check 8's round trip
+            # probes the write prefix only — so a prefix-scoped policy (the common shape
+            # on a shared bucket) granting the annotation actions there and not here
+            # passes both and then fails every foreign-scope read, commit_refs and
+            # references living in annotations alone. An absent annotation is the
+            # expected outcome: it still proves the read was permitted.
+            try:
+                s3.get_object_annotation(keys[0], ANNOTATION_PROBE_NAME)
+            except KeyError:
+                pass
+            except CredentialError:
+                raise
+            except AnnotationUnavailableError as exc:
+                denial_message = (
+                    f"Read prefix access check failed for '{prefix}': read object "
+                    f"content but cannot read object annotations (denied on "
+                    f"'{keys[0]}'). commit_refs and references are stored in S3 object "
+                    "annotations alone, so ensure the IAM policy includes "
+                    "s3:GetObjectAnnotation with condition StringLike s3:prefix "
+                    f"'{prefix}*' — granting it on the write prefix only leaves every "
+                    "foreign-scope read failing at runtime."
+                )
+                raise StartupValidationError(
+                    check="read_prefix",
+                    message=(
+                        denial_message
+                        if _is_annotation_iam_denial(exc)
+                        else _annotation_failure_message(settings, exc)
+                    ),
+                ) from exc
+            except Exception as exc:
+                raise StartupValidationError(
+                    check="read_prefix",
+                    message=(
+                        f"Read prefix access check failed for '{prefix}': the annotation "
+                        f"read on '{keys[0]}' did not complete. Error: {exc}"
                     ),
                 ) from exc
 
@@ -387,18 +427,23 @@ def _check_text_model(settings: Settings, bedrock: BedrockClientInterface) -> No
         ) from exc
 
 
-def _annotation_failure_message(settings: Settings, exc: AnnotationUnavailableError) -> str:
-    """Build the check-8 failure message for the cause the operator must act on.
+def _is_annotation_iam_denial(exc: AnnotationUnavailableError) -> bool:
+    """Tell the two ``AnnotationUnavailableError`` causes apart.
 
-    ``AnnotationUnavailableError`` covers two conditions with different remedies: a
-    missing IAM action (an IAM policy edit fixes it) and a region or bucket type that
-    does not offer annotations at all (only relocating the bucket fixes it). Reporting
-    one message for both sends the operator down the wrong path.
+    A missing IAM action (an IAM policy edit fixes it) and a region or bucket type that
+    does not offer annotations at all (only relocating the bucket fixes it) reach the
+    caller as the same exception, with different remedies — reporting one message for
+    both sends the operator down the wrong path. Shared by checks 3 and 8, which probe
+    different prefixes but face the same two causes.
     """
-    original = exc.original
-    if isinstance(original, botocore.exceptions.ClientError) and is_annotation_permission_error(
-        original
-    ):
+    return isinstance(
+        exc.original, botocore.exceptions.ClientError
+    ) and is_annotation_permission_error(exc.original)
+
+
+def _annotation_failure_message(settings: Settings, exc: AnnotationUnavailableError) -> str:
+    """Build the check-8 failure message for the cause the operator must act on."""
+    if _is_annotation_iam_denial(exc):
         return (
             "S3 object annotation check failed: bucket "
             f"'{settings.artifact_bucket}' and its region support object annotations, but "
@@ -429,10 +474,10 @@ def _check_annotations(settings: Settings, s3: S3ClientInterface) -> None:
     probe_key = f"{settings.write_prefix}/{_ANNOTATION_PROBE_KEY_SUFFIX}_{ULID()}"
     try:
         s3.put_object(probe_key, "annotation-probe", {})
-        s3.put_object_annotation(probe_key, _ANNOTATION_PROBE_NAME, "probe")
-        s3.get_object_annotation(probe_key, _ANNOTATION_PROBE_NAME)
+        s3.put_object_annotation(probe_key, ANNOTATION_PROBE_NAME, "probe")
+        s3.get_object_annotation(probe_key, ANNOTATION_PROBE_NAME)
         s3.list_object_annotations(probe_key)
-        s3.delete_object_annotation(probe_key, _ANNOTATION_PROBE_NAME)
+        s3.delete_object_annotation(probe_key, ANNOTATION_PROBE_NAME)
     except CredentialError:
         raise
     except AnnotationUnavailableError as exc:

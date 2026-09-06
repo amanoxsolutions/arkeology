@@ -11,11 +11,12 @@ references:
   - docs/specs/p12-t48-reconcile-from-annotations.md
   - docs/specs/p12-t62-bounded-reconcile-retry.md
   - docs/specs/p12-t67-orphan-vector-retry-and-selfheal.md
+  - docs/architecture-decisions/adr-2026-07-03-annotation-backed-link-storage.md
 authored:
   by: "tech-writer"
   date: 2026-09-04
 revised:
-  by: "developer"
+  by: "architect"
   date: 2026-09-06
 ---
 
@@ -79,18 +80,50 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
   prune time, so it cannot race a concurrent write; and if the object reappears after the entry is
   pruned, the orphan scan re-indexes any S3 key carrying zero vectors on the following run. Weakening
   any one of the three invalidates this classification.
+- **An entry's `failure_step` names the step that failed, and the set of values is open.** Nothing
+  in this tool branches on it: an entry's kind is derived from whether it carries `orphan_keys`, and
+  its identity for pruning is the whole entry as read back from disk. A producer may therefore split
+  one step name into several without a schema change here, and an entry written before such a split
+  keeps its own value through both the replay and the prune, because both sides read it from the same
+  bytes. The field exists for the operator reading the log to learn why a given artifact is in it, so
+  a producer that can tell its steps apart is expected to stamp them apart rather than fix one value
+  standing for all of them.
 - A failure-log entry may carry two **optional** link-field copies, `commit_refs` and `references`,
-  recorded by whichever producer wrote it when an annotation re-apply failed after the object had
-  already been re-PUT. Phase 1 re-applies them before re-indexing, so the rebuilt vector metadata is
-  derived from the restored value. This is the only path by which they can come back: the re-PUT
+  recorded by whichever producer wrote it when a step failed after the object had already been
+  re-PUT. Phase 1 re-applies them before re-indexing, so the rebuilt vector metadata is derived from
+  the restored value. This is the only path by which they can come back: the re-PUT
   cleared the annotation copy, `references` is in vector metadata nowhere, and the vector
   `commit_refs` copy is capped, so every entry past that cap would otherwise be lost permanently.
-- **Absence of either field means "nothing to restore", never "clear the field".** Entries written
-  before the fields existed carry neither and must replay unchanged, leaving the object's
+- An entry carrying either copy also records, as a third **optional** field, the artifact's
+  `last_edited_ulid` as it stood when the failure was recorded. It is the supersession token the
+  `references` restore rule below is decided on, and it is the entry's only purpose — nothing else
+  reads it. See `s3.artifact` for the field itself.
+- **Absence of either link field means "nothing to restore", never "clear the field".** Entries
+  written before the fields existed carry neither and must replay unchanged, leaving the object's
   annotations exactly as they are.
-- The restored value is the **union** of the entry's copy and the artifact's current annotation
-  value, never a replacement. A value re-added between the failure and the reconcile lives only in
-  the current copy; replacing would trade one silent loss for another.
+- `commit_refs` is restored as the **union** of the entry's copy and the artifact's current
+  annotation value, unconditionally and with no supersession test. It is an append-only audit trail
+  on which removal is not a supported operation, so a value re-added between the failure and the
+  replay lives only in the current copy and the union is the only way to keep both.
+- `references` is restored **only while the entry's recorded `last_edited_ulid` still equals the
+  artifact's current one.** When the two differ, the entry's copy is discarded and the current
+  annotation value is left exactly as it stands. Every write replaces `references` outright (see
+  `arkeology.tools.write`), so a differing ULID means a later successful write has already
+  established what the field says, and restoring the entry's copy over it would resurrect
+  references that write deliberately removed. Unioning here — the rule this replaces — weighed
+  additions only and contradicted the replace semantics on every removal.
+- The supersession token is `last_edited_ulid`, never the object's ETag. The ULID changes on exactly
+  the operation whose `references` semantics are replacement — a `write_artifact` write — and is
+  deliberately left untouched by an archive status flip, a `link_metadata` backfill, and a reconcile
+  re-index, none of which replace `references`. An ETag tracks bytes rather than writes: an
+  overwriting write that changes only `references` and leaves the body byte-identical carries the
+  **same** ETag, so an ETag comparison would miss precisely the supersession this rule exists to
+  detect. How an ETag is derived at all also varies with bucket encryption, making it
+  deployment-dependent where the ULID is not.
+- An entry recording **no** `last_edited_ulid` — one written before the token existed, or one for an
+  artifact that carries none — restores `references` by union, exactly as entries did before. An
+  absent token is missing evidence of supersession, not evidence of it, and discarding on it would
+  destroy the only surviving copy of a value no later write had touched.
 - The rebuilt vector metadata's `commit_refs` is derived from the artifact's annotation, its sole
   source of truth, never carried over from the vector being replaced. A failed annotation read fails
   that artifact — it is reported under `failed` and no vectors are written for it — because rebuilding

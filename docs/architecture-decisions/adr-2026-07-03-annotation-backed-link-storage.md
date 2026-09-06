@@ -17,7 +17,7 @@ authored:
   date: "2026-07-03"
 revised:
   by: "architect"
-  date: "2026-08-13"
+  date: "2026-09-06"
 ---
 
 # Annotation-Backed Durable Storage for Mutable Link Fields (commit_refs + references)
@@ -463,3 +463,84 @@ Decision 5's reasoning still holds for what it optimised: link storage is a narr
 content, vectors and embeddings, and gating startup on it does cost availability. That trade is now
 made deliberately the other way, with a deployment lacking annotation support treated as unsupported
 rather than degraded.
+
+## Revision — 2026-09-06
+
+Two corrections, both to points this ADR left under-decided rather than decided wrongly. The first
+supplies the missing half of decision 4's replace semantics; the second collapses a three-way split
+the 2026-09-05 revision's structured-error rule permitted without intending to.
+
+### `references` restored from a failure-log entry only while it has not been superseded
+
+Decision 3 has `reconcile_index` restore both link fields from the durable annotations, and decision
+4 makes `references` replace-on-write while `commit_refs` accretes. Neither said what happens when a
+failure-log entry's recorded link-field copy is replayed *after* a successful overwriting write has
+landed in between. The reconcile contract filled that gap on its own with a union of the entry's copy
+and the artifact's current value — reasoning about additions only. Against decision 4 that is a
+contradiction: the union resurrects exactly the `references` entries the later write deliberately
+removed, and a caller who edits their frontmatter to drop a stale link can have it silently returned
+by a repair run.
+
+The rule, which requirements.md AC-68 now pins in both directions:
+
+- A failure-log entry that carries a link-field copy also carries the artifact's `last_edited_ulid`
+  as it stood when the failure was recorded.
+- On replay, `references` is restored **only while that recorded ULID still equals the artifact's
+  current one**. When it differs, a later successful write has already established what the field
+  says; the entry's copy is discarded and the current annotation value stands.
+- `commit_refs` continues to union unconditionally. It is an append-only audit trail on which removal
+  is not a supported operation, so there is no later-write intent for a union to override.
+- An entry with no recorded ULID unions, as before. An absent token is missing evidence of
+  supersession, not evidence of it, and this store has no second copy to recover a wrongly discarded
+  value from.
+
+`last_edited_ulid` was chosen over the object's ETag as the token, which is worth recording because
+the ETag is what decision 6's compare-and-swap already uses and is therefore the obvious candidate.
+The two answer different questions. The ULID moves on exactly the operation whose `references`
+semantics are replacement — a `write_artifact` write — and ADR-009's still-in-force decision (see
+Status) deliberately leaves it untouched by a link backfill, an archive status flip, and a reconcile
+re-index, none of which replace `references`. An ETag tracks bytes: an overwriting write that changes
+only `references` and leaves the body byte-identical carries the same ETag, so it would miss
+precisely the supersession being tested for; how an ETag is derived also varies with bucket
+encryption, making the token's behaviour deployment-dependent. Compare-and-swap wants "did these
+bytes change", which is the ETag's question; this rule wants "did a write happen", which is the
+ULID's.
+
+The same union-across-attempts reasoning had been applied inside `archive_artifact`'s
+compare-and-swap loop, where the read-forward values accumulate across attempts so that an attempt's
+own annotation-clearing re-PUT cannot be mistaken for the field being empty. That accumulation is
+still right for its original purpose and is kept — but it is now bounded by the same token: a retry
+that re-reads a *different* `last_edited_ulid` adopts the freshly read `references` outright rather
+than accumulating into it, because a concurrent write landed and its value is authoritative.
+
+### `AnnotationUnavailableError` surfaces as one code everywhere
+
+The 2026-09-05 revision made annotation availability a hard startup gate and required a runtime
+annotation failure to surface as a structured error rather than degrade. It did not say *which*
+structured error, and three grew: `internal_error` from `read_artifact` / `list_artifacts` /
+`propose_commit_links`, `annotation_unavailable` from `link_metadata`, and `partial_write` from
+`write_artifact`. One condition — post-setup IAM drift on the annotation actions — with three names,
+and the read-path contracts listing only `credential_error` and `internal_error`, so nothing on that
+side pointed a reader at the condition at all.
+
+The single code is **`annotation_unavailable`**, from every tool that can meet the condition. The
+remedy for this condition is known and documented; `internal_error` says only "something
+unexpected", discarding the very diagnosis the hard startup gate exists to make possible, and an
+operator should not need to know which tool they happened to call to recognise a permissions
+problem. The mapping
+belongs in the shared tool-layer helper module `_errors.py`, which already owns the `CredentialError`
+mapping — a mapping duplicated per tool is a mapping that drifts per tool, which is how the split
+arose in the first place.
+
+`write_artifact`'s `partial_write` was examined on the possibility that it means something
+legitimately different, since it signals durable content with non-durable link fields rather than a
+cause. It does mean something different — but it is not in competition, and the write path had
+already settled the precedence. Its `CredentialError` branch returns `credential_error`, not
+`partial_write`, *after* the object write has landed and *after* the failure-log entry is appended:
+where a cause is diagnosable, the write path already reports the cause and leaves the durability
+facts to the postcondition. Annotation unavailability is diagnosable on exactly those terms, so it
+takes the same branch. `partial_write` keeps its meaning as the residual state where no cause is
+separately diagnosable, and the "object durable, failure-log entry appended, artifact unsearchable
+until reconciled" guarantee is restated as holding across all three codes rather than as a property
+of `partial_write` alone. Nothing about what is durable changes; only what the caller is told about
+why.

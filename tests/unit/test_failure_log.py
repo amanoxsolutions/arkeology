@@ -9,8 +9,14 @@ import threading
 from pathlib import Path
 
 import pytest
+from pytest_mock import MockerFixture
 
-from arkeology.failure_log import append_failure_entry
+from arkeology import failure_log
+from arkeology.failure_log import (
+    append_failure_entry,
+    build_failure_entry,
+    rewrite_failure_log,
+)
 
 # ---------------------------------------------------------------------------
 # Base entry fixture
@@ -235,3 +241,158 @@ def test_concurrent_writers_are_mutually_exclusive(
         "append_failure_entry has no mutual-exclusion lock, so concurrent writers can "
         "interleave and corrupt the log file"
     )
+
+
+# ---------------------------------------------------------------------------
+# T74.5 — rewrite_failure_log: truncate in place, and tolerate a vanished file
+# ---------------------------------------------------------------------------
+
+
+def test_rewrite_keeps_the_same_file_when_the_log_drains(tmp_path: Path) -> None:
+    """A drained log is truncated in place, never unlinked.
+
+    Unlinking under the lock loses the entry of any appender that opened the file
+    before the unlink and is still waiting on the lock: its write lands in the
+    unlinked inode and the artifact it names is never reconciled. Holding the same
+    inode is what makes that append survive, which is why the identity — not merely
+    the file's existence — is what this asserts.
+    """
+    log_path = tmp_path / "failures.jsonl"
+    append_failure_entry(log_path, _BASE_ENTRY)
+    inode_before = log_path.stat().st_ino
+
+    remaining = rewrite_failure_log(log_path, lambda entries: [])
+
+    assert remaining == []
+    assert log_path.exists()
+    assert log_path.read_text(encoding="utf-8") == ""
+    assert log_path.stat().st_ino == inode_before
+
+
+def _record_sizes_at_unlock(mocker: MockerFixture, log_path: Path) -> list[int]:
+    """Capture the log's on-disk size at each ``LOCK_UN``, delegating to the real flock.
+
+    The size at the moment the lock is dropped is the only observable that separates a
+    write that reached disk inside the critical section from one still sitting in the
+    buffer, waiting for ``close()`` to flush it after another writer already holds the
+    lock.
+    """
+    real_flock = failure_log.fcntl.flock
+    sizes: list[int] = []
+
+    def _flock(fh: object, operation: int) -> None:
+        if operation == failure_log.fcntl.LOCK_UN:
+            sizes.append(log_path.stat().st_size)
+        real_flock(fh, operation)
+
+    mocker.patch.object(failure_log.fcntl, "flock", side_effect=_flock)
+    return sizes
+
+
+def test_append_flushes_the_entry_to_disk_before_releasing_the_lock(
+    tmp_path: Path,
+    mocker: MockerFixture,
+) -> None:
+    """The appended line is on disk before the lock is dropped, not at ``close()``.
+
+    A line still buffered when the lock goes is written outside the critical section,
+    which is the interleaving the lock exists to prevent.
+    """
+    log_path = tmp_path / "failures.jsonl"
+    sizes_at_unlock = _record_sizes_at_unlock(mocker, log_path)
+
+    append_failure_entry(log_path, _BASE_ENTRY)
+
+    assert log_path.stat().st_size > 0
+    assert sizes_at_unlock == [log_path.stat().st_size]
+
+
+def test_rewrite_flushes_retained_entries_to_disk_before_releasing_the_lock(
+    tmp_path: Path,
+    mocker: MockerFixture,
+) -> None:
+    """The retained entries are on disk before the lock is dropped, not at ``close()``.
+
+    ``writelines`` only buffers. With the flush deferred to ``close()``, an appender
+    blocked on the lock wakes to a file the rewriter has already truncated, writes its
+    line at offset 0, and the rewriter's deferred flush then lands on top of it — losing
+    the entry, and with it any chance of the artifact it names being reconciled. That is
+    the same loss truncating in place rather than unlinking exists to prevent.
+    """
+    log_path = tmp_path / "failures.jsonl"
+    append_failure_entry(log_path, {**_BASE_ENTRY, "reason": "keep"})
+    append_failure_entry(log_path, {**_BASE_ENTRY, "reason": "drop"})
+    sizes_at_unlock = _record_sizes_at_unlock(mocker, log_path)
+
+    remaining = rewrite_failure_log(
+        log_path, lambda entries: [e for e in entries if e["reason"] == "keep"]
+    )
+
+    assert [entry["reason"] for entry in remaining] == ["keep"]
+    assert log_path.stat().st_size > 0
+    assert sizes_at_unlock == [log_path.stat().st_size]
+
+
+def test_rewrite_treats_a_file_that_vanished_after_the_existence_check_as_empty(
+    tmp_path: Path,
+) -> None:
+    """A concurrent run draining the log between ``exists()`` and ``open()`` is not an error.
+
+    Two reconcile runs share one log file, so the window is real. A log that is simply
+    gone means "no entries", and raising ``FileNotFoundError`` out of here fails the
+    whole calling run over a state that is indistinguishable from an empty log.
+    """
+    log_path = tmp_path / "failures.jsonl"
+
+    remaining = rewrite_failure_log(log_path, lambda entries: entries)
+
+    assert remaining == []
+
+
+# ---------------------------------------------------------------------------
+# T74.1 — build_failure_entry carries the supersession token
+# ---------------------------------------------------------------------------
+
+
+def test_build_failure_entry_records_the_last_edited_ulid_when_supplied() -> None:
+    """The entry carries the artifact's ``last_edited_ulid`` as it stood at failure time.
+
+    It is the supersession token ``reconcile_index`` decides the ``references`` restore
+    on, and the entry's only purpose for it — nothing else reads it. The single
+    construction point is where it belongs, so no producer can record an entry without it.
+    """
+    entry = build_failure_entry(
+        artifact_id="artifacts/code-review-2026-05-30-fix-auth-bug",
+        title="Fix auth bug",
+        artifact_type="code_review",
+        tier=2,
+        date="2026-05-30",
+        failure_step="annotation_write",
+        reason="simulated",
+        references=["artifacts/some-adr"],
+        last_edited_ulid="01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    )
+
+    assert entry["last_edited_ulid"] == "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+
+
+def test_build_failure_entry_omits_the_last_edited_ulid_when_absent() -> None:
+    """An artifact carrying no ULID records no token, and the field stays absent.
+
+    An absent token means "no evidence of supersession", which ``reconcile_index``
+    treats as a union — the pre-token behaviour. A falsy placeholder would instead
+    compare unequal to every real ULID and discard the only surviving ``references``
+    copy on every such entry.
+    """
+    entry = build_failure_entry(
+        artifact_id="artifacts/code-review-2026-05-30-fix-auth-bug",
+        title="Fix auth bug",
+        artifact_type="code_review",
+        tier=2,
+        date="2026-05-30",
+        failure_step="annotation_write",
+        reason="simulated",
+        references=["artifacts/some-adr"],
+    )
+
+    assert "last_edited_ulid" not in entry

@@ -9,12 +9,13 @@ references:
   - docs/specs/p12-t49-link-metadata.md
   - docs/specs/p12-t57-guard-coverage.md
   - docs/specs/p12-t58-commit-refs-cap-references-removal.md
+  - docs/architecture-decisions/adr-2026-07-03-annotation-backed-link-storage.md
 authored:
   by: "tech-writer"
   date: 2026-09-04
 revised:
-  by: "developer"
-  date: 2026-09-05
+  by: "architect"
+  date: 2026-09-06
 ---
 
 # arkeology.tools.link_metadata
@@ -110,3 +111,10 @@ delegation rule. It raises nothing.
   failure-log entry recording the applied `commit_refs` / `references` is queued for
   `reconcile_index`. A single such failure never discards the results the rest of the batch
   achieved.
+- That entry also records the artifact's `last_edited_ulid` — unchanged by this tool, so it is the
+  one the artifact already carried. `reconcile_index` compares it against the artifact's current one
+  on replay and restores the entry's `references` only while the two still match, so a later
+  overwriting write's replacement of the field is not undone by this entry. The entry's
+  `commit_refs` unions unconditionally. Without the token the replay would be, in this tool's case
+  especially, either a no-op or wrong: the annotation write it follows **succeeded**, so the entry's
+  copy is only ever the current value or a stale one. See `arkeology.tools.reconcile`.

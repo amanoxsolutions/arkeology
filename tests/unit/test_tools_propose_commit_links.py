@@ -15,7 +15,7 @@ from arkeology.annotations import apply_link_annotations
 from arkeology.clients.s3 import S3ClientImpl
 from arkeology.clients.vectors import VectorsClientImpl
 from arkeology.config import Settings
-from arkeology.errors import CredentialError
+from arkeology.errors import AnnotationUnavailableError, CredentialError
 from arkeology.tools.propose_commit_links import propose_commit_links
 from tests.unit.conftest import _make_settings as _make_settings_base
 
@@ -694,4 +694,44 @@ async def test_commit_refs_resolution_non_credential_error_aborts_the_call(
     )
 
     assert result.get("error") == "internal_error"
+    assert "proposed" not in result
+
+
+# ---------------------------------------------------------------------------
+# T74.4 — one error code for AnnotationUnavailableError
+# ---------------------------------------------------------------------------
+
+
+async def test_propose_annotation_unavailable_returns_the_annotation_unavailable_code(
+    monkeypatch: pytest.MonkeyPatch,
+    vectors_client_2: VectorsClientImpl,
+    s3_client: S3ClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """A failed candidate link-field read names its cause instead of collapsing to
+    ``internal_error``.
+
+    Aborting the call is already correct — a degraded candidate would be proposed for
+    linking on the strength of a transient error — but the code the caller sees must
+    be the one every other tool returns for this condition, not a generic
+    ``internal_error`` an operator cannot map back to an IAM policy.
+    """
+    settings = _make_settings(monkeypatch)
+    _seed_standard(vectors_client_2, s3_client)
+    mocker.patch.object(
+        s3_client,
+        "get_object_annotation",
+        side_effect=AnnotationUnavailableError(
+            "S3 object annotations are unavailable for this bucket.", "s3", Exception("boom")
+        ),
+    )
+
+    result = await propose_commit_links(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        commit_sha=COMMIT_SHA,
+    )
+
+    assert result.get("error") == "annotation_unavailable"
     assert "proposed" not in result

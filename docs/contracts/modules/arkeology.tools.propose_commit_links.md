@@ -9,12 +9,13 @@ references:
   - docs/specs/p10-t37-propose-commit-links.md
   - docs/specs/p10-t35-filter-range-operators.md
   - docs/specs/p12-t58-commit-refs-cap-references-removal.md
+  - docs/architecture-decisions/adr-2026-07-03-annotation-backed-link-storage.md
 authored:
   by: "tech-writer"
   date: 2026-09-04
 revised:
-  by: ""
-  date: YYYY-MM-DD
+  by: "architect"
+  date: 2026-09-06
 ---
 
 # arkeology.tools.propose_commit_links
@@ -47,6 +48,12 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
 
 - `credential_error` — a `CredentialError` from any store read aborts the whole call, including a
   per-candidate link-field read.
+- `annotation_unavailable` — the durable link-field annotation read failed because the annotation
+  store is unavailable or access to it is denied. Startup check 8 proves availability before the
+  server accepts a request, so at runtime this means post-setup IAM drift; the code names that
+  condition instead of collapsing it into `internal_error`. It is the same code every other tool
+  returns for this condition — see `s3-annotations.artifact` for the single-code rule and where the
+  mapping lives.
 - `internal_error` — any otherwise unhandled exception.
 
 **Invariants**

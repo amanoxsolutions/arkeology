@@ -149,6 +149,10 @@ async def _delete_artifact_inner(
     # destroyed. The error code stays credential_error on a credential failure (a
     # credential failure is what the caller has to act on), so ``vectors_deleted`` is
     # what tells the two branches' shared state apart from an unstarted delete.
+    # It describes the vector *side*, not a vector count: an artifact that had none —
+    # a never-indexed partial write — reaches here with the same clean vector side as
+    # one whose vectors were just deleted, so both report True. Reporting the empty
+    # case as False would say "the vectors are still there" when there are none.
     try:
         await asyncio.to_thread(s3.delete_object, artifact_id)
     except CredentialError as exc:
@@ -156,14 +160,14 @@ async def _delete_artifact_inner(
             "error": ErrorCode.CREDENTIAL_ERROR,
             "message": str(exc),
             "artifact_id": artifact_id,
-            "vectors_deleted": bool(vec_keys),
+            "vectors_deleted": True,
         }
     except Exception as exc:
         return {
             "error": ErrorCode.PARTIAL_DELETE,
             "message": str(exc),
             "artifact_id": artifact_id,
-            "vectors_deleted": bool(vec_keys),
+            "vectors_deleted": True,
         }
 
     logger.info("Artifact deleted: key=%s", artifact_id)

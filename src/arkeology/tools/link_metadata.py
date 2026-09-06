@@ -52,7 +52,11 @@ from arkeology.errors import (
     CredentialError,
     MetadataTooLargeError,
 )
-from arkeology.failure_log import append_failure_entry, build_failure_entry
+from arkeology.failure_log import (
+    append_failure_entry,
+    build_failure_entry,
+    coerce_entry_tier,
+)
 from arkeology.tools._errors import credential_error_response
 from arkeology.tools._scope import is_own_scope
 from arkeology.tools._search_helper import fetch_vectors_by_metadata
@@ -181,25 +185,28 @@ def _record_vector_write_failure(
         commit_refs: The merged value the annotation write persisted, recorded so the
             replay restores it even if the annotation copy is cleared before reconcile
             runs (an overwriting ``write_artifact`` re-PUT does exactly that).
-        references: As ``commit_refs``.
+        references: As ``commit_refs``. Recorded alongside the artifact's
+            ``last_edited_ulid``, which this tool leaves untouched: the replay
+            restores this copy only while that token still matches, so a later
+            overwriting write is not undone by this entry.
     """
-    tier_raw = vector_metadata.get("tier", 2)
-    try:
-        tier = int(tier_raw)
-    except TypeError, ValueError:
-        tier = 2
     append_failure_entry(
         settings.failure_log_path,
         build_failure_entry(
             artifact_id=artifact_id,
             title=str(vector_metadata.get("title", "")),
             artifact_type=str(vector_metadata.get("type", "")),
-            tier=tier,
+            tier=coerce_entry_tier(vector_metadata.get("tier", 2)),
             date=str(vector_metadata.get("date", "")),
             failure_step="put_vector",
             reason=reason,
             commit_refs=commit_refs,
             references=references,
+            # This tool never alters last_edited_ulid, so this is the one the
+            # artifact already carried. reconcile_index restores the entry's
+            # references only while that token still matches the artifact's
+            # current one, so a later overwriting write is not undone by it.
+            last_edited_ulid=str(vector_metadata.get("last_edited_ulid", "")),
         ),
     )
 

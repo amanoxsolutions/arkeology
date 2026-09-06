@@ -1,7 +1,7 @@
 ---
 type: Contract
 title: arkeology.tools.health
-description: The health_check MCP tool — independent per-component connectivity probes for S3, S3 Vectors, Bedrock, the write prefix, and every read prefix, reported as a structured status map that never raises.
+description: The health_check MCP tool — independent per-component connectivity probes for S3, S3 Vectors, Bedrock, the write prefix, the annotation store, and every read prefix, reported as a structured status map that never raises.
 tags: []
 timestamp: 2026-09-04T00:00:00Z
 okf_version: "0.1"
@@ -13,7 +13,7 @@ authored:
   date: 2026-09-04
 revised:
   by: "architect"
-  date: 2026-09-04
+  date: 2026-09-06
 ---
 
 # arkeology.tools.health
@@ -71,10 +71,15 @@ reported *inside* its own entry. Only a failure of the tool itself yields `inter
 
 **Postconditions**
 
-- Returns a dict keyed by `"s3"`, `"vectors"`, `"bedrock"`, `"write_prefix"`, one
-  `"read_prefix:{prefix}"` entry per configured read prefix, and — only when a text model is
+- Returns a dict keyed by `"s3"`, `"vectors"`, `"bedrock"`, `"write_prefix"`, `"annotations"`,
+  one `"read_prefix:{prefix}"` entry per configured read prefix, and — only when a text model is
   configured — `"bedrock_text_model"`.
 - Each value is `{"status": "ok"}` or `{"status": "error", "message": str}`, the latter optionally
   carrying `"cause"`.
 - The key set reflects **configured** components, so a deployment with no read prefixes yields no
   `read_prefix:` keys — their absence means "none configured", not "not checked".
+- `"annotations"` is the exception to that rule: it is probed **unconditionally**, where
+  `"bedrock_text_model"` appears only when a text model is configured. Annotations are the sole
+  durable home of `commit_refs` and `references` on every deployment, so there is no configuration
+  under which the probe is inapplicable — an absent `"annotations"` key means the tool itself
+  failed, never that nothing needed checking.

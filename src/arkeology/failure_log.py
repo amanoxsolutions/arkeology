@@ -39,6 +39,7 @@ def build_failure_entry(
     reason: str,
     commit_refs: list[str] | None = None,
     references: list[str] | None = None,
+    last_edited_ulid: str | None = None,
     orphan_keys: list[str] | None = None,
 ) -> dict[str, Any]:
     """Build one failure-log entry, stamped with the current time.
@@ -54,8 +55,10 @@ def build_failure_entry(
         tier: Artifact tier.
         date: ISO-8601 date string.
         failure_step: Stage that failed (e.g. ``"bedrock_embed"``, ``"put_vector"``,
-            ``"annotation_write"``, ``"orphan_vector_cleanup"``,
-            ``"archive_vector_flip"``).
+            ``"annotation_write"``, ``"orphan_vector_cleanup"``). Open-ended and
+            consumed by nobody — it is operator diagnostics, and part of the entry
+            fingerprint ``reconcile_index`` prunes by. The archive path stamps one of
+            several steps, enumerated as ``_STEP_*`` in ``tools/archive.py``.
         reason: Human-readable failure reason.
         commit_refs: The link-field value a failed annotation write could not persist.
             Recorded because the entry is that value's only remaining source: the
@@ -69,6 +72,14 @@ def build_failure_entry(
         references: As ``commit_refs``, and in a strictly worse position: ``references``
             is not written to vector metadata at all, so no value of it survives a
             cleared annotation without this copy.
+        last_edited_ulid: The artifact's ``last_edited_ulid`` as it stood when the
+            failure was recorded. ``reconcile_index`` compares it against the
+            artifact's current one and restores ``references`` only while the two
+            still match, so a later write's replacement of that field is not undone
+            by this entry; ``commit_refs`` unions regardless. Omitted when the
+            artifact carries none — an absent token is missing evidence of
+            supersession, not evidence of it, and unions as entries did before the
+            token existed. Nothing else reads it.
         orphan_keys: When a ``delete_vectors`` retry is exhausted, the exact list of
             stale vector keys that still need deleting. Included only when not
             ``None``; its presence (not a separate ``kind``/``type`` field) is what
@@ -92,9 +103,31 @@ def build_failure_entry(
         entry["commit_refs"] = list(commit_refs)
     if references:
         entry["references"] = list(references)
+    if last_edited_ulid:
+        entry["last_edited_ulid"] = last_edited_ulid
     if orphan_keys is not None:
         entry["orphan_keys"] = orphan_keys
     return entry
+
+
+def coerce_entry_tier(raw: Any) -> int:
+    """Coerce a stored ``tier`` value to the int :func:`build_failure_entry` wants.
+
+    The two producers that build an entry from an already-stored metadata dict —
+    ``archive_artifact`` from S3 object metadata (strings) and ``link_metadata``
+    from vector metadata (ints) — both need this, and a failure path is the worst
+    place to raise over a hand-edited or malformed value.
+
+    Args:
+        raw: The stored value, of whatever type that store holds.
+
+    Returns:
+        The value as an int, or ``2`` when it is not coercible.
+    """
+    try:
+        return int(raw)
+    except TypeError, ValueError:
+        return 2
 
 
 def append_failure_entry(path: Path, entry: dict[str, Any]) -> None:
@@ -123,6 +156,10 @@ def append_failure_entry(path: Path, entry: dict[str, Any]) -> None:
             try:
                 fh.write(json.dumps(entry, default=str) + "\n")
             finally:
+                # Flush before releasing the lock. The write is buffered, and a flush
+                # deferred to close() happens after the lock is gone — landing the line
+                # outside the critical section the lock exists to define.
+                fh.flush()
                 if fcntl is not None:
                     fcntl.flock(fh, fcntl.LOCK_UN)
     except Exception as exc:
@@ -174,7 +211,10 @@ def rewrite_failure_log(
     in it.
 
     Args:
-        path: Filesystem path to the .jsonl failure log. A missing file is a no-op.
+        path: Filesystem path to the .jsonl failure log. A missing file is treated as an
+            empty one — two runs share the file, so it can be drained between a caller's
+            existence check and this open, and that state is indistinguishable from a log
+            with no entries.
         transform: Maps the entries currently on disk to the entries to retain.
 
     Returns:
@@ -183,27 +223,29 @@ def rewrite_failure_log(
     Raises:
         OSError: If the file cannot be read or written.
     """
-    if not path.exists():
+    try:
+        fh = path.open("r+", encoding="utf-8")
+    except FileNotFoundError:
         return []
-    with path.open("r+", encoding="utf-8") as fh:
+    with fh:
         if fcntl is not None:
             fcntl.flock(fh, fcntl.LOCK_EX)
         try:
             remaining = transform(_parse_entries(fh.read()))
-            if remaining:
-                fh.seek(0)
-                fh.truncate()
-                fh.writelines(json.dumps(entry, default=str) + "\n" for entry in remaining)
-            else:
-                # ponytail: unlinked under the lock, so an append that already
-                # completed is never lost — the re-read above saw it. Residual
-                # window: an appender that opened the file before this unlink and
-                # is still waiting on the lock writes into the unlinked inode. Close
-                # it by having append_failure_entry compare os.fstat(fh).st_ino with
-                # os.stat(path).st_ino once it holds the lock, and reopen on a
-                # mismatch, if that loss is ever observed.
-                path.unlink(missing_ok=True)
+            # Truncated in place, never unlinked, even when nothing is retained: an
+            # appender that opened the file before this call and is still blocked on
+            # the lock would write into an unlinked inode, losing the entry and with it
+            # any chance of the artifact it names ever being reconciled.
+            fh.seek(0)
+            fh.truncate()
+            fh.writelines(json.dumps(entry, default=str) + "\n" for entry in remaining)
         finally:
+            # Flush before releasing the lock, for the same reason the file is truncated
+            # rather than unlinked: writelines() only buffers, so a flush deferred to
+            # close() lands on top of an appender that took the lock and wrote at offset
+            # 0 of the just-truncated file — losing exactly the entry truncate-in-place
+            # is here to preserve.
+            fh.flush()
             if fcntl is not None:
                 fcntl.flock(fh, fcntl.LOCK_UN)
     return remaining

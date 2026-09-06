@@ -6,7 +6,9 @@ index.
 """
 
 import asyncio
+import json
 import logging
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -70,53 +72,74 @@ def _entry_kind(entry: dict[str, Any]) -> str:
     return "orphan_cleanup" if "orphan_keys" in entry else "reindex"
 
 
+def _entry_fingerprint(entry: dict[str, Any]) -> str:
+    """Identify one failure-log entry by its own content, for the end-of-run rewrite.
+
+    The rewrite re-reads the log under the appender's lock, so it works on fresh dicts
+    parsed from the same JSON lines rather than on the objects the run replayed —
+    ``is`` identity is unavailable and equality of the parsed line is what stands in
+    for it. Two entries for the same artifact are still distinct: they differ in at
+    least ``timestamp``, and normally in ``reason`` and ``failure_step`` too.
+    """
+    return json.dumps(entry, sort_keys=True, default=str)
+
+
 def _restore_entry_link_fields(
     entry: dict[str, Any],
     artifact_id: str,
     s3: S3ClientInterface,
-    vectors: VectorsClientInterface,
+    current_ulid: str | None,
 ) -> None:
     """Re-apply the link-field copy a failed annotation write recorded on ``entry``.
 
-    The producers of that entry (the write path's overwrite cycle and the archive
-    path's status flip) both re-PUT the object, which clears its annotations, and both
-    record the values they were about to re-apply when the re-apply itself failed. The
-    entry is then the only surviving source for them: ``references`` is not in vector
-    metadata at all, and the vector ``commit_refs`` copy holds at most the most-recent
+    The producers of that entry (the write path's overwrite cycle, the archive path's
+    status flip, ``link_metadata``'s vector write) re-PUT the object or follow one that
+    did, which clears its annotations, and all record the values they were applying when
+    the failure struck. The entry is then the only surviving source for them:
+    ``references`` is not in vector metadata at all, and the vector ``commit_refs`` copy
+    holds at most the most-recent
     :data:`~arkeology.artifact.COMMIT_REFS_VECTOR_METADATA_MAX_ENTRIES` entries, so
     everything past that window exists nowhere else.
 
-    The restored value is the union of the entry's copy and whatever the artifact
-    currently holds, never a replacement — a value re-added between the failure and
-    this reconcile lives only in the current copy, and dropping it would trade one
-    silent loss for another.
+    ``commit_refs`` is restored as the union of the entry's copy and whatever the
+    artifact currently holds, unconditionally: it is an append-only audit trail on which
+    removal is not a supported operation, so a value re-added between the failure and
+    this reconcile lives only in the current copy and only the union keeps both.
+
+    ``references`` is restored only while the entry's recorded ``last_edited_ulid``
+    still equals the artifact's current one. Every write *replaces* ``references``
+    outright, so a differing ULID means a later successful write has already
+    established what the field says — restoring the entry's copy over it would
+    resurrect exactly the references that write removed. An entry recording no ULID
+    unions as entries did before the token existed: an absent token is missing evidence
+    of supersession, not evidence of it.
 
     An entry written before these fields existed carries neither, which means "nothing
     to restore" and not "clear the link fields": such an entry is a no-op here, leaving
-    the object's annotations exactly as they are. Non-list values from a hand-edited log
-    are ignored on the same terms.
+    the object's annotations exactly as they are.
 
     Args:
         entry: The failure-log entry being replayed.
         artifact_id: Full S3 key of the artifact.
         s3: S3 client.
-        vectors: Vectors client, for the vector-metadata half of the current value.
+        current_ulid: The artifact's current ``last_edited_ulid``, from the S3 object
+            metadata already fetched for this replay — the supersession token the
+            ``references`` decision above is made on. Never the object's ETag: an
+            overwriting write that changes only ``references`` leaves the body
+            byte-identical and so the ETag unchanged, missing precisely the
+            supersession this test exists to detect.
 
     Raises:
-        CredentialError: Propagated from either store.
+        CredentialError: Propagated from S3.
     """
-    entry_commit_refs = entry.get("commit_refs")
-    entry_references = entry.get("references")
-    recorded_commit_refs = (
-        [str(ref) for ref in entry_commit_refs] if isinstance(entry_commit_refs, list) else []
-    )
-    recorded_references = (
-        [str(ref) for ref in entry_references] if isinstance(entry_references, list) else []
-    )
+    recorded_commit_refs = coerce_list_field(entry, "commit_refs")
+    recorded_references = coerce_list_field(entry, "references")
     if not (recorded_commit_refs or recorded_references):
         return
 
     current_commit_refs, current_references = read_link_annotations(s3, artifact_id)
+    entry_ulid = entry.get("last_edited_ulid")
+    superseded = bool(entry_ulid) and entry_ulid != current_ulid
     # ponytail: read-merge-write without compare-and-swap. A link_metadata call landing
     # between the read above and the write below is clobbered. The window is the two
     # calls' latency, against a repair path that only runs on an artifact already known
@@ -126,7 +149,11 @@ def _restore_entry_link_fields(
         s3,
         artifact_id,
         commit_refs=merge_link_field(recorded_commit_refs, current_commit_refs),
-        references=merge_link_field(recorded_references, current_references),
+        references=(
+            current_references
+            if superseded
+            else merge_link_field(recorded_references, current_references)
+        ),
     )
 
 
@@ -423,7 +450,15 @@ async def _reconcile_index_inner(
     failure_log_entries_after = 0
 
     if log_path.exists():
-        entries: list[dict[str, Any]] = read_failure_entries(log_path)
+        try:
+            entries: list[dict[str, Any]] = read_failure_entries(log_path)
+        except FileNotFoundError:
+            # Two runs share one log file, so a concurrent run can drain it between the
+            # existence check above and this read. A log that is simply gone means
+            # "nothing to replay" and is indistinguishable from an empty one — failing
+            # the call here would discard the orphan scan and the dangling-vector prune
+            # of an otherwise healthy run. Matches rewrite_failure_log's own guard.
+            entries = []
         failure_log_entries_before = len(entries)
 
         # Deduplicate by (artifact_id, kind) — attempt re-processing once per unique
@@ -441,6 +476,13 @@ async def _reconcile_index_inner(
             if aid and key not in seen_keys:
                 seen_keys.add(key)
                 unique_entries.append(entry)
+
+        # How many copies of each entry this run actually read. The end-of-run rewrite
+        # may only prune or stamp an entry it holds budget for, so an entry another
+        # writer appended mid-run — for an artifact this run happened to resolve, or to
+        # fail — is left exactly as appended rather than dropped unprocessed or stamped
+        # with attempts it never earned.
+        read_at_start: Counter[str] = Counter(_entry_fingerprint(entry) for entry in entries)
 
         resolved_keys: set[tuple[str, str]] = set()
         # New attempt counts to stamp onto retained entries, keyed the same way as
@@ -578,7 +620,11 @@ async def _reconcile_index_inner(
                     # what puts the recorded commit_refs back into the index too.
                     # Off the event loop — blocking boto3 calls.
                     await asyncio.to_thread(
-                        _restore_entry_link_fields, entry, artifact_id, s3, vectors
+                        _restore_entry_link_fields,
+                        entry,
+                        artifact_id,
+                        s3,
+                        raw_meta.get("last_edited_ulid"),
                     )
                     reconciled_entry = await _fetch_and_reindex(
                         artifact_id, raw_meta, "failure_log", settings, s3, vectors, bedrock
@@ -663,16 +709,28 @@ async def _reconcile_index_inner(
                 failed_ids.add(r["artifact_id"])
 
         def _prune(current: list[dict[str, Any]]) -> list[dict[str, Any]]:
-            """Retain every entry whose (artifact_id, kind) was NOT resolved.
+            """Retain every entry this run did not resolve.
 
-            T67: a co-existing reindex entry and orphan-cleanup entry for the same
-            artifact_id are pruned independently, never as a side effect of the
-            other's resolution. ``current`` is re-read under the log's lock, so an
-            entry another writer appended during the replay above is present here and
-            is retained — the run must not overwrite what it never processed.
+            ``current`` is re-read under the log's lock, so an entry another writer
+            appended during the replay above is present here. Such an entry is passed
+            through untouched even when its artifact_id is one this run resolved or
+            failed: the ``read_at_start`` budget is what separates "an entry this run
+            read" from "an entry that arrived since", and only the former may be pruned
+            or stamped. Pruning by (artifact_id, kind) alone would drop an entry the run
+            never read — and the artifact it names would never be repaired, because it
+            has vectors and so the orphan scan skips it.
+
+            Within that budget, T67 still applies: a co-existing reindex entry and
+            orphan-cleanup entry for the same artifact_id are pruned independently,
+            never as a side effect of the other's resolution.
             """
             kept: list[dict[str, Any]] = []
             for candidate in current:
+                fingerprint = _entry_fingerprint(candidate)
+                if not read_at_start[fingerprint]:
+                    kept.append(candidate)
+                    continue
+                read_at_start[fingerprint] -= 1
                 key = (candidate.get("artifact_id", ""), _entry_kind(candidate))
                 if key in resolved_keys:
                     continue

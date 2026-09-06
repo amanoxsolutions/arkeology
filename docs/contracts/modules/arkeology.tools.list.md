@@ -10,12 +10,13 @@ references:
   - docs/specs/p10-t41-rename-feature-tags-to-tags.md
   - docs/specs/p12-t58-commit-refs-cap-references-removal.md
   - docs/specs/p12-t59-remove-references-filter-param.md
+  - docs/architecture-decisions/adr-2026-07-03-annotation-backed-link-storage.md
 authored:
   by: "tech-writer"
   date: 2026-09-04
 revised:
-  by: ""
-  date: YYYY-MM-DD
+  by: "architect"
+  date: 2026-09-06
 ---
 
 # arkeology.tools.list
@@ -53,6 +54,12 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
 - `validation_error` — an invalid filter value, e.g. a `type` outside `ARTIFACT_TYPES`.
 - `credential_error` — an AWS call raised `CredentialError`, including during the concurrent
   link-field resolution.
+- `annotation_unavailable` — the durable link-field annotation read failed because the annotation
+  store is unavailable or access to it is denied. Startup check 8 proves availability before the
+  server accepts a request, so at runtime this means post-setup IAM drift; the code names that
+  condition instead of collapsing it into `internal_error`. It is the same code every other tool
+  returns for this condition — see `s3-annotations.artifact` for the single-code rule and where the
+  mapping lives.
 - `internal_error` — any otherwise unhandled exception.
 
 **Invariants**

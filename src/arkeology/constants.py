@@ -1,8 +1,8 @@
 """arkeology.constants — centralised string-literal constants.
 
 Holds the error-code strings returned to MCP callers (as the ``"error"`` field
-of a tool result dict) and the artifact status values stored in S3 object
-metadata and vector metadata.
+of a tool result dict), the artifact status values stored in S3 object metadata
+and vector metadata, and the annotation name both annotation-store probes ask for.
 
 These are :class:`enum.StrEnum` members, so each member *is* a ``str``: it
 compares equal to its literal value, formats to that value in f-strings, and
@@ -48,3 +48,12 @@ class ArtifactStatus(StrEnum):
 
     ACTIVE = "active"
     INACTIVE = "inactive"
+
+
+ANNOTATION_PROBE_NAME = "arkeology_probe"
+"""Annotation name used by both annotation-store probes — startup check 8 and
+``health_check``.
+
+Startup round-trips it (put, get, list, delete); ``health_check`` only reads it. The two
+must ask about the same name for the health probe to exercise what startup validated.
+"""

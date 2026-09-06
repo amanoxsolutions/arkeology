@@ -32,6 +32,20 @@ logger = logging.getLogger(__name__)
 _DELETE_CONCURRENCY = 5
 
 
+def _is_newer_write(candidate: dict[str, Any], current: dict[str, Any] | None) -> bool:
+    """True when ``candidate`` records a later write than ``current`` (or replaces nothing).
+
+    An artifact whose partial-overwrite stale-vector cleanup failed carries several
+    vectors that disagree about ``last_edited_ulid``. Whichever the index happens to
+    return first is not its write recency; the newest of them is. Both dedup passes —
+    syntheses in Step 3, sources in Step 6 — need the same rule, and getting only one of
+    them right leaves half the misreporting in place.
+    """
+    if current is None:
+        return True
+    return str(candidate.get("last_edited_ulid") or "") > str(current.get("last_edited_ulid") or "")
+
+
 async def check_synthesis_freshness(
     *,
     settings: Settings,
@@ -109,12 +123,16 @@ async def _check_synthesis_freshness_inner(
             "all_fresh": True,
         }
 
-    # ── Step 3: Deduplicate by artifact_id (first occurrence wins) ────────────
+    # ── Step 3: Deduplicate by artifact_id (newest write wins) ───────────────
+    # Taking an arbitrary one of a multi-section synthesis's disagreeing vectors would
+    # compare its sources against an older synthesis ULID than the one it was actually
+    # built at, and over-report staleness. See ``_is_newer_write``.
     syntheses: dict[str, dict[str, Any]] = {}
     for item in synth_items:
-        aid = item["metadata"]["artifact_id"]
-        if aid not in syntheses:
-            syntheses[aid] = item["metadata"]
+        synth_meta = item["metadata"]
+        aid = synth_meta["artifact_id"]
+        if _is_newer_write(synth_meta, syntheses.get(aid)):
+            syntheses[aid] = synth_meta
 
     # ── Step 4: Separate malformed from valid ────────────────────────────────
     malformed_ids: list[str] = []
@@ -157,17 +175,20 @@ async def _check_synthesis_freshness_inner(
             return credential_error_response(exc)
 
         # No vector index entries for a given source → it stays missing (T22),
-        # already defaulted to None above. Multi-section sources may yield
-        # several keys per source_id — first occurrence wins.
-        seen_source_ids: set[str] = set()
+        # already defaulted to None above. Multi-section sources yield several keys per
+        # source_id, and after a partial overwrite whose stale-vector cleanup failed
+        # those keys disagree about last_edited_ulid — so the newest write wins rather
+        # than whichever key the query happened to return first. Taking the first would
+        # let the older ULID mask real staleness until a reconcile prunes the orphans.
         for item in src_items:
             meta = item["metadata"]
             source_id = str(meta.get("artifact_id", ""))
-            if source_id not in all_source_ids or source_id in seen_source_ids:
+            if source_id not in all_source_ids:
                 continue
-            seen_source_ids.add(source_id)
+            if not is_cross_scope_readable(meta, source_id, own_scope, read_prefixes):
+                continue
 
-            if is_cross_scope_readable(meta, source_id, own_scope, read_prefixes):
+            if _is_newer_write(meta, source_meta[source_id]):
                 source_meta[source_id] = meta
 
     # ── Step 7: Build stale, archived_sources, missing_sources per synthesis ──

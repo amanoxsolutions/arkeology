@@ -11,7 +11,7 @@ import botocore.exceptions
 import pytest
 from pytest_mock import MockerFixture
 
-from arkeology.annotations import apply_link_annotations
+from arkeology.annotations import apply_link_annotations, read_link_annotations
 from arkeology.clients.s3 import S3ClientImpl
 from arkeology.clients.vectors import VectorsClientImpl
 from arkeology.config import Settings
@@ -1241,7 +1241,7 @@ async def test_archive_annotation_credential_error_aborts(
     entries = [json.loads(line) for line in settings.failure_log_path.read_text().splitlines()]
     assert len(entries) == 1
     assert entries[0]["artifact_id"] == "artifacts/active-review"
-    assert entries[0]["failure_step"] == "archive_vector_flip"
+    assert entries[0]["failure_step"] == "annotation_write"
 
 
 # ---------------------------------------------------------------------------
@@ -1457,7 +1457,7 @@ async def test_archive_persistent_annotation_conflict_after_durable_flip_logs_pa
     entries = [json.loads(line) for line in settings.failure_log_path.read_text().splitlines()]
     assert len(entries) == 1
     assert entries[0]["artifact_id"] == "artifacts/active-review"
-    assert entries[0]["failure_step"] == "archive_vector_flip"
+    assert entries[0]["failure_step"] == "annotation_write"
     # The status flip WAS durably applied on the final attempt even though we report
     # a conflict error.
     meta = s3_client.head_object("artifacts/active-review")
@@ -1594,7 +1594,7 @@ async def test_archive_annotation_unknown_error_records_partial_archive_with_lin
     assert settings.failure_log_path.exists()
     entries = [json.loads(line) for line in settings.failure_log_path.read_text().splitlines()]
     assert entries[-1]["artifact_id"] == "artifacts/active-review"
-    assert entries[-1]["failure_step"] == "archive_vector_flip"
+    assert entries[-1]["failure_step"] == "annotation_write"
     assert entries[-1]["commit_refs"] == ["abc1234"]
     assert entries[-1]["references"] == ["artifacts/some-adr"]
 
@@ -1696,7 +1696,7 @@ async def test_archive_cas_retry_credential_error_records_partial_archive(
     )
     entries = [json.loads(line) for line in settings.failure_log_path.read_text().splitlines()]
     assert entries[-1]["artifact_id"] == "artifacts/active-review"
-    assert entries[-1]["failure_step"] == "archive_vector_flip"
+    assert entries[-1]["failure_step"] == _CAS_RETRY_FAILURE_STEPS[failing_call]
     assert entries[-1]["commit_refs"] == ["abc1234"]
     assert entries[-1]["references"] == ["artifacts/some-adr"]
 
@@ -1729,3 +1729,257 @@ async def test_archive_first_attempt_credential_error_records_no_failure_entry(
 
     assert result.get("error") == "credential_error"
     assert not settings.failure_log_path.exists()
+
+
+# ---------------------------------------------------------------------------
+# T74 — CAS retry failures, the ULID token, and the single annotation error code
+# ---------------------------------------------------------------------------
+
+_ULID_BEFORE_CONCURRENT_WRITE = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+_ULID_AFTER_CONCURRENT_WRITE = "01BRZ3NDEKTSV4RRFFQ69G5FAV"
+
+
+# The step each CAS-retry call site stamps on its failure-log entry. Nothing branches on
+# failure_step — it is operator diagnostics, and part of the fingerprint reconcile_index
+# prunes by — so what it owes the reader is the step that actually failed. None of these
+# four is the vector flip: the archive never reaches it.
+_CAS_RETRY_FAILURE_STEPS = {
+    "head_object": "archive_cas_reread",
+    "get_object_annotation": "annotation_read",
+    "get_object": "archive_content_fetch",
+    "put_object": "archive_status_reput",
+}
+
+
+def _slow_down_error() -> botocore.exceptions.ClientError:
+    """A transient S3 error that is neither credential-related, annotation-unavailable,
+    nor a conflict."""
+    return botocore.exceptions.ClientError(
+        {"Error": {"Code": "SlowDown", "Message": "Please reduce your request rate."}},
+        "PutObjectAnnotation",
+    )
+
+
+@pytest.mark.parametrize(
+    "failing_call", ["head_object", "get_object_annotation", "get_object", "put_object"]
+)
+async def test_archive_cas_retry_unknown_error_records_partial_archive(
+    failing_call: str,
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+    mocker: MockerFixture,
+    tmp_path: Path,
+) -> None:
+    """Any failure on a CAS retry — not only a credential one — leaves an entry.
+
+    Reaching a retry means an earlier attempt's status re-PUT already landed durably
+    and cleared the object's annotations, while every vector still says ``active``.
+    A SlowDown, a NonUtf8Payload or any other transient on the retry's re-read
+    currently escapes to the catch-all with nothing recorded, and reconcile_index sees
+    a fully indexed artifact it has no reason to touch — the exact state the archive
+    contract says must always leave a failure-log entry.
+    """
+    settings = _make_settings(monkeypatch, tmp_path=tmp_path)
+    _seed_all(s3_client, vectors_client_2)
+    s3_client.put_object_annotation("artifacts/active-review", "commit_refs", "abc1234")
+    s3_client.put_object_annotation("artifacts/active-review", "references", "artifacts/some-adr")
+
+    conflicted = False
+    original_put_annotation = s3_client.put_object_annotation
+    original_failing = getattr(s3_client, failing_call)
+
+    def _conflict_once(*args: object, **kwargs: object) -> object:
+        nonlocal conflicted
+        if not conflicted:
+            conflicted = True
+            raise ArtifactConflictError("artifacts/active-review")
+        return original_put_annotation(*args, **kwargs)  # type: ignore[arg-type]
+
+    def _fail_after_conflict(*args: object, **kwargs: object) -> object:
+        if conflicted:
+            raise _slow_down_error()
+        return original_failing(*args, **kwargs)  # type: ignore[operator]
+
+    mocker.patch.object(s3_client, "put_object_annotation", side_effect=_conflict_once)
+    mocker.patch.object(s3_client, failing_call, side_effect=_fail_after_conflict)
+
+    result = await archive_artifact(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=None,
+        artifact_id="artifacts/active-review",
+    )
+
+    assert "error" in result
+    assert settings.failure_log_path.exists(), (
+        "A non-credential failure on a CAS retry left no failure-log entry, so the "
+        "partial archive is invisible to reconcile_index"
+    )
+    entries = [json.loads(line) for line in settings.failure_log_path.read_text().splitlines()]
+    assert entries[-1]["artifact_id"] == "artifacts/active-review"
+    assert entries[-1]["failure_step"] == _CAS_RETRY_FAILURE_STEPS[failing_call]
+    assert entries[-1]["commit_refs"] == ["abc1234"]
+    assert entries[-1]["references"] == ["artifacts/some-adr"]
+
+
+async def test_archive_annotation_unavailable_returns_the_annotation_unavailable_code(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+    mocker: MockerFixture,
+    tmp_path: Path,
+) -> None:
+    """One condition, one code: an unavailable annotation store surfaces the same
+    ``annotation_unavailable`` here as it does from every other tool that can meet it.
+
+    An operator diagnosing post-setup IAM drift should not have to know which tool they
+    happened to call to recognise it, and ``internal_error`` says only "something
+    unexpected" about a condition whose remedy is known and documented.
+    """
+    settings = _make_settings(monkeypatch, tmp_path=tmp_path)
+    _seed_all(s3_client, vectors_client_2)
+    s3_client.put_object_annotation("artifacts/active-review", "commit_refs", "abc1234")
+
+    mocker.patch.object(
+        s3_client,
+        "put_object_annotation",
+        side_effect=AnnotationUnavailableError(
+            "S3 object annotations are unavailable for this bucket.", "s3", Exception("boom")
+        ),
+    )
+
+    result = await archive_artifact(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=None,
+        artifact_id="artifacts/active-review",
+    )
+
+    assert result.get("error") == "annotation_unavailable"
+    # The code names the cause; the durability facts are unchanged.
+    assert settings.failure_log_path.exists()
+
+
+async def test_archive_partial_archive_entry_records_the_artifacts_last_edited_ulid(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+    mocker: MockerFixture,
+    tmp_path: Path,
+) -> None:
+    """The entry carries the ULID the artifact already had — archive never bumps it.
+
+    ``reconcile_index`` compares that token against the artifact's current one on
+    replay, so a write landing after this entry moves the ULID and the entry's
+    ``references`` is discarded rather than restored over the value that write
+    established. Without the token on the entry there is nothing to compare and the
+    replay unions unconditionally.
+    """
+    settings = _make_settings(monkeypatch, tmp_path=tmp_path)
+    _seed_all(s3_client, vectors_client_2)
+    s3_client.put_object(
+        "artifacts/active-review",
+        _CONTENT,
+        {**_BASE_S3_META, "status": "active", "last_edited_ulid": _ULID_BEFORE_CONCURRENT_WRITE},
+    )
+    s3_client.put_object_annotation("artifacts/active-review", "references", "artifacts/some-adr")
+
+    mocker.patch.object(s3_client, "put_object_annotation", side_effect=_slow_down_error())
+
+    result = await archive_artifact(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=None,
+        artifact_id="artifacts/active-review",
+    )
+
+    assert "error" in result
+    entries = [json.loads(line) for line in settings.failure_log_path.read_text().splitlines()]
+    assert entries[-1]["last_edited_ulid"] == _ULID_BEFORE_CONCURRENT_WRITE
+    assert (
+        s3_client.head_object("artifacts/active-review")["last_edited_ulid"]
+        == _ULID_BEFORE_CONCURRENT_WRITE
+    ), "archive must preserve last_edited_ulid rather than regenerate it"
+
+
+async def test_archive_cas_accumulation_of_references_resets_when_the_ulid_moves(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """Cross-attempt accumulation of ``references`` is bounded by ``last_edited_ulid``.
+
+    Accumulating exists so an attempt's own status re-PUT — which clears the
+    annotations — does not make the next attempt read them back as absent and archive
+    the link fields away. It must not outlive a concurrent ``write_artifact``: that
+    write *replaces* ``references``, so unioning the pre-write value back in undoes
+    the removals it made. When the ULID the accumulation started under has moved, the
+    freshly read value becomes the new baseline. ``commit_refs`` keeps accumulating
+    across that boundary, being append-only.
+    """
+    settings = _make_settings(monkeypatch)
+    _seed_all(s3_client, vectors_client_2)
+    s3_client.put_object(
+        "artifacts/active-review",
+        _CONTENT,
+        {**_BASE_S3_META, "status": "active", "last_edited_ulid": _ULID_BEFORE_CONCURRENT_WRITE},
+    )
+    apply_link_annotations(
+        s3_client,
+        "artifacts/active-review",
+        commit_refs=["sha-original"],
+        references=["artifacts/adr-the-later-write-removed"],
+    )
+
+    conflicted = False
+    original_put_annotation = s3_client.put_object_annotation
+
+    def _concurrent_write_then_conflict(*args: object, **kwargs: object) -> object:
+        """A concurrent overwriting write lands between attempt 0 and attempt 1.
+
+        It replaces ``references`` (the write path's documented semantics), appends a
+        commit ref, and bumps ``last_edited_ulid`` — then the archive's own annotation
+        apply loses the compare-and-swap to it.
+        """
+        nonlocal conflicted
+        if not conflicted:
+            conflicted = True
+            s3_client.put_object(
+                "artifacts/active-review",
+                _CONTENT,
+                {
+                    **_BASE_S3_META,
+                    "status": "active",
+                    "last_edited_ulid": _ULID_AFTER_CONCURRENT_WRITE,
+                },
+            )
+            apply_link_annotations(
+                s3_client,
+                "artifacts/active-review",
+                commit_refs=["sha-original", "sha-added-by-the-later-write"],
+                references=["artifacts/adr-the-later-write-kept"],
+            )
+            raise ArtifactConflictError("artifacts/active-review")
+        return original_put_annotation(*args, **kwargs)  # type: ignore[arg-type]
+
+    mocker.patch.object(
+        s3_client, "put_object_annotation", side_effect=_concurrent_write_then_conflict
+    )
+
+    result = await archive_artifact(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=None,
+        artifact_id="artifacts/active-review",
+    )
+
+    assert "error" not in result
+    commit_refs, references = read_link_annotations(s3_client, "artifacts/active-review")
+    assert references == ["artifacts/adr-the-later-write-kept"]
+    assert commit_refs == ["sha-original", "sha-added-by-the-later-write"]

@@ -1057,3 +1057,69 @@ async def test_delete_s3_failure_reports_that_the_vectors_are_gone(
 
     assert result.get("error") == "partial_delete"
     assert result.get("vectors_deleted") is True
+
+
+# ---------------------------------------------------------------------------
+# T74.5 — vectors_deleted must describe the vector side, not the vector count
+# ---------------------------------------------------------------------------
+
+
+async def test_delete_s3_failure_on_an_unindexed_artifact_reports_the_vectors_as_gone(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """An artifact that had no vectors at all leaves the vector side clean.
+
+    ``vectors_deleted`` exists to tell "the vectors are gone and the S3 object still
+    stands" apart from a delete that never started. An artifact with no vectors — a
+    never-indexed partial write — is in the first state, not the second, so reporting
+    ``False`` tells the caller the opposite of the truth: it reads as "the vectors are
+    still there", and there are none.
+    """
+    settings = _make_settings(monkeypatch)
+    s3_client.put_object("artifacts/t2-unindexed", _CONTENT, {**_BASE_S3_META})
+    mocker.patch.object(
+        s3_client, "delete_object", side_effect=RuntimeError("Simulated S3 delete failure")
+    )
+
+    result = await delete_artifact(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        artifact_id="artifacts/t2-unindexed",
+        confirm=True,
+    )
+
+    assert result.get("error") == "partial_delete"
+    assert result.get("vectors_deleted") is True
+    assert vectors_client_2.list_vectors_by_metadata({}) == []
+
+
+async def test_delete_s3_credential_error_on_an_unindexed_artifact_reports_the_same(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """The credential branch reports the same state through the same key, so one field
+    answers the question whichever way the S3 delete failed."""
+    settings = _make_settings(monkeypatch)
+    s3_client.put_object("artifacts/t2-unindexed", _CONTENT, {**_BASE_S3_META})
+    mocker.patch.object(
+        s3_client,
+        "delete_object",
+        side_effect=CredentialError(message="Simulated.", service="s3", original=Exception("sim")),
+    )
+
+    result = await delete_artifact(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        artifact_id="artifacts/t2-unindexed",
+        confirm=True,
+    )
+
+    assert result.get("error") == "credential_error"
+    assert result.get("vectors_deleted") is True

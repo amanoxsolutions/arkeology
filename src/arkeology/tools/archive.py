@@ -39,13 +39,31 @@ from arkeology.clients.interfaces import (
 )
 from arkeology.config import Settings
 from arkeology.constants import ArtifactStatus, ErrorCode
-from arkeology.errors import ArtifactConflictError, CredentialError
-from arkeology.failure_log import append_failure_entry, build_failure_entry
+from arkeology.errors import (
+    AnnotationUnavailableError,
+    ArtifactConflictError,
+    CredentialError,
+)
+from arkeology.failure_log import (
+    append_failure_entry,
+    build_failure_entry,
+    coerce_entry_tier,
+)
 from arkeology.tools._errors import credential_error_response
 from arkeology.tools._scope import is_own_scope
 from arkeology.tools._search_helper import fetch_vectors_by_metadata, find_referrers
 
 logger = logging.getLogger(__name__)
+
+# The steps a partial archive can fail at, after the status re-PUT is durable. Every one
+# of them leaves the same repairable state, so they differ only in what they tell an
+# operator reading the log — which is reason enough not to stamp them all as the flip.
+_STEP_CAS_REREAD = "archive_cas_reread"
+_STEP_ANNOTATION_READ = "annotation_read"
+_STEP_CONTENT_FETCH = "archive_content_fetch"
+_STEP_STATUS_REPUT = "archive_status_reput"
+_STEP_ANNOTATION_WRITE = "annotation_write"
+_STEP_VECTOR_FLIP = "archive_vector_flip"
 
 
 def _record_partial_archive_failure(
@@ -53,6 +71,7 @@ def _record_partial_archive_failure(
     *,
     artifact_id: str,
     s3_meta: dict[str, Any],
+    failure_step: str,
     reason: str,
     commit_refs: list[str] | None = None,
     references: list[str] | None = None,
@@ -60,9 +79,10 @@ def _record_partial_archive_failure(
     """Append a failure-log entry for a partially completed archive.
 
     A partial archive is one where the S3 status flip has already succeeded
-    (``s3.put_object`` returned) but the vector-side flip (annotation re-apply
-    and/or the per-vector status update loop) failed — credential error or
-    otherwise. Without this, a vector-side failure left no
+    (``s3.put_object`` returned) but something after it failed — the annotation
+    re-apply, the per-vector status update loop, or any call on a later
+    compare-and-swap attempt — credential error or otherwise. Without this, such a
+    failure left no
     repairable trace: the S3 object already reports ``status: inactive`` so a
     retried ``archive_artifact`` call used to hit the ``already_archived``
     idempotency short-circuit forever (fixed alongside this by also checking
@@ -79,6 +99,11 @@ def _record_partial_archive_failure(
         artifact_id: S3 key of the partially archived artifact.
         s3_meta: The artifact's S3 object metadata (post status-flip), used to
             populate the failure-log entry's descriptive fields.
+        failure_step: The step that actually failed, one of ``_STEP_*``. Nothing
+            branches on it — it is operator diagnostics, and it contributes to the
+            fingerprint ``reconcile_index`` prunes entries by — so it is stamped per
+            call site rather than fixed at the vector flip, which is only one of the
+            several steps that reach here.
         reason: Human-readable failure reason.
         commit_refs: The link fields read forward before the status re-PUT.
             Recorded because that re-PUT cleared the object's annotations: if the
@@ -89,23 +114,23 @@ def _record_partial_archive_failure(
             :func:`~arkeology.failure_log.build_failure_entry`.
         references: As ``commit_refs``.
     """
-    tier_raw = s3_meta.get("tier", "2")
-    try:
-        tier = int(tier_raw)
-    except TypeError, ValueError:
-        tier = 2
     append_failure_entry(
         settings.failure_log_path,
         build_failure_entry(
             artifact_id=artifact_id,
             title=s3_meta.get("title", ""),
             artifact_type=s3_meta.get("type", ""),
-            tier=tier,
+            tier=coerce_entry_tier(s3_meta.get("tier", 2)),
             date=s3_meta.get("date", ""),
-            failure_step="archive_vector_flip",
+            failure_step=failure_step,
             reason=reason,
             commit_refs=commit_refs,
             references=references,
+            # Archive preserves the artifact's ULID rather than regenerating it, so
+            # this is the one it already carried. A write landing after this entry
+            # moves it, and reconcile_index then discards the entry's references
+            # rather than restoring them over what that write established.
+            last_edited_ulid=s3_meta.get("last_edited_ulid"),
         ),
     )
 
@@ -265,6 +290,14 @@ async def _archive_artifact_inner(
     # the first attempt had already read.
     current_commit_refs: list[str] = []
     current_references: list[str] = []
+    # The last_edited_ulid the accumulated `references` value was read under. The
+    # accumulation exists only to survive *this* call's own status re-PUT clearing the
+    # annotations; it must not outlive a concurrent write_artifact, which REPLACES
+    # references. When a retry's re-read shows a different ULID, that write's value is
+    # the authoritative one: references resets to exactly what was just read and that
+    # ULID becomes the new baseline. commit_refs keeps accumulating across the same
+    # boundary, being append-only and already carried forward by that write.
+    accumulation_ulid = s3_meta.get("last_edited_ulid")
     # Distinct from last_attempt_object_written, which is reset per attempt: this one is
     # never reset. Reaching a retry attempt at all means an earlier attempt's status
     # re-PUT already landed durably and cleared the object's annotations, so any failure
@@ -272,154 +305,139 @@ async def _archive_artifact_inner(
     # the re-PUT — leaves the same repairable partial-archive state as a failure on the
     # annotation re-apply itself, not a clean no-op failure.
     object_written = False
+    # Reassigned as the guarded region advances, so the outer handlers can stamp the
+    # entry with the step that actually raised rather than with the one the region ends
+    # at. The first thing every attempt does is read the annotations.
+    current_step = _STEP_ANNOTATION_READ
 
-    def _cas_credential_response(exc: CredentialError) -> dict[str, Any]:
-        """Credential response for a CAS-loop failure, logged when the flip is durable."""
+    def _record_if_durable(exc: Exception) -> None:
+        """Record a partial archive for ``exc`` once the status flip is durable.
+
+        Keyed on ``object_written`` and on nothing else: at that point S3 says
+        `inactive`, the re-PUT has cleared the annotations, and the vectors still say
+        `active`, so *every* failure from there on leaves the same repairable state —
+        a credential expiry, an annotation-unavailable IAM drift, and a SlowDown on a
+        retry's re-read alike. Without an entry, reconcile_index sees a fully indexed
+        artifact and never touches it.
+        """
         if object_written:
             _record_partial_archive_failure(
                 settings,
                 artifact_id=artifact_id,
                 s3_meta=updated_s3_meta,
+                failure_step=current_step,
                 reason=str(exc),
                 commit_refs=current_commit_refs,
                 references=current_references,
             )
-        return credential_error_response(exc)
 
-    for attempt in range(CAS_MAX_ATTEMPTS):
-        last_attempt_object_written = False
-        if attempt > 0:
-            try:
-                current_s3_meta = await asyncio.to_thread(s3.head_object, artifact_id)
-            except CredentialError as exc:
-                return _cas_credential_response(exc)
-            except KeyError:
-                # A concurrent caller deleted the object between attempts. There is
-                # nothing left to compare-and-swap against, and the vectors left behind
-                # are already reconcile_index's dangling-vector case, so say so plainly
-                # rather than letting the KeyError reach the catch-all.
-                return {
-                    "error": ErrorCode.NOT_FOUND,
-                    "message": (
-                        f"Artifact '{artifact_id}' was deleted by a concurrent caller "
-                        "while this archive was retrying its compare-and-swap cycle."
-                    ),
-                }
-            current_etag = current_s3_meta.get("ETag")
+    try:
+        for attempt in range(CAS_MAX_ATTEMPTS):
+            last_attempt_object_written = False
+            if attempt > 0:
+                current_step = _STEP_CAS_REREAD
+                try:
+                    current_s3_meta = await asyncio.to_thread(s3.head_object, artifact_id)
+                except KeyError:
+                    # A concurrent caller deleted the object between attempts. There is
+                    # nothing left to compare-and-swap against, and the vectors left
+                    # behind are already reconcile_index's dangling-vector case, so say
+                    # so plainly rather than letting the KeyError reach the catch-all.
+                    return {
+                        "error": ErrorCode.NOT_FOUND,
+                        "message": (
+                            f"Artifact '{artifact_id}' was deleted by a concurrent caller "
+                            "while this archive was retrying its compare-and-swap cycle."
+                        ),
+                    }
+                current_etag = current_s3_meta.get("ETag")
 
-        try:
+            current_step = _STEP_ANNOTATION_READ
             fresh_commit_refs, fresh_references = await asyncio.to_thread(
                 read_link_annotations, s3, artifact_id
             )
-        except CredentialError as exc:
-            return _cas_credential_response(exc)
-        current_commit_refs = merge_link_field(current_commit_refs, fresh_commit_refs)
-        current_references = merge_link_field(current_references, fresh_references)
+            current_commit_refs = merge_link_field(current_commit_refs, fresh_commit_refs)
+            attempt_ulid = current_s3_meta.get("last_edited_ulid")
+            if attempt_ulid == accumulation_ulid:
+                current_references = merge_link_field(current_references, fresh_references)
+            else:
+                # A write landed between attempts and replaced references; rebase.
+                current_references = fresh_references
+                accumulation_ulid = attempt_ulid
 
-        # Strip the reserved "ETag" sentinel key (added by head_object for the CAS
-        # token) before reusing this dict as the literal metadata for put_object —
-        # it is not a real user-defined metadata field and must never be written as
-        # one (which would also corrupt future ETag-capture calls).
-        updated_s3_meta = {k: v for k, v in current_s3_meta.items() if k != "ETag"}
-        updated_s3_meta["status"] = ArtifactStatus.INACTIVE
+            # Strip the reserved "ETag" sentinel key (added by head_object for the CAS
+            # token) before reusing this dict as the literal metadata for put_object —
+            # it is not a real user-defined metadata field and must never be written as
+            # one (which would also corrupt future ETag-capture calls).
+            updated_s3_meta = {k: v for k, v in current_s3_meta.items() if k != "ETag"}
+            updated_s3_meta["status"] = ArtifactStatus.INACTIVE
 
-        try:
+            current_step = _STEP_CONTENT_FETCH
             content = await asyncio.to_thread(s3.get_object, artifact_id)
-        except CredentialError as exc:
-            return _cas_credential_response(exc)
 
-        try:
-            new_etag = await asyncio.to_thread(
-                s3.put_object, artifact_id, content, updated_s3_meta, if_match=current_etag
-            )
-        except ArtifactConflictError:
-            # Someone else changed the object since we read its ETag — retry the
-            # whole cycle (re-read, re-merge, re-write).
-            continue
-        except CredentialError as exc:
-            return _cas_credential_response(exc)
-        last_attempt_object_written = True
-        object_written = True
+            current_step = _STEP_STATUS_REPUT
+            try:
+                new_etag = await asyncio.to_thread(
+                    s3.put_object, artifact_id, content, updated_s3_meta, if_match=current_etag
+                )
+            except ArtifactConflictError:
+                # Someone else changed the object since we read its ETag — retry the
+                # whole cycle (re-read, re-merge, re-write).
+                continue
+            last_attempt_object_written = True
+            object_written = True
 
-        try:
-            # Annotations are the sole durable store for commit_refs/references, so a
-            # failed re-apply is a partial archive (status flipped, link fields lost to
-            # the re-PUT), never a success: it records a failure-log entry for
-            # reconcile_index and surfaces a structured error.
-            await asyncio.to_thread(
-                apply_link_annotations,
-                s3,
-                artifact_id,
-                commit_refs=current_commit_refs,
-                references=current_references,
-                if_match=new_etag,
-            )
-        except ArtifactConflictError:
-            # Someone changed the object between our put_object and this annotation
-            # write — retry the whole cycle, including a fresh status re-PUT.
-            continue
-        except CredentialError as exc:
-            # The S3 status flip above has already succeeded — this is a
-            # partial archive, not a clean failure.
-            _record_partial_archive_failure(
-                settings,
-                artifact_id=artifact_id,
-                s3_meta=updated_s3_meta,
-                reason=str(exc),
-                commit_refs=current_commit_refs,
-                references=current_references,
-            )
-            return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
-        except Exception as exc:
-            # An unknown/transient annotation failure (e.g. SlowDown, RequestTimeout —
-            # not a conflict, not annotation-unavailable, not a credential failure) must
-            # not escape uncaught to the blanket internal_error handler. The status flip
-            # is already durable, the re-PUT has cleared the annotations, and every
-            # vector still says active: with no entry, reconcile_index sees a fully
-            # indexed artifact and never touches it. Re-raised after recording, matching
-            # the vector-flip handler below — the catch-all still logs the traceback and
-            # returns internal_error, but the repairable trace now exists.
-            _record_partial_archive_failure(
-                settings,
-                artifact_id=artifact_id,
-                s3_meta=updated_s3_meta,
-                reason=str(exc),
-                commit_refs=current_commit_refs,
-                references=current_references,
-            )
-            raise
+            current_step = _STEP_ANNOTATION_WRITE
+            try:
+                # Annotations are the sole durable store for commit_refs/references, so
+                # a failed re-apply is a partial archive (status flipped, link fields
+                # lost to the re-PUT), never a success: the guard below records a
+                # failure-log entry for reconcile_index and surfaces a structured error.
+                await asyncio.to_thread(
+                    apply_link_annotations,
+                    s3,
+                    artifact_id,
+                    commit_refs=current_commit_refs,
+                    references=current_references,
+                    if_match=new_etag,
+                )
+            except ArtifactConflictError:
+                # Someone changed the object between our put_object and this annotation
+                # write — retry the whole cycle, including a fresh status re-PUT.
+                continue
+            else:
+                break
         else:
-            break
-    else:
-        # Retries exhausted — never a raw exception, never a silent partial archive.
-        # If the status flip was durably written on the final attempt (only the
-        # trailing annotation apply kept conflicting), record a failure-log entry so
-        # reconcile_index can repair the link-field state later; a persistent
-        # conflict on the status re-PUT itself never wrote anything durable, so no
-        # entry is produced in that case.
-        if last_attempt_object_written:
-            _record_partial_archive_failure(
-                settings,
-                artifact_id=artifact_id,
-                s3_meta=updated_s3_meta,
-                reason=(
-                    "Compare-and-swap retries exhausted while re-applying "
-                    "commit_refs/references annotations after a durable status flip."
-                ),
-                commit_refs=current_commit_refs,
-                references=current_references,
-            )
-        return _conflict_response()
+            # Retries exhausted — never a raw exception, never a silent partial archive.
+            # If the status flip was durably written on the final attempt (only the
+            # trailing annotation apply kept conflicting), record a failure-log entry so
+            # reconcile_index can repair the link-field state later; a persistent
+            # conflict on the status re-PUT itself never wrote anything durable, so no
+            # entry is produced in that case.
+            if last_attempt_object_written:
+                _record_partial_archive_failure(
+                    settings,
+                    artifact_id=artifact_id,
+                    s3_meta=updated_s3_meta,
+                    failure_step=_STEP_ANNOTATION_WRITE,
+                    reason=(
+                        "Compare-and-swap retries exhausted while re-applying "
+                        "commit_refs/references annotations after a durable status flip."
+                    ),
+                    commit_refs=current_commit_refs,
+                    references=current_references,
+                )
+            return _conflict_response()
 
-    # ── Steps 5–6: Flip all vector statuses ───────────────────────────────────
-    # Vector writes stay unconditional (no S3 Vectors CAS surface exists; ADR-011
-    # decision 6) — vector metadata is the recoverable/derived copy. The S3
-    # status flip above has already succeeded — any failure from this point on is a
-    # *partial archive* (S3 inactive, vectors not yet fully flipped) and must leave a
-    # repairable failure-log trace, credential error or otherwise, so reconcile_index
-    # can find and repair it and a retried archive_artifact call is not blocked by
-    # the Step 2b idempotency check.
-    try:
+        # ── Steps 5–6: Flip all vector statuses ───────────────────────────────
+        # Vector writes stay unconditional (no S3 Vectors CAS surface exists; ADR-011
+        # decision 6) — vector metadata is the recoverable/derived copy. The S3
+        # status flip above has already succeeded — any failure from this point on is a
+        # *partial archive* (S3 inactive, vectors not yet fully flipped) and must leave
+        # a repairable failure-log trace, credential error or otherwise, so
+        # reconcile_index can find and repair it and a retried archive_artifact call is
+        # not blocked by the Step 2b idempotency check.
+        current_step = _STEP_VECTOR_FLIP
         vec_items = await asyncio.to_thread(
             fetch_vectors_by_metadata,
             vectors,
@@ -435,24 +453,19 @@ async def _archive_artifact_inner(
             }
             await asyncio.to_thread(vectors.put_vector, key, vector_data, updated_meta)
     except CredentialError as exc:
-        _record_partial_archive_failure(
-            settings,
-            artifact_id=artifact_id,
-            s3_meta=updated_s3_meta,
-            reason=str(exc),
-            commit_refs=current_commit_refs,
-            references=current_references,
-        )
-        return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
+        _record_if_durable(exc)
+        return credential_error_response(exc)
+    except AnnotationUnavailableError as exc:
+        # Diagnosable, so it takes its own code rather than internal_error: startup
+        # check 8 proves annotations work before the server accepts a request, so at
+        # runtime this can only be post-setup IAM drift, which has a known remedy.
+        _record_if_durable(exc)
+        return {"error": ErrorCode.ANNOTATION_UNAVAILABLE, "message": str(exc)}
     except Exception as exc:
-        _record_partial_archive_failure(
-            settings,
-            artifact_id=artifact_id,
-            s3_meta=updated_s3_meta,
-            reason=str(exc),
-            commit_refs=current_commit_refs,
-            references=current_references,
-        )
+        # A genuinely unknown failure is re-raised after recording — the catch-all
+        # still logs the traceback and returns internal_error, but the repairable
+        # trace now exists.
+        _record_if_durable(exc)
         raise
 
     logger.info("Artifact archived: key=%s", artifact_id)

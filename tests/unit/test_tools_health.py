@@ -12,7 +12,7 @@ from pytest_mock import MockerFixture
 from arkeology.clients.fakes.fake_bedrock import FakeBedrockClient
 from arkeology.clients.s3 import S3ClientImpl
 from arkeology.clients.vectors import VectorsClientImpl
-from arkeology.errors import CredentialError
+from arkeology.errors import AnnotationUnavailableError, CredentialError
 from arkeology.tools.health import health_check
 from tests.unit.conftest import _make_settings
 
@@ -694,3 +694,78 @@ async def test_probes_run_off_the_event_loop(
     assert all(t is not main_thread for t in seen_threads), (
         "health probes ran on the event-loop thread — they must be offloaded"
     )
+
+
+# ---------------------------------------------------------------------------
+# T74.5 — annotations are a hard runtime dependency and must be probed
+# ---------------------------------------------------------------------------
+
+
+async def test_health_check_probes_the_annotation_store(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """Annotations are the sole durable store for both link fields, so a health check
+    that never touches them cannot observe the health it reports.
+
+    Startup check 8 proves availability once, at start; an IAM policy edited afterwards
+    drifts silently, and every component then reports ``ok`` on a deployment where
+    every link-field read fails.
+    """
+    settings = _make_settings(monkeypatch, READ_PREFIXES="")
+    bedrock = FakeBedrockClient()
+    get_spy = mocker.spy(s3_client, "get_object_annotation")
+
+    result = await health_check(
+        settings=settings, s3=s3_client, vectors=vectors_client_8, bedrock=bedrock
+    )
+
+    assert "error" not in result
+    assert get_spy.call_count >= 1
+    assert result["annotations"]["status"] == "ok", (
+        "the annotation probe must report under its own documented key — an annotation "
+        "denial is not a write-permission problem and sends the operator elsewhere"
+    )
+
+
+async def test_health_check_reports_a_drifted_annotation_policy_without_hiding_others(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """A denied annotation call surfaces as a component error, and only that component's.
+
+    Every probe is independent: an annotation failure must not stop S3, Vectors or
+    Bedrock being probed and reported, or the check hides exactly the correlated
+    outage it exists to diagnose.
+    """
+    settings = _make_settings(monkeypatch, READ_PREFIXES="")
+    bedrock = FakeBedrockClient()
+    mocker.patch.object(
+        s3_client,
+        "get_object_annotation",
+        side_effect=AnnotationUnavailableError(
+            "S3 object annotations are unavailable for this bucket.", "s3", Exception("boom")
+        ),
+    )
+
+    result = await health_check(
+        settings=settings, s3=s3_client, vectors=vectors_client_8, bedrock=bedrock
+    )
+
+    assert "error" not in result
+    assert result["s3"]["status"] == "ok"
+    assert result["vectors"]["status"] == "ok"
+    assert result["bedrock"]["status"] == "ok"
+    assert result["annotations"]["status"] == "error", (
+        "a denied annotation call must surface under the annotations key — asserting "
+        "only that some component errored passes just as well when the wrong one does"
+    )
+    assert [
+        key
+        for key, entry in result.items()
+        if isinstance(entry, dict) and entry.get("status") == "error"
+    ] == ["annotations"]

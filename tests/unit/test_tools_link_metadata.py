@@ -1888,3 +1888,51 @@ async def test_link_metadata_vector_write_credential_failure_still_logs_entry(
     entries = read_failure_entries(settings.failure_log_path)
     assert [e["artifact_id"] for e in entries] == [ID_A]
     assert entries[0]["commit_refs"] == ["abc1234"]
+
+
+# ---------------------------------------------------------------------------
+# T74.1 — the entry records the artifact's last_edited_ulid
+# ---------------------------------------------------------------------------
+
+
+async def test_link_metadata_vector_write_failure_entry_records_the_last_edited_ulid(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """The entry carries the artifact's existing ULID — this tool never alters it.
+
+    ``reconcile_index`` compares that token against the artifact's current one and
+    restores the entry's ``references`` only while they still match, so a later
+    overwriting write's replacement of the field is not undone by this entry. Without
+    the token the replay is, in this tool's case especially, either a no-op or wrong:
+    the annotation write it follows *succeeded*, so the entry's copy is only ever the
+    current value or a stale one.
+    """
+    settings = _make_settings_base(monkeypatch, tmp_path=tmp_path)
+    bedrock = FakeBedrockClient()
+    _seed_all(s3_client, vectors_client_2)
+
+    real_batch = vectors_client_2.put_vectors_batch
+
+    def _fail_for_a(batch: list[dict[str, Any]]) -> None:
+        if batch and batch[0]["metadata"]["artifact_id"] == ID_A:
+            raise RuntimeError("simulated vector write failure")
+        real_batch(batch)
+
+    mocker.patch.object(vectors_client_2, "put_vectors_batch", side_effect=_fail_for_a)
+
+    result = await link_metadata(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=bedrock,
+        artifact_ids=[ID_A],
+        references=["a-1"],
+    )
+
+    assert result.get("vector_write_failed") == [ID_A]
+    entries = read_failure_entries(settings.failure_log_path)
+    assert entries[0]["last_edited_ulid"] == _BASE_META["last_edited_ulid"]

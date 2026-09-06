@@ -9,12 +9,13 @@ references:
   - docs/specs/p2-t9-read-artifact.md
   - docs/specs/p12-t46-references-field.md
   - docs/specs/p12-t55-metadata-validation.md
+  - docs/architecture-decisions/adr-2026-07-03-annotation-backed-link-storage.md
 authored:
   by: "tech-writer"
   date: 2026-09-04
 revised:
   by: "architect"
-  date: 2026-09-04
+  date: 2026-09-06
 ---
 
 # arkeology.tools.read
@@ -47,6 +48,12 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
 - `access_denied` — the artifact exists in a foreign scope but fails the tier and visibility gate.
 - `credential_error` — an AWS call raised `CredentialError`, at the metadata fetch, the content
   fetch, the link-field annotation read, or the foreign-scope reference filtering step.
+- `annotation_unavailable` — the durable link-field annotation read failed because the annotation
+  store is unavailable or access to it is denied. Startup check 8 proves availability before the
+  server accepts a request, so at runtime this means post-setup IAM drift; the code names that
+  condition instead of collapsing it into `internal_error`. It is the same code every other tool
+  returns for this condition — see `s3-annotations.artifact` for the single-code rule and where the
+  mapping lives.
 - `internal_error` — any otherwise unhandled exception.
 
 **Invariants**

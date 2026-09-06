@@ -17,6 +17,7 @@ from fastmcp.tools.base import ToolResult
 from pytest_mock import MockerFixture
 
 from arkeology.config import Settings
+from arkeology.errors import AnnotationUnavailableError
 from tests.unit.conftest import _make_settings as _make_settings_base
 
 
@@ -49,7 +50,7 @@ async def test_arkeology_studio_non_supporting_host_returns_structured_content(
 
     mocker.patch.object(
         studio,
-        "_list_artifacts_inner",
+        "list_artifacts",
         return_value={"artifacts": [{"artifact_id": "artifacts/adr-test"}]},
     )
 
@@ -83,7 +84,7 @@ async def test_arkeology_studio_non_supporting_host_credential_error_is_propagat
 
     mocker.patch.object(
         studio,
-        "_list_artifacts_inner",
+        "list_artifacts",
         return_value={
             "error": "credential_error",
             "message": "AWS credentials are invalid or expired.",
@@ -107,6 +108,50 @@ async def test_arkeology_studio_non_supporting_host_credential_error_is_propagat
     # The error must never be silently rewritten as an empty artifact listing.
     assert "artifacts" not in result.structured_content
     # …nor decorated with the listing's cap metadata.
+    assert "total_count" not in result.structured_content
+
+
+@pytest.mark.asyncio
+async def test_arkeology_studio_non_supporting_host_annotation_unavailable_carries_a_code(
+    settings: Settings,
+    mocker: MockerFixture,
+) -> None:
+    """An unavailable annotation store reaches the fallback as a coded structured error.
+
+    One condition, one code, from every surface that can meet it. Calling the internal
+    ``_list_artifacts_inner`` here bypassed the mapping ``list_artifacts`` performs: the
+    exception reached this module's catch-all and came back ``is_error=True`` with no
+    ``structured_content`` at all, while a credential failure on the identical call got a
+    code. The condition is raised inside the real list tool rather than mocked at the
+    studio boundary, because it is the wiring between the two that this pins.
+    """
+    from arkeology.tools import list as list_module
+    from arkeology.tools import studio
+
+    mocker.patch.object(
+        list_module,
+        "_list_artifacts_inner",
+        side_effect=AnnotationUnavailableError(
+            "S3 object annotations are unavailable for this bucket.", "s3", Exception("boom")
+        ),
+    )
+
+    ctx = MagicMock()
+    ctx.client_supports_extension.return_value = False
+
+    result = await studio.arkeology_studio(
+        settings=settings, s3=MagicMock(), vectors=MagicMock(), ctx=ctx
+    )
+
+    assert isinstance(result, ToolResult)
+    assert result.is_error
+    assert result.structured_content is not None, (
+        "the fallback returned is_error with no structured_content — the caller cannot "
+        "tell post-setup IAM drift from any other unexpected failure"
+    )
+    assert result.structured_content.get("error") == "annotation_unavailable"
+    # Same shape as the credential case above: an error, never an empty listing.
+    assert "artifacts" not in result.structured_content
     assert "total_count" not in result.structured_content
 
 
@@ -167,7 +212,7 @@ async def _run_fallback(
     """Run arkeology_studio on a non-supporting host over a canned inner listing."""
     from arkeology.tools import studio
 
-    mocker.patch.object(studio, "_list_artifacts_inner", return_value={"artifacts": artifacts})
+    mocker.patch.object(studio, "list_artifacts", return_value={"artifacts": artifacts})
     ctx = MagicMock()
     ctx.client_supports_extension.return_value = False
     return await studio.arkeology_studio(

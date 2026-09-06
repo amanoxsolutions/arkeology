@@ -13,8 +13,8 @@ authored:
   by: "tech-writer"
   date: 2026-09-04
 revised:
-  by: ""
-  date: YYYY-MM-DD
+  by: "architect"
+  date: 2026-09-06
 ---
 
 # arkeology.tools.delete
@@ -97,4 +97,7 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
   `credential_error` — so `vectors_deleted` is the only thing distinguishing "the vectors are gone
   and the S3 object still stands" from a delete that never started. Without it a caller cannot tell
   a half-deleted artifact (unsearchable but not destroyed, and repairable by `reconcile_index`) from
-  one left completely intact.
+  one left completely intact. It describes the state of the vector side, not a count of what was
+  removed: an artifact that had no vectors at all — a never-indexed partial write — reaches the S3
+  delete with the same clean vector side as one whose vectors were just deleted, so it reports
+  `True` as well, because `False` there would claim vectors are still present when there are none.

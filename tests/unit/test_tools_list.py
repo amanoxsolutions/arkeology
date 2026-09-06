@@ -15,7 +15,7 @@ from arkeology.annotations import apply_link_annotations
 from arkeology.clients.s3 import S3ClientImpl
 from arkeology.clients.vectors import VectorsClientImpl
 from arkeology.config import Settings
-from arkeology.errors import CredentialError
+from arkeology.errors import AnnotationUnavailableError, CredentialError
 from arkeology.tools.list import list_artifacts
 from tests.unit.conftest import _make_settings as _make_settings_base
 
@@ -1499,4 +1499,39 @@ async def test_list_annotation_failure_errors_rather_than_degrading_the_page(
     )
 
     assert "error" in result
+    assert "artifacts" not in result
+
+
+# ---------------------------------------------------------------------------
+# T74.4 — one error code for AnnotationUnavailableError
+# ---------------------------------------------------------------------------
+
+
+async def test_list_annotation_unavailable_returns_the_annotation_unavailable_code(
+    monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
+    s3_client: S3ClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """A failed link-field annotation read names its cause instead of collapsing to
+    ``internal_error``.
+
+    It is the same condition, and so the same code, that ``read_artifact``,
+    ``propose_commit_links``, ``link_metadata``, ``write_artifact`` and
+    ``archive_artifact`` return — one condition gets one code, because an operator
+    diagnosing post-setup IAM drift should not have to know which tool they called.
+    """
+    settings = _make_settings(monkeypatch)
+    _seed_vectors(vectors_client_8)
+    mocker.patch.object(
+        s3_client,
+        "get_object_annotation",
+        side_effect=AnnotationUnavailableError(
+            "S3 object annotations are unavailable for this bucket.", "s3", Exception("boom")
+        ),
+    )
+
+    result = await list_artifacts(settings=settings, s3=s3_client, vectors=vectors_client_8)
+
+    assert result.get("error") == "annotation_unavailable"
     assert "artifacts" not in result

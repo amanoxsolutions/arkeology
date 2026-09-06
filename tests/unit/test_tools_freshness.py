@@ -1358,3 +1358,98 @@ async def test_source_lookup_chunks_the_in_filter_within_the_byte_budget(
             f"an $in list of {size} bytes exceeds the filter-expression budget "
             f"of {_NIN_EXCLUSION_BYTE_BUDGET}"
         )
+
+
+# ---------------------------------------------------------------------------
+# T74.5 — a multi-section artifact is compared on its newest write, not an arbitrary one
+# ---------------------------------------------------------------------------
+
+_MIDDLE_ULID = "01AZZ3NDEKTSV4RRFFQ69G5FAV"
+
+
+@pytest.mark.parametrize("stale_vector_first", [True, False])
+async def test_stale_uses_the_newest_ulid_across_a_sources_vectors(
+    stale_vector_first: bool,
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
+) -> None:
+    """A source whose vectors disagree about ``last_edited_ulid`` is compared on the
+    newest of them.
+
+    After a partial overwrite whose stale-vector cleanup failed, one artifact carries
+    vectors written under two different ULIDs. "First occurrence wins" then picks
+    whichever the index happens to return first: land on the old one and the source
+    reads as older than the synthesis, so real staleness is masked until a reconcile
+    prunes the orphans. The newest write is the source's write recency, whatever order
+    the query returns — which is why this runs both orders.
+    """
+    settings = _make_settings(monkeypatch)
+    synth_id = "artifacts/synthesis-multi-ulid-source"
+    src_id = "artifacts/implementation-note-multi-ulid-source"
+
+    vectors_client_8.put_vector(
+        f"{synth_id}#section",
+        DUMMY_VEC,
+        {**_synthesis_meta(synth_id, "2026-03-15", [src_id]), "last_edited_ulid": _MIDDLE_ULID},
+    )
+    ordered_ulids = [_OLDER_ULID, _NEWER_ULID] if stale_vector_first else [_NEWER_ULID, _OLDER_ULID]
+    for index, ulid in enumerate(ordered_ulids):
+        vectors_client_8.put_vector(
+            f"{src_id}#section-{index}",
+            DUMMY_VEC,
+            {**_source_meta(src_id, "2026-03-15"), "last_edited_ulid": ulid},
+        )
+
+    result = await check_synthesis_freshness(
+        settings=settings, s3=s3_client, vectors=vectors_client_8
+    )
+
+    assert "error" not in result
+    stale_entry = next((e for e in result["stale"] if e["artifact_id"] == synth_id), None)
+    assert stale_entry is not None, (
+        "the source's newest write is later than the synthesis, so the synthesis is stale"
+    )
+    assert src_id in stale_entry["stale_sources"]
+
+
+@pytest.mark.parametrize("stale_vector_first", [True, False])
+async def test_stale_uses_the_newest_ulid_across_a_syntheses_vectors(
+    stale_vector_first: bool,
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
+) -> None:
+    """A synthesis whose vectors disagree about ``last_edited_ulid`` is compared on the
+    newest of them.
+
+    The mirror of the source-side case, failing the other direction: pick the older of a
+    synthesis's own vectors and a source written *before* the synthesis reads as written
+    after it, reporting a synthesis that is genuinely current as stale. Both halves of
+    the dedup need the same rule, so this runs both query orders too.
+    """
+    settings = _make_settings(monkeypatch)
+    synth_id = "artifacts/synthesis-multi-ulid-synthesis"
+    src_id = "artifacts/implementation-note-source-of-multi-ulid-synthesis"
+
+    ordered_ulids = [_OLDER_ULID, _NEWER_ULID] if stale_vector_first else [_NEWER_ULID, _OLDER_ULID]
+    for index, ulid in enumerate(ordered_ulids):
+        vectors_client_8.put_vector(
+            f"{synth_id}#section-{index}",
+            DUMMY_VEC,
+            {**_synthesis_meta(synth_id, "2026-03-15", [src_id]), "last_edited_ulid": ulid},
+        )
+    vectors_client_8.put_vector(
+        f"{src_id}#section",
+        DUMMY_VEC,
+        {**_source_meta(src_id, "2026-03-15"), "last_edited_ulid": _MIDDLE_ULID},
+    )
+
+    result = await check_synthesis_freshness(
+        settings=settings, s3=s3_client, vectors=vectors_client_8
+    )
+
+    assert "error" not in result
+    assert all(entry["artifact_id"] != synth_id for entry in result["stale"]), (
+        "the synthesis's newest write is later than the source, so it is not stale"
+    )

@@ -18,6 +18,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `warnings` must read `referrers` (archive, delete) or `concurrency_warning`
   (write_artifacts, migrate_artifacts) instead; `warning_message`, the human-readable text
   accompanying `referrers`, is unchanged in both name and behaviour
+- **Breaking:** an unavailable annotation store now surfaces as a single error code,
+  `annotation_unavailable`, from every tool that can meet the condition — `read_artifact`,
+  `list_artifacts`, `propose_commit_links`, `link_metadata`, `write_artifact` and
+  `archive_artifact`. The first three returned `internal_error` and `write_artifact` returned
+  `partial_write`, so one condition — post-setup IAM drift on the four annotation actions — had
+  three names, and the read-path contracts named none of them. A caller that branched on
+  `internal_error` or `partial_write` to detect it must now branch on `annotation_unavailable`.
+  The mapping lives in the shared tool-layer helper module that already owns the
+  `CredentialError` mapping, so it cannot drift per tool again. `reconcile_index` is deliberately
+  excluded: there an annotation failure fails one artifact rather than the run, and is already
+  reported per artifact in `failed`. `partial_write` keeps its meaning and narrows to it — the
+  residual state where content is durable and no cause is separately diagnosable. What is durable
+  in each case is unchanged; only what the caller is told about why
 - **the server now refuses to start where S3 object annotations are unavailable.** A new
   eighth startup check round-trips one annotation through all four required IAM actions on
   a throwaway probe object, and distinguishes the two causes an operator acts on
@@ -27,8 +40,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   deployment that cannot use them is unsupported rather than degraded
 - **a write whose durable link write fails no longer reports success.** `write_artifact`
   previously returned a success response carrying a top-level `warning` when the annotation
-  write was unavailable; it now returns `partial_write` with a failure-log entry recording
-  the values it was applying, so `reconcile_index` can restore them. `archive_artifact`
+  write was unavailable; it now returns `annotation_unavailable` with a failure-log entry
+  recording the values it was applying, so `reconcile_index` can restore them. `archive_artifact`
   likewise no longer returns an `annotation_warning` alongside a successful archive. A
   caller can now treat the absence of an `error` key as proof the link fields are durable
 - link fields are read from the S3 object annotations alone. The union-of-both-durable-stores
@@ -91,6 +104,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   unchanged
 
 ### Added
+- `health_check` reports an `annotations` component, probed unconditionally. Startup check 8
+  proves the annotation store works before the server accepts a request, but nothing re-checked
+  it afterwards, so post-setup IAM drift on the four annotation actions left every read of the
+  link fields failing while every other component still reported `ok`. The probe is read-only —
+  it reads one annotation name off the write-prefix probe key and never writes one — and a
+  missing object or annotation still counts as reachable
 - CI: `.github/workflows/ci.yml` runs the ruff, mypy, pytest, and `npm test` gates on push
   to `main` and on every pull request — the repository's first automated checks
 - direct unit tests for `build_scope_filter`, asserting the gate's semantics by evaluating
@@ -117,11 +136,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the artifact's subject `date`. Comparing `date` was wrong in both directions: a tier-3 source
   overwritten in place under an unchanged date was never reported stale, and a source carrying a
   later subject date but written *before* the synthesis was flagged even though it is already
-  reflected in it. `date` remains the fallback when either side has no recorded write ULID
+  reflected in it. `date` remains the fallback when either side has no recorded write ULID. Where
+  an artifact has several vectors that disagree about `last_edited_ulid` — the residue of a
+  partial overwrite whose stale-vector cleanup failed — the newest is now taken rather than
+  whichever the index happened to return first, which could otherwise mask staleness until a
+  `reconcile_index` run pruned the orphans. Both dedup passes, over syntheses and over their
+  sources, apply the same rule
 - `delete_artifact` failure responses now carry `vectors_deleted`, so a caller can tell a
   half-deleted artifact — vectors gone, S3 object still standing, unsearchable but not destroyed and
   repairable by `reconcile_index` — from a delete that never started. The error code still names
-  what the caller must act on, so a credential failure remains `credential_error`
+  what the caller must act on, so a credential failure remains `credential_error`. The field
+  describes the vector *side*, not a vector count: an artifact that had no vectors at all — a
+  never-indexed partial write — now reports `True`, where it previously reported `False` and so
+  told the caller its vectors were still standing when there were none
+- `arkeology_studio`'s plain-text fallback returns a structured error code for every failure of
+  its listing call. It called the internal listing function, so a condition only the public tool
+  maps — an unavailable annotation store — reached the module's catch-all as a bare exception and
+  came back with `is_error` set but no code at all, while a credential failure on the same call
+  got one. It now calls the public `list_artifacts` and propagates whatever code that returns, so
+  a host on the fallback path can always tell "the store could not be reached" from "the store is
+  empty"
 - an overwriting `write_artifact` or an `archive_artifact` whose target is deleted by someone else
   between the first read and a compare-and-swap retry now returns `not_found` rather than
   `internal_error`, and a credential failure on a retry's re-read now returns the structured
@@ -134,6 +168,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   filter expression S3 Vectors rejects outright
 - `health_check` runs its probes off the event loop via `asyncio.to_thread`, matching every other
   tool; they previously ran inline and blocked the loop for the duration of the slowest probe
+- a failure-log entry is now recorded for any failure that strikes once the S3 object is
+  durable, not only a credential failure. `write_artifact`'s compare-and-swap retry loop logged
+  the credential case alone, so a `SlowDown` on the re-read or a budget breach on the re-merge
+  escaped to the catch-all having recorded nothing — leaving S3 holding this write's content, the
+  link fields cleared by the re-PUT, and the index still on the previous version. That state is
+  invisible to `reconcile_index` on its own, because the artifact still has vectors and so the
+  orphan scan skips it. While nothing is durable the failure stays the clean no-op it always was:
+  a budget breach still rejects with no write and no entry
 - an annotation read failure now raises instead of degrading to empty. With the union read
   model retired there is no second copy to cover for it, and an empty result caused by a
   transient failure would have been written straight back over good data by any of the three
@@ -164,9 +206,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   preceding object re-PUT clears the object's annotations, so the entry had been dropping the
   only remaining copy: `references` is not in vector metadata at all and the vector
   `commit_refs` copy keeps at most the most-recent 20 entries, making anything past that window
-  permanently unrecoverable without telling the caller. Both fields are optional and are
-  restored as a union with the artifact's current value, so an entry written before this change
-  replays unchanged and a value re-added in the meantime is not lost
+  permanently unrecoverable without telling the caller. Both fields are optional. `commit_refs`
+  is restored as a union with the artifact's current value — it is an append-only trail on which
+  removal is not a supported operation, so a value re-added in the meantime is not lost.
+  `references` is replaced outright by every write, so it is restored only while the
+  `last_edited_ulid` the entry recorded still equals the artifact's current one; a differing ULID
+  means a later successful write has already established what the field says, and restoring the
+  entry's copy over it would resurrect exactly the references that write deliberately removed. An
+  entry carrying no ULID unions as entries did before the token existed — an absent token is
+  missing evidence of supersession, not evidence of it
 - a read prefix at or beneath the write prefix is now rejected at startup. The scope model
   assumes disjoint scopes, and every own-scope guard is a `startswith(write_prefix + "/")`
   test, so with `WRITE_PREFIX=team` and `READ_PREFIXES=team/proj` another deployment's
@@ -195,7 +243,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a concurrent tool call or another server process sharing the same log — was overwritten
   and its artifact never reconciled. The end-of-run rewrite now re-reads the log under the
   same exclusive lock the appender takes and removes only the entries it actually
-  resolved. The log is still deleted when it genuinely drains to empty
+  resolved. A drained log is now truncated in place rather than unlinked, and flushed before the
+  lock is released. An appender that opened the file before the rewrite and is still blocked on
+  the lock would otherwise write into an unlinked inode, or have its entry landed on by a flush
+  deferred to close — losing exactly the entry the re-read under the lock exists to preserve. A
+  log missing entirely is read as an empty one, so a concurrent run draining it between another's
+  existence check and its open no longer collapses that run to `internal_error`
 - `reconcile_index` no longer replays a failure-log entry whose artifact has since been
   deleted. Such an entry was reported in `failed` with reason `S3 object not found` on
   every run forever, and `failure_log_entries_after` never dropped, because a `failed`

@@ -967,3 +967,76 @@ def test_check8_probe_key_uses_the_reserved_probe_marker(
     for key in annotation_probe_keys:
         assert key.startswith(f"{settings.write_prefix}/")
         assert key.rsplit("/", 1)[-1].startswith(_PROBE_KEY_MARKER)
+
+
+# ---------------------------------------------------------------------------
+# T74.5 — check 3's annotation probe must cover the read prefixes too
+# ---------------------------------------------------------------------------
+
+
+def test_check3_annotation_denied_on_a_read_prefix_refuses_start(
+    settings_with_read_prefix: Settings,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """A prefix-scoped IAM policy that grants annotations only on the write prefix must
+    not pass startup.
+
+    Probing the write prefix alone proves nothing about the read prefixes, and a
+    prefix-scoped policy is the common shape on a shared bucket. Startup then succeeds
+    and every ``read_artifact`` / ``list_artifacts`` page touching a foreign tier-3
+    shared artifact fails at runtime — the deployment is unsupported, and the whole
+    point of the gate is that it says so before the server accepts a request.
+
+    It is check 3 that must refuse, not check 8: the denial is scoped outside the write
+    prefix, so check 8's own round trip still passes and only the read-prefix annotation
+    probe can catch this.
+    """
+    s3_client.put_object("network/foreign-artifact", "content", {"title": "Foreign"})
+    original_get = s3_client.get_object_annotation
+
+    def _deny_outside_the_write_prefix(key: str, annotation_name: str) -> str:
+        if not key.startswith(f"{settings_with_read_prefix.write_prefix}/"):
+            raise _annotation_unavailable("AccessDenied")
+        return original_get(key, annotation_name)
+
+    mocker.patch.object(
+        s3_client, "get_object_annotation", side_effect=_deny_outside_the_write_prefix
+    )
+    bedrock = FakeBedrockClient()
+
+    with pytest.raises(StartupValidationError) as exc_info:
+        validate_startup(
+            settings=settings_with_read_prefix,
+            s3=s3_client,
+            vectors=vectors_client,
+            bedrock=bedrock,
+        )
+    assert exc_info.value.check == "read_prefix"
+    assert "s3:GetObjectAnnotation" in exc_info.value.message
+
+
+def test_check3_annotations_granted_on_every_prefix_still_starts(
+    settings_with_read_prefix: Settings,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+) -> None:
+    """The read-prefix probe must not turn a correctly-scoped deployment away.
+
+    Pairs with the denial case above: a bucket-wide grant, and a read prefix holding a
+    real object to probe, still starts. Without this the denial test above is equally
+    satisfied by a check 3 that always fails.
+    """
+    s3_client.put_object("network/foreign-artifact", "content", {"title": "Foreign"})
+    bedrock = FakeBedrockClient()
+
+    assert (
+        validate_startup(
+            settings=settings_with_read_prefix,
+            s3=s3_client,
+            vectors=vectors_client,
+            bedrock=bedrock,
+        )
+        is None
+    )

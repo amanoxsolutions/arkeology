@@ -13,7 +13,7 @@ from arkeology.annotations import apply_link_annotations
 from arkeology.clients.s3 import S3ClientImpl
 from arkeology.clients.vectors import VectorsClientImpl
 from arkeology.config import Settings
-from arkeology.errors import CredentialError
+from arkeology.errors import AnnotationUnavailableError, CredentialError
 from arkeology.tools.read import read_artifact
 from tests.unit.conftest import _make_settings as _make_settings_base
 
@@ -1129,3 +1129,39 @@ async def test_read_annotation_failure_errors_rather_than_reporting_empty_link_f
 
     assert "error" in result
     assert result.get("commit_refs") != []
+
+
+# ---------------------------------------------------------------------------
+# T74.4 — one error code for AnnotationUnavailableError
+# ---------------------------------------------------------------------------
+
+
+async def test_read_annotation_unavailable_returns_the_annotation_unavailable_code(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """A failed link-field annotation read names its cause instead of collapsing to
+    ``internal_error``.
+
+    Startup check 8 proves annotation availability before the server accepts a request,
+    so at runtime this can only be post-setup IAM drift — a condition whose remedy is
+    known and documented. ``internal_error`` says only "something unexpected" about it,
+    and an operator diagnosing the drift should not have to know which of the six tools
+    that can meet this condition they happened to call.
+    """
+    settings = _make_settings(monkeypatch)
+    _seed_objects(s3_client)
+    mocker.patch.object(
+        s3_client,
+        "get_object_annotation",
+        side_effect=AnnotationUnavailableError(
+            "S3 object annotations are unavailable for this bucket.", "s3", Exception("boom")
+        ),
+    )
+
+    result = await read_artifact(settings=settings, s3=s3_client, artifact_id="artifacts/t2-shared")
+
+    assert result.get("error") == "annotation_unavailable"
+    # Denial reveals nothing beyond the code — no content leaks on the error path.
+    assert "content" not in result

@@ -1,7 +1,7 @@
 """arkeology.tools.health — health_check MCP tool implementation.
 
 Performs independent connectivity probes for each configured component
-(S3, S3 Vectors, Bedrock, write prefix, read prefixes) and returns a
+(S3, S3 Vectors, Bedrock, write prefix, annotation store, read prefixes) and returns a
 structured per-component status report. Never raises — all exceptions are
 caught and reported as component-level "error" entries.
 """
@@ -18,7 +18,7 @@ from arkeology.clients.interfaces import (
     VectorsClientInterface,
 )
 from arkeology.config import Settings
-from arkeology.constants import ErrorCode
+from arkeology.constants import ANNOTATION_PROBE_NAME, ErrorCode
 from arkeology.errors import CredentialError
 
 logger = logging.getLogger(__name__)
@@ -69,8 +69,8 @@ async def health_check(
         bedrock: Bedrock client.
 
     Returns:
-        Dict with keys: "s3", "vectors", "bedrock", "write_prefix", and one
-        "read_prefix:{prefix}" key per configured read prefix. Each value is
+        Dict with keys: "s3", "vectors", "bedrock", "write_prefix", "annotations",
+        and one "read_prefix:{prefix}" key per configured read prefix. Each value is
         either ``{"status": "ok"}`` or ``{"status": "error", "message": str}``.
     """
     try:
@@ -138,6 +138,30 @@ async def _health_check_inner(
             await asyncio.to_thread(s3.delete_object, probe_key)
         except Exception as cleanup_exc:
             logger.warning("Failed to clean up health probe '%s': %s", probe_key, cleanup_exc)
+
+    # ── Annotation store probe ────────────────────────────────────────────────
+    # commit_refs and references live in S3 object annotations alone, so an IAM policy
+    # edited after startup check 8 passed leaves every link-field read failing while
+    # every other component still reports ok. Read-only — it reads an annotation and
+    # never writes one — and reported under its own key, because an annotation denial
+    # is not a write-permission problem and sends the operator somewhere else entirely.
+    # The probe key need not exist: a missing object or annotation (KeyError) still
+    # proves the call was permitted, which is the only question being asked. That rests
+    # on the principal holding s3:ListBucket over the write prefix — without it real S3
+    # masks a missing key with AccessDenied, which maps to AnnotationUnavailableError and
+    # would report a healthy annotation store as drifted. Assumed rather than worked
+    # around, on two grounds: reconcile_index lists the write prefix, and it is the sole
+    # repair path for every failure-log entry, so a principal that cannot list it is an
+    # already-broken deployment; and the misreport would be a false alarm, never a false
+    # all-clear. Note the moto self-mock does not model the masking, so the green test
+    # below is not evidence either way.
+    def _annotation_read_probe() -> None:
+        try:
+            s3.get_object_annotation(probe_key, ANNOTATION_PROBE_NAME)
+        except KeyError:
+            pass
+
+    result["annotations"] = await _probe(_annotation_read_probe)
 
     # ── Read prefix probes ────────────────────────────────────────────────────
     for prefix in settings.read_prefixes_list:
