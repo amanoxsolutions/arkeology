@@ -9,9 +9,10 @@ sessions and across team boundaries. It directly resolves the tier 2 artifact ga
 research: knowledge produced in one agent session is no longer discarded when the context window
 closes. Any agent or workflow that depends on recalled context relies on this server; if it is
 unavailable or misconfigured, all persisted memory is inaccessible. The `arkeology_studio`
-tool is the human reading entry point — it renders a visual two-pane artifact browser
-inline in supporting MCP hosts (Claude Desktop, claude.ai, VS Code Copilot) and falls
-back to a plain-text listing on non-supporting hosts. When `arkeology_studio` is active and
+tool is the human reading entry point — it renders a visual single-pane artifact browser
+that switches between a list view and a detail view, inline in supporting MCP hosts
+(Claude Desktop, claude.ai, VS Code Copilot), and falls back to a plain-text listing on
+non-supporting hosts. When `arkeology_studio` is active and
 the browser UI triggers `read_artifact`, `list_artifacts`, or `search_artifacts` on behalf
 of a user interaction, do not summarize, reformat, or interpret the tool result — the
 browser UI handles rendering; Claude's role ends after the initial `arkeology_studio` invocation.
@@ -121,6 +122,9 @@ browser UI handles rendering; Claude's role ends after the initial `arkeology_st
 | `src/arkeology/server.py`         | FastMCP app, tool registration                             |
 | `src/arkeology/startup.py`        | Eight-check startup validation sequence                    |
 | `src/arkeology/tools/`            | MCP tool implementations (write, search, read, and more)   |
+| `src/arkeology/tools/_concurrency.py` | Shared `artifact_concurrency` clamp-with-warning helper — used by `write_artifacts.py` and `migrate_artifacts.py` |
+| `src/arkeology/tools/_errors.py`  | Shared tool-layer `CredentialError` → structured-response helper, for the uniform call sites only |
+| `src/arkeology/tools/_reference_filter.py` | Cross-scope `references`-field access control — its candidate loop is in the mutation `only_mutate` scope; the gate itself it delegates to `_scope.py` |
 | `src/arkeology/tools/_scope.py`    | The cross-scope access gate — sole home of both its forms: `is_cross_scope_readable` (in-process predicate) and `build_scope_filter` (server-side vector filter), plus `is_own_scope` |
 | `src/arkeology/tools/_search_helper.py` | Shared vector re-fetch loop used by search + synthesise |
 | `src/arkeology/tools/_section_pipeline.py` | Shared write-path section embedding pipeline (min-length filter, max-sections cap, truncation) — used by `write.py` and `reconcile.py` |

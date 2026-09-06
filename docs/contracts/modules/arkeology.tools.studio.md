@@ -13,8 +13,8 @@ authored:
   by: "tech-writer"
   date: 2026-09-04
 revised:
-  by: ""
-  date: YYYY-MM-DD
+  by: "tech-writer"
+  date: 2026-09-06
 ---
 
 # arkeology.tools.studio
@@ -82,6 +82,12 @@ Never raises. A failure is returned as a structured error `ToolResult` with `is_
 
 **Postconditions**
 
-- Host UI support determines the shape of `structured_content` — omitted, populated, or an error
-  payload — and those three shapes are exhaustive.
+- Host UI support determines the shape of `structured_content` on every path that reaches the
+  fallback logic — omitted (host supports the UI extension), populated with the listing, or an
+  error payload from a failed inner `list_artifacts`.
+- A fourth shape exists and callers must handle it: the outer catch-all, on an unexpected
+  exception anywhere in the tool, returns `is_error=True` with the message in `content` and **no**
+  `structured_content` at all. A host that reads errors only from `structured_content` sees
+  nothing on this path, so error detection must key on `is_error`, with `content` as the fallback
+  message source. The four shapes together are exhaustive.
 - The returned listing, when present, reflects only artifacts the caller's scope may read.

@@ -52,6 +52,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reported as missing, deliberately indistinguishable from a genuinely absent one, because a
   separate "inaccessible" category would leak the existence of foreign tier-2 and hidden
   artifacts. Behaviour is unchanged
+- a `references` element is now documented consistently as a **full** operative `artifact_id`
+  — scope prefix and file extension included — in the `arkeology://schema/artifact` resource,
+  the `Artifact` model, the `write_artifact` docstring, and the annotation contract. The model
+  and tool docstrings had said "bare artifact IDs … no path text", which reads as an
+  instruction to strip the scope prefix; an element written that way fails the cross-scope
+  readability check and is silently dropped from a foreign reader's view. The same
+  `write_artifact` docstring also still claimed `references` is stored in vector metadata,
+  which stopped being true when T58 removed it. Behaviour is unchanged
+- the read-forward of `commit_refs` on an overwriting write is documented as applying to
+  **every** overwrite rather than only a tier-3 living-document update. The S3, annotation,
+  and write contracts had all scoped it to tier 3, while the code has always keyed it on
+  `overwrite` against an existing key. A caller could have concluded that replacing a tier-2
+  artifact drops its commit-ref trail. Behaviour is unchanged
+- response keys that were always returned but never contracted are now documented:
+  `delete_failed` on `check_synthesis_freshness` (including its effect on `all_fresh`),
+  `skipped_unindexed` on `migrate_artifacts`, and `zero_results`, `clamped`,
+  `effective_top_k`, `truncated`, `included`, and `skipped_count` on `synthesise_artifacts`,
+  each with the condition under which it is present. The `migrate_artifacts` contract also no
+  longer implies that an unindexed candidate is routed into the repair path — the tool reports
+  it and names `reconcile_index`, and repairs nothing itself. Behaviour is unchanged
+- the `arkeology_studio` contract documents a fourth `ToolResult` shape it had called
+  exhaustive at three: the outer catch-all returns `is_error=True` with **no**
+  `structured_content`, so a host that reads errors only from `structured_content` sees
+  nothing on that path. `generate_artifact_id`'s contracted error surface is likewise
+  corrected — it raises for an invalid `type`, `date`, or `tier`, never for an over-long or
+  control-character-bearing title, which are `Artifact` model validators. Behaviour is
+  unchanged
 
 ### Added
 - CI: `.github/workflows/ci.yml` runs the ruff, mypy, pytest, and `npm test` gates on push

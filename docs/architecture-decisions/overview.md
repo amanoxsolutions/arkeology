@@ -122,7 +122,7 @@ graph TD
 | Client interfaces | `clients/interfaces.py` | `typing.Protocol` contracts for S3, S3 Vectors, and Bedrock |
 | AWS adapters | `clients/s3.py`, `clients/vectors.py`, `clients/bedrock.py` | Concrete boto3 implementations; credential error wrapping |
 | Test fakes | `clients/fakes/fake_bedrock.py` | `FakeBedrockClient` — deterministic hash-derived embeddings for unit tests |
-| In-process filter | `clients/filter.py` | Metadata filter evaluator (`$eq`, `$in`, `$nin`, `$gte`, `$lte`) for `list_vectors_by_metadata` |
+| In-process filter | `clients/filter.py` | Metadata filter evaluator for `list_vectors_by_metadata` — comparison operators (`$eq`, `$in`, `$nin`, `$gte`, `$lte`) **and** the logical combinators `$and` / `$or`, on which the gate's server-side form (`build_scope_filter`) and `find_referrers` both depend |
 | MCP Resources | `resources.py` | Always-current schema, tier model, type catalogue, and query strategy guidance |
 | Failure log | `failure_log.py` | JSONL partial-write failure log; appended when S3 write succeeds but vector write fails |
 | Errors | `errors.py` | Typed exceptions: `ArkeologyError`, `CredentialError`, `StartupValidationError`, `VectorIndexNotFoundError` |

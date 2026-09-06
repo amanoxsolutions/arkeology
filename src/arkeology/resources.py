@@ -79,7 +79,13 @@ def artifact_schema_content() -> str:
 | `author_role` | string | Role of the author (e.g. `"developer"`) |
 | `source_artifacts` | list[string] | Source IDs for a `synthesis` artifact |
 | `commit_refs` | list[string] | Git commit SHAs linked to this artifact via `link_metadata` |
-| `references` | list[string] | Full S3 keys (the operative `artifact_id`) this artifact points at |
+| `references` | list[string] | Full operative `artifact_id`s this artifact points at |
+
+Each `references` element is a full operative `artifact_id` — scope prefix and file extension
+included, exactly as `write_artifact` and `read_artifact` return it, and exactly what the vector
+index is keyed on. Never an `arkeology://` URI, never a repository path, and never the id with
+its scope prefix stripped: a prefix-less element fails the cross-scope readability check and is
+silently dropped from a foreign reader's view of the artifact.
 
 `commit_refs` is accretive: an overwriting write MERGES the supplied value with the artifact's
 existing `commit_refs` (never dropped) — it is a durable audit trail with no frontmatter

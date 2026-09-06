@@ -20,7 +20,7 @@ This project runs as a **single open phase**, not a pre-planned roadmap. Complet
 - **Status legend:** ⬜ pending · 🔄 in progress · 🔍 in review · ✅ done · 🔴 blocked
 - **Delivery model:** each **Phase** is a coherent slice of value delivered as a set of tasks. A phase ends when we judge it done.
 
-**Current state:** Phase 14 — Consistency Review Remediation is open, closing the findings of the 2026-09-05 whole-repository consistency review; T71–T78 are done. Prior phases below remain as delivered. Phase 12 — Artifact Cross-Referencing + Annotation-Backed Link Storage: all planned tasks **T45–T69** implemented, unit-tested (suite green), and merged to `main` (the `phase-12-cross-referencing` branch is merged; work is trunk-based on `main` per AGENTS.md); skills consolidated under `plugins/arkeology/skills/`; specs, ADR-011/ADR-012, and user docs aligned. **T57–T62** (added 2026-08-13) delivered the post-implementation remediation for a real vector-metadata-budget-overflow incident (guard coverage, `commit_refs`/`references` split-store fix, migration self-heal, bounded reconcile retry — see `adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal.md`, Accepted). Two closely-related review findings were folded directly into those specs rather than getting their own task numbers: I-4 (control-character validation gap) into T57's spec, and I-2 (`propose_commit_links.py` first-vector-only bug) into T58's spec — both touched the exact same file/function T57/T58 already opened. H-2 was folded into T62's spec (same file, already reopened by T62). Four other findings (F-1, F-3, H-1, I-3) were batched into follow-up task **T63**, and a further six batches of review-2026-08-13 remediation — **T64–T69** (I-6, J-2, C-1, J-1, cleanup-hygiene batch 2, and convention-class cleanup) — landed 2026-08-19/20, closing out every open finding from that review. No task in the phase remains open. Not yet released: latest tag is v0.5.0 (Phase 11 — Visual Reading Interface); `CHANGELOG.md`'s `[Unreleased]` section carries the accumulated Phase 12 changes pending a version cut.
+**Current state:** Phase 14 — Consistency Review Remediation is open, closing the findings of the 2026-09-05 whole-repository consistency review; T71–T79 are done. Prior phases below remain as delivered. Phase 12 — Artifact Cross-Referencing + Annotation-Backed Link Storage: all planned tasks **T45–T69** implemented, unit-tested (suite green), and merged to `main` (the `phase-12-cross-referencing` branch is merged; work is trunk-based on `main` per AGENTS.md); skills consolidated under `plugins/arkeology/skills/`; specs, ADR-011/ADR-012, and user docs aligned. **T57–T62** (added 2026-08-13) delivered the post-implementation remediation for a real vector-metadata-budget-overflow incident (guard coverage, `commit_refs`/`references` split-store fix, migration self-heal, bounded reconcile retry — see `adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal.md`, Accepted). Two closely-related review findings were folded directly into those specs rather than getting their own task numbers: I-4 (control-character validation gap) into T57's spec, and I-2 (`propose_commit_links.py` first-vector-only bug) into T58's spec — both touched the exact same file/function T57/T58 already opened. H-2 was folded into T62's spec (same file, already reopened by T62). Four other findings (F-1, F-3, H-1, I-3) were batched into follow-up task **T63**, and a further six batches of review-2026-08-13 remediation — **T64–T69** (I-6, J-2, C-1, J-1, cleanup-hygiene batch 2, and convention-class cleanup) — landed 2026-08-19/20, closing out every open finding from that review. No task in the phase remains open. Not yet released: latest tag is v0.5.0 (Phase 11 — Visual Reading Interface); `CHANGELOG.md`'s `[Unreleased]` section carries the accumulated Phase 12 changes pending a version cut.
 
 ---
 
@@ -413,6 +413,27 @@ clause does not need a dedicated spec. Testing approach: **TDD** (NFR-07).
     introducing a second constant. Both id lists are caller-shaped and unbounded.
     **(f)** `health_check` runs its probes off the event loop via `asyncio.to_thread`, matching every
     other tool; they previously blocked the loop for the duration of the slowest probe.
+
+79. ✅ **Documentation and contract minor findings from the 2026-09-05 consistency review** *(no
+    dedicated spec — every change corrects a document's description of existing behaviour; the
+    contracts themselves are the record)*. Corrected: `generate_artifact_id`'s documented error
+    surface; the read-forward's scope, which four documents described as tier-3-only when the gate has
+    always been `is_existing and overwrite` — **the contracts were wrong, not the code** — and which
+    also wrongly said "link fields" are read forward when only `commit_refs` is, `references` having
+    replace semantics; the percent-decode no-op guarantee, now scoped to values carrying no `%XX`
+    substring and stating the residual ambiguity consistently with the learnings entry on it;
+    `arkeology_studio`'s undocumented fourth `ToolResult` shape; `migrate_artifacts`' missing
+    `skipped_unindexed`, plus an invariant claiming it routes work into a repair path when it only
+    reports and names `reconcile_index`; `check_synthesis_freshness`' and `synthesise_artifacts`'
+    undocumented response keys; a dangling closed-backlog reference in a delivered spec; `AGENTS.md`'s
+    Overview describing the studio as two-pane when the HTML hides the detail view by default and is
+    single-pane view-switching, plus three missing helper-module rows; and the ADR overview's
+    filter-evaluator row omitting the `$and`/`$or` combinators it implements. The `references` element
+    form is settled on the full operative `artifact_id` in all four places that described it three
+    ways — a prefix-stripped element fails the cross-scope readability check and is silently dropped
+    from a foreign reader's view. Incidental: `write_artifact`'s agent-facing docstring still claimed
+    `references` is stored in vector metadata, which T58 removed. m-6 is **not** closed here — see
+    Risks and Open Questions.
 
 ## Risks and Open Questions
 

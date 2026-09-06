@@ -1,6 +1,6 @@
 ---
 type: spec
-title: "B-3 / T41: Rename feature_tags → tags"
+title: "T41: Rename feature_tags → tags"
 description: >
   Pure identifier rename of the feature_tags metadata field to tags across the entire
   Arkeology codebase — model, MCP API, S3/vector metadata keys, filters, tests, AGENTS.md,
@@ -8,7 +8,7 @@ description: >
 tags: ["schema", "okf-alignment", "refactor"]
 timestamp: 2026-06-18T00:00:00Z
 okf_version: "0.1"
-feature: "B-3"
+feature: p10-t41-rename-feature-tags-to-tags
 status: ready
 references:
   - docs/brainstorming/brainstorming-2026-06-15-okf-alignment.md
@@ -20,7 +20,7 @@ revised:
   date: ""
 ---
 
-# B-3 / T41: Rename `feature_tags` → `tags`
+# T41: Rename `feature_tags` → `tags`
 
 <!-- SCOPE BLOCK — frozen after approval -->
 

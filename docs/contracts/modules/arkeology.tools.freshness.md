@@ -12,8 +12,8 @@ authored:
   by: "tech-writer"
   date: 2026-09-04
 revised:
-  by: "architect"
-  date: 2026-09-04
+  by: "tech-writer"
+  date: 2026-09-06
 ---
 
 # arkeology.tools.freshness
@@ -82,7 +82,16 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
 **Postconditions**
 
 - Returns `stale`, `archived_sources`, `missing_sources`, `malformed`, `deleted_malformed`,
-  `total_checked`, and `all_fresh`.
+  `delete_failed`, `total_checked`, and `all_fresh`. All eight keys are present on every
+  successful call, including the early return when no synthesis exists at all — none is
+  conditional, so a caller may read any of them without a membership test.
+- `delete_failed` lists the ids of malformed syntheses a `confirm=True` run tried and failed to
+  delete for a non-credential reason, including the case where the vectors were removed but the S3
+  object was not — the same orphan `delete_artifact` reports, recoverable by `reconcile_index`. It
+  is always `[]` when `confirm` was `False`, since nothing was attempted. A credential failure
+  during deletion is not reported here: it discards the whole audit and returns `credential_error`.
+- A non-empty `delete_failed` forces `all_fresh` to `False`, on the same footing as an unresolved
+  `stale` or `malformed` entry — a run that could not finish its cleanup is not a clean run.
 - `deleted_malformed` is empty whenever `confirm` was `False`, which is what makes a default-mode
   run provably non-destructive.
 - `all_fresh` is a convenience summary; a caller must not infer from it that no malformed syntheses

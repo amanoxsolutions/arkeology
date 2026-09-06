@@ -517,10 +517,17 @@ class Artifact(BaseModel):
             :data:`COMMIT_REFS_VECTOR_METADATA_MAX_ENTRIES` entries
             (:func:`cap_commit_refs_for_vectors`, T58) — a bounded, most-recent-N view
             for filtering purposes only, NOT a completeness guarantee.
-        references: Optional list of resolved bare artifact IDs this artifact points
-            at (ADR-012 D2). Holds only resolved identifiers — no ``arkeology://`` prefix,
-            no path text. Mirrors the artifact's frontmatter ``references:`` list — a
-            claim about the artifact's *current* outbound links, not an audit trail.
+        references: Optional list of resolved artifact IDs this artifact points at
+            (ADR-012 D2). Each element is a full operative ``artifact_id`` — scope prefix
+            and file extension included, exactly as ``write_artifact`` and
+            ``read_artifact`` return it, and exactly what the vector index is keyed on.
+            "Resolved" means the ``arkeology://`` URI scheme and any repository path text
+            have been stripped, NOT that the scope prefix has: a bare id with the prefix
+            removed fails the cross-scope readability check in
+            :func:`arkeology.tools._reference_filter.resolve_readable_targets` and is
+            silently dropped from a foreign reader's view. Mirrors the artifact's
+            frontmatter ``references:`` list — a claim about the artifact's *current*
+            outbound links, not an audit trail.
             On an overwriting write, the supplied value REPLACES the artifact's
             existing references outright (no merge, no read-forward): additions,
             removals, and swaps in the frontmatter are all reflected one-for-one, and

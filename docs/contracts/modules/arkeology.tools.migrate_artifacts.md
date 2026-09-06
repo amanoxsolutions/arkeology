@@ -15,8 +15,8 @@ authored:
   by: "tech-writer"
   date: 2026-09-04
 revised:
-  by: ""
-  date: YYYY-MM-DD
+  by: "tech-writer"
+  date: 2026-09-06
 ---
 
 # arkeology.tools.migrate_artifacts
@@ -77,8 +77,10 @@ failures are reported inside their own entries.
   response rather than a rejection.
 - The write phase delegates to `write_artifacts`, inheriting the whole write path.
 - An artifact whose content object exists but which is not actually indexed is not treated as
-  already-migrated; it is routed through the existing repair path rather than skipped as done. The
-  existence check is per candidate, not a bulk pre-scan.
+  already-migrated. It is classified separately and **reported**, with the message naming
+  `reconcile_index` as the repair — this tool never writes to, re-indexes, or otherwise repairs
+  such an artifact, and running it does not trigger the repair path. The existence check is per
+  candidate, not a bulk pre-scan.
 
 **Preconditions**
 
@@ -94,6 +96,11 @@ failures are reported inside their own entries.
 - A skipped descriptor's entry is `{"written": False, "skipped": True, "artifact_id": ...}`.
 - `skipped_existing` is present only when at least one descriptor was skipped, one entry per skip
   carrying `index`, `artifact_id`, and `title`.
+- `skipped_unindexed` is present only when at least one candidate's object exists in S3 with no
+  indexed vectors; one entry per such candidate carrying `index`, `artifact_id`, `title`, and
+  `message`. Its `results` entry is `{"written": False, "skipped": True, "artifact_id": ...,
+  "reason": "unindexed", "message": ...}` — the `reason` is what distinguishes it from a
+  `skipped_existing` skip, whose entry carries no `reason` at all.
 - `generation_failed` is present, in both `dry_run` and live responses, only when at least one
   descriptor's description generation failed; one entry per failure carrying `index`, `title`, and
   `message`. A generation failure does not abort the call, but the affected descriptor is never

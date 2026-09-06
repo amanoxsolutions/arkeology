@@ -17,8 +17,8 @@ authored:
   by: "tech-writer"
   date: 2026-09-04
 revised:
-  by: "architect"
-  date: 2026-09-04
+  by: "tech-writer"
+  date: 2026-09-06
 ---
 
 # arkeology.tools.write
@@ -90,9 +90,11 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
 - Metadata budgets are validated against the **actual serialized representations about to be
   written**, before any `head_object` / `put_object` / `put_vectors_batch` and before any
   failure-log append. A rejected write touches neither store nor the log.
-- On a tier-3 overwriting write, existing link fields are read forward from the object's
-  annotations, their sole source of truth, and merged, then the budget check is **re-run** against
-  the enlarged metadata before any write.
+- On **any** overwriting write — a tier-3 living-document update and an explicit tier-2
+  replacement alike — `commit_refs` is read forward from the object's annotations, its sole source
+  of truth, and merged, then the budget check is **re-run** against the enlarged metadata before
+  any write. The read-forward is keyed on `overwrite` against an existing key, never on tier.
+  `references` is not read forward; see the replace-semantics invariant below.
 - A failed annotation write is **never reported as a success**. The S3 object is already durable at
   that point, so it returns `partial_write` (or `credential_error` on the credential branch) and
   appends the failure-log entry carrying the values it was applying, which is what lets

@@ -16,8 +16,8 @@ authored:
   by: "tech-writer"
   date: 2026-09-04
 revised:
-  by: ""
-  date: YYYY-MM-DD
+  by: "tech-writer"
+  date: 2026-09-06
 ---
 
 # s3-annotations.artifact
@@ -161,7 +161,7 @@ Two named annotations per object, both optional:
 | Annotation name | Payload | Absent when |
 |---|---|---|
 | `commit_refs` | Comma-joined `list[str]` — full SHA, short SHA, PR URL, or tag; format is opaque | The list is empty |
-| `references` | Comma-joined `list[str]` of resolved `artifact_id` values | The list is empty |
+| `references` | Comma-joined `list[str]` of resolved `artifact_id` values — each the full operative key, scope prefix and file extension included, exactly as the write and read tools return it; never an `arkeology://` URI and never a repository path | The list is empty |
 
 Annotations are mutable in place, do not require re-PUTting the object, leave the ETag stable, and
 carry a far larger ceiling than either object metadata (2 KB) or vector filterable metadata (2 KB).
@@ -178,8 +178,9 @@ carry a far larger ceiling than either object metadata (2 KB) or vector filterab
   graph-technology decision, not a storage tweak.
 - **Overwriting the object wipes its annotations.** This is real S3 semantics, not a bug, and the
   write path must always read-forward and re-apply the link fields after an overwriting
-  `put_object`. Any refactor that drops that read-forward silently loses link data on every tier-3
-  living-document update.
+  `put_object`. The read-forward runs on **every** overwriting write, keyed on `overwrite` against
+  an existing key rather than on tier; any refactor that drops it silently loses link data on a
+  tier-3 living-document update and an explicit tier-2 replacement alike.
 - Durable-first write ordering must be preserved: annotations are written before vector metadata, so
   a failed vector write self-heals on the next `reconcile_index` rather than losing the value. That
   self-heal depends on the failing writer recording a failure-log entry, which is what makes the

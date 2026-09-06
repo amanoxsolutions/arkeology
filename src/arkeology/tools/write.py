@@ -362,10 +362,13 @@ async def write_artifact(
         commit_refs: Optional list of git commit SHAs to pre-link this artifact.
             Stored as ``list[str]`` in vector metadata and as a comma-joined S3
             object annotation (ADR-011) — never in S3 user-defined object metadata.
-        references: Optional list of resolved bare artifact IDs this artifact points
-            at (ADR-012 D2). Stored as ``list[str]`` in vector metadata and as a
-            comma-joined S3 object annotation (ADR-011) — never in S3 user-defined
-            object metadata.
+        references: Optional list of resolved artifact IDs this artifact points at
+            (ADR-012 D2). Each element is a full operative ``artifact_id`` — scope prefix
+            and file extension included, exactly as this tool returns it — with the
+            ``arkeology://`` scheme and any repository path text stripped, but NOT the
+            scope prefix. Stored only as a comma-joined S3 object annotation (ADR-011):
+            never in S3 user-defined object metadata, and, as of T58, never in S3 Vectors
+            metadata under any code path.
         status: ``"active"`` (default) or ``"inactive"``.
         file_extension: File extension for the S3 key, including the leading dot
             (e.g. ``".md"``, ``".txt"``). Defaults to ``".md"``. Must start with
