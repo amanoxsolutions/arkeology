@@ -190,6 +190,7 @@ def _record_partial_write(
     reason: str,
     commit_refs: list[str] | None = None,
     references: list[str] | None = None,
+    last_edited_ulid: str | None = None,
 ) -> dict[str, Any]:
     """Append a failure-log entry and build the standard ``partial_write`` response.
 
@@ -208,6 +209,7 @@ def _record_partial_write(
         reason: Human-readable failure reason.
         commit_refs: Forwarded to :func:`_log_partial_write_failure`.
         references: Forwarded to :func:`_log_partial_write_failure`.
+        last_edited_ulid: Forwarded to :func:`_log_partial_write_failure`.
 
     Returns:
         The ``partial_write`` error response dict (includes ``artifact_id``).
@@ -223,6 +225,7 @@ def _record_partial_write(
         reason=reason,
         commit_refs=commit_refs,
         references=references,
+        last_edited_ulid=last_edited_ulid,
     )
     return {
         "error": ErrorCode.PARTIAL_WRITE,
@@ -716,9 +719,11 @@ async def _write_artifact_inner(  # noqa: PLR0913
     # ``apply_link_annotations`` already deletes the annotation when its input list is
     # empty, so no further adjustment to either store is needed here for this field.
     #
-    # An overwriting write on an existing artifact races every other read-modify-write
-    # cycle on the same artifact's durable link-field state, so it is guarded by a
-    # bounded ETag compare-and-swap retry (ADR-011 decision 6): the object's ETag is
+    # An overwriting write on an existing artifact races the object-body writers on the
+    # same artifact, so it is guarded by a bounded ETag compare-and-swap retry (ADR-011
+    # decision 6). The object ETag serialises annotation writers against object-body
+    # writers only; annotation-only writers to the same field are not serialised against
+    # each other — the accepted residual stated in that decision. The object's ETag is
     # captured on read (above, from the head_object already performed for the existence
     # check) and the subsequent put_object is conditional (if_match=ETag0); the object's
     # *new* ETag (ETag1, from that put_object's response) is used as if_match on the
@@ -726,7 +731,8 @@ async def _write_artifact_inner(  # noqa: PLR0913
     # call: re-read (fresh ETag, fresh link-field state) and retry the WHOLE cycle,
     # re-merging the caller's *original* supplied refs/references (never a previous
     # attempt's already-merged output, to avoid compounding) — for CAS_MAX_ATTEMPTS
-    # attempts, after which a structured conflict error is returned. A fresh write
+    # attempts, after which a structured error is returned: conflict while nothing is
+    # durable, partial_write once the final attempt's put_object has landed. A fresh write
     # (is_existing is False) has nothing to race against and is unaffected — its
     # if_none_match="*" guard addresses a different race (the create-collision guard).
     final_commit_refs = refs
@@ -893,12 +899,13 @@ async def _write_artifact_inner(  # noqa: PLR0913
         else:
             # Retries exhausted — never a raw exception, never a silent partial write.
             # If the object body was durably written on the final attempt (only the
-            # trailing annotation apply kept conflicting), record a failure-log entry
-            # so reconcile_index can repair the link-field state later; a persistent
-            # conflict on put_object itself never wrote anything durable, so no entry
-            # is produced in that case.
+            # trailing annotation apply kept conflicting), the content landed and that
+            # put cleared the annotations: the same repairable state as any other
+            # post-PUT failure, so it returns partial_write with the failure-log entry
+            # reconcile_index replays. A persistent conflict on put_object itself never
+            # wrote anything durable, so it returns conflict with no entry.
             if last_attempt_object_written:
-                _log_partial_write_failure(
+                return _record_partial_write(
                     settings,
                     artifact_id=s3_key,
                     title=title,

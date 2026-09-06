@@ -1410,7 +1410,7 @@ async def test_archive_persistent_cas_conflict_returns_conflict_error(
     assert meta["status"] == "active"
 
 
-async def test_archive_persistent_annotation_conflict_after_durable_flip_logs_partial(
+async def test_archive_persistent_annotation_conflict_after_durable_flip_returns_partial_write(
     monkeypatch: pytest.MonkeyPatch,
     s3_client: S3ClientImpl,
     vectors_client_2: VectorsClientImpl,
@@ -1418,9 +1418,11 @@ async def test_archive_persistent_annotation_conflict_after_durable_flip_logs_pa
     tmp_path: Path,
 ) -> None:
     """When the status flip IS durably written (put_object always succeeds) but the
-    annotation re-apply persistently conflicts, exhausting retries must still record
-    a failure-log entry — the object side was already durably written before the
-    conflict was hit, so the entry must not be falsely omitted.
+    annotation re-apply persistently conflicts, exhausting retries is a partial write,
+    not a conflict: the flip landed and the re-PUT cleared the annotations, so the
+    response must name the repairable state (``partial_write``) and a failure-log entry
+    whose ``failure_step`` is the annotation write must exist for reconcile_index to
+    replay. Contract: arkeology.tools.archive — Errors (``partial_write``).
 
     commit_refs is seeded into the annotation — its sole source of truth — so the
     first attempt's read-forward picks it up, and archive accumulates the read-forward
@@ -1452,16 +1454,19 @@ async def test_archive_persistent_annotation_conflict_after_durable_flip_logs_pa
         artifact_id="artifacts/active-review",
     )
 
-    assert result.get("error") == "conflict"
+    assert result.get("error") == "partial_write"
+    assert result.get("artifact_id") == "artifacts/active-review"
     assert settings.failure_log_path.exists()
     entries = [json.loads(line) for line in settings.failure_log_path.read_text().splitlines()]
     assert len(entries) == 1
     assert entries[0]["artifact_id"] == "artifacts/active-review"
     assert entries[0]["failure_step"] == "annotation_write"
-    # The status flip WAS durably applied on the final attempt even though we report
-    # a conflict error.
+    # The status flip WAS durably applied on the final attempt — the state partial_write names.
     meta = s3_client.head_object("artifacts/active-review")
     assert meta["status"] == "inactive"
+    # ...while the vectors were never flipped — the other half of that state.
+    for key in ("artifacts/active-review#summary", "artifacts/active-review#details"):
+        assert vectors_client_2.get_vectors([key])[0]["metadata"]["status"] == "active"
 
 
 async def test_archive_vector_writes_remain_unconditional_despite_cas_retry(
@@ -1556,8 +1561,9 @@ async def test_archive_annotation_unknown_error_records_partial_archive_with_lin
     tmp_path: Path,
 ) -> None:
     """An unknown error from the annotation re-apply — neither a conflict, nor
-    annotation-unavailable, nor a credential failure (e.g. SlowDown) — must still
-    record a failure-log entry.
+    annotation-unavailable, nor a credential failure (e.g. SlowDown) — is a partial
+    write: it must return ``partial_write`` naming the artifact and record a failure-log
+    entry (contract: arkeology.tools.archive — Errors, ``partial_write``).
 
     By this point the status flip is durably written, the re-PUT has wiped the
     object's annotations, and every vector still says ``active``. Letting the
@@ -1590,11 +1596,14 @@ async def test_archive_annotation_unknown_error_records_partial_archive_with_lin
         artifact_id="artifacts/active-review",
     )
 
-    assert "error" in result
+    assert result.get("error") == "partial_write"
+    assert result.get("artifact_id") == "artifacts/active-review"
     assert settings.failure_log_path.exists()
     entries = [json.loads(line) for line in settings.failure_log_path.read_text().splitlines()]
+    assert len(entries) == 1
     assert entries[-1]["artifact_id"] == "artifacts/active-review"
     assert entries[-1]["failure_step"] == "annotation_write"
+    _assert_half_archived(s3_client, vectors_client_2)
     assert entries[-1]["commit_refs"] == ["abc1234"]
     assert entries[-1]["references"] == ["artifacts/some-adr"]
 
@@ -1760,6 +1769,86 @@ def _slow_down_error() -> botocore.exceptions.ClientError:
     )
 
 
+def _assert_half_archived(s3: S3ClientImpl, vectors: VectorsClientImpl) -> None:
+    """The state the archive contract's ``partial_write`` names: S3 says ``inactive``,
+    every vector still says ``active``."""
+    assert s3.head_object("artifacts/active-review")["status"] == "inactive"
+    for key in ("artifacts/active-review#summary", "artifacts/active-review#details"):
+        assert vectors.get_vectors([key])[0]["metadata"]["status"] == "active"
+
+
+@pytest.mark.parametrize("failing_call", ["list_vectors_by_metadata", "put_vector"])
+async def test_archive_vector_flip_unknown_error_returns_partial_write(
+    failing_call: str,
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+    mocker: MockerFixture,
+    tmp_path: Path,
+) -> None:
+    """An unknown failure while fetching or re-putting the vectors, once the status flip
+    and annotation re-apply are durable, returns ``partial_write`` with one entry whose
+    ``failure_step`` is the vector flip (contract: arkeology.tools.archive — Errors,
+    ``partial_write``). S3 is ``inactive``, every vector still ``active``.
+
+    The fetch is also used before the flip (idempotency check, referrer scan), where a
+    failure is a clean ``internal_error``; the fault therefore fires only once S3
+    already says ``inactive``."""
+    settings = _make_settings(monkeypatch, tmp_path=tmp_path)
+    _seed_all(s3_client, vectors_client_2)
+    original = getattr(vectors_client_2, failing_call)
+
+    def _fail_after_flip(*args: object, **kwargs: object) -> object:
+        if s3_client.head_object("artifacts/active-review")["status"] == "inactive":
+            raise _slow_down_error()
+        return original(*args, **kwargs)  # type: ignore[operator]
+
+    mocker.patch.object(vectors_client_2, failing_call, side_effect=_fail_after_flip)
+
+    result = await archive_artifact(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=None,
+        artifact_id="artifacts/active-review",
+    )
+
+    assert result.get("error") == "partial_write"
+    assert result.get("artifact_id") == "artifacts/active-review"
+    entries = [json.loads(line) for line in settings.failure_log_path.read_text().splitlines()]
+    assert len(entries) == 1
+    assert entries[0]["artifact_id"] == "artifacts/active-review"
+    assert entries[0]["failure_step"] == "archive_vector_flip"
+    _assert_half_archived(s3_client, vectors_client_2)
+
+
+async def test_archive_pre_flip_unknown_error_stays_internal_error(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+    mocker: MockerFixture,
+    tmp_path: Path,
+) -> None:
+    """An unknown failure before the first status re-PUT lands changed nothing, so it
+    stays ``internal_error`` with no failure-log entry (contract:
+    arkeology.tools.archive — Errors, ``internal_error``)."""
+    settings = _make_settings(monkeypatch, tmp_path=tmp_path)
+    _seed_all(s3_client, vectors_client_2)
+    mocker.patch.object(s3_client, "get_object", side_effect=_slow_down_error())
+
+    result = await archive_artifact(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=None,
+        artifact_id="artifacts/active-review",
+    )
+
+    assert result.get("error") == "internal_error"
+    assert not settings.failure_log_path.exists()
+    assert s3_client.head_object("artifacts/active-review")["status"] == "active"
+
+
 @pytest.mark.parametrize(
     "failing_call", ["head_object", "get_object_annotation", "get_object", "put_object"]
 )
@@ -1771,7 +1860,9 @@ async def test_archive_cas_retry_unknown_error_records_partial_archive(
     mocker: MockerFixture,
     tmp_path: Path,
 ) -> None:
-    """Any failure on a CAS retry — not only a credential one — leaves an entry.
+    """Any failure on a CAS retry — not only a credential one — leaves an entry and
+    returns ``partial_write`` (contract: arkeology.tools.archive — Errors,
+    ``partial_write``).
 
     Reaching a retry means an earlier attempt's status re-PUT already landed durably
     and cleared the object's annotations, while every vector still says ``active``.
@@ -1812,14 +1903,18 @@ async def test_archive_cas_retry_unknown_error_records_partial_archive(
         artifact_id="artifacts/active-review",
     )
 
-    assert "error" in result
+    assert result.get("error") == "partial_write"
+    assert result.get("artifact_id") == "artifacts/active-review"
     assert settings.failure_log_path.exists(), (
         "A non-credential failure on a CAS retry left no failure-log entry, so the "
         "partial archive is invisible to reconcile_index"
     )
     entries = [json.loads(line) for line in settings.failure_log_path.read_text().splitlines()]
+    assert len(entries) == 1
     assert entries[-1]["artifact_id"] == "artifacts/active-review"
     assert entries[-1]["failure_step"] == _CAS_RETRY_FAILURE_STEPS[failing_call]
+    mocker.stopall()  # the head_object variant leaves the status reader itself patched
+    _assert_half_archived(s3_client, vectors_client_2)
     assert entries[-1]["commit_refs"] == ["abc1234"]
     assert entries[-1]["references"] == ["artifacts/some-adr"]
 

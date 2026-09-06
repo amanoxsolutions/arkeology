@@ -256,6 +256,15 @@ async def _archive_artifact_inner(
             "artifact_id": artifact_id,
         }
 
+    def _partial_write_response(reason: str) -> dict[str, Any]:
+        # Same shape write.py returns once its object is durable: the code names the
+        # repairable state, the message points at the entry reconcile_index replays.
+        return {
+            "error": ErrorCode.PARTIAL_WRITE,
+            "message": f"{reason} — failure recorded in {settings.failure_log_path}",
+            "artifact_id": artifact_id,
+        }
+
     # ── Step 4: Fetch content, read-forward link fields, and flip S3 status —
     # guarded by an ETag compare-and-swap (ADR-011 decision 6) ────────────────
     # PutObject clears S3 annotations, so the in-place status re-PUT would otherwise
@@ -268,16 +277,19 @@ async def _archive_artifact_inner(
     # unconditionally; letting the write-path's replace semantics leak in here would
     # silently wipe references on every archive operation.
     #
-    # This whole fetch-status-flip-reannotate cycle races every other read-modify-write
-    # cycle on the same artifact's durable link-field state, so it is guarded by a
-    # bounded ETag compare-and-swap retry, mirroring write.py's Step 4a/4b: the
+    # This whole fetch-status-flip-reannotate cycle races the object-body writers on the
+    # same artifact, so it is guarded by a bounded ETag compare-and-swap retry mirroring
+    # write.py's Step 4a/4b. The object ETag serialises annotation writers against
+    # object-body writers only; annotation-only writers to the same field are not
+    # serialised against each other — the accepted residual of ADR-011 decision 6. The
     # object's ETag is captured on read (from the head_object already performed at
     # Step 2 for the first attempt) and the status re-PUT is conditional
     # (if_match=ETag0); the object's *new* ETag (ETag1) is used as if_match on the
     # following apply_link_annotations call. On ArtifactConflictError from either
     # call: re-read (fresh ETag, fresh metadata, fresh content, fresh link-field
     # state) and retry the whole cycle — for CAS_MAX_ATTEMPTS attempts, after which a
-    # structured conflict error is returned.
+    # structured error is returned: conflict while nothing is durable, partial_write
+    # once the final attempt's re-PUT has landed.
     current_s3_meta: dict[str, Any] = s3_meta
     current_etag = s3_meta.get("ETag")
     updated_s3_meta: dict[str, str] = {}
@@ -410,23 +422,26 @@ async def _archive_artifact_inner(
         else:
             # Retries exhausted — never a raw exception, never a silent partial archive.
             # If the status flip was durably written on the final attempt (only the
-            # trailing annotation apply kept conflicting), record a failure-log entry so
-            # reconcile_index can repair the link-field state later; a persistent
-            # conflict on the status re-PUT itself never wrote anything durable, so no
-            # entry is produced in that case.
+            # trailing annotation apply kept conflicting), the flip landed and that
+            # re-PUT cleared the annotations: the same repairable state as any other
+            # post-re-PUT failure, so it returns partial_write with the failure-log
+            # entry reconcile_index replays. A persistent conflict on the status re-PUT
+            # itself never wrote anything durable, so it returns conflict with no entry.
             if last_attempt_object_written:
+                reason = (
+                    "Compare-and-swap retries exhausted while re-applying "
+                    "commit_refs/references annotations after a durable status flip."
+                )
                 _record_partial_archive_failure(
                     settings,
                     artifact_id=artifact_id,
                     s3_meta=updated_s3_meta,
                     failure_step=_STEP_ANNOTATION_WRITE,
-                    reason=(
-                        "Compare-and-swap retries exhausted while re-applying "
-                        "commit_refs/references annotations after a durable status flip."
-                    ),
+                    reason=reason,
                     commit_refs=current_commit_refs,
                     references=current_references,
                 )
+                return _partial_write_response(reason)
             return _conflict_response()
 
         # ── Steps 5–6: Flip all vector statuses ───────────────────────────────
@@ -462,10 +477,13 @@ async def _archive_artifact_inner(
         _record_if_durable(exc)
         return {"error": ErrorCode.ANNOTATION_UNAVAILABLE, "message": str(exc)}
     except Exception as exc:
-        # A genuinely unknown failure is re-raised after recording — the catch-all
-        # still logs the traceback and returns internal_error, but the repairable
-        # trace now exists.
+        # Once the status flip is durable an unknown failure is a partial write, not a
+        # clean failure: the entry is recorded and the code names the state to repair.
+        # Before that point nothing changed, so it re-raises and the catch-all returns
+        # internal_error as for any other pre-write failure.
         _record_if_durable(exc)
+        if object_written:
+            return _partial_write_response(str(exc))
         raise
 
     logger.info("Artifact archived: key=%s", artifact_id)

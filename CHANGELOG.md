@@ -31,6 +31,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reported per artifact in `failed`. `partial_write` keeps its meaning and narrows to it — the
   residual state where content is durable and no cause is separately diagnosable. What is durable
   in each case is unchanged; only what the caller is told about why
+- **Breaking:** `write_artifact` no longer returns `conflict` for a write that is durable. An
+  overwriting write's compare-and-swap cycle returned `conflict` whenever it exhausted, including
+  the case where the final attempt's `put_object` had landed and only the trailing annotation write
+  kept conflicting — so the caller was told nothing changed while the new content was in S3 with its
+  annotations cleared and no failure-log entry recorded. That case now returns `partial_write` with
+  a failure-log entry whose `failure_step` names the annotation write, so `reconcile_index` can
+  complete it; `conflict` is returned only when every attempt's `put_object` conflicted and nothing
+  durable was written. A caller that treated `conflict` as "safe to retry from scratch" must now
+  treat `partial_write` as the repairable state it already is on every other post-PUT failure
+- **Breaking:** `archive_artifact` now reports a half-archived artifact as `partial_write`, a
+  response code it did not previously return — its codes were `credential_error`,
+  `annotation_unavailable`, `internal_error`, and `conflict`. Once the status re-PUT has landed, the
+  artifact is `inactive` in S3 with its annotations cleared while the vectors still say `active`;
+  any failure from that point — an unknown error on the annotation re-apply, on either vector-flip
+  call, or on any step of a compare-and-swap retry attempt, and the compare-and-swap cycle
+  exhausting on the annotation re-apply — was reported as `internal_error` (or `conflict` for the
+  exhaustion case), indistinguishable from a failure that changed nothing. The failure-log entry
+  was already recorded on every such path and `reconcile_index` already repaired the divergence;
+  only the response code hid the durable state from the caller. Every such failure now returns
+  `partial_write`, with the same failure-log entry whose `failure_step` names the step that
+  failed. `internal_error` and `conflict` are reserved for failures that left nothing
+  durable; `credential_error` and `annotation_unavailable` are unchanged. A caller that treated
+  `internal_error` from `archive_artifact` as "nothing happened" must now check for
+  `partial_write`
+- documented the exact boundary of the ETag compare-and-swap guard in ADR-011 decision 6 and in
+  the `s3-annotations` and `link_metadata` contracts: the token is the *object's* ETag, so the
+  cycle serialises annotation writers against object-body writers (an overwriting `write_artifact`,
+  an `archive_artifact` status re-PUT) and not annotation-only writers against each other, which
+  leave the ETag unchanged. Two same-field annotation writes whose reads both post-date the last
+  object-body PUT both pass the check and the later one wins, with no `conflict` and no failure-log
+  entry. The residual was previously described as two simultaneous `link_metadata` calls only; it
+  also covers a `link_metadata` call racing the trailing annotation re-apply of a write or archive.
+  No annotation-level precondition exists in the S3 API (verified against the installed botocore
+  service model), so the residual is accepted, not further mitigated. Behaviour is unchanged
 - **the server now refuses to start where S3 object annotations are unavailable.** A new
   eighth startup check round-trips one annotation through all four required IAM actions on
   a throwaway probe object, and distinguishes the two causes an operator acts on

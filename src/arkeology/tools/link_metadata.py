@@ -88,9 +88,11 @@ def _apply_link_metadata_with_cas(
     time (never a previous attempt's already-merged output) — the budget check re-runs
     against the freshly merged state on every attempt.
 
-    Accepted residual (ADR-011 decision 6): two concurrent calls touching the *same*
-    field are not detected, because annotation writes are deliberately ETag-stable
-    (decision 1) — this guard only detects a race against a content-changing write.
+    Accepted residual (ADR-011 decision 6): the object ETag serialises this call against
+    object-body writers only, so annotation-only writers to the *same* field — another
+    ``link_metadata`` call, or the trailing annotation re-apply of a ``write_artifact``
+    overwrite or ``archive_artifact`` re-PUT once its PUT has landed — are not serialised
+    against each other, and the later write wins.
 
     Args:
         s3: S3 client.

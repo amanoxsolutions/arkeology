@@ -1,7 +1,7 @@
 ---
 type: Contract
 title: s3-annotations.artifact
-description: The S3 object-annotation store holding an artifact's mutable link fields — the sole authoritative commit_refs and references copies, their comma-joined payload encoding, the raise-never-degrade read rule, and the compare-and-swap guard on every mutation.
+description: The S3 object-annotation store holding an artifact's mutable link fields — the sole authoritative commit_refs and references copies, their comma-joined payload encoding, the raise-never-degrade read rule, and the object-ETag compare-and-swap guard that serialises every mutation against object-body writes but not against other annotation writes.
 tags: []
 timestamp: 2026-09-04T00:00:00Z
 okf_version: "0.1"
@@ -106,6 +106,14 @@ def apply_link_annotations(
 - Both fields are always written with their **full, uncapped** values. The 20-entry `commit_refs`
   cap applies to the vector-metadata representation only and must never be applied here.
 - Writing an annotation does not change the object's content, its ETag, or require a re-PUT.
+- `if_match` is the *object's* ETag, so it guards exactly one race: an object-body `put_object`
+  landing after the ETag was captured fails the write with `ArtifactConflictError`. Another
+  annotation-only write landing in the same window does **not** fail it — that write left the ETag
+  unchanged, so two annotation-only writers to the same field whose reads both post-date the last
+  object-body PUT both succeed, and the later one's value stands. No annotation operation in the S3
+  API accepts an annotation-level precondition (verified 2026-09-06 against the botocore service
+  model), so this is the guard's boundary, not a caller error; it is the accepted residual of the
+  annotation-backed link storage ADR's decision 6.
 
 **Preconditions**
 
@@ -113,14 +121,20 @@ def apply_link_annotations(
   read the current state first, via `read_link_annotations`.
 - The object at `key` must exist.
 - On any read-modify-write cycle, `if_match` must carry the ETag captured at read time. Omitting it
-  reverts to unconditional behaviour and reopens the lost-update race.
+  reverts to unconditional behaviour and drops the guard against object-body writes; carrying it
+  closes that race and only that race (see the annotation-only residual under Invariants).
 
 **Postconditions**
 
 - On success both annotations reflect the supplied values exactly — present with the joined payload,
   or absent where the list was empty.
 - On `ArtifactConflictError` the caller must retry the whole read-merge-write cycle, bounded by
-  `CAS_MAX_ATTEMPTS` (3), before surfacing a structured `conflict` error.
+  `CAS_MAX_ATTEMPTS` (3), before surfacing a structured error: `conflict` if the caller has written
+  nothing durable, `partial_write` with a failure-log entry if its own preceding object PUT already
+  landed (see `arkeology.tools.write` and `arkeology.tools.archive`).
+- Success establishes that no object-body write intervened since the ETag was captured. It does not
+  establish that the supplied values were merged over the latest annotation state — an
+  annotation-only write by another caller in the same window is neither detected nor logged.
 
 ### read_link_annotations
 

@@ -203,10 +203,11 @@ Every read-modify-write cycle on an artifact's durable link-field state — `wri
 read-forward (decision 4), `link_metadata`'s fetch-merge-reput (decision 2), and
 `archive_artifact`'s status re-PUT + link re-apply (which mirrors the same read-forward/re-apply
 pattern for its own status-changing re-PUT) — is guarded by ETag-based optimistic concurrency
-control, so that two callers racing on the same artifact cannot silently drop each other's
-contribution: whichever call's read happens first would otherwise compute a merge against a state
-the other caller has since changed, and an unconditional write would clobber the newer state with a
-stale merge.
+control, so that a link-field writer racing an object-body write on the same artifact cannot
+silently drop that write's contribution: whichever call's read happens first would otherwise compute
+a merge against a state the other caller has since changed, and an unconditional write would clobber
+the newer state with a stale merge. The guard's boundary — what it does *not* serialise — is stated
+in the accepted residual at the end of this decision.
 
 The object's current ETag is captured on read (`head_object`); the subsequent `PutObject` is
 conditional (`IfMatch=ETag₀`), so a concurrent writer that already changed the object between the
@@ -217,9 +218,12 @@ overwritten. The annotation writes that follow a successful conditional `PutObje
 `PutObject` and its annotation write is also detected. On a `412` from either conditional call, the
 caller performs a bounded compare-and-swap retry — re-read (fresh ETag, fresh link-field state) →
 re-merge this call's own supplied values into that fresh state → re-write conditionally again — for
-roughly three attempts, after which it returns a structured `conflict` error rather than retrying
-indefinitely or silently dropping the write. This applies to `write.py`'s overwrite path,
-`link_metadata`, and `archive_artifact`'s status re-PUT; a fresh (non-overwriting) `write_artifact`
+roughly three attempts, after which it returns a structured error rather than retrying indefinitely
+or silently dropping the write: `conflict` when nothing durable was written, or `partial_write` with
+a failure-log entry when the final attempt's object PUT landed and only the trailing annotation write
+kept conflicting. This applies to `write.py`'s overwrite path, `link_metadata`, and
+`archive_artifact`'s status re-PUT — `link_metadata` has no object PUT of its own, so it only ever
+returns `conflict`; a fresh (non-overwriting) `write_artifact`
 call has nothing to race against and is unaffected (its `IfNoneMatch="*"` guard addresses a
 different race — the create-collision guard).
 
@@ -238,20 +242,26 @@ confirms both `PutObject.IfMatch` and `PutObjectAnnotation` / `DeleteObjectAnnot
 `ObjectIfMatch` parameter exist as documented API surface; `S3VectorsClient.PutVectors` has no
 equivalent parameter.
 
-**Accepted residual: two simultaneous `link_metadata` calls on the same field of the same
-artifact.** `ObjectIfMatch` guards the *object's* ETag, but decision 1 explicitly chose annotations
-*because* they are ETag-stable — writing an annotation does not change the object's ETag. Two
-simultaneous `link_metadata` calls that both modify the *same field* (e.g. both appending different
-`commit_refs` values) each read the same starting ETag, each pass their `ObjectIfMatch` check
-(neither call's own annotation write changes it, and neither touches the object body), and whichever
-write lands second silently overwrites the first's contribution — the exact lost update this
-decision otherwise closes. This residual is deliberately **narrow and accepted, not further
-mitigated**: it affects only two writers touching the *same field* of the *same artifact* at
-effectively the same instant. Different-field concurrent calls (one touching `commit_refs`, another
-touching `references`) are already safe — they write to different annotations and never interfere.
-A heavier mechanism (e.g. per-field versioning, a lock) is not justified against the server's
-current low-concurrency deployment profile; this residual is documented here rather than engineered
-away.
+**Accepted residual: annotation-only writers to the same field are not serialised against each
+other.** `ObjectIfMatch` guards the *object's* ETag, and decision 1 explicitly chose annotations
+*because* they are ETag-stable — writing an annotation does not change the object's ETag. The cycle
+therefore serialises annotation writers against **object-body writers**: any `put_object` changes the
+ETag, so a stale `ObjectIfMatch` fails with 412 and the cycle retries. It does **not** serialise
+**annotation-only writes against each other**: any two writers whose reads both post-date the most
+recent object-body PUT both pass `ObjectIfMatch`, and the later annotation write replaces the earlier
+one's value for that field — with no 412, no failure-log entry, and no second store to recover from.
+This class is wider than two simultaneous `link_metadata` calls. It also includes a `link_metadata`
+call racing the trailing annotation re-apply of a `write_artifact` overwrite or an `archive_artifact`
+status re-PUT, whenever `link_metadata`'s read lands after that PUT: the PUT has already moved the
+ETag, both writers hold the new one, and whichever annotation write lands second wins.
+Different-field concurrent writers (one touching `commit_refs`, another touching `references`) remain
+safe — they write to different annotations and never interfere. A second, annotation-level token is
+not available to close this: verified 2026-09-06 against the installed botocore service model,
+`PutObjectAnnotation` and `DeleteObjectAnnotation` accept only `ObjectIfMatch`, and although
+`GetObjectAnnotation` returns an annotation `ETag`, no annotation operation accepts an
+annotation-level precondition. The residual is deliberately **accepted, not further mitigated**: a
+heavier mechanism (e.g. per-field versioning, a lock) is not justified against the server's current
+low-concurrency deployment profile, so it is documented here rather than engineered away.
 
 ### Dual-write and reconcile flow
 
@@ -356,11 +366,13 @@ The line is drawn by **mutability, not by whether a field is "a reference"**: an
   stores. This narrow mid-write-crash window is accepted and not further mitigated; it never affects
   already-persisted link data, which the union rule preserves for `commit_refs`.
 
-- **Concurrent writers of the same artifact are detected, not silently merged past each other.** The
-  compare-and-swap cycle (decision 6) means a lost update on `commit_refs`/`references` surfaces as a
-  bounded retry-then-`conflict` error rather than a silent stale overwrite. The one accepted residual —
-  two simultaneous `link_metadata` calls on the same field of the same artifact — is documented in
-  decision 6 and is not further mitigated.
+- **A link-field writer racing an object-body write on the same artifact is detected, not silently
+  merged past.** The compare-and-swap cycle (decision 6) means a `commit_refs`/`references` update
+  whose read predates a concurrent `put_object` surfaces as a bounded retry-then-`conflict` error
+  rather than a silent stale overwrite. The accepted residual — annotation-only writers to the same
+  field of the same artifact are not serialised against each other, because annotation writes leave
+  the object ETag unchanged and no annotation-level precondition exists in the S3 API — is documented
+  in decision 6 and is not further mitigated.
 
 - **`link_metadata` remains embedding-free and timestamp-neutral.** The dual-write adds an S3
   annotation operation but still makes zero Bedrock calls, does not mutate content, and does not shift

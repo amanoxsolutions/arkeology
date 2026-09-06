@@ -151,28 +151,6 @@ Items that were promoted to a phase are **not** listed here — see the phase hi
   fixed its sibling findings.
   Source: 2026-09-06 diff review of commits since `35b04a8`.
 
-- **B-10 — `archive_artifact` reports every partial state as `internal_error`, so a caller cannot
-  tell a clean failure from a half-archived artifact.** `write_artifact` distinguishes the two: a
-  failure after S3 is durable returns `partial_write`, naming the artifact and telling the caller the
-  object exists but the index does not yet match. `archive_artifact` has no equivalent. Its partial
-  paths — the annotation re-apply and both vector-flip branches — record a failure-log entry and then
-  re-raise, so the tool's public result is an `internal_error` indistinguishable from a validation or
-  connectivity failure that changed nothing. The artifact is in fact durably `inactive` in S3 with its
-  vectors still `active`, and the caller has no way to know that from the response.
-
-  This is not a data-loss bug: the failure-log entry is written, so `reconcile_index` repairs the
-  divergence, and the annotation link fields are carried on the entry. It is a **response-contract
-  gap** — the caller is denied information the server already has, and an agent deciding whether to
-  retry, warn a user, or move on cannot make that decision correctly.
-
-  Surfaced while fixing the missing generic-exception branch in the archive path (2026-09-05); left
-  deliberately unfixed there because adding a new response shape to `archive_artifact` is a design
-  change, not a defect fix, and the three-way inconsistency inside the file was worse than the
-  divergence from `write_artifact`. Resolving it means deciding whether archive gains a
-  `partial_archive` (or reuses `partial_write`) response, updating
-  `docs/contracts/modules/arkeology.tools.archive.md`, and checking whether `purge_archived`, which
-  archives in bulk, needs to surface the same distinction per artifact.
-
 - **B-7 — Unify per-tool concurrency bounds under one configurable mechanism.** `write_artifacts.py`
   is the only tool whose bounded-concurrency fan-out is caller-configurable (`artifact_concurrency`,
   default 3, clamped to `[1, 15]`). The Phase 12 T63 codebase-hygiene pass converted four more tools'

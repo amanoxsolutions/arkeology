@@ -59,8 +59,9 @@ delegation rule. It raises nothing.
   is never silently absorbed: the durable write *is* this tool's contract, so the affected
   `artifact_id` is never counted as linked.
 - `conflict` — returned when the bounded compare-and-swap retry cycle is exhausted without a
-  successful conditional write, i.e. a concurrent writer changed the artifact on every attempt.
-  Carries the offending `artifact_id`.
+  successful conditional write, i.e. a concurrent object-body write changed the artifact on every
+  attempt. Carries the offending `artifact_id`. A concurrent annotation-only write never produces
+  this code (see the residual under Invariants).
 - `internal_error` — returned for any otherwise unhandled exception.
 
 **Invariants**
@@ -85,6 +86,15 @@ delegation rule. It raises nothing.
   the two copies. Ordering alone would not — an artifact that still has vectors is invisible to
   the orphan scan.
 - Each `artifact_id` retries its compare-and-swap cycle independently of the others.
+- The compare-and-swap token is the *object's* ETag, so the cycle serialises this tool against
+  object-body writes (an overwriting `write_artifact`, an `archive_artifact` status re-PUT) and
+  **not** against other annotation-only writes, which leave the ETag unchanged. Two `link_metadata`
+  calls on the same field of the same artifact, or one `link_metadata` call whose read lands after
+  such a re-PUT and races its trailing annotation re-apply, all pass the check; the later annotation
+  write replaces the earlier one's value for that field with no `conflict` and no failure-log entry.
+  Different-field callers never interfere. This is the accepted residual of the annotation-backed
+  link storage ADR's decision 6 — no annotation-level precondition exists in the S3 API — so a
+  caller that needs same-field serialisation must sequence its own calls.
 - Where two different abort-worthy outcomes occur in the same concurrent batch, the returned error
   is decided deterministically in the original `artifact_ids` order.
 

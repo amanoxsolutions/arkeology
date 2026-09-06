@@ -18,7 +18,7 @@ authored:
   by: "tech-writer"
   date: 2026-09-04
 revised:
-  by: "architect"
+  by: "developer"
   date: 2026-09-06
 ---
 
@@ -70,9 +70,13 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
   breach **detected while nothing is yet durable**, or a generated key that already exists while
   `overwrite` is `False`. A budget breach detected once a compare-and-swap attempt's `put_object`
   has landed returns `partial_write` instead; see the retry-budget-breach invariant.
-- `conflict` — the bounded compare-and-swap retry cycle was exhausted on an overwriting write.
+- `conflict` — the bounded compare-and-swap retry cycle was exhausted on an overwriting write with
+  nothing durable: every attempt's `put_object` conflicted, so nothing was written and no
+  failure-log entry is appended. Exhaustion after the final attempt's `put_object` had landed
+  returns `partial_write` instead; see the compare-and-swap invariant.
 - `partial_write` — the S3 object was written but indexing, an annotation write whose cause is not
-  separately diagnosable, or a compare-and-swap retry's re-merged budget check, failed. A
+  separately diagnosable, a compare-and-swap retry's re-merged budget check, or the
+  compare-and-swap cycle itself once the final attempt's content had landed, failed. A
   failure-log entry is appended so `reconcile_index` can complete the write later.
 - `annotation_unavailable` — the durable link store is unavailable or access to it is denied.
   **Two calls can raise it, and the code alone does not say which**: the read-forward of the
@@ -160,7 +164,13 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
   conditional on the *new* ETag returned by that `put_object`. A conflict from **either** call
   retries the whole cycle — re-read, re-merge, re-write — never just the failed half; retrying
   only the annotation write would attach link fields to an object another writer had since
-  replaced. Exhausting the cycle returns `conflict`, never a partial write.
+  replaced. Exhausting the cycle returns `conflict` only when nothing is durable — every attempt's
+  `put_object` conflicted, so no content changed and no failure-log entry is appended. When the
+  final attempt's `put_object` landed and only the annotation write kept conflicting, the write
+  returns `partial_write` with a failure-log entry whose `failure_step` names the annotation
+  write: the content is durable and the object's annotations are cleared, which is the same
+  repairable state as any other post-PUT failure, and the code names the state the caller must
+  repair, not the cause that produced it.
 - **Each retry re-merges the caller's originally supplied `commit_refs`/`references`, never a
   previous attempt's already-merged output.** This is what stops merges compounding: re-merging
   the merged result would accumulate entries across attempts, so a write that raced twice would

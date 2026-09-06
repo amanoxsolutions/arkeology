@@ -4163,7 +4163,7 @@ async def test_overwrite_persistent_cas_conflict_returns_conflict_error(
 
 
 @pytest.mark.asyncio
-async def test_overwrite_persistent_annotation_conflict_after_durable_write_logs_partial(
+async def test_overwrite_persistent_annotation_conflict_after_durable_write_returns_partial_write(
     monkeypatch: pytest.MonkeyPatch,
     s3_client: S3ClientImpl,
     vectors_client: VectorsClientImpl,
@@ -4171,10 +4171,12 @@ async def test_overwrite_persistent_annotation_conflict_after_durable_write_logs
     tmp_path: pytest.TempPathFactory,
 ) -> None:
     """When the object body IS durably written (put_object always succeeds) but the
-    annotation apply persistently conflicts, exhausting retries must still record a
-    failure-log entry — the object/annotation side was already durably written before
-    the conflict was hit, so the entry must not be falsely omitted (mirrors the
-    existing partial-write discipline)."""
+    annotation apply persistently conflicts, exhausting retries is a partial write, not
+    a conflict: the content landed and the put cleared the annotations, so the response
+    must name the repairable state (``partial_write``) and a failure-log entry whose
+    ``failure_step`` is the annotation write must exist for reconcile_index to replay.
+    Contract: arkeology.tools.write — Errors (``partial_write``) and the
+    compare-and-swap invariant."""
     log_path = tmp_path / "failures.jsonl"
     settings = _make_settings(monkeypatch, FAILURE_LOG_PATH=str(log_path))
     bedrock = FakeBedrockClient()
@@ -4208,13 +4210,14 @@ async def test_overwrite_persistent_annotation_conflict_after_durable_write_logs
         },
     )
 
-    assert result.get("error") == "conflict"
+    assert result.get("error") == "partial_write"
+    assert result.get("artifact_id") == artifact_id
     assert log_path.exists()
     entries = [json.loads(line) for line in log_path.read_text().splitlines()]
     assert len(entries) == 1
     assert entries[0]["failure_step"] == "annotation_write"
     assert entries[0]["artifact_id"] == artifact_id
-    # Content WAS durably updated on the final attempt even though we report conflict.
+    # Content WAS durably updated on the final attempt — the state partial_write names.
     assert "Updated content again" in s3_client.get_object(artifact_id)
 
 

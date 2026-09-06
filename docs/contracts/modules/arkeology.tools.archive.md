@@ -14,7 +14,7 @@ authored:
   by: "tech-writer"
   date: 2026-09-04
 revised:
-  by: "architect"
+  by: "developer"
   date: 2026-09-06
 ---
 
@@ -49,12 +49,26 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
   been written in that case, so no failure-log entry is appended.
 - `access_denied` — the artifact is not in the own scope. Archiving is own-scope only; a foreign
   artifact can never be archived.
-- `conflict` — the bounded compare-and-swap retry cycle was exhausted on the status re-PUT.
+- `conflict` — the bounded compare-and-swap retry cycle was exhausted with nothing durable: every
+  attempt's status re-PUT conflicted, so the status is unchanged and no failure-log entry is
+  appended. Exhaustion after the final attempt's re-PUT had landed returns `partial_write` instead.
+- `partial_write` — the status re-PUT landed but a later step failed for a cause that is not
+  separately diagnosable. The flip is durable in S3, the re-PUT has cleared the annotations, and
+  the vectors are not (or not all) flipped: one repairable state, whichever step reached it. A
+  failure-log entry is appended so `reconcile_index` can complete the archive later, and its
+  `failure_step` names the step: `annotation_write` for an unknown failure of the annotation
+  re-apply, or the compare-and-swap cycle exhausting on it after the final re-PUT had landed;
+  `archive_vector_flip` for an unknown failure while fetching or re-putting the vectors;
+  `archive_cas_reread`, `annotation_read`, `archive_content_fetch`, or `archive_status_reput` for an
+  unknown failure on a retry attempt, since an earlier attempt's re-PUT had already landed. A
+  credential or annotation-unavailable failure at any of these points takes its own code instead,
+  with the same entry.
 - `annotation_unavailable` — the read-forward or the re-apply failed because the durable link store
   is unavailable or access to it is denied. This is the same code every other tool returns for this
   condition — see `s3-annotations.artifact` for the single-code rule and where the mapping lives.
 - `credential_error` — an AWS call raised `CredentialError`.
-- `internal_error` — any otherwise unhandled exception.
+- `internal_error` — any otherwise unhandled exception raised while nothing is yet durable. Once
+  the status re-PUT has landed the same exception returns `partial_write` instead.
 
 **Invariants**
 
@@ -85,9 +99,10 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
   entry — credential, compare-and-swap exhaustion, or an unknown transient error alike. At that
   point S3 says `inactive`, the re-PUT has cleared the annotations, and the vectors still say
   `active`; without an entry `reconcile_index` sees a fully indexed artifact and never repairs any
-  of it. A genuinely unknown error is re-raised after recording, so it still surfaces as
-  `internal_error` to the caller; a diagnosable one takes its own code instead, per the
-  annotation-unavailable invariant below.
+  of it. A genuinely unknown error — or compare-and-swap exhaustion — at this point returns
+  `partial_write`, which names the state the caller must repair, not the cause that produced it; a
+  diagnosable one takes its own code instead, per the annotation-unavailable invariant below.
+  `internal_error` and `conflict` are reserved for failures that left nothing durable.
 - That entry's `failure_step` names the step that actually failed — a retry's re-read, the
   annotation read, the content fetch, the status re-PUT, the annotation re-apply, or the vector flip
   — rather than one value standing for all six. Whether an entry is recorded is keyed on durability;
