@@ -114,19 +114,19 @@ browser UI handles rendering; Claude's role ends after the initial `arkeology_st
 | `src/arkeology/annotations.py`    | Shared helpers for the annotation-backed durable copy of `commit_refs`/`references` |
 | `src/arkeology/artifact.py`       | Artifact model, key generation, section parsing            |
 | `src/arkeology/config.py`         | Settings (pydantic-settings, all env vars)                 |
-| `src/arkeology/constants.py`      | Centralised string-literal constants: error codes, artifact status values |
+| `src/arkeology/constants.py`      | Centralised string-literal constants: error codes, artifact status values, the annotation name both annotation-store probes ask for |
 | `src/arkeology/errors.py`         | Typed exceptions: ArkeologyError, CredentialError, etc.        |
-| `src/arkeology/failure_log.py`    | Failure log helper: append_failure_entry, JSONL format     |
+| `src/arkeology/failure_log.py`    | Failure log helpers, JSONL format: `build_failure_entry` (the single entry-shape constructor), `append_failure_entry`, `read_failure_entries`, `rewrite_failure_log` (re-read and replace under the appender's own lock), `coerce_entry_tier` |
 | `src/arkeology/references.py`     | Pure migration reference-resolution helpers (AWS-free, I/O-free) |
 | `src/arkeology/resources.py`      | FastMCP resource registrations                             |
 | `src/arkeology/server.py`         | FastMCP app, tool registration                             |
 | `src/arkeology/startup.py`        | Eight-check startup validation sequence                    |
 | `src/arkeology/tools/`            | MCP tool implementations (write, search, read, and more)   |
 | `src/arkeology/tools/_concurrency.py` | Shared `artifact_concurrency` clamp-with-warning helper — used by `write_artifacts.py` and `migrate_artifacts.py` |
-| `src/arkeology/tools/_errors.py`  | Shared tool-layer `CredentialError` → structured-response helper, for the uniform call sites only |
+| `src/arkeology/tools/_errors.py`  | Shared tool-layer `CredentialError` and `AnnotationUnavailableError` → structured-response helpers, for the uniform call sites only |
 | `src/arkeology/tools/_reference_filter.py` | Cross-scope `references`-field access control — its candidate loop is in the mutation `only_mutate` scope; the gate itself it delegates to `_scope.py` |
 | `src/arkeology/tools/_scope.py`    | The cross-scope access gate — sole home of both its forms: `is_cross_scope_readable` (in-process predicate) and `build_scope_filter` (server-side vector filter), plus `is_own_scope` |
-| `src/arkeology/tools/_search_helper.py` | Shared vector re-fetch loop used by search + synthesise |
+| `src/arkeology/tools/_search_helper.py` | Shared vector re-fetch loop used by search + synthesise, plus `fetch_vectors_by_artifact_ids` — the shared `$in` chunker that bounds the caller-shaped id lists in `freshness.py` and `_reference_filter.py` to the same filter-expression byte budget |
 | `src/arkeology/tools/_section_pipeline.py` | Shared write-path section embedding pipeline (min-length filter, max-sections cap, truncation) — used by `write.py` and `reconcile.py` |
 | `src/arkeology/tools/archive.py`  | archive_artifact MCP tool                                  |
 | `src/arkeology/tools/studio.py`   | arkeology_studio MCP tool — UI extension + plain-text fallback |
@@ -150,12 +150,12 @@ browser UI handles rendering; Claude's role ends after the initial `arkeology_st
 | `src/arkeology/clients/s3.py`     | Concrete boto3 S3 client, incl. object-annotation put/get/list/delete |
 | `src/arkeology/clients/vectors.py`| Concrete boto3 S3 Vectors client                           |
 | `src/arkeology/clients/bedrock.py`| Concrete boto3 Bedrock embeddings client                   |
-| `src/arkeology/clients/credentials.py` | Credential error code detection helper                |
+| `src/arkeology/clients/credentials.py` | Credential and annotation-unavailability error code detection helpers |
 | `src/arkeology/clients/filter.py` | In-process metadata filter evaluator ($eq, $in, $nin, …)   |
 | `src/arkeology/clients/fakes/`    | `FakeBedrockClient` only — S3 and S3 Vectors are mocked via moto |
 | `src/arkeology/clients/fakes/fake_bedrock.py` | Deterministic hash-derived embeddings fake for tests |
 | `tests/unit/`                     | Unit tests (moto + `FakeBedrockClient`, no real AWS)       |
-| `tests/unit/conftest.py`          | moto `query_vectors` extension + shared fixtures (settings, aws_mock, s3_client, vectors_client_*) |
+| `tests/unit/conftest.py`          | moto `query_vectors` and S3 object-annotation extensions + shared fixtures (settings, aws_mock, s3_client, vectors_client_*) |
 | `tests/unit/clients/test_moto_query_vectors_extension.py` | Verifies the cosine-similarity moto extension |
 | `tests/unit/clients/test_s3_annotations.py` | Verifies the S3 object-annotation client methods + moto self-mock extension |
 | `tests/integration/`              | Integration tests (real AWS, @pytest.mark.integration)     |
@@ -232,6 +232,7 @@ one makes all persisted memory inaccessible:
 - `SECTION_CONCURRENCY`, `EMBED_MAX_SECTIONS`, and `EMBED_MIN_SECTION_LENGTH` control write-path embedding behaviour; all three are validated at startup — setting any to an out-of-range value prevents the server from starting
 - **Backlog (`B-` items) are a live work queue, not a history log.** When a `B-` item is completed, delete its entire row from `docs/planning-artifacts/backlog.md` and remove all cross-references to it in specs, ADRs, and `plan.md`. Pending-language (`⏳ Option A/B`, `code fix pending`) becomes dangling noise once an item is done; there is no value in keeping resolved rows.
 - **A dedicated `docs/specs/` file is required only for a task that introduces new or changed behaviour** — a new tool, parameter, response field, or user-visible contract that needs a frozen scope to implement against. A task that is pure code hygiene (extracting duplicated logic into a shared helper, applying an already-established pattern more consistently, renaming for clarity) with zero behavioural change needs no new spec file — `plan.md`'s own task entry, if it names the concrete signatures/call sites, is sufficient scope of record, and the code + its tests + docstrings become the authority once it lands. Writing a spec for every fix produces spec sprawl and authority ambiguity (which of several specs governs code that several fixes have since touched) for no corresponding benefit — reserve specs for changes that actually need a frozen contract.
+- **A module contract exists where one component depends on another's *shape* — not for every importable file.** `docs/contracts/modules/` covers the tool modules and the client-facing surfaces callers are written against. A module that only declares literal constants — `constants.py` — is not such a surface: its names carry no signature, no errors, and no invariants, and the values themselves are already normative in the contracts that state them by value (error codes in each tool's **Errors** list, artifact status values in `s3.artifact`). Adding a public name there is therefore not a contract change and does not reopen whether `constants.py` should have a contract; it has none deliberately. A name in it is public when more than one module imports it — a leading underscore on a cross-module import would misdescribe its scope — and that visibility is a Python convention, not a promise to external callers.
 
 ## Non-Negotiable Rules
 
@@ -291,24 +292,34 @@ one makes all persisted memory inaccessible:
 
 ## Quality Gates
 
-**There is no CI.** This repository has no `.github/workflows/` and nothing runs automatically on
-push, on pull request, or on a schedule. Every gate below is enforced by you remembering to run
-it.
+**CI runs most of these, but not all.** `.github/workflows/ci.yml` runs on every push to `main`
+and on every pull request, in two parallel jobs: `python` runs `ruff check`, `ruff format --check`,
+`mypy src/` and the unit suite, each at exactly the scope listed below; `static` runs `npm ci`
+followed by `npm test`. Nothing is scheduled — a run happens because a push or a pull request
+happened. Every step goes through `uv run` / `npm`, so `pyproject.toml` and `package-lock.json`
+stay the single source of truth for tool versions in CI exactly as they are locally.
 
-`.pre-commit-config.yaml` gives you a fast local pre-filter. **Install it once per clone** — the
-hooks do nothing until you do:
+Three gates are **not** in CI, and two of them cannot be: `uv run arkeology` needs a real `.env`
+and the integration suite needs real AWS, and a fork pull request receives neither. Mutation
+testing is absent by choice — 40+ minutes, deliberately manual and local (see `## Conventions`).
+Those three are enforced only by you remembering to run them.
+
+`.pre-commit-config.yaml` gives you a fast local pre-filter, so a style or typing failure costs
+you a commit rather than a CI round trip. **Install it once per clone** — the hooks do nothing
+until you do:
 
 ```bash
 uv run pre-commit install
 ```
 
 Every hook runs the project's own pinned tooling via `uv run` (`language: system`), never an
-independently-versioned upstream mirror, so a hook and its gate below can never disagree about
-tool versions or typing stubs — `pyproject.toml` is the single source of truth for both. It is
-still **not a substitute** for the list below: `pytest` (~4 min) and `npm test` are deliberately
-absent, because a hook slow enough to invite `--no-verify` is worse than no hook.
+independently-versioned upstream mirror, so a hook, its CI step, and its gate below can never
+disagree about tool versions or typing stubs — `pyproject.toml` is the single source of truth for
+all three. It is still **not a substitute** for the list below: `pytest` (~4 min) and `npm test`
+are deliberately absent, because a hook slow enough to invite `--no-verify` is worse than no hook.
 
-Run the full list by hand before pushing:
+Run the full list by hand before pushing — CI reaches the same verdict on all but one of these,
+but only after the push, and it can never run `uv run arkeology`:
 
 ```bash
 uv run pytest tests/unit/ -q -m 'not integration'    # must pass
