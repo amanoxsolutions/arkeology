@@ -20,7 +20,7 @@ This project runs as a **single open phase**, not a pre-planned roadmap. Complet
 - **Status legend:** ⬜ pending · 🔄 in progress · 🔍 in review · ✅ done · 🔴 blocked
 - **Delivery model:** each **Phase** is a coherent slice of value delivered as a set of tasks. A phase ends when we judge it done.
 
-**Current state:** Phase 14 — Consistency Review Remediation is open, closing the findings of the 2026-09-05 whole-repository consistency review; T71–T80 are done. Prior phases below remain as delivered. Phase 12 — Artifact Cross-Referencing + Annotation-Backed Link Storage: all planned tasks **T45–T69** implemented, unit-tested (suite green), and merged to `main` (the `phase-12-cross-referencing` branch is merged; work is trunk-based on `main` per AGENTS.md); skills consolidated under `plugins/arkeology/skills/`; specs, ADR-011/ADR-012, and user docs aligned. **T57–T62** (added 2026-08-13) delivered the post-implementation remediation for a real vector-metadata-budget-overflow incident (guard coverage, `commit_refs`/`references` split-store fix, migration self-heal, bounded reconcile retry — see `adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal.md`, Accepted). Two closely-related review findings were folded directly into those specs rather than getting their own task numbers: I-4 (control-character validation gap) into T57's spec, and I-2 (`propose_commit_links.py` first-vector-only bug) into T58's spec — both touched the exact same file/function T57/T58 already opened. H-2 was folded into T62's spec (same file, already reopened by T62). Four other findings (F-1, F-3, H-1, I-3) were batched into follow-up task **T63**, and a further six batches of review-2026-08-13 remediation — **T64–T69** (I-6, J-2, C-1, J-1, cleanup-hygiene batch 2, and convention-class cleanup) — landed 2026-08-19/20, closing out every open finding from that review. No task in the phase remains open. Not yet released: latest tag is v0.5.0 (Phase 11 — Visual Reading Interface); `CHANGELOG.md`'s `[Unreleased]` section carries the accumulated Phase 12 changes pending a version cut.
+**Current state:** Phase 14 — Consistency Review Remediation is open, closing the findings of the 2026-09-05 whole-repository consistency review and the 2026-09-06 diff review; T73 (documentation sweep) and T74 are the only tasks still open. Prior phases below remain as delivered. Phase 12 — Artifact Cross-Referencing + Annotation-Backed Link Storage: all planned tasks **T45–T69** implemented, unit-tested (suite green), and merged to `main` (the `phase-12-cross-referencing` branch is merged; work is trunk-based on `main` per AGENTS.md); skills consolidated under `plugins/arkeology/skills/`; specs, ADR-011/ADR-012, and user docs aligned. **T57–T62** (added 2026-08-13) delivered the post-implementation remediation for a real vector-metadata-budget-overflow incident (guard coverage, `commit_refs`/`references` split-store fix, migration self-heal, bounded reconcile retry — see `adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal.md`, Accepted). Two closely-related review findings were folded directly into those specs rather than getting their own task numbers: I-4 (control-character validation gap) into T57's spec, and I-2 (`propose_commit_links.py` first-vector-only bug) into T58's spec — both touched the exact same file/function T57/T58 already opened. H-2 was folded into T62's spec (same file, already reopened by T62). Four other findings (F-1, F-3, H-1, I-3) were batched into follow-up task **T63**, and a further six batches of review-2026-08-13 remediation — **T64–T69** (I-6, J-2, C-1, J-1, cleanup-hygiene batch 2, and convention-class cleanup) — landed 2026-08-19/20, closing out every open finding from that review. No task in the phase remains open. Not yet released: latest tag is v0.5.0 (Phase 11 — Visual Reading Interface); `CHANGELOG.md`'s `[Unreleased]` section carries the accumulated Phase 12 changes pending a version cut.
 
 ---
 
@@ -257,7 +257,7 @@ Goal: replace the `prd` artifact type with two new types, `vision` and `requirem
 ## Phase 14 — Consistency Review Remediation
 
 Goal: close the findings from the whole-repository consistency review of 2026-09-05 (ADRs, specs and
-contracts against the source). Most are documentation-authority corrections rather than behaviour
+contracts against the source) and from the diff review of 2026-09-06 (commits 35b04a8..88cc6e5). Most are documentation-authority corrections rather than behaviour
 changes; the code-level ones are defect fixes against preconditions the contracts already state. No
 new spec files — each task entry below, together with the contract it corrects, is the scope of
 record, per AGENTS.md's working convention that a fix enforcing an already-documented contract
@@ -293,74 +293,7 @@ clause does not need a dedicated spec. Testing approach: **TDD** (NFR-07).
     to `docs/specs/p12-t62-bounded-reconcile-retry.md` recording which of its acceptance criteria is
     superseded and in what respect.
 
-73. ✅ **Refuse to start when a read prefix sits at or beneath the write prefix** — `Settings` normalised
-    each prefix but never compared them, so `WRITE_PREFIX=team` with `READ_PREFIXES=team/proj` made
-    `is_own_scope` answer `True` for the other deployment's artifacts: they passed every own-scope-only
-    gate (`archive_artifact`, `delete_artifact`, `purge_archived`, `link_metadata`) and Phase 2 of
-    `reconcile_index` re-indexed them under the local scope. Fix: a `model_validator(mode="after")` on
-    `Settings` rejecting a read prefix equal to or nested under the write prefix, running after both
-    fields are normalised so slash-hidden forms are caught; duplicate read prefixes are de-duplicated
-    rather than rejected. The constraint is deliberately one-directional — a write prefix *beneath* a
-    read prefix, nesting among read prefixes, and sibling prefixes sharing a textual prefix all stay
-    valid, each pinned by a test. `adr-2026-05-29-tier-based-access-control.md` records why: the foreign
-    clause matches `scope` by exact equality while `is_own_scope` matches the key hierarchically, so only
-    the one direction is unsafe. Caller-visible: a previously-accepted configuration now refuses to start.
-
-74. ✅ **Do not drop failure-log entries appended while a reconcile is running** — `reconcile_index` read
-    the log at Phase 1 start and rewrote it at the end with no lock, while `append_failure_entry` takes
-    an exclusive `flock`, so an entry logged by a concurrent write during the multi-minute replay was
-    silently overwritten. Holding the lock across the whole phase was rejected: it would block every
-    failing write for minutes, which is worse than the bug. Fix: `read_failure_entries` and
-    `rewrite_failure_log` in `failure_log.py` (keeping lock handling in the module that already owns it);
-    the rewrite re-reads and writes back inside one hold of the appender's own lock, applying a
-    caller-supplied transform, so entries appended mid-run survive. Retry counts moved from in-place
-    mutation into an `(artifact_id, kind)`-keyed update map, since the rewrite now works on freshly-read
-    dicts. The reconcile contract's claim that a productive run always leaves fewer entries than it
-    started with was corrected — that no longer holds when a concurrent append lands. A microsecond-wide
-    residual window around the unlink is documented in place with its upgrade path.
-
-75. ✅ **Preserve the link fields only the failure-log entry can restore, and give `archive_artifact` the
-    branch that writes one** — two inseparable halves of one defect. `archive.py` caught only
-    `ArtifactConflictError`, `AnnotationUnavailableError` and `CredentialError` around the annotation
-    re-apply, so any other exception escaped to the catch-all: S3 flipped to `inactive`, annotations wiped
-    by the re-PUT, every vector still `active`, and **no failure-log entry**, leaving `reconcile_index`
-    looking at a fully-indexed artifact it would never touch. Separately, the entries both the write and
-    archive paths do write omitted the read-forward `commit_refs`/`references` — and since the re-PUT
-    clears annotations, `references` is absent from vector metadata entirely, and the vector `commit_refs`
-    copy is capped at 20 entries, everything past that window existed nowhere else once the re-apply
-    failed. Fix: `build_failure_entry` in `failure_log.py` as the single construction point both producers
-    use, carrying the uncapped link fields; `_restore_entry_link_fields` in reconcile Phase 1 re-applying
-    them *before* the re-index, so the rebuilt vector metadata derives from the restored annotation; and
-    the missing `except Exception` branch in archive, recording then re-raising to match that file's
-    existing vector-flip handler. The restore is a **union** with the artifact's current value, never a
-    replacement, so a link re-added between the failure and the repair is not traded away; and an entry
-    predating these fields carries neither, which means "nothing to restore", never "clear them".
-    `_merge_link_field` moved from `link_metadata.py` to `annotations.py` as public `merge_link_field`
-    rather than being imported privately across tool modules. Documented in the reconcile, write and
-    archive contracts. Known ceiling, commented in place: the restore is read-merge-write without
-    compare-and-swap.
-
-76. ✅ **Give `link_metadata`'s promised self-heal an actual trigger, and return the fields
-    `synthesise_artifacts`' contract promises** — two contract-versus-code divergences. (a) The
-    `link_metadata` contract and ADR-011 both stated that a failed vector write "self-heals on the next
-    `reconcile_index` run", but nothing made it true: reconcile re-indexes only failure-log entries and S3
-    keys with *zero* vectors, and a partially-linked artifact is neither, so the annotation and vector
-    copies stayed divergent forever and every server-side filter on the linked field silently omitted the
-    artifact. Worse, the exception escaped `asyncio.gather`, collapsing the whole call to `internal_error`
-    and discarding the results of artifacts that had already succeeded. Fix: record a reindex-kind
-    failure-log entry via `build_failure_entry` carrying the applied link fields (making the existing
-    Phase 1 restore the repair path), and contain the failure per artifact behind an outcome marker as
-    `write_artifacts` already does, reporting affected ids in a new `vector_write_failed` list present only
-    when non-empty. ADR-011 carries a dated Revision recording that its self-heal claim is now backed by a
-    mechanism. (b) `synthesise_artifacts` omitted `score`, `source_artifacts`, `last_edited_ulid`,
-    `last_edited_at` and `fetch_exhausted` despite its contract promising them; entries are now built from
-    `build_artifact_summary`, the same helper `search_artifacts` uses, so the two cannot drift apart again.
-    Also corrected a third, previously unrecorded contract falsehood found while implementing: the
-    synthesise contract claimed content is fetched in batch, when it is fetched per result inside the
-    budget loop — necessarily so, since the running byte total decides whether the next candidate is
-    fetched at all, and batching would pay for bytes the budget discards.
-
-77. **Make S3 object annotations the sole source of truth for link fields, gated at startup** —
+73. ✅ **Make S3 object annotations the sole source of truth for link fields, gated at startup** —
     *(operator decision, 2026-09-05: reverses ADR-011 decision 5; requirements C-08 and FR-57 flipped from
     Should/degrade-gracefully to Must/gate-startup)*. The union-of-both-durable-stores read model existed
     only to serve deployments where annotations were unavailable, and it cost a **full vector-index scan
@@ -388,68 +321,58 @@ clause does not need a dedicated spec. Testing approach: **TDD** (NFR-07).
        Known stale items to fix in this sweep: `AGENTS.md`'s repository-structure table still calls
        `startup.py` a "Seven-check startup validation sequence" (there are now eight), and its Component
        Dependencies section still describes annotation unavailability as degrading gracefully rather than
-       refusing to start.
+       refusing to start. ✅
 
-78. ✅ **Code-behaviour minor findings from the 2026-09-05 consistency review** *(no dedicated spec —
-    each is a defect fix against behaviour the contracts already imply; this entry plus the contract
-    edits are the scope of record, per AGENTS.md's working convention)*. Six fixes:
-    **(a)** `check_synthesis_freshness` compared the artifact's subject `date` rather than its write
-    recency, so a tier-3 source overwritten in place under an unchanged date was never reported
-    stale, while a later-dated source written *before* the synthesis was wrongly flagged. Now uses
-    the monotonic `last_edited_ulid`, which every content write bumps and which link backfills,
-    archive status flips and reconcile re-indexes deliberately leave alone; `date` remains the
-    fallback where either side predates the ULID.
-    **(b)** `delete_artifact` failure responses gained `vectors_deleted`, so a half-deleted artifact
-    (vectors gone, S3 object standing, repairable by `reconcile_index`) is distinguishable from a
-    delete that never started; the error code still names what the caller must act on.
-    **(c/d)** Both compare-and-swap loops (`write_artifact` overwrite, `archive_artifact` status
-    flip) now return `not_found` when a concurrent delete removes the object between the first read
-    and a retry's re-read, and return the structured `credential_error` from a retry's re-read as the
-    first attempt already did — previously both escaped as `internal_error`. Nothing is written in
-    either case, so no failure-log entry is appended.
-    **(e)** The unbounded `$in` filters in freshness's source lookup and `_reference_filter`'s target
-    resolution are chunked via a new shared `fetch_vectors_by_artifact_ids`, reusing the existing
-    filter-expression byte budget the search loop already bounds its `$nin` list with rather than
-    introducing a second constant. Both id lists are caller-shaped and unbounded.
-    **(f)** `health_check` runs its probes off the event loop via `asyncio.to_thread`, matching every
-    other tool; they previously blocked the loop for the duration of the slowest probe.
+74. ✅ **Fix the 2026-09-06 diff-review findings** *(no dedicated spec — this entry, plus the contracts
+    it corrects, is the scope of record)* — the review of commits `35b04a8..88cc6e5`. Its two
+    spec-level findings are already closed: `requirements.md` FR-17/FR-51/FR-54/FR-56/C-07 and
+    AC-57/AC-59/AC-60/AC-61 were corrected to the sole-source-of-truth model on 2026-09-06, and AC-68
+    was added to pin the restore rule below. The AGENTS.md staleness the review found (the "There is
+    no CI" paragraph, now false, and the `failure_log.py` / `_search_helper.py` structure rows) is
+    T73 step 6's, not this task's. Remaining, contract first where one is wrong:
 
-79. ✅ **Documentation and contract minor findings from the 2026-09-05 consistency review** *(no
-    dedicated spec — every change corrects a document's description of existing behaviour; the
-    contracts themselves are the record)*. Corrected: `generate_artifact_id`'s documented error
-    surface; the read-forward's scope, which four documents described as tier-3-only when the gate has
-    always been `is_existing and overwrite` — **the contracts were wrong, not the code** — and which
-    also wrongly said "link fields" are read forward when only `commit_refs` is, `references` having
-    replace semantics; the percent-decode no-op guarantee, now scoped to values carrying no `%XX`
-    substring and stating the residual ambiguity consistently with the learnings entry on it;
-    `arkeology_studio`'s undocumented fourth `ToolResult` shape; `migrate_artifacts`' missing
-    `skipped_unindexed`, plus an invariant claiming it routes work into a repair path when it only
-    reports and names `reconcile_index`; `check_synthesis_freshness`' and `synthesise_artifacts`'
-    undocumented response keys; a dangling closed-backlog reference in a delivered spec; `AGENTS.md`'s
-    Overview describing the studio as two-pane when the HTML hides the detail view by default and is
-    single-pane view-switching, plus three missing helper-module rows; and the ADR overview's
-    filter-evaluator row omitting the `$and`/`$or` combinators it implements. The `references` element
-    form is settled on the full operative `artifact_id` in all four places that described it three
-    ways — a prefix-stripped element fails the cross-scope readability check and is silently dropped
-    from a foreign reader's view. Incidental: `write_artifact`'s agent-facing docstring still claimed
-    `references` is stored in vector metadata, which T58 removed. m-6 is **not** closed here — see
-    Risks and Open Questions.
+    1. **Restore `references` only when the entry has not been superseded** — the reconcile contract's
+       "the restored value is the **union** of the entry's copy and the artifact's current value,
+       never a replacement" contradicts FR-55, under which `references` is replaced outright by each
+       write. When a successful overwrite lands between a failure and its replay, reconcile
+       resurrects references the overwrite deliberately removed. Correct the contract first, then
+       record the artifact's identity at failure time (`last_edited_ulid` or ETag) on the failure-log
+       entry and restore `references` only while it still matches; `commit_refs` keeps unioning
+       unconditionally, being append-only. The same union bug exists across `archive.py`'s CAS
+       attempts. Verified by **AC-68**.
+    2. **Record a failure-log entry for any exception once the first durable write has landed** — in
+       the `write.py` and `archive.py` CAS loops only `CredentialError` records after attempt 0's PUT
+       made the change durable and cleared the annotations; every other exception on a retry escapes
+       to the catch-all as `internal_error` with no entry, leaving S3 changed, annotations gone and
+       vectors stale for good — reconcile's orphan scan skips an artifact that has vectors. Replace
+       the per-type recorder with one guard keyed on `object_written`, and delete the comment
+       claiming the four call sites are already covered. `check_metadata_budgets`' "NO write and NO
+       failure-log entry" comment is false on a retry for the same reason.
+    3. **Prune and stamp failure-log entries by entry identity, not by `(artifact_id, kind)`** — the
+       mid-run-append fix retained appends only for keys the run did not resolve, so an entry appended during
+       the run for an artifact the run *did* resolve is still dropped unprocessed, and is stamped
+       with attempt counts it never earned. Prune against the entries actually read at run start.
+    4. **Map `AnnotationUnavailableError` to one error code everywhere** — one condition currently
+       surfaces three ways (`internal_error` from read/list/propose, `annotation_unavailable` from
+       `link_metadata`, `partial_write` from `write_artifact`). `tools/_errors.py` already owns this
+       kind of mapping. Update the read, list and propose contracts, which name only
+       `credential_error`/`internal_error`.
+    5. **Minors** — `delete.py` reports `vectors_deleted: False` when there were no vectors to
+       delete, telling the caller the opposite of the truth; `rewrite_failure_log` unlinks a drained
+       log, losing the entry of an appender already blocked on the lock (truncate in place instead),
+       and has a `FileNotFoundError` TOCTOU that fails a whole run; `_check_annotations` probes the
+       write prefix only, so a prefix-scoped IAM policy passes startup and then fails every
+       foreign-scope read, and `health_check` has no annotation probe at all though annotations are
+       now a hard runtime dependency; `freshness.py` takes the first `last_edited_ulid` a query
+       returns rather than the max, letting a stale one mask staleness. While in these files: drop
+       `_restore_entry_link_fields`' dead `vectors` parameter and its retired-union docstring, use
+       the already-imported `coerce_list_field` for its list coercion, use `merge_link_field` in
+       `write.py`'s overwrite loop instead of re-implementing it one line below calling it, and
+       de-duplicate the `tier` coercion in `archive.py`/`link_metadata.py`.
 
-80. ✅ **Unify the cross-tool `warning` response keys** *(breaking; operator-approved 2026-09-06)* —
-    `archive_artifact` returned the own-scope referrer id list under `warning`, `delete_artifact`
-    returned the identical list (same `find_referrers` helper) under `warnings`, and
-    `write_artifacts`/`migrate_artifacts` used `warning` for the string concurrency-clamp message. One
-    concept had two names and one name carried two types, so a caller reading `response.get("warning")`
-    and rendering it as text got a Python list repr from `archive_artifact`. Each contract documented
-    its own tool accurately, so this was a cross-surface inconsistency rather than a contract bug.
-    Fixed as a clean break, deliberately wider than the minimum: the referrer list is now `referrers`
-    in both tools and the clamp message is `concurrency_warning` in both, naming what each value *is*
-    per the convention already used by `stuck_failures`, `dangling_artifacts` and
-    `skipped_non_artifacts`. `warning_message` keeps its name, being genuinely a message. No
-    compatibility alias — emitting both keys would recreate the ambiguity being removed. Blast radius
-    verified first: the Studio HTML reads none of these keys, so no UI change was needed. An existing
-    delete test asserting `warnings == [] or warnings is None` — which would have passed even with the
-    key unconditionally present-and-empty — was tightened to a real absence assertion.
+    Not in scope, deliberately: a `link_metadata` vector-write failure is repaired by a full Bedrock
+    re-embed of every section on the next reconcile, for a divergence that is metadata-only — an
+    efficiency improvement, not a defect; it goes to `backlog.md` if we want it.
 
 ## Risks and Open Questions
 

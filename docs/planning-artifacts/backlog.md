@@ -137,6 +137,20 @@ Items that were promoted to a phase are **not** listed here — see the phase hi
 
 ## Operational tuning
 
+- **B-11 — Repair a `link_metadata` vector-write failure without re-embedding the artifact.** When
+  `link_metadata`'s vector-metadata write fails, it records a failure-log entry, and `reconcile_index`
+  replays that entry through its full re-index path — re-embedding every section of the artifact
+  through Bedrock. But `link_metadata` never changed the content or the embeddings; the divergence is
+  metadata-only, and `link_metadata` itself repairs exactly that shape of divergence at zero Bedrock
+  cost. A transient vector blip part-way through a 100-artifact `link_metadata` call therefore costs
+  100 artifacts' worth of embedding on the next reconcile, to restore data no embedding is needed for.
+  The fix is a metadata-only repair path in reconcile's Phase 1, selected by the entry's
+  `failure_step`, falling back to the full re-index for entries that genuinely need one. Correctness
+  is unaffected either way — the current behaviour produces the right result expensively, which is why
+  this is an efficiency item rather than a defect and was deliberately excluded from the task that
+  fixed its sibling findings.
+  Source: 2026-09-06 diff review of commits since `35b04a8`.
+
 - **B-10 — `archive_artifact` reports every partial state as `internal_error`, so a caller cannot
   tell a clean failure from a half-archived artifact.** `write_artifact` distinguishes the two: a
   failure after S3 is durable returns `partial_write`, naming the artifact and telling the caller the
