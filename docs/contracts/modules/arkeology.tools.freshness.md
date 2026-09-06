@@ -63,6 +63,10 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
   tier-2 or hidden artifact exists, which is the very disclosure this invariant exists to prevent, so
   no such category may be added.
 - Own-scope only for the destructive path.
+- The audit covers **active** syntheses only; an archived synthesis is not audited. Consistent with
+  the active-only referrer detection in `delete_artifact` and `archive_artifact` — archiving marks an
+  artifact as out of active use, and auditing it would report problems the operator has already set
+  aside. Returning such a synthesis to active status brings it back into the audit.
 - Staleness is determined by comparing each source's **write recency** against the synthesis's,
   using `last_edited_ulid` — monotonic, bumped by every content write, and deliberately left
   untouched by operations that must not mark a synthesis stale (a link-field backfill, an archive

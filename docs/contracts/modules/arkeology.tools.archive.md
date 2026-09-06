@@ -89,6 +89,13 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
 
 **Preconditions**
 
+- Referrer detection covers **active** referrers only. An archived synthesis that still names this
+  artifact in its `source_artifacts` produces no warning. This is deliberate and consistent with
+  `check_synthesis_freshness`, which likewise audits only active syntheses: archiving is the signal
+  that an artifact is out of active use, so warning about it would be noise the operator has already
+  dismissed. The information is deferred rather than lost — if such a synthesis is later returned to
+  active status, the freshness audit reports the deleted source under `missing_sources` at the point
+  it becomes relevant again. A caller needing the stricter check must query archived syntheses itself.
 - `artifact_id` is a full own-scope S3 key.
 
 **Postconditions**
