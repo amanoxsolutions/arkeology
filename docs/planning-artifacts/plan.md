@@ -248,7 +248,7 @@ Goal: give artifacts a first-class `references` field, move the durable copy of 
 
 ## Phase 13 — Artifact Type Vocabulary: `prd` → `vision` + `requirements`
 
-Goal: replace the `prd` artifact type with two new types, `vision` and `requirements`, mirroring the amanox planning-artifact convention this project itself now follows (`vision.md` + `requirements.md` in place of a single `prd.md`; see this project's own `docs/planning-artifacts/` migration). No new spec file — the change is scoped as follow-up amendments to the existing `p7-t25b-extend-artifact-types.md` (type vocabulary and `resources.py`/README/Step 7 removal-guidance changes) and `p7-t25c-migration-skill-two-pass-classification.md` (Pass 1 filename-stem table change) specs, per AGENTS.md's working convention that a change applying an already-established pattern more consistently doesn't need a dedicated spec. Testing approach: **TDD** (NFR-07).
+Goal: replace the `prd` artifact type with two new types, `vision` and `requirements`, mirroring the amanox planning-artifact convention this project itself now follows (`vision.md` + `requirements.md` in place of a single `prd.md`.
 
 70. ✅ **Rename `prd` type to `vision` + `requirements`** — remove `"prd"` from `ARTIFACT_TYPES` in `artifact.py`; add `"vision"` and `"requirements"` (16 types total, up from 15). `resources.py`: replace the `prd` description entry with two new description entries (`vision`, `requirements`); update the tier 3 "Use for" line to drop `prd` and add `vision`, `requirements`. Migration skill (`skills/migrating-to-arkeology/SKILL.md`): split the Pass 1 filename-stem row — `vision` → `type=vision`, tier 3; `prd`/`product-requirements`/`requirements` (legacy single-document convention) → `type=requirements`, tier 3 (its content is predominantly requirements-shaped, and "requirements" is literally part of the name); update the Step 7 removal-guidance row accordingly; update `schema.yaml`'s inline `ARTIFACT_TYPES` comment. `setting-up-arkeology/SKILL.md` and `references/agents-snippet.md`: update tier 3 type lists and the AGENTS.md type-table entry. `src/arkeology/static/arkeology-studio.html`: replace the `prd` type-filter option, colour variable, and label with `vision` and `requirements` entries. `README.md` and `SERVER-REFERENCE.md`: update type tables/lists. `CHANGELOG.md`: add a `[Unreleased]` **Breaking** entry — callers writing or filtering on `type="prd"` must switch to `type="vision"` or `type="requirements"`.
 
@@ -258,10 +258,7 @@ Goal: replace the `prd` artifact type with two new types, `vision` and `requirem
 
 Goal: close the findings from the whole-repository consistency review of 2026-09-05 (ADRs, specs and
 contracts against the source) and from the diff review of 2026-09-06 (commits 35b04a8..88cc6e5). Most are documentation-authority corrections rather than behaviour
-changes; the code-level ones are defect fixes against preconditions the contracts already state. No
-new spec files — each task entry below, together with the contract it corrects, is the scope of
-record, per AGENTS.md's working convention that a fix enforcing an already-documented contract
-clause does not need a dedicated spec. Testing approach: **TDD** (NFR-07).
+changes.
 
 71. ✅ **Reject a literal comma inside a `tags` or `source_artifacts` element** — `Artifact.validate_tags`
     and `validate_source_artifacts` in `artifact.py` enforced only `_require_no_control_chars`, while
@@ -301,27 +298,7 @@ clause does not need a dedicated spec. Testing approach: **TDD** (NFR-07).
     is implemented as paginate-everything-and-match-in-memory. A `list_artifacts` page of 200 artifacts
     performed 200 full scans; a single `read_artifact` performed one. What those scans returned was at
     most the capped most-recent-20 `commit_refs` and never any `references`, a strictly poorer copy of
-    what annotations already hold complete. Steps:
-
-    1. **Requirements** — C-08 and FR-57 rewritten as Must. ✅
-    2. **ADR-011** — dated Revision recording the reversal and its rationale. ✅
-    3. **Setup skill** — Check 8 becomes blocking; a region or bucket type without annotation support is
-       an unsupported deployment, not a degraded one. ✅
-    4. **Startup** — an eighth check probing annotation availability and the four IAM actions, refusing
-       to start on failure. ✅
-    5. **Code** — retire the union: annotations become the only read source; **annotation read failures
-       must raise rather than return empty** (the safety-critical half — with the union gone, an empty
-       result from a transient failure would be written back over good data on the read-modify-write
-       paths); delete the per-artifact vector scan. Vector `commit_refs` keeps being written purely as a
-       derived filter index, never read back. ✅
-    6. **Documentation** — update every surface that describes the old model: `README.md`,
-       `SERVER-REFERENCE.md`, `AGENTS.md`, the contracts (`s3vectors.artifact` restated as a derived
-       filter index rather than a store; `s3-annotations.artifact`; the read, list, write, archive,
-       reconcile, link_metadata and propose_commit_links module contracts), and the remaining skills.
-       Known stale items to fix in this sweep: `AGENTS.md`'s repository-structure table still calls
-       `startup.py` a "Seven-check startup validation sequence" (there are now eight), and its Component
-       Dependencies section still describes annotation unavailability as degrading gracefully rather than
-       refusing to start. ✅
+    what annotations already hold complete.
 
 74. ✅ **Fix the 2026-09-06 diff-review findings** *(no dedicated spec — this entry, plus the contracts
     it corrects, is the scope of record)* — the review of commits `35b04a8..88cc6e5`. Its two
@@ -329,54 +306,11 @@ clause does not need a dedicated spec. Testing approach: **TDD** (NFR-07).
     AC-57/AC-59/AC-60/AC-61 were corrected to the sole-source-of-truth model on 2026-09-06, and AC-68
     was added to pin the restore rule below. The AGENTS.md staleness the review found (the "There is
     no CI" paragraph, now false, and the `failure_log.py` / `_search_helper.py` structure rows) is
-    T73 step 6's, not this task's. Remaining, contract first where one is wrong:
-
-    1. **Restore `references` only when the entry has not been superseded** — the reconcile contract's
-       "the restored value is the **union** of the entry's copy and the artifact's current value,
-       never a replacement" contradicts FR-55, under which `references` is replaced outright by each
-       write. When a successful overwrite lands between a failure and its replay, reconcile
-       resurrects references the overwrite deliberately removed. Correct the contract first, then
-       record the artifact's identity at failure time (`last_edited_ulid` or ETag) on the failure-log
-       entry and restore `references` only while it still matches; `commit_refs` keeps unioning
-       unconditionally, being append-only. The same union bug exists across `archive.py`'s CAS
-       attempts. Verified by **AC-68**.
-    2. **Record a failure-log entry for any exception once the first durable write has landed** — in
-       the `write.py` and `archive.py` CAS loops only `CredentialError` records after attempt 0's PUT
-       made the change durable and cleared the annotations; every other exception on a retry escapes
-       to the catch-all as `internal_error` with no entry, leaving S3 changed, annotations gone and
-       vectors stale for good — reconcile's orphan scan skips an artifact that has vectors. Replace
-       the per-type recorder with one guard keyed on `object_written`, and delete the comment
-       claiming the four call sites are already covered. `check_metadata_budgets`' "NO write and NO
-       failure-log entry" comment is false on a retry for the same reason.
-    3. **Prune and stamp failure-log entries by entry identity, not by `(artifact_id, kind)`** — the
-       mid-run-append fix retained appends only for keys the run did not resolve, so an entry appended during
-       the run for an artifact the run *did* resolve is still dropped unprocessed, and is stamped
-       with attempt counts it never earned. Prune against the entries actually read at run start.
-    4. **Map `AnnotationUnavailableError` to one error code everywhere** — one condition currently
-       surfaces three ways (`internal_error` from read/list/propose, `annotation_unavailable` from
-       `link_metadata`, `partial_write` from `write_artifact`). `tools/_errors.py` already owns this
-       kind of mapping. Update the read, list and propose contracts, which name only
-       `credential_error`/`internal_error`.
-    5. **Minors** — `delete.py` reports `vectors_deleted: False` when there were no vectors to
-       delete, telling the caller the opposite of the truth; `rewrite_failure_log` unlinks a drained
-       log, losing the entry of an appender already blocked on the lock (truncate in place instead),
-       and has a `FileNotFoundError` TOCTOU that fails a whole run; `_check_annotations` probes the
-       write prefix only, so a prefix-scoped IAM policy passes startup and then fails every
-       foreign-scope read, and `health_check` has no annotation probe at all though annotations are
-       now a hard runtime dependency; `freshness.py` takes the first `last_edited_ulid` a query
-       returns rather than the max, letting a stale one mask staleness. While in these files: drop
-       `_restore_entry_link_fields`' dead `vectors` parameter and its retired-union docstring, use
-       the already-imported `coerce_list_field` for its list coercion, use `merge_link_field` in
-       `write.py`'s overwrite loop instead of re-implementing it one line below calling it, and
-       de-duplicate the `tier` coercion in `archive.py`/`link_metadata.py`.
-
-    Not in scope, deliberately: a `link_metadata` vector-write failure is repaired by a full Bedrock
-    re-embed of every section on the next reconcile, for a divergence that is metadata-only — an
-    efficiency improvement, not a defect; it goes to `backlog.md` if we want it.
+    T73 step 6's, not this task's.
 
 ## Risks and Open Questions
 
-- **~~S3 Vectors `PutVector` upsert behaviour~~** — **CLOSED (2026-05-31, T17 confirmed)**: `PutVectors` silently overwrites an existing key (upsert confirmed). 44 integration tests passed green; tier 3 overwrite logic is correct as written; no code change required.
+- None
 
 ---
 
