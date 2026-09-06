@@ -17,6 +17,7 @@ from arkeology.annotations import (
     read_link_annotations,
 )
 from arkeology.artifact import (
+    ARTIFACT_TYPES,
     cap_commit_refs_for_vectors,
     check_metadata_budgets,
 )
@@ -355,7 +356,13 @@ async def reconcile_index(
             ``dangling_vectors_pruned``, ``dangling_artifacts``, and, only when
             non-empty, ``stuck_failures`` — failure-log entries whose
             ``reconcile_attempts`` has reached ``CAS_MAX_ATTEMPTS`` and are no longer
-            auto-retried.
+            auto-retried — and ``skipped_non_artifacts`` — own-scope keys the orphan
+            scan found without vectors but declined to index, because their S3 object
+            metadata carries no ``type`` in ``ARTIFACT_TYPES``. A skipped key still counts
+            excluded from ``orphans_found``, which counts artifact orphans needing re-index —
+        not every candidate key the scan examined. Probe keys are filtered out before the
+        count for the same reason: a key that is not an artifact is not an orphan, and a
+        permanent stray must not hold the count at a non-zero floor on every run.
 
             Every ``reconciled`` entry carries a ``source`` discriminator naming the
             mechanism that dealt with it: ``"failure_log"`` (replayed and re-indexed),
@@ -396,7 +403,13 @@ async def _reconcile_index_inner(
             ``dangling_vectors_pruned``, ``dangling_artifacts``, and, only when
             non-empty, ``stuck_failures`` — failure-log entries whose
             ``reconcile_attempts`` has reached ``CAS_MAX_ATTEMPTS`` and are no longer
-            auto-retried.
+            auto-retried — and ``skipped_non_artifacts`` — own-scope keys the orphan
+            scan found without vectors but declined to index, because their S3 object
+            metadata carries no ``type`` in ``ARTIFACT_TYPES``. A skipped key still counts
+            excluded from ``orphans_found``, which counts artifact orphans needing re-index —
+        not every candidate key the scan examined. Probe keys are filtered out before the
+        count for the same reason: a key that is not an artifact is not an orphan, and a
+        permanent stray must not hold the count at a non-zero floor on every run.
         On error: ``{"error": "credential_error" | "internal_error", "message": str(exc)}``.
     """
     reconciled: list[dict[str, Any]] = []
@@ -709,6 +722,17 @@ async def _reconcile_index_inner(
             try:
                 # Off the event loop — see the equivalent failure-log-replay comment above.
                 raw_meta = await asyncio.to_thread(s3.head_object, orphan_key)
+                # Anything a tool other than Arkeology left under the write prefix — a
+                # manual upload, a .DS_Store, a partial multipart artefact — is not an
+                # artifact and must not be embedded and indexed as one. Discriminate on
+                # the object's own metadata rather than on its key shape: a generated
+                # artifact id starts with a type slug, but title slugs and the
+                # configurable file extension make a key-shape match brittle, and a stray
+                # file can begin with a type slug by coincidence. The head_object above
+                # already has the metadata in hand, so this costs nothing and happens
+                # before any embed or index work.
+                if raw_meta.get("type") not in ARTIFACT_TYPES:
+                    return {"kind": "skipped", "artifact_id": orphan_key}
                 reconciled_entry = await _fetch_and_reindex(
                     orphan_key, raw_meta, "orphan_scan", settings, s3, vectors, bedrock
                 )
@@ -725,9 +749,12 @@ async def _reconcile_index_inner(
     for r in orphan_results:
         if r["kind"] == "credential_error":
             return credential_error_response(r["exc"])
+    skipped_non_artifacts: list[str] = []
     for r in orphan_results:
         if r["kind"] == "resolved":
             reconciled.append(r["entry"])
+        elif r["kind"] == "skipped":
+            skipped_non_artifacts.append(r["artifact_id"])
         else:
             failed.append({"artifact_id": r["artifact_id"], "reason": r["reason"]})
 
@@ -794,11 +821,13 @@ async def _reconcile_index_inner(
             failed.append({"artifact_id": r["artifact_id"], "reason": r["reason"]})
 
     logger.info(
-        "reconcile_index complete: reconciled=%d failed=%d stuck=%d orphans=%d dangling=%d",
+        "reconcile_index complete: reconciled=%d failed=%d stuck=%d orphans=%d "
+        "skipped_non_artifacts=%d dangling=%d",
         len(reconciled),
         len(failed),
         len(stuck_failures),
         orphans_found,
+        len(skipped_non_artifacts),
         dangling_artifacts_found,
     )
     response: dict[str, Any] = {
@@ -806,7 +835,7 @@ async def _reconcile_index_inner(
         "failed": failed,
         "failure_log_entries_before": failure_log_entries_before,
         "failure_log_entries_after": failure_log_entries_after,
-        "orphans_found": orphans_found,
+        "orphans_found": orphans_found - len(skipped_non_artifacts),
         "total_reconciled": len(reconciled),
         "dangling_artifacts_found": dangling_artifacts_found,
         "dangling_vectors_pruned": dangling_vectors_pruned,
@@ -814,4 +843,6 @@ async def _reconcile_index_inner(
     }
     if stuck_failures:
         response["stuck_failures"] = stuck_failures
+    if skipped_non_artifacts:
+        response["skipped_non_artifacts"] = skipped_non_artifacts
     return response

@@ -579,6 +579,163 @@ async def test_orphan_scan_key_not_under_write_prefix_slash_not_touched(
 
 
 # ---------------------------------------------------------------------------
+# Orphan scan — non-artifact discrimination
+# ---------------------------------------------------------------------------
+
+
+async def test_orphan_scan_object_without_artifact_metadata_skipped(
+    reconcile_settings: Settings,
+    s3_reconcile: S3ClientImpl,
+    vectors_reconcile: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """A stray object carrying no artifact metadata → not indexed, reported as skipped."""
+    stray_key = "artifacts/.DS_Store"
+    s3_reconcile.put_object(stray_key, "not an artifact", {})
+    bedrock = FakeBedrockClient()
+    spy = mocker.spy(vectors_reconcile, "put_vector")
+
+    result = await reconcile_index(
+        settings=reconcile_settings,
+        s3=s3_reconcile,
+        vectors=vectors_reconcile,
+        bedrock=bedrock,
+    )
+
+    assert "error" not in result
+    assert spy.call_count == 0
+    assert result["reconciled"] == []
+    assert result["skipped_non_artifacts"] == [stray_key]
+
+
+async def test_orphans_found_counts_artifacts_only_not_stray_objects(
+    reconcile_settings: Settings,
+    s3_reconcile: S3ClientImpl,
+    vectors_reconcile: VectorsClientImpl,
+) -> None:
+    """orphans_found counts artifact orphans needing re-index, not every key examined.
+
+    A stray object is skipped, not reconciled, so counting it would hold the number at a
+    non-zero floor on every future run for as long as the stray exists — an operator
+    watching orphans_found trend to zero would never see it get there. Probe keys are
+    already excluded before the count for the same reason; the two categories of
+    "not an artifact" must agree.
+    """
+    stray_key = "artifacts/.DS_Store"
+    artifact_id = "artifacts/implementation-note-2026-01-01-counted"
+    s3_reconcile.put_object(stray_key, "not an artifact", {})
+    s3_reconcile.put_object(artifact_id, _CONTENT_NO_SECTIONS, {**_BASE_S3_META})
+    bedrock = FakeBedrockClient()
+
+    result = await reconcile_index(
+        settings=reconcile_settings,
+        s3=s3_reconcile,
+        vectors=vectors_reconcile,
+        bedrock=bedrock,
+    )
+
+    assert "error" not in result
+    assert result["skipped_non_artifacts"] == [stray_key]
+    assert result["orphans_found"] == 1, (
+        "only the real artifact is an orphan; the stray was examined but is not one"
+    )
+
+
+async def test_orphan_scan_object_with_unknown_type_metadata_skipped(
+    reconcile_settings: Settings,
+    s3_reconcile: S3ClientImpl,
+    vectors_reconcile: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """Object whose `type` metadata is not a valid artifact type → skipped, not indexed."""
+    key = "artifacts/implementation-note-2026-01-01-bogus-type"
+    s3_reconcile.put_object(key, _CONTENT_NO_SECTIONS, {**_BASE_S3_META, "type": "not_a_type"})
+    bedrock = FakeBedrockClient()
+    spy = mocker.spy(vectors_reconcile, "put_vector")
+
+    result = await reconcile_index(
+        settings=reconcile_settings,
+        s3=s3_reconcile,
+        vectors=vectors_reconcile,
+        bedrock=bedrock,
+    )
+
+    assert "error" not in result
+    assert spy.call_count == 0
+    assert result["reconciled"] == []
+    assert result["skipped_non_artifacts"] == [key]
+
+
+async def test_orphan_scan_valid_artifact_still_reindexed_alongside_stray_object(
+    reconcile_settings: Settings,
+    s3_reconcile: S3ClientImpl,
+    vectors_reconcile: VectorsClientImpl,
+) -> None:
+    """The metadata discriminator does not reject a real artifact sharing the prefix."""
+    stray_key = "artifacts/.DS_Store"
+    artifact_id = "artifacts/implementation-note-2026-01-01-real"
+    s3_reconcile.put_object(stray_key, "not an artifact", {})
+    s3_reconcile.put_object(artifact_id, _CONTENT_NO_SECTIONS, {**_BASE_S3_META})
+    bedrock = FakeBedrockClient()
+
+    result = await reconcile_index(
+        settings=reconcile_settings,
+        s3=s3_reconcile,
+        vectors=vectors_reconcile,
+        bedrock=bedrock,
+    )
+
+    assert "error" not in result
+    assert [e["artifact_id"] for e in result["reconciled"]] == [artifact_id]
+    assert result["reconciled"][0]["source"] == "orphan_scan"
+    assert result["reconciled"][0]["sections_indexed"] == 1
+    assert result["skipped_non_artifacts"] == [stray_key]
+
+
+async def test_probe_key_not_reported_as_skipped_non_artifact(
+    reconcile_settings: Settings,
+    s3_reconcile: S3ClientImpl,
+    vectors_reconcile: VectorsClientImpl,
+) -> None:
+    """A probe key is expected, not stray → excluded from the scan, absent from the report."""
+    stray_key = "artifacts/.DS_Store"
+    s3_reconcile.put_object("artifacts/_arkeology_health_probe", "probe", {})
+    s3_reconcile.put_object(stray_key, "not an artifact", {})
+    bedrock = FakeBedrockClient()
+
+    result = await reconcile_index(
+        settings=reconcile_settings,
+        s3=s3_reconcile,
+        vectors=vectors_reconcile,
+        bedrock=bedrock,
+    )
+
+    assert "error" not in result
+    assert result["skipped_non_artifacts"] == [stray_key]
+
+
+async def test_skipped_non_artifacts_absent_when_nothing_skipped(
+    reconcile_settings: Settings,
+    s3_reconcile: S3ClientImpl,
+    vectors_reconcile: VectorsClientImpl,
+) -> None:
+    """Nothing skipped → the field is absent, not an empty list."""
+    artifact_id = "artifacts/implementation-note-2026-01-01-clean"
+    s3_reconcile.put_object(artifact_id, _CONTENT_NO_SECTIONS, {**_BASE_S3_META})
+    bedrock = FakeBedrockClient()
+
+    result = await reconcile_index(
+        settings=reconcile_settings,
+        s3=s3_reconcile,
+        vectors=vectors_reconcile,
+        bedrock=bedrock,
+    )
+
+    assert "error" not in result
+    assert "skipped_non_artifacts" not in result
+
+
+# ---------------------------------------------------------------------------
 # Re-indexing mechanics
 # ---------------------------------------------------------------------------
 

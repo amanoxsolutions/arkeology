@@ -15,8 +15,8 @@ authored:
   by: "tech-writer"
   date: 2026-09-04
 revised:
-  by: ""
-  date: YYYY-MM-DD
+  by: "developer"
+  date: 2026-09-06
 ---
 
 # arkeology.tools.reconcile
@@ -100,6 +100,18 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
   cheap orphan-cleanup kind — so a reindex-kind and an orphan-cleanup-kind entry for the same
   artifact are processed and pruned independently.
 - Dangling vectors, whose S3 object no longer exists, are pruned rather than re-indexed.
+- The orphan scan indexes **artifacts only**. A candidate key is re-indexed only when its S3 object
+  metadata carries a `type` that is a member of `ARTIFACT_TYPES`; anything else under the write
+  prefix — a manual upload, a `.DS_Store`, a partial multipart artefact — is skipped and reported.
+  The discriminator is the object's metadata, not its key shape: an artifact id is deterministic and
+  begins with a type slug, but title slugs and the configurable file extension make a key-shape match
+  brittle, and a stray file can begin with a type slug by coincidence. Metadata is also free here —
+  the scan already fetches it, so the check happens before any embedding or index write.
+- Accepted trade-off: an artifact whose `type` metadata is missing or corrupt is skipped rather than
+  indexed with an empty type. Such an artifact is already broken — `read_artifact` reports a blank
+  type for it — and reporting it as unrecognisable is more honest than silently adding a typeless,
+  titleless entry that then surfaces in searches and listings. `skipped_non_artifacts` is what keeps
+  that case recoverable.
 
 **Preconditions**
 
@@ -122,6 +134,15 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
   `dangling_artifacts`.
 - `stuck_failures` is present **only when non-empty**, so its presence is itself the signal that
   manual intervention is required.
+- `skipped_non_artifacts` — the own-scope keys the orphan scan found without vectors and declined to
+  index, per the artifacts-only invariant above — is present **only when non-empty**, on the same
+  terms as `stuck_failures`. Probe keys are excluded from the scan entirely and never appear in it.
+  A skipped key does **not** count towards `orphans_found`, which counts artifact orphans needing
+  re-index rather than every candidate key the scan examined. Probe keys are already excluded before
+  that count for the same reason, and the two categories of "not an artifact" must agree: a permanent
+  stray object would otherwise hold `orphans_found` at a non-zero floor on every future run, so an
+  operator watching it trend to zero would never see it arrive. Strays are reported in
+  `skipped_non_artifacts` instead, where their persistence is the point rather than a false signal.
 - A successfully reconciled entry is pruned from the failure log. `failure_log_entries_after`
   counts what the log holds after the end-of-run rewrite, which re-reads it under the appender's
   lock and removes only the entries this run resolved — so an entry another writer appended while

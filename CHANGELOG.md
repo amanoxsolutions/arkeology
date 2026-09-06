@@ -67,6 +67,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   listed, a foreign-scope tier-2 one is not, matching `list_artifacts`' default scope
 
 ### Fixed
+- `reconcile_index`'s orphan scan no longer indexes stray objects. A key under the write prefix
+  that no Arkeology tool wrote — a manual upload, a `.DS_Store`, a partial multipart artefact — was
+  embedded and indexed as an artifact, adding a typeless, titleless entry that then surfaced in
+  searches and listings. The scan now re-indexes a candidate only when its S3 object metadata
+  carries a recognised artifact `type`, and reports the keys it declined in a new
+  `skipped_non_artifacts` response field, present only when non-empty. An artifact whose `type`
+  metadata is missing or corrupt is now skipped and reported rather than indexed with an empty type
+  A skipped key is not counted in `orphans_found`, which counts artifact orphans needing
+  re-index — a permanent stray would otherwise hold that number at a non-zero floor forever
 - `check_synthesis_freshness` decides staleness by write recency (`last_edited_ulid`) instead of
   the artifact's subject `date`. Comparing `date` was wrong in both directions: a tier-3 source
   overwritten in place under an unchanged date was never reported stale, and a source carrying a
