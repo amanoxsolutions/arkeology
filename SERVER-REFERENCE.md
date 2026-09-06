@@ -13,8 +13,8 @@ serve browsable artifact content to humans — see [Resources](#resources) below
 | Tool | What it does | Key inputs | Key outputs |
 |---|---|---|---|
 | `write_artifact` | Store an artifact in S3 and index it in S3 Vectors | `type`, `team`, `project`, `tier`, `title`, `content`, `visibility`, optional filters | `artifact_id`, `sections_indexed` |
-| `write_artifacts` | Bulk-write multiple artifacts in a single call with per-entry success/error reporting | list of artifact descriptors; optional `artifact_concurrency` (default `3`, max `15`) | per-artifact list of `artifact_id` + `written: true` or `error`; top-level `warning` if `artifact_concurrency` was out of range |
-| `migrate_artifacts` | Migration-specific bulk write; generates descriptions server-side via Bedrock when omitted; `dry_run=True` previews enriched descriptors without writing | list of artifact descriptors, `dry_run`; optional `artifact_concurrency` (default `3`, max `15`) | enriched descriptor list (dry run) or per-artifact write results; top-level `warning` if `artifact_concurrency` was out of range |
+| `write_artifacts` | Bulk-write multiple artifacts in a single call with per-entry success/error reporting | list of artifact descriptors; optional `artifact_concurrency` (default `3`, max `15`) | per-artifact list of `artifact_id` + `written: true` or `error`; top-level `concurrency_warning` if `artifact_concurrency` was out of range |
+| `migrate_artifacts` | Migration-specific bulk write; generates descriptions server-side via Bedrock when omitted; `dry_run=True` previews enriched descriptors without writing | list of artifact descriptors, `dry_run`; optional `artifact_concurrency` (default `3`, max `15`) | enriched descriptor list (dry run) or per-artifact write results; top-level `concurrency_warning` if `artifact_concurrency` was out of range |
 | `search_artifacts` | Semantic search over the vector index with optional metadata filters | `query`, optional: `type`, `tags`, `team`, `project`, `tier`, `status` (pass `"all"` to search regardless of status), `top_k` | List of artifact metadata (no content) |
 | `read_artifact` | Fetch the full content of an artifact by ID | `artifact_id` | Full artifact dict including `content` |
 | `list_artifacts` | List artifact metadata with optional filters; defaults to active artifacts | optional: `type`, `team`, `project`, `tier`, `status` (pass `"all"` to return artifacts regardless of status), `tags`, `commit_refs` | List of artifact metadata records |
@@ -278,7 +278,7 @@ callers tune behaviour without restarting the server.
 
 | Parameter | Tool(s) | Default | Behaviour |
 |---|---|---|---|
-| `artifact_concurrency` | `write_artifacts`, `migrate_artifacts` | `3` | Max artifacts processed concurrently. Values above 15 are capped to 15; values below 1 are substituted with the default 3. Both out-of-range cases return a `"warning"` field in the response. In-range values produce no warning. Keep `artifact_concurrency × SECTION_CONCURRENCY ≤ 15` as a safe Bedrock quota guideline (e.g. `artifact_concurrency=3` × `SECTION_CONCURRENCY=5` = 15 concurrent embed calls). |
+| `artifact_concurrency` | `write_artifacts`, `migrate_artifacts` | `3` | Max artifacts processed concurrently. Values above 15 are capped to 15; values below 1 are substituted with the default 3. Both out-of-range cases return a `"concurrency_warning"` field in the response. In-range values produce no warning. Keep `artifact_concurrency × SECTION_CONCURRENCY ≤ 15` as a safe Bedrock quota guideline (e.g. `artifact_concurrency=3` × `SECTION_CONCURRENCY=5` = 15 concurrent embed calls). |
 
 ## Running the server
 

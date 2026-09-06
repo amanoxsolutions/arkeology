@@ -283,12 +283,12 @@ async def test_delete_tier2_is_allowed(
     assert result.get("deleted") is True
 
 
-async def test_delete_no_synthesis_references_no_warnings(
+async def test_delete_no_synthesis_references_no_referrers_field(
     monkeypatch: pytest.MonkeyPatch,
     s3_client: S3ClientImpl,
     vectors_client_2: VectorsClientImpl,
 ) -> None:
-    """Artifact not referenced by any synthesis → warnings absent or empty."""
+    """Artifact not referenced by any synthesis → no "referrers" field in the response."""
     settings = _make_settings(monkeypatch)
     _seed_all(s3_client, vectors_client_2)
 
@@ -301,8 +301,7 @@ async def test_delete_no_synthesis_references_no_warnings(
         confirm=True,
     )
 
-    warnings = result.get("warnings", [])
-    assert warnings == [] or warnings is None
+    assert "referrers" not in result
 
 
 # ---------------------------------------------------------------------------
@@ -315,7 +314,7 @@ async def test_delete_with_one_synthesis_reference_warns(
     s3_client: S3ClientImpl,
     vectors_client_2: VectorsClientImpl,
 ) -> None:
-    """Artifact referenced by one synthesis → warnings contains that synthesis id."""
+    """Artifact referenced by one synthesis → referrers contains that synthesis id."""
     settings = _make_settings(monkeypatch)
     _seed_all(s3_client, vectors_client_2)
 
@@ -329,8 +328,8 @@ async def test_delete_with_one_synthesis_reference_warns(
     )
 
     assert result.get("deleted") is True
-    warnings = result.get("warnings", [])
-    assert "artifacts/synthesis-one" in warnings
+    referrers = result.get("referrers", [])
+    assert "artifacts/synthesis-one" in referrers
 
 
 async def test_delete_with_two_synthesis_references_warns_both(
@@ -338,7 +337,7 @@ async def test_delete_with_two_synthesis_references_warns_both(
     s3_client: S3ClientImpl,
     vectors_client_2: VectorsClientImpl,
 ) -> None:
-    """Artifact referenced by two syntheses → both identifiers in warnings."""
+    """Artifact referenced by two syntheses → both identifiers in referrers."""
     settings = _make_settings(monkeypatch)
     _seed_all(s3_client, vectors_client_2)
 
@@ -351,9 +350,9 @@ async def test_delete_with_two_synthesis_references_warns_both(
         confirm=True,
     )
 
-    warnings = result.get("warnings", [])
-    assert "artifacts/synthesis-one" in warnings
-    assert "artifacts/synthesis-two" in warnings
+    referrers = result.get("referrers", [])
+    assert "artifacts/synthesis-one" in referrers
+    assert "artifacts/synthesis-two" in referrers
 
 
 # ---------------------------------------------------------------------------
@@ -405,11 +404,11 @@ async def test_delete_referenced_via_references_field_no_longer_warns(
     )
 
     assert result.get("deleted") is True
-    warnings = result.get("warnings", [])
-    assert "artifacts/referrer-via-refs" not in warnings
+    referrers = result.get("referrers", [])
+    assert "artifacts/referrer-via-refs" not in referrers
     # source_artifacts-based referrers (seeded by _seed_all) are still found.
-    assert "artifacts/synthesis-one" in warnings
-    assert "artifacts/synthesis-two" in warnings
+    assert "artifacts/synthesis-one" in referrers
+    assert "artifacts/synthesis-two" in referrers
 
     # No list_vectors_by_metadata call ever carries a server-side $eq on "references" —
     # REFERENCE_FIELDS no longer contains it.
@@ -440,9 +439,9 @@ async def test_delete_never_issues_server_side_eq_on_source_artifacts(
     )
 
     # Sanity: the synthesis referrers are still found (existing behaviour preserved).
-    warnings = result.get("warnings", [])
-    assert "artifacts/synthesis-one" in warnings
-    assert "artifacts/synthesis-two" in warnings
+    referrers = result.get("referrers", [])
+    assert "artifacts/synthesis-one" in referrers
+    assert "artifacts/synthesis-two" in referrers
 
     for call in spy_list.call_args_list:
         filter_expr = call.args[0] if call.args else call.kwargs["filter_expr"]
@@ -509,9 +508,9 @@ async def test_delete_issues_both_referrer_and_vector_lookup_calls(
     )
 
     assert result.get("deleted") is True
-    warnings = result.get("warnings", [])
-    assert "artifacts/synthesis-one" in warnings
-    assert "artifacts/synthesis-two" in warnings
+    referrers = result.get("referrers", [])
+    assert "artifacts/synthesis-one" in referrers
+    assert "artifacts/synthesis-two" in referrers
     # find_referrers issues one list_vectors_by_metadata call (T50/H-3 merge), Step
     # 5's own direct call is a second — both independent queries actually ran.
     assert spy_list.call_count == 2
@@ -560,13 +559,13 @@ async def test_delete_source_artifacts_dedupe_unaffected_by_references_narrowing
         confirm=True,
     )
 
-    warnings = result.get("warnings", [])
-    assert "artifacts/synthesis-one" in warnings
-    assert "artifacts/synthesis-two" in warnings
-    assert "artifacts/referrer-via-refs-2" not in warnings
+    referrers = result.get("referrers", [])
+    assert "artifacts/synthesis-one" in referrers
+    assert "artifacts/synthesis-two" in referrers
+    assert "artifacts/referrer-via-refs-2" not in referrers
     # Deduplicated — each referrer appears exactly once even though it may have
     # multiple section vectors.
-    assert len(warnings) == len(set(warnings))
+    assert len(referrers) == len(set(referrers))
 
 
 async def test_delete_foreign_scope_referrer_never_listed(
@@ -603,8 +602,8 @@ async def test_delete_foreign_scope_referrer_never_listed(
         confirm=True,
     )
 
-    warnings = result.get("warnings", [])
-    assert "other-team/foreign-referrer" not in warnings
+    referrers = result.get("referrers", [])
+    assert "other-team/foreign-referrer" not in referrers
 
 
 async def test_delete_warning_message_stronger_than_archive(

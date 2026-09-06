@@ -440,7 +440,8 @@ async def test_write_artifacts_concurrency_15_in_range_no_warning(
     s3_client: S3ClientImpl,
     vectors_client: VectorsClientImpl,
 ) -> None:
-    """artifact_concurrency=15 (in-range) → all artifacts written; no 'warning' key in response."""
+    """artifact_concurrency=15 (in-range) → all artifacts written; no
+    'concurrency_warning' key in response."""
     try:
         from arkeology.tools.write_artifacts import write_artifacts
     except ImportError:
@@ -463,8 +464,8 @@ async def test_write_artifacts_concurrency_15_in_range_no_warning(
     assert len(results) == 3
     for entry in results:
         assert entry.get("written") is True, f"Expected written=True, got: {entry}"
-    assert "warning" not in result, (
-        f"No warning expected for in-range value; got: {result.get('warning')}"
+    assert "concurrency_warning" not in result, (
+        f"No warning expected for in-range value; got: {result.get('concurrency_warning')}"
     )
 
 
@@ -509,8 +510,8 @@ async def test_write_artifacts_concurrency_above_15_capped_warns(
         assert entry.get("written") is True, f"Expected written=True, got: {entry}"
 
     # Warning key present mentioning requested (20) and effective (15) values
-    warning = result.get("warning", "")
-    assert warning, "Expected a non-empty 'warning' key in response"
+    warning = result.get("concurrency_warning", "")
+    assert warning, "Expected a non-empty 'concurrency_warning' key in response"
     assert "20" in warning, f"Warning should mention requested value 20; got: {warning}"
     assert "15" in warning, f"Warning should mention effective cap 15; got: {warning}"
 
@@ -562,8 +563,8 @@ async def test_write_artifacts_concurrency_below_1_substituted_warns(
         assert entry.get("written") is True, f"Expected written=True, got: {entry}"
 
     # Warning key present mentioning supplied value (0) and default substitution (3)
-    warning = result.get("warning", "")
-    assert warning, "Expected a non-empty 'warning' key in response"
+    warning = result.get("concurrency_warning", "")
+    assert warning, "Expected a non-empty 'concurrency_warning' key in response"
     assert "0" in warning, f"Warning should mention the supplied value 0; got: {warning}"
     assert "3" in warning, f"Warning should mention the default substitution 3; got: {warning}"
 
@@ -586,7 +587,8 @@ async def test_write_artifacts_concurrency_omitted_defaults_to_3_no_warning(
     vectors_client: VectorsClientImpl,
     mocker: pytest.MonkeyPatch,
 ) -> None:
-    """artifact_concurrency omitted → asyncio.Semaphore constructed with 3; no 'warning' key."""
+    """artifact_concurrency omitted → asyncio.Semaphore constructed with 3; no
+    'concurrency_warning' key."""
     try:
         from arkeology.tools.write_artifacts import write_artifacts
     except ImportError:
@@ -606,8 +608,9 @@ async def test_write_artifacts_concurrency_omitted_defaults_to_3_no_warning(
     )
 
     # No warning key when using the default
-    assert "warning" not in result, (
-        f"No warning expected when artifact_concurrency is omitted; got: {result.get('warning')}"
+    assert "concurrency_warning" not in result, (
+        f"No warning expected when artifact_concurrency is omitted; "
+        f"got: {result.get('concurrency_warning')}"
     )
 
     # Semaphore constructed with default value 3

@@ -9,7 +9,7 @@ descriptors are handed to write_artifacts for concurrent bulk write.
 The caller-supplied ``artifact_concurrency`` parameter (default 3, range [1, 15])
 controls both the Nova Lite description semaphore (enrichment phase) and is forwarded
 to write_artifacts for the write semaphore (live phase). Out-of-range values are
-clamped silently with a top-level ``"warning"`` field in the response.
+clamped silently with a top-level ``"concurrency_warning"`` field in the response.
 
 Bulk migration never overwrites a pre-existing key. Before the write phase, each
 candidate's generated key is checked for existence; any candidate that already exists
@@ -187,7 +187,7 @@ async def migrate_artifacts(
             "reason": "description_generation_failed", "message": ...}``; in either
             ``dry_run`` mode a top-level ``"generation_failed"`` list is included,
             one entry per failure (``index``, ``title``, ``message``).
-        When ``artifact_concurrency`` is out of range, a top-level ``"warning"`` key
+        When ``artifact_concurrency`` is out of range, a top-level ``"concurrency_warning"`` key
         is included in the response.
     """
     try:
@@ -226,10 +226,10 @@ async def _migrate_artifacts_inner(
 
         When no warning was raised the response is returned unchanged, so the
         warning-absent and warning-present dicts stay byte-identical apart from
-        the single trailing ``"warning"`` key.
+        the single trailing ``"concurrency_warning"`` key.
         """
         if warning is not None:
-            resp["warning"] = warning
+            resp["concurrency_warning"] = warning
         return resp
 
     # Defensive copy — never mutate the caller's list

@@ -100,7 +100,7 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
 
 **Postconditions**
 
-- On success, returns `{"artifact_id": str, "status": "inactive"}`, plus `"warning"` (referring
+- On success, returns `{"artifact_id": str, "status": "inactive"}`, plus `"referrers"` (referring
   artifact ids) and `"warning_message"` when own-scope referrers were found. There is no
   `"annotation_warning"` key: a failed link-field re-apply is an error, not a warning.
 - The artifact remains fully readable by `read_artifact` — archiving is not deletion.

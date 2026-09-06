@@ -65,7 +65,7 @@ failure is reported inside that entry's own result.
   deliberately **no** compound ceiling validation, which means a caller can configure a combination
   that exceeds service limits.
 - An out-of-range `artifact_concurrency` is clamped rather than rejected, and the response carries a
-  top-level `warning`.
+  top-level `concurrency_warning`.
 - `overwrite` applies as a batch default; the same reject-by-default collision semantics as
   `write_artifact` apply per entry.
 
@@ -80,6 +80,6 @@ failure is reported inside that entry's own result.
 - Returns `{"results": [...]}`, one entry per input descriptor, positionally aligned.
 - A successful entry carries `written=True`, `artifact_id`, and `sections_indexed`; a failed entry
   carries `error` and `message`.
-- A top-level `warning` is present only when `artifact_concurrency` was out of range.
+- A top-level `concurrency_warning` is present only when `artifact_concurrency` was out of range.
 - The batch is not transactional. There is no rollback: successful entries stay written when others
   fail.

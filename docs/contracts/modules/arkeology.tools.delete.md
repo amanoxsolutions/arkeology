@@ -87,7 +87,7 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
 
 **Postconditions**
 
-- On success, returns `{"artifact_id": str, "deleted": True}`, plus `"warnings"` and
+- On success, returns `{"artifact_id": str, "deleted": True}`, plus `"referrers"` and
   `"warning_message"` when own-scope referrers were found.
 - On success both stores are clean: no S3 object, no section vectors.
 - On `delete_vectors_failed` nothing was deleted from either store.

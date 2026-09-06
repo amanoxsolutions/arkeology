@@ -188,13 +188,13 @@ async def test_delete_nonexistent_artifact_not_found(
 
 
 @pytest.mark.integration
-async def test_delete_synthesis_source_includes_warnings(
+async def test_delete_synthesis_source_includes_referrers(
     settings: Settings,
     s3: S3ClientImpl,
     vectors: VectorsClientImpl,
     bedrock: BedrockClientImpl,
 ) -> None:
-    """Write a synthesis with source_artifacts; delete source → response includes warnings."""
+    """Write a synthesis with source_artifacts; delete source → response includes referrers."""
     source_id: str = ""
     synthesis_id: str = ""
     try:
@@ -233,8 +233,8 @@ async def test_delete_synthesis_source_includes_warnings(
         )
 
         assert result.get("deleted") is True
-        warnings = result.get("warnings", [])
-        assert synthesis_id in warnings
+        referrers = result.get("referrers", [])
+        assert synthesis_id in referrers
         source_id = ""  # already deleted
     finally:
         if source_id:

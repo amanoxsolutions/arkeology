@@ -56,7 +56,7 @@ async def delete_artifact(
 
     Returns:
         On success: ``{"artifact_id": str, "deleted": True}`` plus optional
-            ``"warnings"`` (list of referring artifact ids) and ``"warning_message"``
+            ``"referrers"`` (list of referring artifact ids) and ``"warning_message"``
             (stronger, permanent-action phrasing) if own-scope referrers were found.
             As of T60, referrers are detected via ``source_artifacts`` only —
             ``references``-based referrers are not detected (see module docstring).
@@ -169,7 +169,7 @@ async def _delete_artifact_inner(
     logger.info("Artifact deleted: key=%s", artifact_id)
     result: dict[str, Any] = {"artifact_id": artifact_id, "deleted": True}
     if referrers:
-        result["warnings"] = referrers
+        result["referrers"] = referrers
         result["warning_message"] = (
             f"'{artifact_id}' was permanently deleted, but it is still referenced by "
             f"{len(referrers)} other artifact(s): {', '.join(referrers)}. This action cannot be "

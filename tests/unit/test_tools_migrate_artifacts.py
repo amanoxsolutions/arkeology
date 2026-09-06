@@ -543,8 +543,8 @@ async def test_migrate_artifacts_concurrency_above_15_capped_warns(
     assert mock_invoke.call_count == 3, f"Expected 3 Nova Lite calls, got {mock_invoke.call_count}"
 
     # Warning key present
-    warning = result.get("warning", "")
-    assert warning, "Expected a non-empty 'warning' key in response"
+    warning = result.get("concurrency_warning", "")
+    assert warning, "Expected a non-empty 'concurrency_warning' key in response"
     assert "20" in warning, f"Warning should mention requested value 20; got: {warning}"
     assert "15" in warning, f"Warning should mention effective cap 15; got: {warning}"
 
@@ -600,8 +600,8 @@ async def test_migrate_artifacts_concurrency_below_1_substituted_warns(
     assert mock_invoke.call_count == 3, f"Expected 3 Nova Lite calls, got {mock_invoke.call_count}"
 
     # Warning key present
-    warning = result.get("warning", "")
-    assert warning, "Expected a non-empty 'warning' key in response"
+    warning = result.get("concurrency_warning", "")
+    assert warning, "Expected a non-empty 'concurrency_warning' key in response"
     assert "0" in warning, f"Warning should mention supplied value 0; got: {warning}"
     assert "3" in warning, f"Warning should mention default substitution 3; got: {warning}"
 
@@ -625,7 +625,7 @@ async def test_migrate_artifacts_in_range_concurrency_5_dry_run_true_uses_semaph
     mocker: pytest.MonkeyPatch,
 ) -> None:
     """dry_run=True, artifact_concurrency=5 (in-range) → description semaphore constructed
-    with 5; no 'warning' key in response.
+    with 5; no 'concurrency_warning' key in response.
     """
     try:
         from arkeology.tools.migrate_artifacts import migrate_artifacts
@@ -651,8 +651,9 @@ async def test_migrate_artifacts_in_range_concurrency_5_dry_run_true_uses_semaph
     )
 
     # No warning for in-range value
-    assert "warning" not in result, (
-        f"No warning expected for in-range artifact_concurrency=5; got: {result.get('warning')}"
+    assert "concurrency_warning" not in result, (
+        f"No warning expected for in-range artifact_concurrency=5; "
+        f"got: {result.get('concurrency_warning')}"
     )
 
     # Description semaphore constructed with 5

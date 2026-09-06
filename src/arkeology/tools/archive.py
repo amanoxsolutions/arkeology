@@ -129,7 +129,7 @@ async def archive_artifact(
 
     Returns:
         On success: ``{"artifact_id": str, "status": "inactive"}`` plus optional
-            ``"warning"`` (list of referring artifact ids) and ``"warning_message"``
+            ``"referrers"`` (list of referring artifact ids) and ``"warning_message"``
             (informational, reversible-action phrasing) if own-scope referrers were
             found. As of T60, referrers are detected via ``source_artifacts`` only —
             ``references``-based referrers are not detected (see module docstring).
@@ -458,7 +458,7 @@ async def _archive_artifact_inner(
     logger.info("Artifact archived: key=%s", artifact_id)
     result: dict[str, Any] = {"artifact_id": artifact_id, "status": ArtifactStatus.INACTIVE}
     if referrers:
-        result["warning"] = referrers
+        result["referrers"] = referrers
         result["warning_message"] = (
             f"'{artifact_id}' was archived, but it is referenced by {len(referrers)} other "
             f"artifact(s): {', '.join(referrers)}. Archiving is reversible, so those references "

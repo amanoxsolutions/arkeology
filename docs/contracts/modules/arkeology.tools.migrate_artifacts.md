@@ -73,7 +73,7 @@ failures are reported inside their own entries.
   never independently at two.
 - `artifact_concurrency` bounds **both** the enrichment-phase description semaphore and the
   write-phase semaphore, forwarded to `write_artifacts`.
-- Out-of-range `artifact_concurrency` is clamped **silently**, with a top-level `warning` in the
+- Out-of-range `artifact_concurrency` is clamped **silently**, with a top-level `concurrency_warning` in the
   response rather than a rejection.
 - The write phase delegates to `write_artifacts`, inheriting the whole write path.
 - An artifact whose content object exists but which is not actually indexed is not treated as

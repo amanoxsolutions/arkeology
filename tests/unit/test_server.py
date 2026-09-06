@@ -358,7 +358,7 @@ async def test_write_artifacts_mcp_layer_out_of_range_artifact_concurrency_forwa
     the MCP layer) — the inner function owns clamping + warning behaviour, so the
     MCP layer must not silently reinterpret or reject it."""
     settings = _make_settings(monkeypatch)
-    mock_write_batch = AsyncMock(return_value={"results": [], "warning": "capped"})
+    mock_write_batch = AsyncMock(return_value={"results": [], "concurrency_warning": "capped"})
     monkeypatch.setattr("arkeology.server._write_artifacts", mock_write_batch)
 
     register_tools(
@@ -373,7 +373,7 @@ async def test_write_artifacts_mcp_layer_out_of_range_artifact_concurrency_forwa
     mock_write_batch.assert_awaited_once()
     _, call_kwargs = mock_write_batch.call_args
     assert call_kwargs["artifact_concurrency"] == 20
-    assert result.get("warning") == "capped"
+    assert result.get("concurrency_warning") == "capped"
 
 
 # ---------------------------------------------------------------------------

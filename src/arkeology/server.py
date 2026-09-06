@@ -296,7 +296,7 @@ def register_tools(
         artifact_concurrency bounds how many artifacts are written concurrently
         (p10-t39). Must be in [1, 15]; values above 15 are capped to 15 and values
         below 1 are substituted with the default 3 — both cases add a top-level
-        "warning" field to the response rather than rejecting the call. Defaults
+        "concurrency_warning" field to the response rather than rejecting the call. Defaults
         to 3 when omitted.
         """
         return await _write_artifacts(

@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- **Breaking:** the `warning` family of response keys is unified — one name per meaning,
+  each named for what its value is. `archive_artifact` returned the own-scope referrer id
+  list under `warning` and `delete_artifact` returned the identical list under `warnings`;
+  both now return it under `referrers`. `write_artifacts` and `migrate_artifacts` returned
+  the `artifact_concurrency` clamp message under `warning`, a string sharing a key name with
+  a list; both now return it under `concurrency_warning`. `warning` and `warnings` no longer
+  appear in any tool response, and no alias is emitted. A caller reading `warning` or
+  `warnings` must read `referrers` (archive, delete) or `concurrency_warning`
+  (write_artifacts, migrate_artifacts) instead; `warning_message`, the human-readable text
+  accompanying `referrers`, is unchanged in both name and behaviour
 - **the server now refuses to start where S3 object annotations are unavailable.** A new
   eighth startup check round-trips one annotation through all four required IAM actions on
   a throwaway probe object, and distinguishes the two causes an operator acts on

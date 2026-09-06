@@ -90,7 +90,7 @@ async def write_artifacts(
         ``{"results": [...]}`` where each entry corresponds positionally to the
         input descriptor. Successful entries carry ``written=True``, ``artifact_id``,
         and ``sections_indexed``; failed entries carry ``error`` and ``message``.
-        When ``artifact_concurrency`` is out of range, a top-level ``"warning"`` key
+        When ``artifact_concurrency`` is out of range, a top-level ``"concurrency_warning"`` key
         is included in the response.
     """
     try:
@@ -217,5 +217,5 @@ async def _write_artifacts_inner(
     raw_results = await asyncio.gather(*[write_one(i, d) for i, d in enumerate(artifacts)])
     response: dict[str, Any] = {"results": list(raw_results)}
     if warning is not None:
-        response["warning"] = warning
+        response["concurrency_warning"] = warning
     return response

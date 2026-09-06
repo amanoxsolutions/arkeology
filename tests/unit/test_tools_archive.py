@@ -341,9 +341,9 @@ async def test_archive_referenced_via_references_field_no_longer_warns(
     )
 
     assert result["status"] == "inactive"
-    warning = result.get("warning", [])
-    assert "artifacts/referrer-via-refs" not in warning
-    assert "artifacts/synthesis-archived-refs-narrowing" in warning
+    referrers = result.get("referrers", [])
+    assert "artifacts/referrer-via-refs" not in referrers
+    assert "artifacts/synthesis-archived-refs-narrowing" in referrers
     message = result.get("warning_message", "").lower()
     assert "revers" in message
 
@@ -394,8 +394,8 @@ async def test_archive_referenced_via_source_artifacts_warns(
     )
 
     assert result["status"] == "inactive"
-    warning = result.get("warning", [])
-    assert "artifacts/synthesis-archived-src" in warning
+    referrers = result.get("referrers", [])
+    assert "artifacts/synthesis-archived-src" in referrers
 
 
 async def test_archive_foreign_scope_referrer_never_listed(
@@ -431,16 +431,16 @@ async def test_archive_foreign_scope_referrer_never_listed(
     )
 
     assert result["status"] == "inactive"
-    warning = result.get("warning", [])
-    assert "other-team/foreign-referrer" not in warning
+    referrers = result.get("referrers", [])
+    assert "other-team/foreign-referrer" not in referrers
 
 
-async def test_archive_no_referrers_no_warning_field(
+async def test_archive_no_referrers_no_referrers_field(
     monkeypatch: pytest.MonkeyPatch,
     s3_client: S3ClientImpl,
     vectors_client_2: VectorsClientImpl,
 ) -> None:
-    """Archiving an unreferenced artifact → no "warning" field in the response."""
+    """Archiving an unreferenced artifact → no "referrers" field in the response."""
     settings = _make_settings(monkeypatch)
     _seed_all(s3_client, vectors_client_2)
 
@@ -453,7 +453,7 @@ async def test_archive_no_referrers_no_warning_field(
     )
 
     assert result["status"] == "inactive"
-    assert "warning" not in result
+    assert "referrers" not in result
 
 
 async def test_archive_referenced_by_lookup_credential_error(

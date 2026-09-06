@@ -26,7 +26,7 @@ okf_version: "0.1"
 - **T17 integration suite baseline**: 44 tests, 0 failures, runtime ≈ 94 s against live AWS (eu-west-1); all tools covered (write, search, read, list, archive, delete, purge, health, synthesise, client layer).
 - **tags vector metadata storage**: stored as `list[str]` in vector metadata (not comma-joined string) so that `{"tags": {"$eq": "tag"}}` filter works correctly; S3 object metadata stores as comma-joined string (S3 only supports string metadata values)
 - **Phase 3 top-level exception handler pattern**: all tool public functions delegate to `_<name>_inner` and wrap the await in `try/except Exception` returning `{"error": "internal_error", "message": str(exc)}` — this prevents any unexpected exception from escaping as a raw Python exception to the MCP caller; follow this pattern for Phase 4+
-- **Delete synthesis reference check must be scoped**: the `list_vectors_by_metadata` query for synthesis references in `delete_artifact` must include a `scope` filter; without it, foreign-scope synthesis identifiers leak into the `warnings` list
+- **Delete synthesis reference check must be scoped**: the `list_vectors_by_metadata` query for synthesis references in `delete_artifact` must include a `scope` filter; without it, foreign-scope synthesis identifiers leak into the `referrers` list
 - **Phase 3 implementation complete**: 370 unit tests passing (264 Phase 1+2 + 106 Phase 3 new); 6 new tools registered; integration test teardown updated for T7–T9; failure log module added
 
 - **Phase 5 implementation complete**: 431 unit tests + 54 integration tests passing; 2 new tools registered (`reconcile_index`, `check_synthesis_freshness`); ruff + mypy clean (32 source files)
