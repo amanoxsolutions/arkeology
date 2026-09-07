@@ -31,10 +31,15 @@ from arkeology.clients.interfaces import (
 from arkeology.config import Settings
 from arkeology.constants import ArtifactStatus, ErrorCode
 from arkeology.errors import CredentialError
-from arkeology.failure_log import read_failure_entries, rewrite_failure_log
+from arkeology.failure_log import (
+    append_failure_entry,
+    build_failure_entry,
+    read_failure_entries,
+    rewrite_failure_log,
+)
 from arkeology.tools._errors import credential_error_response
 from arkeology.tools._scope import is_own_scope
-from arkeology.tools._search_helper import coerce_list_field
+from arkeology.tools._search_helper import coerce_list_field, fetch_vectors_by_metadata
 from arkeology.tools._section_pipeline import (
     build_document_embedding_text,
     disambiguate_section_slugs,
@@ -84,42 +89,56 @@ def _entry_fingerprint(entry: dict[str, Any]) -> str:
     return json.dumps(entry, sort_keys=True, default=str)
 
 
-def _restore_entry_link_fields(
-    entry: dict[str, Any],
+def _restore_group_link_fields(
+    group: list[dict[str, Any]],
     artifact_id: str,
     s3: S3ClientInterface,
     current_ulid: str | None,
 ) -> None:
-    """Re-apply the link-field copy a failed annotation write recorded on ``entry``.
+    """Re-apply the link-field copies the failure-log entries sharing one key recorded.
 
-    The producers of that entry (the write path's overwrite cycle, the archive path's
+    The producers of those entries (the write path's overwrite cycle, the archive path's
     status flip, ``link_metadata``'s vector write) re-PUT the object or follow one that
     did, which clears its annotations, and all record the values they were applying when
-    the failure struck. The entry is then the only surviving source for them:
+    the failure struck. The entries are then the only surviving source for them:
     ``references`` is not in vector metadata at all, and the vector ``commit_refs`` copy
     holds at most the most-recent
     :data:`~arkeology.artifact.COMMIT_REFS_VECTOR_METADATA_MAX_ENTRIES` entries, so
-    everything past that window exists nowhere else.
+    everything past that window exists nowhere else. Consecutive failed overwrites leave
+    several entries, each re-PUT having cleared what the previous one recorded, so no
+    single entry holds the whole value and the group is folded rather than picked from.
 
-    ``commit_refs`` is restored as the union of the entry's copy and whatever the
+    ``commit_refs`` is restored as the union of every entry's copy and whatever the
     artifact currently holds, unconditionally: it is an append-only audit trail on which
     removal is not a supported operation, so a value re-added between the failure and
     this reconcile lives only in the current copy and only the union keeps both.
 
-    ``references`` is restored only while the entry's recorded ``last_edited_ulid``
-    still equals the artifact's current one. Every write *replaces* ``references``
-    outright, so a differing ULID means a later successful write has already
-    established what the field says — restoring the entry's copy over it would
-    resurrect exactly the references that write removed. An entry recording no ULID
-    unions as entries did before the token existed: an absent token is missing evidence
-    of supersession, not evidence of it.
+    ``references`` folds in two halves that must stay apart. The **tokened** entries —
+    those recording a ``last_edited_ulid`` — contribute the union of every copy whose
+    token still equals the artifact's current one: every write *replaces* ``references``
+    outright, so a differing token means a later successful write has already established
+    what the field says, and restoring over it would resurrect exactly the references
+    that write removed. Equal tokens carry no such evidence — no write intervened between
+    two siblings recording one token, so neither supersedes the other and they union, as
+    the tokenless half does. Picking one of them (by recorded order, or by a ``max`` that
+    returns the first maximal element) would discard the only surviving copy of the
+    loser's ``references``. A token *above* the artifact's current one is a clock skew
+    across hosts or a hand-edited log rather than a later write, so the equality test
+    discards it like any other mismatch instead of letting it mask a sibling whose token
+    *is* current. The **tokenless** entries — written before the token
+    existed, or by ``link_metadata``/``archive_artifact`` for an artifact carrying no
+    token (``s3.artifact`` states when the token is absent) — contribute the union of
+    their copies with no supersession test: an absent
+    token is missing evidence of supersession, not evidence of it, and their copy is the
+    only surviving one of a value no later write touched. A tokenless entry's copy is
+    therefore never discarded on the strength of a tokened sibling's token.
 
-    An entry written before these fields existed carries neither, which means "nothing
-    to restore" and not "clear the link fields": such an entry is a no-op here, leaving
-    the object's annotations exactly as they are.
+    An entry recording neither field means "nothing to restore" and not "clear the link
+    fields"; a group of such entries is a no-op here, leaving the annotations exactly as
+    they are.
 
     Args:
-        entry: The failure-log entry being replayed.
+        group: The failure-log entries sharing one ``(artifact_id, kind)``.
         artifact_id: Full S3 key of the artifact.
         s3: S3 client.
         current_ulid: The artifact's current ``last_edited_ulid``, from the S3 object
@@ -132,14 +151,26 @@ def _restore_entry_link_fields(
     Raises:
         CredentialError: Propagated from S3.
     """
-    recorded_commit_refs = coerce_list_field(entry, "commit_refs")
-    recorded_references = coerce_list_field(entry, "references")
-    if not (recorded_commit_refs or recorded_references):
+    commit_refs: list[str] = []
+    tokened_references: list[str] = []
+    tokenless_references: list[str] = []
+    for entry in group:
+        commit_refs = merge_link_field(commit_refs, coerce_list_field(entry, "commit_refs"))
+        if entry.get("last_edited_ulid"):
+            # Equality, not "newest": it selects at most one entry unless siblings share
+            # a token, and those union rather than one silently winning the tie.
+            if entry["last_edited_ulid"] == current_ulid:
+                tokened_references = merge_link_field(
+                    tokened_references, coerce_list_field(entry, "references")
+                )
+        else:
+            tokenless_references = merge_link_field(
+                tokenless_references, coerce_list_field(entry, "references")
+            )
+    if not (commit_refs or tokenless_references or tokened_references):
         return
 
     current_commit_refs, current_references = read_link_annotations(s3, artifact_id)
-    entry_ulid = entry.get("last_edited_ulid")
-    superseded = bool(entry_ulid) and entry_ulid != current_ulid
     # ponytail: read-merge-write without compare-and-swap. A link_metadata call landing
     # between the read above and the write below is clobbered. The window is the two
     # calls' latency, against a repair path that only runs on an artifact already known
@@ -148,11 +179,9 @@ def _restore_entry_link_fields(
     apply_link_annotations(
         s3,
         artifact_id,
-        commit_refs=merge_link_field(recorded_commit_refs, current_commit_refs),
-        references=(
-            current_references
-            if superseded
-            else merge_link_field(recorded_references, current_references)
+        commit_refs=merge_link_field(commit_refs, current_commit_refs),
+        references=merge_link_field(
+            tokened_references, merge_link_field(tokenless_references, current_references)
         ),
     )
 
@@ -171,26 +200,45 @@ def _reindex_artifact(
     Reads content and S3 metadata already retrieved by the caller, reconstructs
     vector metadata (mirrors write_artifact's format), parses sections, embeds
     each section (or uses a document-level fallback), and upserts into the
-    vector index.
+    vector index. It then lists the artifact's vectors and deletes those absent from the
+    rebuilt set, so a re-index replaces the artifact's vector set rather than merging
+    into it.
+
+    **Appends to the failure log.** That trailing prune is the one step whose failure does
+    not fail the re-index: by then the artifact is correctly indexed and only the removal
+    of leftovers failed, so the undeleted keys are recorded in ``settings.failure_log_path``
+    as an orphan-cleanup-kind entry (``failure_step`` ``orphan_vector_cleanup``, carrying
+    ``orphan_keys``) for the next run's cheap delete, and this function returns normally.
+    Two failures of that step are handled differently: a ``CredentialError`` from the
+    delete is *not* recorded and propagates (see Raises), and a failure of the append
+    itself does not invert the result either — the artifact is indexed, so reporting it
+    failed would be untrue and would re-embed it next run to fix something re-embedding
+    cannot fix. Both failures are then logged and the stale keys leaked, the failure log
+    being unwritable having defeated every alternative.
 
     Args:
         artifact_id: Full S3 key of the artifact (includes write_prefix).
         content: Artifact body text.
         raw_s3_meta: Metadata dict returned by ``head_object`` (string values).
-        settings: Server configuration.
+        settings: Server configuration, including the ``failure_log_path`` a failed
+            post-write prune appends its orphan-cleanup entry to (see above).
         s3: S3 client, used to read the durable commit_refs/references annotations
             (ADR-011).
-        vectors: Vectors client, used to upsert the rebuilt section vectors.
+        vectors: Vectors client, used to upsert the rebuilt section vectors and to prune
+            the ones the rebuild replaced.
         bedrock: Bedrock client for embedding.
 
     Returns:
-        Number of vectors written (one per section, or 1 for the fallback).
+        Number of vectors written (one per section, or 1 for the fallback). Unaffected by
+        a failed prune, which does not fail the re-index.
 
     Raises:
-        CredentialError: If reading the durable link fields fails due to expired or
-            invalid credentials — propagated to the caller rather than swallowed,
-            aborting the reconcile run with a structured credential error instead of
-            silently continuing without link fields.
+        CredentialError: From reading the durable link fields, or from the trailing
+            prune's ``delete_vectors`` — propagated to the caller rather than swallowed,
+            aborting the reconcile run with a structured credential error. Every phase of
+            this tool abandons the whole run on one, so swallowing it here would report
+            per-artifact success and append one spurious orphan-cleanup entry per artifact
+            for as long as the outage lasted.
         Exception: Any other failure reading the durable link annotations propagates
             too, failing this artifact rather than rebuilding its vector metadata from a
             spurious empty — which would write that emptiness over its real link fields.
@@ -224,7 +272,9 @@ def _reindex_artifact(
         "date": raw_s3_meta.get("date", ""),
         "status": raw_s3_meta.get("status", ArtifactStatus.ACTIVE),
         "title": title,
-        "visibility": raw_s3_meta.get("visibility", "shared"),
+        # Fail closed: is_cross_scope_readable reads an absent S3 value as "" and denies,
+        # so the vector copy must not admit what the in-process gate refuses.
+        "visibility": raw_s3_meta.get("visibility", "hidden"),
         "author_role": raw_s3_meta.get("author_role", ""),
         "description": raw_s3_meta.get("description", ""),
         # Mirror write_artifact: last_edited_ulid is always present in vector metadata.
@@ -298,6 +348,82 @@ def _reindex_artifact(
         )
         vectors.put_vector(artifact_id, embedding, vector_metadata)
         new_keys.add(artifact_id)
+
+    # A re-index replaces the artifact's vector set. List *after* writing and delete
+    # only keys absent from the rebuilt set in that listing — a listing taken before the
+    # write would prune a key a concurrent writer re-created in the window. A listed key
+    # carrying a newer last_edited_ulid than this rebuild belongs to that later write; one
+    # carrying the same token is a slug the current version does not have (unlike the
+    # orphan-cleanup replay, whose reference is the object's token, so equal is live). A
+    # tokenless object (s3.artifact states when) has nothing to order against, so every
+    # stale key is deleted.
+    built_ulid = str(vector_metadata["last_edited_ulid"])
+    stale_keys = [
+        item["key"]
+        for item in fetch_vectors_by_metadata(
+            vectors, {"artifact_id": {"$eq": artifact_id}}, include_data=False
+        )
+        if item["key"] not in new_keys
+        and not (built_ulid and str(item["metadata"].get("last_edited_ulid", "")) > built_ulid)
+    ]
+    if stale_keys:
+        # The artifact is correctly indexed by now; only the leftovers' removal can still
+        # fail, so a failed delete does not fail the re-index. Record the keys as an
+        # orphan-cleanup-kind entry — the next run's cheap delete, no re-embedding — as
+        # write_artifact records on the same failure. Not identically: write_artifact
+        # retries the delete first, and this records on the first transient failure,
+        # because reconcile is itself the retry a write path has to perform inline for
+        # want of a later run. Failing here would retry (and re-embed)
+        # a correctly indexed artifact into stuck_failures; a bare warning would leave the
+        # stale vectors permanently, since an artifact with vectors is neither an orphan
+        # nor dangling. A failed *listing* above still propagates: without it there are
+        # no keys to record, and the re-index retry is what re-derives them.
+        try:
+            vectors.delete_vectors(stale_keys)
+        except CredentialError:
+            # Not a failed prune. Every phase of this tool abandons the whole run on a
+            # credential failure; recording it here would report per-artifact success and
+            # append one spurious entry per artifact for the length of the outage, of
+            # keys that were never proven stale.
+            raise
+        except Exception as exc:
+            try:
+                append_failure_entry(
+                    settings.failure_log_path,
+                    build_failure_entry(
+                        artifact_id=artifact_id,
+                        title=title,
+                        artifact_type=artifact_type,
+                        tier=tier,
+                        date=raw_s3_meta.get("date", ""),
+                        failure_step="orphan_vector_cleanup",
+                        reason=str(exc),
+                        orphan_keys=stale_keys,
+                    ),
+                )
+            except Exception:
+                # The failure log itself is unwritable, which defeats every alternative:
+                # the artifact is correctly indexed, so failing the re-index would be
+                # untrue and would re-embed it next run to fix something re-embedding
+                # cannot fix, and an artifact with vectors is neither an orphan nor
+                # dangling, so no later pass revisits it. The keys leak and this is their
+                # only record.
+                logger.exception(
+                    "Orphan vector cleanup failed for key=%s after re-index (%s) AND the "
+                    "failure log could not record it; the artifact is indexed and "
+                    "searchable but its stale section vectors %s are leaked with no "
+                    "record that they should go.",
+                    artifact_id,
+                    exc,
+                    stale_keys,
+                )
+            else:
+                logger.warning(
+                    "Orphan vector cleanup failed for key=%s after re-index; the artifact is "
+                    "indexed and searchable but stale section vectors remain (the next "
+                    "reconcile_index run will delete them from the failure log).",
+                    artifact_id,
+                )
 
     return len(new_keys)
 
@@ -461,21 +587,17 @@ async def _reconcile_index_inner(
             entries = []
         failure_log_entries_before = len(entries)
 
-        # Deduplicate by (artifact_id, kind) — attempt re-processing once per unique
-        # (id, kind) pair (T67). A bare artifact_id key would incorrectly collapse a
-        # reindex-kind entry and an orphan-cleanup-kind entry for the same artifact_id
-        # into one attempt, and later prune BOTH when either resolves — see
-        # docs/specs/p13-t67-orphan-vector-retry-and-selfheal.md Problem Statement
-        # point 5. Before T67, at most one entry per artifact_id existed, so this is
-        # backward-compatible: the composite key is unique either way.
-        seen_keys: set[tuple[str, str]] = set()
-        unique_entries: list[dict[str, Any]] = []
+        # Group by (artifact_id, kind) — one attempt per unique pair (T67), resolving
+        # every entry in the group together. A bare artifact_id key would collapse a
+        # reindex-kind and an orphan-cleanup-kind entry for the same artifact into one
+        # attempt and prune both when either resolves. Within a group nothing is
+        # first-one-wins: link-field copies fold in _restore_group_link_fields, orphan
+        # keys union, and the attempt counter is the group's highest.
+        groups: dict[tuple[str, str], list[dict[str, Any]]] = {}
         for entry in entries:
             aid = entry.get("artifact_id", "")
-            key = (aid, _entry_kind(entry))
-            if aid and key not in seen_keys:
-                seen_keys.add(key)
-                unique_entries.append(entry)
+            if aid:
+                groups.setdefault((aid, _entry_kind(entry)), []).append(entry)
 
         # How many copies of each entry this run actually read. The end-of-run rewrite
         # may only prune or stamp an entry it holds budget for, so an entry another
@@ -507,10 +629,18 @@ async def _reconcile_index_inner(
         # the full input idempotently regardless of completion order.
         semaphore = asyncio.Semaphore(_RECONCILE_CONCURRENCY)
 
-        async def _process_failure_log_entry(entry: dict[str, Any]) -> dict[str, Any]:
+        async def _process_failure_log_entry(group: list[dict[str, Any]]) -> dict[str, Any]:
+            # The group's newest member by recorded timestamp, not group[0]: every member
+            # shares the artifact_id and kind, but `reason` is precisely the field that
+            # differs, and reporting the first line an appender happened to write would
+            # describe the oldest failure of a group the newest member's counter exhausted.
+            # `title` follows it for the same reason. The retry budget below is already
+            # read-order-independent (max over members). This `max` does return the first
+            # maximal element on a timestamp tie, unlike the link-field restore, where
+            # that shape loses the sole surviving copy of a value — these two are
+            # report-only strings and the log itself retains every entry.
+            entry = max(group, key=lambda member: str(member.get("timestamp", "")))
             artifact_id = entry.get("artifact_id", "")
-            if not artifact_id:
-                return {"kind": "invalid"}
             if not is_own_scope(artifact_id, settings.write_prefix):
                 logger.warning("Skipping out-of-scope failure log entry: %s", artifact_id)
                 return {"kind": "invalid"}
@@ -518,16 +648,24 @@ async def _reconcile_index_inner(
             # T67: an orphan-cleanup-kind entry (Step 8's delete_vectors retry
             # exhausted) carries the exact orphan vector keys still needing deletion —
             # its repair is a direct delete_vectors call, never a re-index.
-            orphan_keys: list[str] | None = (
-                entry.get("orphan_keys") if _entry_kind(entry) == "orphan_cleanup" else None
-            )
+            orphan_keys: list[str] | None = None
+            if _entry_kind(entry) == "orphan_cleanup":
+                # merge_link_field/coerce_list_field are used here purely as the
+                # order-preserving dedup-union and list-coercion they implement — the keys
+                # are vector keys, not link fields. Two failed cleanups may have recorded
+                # different stale sets, so the group's recorded set is their union.
+                orphan_keys = []
+                for member in group:
+                    orphan_keys = merge_link_field(
+                        orphan_keys, coerce_list_field(member, "orphan_keys")
+                    )
 
             # Bounded retry (T62, extended by T67 to the orphan-cleanup kind too): an
             # entry that has already failed to replay CAS_MAX_ATTEMPTS times is never
             # attempted again — it is reported once, loudly, in stuck_failures instead
             # of blending indistinguishably into failed. Its counter does not grow
             # further while stuck.
-            prior_attempts = entry.get("reconcile_attempts", 0)
+            prior_attempts = max(member.get("reconcile_attempts", 0) for member in group)
             if prior_attempts >= CAS_MAX_ATTEMPTS:
                 result: dict[str, Any] = {
                     "kind": "stuck_already",
@@ -541,14 +679,47 @@ async def _reconcile_index_inner(
 
             async with semaphore:
                 if orphan_keys is not None:
-                    # T67: repair directly — no head_object, no get_object, no
-                    # bedrock.embed, no _fetch_and_reindex/_reindex_artifact. Idempotent
-                    # by the documented DeleteVectors API contract and moto's mock: a
-                    # key already absent from the index is not an error (see the spec's
-                    # Problem Statement point 4) — no pre-check needed.
+                    # T67: repair directly — no get_object, no bedrock.embed, no
+                    # _fetch_and_reindex/_reindex_artifact. Idempotent by the documented
+                    # DeleteVectors API contract and moto's mock: a key already absent
+                    # from the index is not an error.
+                    #
+                    # The recorded keys say what was stale when the entry was written,
+                    # not what is stale now: a later overwrite may have re-created one. A
+                    # recorded key is deleted only when its vector's last_edited_ulid is
+                    # strictly older than the object's current one, or it is absent from
+                    # the index; equal or newer is live and kept — newer means a write
+                    # landed after the token was read, and "!=" here would delete the very
+                    # vector it re-created (the supersession test in
+                    # _restore_group_link_fields uses "==" for a different question; do
+                    # not copy it). Same string comparison as the re-index prune, in the
+                    # other direction. A gone object has no live keys, and neither has one
+                    # carrying no token (s3.artifact states when): nothing to compare
+                    # against, so keys are deleted as recorded.
                     try:
-                        # Off the event loop — blocking boto3 call.
-                        await asyncio.to_thread(vectors.delete_vectors, orphan_keys)
+                        live_keys: set[str] = set()
+                        try:
+                            current_meta = await asyncio.to_thread(s3.head_object, artifact_id)
+                        except KeyError:
+                            pass
+                        else:
+                            current_ulid = current_meta.get("last_edited_ulid")
+                            if current_ulid:
+                                live_keys = {
+                                    item["key"]
+                                    for item in await asyncio.to_thread(
+                                        fetch_vectors_by_metadata,
+                                        vectors,
+                                        {"artifact_id": {"$eq": artifact_id}},
+                                        include_data=False,
+                                    )
+                                    if str(item["metadata"].get("last_edited_ulid", ""))
+                                    >= current_ulid
+                                }
+                        keys_to_delete = [k for k in orphan_keys if k not in live_keys]
+                        if keys_to_delete:
+                            # Off the event loop — blocking boto3 call.
+                            await asyncio.to_thread(vectors.delete_vectors, keys_to_delete)
                     except CredentialError as exc:
                         return {"kind": "credential_error", "exc": exc}
                     except Exception as exc:
@@ -575,7 +746,7 @@ async def _reconcile_index_inner(
                             "entry": {
                                 "artifact_id": artifact_id,
                                 "title": entry.get("title", ""),
-                                "orphan_keys_deleted": len(orphan_keys),
+                                "orphan_keys_deleted": len(keys_to_delete),
                                 "source": "orphan_vector_cleanup",
                             },
                         }
@@ -620,8 +791,8 @@ async def _reconcile_index_inner(
                     # what puts the recorded commit_refs back into the index too.
                     # Off the event loop — blocking boto3 calls.
                     await asyncio.to_thread(
-                        _restore_entry_link_fields,
-                        entry,
+                        _restore_group_link_fields,
+                        group,
                         artifact_id,
                         s3,
                         raw_meta.get("last_edited_ulid"),
@@ -653,7 +824,7 @@ async def _reconcile_index_inner(
                     }
 
         entry_results = await asyncio.gather(
-            *[_process_failure_log_entry(entry) for entry in unique_entries]
+            *[_process_failure_log_entry(group) for group in groups.values()]
         )
 
         # A credential failure discards the whole reconcile_index run (matching the
@@ -663,13 +834,13 @@ async def _reconcile_index_inner(
             if r["kind"] == "credential_error":
                 return credential_error_response(r["exc"])
 
-        for entry, r in zip(unique_entries, entry_results, strict=True):
+        for (_aid, entry_kind), r in zip(groups, entry_results, strict=True):
             kind = r["kind"]
             if kind == "invalid":
                 continue
             if kind == "resolved":
                 reconciled.append(r["entry"])
-                resolved_keys.add((r["artifact_id"], _entry_kind(entry)))
+                resolved_keys.add((r["artifact_id"], entry_kind))
             elif kind == "failed":
                 failed_entry: dict[str, Any] = {
                     "artifact_id": r["artifact_id"],
@@ -690,7 +861,7 @@ async def _reconcile_index_inner(
                 stuck_failures.append(stuck_entry)
                 failed_ids.add(r["artifact_id"])
             elif kind == "stuck_new":
-                attempt_updates[(r["artifact_id"], _entry_kind(entry))] = r["reconcile_attempts"]
+                attempt_updates[(r["artifact_id"], entry_kind)] = r["reconcile_attempts"]
                 stuck_entry = {
                     "artifact_id": r["artifact_id"],
                     "reason": r["reason"],
@@ -701,7 +872,7 @@ async def _reconcile_index_inner(
                 stuck_failures.append(stuck_entry)
                 failed_ids.add(r["artifact_id"])
             elif kind == "failed_new":
-                attempt_updates[(r["artifact_id"], _entry_kind(entry))] = r["reconcile_attempts"]
+                attempt_updates[(r["artifact_id"], entry_kind)] = r["reconcile_attempts"]
                 failed_entry = {"artifact_id": r["artifact_id"], "reason": r["reason"]}
                 if "orphan_keys" in r:
                     failed_entry["orphan_keys"] = r["orphan_keys"]

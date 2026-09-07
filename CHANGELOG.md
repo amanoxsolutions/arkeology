@@ -55,6 +55,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   durable; `credential_error` and `annotation_unavailable` are unchanged. A caller that treated
   `internal_error` from `archive_artifact` as "nothing happened" must now check for
   `partial_write`
+- **Breaking:** an artifact whose stored `visibility` is absent now re-indexes as `hidden`, not
+  `shared`. `visibility` is one of the two fields the cross-scope access gate keys on, and the
+  gate's two forms disagreed: the in-process check behind `read_artifact` reads an absent S3 value
+  as `""` and denies, while `reconcile_index` wrote `shared` into the rebuilt vector metadata — so
+  `search_artifacts` and `list_artifacts` returned such an artifact cross-scope and `read_artifact`
+  then refused it. Rebuilding as `hidden` fails closed, which is the only default both forms of the
+  gate agree on. A foreign-scope caller that received these artifacts from search or list results
+  will no longer see them once their vectors are rebuilt; the S3 object is left exactly as it is,
+  and no response field reports the substitution
 - documented the exact boundary of the ETag compare-and-swap guard in ADR-011 decision 6 and in
   the `s3-annotations` and `link_metadata` contracts: the token is the *object's* ETag, so the
   cycle serialises annotation writers against object-body writers (an overwriting `write_artifact`,
@@ -157,6 +166,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   listed, a foreign-scope tier-2 one is not, matching `list_artifacts`' default scope
 
 ### Fixed
+- `reconcile_index`'s failure-log replay no longer loses link fields when several entries share
+  one artifact and kind. It kept the first entry it read and pruned the rest, so consecutive failed
+  writes to one artifact lost every other entry's `commit_refs` and `references` — the only
+  surviving copy, since the S3 object annotations are the sole durable store and each re-PUT
+  cleared what the previous entry had recorded. The replay now restores the union of every entry's
+  `commit_refs`, and for `references` the union of every entry whose recorded `last_edited_ulid`
+  still equals the artifact's current one, plus every tokenless entry's copy. Which line an
+  appender happened to write first no longer affects what is restored
+- a re-indexed artifact's vector set now exactly matches its rebuilt set. `reconcile_index` wrote
+  the rebuilt section vectors without removing the ones they replaced, so a section slug that no
+  longer exists in the current content stayed searchable indefinitely — an artifact with vectors is
+  neither an orphan nor dangling, so no later pass removed the leftovers and only a manual
+  overwrite could. The rebuilt vectors are now written first, the artifact's vector keys are then
+  listed, and only the keys that listing shows absent from the rebuilt set are deleted, so a key a
+  concurrent writer re-created in the window is kept
+- `reconcile_index`'s orphan-vector cleanup no longer deletes a vector that a later write
+  re-created. A recorded key list says what was stale when the entry was written, not what is stale
+  now, and the replay deleted every recorded key verbatim — so an overwrite that had legitimately
+  re-created one of those section slugs lost its live vector, and the orphan scan could not restore
+  it because the artifact's remaining vectors kept it out of the scan. Each recorded key is now
+  re-checked at prune time against the object's current `last_edited_ulid` and spared unless its
+  vector's token is strictly older, or the key is absent from the index
+- a failed post-write prune no longer fails the re-index. By the time that delete runs the rebuilt
+  vectors are written and the artifact is correctly indexed, so the re-index now resolves as normal
+  and the keys that could not be deleted are recorded as a new failure-log entry for the next run's
+  cheap delete, with no re-embedding. A correctly indexed artifact therefore no longer consumes its
+  retry budget, re-embeds every section on each retry, or reaches `stuck_failures` over leftovers
+  alone. A failure of the *listing* itself still fails the re-index: without it there are no keys
+  to record
+- a credential failure during that prune now abandons the whole `reconcile_index` run and returns
+  `credential_error`, as one raised in any other phase already did. It was caught alongside
+  ordinary transient failures, so for the duration of a credential outage the tool reported
+  per-artifact success and appended one failure-log entry per artifact naming keys it had never
+  proven stale
 - `reconcile_index`'s orphan scan no longer indexes stray objects. A key under the write prefix
   that no Arkeology tool wrote — a manual upload, a `.DS_Store`, a partial multipart artefact — was
   embedded and indexed as an artifact, adding a typeless, titleless entry that then surfaced in
