@@ -1,7 +1,8 @@
 """Calibrates the real cost of answering "which vectors belong to this artifact" with the
 two S3 Vectors primitives the client already exposes.
 
-Context (see finding MJ-4 in .docs/reviews/2026-09-06-review-full-codebase.md):
+Context — the scan pages ``ListVectors`` over the whole index and filters client-side
+while ``query_vectors`` filters server-side; see backlog item B-12 for the analysis:
 ``VectorsClientImpl.list_vectors_by_metadata`` pages ``ListVectors`` over the *entire*
 index with ``returnMetadata=True`` and applies the filter in-process, because the
 ListVectors API has no server-side metadata filter — its own docstring says so. Every

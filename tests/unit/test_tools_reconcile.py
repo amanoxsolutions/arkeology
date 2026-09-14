@@ -3374,9 +3374,9 @@ async def test_failure_log_vanishing_after_the_existence_check_does_not_fail_the
 
 
 # ---------------------------------------------------------------------------
-# Review 2026-09-06 CR-2 / CR-3 / MJ-1 / MJ-2 — contract: arkeology.tools.reconcile,
-# Invariants (several entries per key; absent visibility; re-index replaces the vector
-# set; orphan-cleanup replay re-checks at prune time).
+# Contract: arkeology.tools.reconcile, reconcile_index Invariants — several entries per
+# key; absent visibility; re-index replaces the vector set; orphan-cleanup replay
+# re-checks at prune time.
 # ---------------------------------------------------------------------------
 
 _ENTRY_FIRST_FAILED_OVERWRITE: dict[str, Any] = {
@@ -3406,7 +3406,11 @@ async def test_entries_sharing_a_key_restore_union_commit_refs_and_newest_refere
     s3_reconcile: S3ClientImpl,
     vectors_reconcile: VectorsClientImpl,
 ) -> None:
-    """CR-2: two consecutive failed overwrites leave two entries for one key; each
+    """commit_refs restores as a union, references only while the entry's recorded
+    last_edited_ulid still equals the artifact's current one — the reconcile contract's
+    reconcile_index Invariants.
+
+    Two consecutive failed overwrites leave two entries for one key; each
     re-PUT cleared what the previous entry recorded, so the annotations hold nothing.
     The replay restores the union of every entry's commit_refs and the newest entry's
     references — newest by recorded last_edited_ulid, not by read order — and prunes
@@ -3444,7 +3448,10 @@ async def test_reindex_absent_visibility_rebuilds_hidden_so_both_gate_forms_deny
     s3_reconcile: S3ClientImpl,
     vectors_reconcile: VectorsClientImpl,
 ) -> None:
-    """CR-3: an S3 object carrying no visibility rebuilds with visibility "hidden".
+    """Reindexing an absent visibility yields "hidden", never "shared" — the reconcile
+    contract's reconcile_index Invariants.
+
+    An S3 object carrying no visibility rebuilds with visibility "hidden".
     The in-process gate reads the absent S3 value as "" and denies a foreign caller;
     the vector copy must not admit what that form refuses, so the server-side filter
     form must deny the rebuilt vector too."""
@@ -3490,8 +3497,11 @@ async def test_reindex_deletes_section_vectors_absent_from_the_rebuilt_set(
     s3_reconcile: S3ClientImpl,
     vectors_reconcile: VectorsClientImpl,
 ) -> None:
-    """MJ-1: a slug removed between versions must not survive a re-index as a
-    searchable vector — the artifact's vector set equals the rebuilt set afterwards."""
+    """A re-index replaces the artifact's vector set rather than adding to it — the
+    reconcile contract's reconcile_index Invariants.
+
+    A slug removed between versions must not survive a re-index as a searchable
+    vector — the artifact's vector set equals the rebuilt set afterwards."""
     artifact_id = "artifacts/implementation-note-2026-01-01-stale-slug"
     s3_reconcile.put_object(
         artifact_id,
@@ -3526,7 +3536,10 @@ async def test_reindex_lists_after_writing_and_spares_a_key_recreated_in_the_win
     vectors_reconcile: VectorsClientImpl,
     mocker: MockerFixture,
 ) -> None:
-    """MJ-1, ordering: the stale set is computed from a listing taken after the rebuilt
+    """A re-index replaces the artifact's vector set without racing a concurrent
+    writer — the reconcile contract's reconcile_index Invariants.
+
+    Ordering: the stale set is computed from a listing taken after the rebuilt
     vectors are written, and a listed key whose last_edited_ulid is newer than the one
     this re-index was built under belongs to a later write. A concurrent writer that
     re-creates a stale slug while the re-index is writing must find it still there."""
@@ -3602,7 +3615,10 @@ async def test_orphan_cleanup_replay_spares_a_recorded_key_that_is_live_again(
     vectors_reconcile: VectorsClientImpl,
     mocker: MockerFixture,
 ) -> None:
-    """MJ-2: a recorded orphan key is deleted only when its vector's last_edited_ulid is
+    """The dangling-vector prune re-checks at prune time, so it cannot race a
+    concurrent write — the reconcile contract's reconcile_index Invariants.
+
+    A recorded orphan key is deleted only when its vector's last_edited_ulid is
     strictly older than the object's current one. A key carrying the current token was
     re-created by a later write and is live; a key carrying a newer token was re-created
     by a write that landed after the token was read and is live too. Only the recorded key
@@ -3665,7 +3681,10 @@ async def test_orphan_cleanup_replay_deletes_every_recorded_key_when_the_object_
     vectors_reconcile: VectorsClientImpl,
     mocker: MockerFixture,
 ) -> None:
-    """MJ-2, boundary: an artifact whose object no longer exists has no live vectors,
+    """The dangling-vector prune re-checks at prune time — the reconcile contract's
+    reconcile_index Invariants.
+
+    Boundary: an artifact whose object no longer exists has no live vectors,
     so every recorded key is deleted whatever token its vector carries."""
     artifact_id = "artifacts/implementation-note-2026-01-01-object-gone"
     keys = [f"{artifact_id}#a", f"{artifact_id}#b"]
