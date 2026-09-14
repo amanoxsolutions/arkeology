@@ -69,6 +69,11 @@ async def synthesise_artifacts(
             missing its ``distance`` field — a soft signal of possible S3
             Vectors index corruption; whatever results were already collected
             are still returned, never a hard error.
+            ``"skipped_malformed_count": int`` is included, only when non-zero, when
+            a candidate was dropped because its stored *metadata* could not be read
+            into a result — a second counter alongside ``skipped_count``, which
+            counts content-read failures against S3, because the two point an
+            operator at different repairs.
         On error: ``{"error": str, "message": str}``
     """
     try:
@@ -147,12 +152,17 @@ async def _synthesise_artifacts_inner(
     # caller needs regardless of which tool triggered the re-fetch loop. Dropping
     # fetch_exhausted would silently convert an incomplete result set into one
     # indistinguishable from an exhaustive one.
-    search_results, fetch_exhausted, index_corruption_detected = loop_result
+    search_results, fetch_exhausted, index_corruption_detected, skipped_malformed = loop_result
 
     if not search_results:
         zero_response: dict[str, Any] = {"artifacts": [], "zero_results": True}
         if index_corruption_detected:
             zero_response["index_corruption_detected"] = True
+        if skipped_malformed:
+            # On the short-circuit list deliberately: a zero result reached because
+            # every candidate was unreadable is precisely the case a caller must not
+            # mistake for "no such artifact exists".
+            zero_response["skipped_malformed_count"] = skipped_malformed
         return zero_response
 
     # ── Step 6: Fetch content for each result, budget-aware ────────────────────
@@ -173,6 +183,27 @@ async def _synthesise_artifacts_inner(
         artifact_id: str = entry["artifact_id"]
         meta: dict[str, Any] = entry["meta"]
 
+        # The same summary search_artifacts builds, from the same helper, so the two
+        # tools cannot drift into reporting different fields for the same artifact —
+        # plus this tool's own additions below: the content that is its whole point, and
+        # the score the search loop already computed for the ranking it returned.
+        #
+        # Built before the content fetch, deliberately: a candidate whose stored
+        # metadata cannot be read into a result is dropped before it costs an S3 read,
+        # which is also what keeps it out of skipped_count. The two counters are
+        # disjoint because they send an operator to two different repairs — a transient
+        # or permissions failure against S3, versus corrupt index metadata reconcile
+        # rebuilds.
+        summary = build_artifact_summary(
+            meta,
+            artifact_id,
+            coerce_list_field(meta, "tags"),
+            coerce_list_field(meta, "source_artifacts"),
+        )
+        if summary is None:
+            skipped_malformed += 1
+            continue
+
         try:
             content = await asyncio.to_thread(s3.get_object, artifact_id)
         except CredentialError as exc:
@@ -187,16 +218,6 @@ async def _synthesise_artifacts_inner(
             truncated = True
             break
 
-        # The same summary search_artifacts builds, from the same helper, so the two
-        # tools cannot drift into reporting different fields for the same artifact —
-        # plus this tool's own additions: the content that is its whole point, and the
-        # score the search loop already computed for the ranking it returned.
-        summary = build_artifact_summary(
-            meta,
-            artifact_id,
-            coerce_list_field(meta, "tags"),
-            coerce_list_field(meta, "source_artifacts"),
-        )
         summary["content"] = content
         summary["score"] = entry["score"]
         summary["last_edited_at"] = derive_last_edited_at(summary["last_edited_ulid"])
@@ -223,6 +244,8 @@ async def _synthesise_artifacts_inner(
         response["included"] = len(artifacts)
     if skipped_count:
         response["skipped_count"] = skipped_count
+    if skipped_malformed:
+        response["skipped_malformed_count"] = skipped_malformed
     if fetch_exhausted:
         response["fetch_exhausted"] = True
     if index_corruption_detected:

@@ -9,12 +9,13 @@ references:
   - docs/specs/p2-t8-search-artifacts.md
   - docs/specs/p12-t54-search-age-transparency.md
   - docs/specs/p10-t41-rename-feature-tags-to-tags.md
+  - docs/architecture-decisions/adr-2026-09-14-malformed-persisted-data-policy.md
 authored:
   by: "tech-writer"
   date: 2026-09-04
 revised:
-  by: ""
-  date: YYYY-MM-DD
+  by: "architect"
+  date: 2026-09-14
 ---
 
 # arkeology.tools.search
@@ -61,7 +62,15 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
 - `top_k` omitted uses the configured default. `top_k` above the 100 ceiling is **clamped, not
   rejected**, and the response says so via `clamped` and `effective_top_k`.
 - Own-scope results pass no cross-scope gate. Foreign-scope results are restricted to `tier == 3`
-  and `visibility == "shared"`.
+  and `visibility == "shared"`. An absent or unparseable `tier` or `visibility` denies; the gate
+  never raises over a stored value.
+- **A malformed candidate is skipped, never fatal.** A vector entry whose stored metadata cannot be
+  read into a result — no usable `artifact_id`, a `tier` that will not coerce — is dropped and the
+  loop continues. One unreadable record in the index must not withhold every readable one beside it,
+  which is what an escape to the catch-all does: the caller gets `internal_error` and no results at
+  all. The skip is counted and reported, never silent.
+- A candidate the cross-scope gate denied is **not** a skip and is never counted. Counting it would
+  disclose that a foreign artifact exists, which is the disclosure the gate exists to prevent.
 - Own-scope and foreign-scope results are merged and **re-ranked together**, so a caller never sees
   scope-ordered output masquerading as relevance-ordered.
 - Multiple section vectors for one artifact collapse to a single result. The response is per
@@ -84,11 +93,18 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
 
 - Returns `{"artifacts": [...]}`, each entry carrying at least `artifact_id` and `score`.
 - Zero matches returns `{"artifacts": [], "zero_results": True}` — an explicit signal, not an
-  ambiguous empty list.
+  ambiguous empty list. `skipped_malformed_count` accompanies it when it applies, alongside
+  `index_corruption_detected`: a zero result reached because every candidate was unreadable is
+  precisely the case a caller must not mistake for "no such artifact exists".
 - `fetch_exhausted: True` is included when the loop's own fetch budget, rather than the true number
   of matches, limited the count below `top_k`. More matches may exist.
 - `index_corruption_detected: True` is included when the loop stopped because a vector result was
   missing its `distance` field. Whatever results were already collected are still returned; this is
   a soft signal, never a hard error.
-- These three flags are the only way a caller can tell a short result set apart from an exhaustive
+- `skipped_malformed_count` is included **only when non-zero**, so its presence is itself the signal
+  that the index holds records this call could not read. It is a count, not a list of ids: the
+  identifier is frequently the very field that is missing, and an id list is the one place a
+  gated-out foreign artifact could be named. A skipped candidate does not count towards the returned
+  artifact total.
+- These flags are the only way a caller can tell a short result set apart from an exhaustive
   one. Dropping any of them silently converts "incomplete" into "complete".

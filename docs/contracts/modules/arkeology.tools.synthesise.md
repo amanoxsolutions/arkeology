@@ -8,12 +8,13 @@ okf_version: "0.1"
 references:
   - docs/specs/p3-t16-synthesise-artifacts.md
   - docs/specs/p2-t8-search-artifacts.md
+  - docs/architecture-decisions/adr-2026-09-14-malformed-persisted-data-policy.md
 authored:
   by: "tech-writer"
   date: 2026-09-04
 revised:
-  by: "tech-writer"
-  date: 2026-09-06
+  by: "architect"
+  date: 2026-09-14
 ---
 
 # arkeology.tools.synthesise
@@ -59,7 +60,11 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
   content. It retrieves and returns. A future version that summarised would be a different
   contract.
 - The same cross-scope gate as `search_artifacts` applies: own-scope unrestricted, foreign-scope
-  restricted to `tier == 3` and `visibility == "shared"`.
+  restricted to `tier == 3` and `visibility == "shared"`. An absent or unparseable `tier` or
+  `visibility` denies; the gate never raises over a stored value.
+- **A malformed candidate is skipped, never fatal**, on the same terms as `search_artifacts` — same
+  rule, same shared helpers, same reported key. A candidate the gate denied is not a skip and is
+  never counted.
 - The re-fetch loop is the shared `_search_helper.run_search_loop`, identical to
   `search_artifacts`. Fixes belong in that helper, never here.
 - Content is fetched from S3 **per result, inside the budget loop** — deliberately not batched ahead
@@ -89,7 +94,10 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
   error, so a partially corrupt index degrades rather than blocks recall.
 - `zero_results: True` is returned, alongside an empty `artifacts` list, when the search loop
   found no candidate at all. On that path `artifacts` and `zero_results` (plus
-  `index_corruption_detected`, when it applies) are the only keys present. No clamp or budget key
+  `index_corruption_detected` and `skipped_malformed_count`, when they apply) are the only keys
+  present. `skipped_malformed_count` is on that short list deliberately: a zero result reached
+  because every candidate was unreadable is precisely the case a caller must not mistake for "no
+  such artifact exists". No clamp or budget key
   appears, because no assembly ran, and `fetch_exhausted` is **not** reported either even though
   an empty result set implies the loop exhausted its candidates — the zero-result return is a
   deliberate short-circuit taken before the full response is assembled.
@@ -103,6 +111,14 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
 - `skipped_count` is included only when at least one candidate's S3 content read failed and that
   candidate was dropped from the response. A skip is not an error and never aborts the call, so
   without this key a caller cannot tell a short result set from a partially unreadable one.
+- `skipped_malformed_count` is included only when at least one candidate was dropped because its
+  stored **metadata** could not be read into a result, under the same present-only-when-non-zero
+  terms as `search_artifacts` uses it. It is deliberately a second counter rather than more entries
+  in `skipped_count`: that key counts content-read failures against S3, a transient or permissions
+  problem, while this one counts corrupt index metadata, which `reconcile_index` repairs. One number
+  covering both would point an operator at two different fixes. A candidate is counted in at most
+  one of them: the metadata check precedes the content fetch, so a malformed candidate is dropped
+  before it costs an S3 read and can never also appear in `skipped_count`.
 - Every key in this section is **conditional** — absent rather than falsy when it does not apply.
   Only `artifacts` is unconditional. A caller must test for presence, not truth.
 - Result count may be below `top_k` without that meaning fewer matches exist.

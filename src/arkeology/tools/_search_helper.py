@@ -5,9 +5,11 @@ search_artifacts and synthesise_artifacts. Both tools call run_search_loop with
 their respective parameters; tool-specific logic (content fetching, response
 shape) is handled by each tool independently.
 
-The cross-scope scope filter is *not* built here — ``run_search_loop`` delegates
-to ``_scope.build_scope_filter``, so every implementation of the access gate stays
-in ``_scope.py`` and inside the declared mutation-testing Scope.
+The access gate is *not* implemented here — ``run_search_loop`` delegates to
+``_scope.build_scope_filter`` to narrow what is fetched and to
+``_scope.is_cross_scope_readable`` to decide, so every implementation of the gate stays
+in ``_scope.py`` and inside the declared mutation-testing Scope. The filter is a
+prefetch optimisation; the predicate is what admits a candidate.
 """
 
 import asyncio
@@ -32,7 +34,7 @@ from arkeology.errors import (
     InvalidFilterValueError,
     VectorDistanceMissingError,
 )
-from arkeology.tools._scope import build_scope_filter
+from arkeology.tools._scope import build_scope_filter, coerce_tier, is_cross_scope_readable
 
 logger = logging.getLogger(__name__)
 
@@ -234,7 +236,7 @@ def build_artifact_summary(
     artifact_id: str,
     tags_val: list[str],
     source_artifacts_val: list[str],
-) -> dict[str, Any]:
+) -> dict[str, Any] | None:
     """Build the ~14-key artifact summary dict shared by ``list_artifacts`` and
     ``search_artifacts``.
 
@@ -249,14 +251,24 @@ def build_artifact_summary(
         source_artifacts_val: Already-coerced ``source_artifacts`` list.
 
     Returns:
-        A dict with the 14 shared summary keys.
+        A dict with the 14 shared summary keys, or ``None`` when the stored metadata
+        cannot be read into one — today only a ``tier`` that will not coerce. Every
+        caller is an iterating tool, so it drops that candidate and counts it under
+        ``skipped_malformed_count`` rather than aborting the whole call: one unreadable
+        record must not withhold every readable one beside it. The candidate is omitted
+        outright rather than returned with a defaulted ``tier``, which is one of the two
+        fields the cross-scope gate keys on.
     """
+    tier = coerce_tier(meta.get("tier", 0))
+    if tier is None:
+        logger.warning("Skipping artifact '%s': unreadable 'tier' metadata value", artifact_id)
+        return None
     return {
         "artifact_id": artifact_id,
         "type": meta.get("type"),
         "team": meta.get("team"),
         "project": meta.get("project"),
-        "tier": int(meta.get("tier", 0)),
+        "tier": tier,
         "date": meta.get("date"),
         "status": meta.get("status"),
         "title": meta.get("title"),
@@ -303,12 +315,17 @@ async def run_search_loop(
     user_filters: list[dict[str, Any]],
     status_filter: dict[str, Any] | None,
     effective_top_k: int,
-) -> tuple[list[dict[str, Any]], bool, bool] | dict[str, Any]:
+) -> tuple[list[dict[str, Any]], bool, bool, int] | dict[str, Any]:
     """Execute the deduplicating re-fetch loop over the vector index.
 
     Iterates up to ``settings.search_max_iterations`` times, accumulating
     distinct artifacts until ``effective_top_k`` is reached or the index
     is exhausted. Already-seen artifact IDs are excluded via ``$nin`` filter.
+
+    A candidate whose metadata carries no usable ``artifact_id`` is malformed for this
+    loop's purposes — it cannot be identified, deduplicated, or fetched — so it is
+    skipped and counted rather than raising. One unreadable record in the index must not
+    withhold every readable one beside it.
 
     The ``$nin`` exclusion list is bounded by ``_NIN_EXCLUSION_BYTE_BUDGET`` — once it
     would grow past that budget the loop stops gracefully and returns whatever has been
@@ -362,11 +379,16 @@ async def run_search_loop(
             was reached or the index was naturally exhausted; and an
             ``index_corruption_detected`` flag: ``True`` when the loop stopped
             because ``query_vectors`` raised ``VectorDistanceMissingError``
-            mid-loop, ``False`` otherwise.
+            mid-loop, ``False`` otherwise; and ``skipped_malformed_count``, the
+            number of distinct vectors dropped because their metadata carried no
+            usable ``artifact_id``. Counted by vector key, so a multi-section
+            artifact missing its id contributes once per vector — there is no id
+            to group them by, which is the defect.
         On credential error: ``{"error": "credential_error", "message": str}``
     """
     scope_filter = build_scope_filter(settings.write_prefix, settings.read_prefixes_list)
     seen_ids: set[str] = set()
+    skipped_malformed_keys: set[str] = set()
     results: list[dict[str, Any]] = []
     fetch_exhausted = False
     index_corruption_detected = False
@@ -432,7 +454,24 @@ async def run_search_loop(
         best_by_id: dict[str, tuple[float, dict[str, Any]]] = {}
         for item in raw:
             item_meta: dict[str, Any] = item["metadata"]
-            aid: str = str(item_meta["artifact_id"])
+            aid: str = str(item_meta.get("artifact_id") or "")
+            if not aid:
+                # Malformed: without an id the candidate cannot be identified,
+                # deduplicated, or fetched. Skip it and keep going — it is also never
+                # added to seen_ids, so it comes back on every iteration and is counted
+                # by vector key to stay one count per record, not per re-fetch.
+                skipped_malformed_keys.add(str(item.get("key", "")))
+                continue
+            if not is_cross_scope_readable(
+                item_meta, aid, settings.write_prefix, settings.read_prefixes_list
+            ):
+                # The scope filter above is a prefetch optimisation, not the gate. ``$eq``
+                # is value-in-list for a list field — load-bearing for ``tags`` — so a
+                # non-scalar ``tier``/``visibility`` matches it and gets fetched. The
+                # predicate is the authority and denies such a value. Dropped silently and
+                # never counted: counting would itself disclose that a foreign artifact
+                # exists.
+                continue
             score: float = float(item["score"])
             if aid not in best_by_id or score > best_by_id[aid][0]:
                 best_by_id[aid] = (score, item_meta)
@@ -458,7 +497,12 @@ async def run_search_loop(
         fetch_exhausted = len(results) < effective_top_k
 
     results.sort(key=lambda r: float(r["score"]), reverse=True)
-    return results[:effective_top_k], fetch_exhausted, index_corruption_detected
+    return (
+        results[:effective_top_k],
+        fetch_exhausted,
+        index_corruption_detected,
+        len(skipped_malformed_keys),
+    )
 
 
 def find_referrers(

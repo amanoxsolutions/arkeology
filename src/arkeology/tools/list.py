@@ -22,6 +22,7 @@ from arkeology.errors import (
     AnnotationUnavailableError,
     CredentialError,
     InvalidFilterValueError,
+    ObjectNotFoundError,
 )
 from arkeology.tools._errors import annotation_unavailable_response, credential_error_response
 from arkeology.tools._reference_filter import resolve_readable_targets
@@ -79,7 +80,13 @@ async def list_artifacts(
             a validation error rather than silently matching nothing.
 
     Returns:
-        On success: ``{"artifacts": [...]}``
+        On success: ``{"artifacts": [...]}``, plus ``skipped_malformed_count`` and
+            ``skipped_deleted_count`` — each included only when non-zero. The first
+            counts candidates whose stored metadata could not be read into a listing
+            entry; the second counts artifacts whose object was found to be gone
+            during the link-field read and were therefore omitted. They are separate
+            keys deliberately: the second is ordinary self-healing churn, the first
+            is corrupt data wanting investigation.
         On error: ``{"error": str, "message": str}``
     """
     try:
@@ -173,10 +180,19 @@ async def _list_artifacts_inner(
     read_prefixes = settings.read_prefixes_list
     seen_ids: set[str] = set()
     gated_entries: list[tuple[str, bool, dict[str, Any]]] = []
+    skipped_malformed = 0
 
     for item in items:
         meta = item["metadata"]
-        artifact_id: str = str(meta.get("artifact_id", ""))
+        artifact_id: str = str(meta.get("artifact_id") or "")
+
+        # Malformed: without an id the record cannot be identified, deduplicated, or
+        # fetched. Skipped and counted rather than fatal — one unreadable record must
+        # not withhold every readable one on the page.
+        if not artifact_id:
+            logger.warning("Skipping a listing candidate with no usable artifact_id")
+            skipped_malformed += 1
+            continue
 
         if artifact_id in seen_ids:
             continue
@@ -184,9 +200,23 @@ async def _list_artifacts_inner(
 
         is_own = is_own_scope(artifact_id, own_scope)
         if not is_own and not is_cross_scope_readable(meta, artifact_id, own_scope, read_prefixes):
+            # A denied candidate is not a skip and is never counted: the count itself
+            # would disclose that a foreign artifact exists.
             continue
 
-        gated_entries.append((artifact_id, is_own, meta))
+        # Built here rather than in Step 6 so a candidate whose metadata cannot be read
+        # into a listing entry is dropped before it costs an annotation read.
+        summary = build_artifact_summary(
+            meta,
+            artifact_id,
+            coerce_list_field(meta, "tags"),
+            coerce_list_field(meta, "source_artifacts"),
+        )
+        if summary is None:
+            skipped_malformed += 1
+            continue
+
+        gated_entries.append((artifact_id, is_own, summary))
 
     # ── Step 4b: commit_refs/references from the durable annotations ──────────
     # Fetched only for entries that survived the cross-scope gate above (never
@@ -204,6 +234,7 @@ async def _list_artifacts_inner(
 
     distinct_ids = [artifact_id for artifact_id, _, _ in gated_entries]
     link_fields_by_id: dict[str, tuple[list[str], list[str]]] = {}
+    deleted_ids: set[str] = set()
     if distinct_ids:
         link_field_results = await asyncio.gather(
             *(_fetch_link_fields(artifact_id) for artifact_id in distinct_ids),
@@ -212,6 +243,20 @@ async def _list_artifacts_inner(
         for artifact_id, result in zip(distinct_ids, link_field_results, strict=True):
             if isinstance(result, CredentialError):
                 return credential_error_response(result)
+            if isinstance(result, ObjectNotFoundError):
+                # Not a read that failed: it answered definitively that the artifact is
+                # gone, so omitting it from the page is the correct result rather than a
+                # lossy one. Failing a read-only listing over a benign concurrent delete
+                # would be disproportionate, the more so because a retry can meet the
+                # same race. Counted apart from the malformed skips: this one is
+                # ordinary churn that reconcile_index prunes as a dangling artifact,
+                # and a shared number would hold the serious count at a floor.
+                logger.info(
+                    "Omitting %s from the listing: its object is gone",
+                    artifact_id,
+                )
+                deleted_ids.add(artifact_id)
+                continue
             if isinstance(result, BaseException):
                 # No degrade to []: annotations are the sole source of truth for both
                 # fields, so a page that silently reported "no links" for an artifact
@@ -225,12 +270,15 @@ async def _list_artifacts_inner(
                 raise result
             link_fields_by_id[artifact_id] = result
 
+    if deleted_ids:
+        gated_entries = [entry for entry in gated_entries if entry[0] not in deleted_ids]
+
     # ── Step 5: Cross-scope reference filtering (ADR-012) ─────────────────────
     # Own-scope entries are never filtered. Foreign entries' references are
     # resolved with a single batched query covering the whole page, regardless
     # of how many distinct foreign entries or reference ids are involved.
     candidate_ids: set[str] = set()
-    for artifact_id, is_own, _meta in gated_entries:
+    for artifact_id, is_own, _summary in gated_entries:
         if not is_own:
             candidate_ids.update(link_fields_by_id[artifact_id][1])
 
@@ -243,17 +291,27 @@ async def _list_artifacts_inner(
 
     # ── Step 6: Build result dicts ──────────────────────────────────────────
     artifacts: list[dict[str, Any]] = []
-    for artifact_id, is_own, meta in gated_entries:
-        tags_val = coerce_list_field(meta, "tags")
-        source_artifacts_val = coerce_list_field(meta, "source_artifacts")
+    for artifact_id, is_own, summary in gated_entries:
         commit_refs_val, references_val = link_fields_by_id[artifact_id]
         if not is_own:
             references_val = [r for r in references_val if r in readable_targets]
 
-        summary = build_artifact_summary(meta, artifact_id, tags_val, source_artifacts_val)
         summary["commit_refs"] = commit_refs_val
         summary["references"] = references_val
         artifacts.append(summary)
 
-    logger.info("list_artifacts returned %d artifacts", len(artifacts))
-    return {"artifacts": artifacts}
+    logger.info(
+        "list_artifacts returned %d artifacts (skipped: %d malformed, %d deleted)",
+        len(artifacts),
+        skipped_malformed,
+        len(deleted_ids),
+    )
+    response: dict[str, Any] = {"artifacts": artifacts}
+    # Both counts are included only when non-zero, so the presence of either is itself
+    # the signal. They are never merged: a routinely non-zero benign count would hold
+    # the corruption count at a floor where it could never surface.
+    if skipped_malformed:
+        response["skipped_malformed_count"] = skipped_malformed
+    if deleted_ids:
+        response["skipped_deleted_count"] = len(deleted_ids)
+    return response

@@ -653,6 +653,10 @@ async def test_artifacts_resource_applies_cross_scope_gate(
         "status": "active",
         "author_role": "developer",
     }
+    # The object matters: the listing reads every listed artifact's durable link
+    # annotations, and an artifact whose object is gone is omitted from the page as a
+    # dangling artifact rather than listed.
+    s3_client.put_object("foreign-scope/t3-shared-adr", "Content.", {"title": "t3"})
     vectors_client_8.put_vector(
         "foreign-scope/t3-shared-adr#summary",
         _unit_vec_8(0.9),

@@ -12,12 +12,13 @@ references:
   - docs/specs/p12-t52-annotation-availability-graceful.md
   - docs/specs/p12-t58-commit-refs-cap-references-removal.md
   - docs/architecture-decisions/adr-2026-07-03-annotation-backed-link-storage.md
+  - docs/architecture-decisions/adr-2026-09-14-malformed-persisted-data-policy.md
 authored:
   by: "tech-writer"
   date: 2026-09-04
 revised:
   by: "architect"
-  date: 2026-09-06
+  date: 2026-09-14
 ---
 
 # s3-annotations.artifact
@@ -148,6 +149,10 @@ def read_link_annotations(s3: S3ClientInterface, key: str) -> tuple[list[str], l
 - `AnnotationUnavailableError` — raised when annotations are unavailable for the bucket or the
   caller lacks the required IAM permission. At runtime this means post-setup drift: startup check 8
   proves availability before the server accepts any request.
+- `ObjectNotFoundError` — raised when the object itself no longer exists. It is **not** an absent
+  annotation and is never degraded to `[]`; see **Not-Found Semantics** below.
+- `KeyError` — raised when the underlying call reported an unclassified not-found. Ambiguous, and
+  therefore a failure rather than an absence.
 - Any transient failure from the underlying `GetObjectAnnotation` call propagates unchanged.
 
 **Invariants**
@@ -157,6 +162,10 @@ def read_link_annotations(s3: S3ClientInterface, key: str) -> tuple[list[str], l
 - **Never degrades a failure to `[]`.** An empty return means the annotations really are absent.
   Every failure raises, because every read-modify-write cycle on the link fields writes what it read
   straight back, and an empty result caused by a transient failure would be written over good data.
+- `AnnotationNotFoundError` is the **only** outcome that becomes `[]`. The catch is narrowed to that
+  one type: a bare `KeyError` is not caught, and neither is its other subclass. Widening the catch
+  back to `KeyError` re-collapses the distinction this contract rests on, and the suite still passes
+  while the read-modify-write paths write an empty result over good data.
 
 **Preconditions**
 
@@ -181,6 +190,40 @@ Annotations are mutable in place, do not require re-PUTting the object, leave th
 carry a far larger ceiling than either object metadata (2 KB) or vector filterable metadata (2 KB).
 
 `CAS_MAX_ATTEMPTS` = 3 bounds the compare-and-swap retry cycle for every mutation.
+
+## Not-Found Semantics
+
+A read of this store can fail to find something for three different reasons, and they are **not**
+interchangeable. `GetObjectAnnotation` reports them as three distinct S3 error codes; the client
+preserves that distinction rather than collapsing it:
+
+| S3 error code | Raised | Means | May become `[]` |
+|---|---|---|---|
+| `NoSuchAnnotation` | `AnnotationNotFoundError` | The object exists; this annotation does not | **Yes** — this is a genuine absence |
+| `NoSuchKey` | `ObjectNotFoundError` | The object itself is gone | No |
+| bare `404` | `KeyError` | Not found, cause unclassified | No |
+
+Both named types are subclasses of `KeyError`, and the base `KeyError` is deliberately retained for
+the unclassified case — the exception type says exactly as much as the response did, and no more.
+The unclassified case raises rather than returning empty because the unrecoverable direction is
+writing `[]` back over good data: a caller that cannot tell which of the two situations it is in
+must not assume the recoverable one.
+
+Each caller is entitled to rely on exactly this much:
+
+- **`read_link_annotations`** (and through it every read-modify-write cycle on the link fields) —
+  entitled to treat `AnnotationNotFoundError`, and only that, as "no values". Everything else it
+  must propagate.
+- **`health_check`'s annotation probe** and **the startup sequence's per-read-prefix annotation
+  probe** — entitled to treat *any* `KeyError`, including both subclasses, as proof the call was
+  permitted. Both ask only whether the annotation read is reachable, and their probe key need not
+  exist. Neither may narrow its catch to one subclass: a probe that reports a drifted annotation
+  store because its probe object is absent is a false alarm on every run.
+- **The startup sequence's annotation round-trip check** — reads back an annotation it has just
+  written, so any not-found of any kind is a real failure of the round trip and fails the check.
+
+A tool that surfaces one of these to its caller reports the cause. It must never report an artifact
+as having no links on the strength of a not-found it did not classify.
 
 ## Compatibility Guarantees
 

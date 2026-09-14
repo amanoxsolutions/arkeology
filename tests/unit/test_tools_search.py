@@ -1513,3 +1513,211 @@ async def test_search_ordering_unchanged_by_last_edited_fields(
     # The newer (but lower-scoring) artifact must NOT be promoted above the older top hit.
     ids = [a["artifact_id"] for a in result["artifacts"]]
     assert ids.index("artifacts/high-score-old") < ids.index("artifacts/low-score-new")
+
+
+# ---------------------------------------------------------------------------
+# A malformed index record is skipped and counted, never fatal
+# ---------------------------------------------------------------------------
+
+
+def _seed_malformed(vectors: VectorsClientImpl, key: str, meta: dict[str, Any]) -> None:
+    """Seed one own-scope vector whose metadata a reader cannot interpret."""
+    vectors.put_vector(
+        key,
+        _unit_vec([1.0 + i * 0.1 for i in range(8)]),
+        {"scope": "artifacts", "status": "active", **meta},
+    )
+
+
+async def test_search_skips_a_candidate_with_no_artifact_id_and_still_returns_the_rest(
+    monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
+) -> None:
+    """One unreadable record must not withhold every readable one beside it.
+
+    Without the skip the re-fetch loop's ``item["metadata"]["artifact_id"]`` raises,
+    escapes to the tool's catch-all, and the caller gets ``internal_error`` and no
+    results at all — one foreign team's data-quality problem becoming an outage here.
+    """
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient()
+    _seed_vectors(vectors_client_8)
+    _seed_malformed(vectors_client_8, "artifacts/no-id#summary", {"title": "No id"})
+
+    result = await search_artifacts(
+        vectors=vectors_client_8, bedrock=bedrock, settings=settings, query="review", top_k=50
+    )
+
+    assert "error" not in result
+    assert result["artifacts"], "readable records must survive an unreadable neighbour"
+    assert result["skipped_malformed_count"] == 1
+
+
+async def test_search_skips_a_candidate_whose_tier_will_not_coerce(
+    monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
+) -> None:
+    """The other malformed shape: an id the loop can read, and a ``tier`` the summary
+    builder cannot. The candidate is genuinely absent from the results rather than
+    present with a defaulted tier."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient()
+    _seed_vectors(vectors_client_8)
+    _seed_malformed(
+        vectors_client_8,
+        "artifacts/bad-tier#summary",
+        {"artifact_id": "artifacts/bad-tier", "tier": "high", "title": "Bad tier"},
+    )
+
+    result = await search_artifacts(
+        vectors=vectors_client_8, bedrock=bedrock, settings=settings, query="review", top_k=50
+    )
+
+    assert "error" not in result
+    ids = [a["artifact_id"] for a in result["artifacts"]]
+    assert "artifacts/bad-tier" not in ids
+    assert result["skipped_malformed_count"] == 1
+
+
+async def test_search_omits_the_skip_count_when_nothing_was_skipped(
+    monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
+) -> None:
+    """Absent rather than zero: the key's presence is itself the signal, matching every
+    other transparency flag on this response."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient()
+    _seed_vectors(vectors_client_8)
+
+    result = await search_artifacts(
+        vectors=vectors_client_8, bedrock=bedrock, settings=settings, query="review", top_k=50
+    )
+
+    assert "skipped_malformed_count" not in result
+
+
+async def test_search_reports_the_skip_count_beside_a_zero_result(
+    monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
+) -> None:
+    """Zero results reached because every candidate was unreadable is the single case a
+    caller most needs to tell apart from "no such artifact exists"."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient()
+    _seed_malformed(vectors_client_8, "artifacts/only-bad#summary", {"title": "No id"})
+
+    result = await search_artifacts(
+        vectors=vectors_client_8, bedrock=bedrock, settings=settings, query="review", top_k=50
+    )
+
+    assert result["zero_results"] is True
+    assert result["artifacts"] == []
+    assert result["skipped_malformed_count"] == 1
+
+
+async def test_search_never_counts_a_gated_out_foreign_candidate_as_a_skip(
+    monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
+) -> None:
+    """Counting a denied candidate would disclose that a foreign artifact exists, which
+    is the disclosure the gate exists to prevent — including when its own metadata is
+    what the gate could not read."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient()
+    _seed_vectors(vectors_client_8)
+    vectors_client_8.put_vector(
+        "other-team/gated-bad-tier#summary",
+        _unit_vec([1.0 + i * 0.1 for i in range(8)]),
+        {
+            "artifact_id": "other-team/gated-bad-tier",
+            "scope": "other-team",
+            "status": "active",
+            "tier": "high",
+            "visibility": "shared",
+            "title": "Foreign, unreadable tier",
+        },
+    )
+
+    result = await search_artifacts(
+        vectors=vectors_client_8, bedrock=bedrock, settings=settings, query="review", top_k=50
+    )
+
+    ids = [a["artifact_id"] for a in result["artifacts"]]
+    assert "other-team/gated-bad-tier" not in ids
+    assert "skipped_malformed_count" not in result
+
+
+# ---------------------------------------------------------------------------
+# The in-process predicate is the authority; the server-side filter is a prefetch
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("tier", "visibility"),
+    [([3], "shared"), (3, ["shared"])],
+    ids=["list-valued-tier", "list-valued-visibility"],
+)
+async def test_search_never_returns_a_candidate_the_predicate_denies(
+    monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
+    tier: object,
+    visibility: object,
+) -> None:
+    """No candidate the server-side filter admits reaches a caller unless the in-process
+    predicate passed it too.
+
+    ``$eq`` is value-in-list for a list field — load-bearing for ``tags`` — so a stored
+    ``tier`` of ``[3]`` or ``visibility`` of ``["shared"]`` matches the scope filter and
+    is fetched. The filter is a prefetch optimisation, not the gate; the predicate
+    denies a non-scalar value and is what decides. Without the in-process check this
+    foreign artifact is returned to another scope.
+    """
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient()
+    _seed_vectors(vectors_client_8)
+    vectors_client_8.put_vector(
+        "other-team/non-scalar#summary",
+        _unit_vec([1.0 + i * 0.1 for i in range(8)]),
+        {
+            "artifact_id": "other-team/non-scalar",
+            "scope": "other-team",
+            "status": "active",
+            "tier": tier,
+            "visibility": visibility,
+            "title": "Foreign, non-scalar gate field",
+        },
+    )
+
+    result = await search_artifacts(
+        vectors=vectors_client_8, bedrock=bedrock, settings=settings, query="review", top_k=50
+    )
+
+    ids = [a["artifact_id"] for a in result["artifacts"]]
+    assert "other-team/non-scalar" not in ids
+    # A gate denial is silent and uncounted: counting it would itself disclose that a
+    # foreign artifact exists.
+    assert "skipped_malformed_count" not in result
+
+
+async def test_search_skips_a_candidate_whose_tier_is_infinite(
+    monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
+) -> None:
+    """``int(float("inf"))`` raises ``OverflowError``, not ``ValueError`` — the one
+    numeric shape the coercion guard missed. It is a malformed value like any other."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient()
+    _seed_vectors(vectors_client_8)
+    _seed_malformed(
+        vectors_client_8,
+        "artifacts/inf-tier#summary",
+        {"artifact_id": "artifacts/inf-tier", "tier": float("inf"), "title": "Infinite tier"},
+    )
+
+    result = await search_artifacts(
+        vectors=vectors_client_8, bedrock=bedrock, settings=settings, query="review", top_k=50
+    )
+
+    assert "error" not in result
+    assert "artifacts/inf-tier" not in [a["artifact_id"] for a in result["artifacts"]]
+    assert result["skipped_malformed_count"] == 1

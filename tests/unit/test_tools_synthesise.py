@@ -891,11 +891,11 @@ def _entry(artifact_id: str, score: float) -> dict[str, Any]:
 
 
 def _mock_search_loop(mocker: MockerFixture, entries: list[dict[str, Any]]) -> None:
-    # run_search_loop returns (results, fetch_exhausted, index_corruption_detected)
-    # on success.
+    # run_search_loop returns (results, fetch_exhausted, index_corruption_detected,
+    # skipped_malformed_count) on success.
     mocker.patch(
         "arkeology.tools.synthesise.run_search_loop",
-        new=AsyncMock(return_value=(entries, False, False)),
+        new=AsyncMock(return_value=(entries, False, False, 0)),
     )
 
 
@@ -1098,7 +1098,7 @@ async def test_synthesise_surfaces_fetch_exhausted(
     s3_client.put_object(aid, _CONTENT, {**_BASE_S3_META})
     mocker.patch(
         "arkeology.tools.synthesise.run_search_loop",
-        new=AsyncMock(return_value=([_entry(aid, 1.0)], True, False)),
+        new=AsyncMock(return_value=([_entry(aid, 1.0)], True, False, 0)),
     )
 
     result = await synthesise_artifacts(
@@ -1137,3 +1137,185 @@ async def test_synthesise_omits_fetch_exhausted_when_loop_not_exhausted(
     )
 
     assert "fetch_exhausted" not in result
+
+
+# ---------------------------------------------------------------------------
+# A malformed index record is skipped and counted, never fatal
+# ---------------------------------------------------------------------------
+
+
+async def test_synthesise_skips_a_malformed_candidate_and_still_assembles_the_rest(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """Same rule, same shared helpers, same reported key as ``search_artifacts``: one
+    candidate whose ``tier`` will not coerce is dropped, and every readable candidate
+    beside it is still assembled."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient()
+    for aid in ("artifacts/good", "artifacts/bad-tier"):
+        s3_client.put_object(aid, _CONTENT, {**_BASE_S3_META})
+    entries = [
+        _entry("artifacts/good", 1.0),
+        {
+            "artifact_id": "artifacts/bad-tier",
+            "score": 0.9,
+            "meta": {**_BASE_VECTOR_META, "artifact_id": "artifacts/bad-tier", "tier": "high"},
+        },
+    ]
+    _mock_search_loop(mocker, entries)
+
+    result = await synthesise_artifacts(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_8,
+        bedrock=bedrock,
+        query="review",
+        top_k=10,
+    )
+
+    assert [a["artifact_id"] for a in result["artifacts"]] == ["artifacts/good"]
+    assert result["skipped_malformed_count"] == 1
+
+
+async def test_synthesise_malformed_skip_is_disjoint_from_the_content_skip_count(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """Two counters, because the operator's next action differs: ``skipped_count`` is a
+    transient or permissions failure against S3, ``skipped_malformed_count`` is corrupt
+    index metadata that ``reconcile_index`` repairs.
+
+    The metadata check precedes the content fetch, so a malformed candidate is dropped
+    before it costs an S3 read and can never appear in both.
+    """
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient()
+    # Deliberately seeded in S3: if the malformed candidate were content-fetched at all,
+    # it would succeed and reveal the ordering by never reaching either counter.
+    s3_client.put_object("artifacts/bad-tier", _CONTENT, {**_BASE_S3_META})
+    get_object = mocker.spy(s3_client, "get_object")
+    _mock_search_loop(
+        mocker,
+        [
+            {
+                "artifact_id": "artifacts/bad-tier",
+                "score": 0.9,
+                "meta": {**_BASE_VECTOR_META, "artifact_id": "artifacts/bad-tier", "tier": "high"},
+            }
+        ],
+    )
+
+    result = await synthesise_artifacts(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_8,
+        bedrock=bedrock,
+        query="review",
+        top_k=10,
+    )
+
+    assert result["skipped_malformed_count"] == 1
+    assert "skipped_count" not in result
+    assert get_object.call_count == 0
+
+
+async def test_synthesise_omits_the_skip_count_when_nothing_was_skipped(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """Absent rather than falsy, like every other conditional key on this response."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient()
+    s3_client.put_object("artifacts/good", _CONTENT, {**_BASE_S3_META})
+    _mock_search_loop(mocker, [_entry("artifacts/good", 1.0)])
+
+    result = await synthesise_artifacts(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_8,
+        bedrock=bedrock,
+        query="review",
+        top_k=10,
+    )
+
+    assert "skipped_malformed_count" not in result
+
+
+async def test_synthesise_reports_the_skip_count_beside_a_zero_result(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """On the zero-result short-circuit the count is deliberately on the short list of
+    keys present: a zero result reached because every candidate was unreadable must not
+    be mistaken for "no such artifact exists"."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient()
+    mocker.patch(
+        "arkeology.tools.synthesise.run_search_loop",
+        new=AsyncMock(return_value=([], False, False, 2)),
+    )
+
+    result = await synthesise_artifacts(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_8,
+        bedrock=bedrock,
+        query="review",
+        top_k=10,
+    )
+
+    assert result["zero_results"] is True
+    assert result["skipped_malformed_count"] == 2
+
+
+@pytest.mark.parametrize(
+    ("tier", "visibility"),
+    [([3], "shared"), (3, ["shared"])],
+    ids=["list-valued-tier", "list-valued-visibility"],
+)
+async def test_synthesise_never_returns_a_candidate_the_predicate_denies(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
+    tier: object,
+    visibility: object,
+) -> None:
+    """Same property as ``search_artifacts``, and it matters more here: this tool returns
+    the artifact's full content, so a candidate the scope filter admits but the predicate
+    denies would hand a foreign scope the body of a hidden artifact."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient()
+    s3_client.put_object("other-team/non-scalar", _CONTENT, {**_BASE_S3_META})
+    vectors_client_8.put_vector(
+        "other-team/non-scalar#summary",
+        _unit_vec(1.0),
+        {
+            **_BASE_VECTOR_META,
+            "artifact_id": "other-team/non-scalar",
+            "scope": "other-team",
+            "tier": tier,
+            "visibility": visibility,
+        },
+    )
+
+    result = await synthesise_artifacts(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_8,
+        bedrock=bedrock,
+        query="review",
+        top_k=10,
+    )
+
+    ids = [a["artifact_id"] for a in result["artifacts"]]
+    assert "other-team/non-scalar" not in ids
+    assert "skipped_malformed_count" not in result

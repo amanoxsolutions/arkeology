@@ -11,12 +11,13 @@ references:
   - docs/specs/p12-t58-commit-refs-cap-references-removal.md
   - docs/specs/p12-t59-remove-references-filter-param.md
   - docs/architecture-decisions/adr-2026-07-03-annotation-backed-link-storage.md
+  - docs/architecture-decisions/adr-2026-09-14-malformed-persisted-data-policy.md
 authored:
   by: "tech-writer"
   date: 2026-09-04
 revised:
   by: "architect"
-  date: 2026-09-06
+  date: 2026-09-14
 ---
 
 # arkeology.tools.list
@@ -66,7 +67,25 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
 
 - Metadata-only. No Bedrock embedding call, and no S3 object body is fetched.
 - The cross-scope gate applies to every candidate: own-scope always listable; foreign-scope listable
-  only at `tier == 3` and `visibility == "shared"`.
+  only at `tier == 3` and `visibility == "shared"`. An absent or unparseable `tier` or `visibility`
+  denies; the gate never raises over a stored value.
+- **A malformed candidate is skipped, never fatal.** A vector entry whose stored metadata cannot be
+  read into a listing entry — no usable `artifact_id`, a `tier` that will not coerce — is dropped
+  and the page continues. One unreadable record must not withhold every readable one on the page.
+  The skip is counted and reported, never silent. A candidate the gate denied is not a skip and is
+  never counted: counting it would disclose that a foreign artifact exists.
+- **An artifact whose object is gone is omitted from the page and counted; a failed link-field read
+  is not.** The distinction is what the read established. An `ObjectNotFoundError` from the durable
+  link store is not a read that failed — it answered definitively that the artifact no longer
+  exists, so omitting it from a listing is the correct result rather than a lossy one, and failing a
+  read-only call over a benign concurrent delete would be disproportionate when a retry can meet the
+  same race. Nothing can be written over empty here: this tool only reads.
+- **A failed or ambiguous link-field read still fails the whole listing.** A transient failure, a
+  permission denial, and an unclassified not-found establish nothing about absence, so none may
+  become an artifact listed with empty `commit_refs`/`references` — indistinguishable from one that
+  genuinely has none, with no second copy of those fields to recover from. The page is recoverable
+  by asking again. See `s3-annotations.artifact` under **Not-Found Semantics** for which error means
+  which.
 - `status` defaults to `"active"`, so archived artifacts are excluded unless explicitly requested.
 - `commit_refs` and `references` are resolved from each artifact's S3 object annotations, their sole
   source of truth, **not** read off whichever single section vector happened to be returned. A
@@ -101,5 +120,18 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
 - Returns `{"artifacts": [...]}` — metadata per artifact, never `content`.
 - One entry per artifact, not per section vector, regardless of how many section vectors an
   artifact has.
-- A link-field read failure for one artifact degrades that artifact's `commit_refs`/`references` to
-  empty rather than aborting the whole listing.
+- `skipped_malformed_count` is included **only when non-zero**, so its presence is itself the signal
+  that the page omits records this call could not read. It is a count, not a list of ids: the
+  identifier is frequently the very field that is missing, and an id list is the one place a
+  gated-out foreign artifact could be named.
+- `skipped_deleted_count` is included on the same terms, counting artifacts whose object was found
+  to be gone during the link-field read and were therefore omitted. It is a **separate** key from
+  `skipped_malformed_count` and the two must not be merged: this one is ordinary churn, routinely
+  non-zero and self-healing — reconcile prunes the leftover vectors as a dangling artifact — while a
+  non-zero malformed count means corrupt stored data that wants investigation. One shared number
+  would sit at a floor set by the benign cause, and the serious one would never surface. A single
+  occurrence needs no action; persistence across runs does.
+- These two are the only conditional keys in the response; `artifacts` is unconditional.
+- A failed or ambiguous link-field read for one artifact surfaces as an error for the whole call —
+  never as a successful listing in which that artifact reports empty `commit_refs`/`references`.
+  This is the same rule as the corresponding invariant above, stated from the caller's side.

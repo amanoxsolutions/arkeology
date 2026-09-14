@@ -67,7 +67,11 @@ async def check_synthesis_freshness(
     Returns:
         On success: dict with keys ``stale``, ``archived_sources``,
             ``missing_sources``, ``malformed``, ``deleted_malformed``,
-            ``total_checked``, ``all_fresh``.
+            ``total_checked``, ``all_fresh``, plus ``skipped_malformed_count``
+            when — and only when — a synthesis vector could not be read into an
+            audit entry at all. That count is not ``malformed``: this one names
+            records the audit could not read, which are never deletion candidates,
+            and it forces ``all_fresh`` to False.
         On error: ``{"error": "internal_error", "message": str(exc)}``.
     """
     try:
@@ -128,9 +132,19 @@ async def _check_synthesis_freshness_inner(
     # compare its sources against an older synthesis ULID than the one it was actually
     # built at, and over-report staleness. See ``_is_newer_write``.
     syntheses: dict[str, dict[str, Any]] = {}
+    skipped_malformed = 0
     for item in synth_items:
         synth_meta = item["metadata"]
-        aid = synth_meta["artifact_id"]
+        aid = str(synth_meta.get("artifact_id") or "")
+        if not aid:
+            # The audit is keyed on artifact_id, so a record without one cannot be
+            # audited, deduplicated, or reported. Skipped and counted rather than fatal:
+            # one unreadable record must not withhold the whole audit. It is never a
+            # deletion candidate either — a record too corrupt to identify is the last
+            # thing to hard-delete on.
+            logger.warning("Skipping a synthesis vector with no usable artifact_id")
+            skipped_malformed += 1
+            continue
         if _is_newer_write(synth_meta, syntheses.get(aid)):
             syntheses[aid] = synth_meta
 
@@ -363,31 +377,44 @@ async def _check_synthesis_freshness_inner(
     # all_fresh=True means no issues remain; it does NOT mean nothing was deleted.
     # A run with confirm=True that deletes all malformed syntheses yields all_fresh=True
     # if no stale/archived/missing issues remain after deletion.
+    # A non-zero skip count denies the verdict on the same footing as an unresolved
+    # entry: a run that could not audit part of its input has not established that
+    # everything is fresh.
     all_fresh = not (
         stale
         or archived_sources_report
         or missing_sources_report
         or malformed_reported
         or delete_failed
+        or skipped_malformed
     )
 
     logger.info(
         "check_synthesis_freshness complete: checked=%d stale=%d archived=%d "
-        "missing=%d malformed=%d deleted=%d",
+        "missing=%d malformed=%d deleted=%d skipped_malformed=%d",
         len(syntheses),
         len(stale),
         len(archived_sources_report),
         len(missing_sources_report),
         len(malformed_reported),
         len(deleted),
+        skipped_malformed,
     )
-    return {
+    response: dict[str, Any] = {
         "stale": stale,
         "archived_sources": archived_sources_report,
         "missing_sources": missing_sources_report,
         "malformed": malformed_reported,
         "deleted_malformed": deleted,
         "delete_failed": delete_failed,
+        # Counts syntheses actually audited: a skipped record is not one of them.
         "total_checked": len(syntheses),
         "all_fresh": all_fresh,
     }
+    if skipped_malformed:
+        # A ninth, conditional key. The eight above are present on every successful
+        # call so a caller may read any of them without a membership test; this one is
+        # not part of that promise, and its presence is itself the signal that some
+        # synthesis could not be audited at all.
+        response["skipped_malformed_count"] = skipped_malformed
+    return response

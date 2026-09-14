@@ -6,14 +6,15 @@ tags: []
 timestamp: 2026-05-29T00:00:00Z
 okf_version: "0.1"
 status: accepted
-references: []
+references:
+  - docs/architecture-decisions/adr-2026-09-14-malformed-persisted-data-policy.md
 authored:
   by: architect
   date: "2026-05-29"
 revised:
   by: "architect"
-  date: "2026-09-05"
-  reason: "Records the one-directional prefix-nesting constraint the access model depends on, and why the reverse nesting is safe"
+  date: "2026-09-14"
+  reason: "States what an absent or unparseable tier/visibility means under the gate — the candidate is denied, in both forms of the gate"
 ---
 
 # Tier-Based Cross-Scope Access Control Model
@@ -88,6 +89,29 @@ search, list, and synthesise tool:
   excluded from results and rejected on direct read.
 
 Write, archive, delete, and purge operations are always restricted to the own scope.
+
+**A `tier` or `visibility` the gate cannot read denies the candidate** (added 2026-09-14 — see the
+Revision note below). The rule admits a foreign artifact only on an affirmative reading of both
+fields, so an absent value, a `tier` that is not parseable as an integer, and a non-scalar value of
+either field are all *not* an affirmative reading and the candidate is denied. The gate never raises
+over a stored value: it is a predicate over data this deployment did not write, and an exception is
+neither an allow nor a deny.
+
+`is_cross_scope_readable` is where that denial happens, and it is the **authority**: every read
+path — read, delete, listing, search, and synthesis — runs it against the candidate's own metadata.
+`build_scope_filter` expresses the rule as a server-side S3 Vectors filter — `{"tier": {"$eq": 3}}`
+ANDed with `{"visibility": {"$eq": "shared"}}` — but it is a **prefetch optimisation**, not a second
+gate. It rejects an absent or unparseable scalar, and it does not reject a *non-scalar* one: `$eq`
+means value-in-list for a list-valued field, which `tags` requires, so a stored `tier` of `[3]`
+matches the clause. The filter is deliberately not narrowed to close that; the predicate denies it
+instead.
+
+The two directions are therefore not symmetrical. A filter that admits more than the predicate costs
+a wasted fetch and nothing else. A filter that admits **less** is a bug: the candidate is never
+fetched, the predicate never sees it, and a readable artifact silently disappears from every result.
+That one direction is pinned by `test_never_rejects_a_candidate_the_predicate_would_admit` in
+`tests/unit/test_tools__scope.py`, and both forms live in `_scope.py` inside the declared
+mutation-testing scope.
 
 This is a **soft control** enforced at the server layer, and its reach differs by storage
 side (revised 2026-07-02 — see the Revision note below):
@@ -165,3 +189,24 @@ requirements.md FR-65, "full cross-scope enforcement of the visibility gate"):
 3. **Hosted deployment** — a shared server process holds the AWS credentials and clients
    authenticate to it; the gate then runs on the trusted side of the boundary. Requires the
    HTTP transport listed as a future consideration (NFR-05).
+
+## Revision — 2026-09-14
+
+The Decision text stated the gate's rule for well-formed `tier` and `visibility` values only, and
+was silent on a value the gate cannot read. The in-process form coerced `tier` with an unguarded
+`int(...)` — a coercion that is genuinely required, because `read_artifact` hands the gate S3 object
+metadata where `tier` is a stringified integer while the listing and search paths hand it vector
+metadata where `tier` is an `int` — so a non-numeric or non-scalar value raised instead of
+answering. The Decision text now records that such a value denies, which is what the server-side
+filter form has always done, and that the gate never raises over a stored value.
+
+This closes a real availability gap rather than a theoretical one: the gate is applied per candidate
+inside a loop, so one foreign record another team's deployment wrote badly took down the whole
+listing, search, or reference resolution for that scope. It is not a confidentiality change — the
+new outcome is denial everywhere the old code raised, so nothing becomes readable that was not
+readable before.
+
+The wider policy this clause belongs to — what every tool does with malformed or ambiguous persisted
+data, including the loop-level skip-and-count behaviour that complements this denial — is recorded
+in [the malformed and ambiguous persisted data policy](adr-2026-09-14-malformed-persisted-data-policy.md).
+The tier + visibility rule itself is unchanged.

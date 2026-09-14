@@ -66,3 +66,44 @@ def test_except_credential_error_still_catches() -> None:
         raise err
     except CredentialError as caught:
         assert caught is err
+
+
+def test_annotation_not_found_error_is_a_key_error() -> None:
+    """``AnnotationNotFoundError`` must be catchable as ``KeyError``.
+
+    ``health_check``'s annotation probe and startup check 3's per-read-prefix probe
+    both ``except KeyError`` to mean "not found, so the call was permitted", and the
+    frozen acceptance criteria for the annotation client say it raises ``KeyError``.
+    Subclassing is what keeps all of that true without editing any of them.
+    """
+    from arkeology.errors import AnnotationNotFoundError
+
+    assert issubclass(AnnotationNotFoundError, KeyError)
+    try:
+        raise AnnotationNotFoundError("artifacts/a.md")
+    except KeyError as caught:
+        assert isinstance(caught, AnnotationNotFoundError)
+
+
+def test_object_not_found_error_is_a_key_error() -> None:
+    """``ObjectNotFoundError`` must be catchable as ``KeyError``, for the same reason."""
+    from arkeology.errors import ObjectNotFoundError
+
+    assert issubclass(ObjectNotFoundError, KeyError)
+    try:
+        raise ObjectNotFoundError("artifacts/a.md")
+    except KeyError as caught:
+        assert isinstance(caught, ObjectNotFoundError)
+
+
+def test_the_two_not_found_types_are_not_each_other() -> None:
+    """The distinction is the whole point: catching one must not catch the other.
+
+    ``annotations._read_one`` catches ``AnnotationNotFoundError`` alone and returns
+    ``[]``. If ``ObjectNotFoundError`` were a subclass of it, a deleted object would
+    once again read as an artifact that genuinely has no links.
+    """
+    from arkeology.errors import AnnotationNotFoundError, ObjectNotFoundError
+
+    assert not issubclass(ObjectNotFoundError, AnnotationNotFoundError)
+    assert not issubclass(AnnotationNotFoundError, ObjectNotFoundError)

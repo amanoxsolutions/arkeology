@@ -276,3 +276,55 @@ def test_read_link_annotations_annotation_unavailable_propagates(
 
     with pytest.raises(AnnotationUnavailableError):
         read_link_annotations(s3_client, "artifacts/drifted.md")
+
+
+def test_read_link_annotations_object_not_found_propagates(
+    s3_client: S3ClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """A deleted object is not an absent annotation. ``ObjectNotFoundError`` must reach
+    the caller, which reports the artifact as gone — never as one that genuinely has no
+    links, which is what a ``[]`` here would be indistinguishable from."""
+    from arkeology.errors import ObjectNotFoundError
+
+    s3_client.put_object(key="artifacts/gone.md", body="content", metadata={})
+    mocker.patch.object(
+        s3_client, "get_object_annotation", side_effect=ObjectNotFoundError("artifacts/gone.md")
+    )
+
+    with pytest.raises(ObjectNotFoundError):
+        read_link_annotations(s3_client, "artifacts/gone.md")
+
+
+def test_read_link_annotations_unclassified_key_error_propagates(
+    s3_client: S3ClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """A bare ``KeyError`` is the unclassified not-found: it establishes nothing about
+    absence, so it must propagate rather than become ``[]`` that a read-modify-write
+    cycle would write back over good data."""
+    s3_client.put_object(key="artifacts/ambiguous.md", body="content", metadata={})
+    mocker.patch.object(
+        s3_client, "get_object_annotation", side_effect=KeyError("artifacts/ambiguous.md")
+    )
+
+    with pytest.raises(KeyError):
+        read_link_annotations(s3_client, "artifacts/ambiguous.md")
+
+
+def test_read_link_annotations_absent_annotation_still_returns_empty(
+    s3_client: S3ClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """The one narrow case that may become ``[]``: the object exists and this annotation
+    genuinely does not."""
+    from arkeology.errors import AnnotationNotFoundError
+
+    s3_client.put_object(key="artifacts/nolinks.md", body="content", metadata={})
+    mocker.patch.object(
+        s3_client,
+        "get_object_annotation",
+        side_effect=AnnotationNotFoundError("artifacts/nolinks.md"),
+    )
+
+    assert read_link_annotations(s3_client, "artifacts/nolinks.md") == ([], [])

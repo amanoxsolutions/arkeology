@@ -145,6 +145,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   corrected — it raises for an invalid `type`, `date`, or `tier`, never for an over-long or
   control-character-bearing title, which are `Artifact` model validators. Behaviour is
   unchanged
+- **Breaking:** the cross-scope access gate no longer raises when a candidate's stored
+  `tier` or `visibility` cannot be read as expected — absent, wrong type, non-scalar, or
+  an out-of-range numeric `tier` — it denies the candidate instead. The gate's coercion
+  was previously unguarded, so such a value escaped as an unhandled exception from every
+  call site that runs the gate. On `read_artifact`, a foreign-scope artifact in this state
+  now returns `access_denied` instead of `internal_error`. A caller that branched on
+  `internal_error` from `read_artifact` to detect this condition must now branch on
+  `access_denied`; nothing becomes readable that was not readable before
+- **Breaking:** `read_artifact` returns a new error code, `corrupt_metadata`, naming the
+  offending field, instead of `internal_error`, when its own stored metadata cannot be
+  parsed. It never invents a default for the unreadable value — `tier` is one of the two
+  fields the cross-scope gate keys on, so reporting a defaulted `tier` would teach the
+  caller a value the gate never agreed to. The cross-scope gate still runs first: a
+  foreign-scope artifact with corrupt metadata is denied and returns `access_denied`,
+  never `corrupt_metadata`, so a gated artifact's stored state is never disclosed through
+  this path. A caller that branched on `internal_error` from `read_artifact` to detect
+  unparseable own-scope metadata must now branch on `corrupt_metadata`
+
+### Security
+- `search_artifacts` and `synthesise_artifacts` now re-check every candidate against the
+  cross-scope access gate in process, matching what `read_artifact` and `list_artifacts`
+  already did. The server-side vector filter that pre-narrows candidates is a prefetch
+  optimisation, not the gate itself, and its `$eq` value-in-list semantics admit a
+  non-scalar `tier` or `visibility` that the in-process gate would deny — so a
+  foreign-scope tier-2 or hidden artifact carrying such a value could previously be
+  returned in search or synthesis results. Both tools now apply the same denial
+  `read_artifact` and `list_artifacts` already enforced, closing that gap
 
 ### Added
 - `health_check` reports an `annotations` component, probed unconditionally. Startup check 8
@@ -366,6 +393,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   transport encoding is applied uniformly to every value; the resources contract omitted
   the `ui://` Studio resource and its content-security-policy origin allow-list
 - `scripts/validate.py` formatting, which no quality gate had ever checked
+- `list_artifacts`, `search_artifacts`, `synthesise_artifacts`, and
+  `check_synthesis_freshness` no longer fail their entire call when a foreign-scope
+  candidate's `tier` or `visibility` cannot be parsed. The cross-scope gate now denies
+  that one candidate and the call returns the rest of its results as normal, instead of
+  the whole call escaping to `internal_error`. The denied candidate is silently excluded,
+  the same way any other gate-denied foreign artifact already is, and is not counted in
+  `skipped_malformed_count` — counting it would disclose the existence of a foreign
+  artifact the gate is withholding
+- `search_artifacts`, `synthesise_artifacts`, `list_artifacts`, and
+  `check_synthesis_freshness` no longer fail the whole call when one candidate's stored
+  metadata cannot be read into the tool's own result shape for a reason other than the
+  cross-scope gate — a missing identifier, for instance. The candidate is skipped and the
+  call completes with the rest of its results. The skip is now reported in a new
+  `skipped_malformed_count` field, present only when non-zero, so a result set thinned by
+  unreadable records is distinguishable from a genuinely small one; a non-zero count also
+  forces `check_synthesis_freshness`'s `all_fresh` to `False`, since a run that could not
+  audit part of its input has not established that everything is fresh.
+  `check_synthesis_freshness`'s existing eight-key promise on a successful call is
+  unaffected — this is a ninth, conditional key
+- `list_artifacts` now distinguishes an artifact deleted mid-listing from one whose
+  link-field read genuinely failed. A deleted artifact is omitted from the page and
+  counted separately in a new `skipped_deleted_count` field, present only when non-zero;
+  a failed or ambiguous read still fails the whole page, as before. The two counts are
+  never merged: a non-zero `skipped_deleted_count` is ordinary churn that `reconcile_index`
+  self-heals, while a non-zero `skipped_malformed_count` is corrupt data worth
+  investigating, and merging them would let the benign one hold the serious one's signal
+  at a permanent non-zero floor
+- the durable link-field read now distinguishes a deleted object, a genuinely absent
+  annotation, and an ambiguous not-found, instead of collapsing all three into the same
+  empty result. Only a genuinely absent annotation degrades to `[]`; the other two now
+  raise. This closes a gap where `propose_commit_links` aborted its entire call with
+  `internal_error` over a single dangling vector — a vector index entry whose underlying
+  S3 object no longer exists — instead of skipping that one candidate and continuing
 
 ## [0.6.0] - 2026-08-28
 

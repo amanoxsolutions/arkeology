@@ -22,7 +22,7 @@ from arkeology.clients.interfaces import (
 )
 from arkeology.config import Settings
 from arkeology.constants import ErrorCode
-from arkeology.errors import AnnotationUnavailableError, CredentialError
+from arkeology.errors import AnnotationUnavailableError, CredentialError, ObjectNotFoundError
 from arkeology.tools._errors import annotation_unavailable_response, credential_error_response
 from arkeology.tools._search_helper import derive_last_edited_at, fetch_vectors_by_metadata
 
@@ -154,6 +154,15 @@ async def _propose_commit_links_inner(
         for artifact_id, result in zip(distinct_ids, results, strict=True):
             if isinstance(result, CredentialError):
                 return credential_error_response(result)
+            if isinstance(result, ObjectNotFoundError):
+                # A read that answered definitively: the object is gone behind a
+                # surviving vector — ordinary churn reconcile_index prunes. Dropping this
+                # candidate is the correct result; a deleted artifact cannot be linked to
+                # a commit anyway. Failing the whole discovery call over it would be the
+                # defect this policy exists to prevent. Silent, and uncounted: there is
+                # no action a caller of a read-only proposal could take on the number.
+                logger.info("Skipping %s: its object is gone", artifact_id)
+                continue
             if isinstance(result, BaseException):
                 # No degrade to []: annotations are the sole source of truth, so an
                 # artifact whose read merely failed would be indistinguishable from a
@@ -170,7 +179,12 @@ async def _propose_commit_links_inner(
     # ── Step 6: Filter already-linked candidates, build response entries ──────
     candidates: list[dict[str, Any]] = []
     for artifact_id, meta in base_entries:
-        if commit_refs_by_id.get(artifact_id):
+        if artifact_id not in commit_refs_by_id:
+            # Object gone — skipped above. Absent from the map means dropped, not
+            # unlinked; `.get(...)` would read it as the latter and propose a deleted
+            # artifact for linking.
+            continue
+        if commit_refs_by_id[artifact_id]:
             # Already linked — skip
             continue
 

@@ -8,12 +8,13 @@ okf_version: "0.1"
 references:
   - docs/specs/p5-t22-synthesis-freshness-check.md
   - docs/specs/p3-t16-synthesise-artifacts.md
+  - docs/architecture-decisions/adr-2026-09-14-malformed-persisted-data-policy.md
 authored:
   by: "tech-writer"
   date: 2026-09-04
 revised:
-  by: "tech-writer"
-  date: 2026-09-06
+  by: "architect"
+  date: 2026-09-14
 ---
 
 # arkeology.tools.freshness
@@ -62,6 +63,16 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
   not an approximation. A separate "inaccessible" category would itself leak the fact that a foreign
   tier-2 or hidden artifact exists, which is the very disclosure this invariant exists to prevent, so
   no such category may be added.
+- **A malformed candidate is skipped, never fatal.** A synthesis vector whose stored metadata cannot
+  be read into an audit entry — no usable `artifact_id` above all, since the audit is keyed on it —
+  is dropped and the audit continues over every other synthesis. One unreadable record must not
+  withhold the whole audit, which is what an escape to the catch-all does: the caller gets
+  `internal_error` and learns nothing about any synthesis. The skip is counted and reported, never
+  silent. A skipped synthesis is never a deletion candidate, at any `confirm` value.
+- A source that the cross-scope gate denied is **not** a skip and is never counted here. It is
+  reported in `missing_sources`, indistinguishable from a genuinely absent one, per the gate
+  invariant above — and an absent or unparseable `tier` or `visibility` on a foreign source denies
+  rather than raising, so it too lands in `missing_sources` and nowhere else.
 - Own-scope only for the destructive path.
 - The audit covers **active** syntheses only; an archived synthesis is not audited. Consistent with
   the active-only referrer detection in `delete_artifact` and `archive_artifact` — archiving marks an
@@ -85,6 +96,18 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
   `delete_failed`, `total_checked`, and `all_fresh`. All eight keys are present on every
   successful call, including the early return when no synthesis exists at all — none is
   conditional, so a caller may read any of them without a membership test.
+- `skipped_malformed_count` is a **ninth, conditional** key, present only when non-zero, so its
+  presence is itself the signal that some synthesis could not be audited at all. It does not join
+  the eight above and the promise they carry is unchanged: a caller must test for its presence. It
+  is a count, not a list of ids, because the identifier is the field most likely to be missing. A
+  skipped synthesis does **not** count towards `total_checked`, which counts syntheses actually
+  audited — the same rule under which a key in `reconcile_index`'s `skipped_non_artifacts` does not
+  count towards its `orphans_found`.
+- `skipped_malformed_count` names a different condition from `malformed` and the two must not be
+  read as a pair. `malformed` lists syntheses that were audited successfully and found to be
+  structurally invalid — an empty `source_artifacts` — and they are the deletion candidates.
+  `skipped_malformed_count` counts records the audit could not read at all, which are never
+  deletion candidates: a record too corrupt to identify is the last thing to hard-delete on.
 - `delete_failed` lists the ids of malformed syntheses a `confirm=True` run tried and failed to
   delete for a non-credential reason, including the case where the vectors were removed but the S3
   object was not — the same orphan `delete_artifact` reports, recoverable by `reconcile_index`. It
@@ -92,6 +115,10 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
   during deletion is not reported here: it discards the whole audit and returns `credential_error`.
 - A non-empty `delete_failed` forces `all_fresh` to `False`, on the same footing as an unresolved
   `stale` or `malformed` entry — a run that could not finish its cleanup is not a clean run.
+- A non-zero `skipped_malformed_count` forces `all_fresh` to `False` on the same footing: a run that
+  could not audit part of its input has not established that everything is fresh, and reporting
+  `all_fresh: True` beside a non-zero skip count would be the partial-result-that-looks-complete
+  failure this key exists to prevent.
 - `deleted_malformed` is empty whenever `confirm` was `False`, which is what makes a default-mode
   run provably non-destructive.
 - `all_fresh` is a convenience summary; a caller must not infer from it that no malformed syntheses

@@ -255,3 +255,37 @@ class VectorDistanceMissingError(ArkeologyError):
             "the request must set returnDistance=True to receive scored results"
         )
         self.key = key
+
+
+class AnnotationNotFoundError(KeyError):
+    """Raised when ``GetObjectAnnotation`` reports ``NoSuchAnnotation``: the object
+    exists, and this annotation does not.
+
+    The **only** not-found cause that may become an empty link-field list.
+    :func:`arkeology.annotations._read_one` catches this type alone, so a genuinely
+    absent annotation returns ``[]`` while every other not-found propagates — the
+    distinction every read-modify-write cycle on ``commit_refs`` / ``references``
+    depends on, there being no second store to recover from.
+
+    Subclasses :class:`KeyError` rather than :class:`ArkeologyError`, deliberately
+    departing from the hierarchy every other typed error here follows. Three callers
+    probe reachability by catching ``KeyError`` to mean "not found, so the call was
+    permitted" — ``health_check``'s annotation probe and the startup sequence's
+    per-read-prefix probe, whose probe key need not exist — and subclassing keeps all
+    of them correct with no edit.
+    """
+
+
+class ObjectNotFoundError(KeyError):
+    """Raised when ``GetObjectAnnotation`` reports ``NoSuchKey``: the object itself is
+    gone.
+
+    Not an absent annotation, and never degraded to ``[]``. It is a read that
+    *succeeded* and answered definitively, so a listing omits the artifact and counts
+    it while a single-artifact read reports it as not found — neither reports an
+    artifact that merely has no links. A bare ``404`` establishes neither and stays an
+    unclassified :class:`KeyError`.
+
+    Subclasses :class:`KeyError` for the same reachability-probe reason as
+    :class:`AnnotationNotFoundError`.
+    """

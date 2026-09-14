@@ -36,6 +36,7 @@ class ErrorCode(StrEnum):
     DELETE_VECTORS_FAILED = "delete_vectors_failed"
     ANNOTATION_UNAVAILABLE = "annotation_unavailable"
     CONFLICT = "conflict"
+    CORRUPT_METADATA = "corrupt_metadata"
 
 
 class ArtifactStatus(StrEnum):

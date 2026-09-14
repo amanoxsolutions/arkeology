@@ -16,10 +16,10 @@ from arkeology.clients.interfaces import (
 )
 from arkeology.config import Settings
 from arkeology.constants import ErrorCode
-from arkeology.errors import AnnotationUnavailableError, CredentialError
+from arkeology.errors import AnnotationUnavailableError, CredentialError, ObjectNotFoundError
 from arkeology.tools._errors import annotation_unavailable_response, credential_error_response
 from arkeology.tools._reference_filter import resolve_readable_targets
-from arkeology.tools._scope import is_cross_scope_readable, is_own_scope
+from arkeology.tools._scope import coerce_tier, is_cross_scope_readable, is_own_scope
 from arkeology.tools._search_helper import coerce_list_field
 
 logger = logging.getLogger(__name__)
@@ -141,6 +141,15 @@ async def _read_artifact_inner(
         commit_refs, references = await asyncio.to_thread(read_link_annotations, s3, artifact_id)
     except CredentialError as exc:
         return credential_error_response(exc)
+    except ObjectNotFoundError:
+        # Deleted between the metadata fetch above and this read. A definitive absence
+        # is reported as absence — never as a failure, and never as an artifact whose
+        # link fields merely came back empty. An unclassified not-found establishes none
+        # of that and is deliberately left to propagate.
+        return {
+            "error": ErrorCode.NOT_FOUND,
+            "message": f"Artifact '{artifact_id}' not found.",
+        }
 
     # ── Step 4b: Cross-scope reference filtering (ADR-012) ────────────────────
     # Only foreign-scope reads need filtering: own-scope reads/entries are never
@@ -153,6 +162,24 @@ async def _read_artifact_inner(
         references = [r for r in references if r in readable_targets]
 
     # ── Step 5: Deserialise remaining S3 metadata ─────────────────────────────
+    # tier is the only field this tool coerces rather than passes through, so it is the
+    # only one that can be corrupt here. A single-artifact read has nothing to skip, so
+    # it names the field instead of defaulting it: tier is one of the two fields the
+    # cross-scope gate keys on, and a read reporting a defaulted tier teaches its caller
+    # a value the gate did not agree to. The gate ran in Step 2 and its verdict stands,
+    # so a foreign artifact with an unreadable tier was already denied above and never
+    # reaches this report of its stored state.
+    tier = coerce_tier(meta.get("tier"))
+    if tier is None:
+        logger.warning("Artifact %s has an unreadable 'tier' metadata value", artifact_id)
+        return {
+            "error": ErrorCode.CORRUPT_METADATA,
+            "message": (
+                f"Artifact '{artifact_id}' has an unreadable 'tier' metadata value: "
+                f"{meta.get('tier')!r}"
+            ),
+        }
+
     tags = coerce_list_field(meta, "tags")
     source_artifacts = coerce_list_field(meta, "source_artifacts")
     last_edited_ulid: str | None = meta.get("last_edited_ulid") or None
@@ -164,7 +191,7 @@ async def _read_artifact_inner(
         "type": meta.get("type"),
         "team": meta.get("team"),
         "project": meta.get("project"),
-        "tier": int(meta["tier"]),
+        "tier": tier,
         "date": meta.get("date"),
         "status": meta.get("status"),
         "title": meta.get("title"),

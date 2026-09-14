@@ -68,6 +68,31 @@ _BASE_META: dict[str, Any] = {
 }
 
 
+def _put_proposable(
+    vectors: VectorsClientImpl,
+    s3: S3ClientImpl,
+    key: str,
+    vector: list[float],
+    meta: dict[str, Any],
+) -> None:
+    """Seed a section vector and, unless one already exists, the S3 object behind it.
+
+    ``propose_commit_links`` resolves every candidate's commit_refs from its durable
+    annotation, so a vector with no object behind it is a dangling artifact whose
+    annotation read reports the object as gone — not a proposable candidate. An existing
+    object is left alone, because ``put_object`` clears an object's annotations (real S3
+    semantics, mirrored by the moto self-mock) and would wipe one a test just applied.
+    """
+    vectors.put_vector(key, vector, meta)
+    artifact_id = meta.get("artifact_id")
+    if not artifact_id:
+        return
+    try:
+        s3.head_object(artifact_id)
+    except KeyError:
+        s3.put_object(artifact_id, "Content.", {"title": "seeded"})
+
+
 def _seed_standard(vectors: VectorsClientImpl, s3: S3ClientImpl) -> None:
     """Seed four artifacts as described in the spec.
 
@@ -78,7 +103,9 @@ def _seed_standard(vectors: VectorsClientImpl, s3: S3ClientImpl) -> None:
     """
     # artifact-A: own scope, old ULID, no commit_refs
     # 'commit_refs' key absent — production write_artifact omits it when empty
-    vectors.put_vector(
+    _put_proposable(
+        vectors,
+        s3,
         "artifacts/artifact-a#summary",
         _unit_vec(1.0),
         {
@@ -90,7 +117,9 @@ def _seed_standard(vectors: VectorsClientImpl, s3: S3ClientImpl) -> None:
     )
     # artifact-B: own scope, new ULID, no commit_refs
     # 'commit_refs' key absent — production write_artifact omits it when empty
-    vectors.put_vector(
+    _put_proposable(
+        vectors,
+        s3,
         "artifacts/artifact-b#summary",
         _unit_vec(0.9),
         {
@@ -104,7 +133,9 @@ def _seed_standard(vectors: VectorsClientImpl, s3: S3ClientImpl) -> None:
     # of truth for commit_refs; the vector copy below is the derived filter index.
     s3.put_object("artifacts/artifact-c", "Content.", {"title": "Artifact C"})
     apply_link_annotations(s3, "artifacts/artifact-c", commit_refs=["abc123"], references=[])
-    vectors.put_vector(
+    _put_proposable(
+        vectors,
+        s3,
         "artifacts/artifact-c#summary",
         _unit_vec(0.8),
         {
@@ -117,7 +148,9 @@ def _seed_standard(vectors: VectorsClientImpl, s3: S3ClientImpl) -> None:
     )
     # artifact-D: foreign scope, no commit_refs
     # 'commit_refs' key absent — production write_artifact omits it when empty
-    vectors.put_vector(
+    _put_proposable(
+        vectors,
+        s3,
         "other-team/artifact-d#summary",
         _unit_vec(0.7),
         {
@@ -224,7 +257,9 @@ async def test_all_linked_returns_empty_proposed(
     # Only seed artifact-C (linked)
     s3_client.put_object("artifacts/artifact-c", "Content.", {"title": "Artifact C"})
     apply_link_annotations(s3_client, "artifacts/artifact-c", commit_refs=["abc123"], references=[])
-    vectors_client_2.put_vector(
+    _put_proposable(
+        vectors_client_2,
+        s3_client,
         "artifacts/artifact-c#summary",
         _unit_vec(0.8),
         {
@@ -336,7 +371,9 @@ async def test_missing_last_edited_ulid_yields_null_fields_and_is_candidate(
     """Artifact without last_edited_ulid → null fields; still proposed."""
     settings = _make_settings(monkeypatch)
     # Seed a legacy artifact without last_edited_ulid or commit_refs
-    vectors_client_2.put_vector(
+    _put_proposable(
+        vectors_client_2,
+        s3_client,
         "artifacts/legacy#summary",
         _unit_vec(0.5),
         {
@@ -375,7 +412,9 @@ async def test_legacy_artifact_excluded_when_since_ulid_provided(
     """
     settings = _make_settings(monkeypatch)
     # Legacy artifact: own-scope, no last_edited_ulid, no commit_refs
-    vectors_client_2.put_vector(
+    _put_proposable(
+        vectors_client_2,
+        s3_client,
         "artifacts/legacy#summary",
         _unit_vec(0.5),
         {
@@ -386,7 +425,9 @@ async def test_legacy_artifact_excluded_when_since_ulid_provided(
         },
     )
     # Modern artifact: own-scope, ULID_HIGH, no commit_refs
-    vectors_client_2.put_vector(
+    _put_proposable(
+        vectors_client_2,
+        s3_client,
         "artifacts/modern#summary",
         _unit_vec(0.6),
         {
@@ -456,8 +497,12 @@ async def test_multiple_section_vectors_deduplicated(
         "last_edited_ulid": ULID_HIGH,
         "title": "Multi-section artifact",
     }
-    vectors_client_2.put_vector("artifacts/multi-section#summary", _unit_vec(1.1), meta)
-    vectors_client_2.put_vector("artifacts/multi-section#details", _unit_vec(1.2), meta)
+    _put_proposable(
+        vectors_client_2, s3_client, "artifacts/multi-section#summary", _unit_vec(1.1), meta
+    )
+    _put_proposable(
+        vectors_client_2, s3_client, "artifacts/multi-section#details", _unit_vec(1.2), meta
+    )
 
     result = await propose_commit_links(
         settings=settings,
@@ -565,8 +610,12 @@ async def test_commit_refs_on_non_first_section_vector_excluded_from_proposed(
     # Insertion order is the order get_vectors/list_vectors_by_metadata return them in
     # moto — the first-inserted vector (no commit_refs) is the one a naive
     # first-occurrence-wins dedup would have kept as representative.
-    vectors_client_2.put_vector(f"{artifact_id}#aaa-summary", _unit_vec(3.1), meta_no_refs)
-    vectors_client_2.put_vector(f"{artifact_id}#zzz-details", _unit_vec(3.2), meta_with_refs)
+    _put_proposable(
+        vectors_client_2, s3_client, f"{artifact_id}#aaa-summary", _unit_vec(3.1), meta_no_refs
+    )
+    _put_proposable(
+        vectors_client_2, s3_client, f"{artifact_id}#zzz-details", _unit_vec(3.2), meta_with_refs
+    )
 
     result = await propose_commit_links(
         settings=settings,
@@ -605,7 +654,7 @@ async def test_commit_refs_over_cap_still_excluded_from_proposed(
         "title": "Over-cap linked artifact",
         "commit_refs": full_commit_refs[-20:],  # simulates T58's vector-metadata cap
     }
-    vectors_client_2.put_vector(f"{artifact_id}#summary", _unit_vec(4.1), meta)
+    _put_proposable(vectors_client_2, s3_client, f"{artifact_id}#summary", _unit_vec(4.1), meta)
     annotation_spy = mocker.spy(s3_client, "get_object_annotation")
 
     result = await propose_commit_links(
@@ -735,3 +784,43 @@ async def test_propose_annotation_unavailable_returns_the_annotation_unavailable
 
     assert result.get("error") == "annotation_unavailable"
     assert "proposed" not in result
+
+
+async def test_dangling_vector_is_skipped_and_healthy_candidates_still_proposed(
+    monkeypatch: pytest.MonkeyPatch,
+    vectors_client_2: VectorsClientImpl,
+    s3_client: S3ClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """One dangling vector must not abort the whole discovery call.
+
+    An object gone behind a surviving vector is ordinary churn that ``reconcile_index``
+    prunes. Letting ``ObjectNotFoundError`` reach ``raise result`` turns it into
+    ``internal_error`` for every candidate in the call, not just the dangling one.
+    """
+    from arkeology.errors import ObjectNotFoundError
+
+    settings = _make_settings(monkeypatch)
+    _seed_standard(vectors_client_2, s3_client)
+    gone = "artifacts/artifact-a"
+    real_get = s3_client.get_object_annotation
+
+    def _gone_for_one(key: str, annotation_name: str) -> str:
+        if key == gone:
+            raise ObjectNotFoundError(key)
+        return real_get(key, annotation_name)
+
+    mocker.patch.object(s3_client, "get_object_annotation", side_effect=_gone_for_one)
+
+    result = await propose_commit_links(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=None,
+        commit_sha=COMMIT_SHA,
+    )
+
+    assert "error" not in result
+    ids = [e["artifact_id"] for e in result["proposed"]]
+    assert gone not in ids
+    assert "artifacts/artifact-b" in ids

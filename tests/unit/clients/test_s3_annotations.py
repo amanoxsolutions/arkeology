@@ -442,3 +442,75 @@ def test_delete_object_annotation_if_match_stale_etag_raises_conflict(
         s3_client.delete_object_annotation("artifacts/e8.md", "commit_refs", if_match=stale_etag)
 
     assert s3_client.get_object_annotation("artifacts/e8.md", "commit_refs") == "abc"
+
+
+# ---------------------------------------------------------------------------
+# Story 4 — the three not-found causes are distinguishable
+# ---------------------------------------------------------------------------
+
+
+def _not_found_error(operation: str, code: str) -> botocore.exceptions.ClientError:
+    return botocore.exceptions.ClientError(
+        {"Error": {"Code": code, "Message": "Not Found"}},
+        operation,
+    )
+
+
+def test_get_object_annotation_no_such_annotation_raises_annotation_not_found(
+    s3_client: S3ClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """``NoSuchAnnotation`` — the object exists, this annotation does not — is the one
+    and only cause that may later become ``[]``, so it gets its own type."""
+    from arkeology.errors import AnnotationNotFoundError
+
+    mocker.patch.object(
+        s3_client._s3,
+        "get_object_annotation",
+        side_effect=_not_found_error("GetObjectAnnotation", "NoSuchAnnotation"),
+    )
+
+    with pytest.raises(AnnotationNotFoundError):
+        s3_client.get_object_annotation("artifacts/n1.md", "commit_refs")
+
+
+def test_get_object_annotation_no_such_key_raises_object_not_found(
+    s3_client: S3ClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """``NoSuchKey`` means the object itself is gone. Collapsing it into the absent-
+    annotation case is what let a deleted artifact read as one with no links."""
+    from arkeology.errors import AnnotationNotFoundError, ObjectNotFoundError
+
+    mocker.patch.object(
+        s3_client._s3,
+        "get_object_annotation",
+        side_effect=_not_found_error("GetObjectAnnotation", "NoSuchKey"),
+    )
+
+    with pytest.raises(ObjectNotFoundError) as excinfo:
+        s3_client.get_object_annotation("artifacts/n2.md", "commit_refs")
+
+    assert not isinstance(excinfo.value, AnnotationNotFoundError)
+
+
+def test_get_object_annotation_bare_404_stays_an_unclassified_key_error(
+    s3_client: S3ClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """A bare ``404`` says only "not found" — the exception type must say exactly as
+    much and no more, so it stays the base ``KeyError`` neither caller may read as a
+    genuine absence."""
+    from arkeology.errors import AnnotationNotFoundError, ObjectNotFoundError
+
+    mocker.patch.object(
+        s3_client._s3,
+        "get_object_annotation",
+        side_effect=_not_found_error("GetObjectAnnotation", "404"),
+    )
+
+    with pytest.raises(KeyError) as excinfo:
+        s3_client.get_object_annotation("artifacts/n3.md", "commit_refs")
+
+    assert not isinstance(excinfo.value, AnnotationNotFoundError)
+    assert not isinstance(excinfo.value, ObjectNotFoundError)

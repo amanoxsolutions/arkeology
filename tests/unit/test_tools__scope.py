@@ -5,6 +5,10 @@ shared helpers, so TDD applies to them directly (unlike the pure-refactor call-s
 updates that follow, which are covered by the existing tool test suites).
 """
 
+from decimal import Decimal
+
+import pytest
+
 from arkeology.clients.filter import matches_filter
 from arkeology.tools._scope import (
     build_scope_filter,
@@ -103,14 +107,92 @@ class TestIsCrossScopeReadable:
         assert is_cross_scope_readable(meta, "team-b/x", "team-a", read_prefixes=[]) is False
 
 
+class _StringifiesToShared:
+    """A stored value that is not ``"shared"`` but whose text is — the case a ``str()``
+    coercion inside the gate would wrongly admit."""
+
+    def __str__(self) -> str:
+        return "shared"
+
+
+class TestTheGateIsTotal:
+    """The gate is a predicate over data this deployment did not write, so it must
+    answer for every stored value rather than raising for some of them.
+
+    It is applied per candidate inside a loop, so one foreign record another team's
+    deployment wrote badly used to abort the whole listing, search, or reference
+    resolution for that scope — an availability outage caused by someone else's data
+    quality. Denial is the only admissible answer: it is what the server-side filter
+    form already does, and it is never an allow.
+    """
+
+    @staticmethod
+    def _verdict(tier: object = 3, visibility: object = "shared") -> bool:
+        return is_cross_scope_readable(
+            {"tier": tier, "visibility": visibility},
+            "team-b/x",
+            "team-a",
+            read_prefixes=["team-b"],
+        )
+
+    @pytest.mark.parametrize(
+        "tier",
+        ["abc", "", None, "3.5", [3], {"tier": 3}, object(), float("inf"), Decimal("Infinity")],
+        ids=[
+            "non-numeric",
+            "empty",
+            "null",
+            "non-integer",
+            "list",
+            "dict",
+            "opaque",
+            "infinity",
+            "decimal-infinity",
+        ],
+    )
+    def test_an_unreadable_tier_denies_rather_than_raising(self, tier: object) -> None:
+        assert self._verdict(tier=tier) is False
+
+    @pytest.mark.parametrize(
+        "visibility",
+        [None, 3, ["shared"], {"visibility": "shared"}, object(), _StringifiesToShared()],
+        ids=["null", "int", "list", "dict", "opaque", "stringifies-to-shared"],
+    )
+    def test_an_unreadable_visibility_denies_rather_than_raising(self, visibility: object) -> None:
+        """Only a stored ``visibility`` that *is* ``"shared"`` is an affirmative reading.
+
+        The ``stringifies-to-shared`` case is the one that bites: coercing with
+        ``str()`` before comparing admits any object whose text happens to read
+        ``shared``, which is a value no writer ever stored. The server-side filter form
+        compares the stored value itself and would never match it.
+        """
+        assert self._verdict(visibility=visibility) is False
+
+    def test_a_wholly_unreadable_candidate_denies(self) -> None:
+        """Neither field readable — still an answer, still a denial."""
+        assert self._verdict(tier="?", visibility=None) is False
+
+    def test_own_scope_is_unaffected_by_unreadable_metadata(self) -> None:
+        """Own scope never consults either field, so corruption there cannot deny a
+        caller access to its own artifact."""
+        meta: dict[str, object] = {"tier": "corrupt", "visibility": None}
+        assert is_cross_scope_readable(meta, "team-a/x", "team-a", read_prefixes=["team-b"]) is True
+
+    def test_a_well_formed_candidate_is_still_readable(self) -> None:
+        """The totality guard must not have narrowed the rule itself: the one
+        affirmative reading still passes."""
+        assert self._verdict() is True
+
+
 class TestBuildScopeFilter:
     """The gate expressed as a server-side S3 Vectors filter, rather than as an
     in-process predicate.
 
     ``is_cross_scope_readable`` decides one already-fetched candidate; this builds the
-    filter that stops foreign candidates being fetched at all, and it is the form the
-    search, synthesise, and list paths use. The two must agree, because a caller that
-    passes one and not the other still has to reach the same verdict.
+    filter that stops most foreign candidates being fetched at all. The filter is a
+    prefetch optimisation and the predicate is the authority — every read path runs the
+    predicate — so the filter may admit more than the predicate does, but must never
+    admit less. See ``test_never_rejects_a_candidate_the_predicate_would_admit``.
 
     Assertions here evaluate the returned filter with ``matches_filter`` — the project's
     own in-process implementation of the same operator set S3 Vectors applies — rather
@@ -155,17 +237,49 @@ class TestBuildScopeFilter:
         assert self._allows({"scope": "team-a", "tier": 2, "visibility": "hidden"}, []) is True
         assert self._allows({"scope": "team-b", "tier": 3, "visibility": "shared"}, []) is False
 
-    def test_agrees_with_the_in_process_predicate(self) -> None:
-        """Both forms of the gate must reach the same verdict on the same candidate."""
+    def test_never_rejects_a_candidate_the_predicate_would_admit(self) -> None:
+        """The filter may be *more* permissive than the predicate, never less.
+
+        The two forms are not peers. The predicate is the authority — every read path
+        runs it against the candidate's own metadata — and the filter is a prefetch
+        optimisation that narrows what is fetched. So the directions are not
+        symmetrical:
+
+        - Filter admits, predicate denies → **harmless.** The predicate drops it. This
+          is the list-valued case below: ``$eq`` is value-in-list for a list field, the
+          semantics ``tags`` depends on, so ``tier: [3]`` matches the filter clause and
+          the filter cannot be narrowed without breaking tag matching.
+        - Filter rejects, predicate would admit → **a bug.** The candidate is never
+          fetched, so the predicate never sees it and a readable artifact silently
+          vanishes from every search, synthesise, and listing.
+
+        Only the second direction is asserted, which is why this is an implication and
+        not an equality.
+        """
         cases: list[dict[str, object]] = [
             {"scope": "team-a", "tier": 2, "visibility": "hidden"},
             {"scope": "team-b", "tier": 3, "visibility": "shared"},
             {"scope": "team-b", "tier": 3, "visibility": "hidden"},
             {"scope": "team-b", "tier": 2, "visibility": "shared"},
             {"scope": "team-c", "tier": 3, "visibility": "shared"},
+            # Malformed foreign candidates, scalar — both forms deny these.
+            {"scope": "team-b", "visibility": "shared"},
+            {"scope": "team-b", "tier": 3},
+            {"scope": "team-b", "tier": None, "visibility": "shared"},
+            {"scope": "team-b", "tier": "abc", "visibility": "shared"},
+            {"scope": "team-b", "tier": "", "visibility": "shared"},
+            {"scope": "team-b", "tier": 3, "visibility": None},
+            {"scope": "team-b", "tier": 3, "visibility": 3},
+            {"scope": "team-b"},
+            # Non-scalar: the filter admits these and the predicate denies them. The
+            # implication still holds, and the tools' own suites pin that the predicate
+            # actually runs — see test_search_never_returns_a_candidate_the_predicate_denies.
+            {"scope": "team-b", "tier": [3], "visibility": "shared"},
+            {"scope": "team-b", "tier": 3, "visibility": ["shared"]},
         ]
         for meta in cases:
             artifact_id = f"{meta['scope']}/some-artifact"
-            assert self._allows(meta) is is_cross_scope_readable(
-                meta, artifact_id, self.OWN, self.FOREIGN
-            ), f"gate forms disagree on {meta}"
+            if is_cross_scope_readable(meta, artifact_id, self.OWN, self.FOREIGN):
+                assert self._allows(meta), (
+                    f"the filter would never fetch {meta}, which the predicate admits"
+                )

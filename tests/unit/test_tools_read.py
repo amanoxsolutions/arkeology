@@ -1165,3 +1165,128 @@ async def test_read_annotation_unavailable_returns_the_annotation_unavailable_co
     assert result.get("error") == "annotation_unavailable"
     # Denial reveals nothing beyond the code — no content leaks on the error path.
     assert "content" not in result
+
+
+# ---------------------------------------------------------------------------
+# Malformed and ambiguous persisted data
+# ---------------------------------------------------------------------------
+
+
+async def test_read_own_scope_corrupt_tier_returns_corrupt_metadata_naming_the_field(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+) -> None:
+    """This tool returns one artifact and so has nothing to skip: it names the field.
+
+    ``internal_error`` says only "something unexpected" about a cause that is known and
+    nameable, and a default is excluded outright — ``tier`` is one of the two fields the
+    cross-scope gate keys on, so reporting a defaulted one teaches the caller a value no
+    writer stored and the gate never agreed to.
+    """
+    settings = _make_settings(monkeypatch)
+    s3_client.put_object(
+        "artifacts/corrupt-tier",
+        "## Summary\n\nbody",
+        {**_BASE_METADATA, "tier": "not-a-number"},
+    )
+
+    result = await read_artifact(
+        settings=settings, s3=s3_client, artifact_id="artifacts/corrupt-tier"
+    )
+
+    assert result.get("error") == "corrupt_metadata"
+    assert "tier" in result["message"]
+    assert "not-a-number" in result["message"]
+    assert "content" not in result
+
+
+async def test_read_foreign_scope_corrupt_tier_is_denied_not_reported_as_corrupt(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+) -> None:
+    """The gate's verdict pre-empts the corruption report.
+
+    An unreadable ``tier`` is not an affirmative reading of the rule, so the gate denies
+    — and reporting the stored state of an artifact it has just withheld would disclose
+    exactly what the denial exists to withhold. ``access_denied``, never
+    ``corrupt_metadata``, and never a description of the offending value.
+    """
+    settings = _make_settings(monkeypatch)
+    s3_client.put_object(
+        "other-team/corrupt-tier",
+        "## Summary\n\nbody",
+        {**_BASE_METADATA, "tier": "not-a-number", "visibility": "shared"},
+    )
+
+    result = await read_artifact(
+        settings=settings, s3=s3_client, artifact_id="other-team/corrupt-tier"
+    )
+
+    assert result.get("error") == "access_denied"
+    assert "not-a-number" not in result["message"]
+
+
+async def test_read_object_deleted_mid_read_returns_not_found(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """An object deleted between the metadata fetch and the link-field read is absent,
+    and says so. A definitive absence is reported as absence — never as a failure, and
+    never as an artifact whose link fields happen to be empty."""
+    from arkeology.errors import ObjectNotFoundError
+
+    settings = _make_settings(monkeypatch)
+    _seed_objects(s3_client)
+    mocker.patch.object(
+        s3_client,
+        "get_object_annotation",
+        side_effect=ObjectNotFoundError("artifacts/t2-shared"),
+    )
+
+    result = await read_artifact(settings=settings, s3=s3_client, artifact_id="artifacts/t2-shared")
+
+    assert result.get("error") == "not_found"
+
+
+async def test_read_unclassified_not_found_is_not_degraded_to_not_found(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """A bare ``KeyError`` from the link-field read established nothing about absence.
+
+    Reporting it as ``not_found`` would claim an artifact is gone on the strength of a
+    response nobody could classify, so it stays a failure — and it must certainly not
+    come back as a successful read with empty link fields.
+    """
+    settings = _make_settings(monkeypatch)
+    _seed_objects(s3_client)
+    mocker.patch.object(
+        s3_client, "get_object_annotation", side_effect=KeyError("artifacts/t2-shared")
+    )
+
+    result = await read_artifact(settings=settings, s3=s3_client, artifact_id="artifacts/t2-shared")
+
+    assert result.get("error") not in (None, "not_found")
+    assert "commit_refs" not in result
+
+
+async def test_read_infinite_tier_returns_corrupt_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+) -> None:
+    """S3 object metadata is string-valued, so an infinite ``tier`` arrives as the
+    literal ``"Infinity"`` — which ``float`` accepts and ``int`` then rejects with
+    ``OverflowError``, the one coercion failure the guard did not catch."""
+    settings = _make_settings(monkeypatch)
+    s3_client.put_object(
+        "artifacts/inf-tier",
+        "## Summary\n\nbody",
+        {**_BASE_METADATA, "tier": "Infinity"},
+    )
+
+    result = await read_artifact(settings=settings, s3=s3_client, artifact_id="artifacts/inf-tier")
+
+    assert result.get("error") == "corrupt_metadata"
+    assert "Infinity" in result["message"]

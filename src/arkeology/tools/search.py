@@ -79,6 +79,11 @@ async def search_artifacts(
         stopped because a vector result was missing its ``distance`` field — a
         soft signal of possible S3 Vectors index corruption; whatever results
         were already collected are still returned, never a hard error.
+        ``"skipped_malformed_count": int`` is included, only when non-zero, when a
+        candidate was dropped because its stored metadata could not be read into a
+        result — no usable ``artifact_id``, or a ``tier`` that will not coerce. A
+        candidate the cross-scope gate denied is never counted there: counting it
+        would disclose that a foreign artifact exists.
         On error: ``{"error": str, "message": str}``
     """
     try:
@@ -177,7 +182,7 @@ async def _search_artifacts_inner(  # noqa: PLR0913
     if isinstance(loop_result, dict):
         return loop_result
 
-    raw_results, fetch_exhausted, index_corruption_detected = loop_result
+    raw_results, fetch_exhausted, index_corruption_detected, skipped_malformed = loop_result
 
     # ── Step 6: Build response entries ───────────────────────────────────────
     results: list[dict[str, Any]] = []
@@ -190,6 +195,12 @@ async def _search_artifacts_inner(  # noqa: PLR0913
         source_artifacts_val = coerce_list_field(meta, "source_artifacts")
 
         summary = build_artifact_summary(meta, aid, tags_val, source_artifacts_val)
+        if summary is None:
+            # Stored metadata this result shape cannot be read into. Dropped rather
+            # than returned with a defaulted tier, and counted so the caller can tell
+            # a short result set from an exhaustive one.
+            skipped_malformed += 1
+            continue
         summary["score"] = score
         # Last-edited age transparency: surface the raw ULID and a derived ISO 8601
         # timestamp so agents can discount stale hits themselves. This is transparency
@@ -201,6 +212,10 @@ async def _search_artifacts_inner(  # noqa: PLR0913
         zero_response: dict[str, Any] = {"artifacts": [], "zero_results": True}
         if index_corruption_detected:
             zero_response["index_corruption_detected"] = True
+        if skipped_malformed:
+            # Zero results reached because every candidate was unreadable is precisely
+            # the case a caller must not mistake for "no such artifact exists".
+            zero_response["skipped_malformed_count"] = skipped_malformed
         return zero_response
 
     logger.info("Search returned %d artifacts for query=%r", len(results), query)
@@ -212,4 +227,6 @@ async def _search_artifacts_inner(  # noqa: PLR0913
         response["fetch_exhausted"] = True
     if index_corruption_detected:
         response["index_corruption_detected"] = True
+    if skipped_malformed:
+        response["skipped_malformed_count"] = skipped_malformed
     return response

@@ -20,11 +20,13 @@ from arkeology.clients.credentials import (
 )
 from arkeology.clients.interfaces import S3ClientInterface  # noqa: F401 (structural only)
 from arkeology.errors import (
+    AnnotationNotFoundError,
     AnnotationUnavailableError,
     ArtifactCollisionError,
     ArtifactConflictError,
     CredentialError,
     NonUtf8PayloadError,
+    ObjectNotFoundError,
 )
 
 logger = logging.getLogger(__name__)
@@ -230,8 +232,15 @@ class S3ClientImpl:
                     raise AnnotationUnavailableError(
                         _ANNOTATION_UNAVAILABLE_MESSAGE, "s3", exc
                     ) from exc
+                # Three distinct not-found causes, kept distinct: only an absent
+                # annotation may ever become an empty link-field list, and a bare 404
+                # says nothing about which of the other two it was.
                 code = _error_code(exc)
-                if code in ("NoSuchKey", "NoSuchAnnotation", "404"):
+                if code == "NoSuchAnnotation":
+                    raise AnnotationNotFoundError(key) from exc
+                if code == "NoSuchKey":
+                    raise ObjectNotFoundError(key) from exc
+                if code == "404":
                     raise KeyError(key) from exc
                 raise
 

@@ -1453,3 +1453,119 @@ async def test_stale_uses_the_newest_ulid_across_a_syntheses_vectors(
     assert all(entry["artifact_id"] != synth_id for entry in result["stale"]), (
         "the synthesis's newest write is later than the source, so it is not stale"
     )
+
+
+# ---------------------------------------------------------------------------
+# A malformed synthesis record is skipped and counted, never fatal
+# ---------------------------------------------------------------------------
+
+
+def _unreadable_synthesis_meta() -> dict[str, Any]:
+    """A synthesis vector with no usable ``artifact_id`` — the field the audit is keyed
+    on, so the record cannot be audited, deduplicated, or reported at all."""
+    meta = _synthesis_meta("artifacts/placeholder", "2026-06-01", ["artifacts/src"])
+    del meta["artifact_id"]
+    return meta
+
+
+async def test_freshness_skips_an_unreadable_synthesis_and_audits_the_rest(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
+) -> None:
+    """One unreadable record must not withhold the whole audit.
+
+    Without the skip, indexing ``artifact_id`` raises, escapes to the catch-all, and the
+    caller gets ``internal_error`` — learning nothing about any synthesis, not just the
+    broken one.
+    """
+    settings = _make_settings(monkeypatch)
+    synth_id = "artifacts/synthesis-readable"
+    src_id = "artifacts/implementation-note-2026-01-01-src"
+    vectors_client_8.put_vector(
+        f"{synth_id}#section", DUMMY_VEC, _synthesis_meta(synth_id, "2026-06-01", [src_id])
+    )
+    vectors_client_8.put_vector(src_id, DUMMY_VEC, _source_meta(src_id, "2026-01-01"))
+    vectors_client_8.put_vector(
+        "artifacts/unreadable#section", DUMMY_VEC, _unreadable_synthesis_meta()
+    )
+
+    result = await check_synthesis_freshness(
+        settings=settings, s3=s3_client, vectors=vectors_client_8
+    )
+
+    assert "error" not in result
+    assert result["skipped_malformed_count"] == 1
+    assert result["total_checked"] == 1, "a skipped record is not a synthesis that was audited"
+
+
+async def test_freshness_skipped_record_denies_the_all_fresh_verdict(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
+) -> None:
+    """A run that could not audit part of its input has not established that everything
+    is fresh. ``all_fresh: True`` beside a non-zero skip count would be exactly the
+    partial-result-that-looks-complete failure this key exists to prevent."""
+    settings = _make_settings(monkeypatch)
+    vectors_client_8.put_vector(
+        "artifacts/unreadable#section", DUMMY_VEC, _unreadable_synthesis_meta()
+    )
+
+    result = await check_synthesis_freshness(
+        settings=settings, s3=s3_client, vectors=vectors_client_8
+    )
+
+    assert result["skipped_malformed_count"] == 1
+    assert result["all_fresh"] is False
+
+
+async def test_freshness_omits_the_skip_count_when_nothing_was_skipped(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
+) -> None:
+    """A ninth, conditional key: it does not join the eight a caller may read without a
+    membership test, so it is absent rather than zero."""
+    settings = _make_settings(monkeypatch)
+    synth_id = "artifacts/synthesis-clean"
+    src_id = "artifacts/implementation-note-2026-01-01-clean-src"
+    vectors_client_8.put_vector(
+        f"{synth_id}#section", DUMMY_VEC, _synthesis_meta(synth_id, "2026-06-01", [src_id])
+    )
+    vectors_client_8.put_vector(src_id, DUMMY_VEC, _source_meta(src_id, "2026-01-01"))
+
+    result = await check_synthesis_freshness(
+        settings=settings, s3=s3_client, vectors=vectors_client_8
+    )
+
+    assert "skipped_malformed_count" not in result
+    assert result["all_fresh"] is True
+
+
+async def test_freshness_never_deletes_a_skipped_record(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """``skipped_malformed_count`` and ``malformed`` name different conditions and must
+    not be read as a pair. ``malformed`` lists syntheses audited successfully and found
+    structurally invalid — the deletion candidates. A record too corrupt to identify is
+    the last thing to hard-delete on, at any ``confirm`` value.
+    """
+    settings = _make_settings(monkeypatch)
+    vectors_client_8.put_vector(
+        "artifacts/unreadable#section", DUMMY_VEC, _unreadable_synthesis_meta()
+    )
+    delete_vectors = mocker.spy(vectors_client_8, "delete_vectors")
+    delete_object = mocker.spy(s3_client, "delete_object")
+
+    result = await check_synthesis_freshness(
+        settings=settings, s3=s3_client, vectors=vectors_client_8, confirm=True
+    )
+
+    assert result["skipped_malformed_count"] == 1
+    assert result["deleted_malformed"] == []
+    assert delete_vectors.call_count == 0
+    assert delete_object.call_count == 0

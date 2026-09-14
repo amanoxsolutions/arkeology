@@ -10,12 +10,13 @@ references:
   - docs/specs/p12-t46-references-field.md
   - docs/specs/p12-t55-metadata-validation.md
   - docs/architecture-decisions/adr-2026-07-03-annotation-backed-link-storage.md
+  - docs/architecture-decisions/adr-2026-09-14-malformed-persisted-data-policy.md
 authored:
   by: "tech-writer"
   date: 2026-09-04
 revised:
   by: "architect"
-  date: 2026-09-06
+  date: 2026-09-14
 ---
 
 # arkeology.tools.read
@@ -44,8 +45,15 @@ async def read_artifact(
 
 Never raises. Every failure is a returned dict carrying an `"error"` key.
 
-- `not_found` — the artifact does not exist in any readable scope.
+- `not_found` — the artifact does not exist in any readable scope. Also returned when the object is
+  found to be gone part-way through the read — an `ObjectNotFoundError` from the durable link-field
+  annotation read, meaning it was deleted between the metadata fetch and that read. That race
+  reports absence, never empty link fields; see `s3-annotations.artifact` under **Not-Found
+  Semantics** for why the three not-found causes are distinguishable at all.
 - `access_denied` — the artifact exists in a foreign scope but fails the tier and visibility gate.
+- `corrupt_metadata` — the artifact's stored metadata could not be read into the response. The
+  message names the offending field and its value. Today `tier` is the only field this can apply to,
+  because it is the only one coerced rather than passed through.
 - `credential_error` — an AWS call raised `CredentialError`, at the metadata fetch, the content
   fetch, the link-field annotation read, or the foreign-scope reference filtering step.
 - `annotation_unavailable` — the durable link-field annotation read failed because the annotation
@@ -62,8 +70,22 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
   transfers the object body.
 - Own-scope membership is tested as `artifact_id.startswith(scope + "/")`, never a bare
   `startswith(scope)`.
+- **Corrupt stored metadata fails loudly and specifically, and is never defaulted.** This tool
+  returns one artifact and so has nothing to skip: where an iterating tool drops a malformed
+  candidate and counts it, this one returns `corrupt_metadata` naming the field. It must not
+  substitute a value the writer never stored — `tier` is one of the two fields the cross-scope gate
+  keys on, so a read reporting a defaulted `tier` teaches its caller a value the gate did not agree
+  to. `internal_error` is equally excluded: the cause is known and nameable.
+- **The gate's verdict pre-empts the corruption report.** A foreign-scope artifact whose `tier` is
+  absent or unparseable is denied by the gate and returns `access_denied`, never
+  `corrupt_metadata` — reporting the stored state of an artifact the gate has just withheld would
+  disclose exactly what the denial exists to withhold. `corrupt_metadata` is therefore reachable on
+  an own-scope read, or on a foreign artifact the gate has already admitted whose other fields are
+  corrupt.
 - A foreign-scope artifact is readable only when its stored `tier` is 3 **and** its `visibility` is
-  `"shared"`. Any other foreign artifact is denied with `access_denied`, which is deliberately
+  `"shared"`. An absent or unparseable `tier` or `visibility` is not an affirmative reading and
+  denies; the gate never raises over a stored value. Any other foreign artifact is denied with
+  `access_denied`, which is deliberately
   distinguishable from `not_found`: the spec (see `docs/specs/p2-t9-read-artifact.md`, "Never")
   forbids silently downgrading a gated foreign artifact to "not found", so that a caller can tell
   why retrieval failed. Existence in a foreign scope is therefore observable; only the artifact's

@@ -24,6 +24,7 @@ written over good data.
 """
 
 from arkeology.clients.interfaces import S3ClientInterface
+from arkeology.errors import AnnotationNotFoundError
 
 # Annotation names — one annotation per field (ADR-011 decision 1).
 COMMIT_REFS_ANNOTATION = "commit_refs"
@@ -147,6 +148,10 @@ def read_link_annotations(s3: S3ClientInterface, key: str) -> tuple[list[str], l
         AnnotationUnavailableError: If annotations are unavailable for this bucket or
             the caller lacks the required IAM permission (post-startup IAM drift — the
             startup gate rejects a deployment that never had them).
+        ObjectNotFoundError: If the object itself is gone. Not an absent annotation:
+            the caller reports the artifact as absent rather than as one with no links.
+        KeyError: If the underlying call reported an unclassified not-found. Ambiguous,
+            and therefore a failure rather than an absence.
         CredentialError: If credentials are invalid or expired.
     """
     return (
@@ -156,9 +161,17 @@ def read_link_annotations(s3: S3ClientInterface, key: str) -> tuple[list[str], l
 
 
 def _read_one(s3: S3ClientInterface, key: str, annotation_name: str) -> list[str]:
-    """Read and decode a single named annotation, defaulting to ``[]`` when absent."""
+    """Read and decode a single named annotation, defaulting to ``[]`` when absent.
+
+    The catch is deliberately narrowed to ``AnnotationNotFoundError`` — the object
+    exists and this annotation does not — and not to ``KeyError``. A deleted object
+    (``ObjectNotFoundError``) and an unclassified ``404`` (a bare ``KeyError``) both
+    establish nothing about absence, and widening the catch back to ``KeyError``
+    re-collapses the distinction this module exists for: the suite still passes while
+    every read-modify-write cycle writes an empty result over good data.
+    """
     try:
         payload = s3.get_object_annotation(key, annotation_name)
-    except KeyError:
+    except AnnotationNotFoundError:
         return []
     return decode_link_list(payload)

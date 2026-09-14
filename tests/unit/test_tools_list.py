@@ -51,11 +51,51 @@ _BASE_VECTOR_META: dict[str, Any] = {
 }
 
 
-def _seed_vectors(vectors: VectorsClientImpl) -> None:
-    """Seed a rich set of vectors for list tests."""
+def _put_listable(
+    vectors: VectorsClientImpl,
+    s3: S3ClientImpl,
+    key: str,
+    vector: list[float],
+    meta: dict[str, Any],
+) -> None:
+    """Seed a section vector and, unless one already exists, the S3 object behind it.
+
+    An artifact with no object is a *dangling* artifact: ``list_artifacts`` reads every
+    listed artifact's durable link annotations, and one whose object is found to be gone
+    is omitted from the page and counted under ``skipped_deleted_count``. Seeding only
+    vectors would therefore model a condition no test in this file means to exercise.
+
+    An existing object is left alone, because ``put_object`` clears an object's
+    annotations — real S3 semantics, mirrored by the moto self-mock — and would wipe a
+    link annotation the test had just applied.
+    """
+    vectors.put_vector(key, vector, meta)
+    artifact_id = meta.get("artifact_id")
+    if not artifact_id:
+        return
+    try:
+        s3.head_object(artifact_id)
+    except KeyError:
+        s3.put_object(artifact_id, "## Summary\n\nseeded", {"title": "seeded"})
+
+
+def _seed_vectors(vectors: VectorsClientImpl, s3: S3ClientImpl) -> None:
+    """Seed a rich set of vectors for list tests, and the S3 object each one names.
+
+    The object is not optional decoration. ``list_artifacts`` reads every listed
+    artifact's durable link-field annotations, and an artifact whose object is found to
+    be gone is omitted from the page and counted under ``skipped_deleted_count``. A
+    vector with no object behind it is a dangling artifact — the condition
+    ``reconcile_index`` prunes — not a listable one, so seeding vectors alone would model
+    something no test in this file means to exercise.
+    """
+
+    def _put(key: str, vector: list[float], meta: dict[str, Any]) -> None:
+        _put_listable(vectors, s3, key, vector, meta)
+
     # own-scope active tier 2 (two section vectors — dedup test)
     for section in ["#summary", "#details"]:
-        vectors.put_vector(
+        _put(
             f"artifacts/t2-active-review{section}",
             _unit_vec(1.0),
             {
@@ -70,7 +110,7 @@ def _seed_vectors(vectors: VectorsClientImpl) -> None:
 
     # own-scope active tier 3 shared (two section vectors)
     for section in ["#summary", "#details"]:
-        vectors.put_vector(
+        _put(
             f"artifacts/t3-shared-adr{section}",
             _unit_vec(0.9),
             {
@@ -86,7 +126,7 @@ def _seed_vectors(vectors: VectorsClientImpl) -> None:
 
     # own-scope inactive tier 2 (two section vectors)
     for section in ["#summary", "#details"]:
-        vectors.put_vector(
+        _put(
             f"artifacts/t2-inactive-review{section}",
             _unit_vec(0.8),
             {
@@ -100,7 +140,7 @@ def _seed_vectors(vectors: VectorsClientImpl) -> None:
         )
 
     # own-scope active tier 2 code_review tagged "auth"
-    vectors.put_vector(
+    _put(
         "artifacts/t2-auth-review#summary",
         _unit_vec(0.7),
         {
@@ -116,7 +156,7 @@ def _seed_vectors(vectors: VectorsClientImpl) -> None:
     )
 
     # foreign-scope active tier 3 shared — ALLOWED
-    vectors.put_vector(
+    _put(
         "other-team/t3-foreign-shared-adr#summary",
         _unit_vec(0.6),
         {
@@ -132,7 +172,7 @@ def _seed_vectors(vectors: VectorsClientImpl) -> None:
         },
     )
     # second section vector for the foreign t3 shared — dedup test
-    vectors.put_vector(
+    _put(
         "other-team/t3-foreign-shared-adr#details",
         _unit_vec(0.61),
         {
@@ -149,7 +189,7 @@ def _seed_vectors(vectors: VectorsClientImpl) -> None:
     )
 
     # foreign-scope active tier 2 — DENIED
-    vectors.put_vector(
+    _put(
         "other-team/t2-foreign-review#summary",
         _unit_vec(0.5),
         {
@@ -166,7 +206,7 @@ def _seed_vectors(vectors: VectorsClientImpl) -> None:
     )
 
     # foreign-scope active tier 3 hidden — DENIED
-    vectors.put_vector(
+    _put(
         "other-team/t3-foreign-hidden-adr#summary",
         _unit_vec(0.4),
         {
@@ -195,7 +235,7 @@ async def test_no_filters_returns_own_scope_and_foreign_tier3_shared(
 ) -> None:
     """No filters → own-scope active artifacts and foreign-scope tier 3 shared returned."""
     settings = _make_settings(monkeypatch)
-    _seed_vectors(vectors_client_8)
+    _seed_vectors(vectors_client_8, s3_client)
 
     result = await list_artifacts(
         settings=settings, vectors=vectors_client_8, s3=s3_client, bedrock=None
@@ -214,7 +254,7 @@ async def test_default_status_active_excludes_inactive(
 ) -> None:
     """No status filter → status defaults to 'active'; inactive artifacts absent."""
     settings = _make_settings(monkeypatch)
-    _seed_vectors(vectors_client_8)
+    _seed_vectors(vectors_client_8, s3_client)
 
     result = await list_artifacts(
         settings=settings, vectors=vectors_client_8, s3=s3_client, bedrock=None
@@ -231,7 +271,7 @@ async def test_status_inactive_override_returns_only_inactive(
 ) -> None:
     """status='inactive' → only inactive artifacts returned."""
     settings = _make_settings(monkeypatch)
-    _seed_vectors(vectors_client_8)
+    _seed_vectors(vectors_client_8, s3_client)
 
     result = await list_artifacts(
         settings=settings, vectors=vectors_client_8, s3=s3_client, bedrock=None, status="inactive"
@@ -252,7 +292,7 @@ async def test_status_all_returns_active_and_inactive(
     previously the browser Studio's "All" filter was unreachable because omitting the
     status arg fell back to the "active" default."""
     settings = _make_settings(monkeypatch)
-    _seed_vectors(vectors_client_8)
+    _seed_vectors(vectors_client_8, s3_client)
 
     result = await list_artifacts(
         settings=settings, vectors=vectors_client_8, s3=s3_client, bedrock=None, status="all"
@@ -275,7 +315,7 @@ async def test_filter_type_code_review(
 ) -> None:
     """type='code_review' → only code reviews in results."""
     settings = _make_settings(monkeypatch)
-    _seed_vectors(vectors_client_8)
+    _seed_vectors(vectors_client_8, s3_client)
 
     result = await list_artifacts(
         settings=settings, vectors=vectors_client_8, s3=s3_client, bedrock=None, type="code_review"
@@ -293,7 +333,7 @@ async def test_filter_tags(
 ) -> None:
     """tags=['auth'] → only artifacts with 'auth' tag."""
     settings = _make_settings(monkeypatch)
-    _seed_vectors(vectors_client_8)
+    _seed_vectors(vectors_client_8, s3_client)
 
     result = await list_artifacts(
         settings=settings, vectors=vectors_client_8, s3=s3_client, bedrock=None, tags=["auth"]
@@ -311,7 +351,7 @@ async def test_filter_type_and_tags_intersection(
 ) -> None:
     """type='code_review' + tags=['auth'] → intersection of both constraints."""
     settings = _make_settings(monkeypatch)
-    _seed_vectors(vectors_client_8)
+    _seed_vectors(vectors_client_8, s3_client)
 
     result = await list_artifacts(
         settings=settings,
@@ -335,7 +375,7 @@ async def test_filter_team(
 ) -> None:
     """team='platform' → only platform team artifacts."""
     settings = _make_settings(monkeypatch)
-    _seed_vectors(vectors_client_8)
+    _seed_vectors(vectors_client_8, s3_client)
 
     result = await list_artifacts(
         settings=settings, vectors=vectors_client_8, s3=s3_client, bedrock=None, team="platform"
@@ -353,7 +393,7 @@ async def test_filter_project(
 ) -> None:
     """project='infra' → only infra project artifacts."""
     settings = _make_settings(monkeypatch)
-    _seed_vectors(vectors_client_8)
+    _seed_vectors(vectors_client_8, s3_client)
 
     result = await list_artifacts(
         settings=settings, vectors=vectors_client_8, s3=s3_client, bedrock=None, project="infra"
@@ -370,7 +410,7 @@ async def test_filter_tier3(
 ) -> None:
     """tier=3 → only tier 3 artifacts."""
     settings = _make_settings(monkeypatch)
-    _seed_vectors(vectors_client_8)
+    _seed_vectors(vectors_client_8, s3_client)
 
     result = await list_artifacts(
         settings=settings, vectors=vectors_client_8, s3=s3_client, bedrock=None, tier=3
@@ -388,7 +428,7 @@ async def test_no_matching_artifacts_returns_empty_list(
 ) -> None:
     """Filters that match no artifacts → empty list, no error."""
     settings = _make_settings(monkeypatch)
-    _seed_vectors(vectors_client_8)
+    _seed_vectors(vectors_client_8, s3_client)
 
     result = await list_artifacts(
         settings=settings,
@@ -416,7 +456,7 @@ async def test_filter_type_typo_returns_validation_error(
     covered by test_no_matching_artifacts_returns_empty_list.
     """
     settings = _make_settings(monkeypatch)
-    _seed_vectors(vectors_client_8)
+    _seed_vectors(vectors_client_8, s3_client)
 
     result = await list_artifacts(
         settings=settings, vectors=vectors_client_8, s3=s3_client, bedrock=None, type="cod_review"
@@ -434,7 +474,7 @@ async def test_filter_tier_out_of_range_returns_validation_error(
 ) -> None:
     """tier=99 (not 2 or 3) must return validation_error, not a silent empty list."""
     settings = _make_settings(monkeypatch)
-    _seed_vectors(vectors_client_8)
+    _seed_vectors(vectors_client_8, s3_client)
 
     result = await list_artifacts(
         settings=settings, vectors=vectors_client_8, s3=s3_client, bedrock=None, tier=99
@@ -452,7 +492,7 @@ async def test_filter_status_typo_returns_validation_error(
 ) -> None:
     """status='actve' (typo) must return validation_error, not a silent empty list."""
     settings = _make_settings(monkeypatch)
-    _seed_vectors(vectors_client_8)
+    _seed_vectors(vectors_client_8, s3_client)
 
     result = await list_artifacts(
         settings=settings, vectors=vectors_client_8, s3=s3_client, bedrock=None, status="actve"
@@ -475,7 +515,7 @@ async def test_deduplication_two_sections_one_record(
 ) -> None:
     """Two section vectors for same artifact_id → exactly one record in results."""
     settings = _make_settings(monkeypatch)
-    _seed_vectors(vectors_client_8)
+    _seed_vectors(vectors_client_8, s3_client)
 
     result = await list_artifacts(
         settings=settings, vectors=vectors_client_8, s3=s3_client, bedrock=None
@@ -493,7 +533,7 @@ async def test_result_has_required_fields(
 ) -> None:
     """Each result contains all required metadata fields; no 'content' field."""
     settings = _make_settings(monkeypatch)
-    _seed_vectors(vectors_client_8)
+    _seed_vectors(vectors_client_8, s3_client)
 
     result = await list_artifacts(
         settings=settings, vectors=vectors_client_8, s3=s3_client, bedrock=None
@@ -530,7 +570,7 @@ async def test_tags_in_response_is_list(
 ) -> None:
     """tags in response is a list, not a comma-separated string."""
     settings = _make_settings(monkeypatch)
-    _seed_vectors(vectors_client_8)
+    _seed_vectors(vectors_client_8, s3_client)
 
     result = await list_artifacts(
         settings=settings, vectors=vectors_client_8, s3=s3_client, bedrock=None
@@ -552,7 +592,7 @@ async def test_foreign_tier3_shared_included(
 ) -> None:
     """Foreign-scope tier 3 shared artifact appears in results."""
     settings = _make_settings(monkeypatch)
-    _seed_vectors(vectors_client_8)
+    _seed_vectors(vectors_client_8, s3_client)
 
     result = await list_artifacts(
         settings=settings, vectors=vectors_client_8, s3=s3_client, bedrock=None
@@ -569,7 +609,7 @@ async def test_foreign_tier2_excluded(
 ) -> None:
     """Foreign-scope tier 2 artifact is excluded from results."""
     settings = _make_settings(monkeypatch)
-    _seed_vectors(vectors_client_8)
+    _seed_vectors(vectors_client_8, s3_client)
 
     result = await list_artifacts(
         settings=settings, vectors=vectors_client_8, s3=s3_client, bedrock=None
@@ -586,7 +626,7 @@ async def test_foreign_tier3_hidden_excluded(
 ) -> None:
     """Foreign-scope tier 3 hidden artifact is excluded from results."""
     settings = _make_settings(monkeypatch)
-    _seed_vectors(vectors_client_8)
+    _seed_vectors(vectors_client_8, s3_client)
 
     result = await list_artifacts(
         settings=settings, vectors=vectors_client_8, s3=s3_client, bedrock=None
@@ -634,7 +674,7 @@ async def test_get_vectors_credential_error_returns_structured(
 ) -> None:
     """get_vectors raises CredentialError → structured error response."""
     settings = _make_settings(monkeypatch)
-    _seed_vectors(vectors_client_8)
+    _seed_vectors(vectors_client_8, s3_client)
     mocker.patch.object(
         vectors_client_8,
         "get_vectors",
@@ -665,7 +705,7 @@ async def test_list_vectors_called_with_scope_filter(
 ) -> None:
     """list_artifacts with a known scope → filter arg contains scope clause."""
     settings = _make_settings(monkeypatch)
-    _seed_vectors(vectors_client_8)
+    _seed_vectors(vectors_client_8, s3_client)
 
     spy = mocker.spy(vectors_client_8, "list_vectors_by_metadata")
 
@@ -689,7 +729,9 @@ async def test_list_result_includes_source_artifacts(
 ) -> None:
     """Artifact with source_artifacts metadata → present in result dict."""
     settings = _make_settings(monkeypatch)
-    vectors_client_8.put_vector(
+    _put_listable(
+        vectors_client_8,
+        s3_client,
         "artifacts/synth-t3#summary",
         _unit_vec(2.0),
         {
@@ -732,7 +774,9 @@ async def test_list_commit_refs_filter_returns_matching_artifacts(
     settings = _make_settings(monkeypatch)
     # Filter-index data only — deliberately no annotation, so a regression that sourced
     # the filter from annotations instead would fail here.
-    vectors_client_8.put_vector(
+    _put_listable(
+        vectors_client_8,
+        s3_client,
         "artifacts/with-ref#summary",
         _unit_vec(3.0),
         {
@@ -742,7 +786,9 @@ async def test_list_commit_refs_filter_returns_matching_artifacts(
         },
     )
     # artifact without commit ref
-    vectors_client_8.put_vector(
+    _put_listable(
+        vectors_client_8,
+        s3_client,
         "artifacts/no-ref#summary",
         _unit_vec(3.1),
         {
@@ -773,7 +819,9 @@ async def test_list_no_commit_refs_filter_returns_all(
     """Omitting the commit_refs argument adds no filter clause, so an artifact carrying
     no commit_refs in the filter index is listed alongside one that does."""
     settings = _make_settings(monkeypatch)
-    vectors_client_8.put_vector(
+    _put_listable(
+        vectors_client_8,
+        s3_client,
         "artifacts/with-ref2#summary",
         _unit_vec(3.2),
         {
@@ -782,7 +830,9 @@ async def test_list_no_commit_refs_filter_returns_all(
             "commit_refs": ["def5678"],
         },
     )
-    vectors_client_8.put_vector(
+    _put_listable(
+        vectors_client_8,
+        s3_client,
         "artifacts/no-ref2#summary",
         _unit_vec(3.3),
         {
@@ -813,7 +863,9 @@ async def test_list_result_includes_commit_refs_field(
     settings = _make_settings(monkeypatch)
     s3_client.put_object("artifacts/with-ref3", "Content.", {"title": "x"})
     apply_link_annotations(s3_client, "artifacts/with-ref3", commit_refs=["abc1234"], references=[])
-    vectors_client_8.put_vector(
+    _put_listable(
+        vectors_client_8,
+        s3_client,
         "artifacts/with-ref3#summary",
         _unit_vec(3.4),
         {
@@ -848,7 +900,9 @@ async def test_list_result_commit_refs_empty_when_no_annotation(
     # The object exists with no annotations on it, so [] here means "genuinely none"
     # rather than "the key was missing".
     s3_client.put_object("artifacts/no-ref3", "Content.", {"title": "x"})
-    vectors_client_8.put_vector(
+    _put_listable(
+        vectors_client_8,
+        s3_client,
         "artifacts/no-ref3#summary",
         _unit_vec(3.5),
         {
@@ -909,7 +963,9 @@ async def test_list_no_references_filter_returns_all(
     apply_link_annotations(
         s3_client, "artifacts/with-ref-field2", commit_refs=[], references=["c-3"]
     )
-    vectors_client_8.put_vector(
+    _put_listable(
+        vectors_client_8,
+        s3_client,
         "artifacts/with-ref-field2#summary",
         _unit_vec(4.4),
         {
@@ -918,7 +974,9 @@ async def test_list_no_references_filter_returns_all(
             "references": ["c-3"],
         },
     )
-    vectors_client_8.put_vector(
+    _put_listable(
+        vectors_client_8,
+        s3_client,
         "artifacts/no-ref-field2#summary",
         _unit_vec(4.5),
         {
@@ -951,7 +1009,9 @@ async def test_list_result_includes_references_field(
     apply_link_annotations(
         s3_client, "artifacts/with-ref-field3", commit_refs=[], references=["a-1"]
     )
-    vectors_client_8.put_vector(
+    _put_listable(
+        vectors_client_8,
+        s3_client,
         "artifacts/with-ref-field3#summary",
         _unit_vec(4.6),
         {
@@ -981,7 +1041,9 @@ async def test_list_result_references_empty_when_absent(
 ) -> None:
     """Artifact without references in vector metadata → references=[] in response."""
     settings = _make_settings(monkeypatch)
-    vectors_client_8.put_vector(
+    _put_listable(
+        vectors_client_8,
+        s3_client,
         "artifacts/no-ref-field3#summary",
         _unit_vec(4.7),
         {
@@ -1010,7 +1072,9 @@ async def test_list_result_includes_last_edited_ulid(
 ) -> None:
     """Artifact with last_edited_ulid in vector metadata → field present in response."""
     settings = _make_settings(monkeypatch)
-    vectors_client_8.put_vector(
+    _put_listable(
+        vectors_client_8,
+        s3_client,
         "artifacts/with-ulid#summary",
         _unit_vec(3.6),
         {
@@ -1040,7 +1104,9 @@ async def test_list_legacy_artifact_last_edited_ulid_is_none(
 ) -> None:
     """Artifact without last_edited_ulid in vector metadata → last_edited_ulid=None."""
     settings = _make_settings(monkeypatch)
-    vectors_client_8.put_vector(
+    _put_listable(
+        vectors_client_8,
+        s3_client,
         "artifacts/legacy#summary",
         _unit_vec(3.7),
         {
@@ -1082,7 +1148,9 @@ async def test_more_than_100_artifacts_all_returned(
     artifact_count = 105
     artifact_ids = [f"artifacts/bulk-artifact-{i:03d}" for i in range(artifact_count)]
     for i, artifact_id in enumerate(artifact_ids):
-        vectors_client_8.put_vector(
+        _put_listable(
+            vectors_client_8,
+            s3_client,
             f"{artifact_id}#summary",
             _unit_vec(float(i) * 0.01 + 5.0),
             {
@@ -1126,7 +1194,9 @@ async def test_vector_missing_tier_key_does_not_raise(
     """
     settings = _make_settings(monkeypatch)
     # Seed a vector that has no "tier" key at all (simulates a legacy artifact)
-    vectors_client_8.put_vector(
+    _put_listable(
+        vectors_client_8,
+        s3_client,
         "artifacts/legacy-no-tier#summary",
         _unit_vec(1.0),
         {
@@ -1171,7 +1241,7 @@ async def test_list_vector_calls_run_off_event_loop(
     the calling event-loop thread — proves the calls are routed through
     asyncio.to_thread."""
     settings = _make_settings(monkeypatch)
-    _seed_vectors(vectors_client_8)
+    _seed_vectors(vectors_client_8, s3_client)
     main_thread = threading.current_thread()
     seen_threads: list[threading.Thread] = []
 
@@ -1221,7 +1291,9 @@ async def test_list_cross_scope_reference_filtering_batched_across_page(
     apply_link_annotations(
         s3_client, "other-team/t3-with-refs-a", commit_refs=[], references=["other-team/t2-target"]
     )
-    vectors_client_8.put_vector(
+    _put_listable(
+        vectors_client_8,
+        s3_client,
         "other-team/t3-with-refs-a#summary",
         _unit_vec(2.1),
         {
@@ -1233,7 +1305,9 @@ async def test_list_cross_scope_reference_filtering_batched_across_page(
             "references": ["other-team/t2-target"],
         },
     )
-    vectors_client_8.put_vector(
+    _put_listable(
+        vectors_client_8,
+        s3_client,
         "other-team/t2-target#summary",
         _unit_vec(2.2),
         {
@@ -1248,7 +1322,9 @@ async def test_list_cross_scope_reference_filtering_batched_across_page(
     apply_link_annotations(
         s3_client, "other-team/t3-with-refs-b", commit_refs=[], references=["other-team/t3-target"]
     )
-    vectors_client_8.put_vector(
+    _put_listable(
+        vectors_client_8,
+        s3_client,
         "other-team/t3-with-refs-b#summary",
         _unit_vec(2.3),
         {
@@ -1260,7 +1336,9 @@ async def test_list_cross_scope_reference_filtering_batched_across_page(
             "references": ["other-team/t3-target"],
         },
     )
-    vectors_client_8.put_vector(
+    _put_listable(
+        vectors_client_8,
+        s3_client,
         "other-team/t3-target#summary",
         _unit_vec(2.4),
         {
@@ -1304,7 +1382,9 @@ async def test_list_own_scope_reference_filtering_issues_no_extra_vector_query(
         commit_refs=[],
         references=["other-team/does-not-exist"],
     )
-    vectors_client_8.put_vector(
+    _put_listable(
+        vectors_client_8,
+        s3_client,
         "artifacts/own-with-refs-spy#summary",
         _unit_vec(2.5),
         {
@@ -1340,7 +1420,9 @@ async def test_list_cross_scope_reference_missing_target_stripped(
         commit_refs=[],
         references=["other-team/does-not-exist"],
     )
-    vectors_client_8.put_vector(
+    _put_listable(
+        vectors_client_8,
+        s3_client,
         "other-team/t3-with-missing-ref#summary",
         _unit_vec(2.6),
         {
@@ -1376,7 +1458,9 @@ async def test_list_cross_scope_reference_resolving_into_own_scope_kept(
         commit_refs=[],
         references=["artifacts/own-hidden-target"],
     )
-    vectors_client_8.put_vector(
+    _put_listable(
+        vectors_client_8,
+        s3_client,
         "other-team/t3-with-own-ref#summary",
         _unit_vec(2.7),
         {
@@ -1418,7 +1502,9 @@ async def test_list_link_fields_come_from_annotations_not_vector_metadata(
         commit_refs=["sha-annotation"],
         references=["ref-annotation"],
     )
-    vectors_client_8.put_vector(
+    _put_listable(
+        vectors_client_8,
+        s3_client,
         "artifacts/list-annotation-only-ref#summary",
         _unit_vec(5.7),
         {
@@ -1454,7 +1540,9 @@ async def test_list_page_costs_exactly_one_vector_index_scan(
         artifact_id = f"artifacts/scan-count-{n}"
         s3_client.put_object(artifact_id, "Content.", {"title": "x"})
         apply_link_annotations(s3_client, artifact_id, commit_refs=[f"sha-{n}"], references=[])
-        vectors_client_8.put_vector(
+        _put_listable(
+            vectors_client_8,
+            s3_client,
             f"{artifact_id}#summary",
             _unit_vec(seed),
             {**_BASE_VECTOR_META, "artifact_id": artifact_id},
@@ -1485,7 +1573,9 @@ async def test_list_annotation_failure_errors_rather_than_degrading_the_page(
     apply_link_annotations(
         s3_client, "artifacts/degrade-guard", commit_refs=["abc1234"], references=[]
     )
-    vectors_client_8.put_vector(
+    _put_listable(
+        vectors_client_8,
+        s3_client,
         "artifacts/degrade-guard#summary",
         _unit_vec(6.4),
         {**_BASE_VECTOR_META, "artifact_id": "artifacts/degrade-guard"},
@@ -1522,7 +1612,7 @@ async def test_list_annotation_unavailable_returns_the_annotation_unavailable_co
     diagnosing post-setup IAM drift should not have to know which tool they called.
     """
     settings = _make_settings(monkeypatch)
-    _seed_vectors(vectors_client_8)
+    _seed_vectors(vectors_client_8, s3_client)
     mocker.patch.object(
         s3_client,
         "get_object_annotation",
@@ -1534,4 +1624,221 @@ async def test_list_annotation_unavailable_returns_the_annotation_unavailable_co
     result = await list_artifacts(settings=settings, s3=s3_client, vectors=vectors_client_8)
 
     assert result.get("error") == "annotation_unavailable"
+    assert "artifacts" not in result
+
+
+# ---------------------------------------------------------------------------
+# Malformed records are skipped; a deleted object is skipped separately
+# ---------------------------------------------------------------------------
+
+
+async def test_list_skips_a_candidate_with_no_artifact_id_and_still_returns_the_page(
+    monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
+    s3_client: S3ClientImpl,
+) -> None:
+    """One unreadable record must not withhold every readable one on the page. Without
+    an id the candidate cannot be identified, deduplicated, or fetched."""
+    settings = _make_settings(monkeypatch)
+    _seed_vectors(vectors_client_8, s3_client)
+    _put_listable(
+        vectors_client_8,
+        s3_client,
+        "artifacts/no-id#summary",
+        _unit_vec(0.5),
+        {**_BASE_VECTOR_META, "status": "active"},
+    )
+
+    result = await list_artifacts(
+        settings=settings, vectors=vectors_client_8, s3=s3_client, bedrock=None
+    )
+
+    assert "error" not in result
+    assert result["artifacts"], "readable records must survive an unreadable neighbour"
+    assert result["skipped_malformed_count"] == 1
+
+
+async def test_list_skips_a_candidate_whose_tier_will_not_coerce(
+    monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
+    s3_client: S3ClientImpl,
+) -> None:
+    """The candidate is genuinely absent from the page rather than present with a
+    defaulted tier — ``tier`` is one of the two fields the cross-scope gate keys on."""
+    settings = _make_settings(monkeypatch)
+    _seed_vectors(vectors_client_8, s3_client)
+    _put_listable(
+        vectors_client_8,
+        s3_client,
+        "artifacts/bad-tier#summary",
+        _unit_vec(0.5),
+        {
+            **_BASE_VECTOR_META,
+            "artifact_id": "artifacts/bad-tier",
+            "status": "active",
+            "tier": "high",
+        },
+    )
+
+    result = await list_artifacts(
+        settings=settings, vectors=vectors_client_8, s3=s3_client, bedrock=None
+    )
+
+    ids = [a["artifact_id"] for a in result["artifacts"]]
+    assert "artifacts/bad-tier" not in ids
+    assert result["skipped_malformed_count"] == 1
+
+
+async def test_list_omits_both_skip_counts_when_nothing_was_skipped(
+    monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
+    s3_client: S3ClientImpl,
+) -> None:
+    """Absent rather than zero: the presence of either key is itself the signal."""
+    settings = _make_settings(monkeypatch)
+    _seed_vectors(vectors_client_8, s3_client)
+
+    result = await list_artifacts(
+        settings=settings, vectors=vectors_client_8, s3=s3_client, bedrock=None
+    )
+
+    assert "skipped_malformed_count" not in result
+    assert "skipped_deleted_count" not in result
+
+
+async def test_list_never_counts_a_gated_out_foreign_candidate_as_a_skip(
+    monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
+    s3_client: S3ClientImpl,
+) -> None:
+    """A candidate the gate denied is not a skip. Counting it would disclose that a
+    foreign artifact exists — including one whose own ``tier`` the gate could not
+    read, which denies rather than raising."""
+    settings = _make_settings(monkeypatch)
+    _seed_vectors(vectors_client_8, s3_client)
+    _put_listable(
+        vectors_client_8,
+        s3_client,
+        "other-team/gated-bad-tier#summary",
+        _unit_vec(0.5),
+        {
+            **_BASE_VECTOR_META,
+            "artifact_id": "other-team/gated-bad-tier",
+            "scope": "other-team",
+            "status": "active",
+            "tier": "high",
+            "visibility": "shared",
+        },
+    )
+
+    result = await list_artifacts(
+        settings=settings, vectors=vectors_client_8, s3=s3_client, bedrock=None
+    )
+
+    ids = [a["artifact_id"] for a in result["artifacts"]]
+    assert "other-team/gated-bad-tier" not in ids
+    assert "skipped_malformed_count" not in result
+
+
+async def test_list_omits_an_artifact_whose_object_is_gone_and_counts_it_separately(
+    monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
+    s3_client: S3ClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """``ObjectNotFoundError`` is a read that *succeeded* and answered definitively.
+
+    Omitting a deleted artifact from a listing is the correct result, not a lossy one,
+    and failing a read-only call over a benign concurrent delete would be
+    disproportionate when a retry can meet the same race.
+    """
+    from arkeology.errors import ObjectNotFoundError
+
+    settings = _make_settings(monkeypatch)
+    _seed_vectors(vectors_client_8, s3_client)
+    gone = "artifacts/t2-active-review"
+
+    real_get = s3_client.get_object_annotation
+
+    def _gone_for_one(key: str, annotation_name: str) -> str:
+        if key == gone:
+            raise ObjectNotFoundError(key)
+        return real_get(key, annotation_name)
+
+    mocker.patch.object(s3_client, "get_object_annotation", side_effect=_gone_for_one)
+
+    result = await list_artifacts(
+        settings=settings, vectors=vectors_client_8, s3=s3_client, bedrock=None
+    )
+
+    ids = [a["artifact_id"] for a in result["artifacts"]]
+    assert gone not in ids
+    assert ids, "the rest of the page must survive one concurrent delete"
+    assert result["skipped_deleted_count"] == 1
+    assert "skipped_malformed_count" not in result
+
+
+async def test_list_keeps_the_deleted_and_malformed_counts_separate(
+    monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
+    s3_client: S3ClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """Two counters, never merged. Ordinary churn is routinely non-zero and self-heals;
+    corrupt stored data wants investigation. One shared number would sit at the floor
+    the benign cause sets, and the serious one would never surface."""
+    from arkeology.errors import ObjectNotFoundError
+
+    settings = _make_settings(monkeypatch)
+    _seed_vectors(vectors_client_8, s3_client)
+    gone = "artifacts/t2-active-review"
+    _put_listable(
+        vectors_client_8,
+        s3_client,
+        "artifacts/bad-tier#summary",
+        _unit_vec(0.5),
+        {
+            **_BASE_VECTOR_META,
+            "artifact_id": "artifacts/bad-tier",
+            "status": "active",
+            "tier": "high",
+        },
+    )
+    real_get = s3_client.get_object_annotation
+
+    def _gone_for_one(key: str, annotation_name: str) -> str:
+        if key == gone:
+            raise ObjectNotFoundError(key)
+        return real_get(key, annotation_name)
+
+    mocker.patch.object(s3_client, "get_object_annotation", side_effect=_gone_for_one)
+
+    result = await list_artifacts(
+        settings=settings, vectors=vectors_client_8, s3=s3_client, bedrock=None
+    )
+
+    assert result["skipped_deleted_count"] == 1
+    assert result["skipped_malformed_count"] == 1
+
+
+async def test_list_still_fails_the_page_on_an_unclassified_link_field_not_found(
+    monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
+    s3_client: S3ClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """A bare ``KeyError`` established nothing about absence, so it is not the
+    definitive-delete case. It must not become an artifact listed with empty link
+    fields, which is indistinguishable from one that genuinely has none."""
+    settings = _make_settings(monkeypatch)
+    _seed_vectors(vectors_client_8, s3_client)
+    mocker.patch.object(
+        s3_client, "get_object_annotation", side_effect=KeyError("artifacts/t2-active-review")
+    )
+
+    result = await list_artifacts(
+        settings=settings, vectors=vectors_client_8, s3=s3_client, bedrock=None
+    )
+
+    assert "error" in result
     assert "artifacts" not in result

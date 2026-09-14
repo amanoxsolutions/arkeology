@@ -245,9 +245,9 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
   listing-and-fetch pair per entry, to learn the reference token and the vectors it decides over.
 - **An absent `visibility` rebuilds as `"hidden"`, never `"shared"`.** When the S3 object metadata
   carries no `visibility`, the rebuilt vector metadata gets `"hidden"`. `visibility` is one of the
-  two fields the cross-scope gate keys on, and the gate has two forms that must agree: the in-process
-  predicate `is_cross_scope_readable` in `_scope.py` reads an absent S3 value as `""` and denies, so
-  the server-side filter form must not be handed a value that admits the same artifact. Defaulting to
+  two fields the cross-scope gate keys on, and the in-process predicate
+  `is_cross_scope_readable` in `_scope.py` — the gate's authority — denies an absent value, so the
+  rebuilt metadata must not be given a value that admits the same artifact. Defaulting to
   `"shared"` here would let `search_artifacts` and `list_artifacts` return cross-scope an artifact
   that `read_artifact` then refuses. Failing closed is the only default consistent with both forms;
   the S3 object is left as it is (see `s3.artifact`), and no response field reports the substitution.
