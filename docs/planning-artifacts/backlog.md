@@ -180,3 +180,81 @@ Items that were promoted to a phase are **not** listed here — see the phase hi
   `last_edited_at` deriver, with a slightly different warning message — F-6's originally-cited scope
   was only `search.py`/`propose_commit_links.py`. Low priority; fold into a future hygiene batch.
   Source: Phase 12 T68 review (2026-08-19).
+
+- **B-12 — Answer per-artifact vector lookups with a server-side filter instead of a full-index
+  scan.** `clients/vectors.py`'s `list_vectors_by_metadata` pages `ListVectors` over the whole
+  index with `returnMetadata=True` and filters **client-side**, because the ListVectors API has no
+  server-side metadata filter. `query_vectors` in the same client *does* filter server-side, so a
+  per-artifact lookup can be answered by one filtered query rather than a scan of everything. Its
+  similarity ranking is made irrelevant by over-requesting `top_k`: the filter selects the
+  candidate set, and asking for more slots than can match returns all of them, in arbitrary order,
+  with the scores discarded. Completeness is *provable* — a response holding fewer results than
+  `top_k` cannot have been truncated, because a truncated response is always exactly `top_k` long.
+
+  **Measured 2026-09-14 against real AWS, not estimated.** Re-runnable instrument:
+  `tests/integration/test_calibration_per_artifact_vector_lookup.py`. The index held **371
+  vectors**, so the scan completed in a **single** `ListVectors` page and transferred all 371
+  with metadata to return the 6 (and, for a second artifact, 2) that matched — against **1**
+  `QueryVectors` call transferring exactly 6 (and 2). Median wall-clock over three repeats:
+  0.290s / 0.246s for the scan, 0.162s / 0.155s for the query. The completeness proof held on
+  both artifacts (`PROVEN COMPLETE`). **Deferred on those numbers**: at one page the API call
+  count is identical, so the win is bytes and roughly 130ms per lookup — the case for changing
+  anything is entirely about slope, not about today.
+
+  **Where it would pay.** Ten lookups filter on `artifact_id` `$eq`, in `migrate_artifacts`,
+  `archive` (twice), `delete`, `freshness`, `purge`, `reconcile` (twice), `link_metadata` and
+  `write`. Seven are one-shot — a single user action absorbs a scan and stays comfortable at
+  almost any index size. The case rests on the **three that run inside a loop**:
+  `migrate_artifacts`'s `_check_candidate` fan-out (one scan per candidate, so a 57-file
+  migration is 57 whole-index scans), `purge`'s `_delete_one` fan-out (one per artifact
+  purged), and `reconcile`'s `_reindex_artifact` (one per artifact rebuilt — O(N) scans over an
+  index that is itself O(N), the only quadratic term, and the one that degrades faster than
+  intuition suggests). If only part of this is ever done, do those three.
+
+  **Where it would not pay, and must not be applied.** Whole-scope enumerations cannot be
+  served by a bounded `top_k` at all — `reconcile`'s Phase 3 scope prune (`{"scope": {"$eq":
+  write_prefix}}`), `propose_commit_links`, `list`, `freshness`'s synthesis enumeration, and
+  `purge`'s two scope-wide steps. Enumerating everything is precisely what those are for, so
+  `list_vectors_by_metadata` stays regardless and this is a second path beside it, never a
+  replacement for it.
+
+  **Two sites gain less than the rest.** `archive`'s vector flip and `link_metadata` need
+  `include_data=True`, and `query_vectors` returns metadata without the float32 data, so both
+  would still need a `GetVectors` follow-up — trading N pages for one query plus one get.
+  Everywhere else the gain is larger than the review states: `fetch_vectors_by_metadata` is
+  scan-then-`GetVectors` today, and a filtered query returns metadata inline, collapsing two
+  round trips into one.
+
+  **Design constraint, load-bearing.** Derive `top_k` from a fixed ceiling, or loop while
+  `len(results) == top_k`. Do **not** derive it from the live `EMBED_MAX_SECTIONS`: that
+  setting is applied at write time, so lowering it silently truncates lookups for artifacts
+  written earlier, and `delete` and `purge` would then leave orphaned vectors behind with no
+  error raised. This is the same shape of defect as deriving any bound from a mutable setting
+  rather than stating it — see the `last_edited_ulid` row in `s3.artifact` for the equivalent
+  rule there. A saturated response (`len(results) == top_k`) is unprovable and must fall back
+  to `list_vectors_by_metadata`, which is always exhaustive.
+
+  **How to recalibrate.** Copy `.env.example` to `.env` with real bucket and index names
+  (credentials come from the usual AWS mechanisms), then run:
+
+  ```bash
+  uv run pytest tests/integration/test_calibration_per_artifact_vector_lookup.py \
+    -q -s --log-cli-level=INFO
+  ```
+
+  It seeds two artifacts under an ephemeral `integration-tests/<run-id>` prefix, asks both
+  primitives the same question, and logs: **index size** (the vectors the scan pulls back — the
+  number the decision turns on), `ListVectors` pages versus the single `QueryVectors` call,
+  vectors transferred by each, whether the completeness proof held, and medians over three
+  repeats. It asserts only that both return the identical key set and that the set matches the
+  write's reported `sections_indexed` — never a timing or a size, since AWS's numbers are not a
+  contract. Teardown is the suite's own session-scoped isolation.
+
+  **Threshold that flips the decision.** Index size times per-artifact-lookup frequency, not
+  index size alone. A page is 1,000 vectors, so the scan costs one round trip per 1,000 while
+  the query stays at one call: around 5,000 vectors the looped sites start paying five round
+  trips per artifact, and a full `reconcile_index` rebuild is where it will show first. Re-run
+  the calibration when the index grows materially, or as soon as a full rebuild is slow enough
+  to notice.
+
+  Source: MJ-4 of the 2026-09-06 full-codebase review; measured and deferred 2026-09-14.
