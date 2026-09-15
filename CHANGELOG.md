@@ -164,6 +164,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   never `corrupt_metadata`, so a gated artifact's stored state is never disclosed through
   this path. A caller that branched on `internal_error` from `read_artifact` to detect
   unparseable own-scope metadata must now branch on `corrupt_metadata`
+- `write_artifacts` returns the underlying exception text in its error `message` again, on
+  both its batch-level and its per-artifact error paths, reversing the sanitisation added in
+  0.6.0. The rationale for withholding it was that a boto exception string can carry ARNs,
+  account ids and bucket names; that does not hold here, because the caller is the operator's
+  own agent running with the operator's own credentials against the operator's own AWS
+  account, so the detail discloses nothing the caller cannot already read while a generic
+  message makes an AWS permission failure materially harder to diagnose. This also settles a
+  split where `write_artifacts` was the only tool withholding the detail — every tool and
+  resource now reports an unexpected failure the same way, with the exception still logged
+  server-side. A caller that relied on the fixed string must treat `message` as free-form
+  diagnostic text, which is what every other tool already returned
 
 ### Security
 - `search_artifacts` and `synthesise_artifacts` now re-check every candidate against the
