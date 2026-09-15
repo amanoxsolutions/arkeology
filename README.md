@@ -266,12 +266,6 @@ the correct update action automatically — no manual steps required.
 
 ---
 
-## Status
-
-> **v0.7.0** — all tools implemented and unit-tested: `write_artifact`, `write_artifacts`, `migrate_artifacts`, `search_artifacts`, `read_artifact`, `list_artifacts`, `archive_artifact`, `delete_artifact`, `purge_archived`, `health_check`, `synthesise_artifacts`, `reconcile_index`, `check_synthesis_freshness`, `propose_commit_links`, `link_metadata`, and `arkeology_studio`. Five schema resources (`arkeology://schema/*`) and two data resources (`arkeology://artifacts`, `arkeology://artifact/{id}`) are registered and available.
-
----
-
 ## Skills
 
 Four skills, delivered via the plugin mechanisms above — no manual file copying needed.
