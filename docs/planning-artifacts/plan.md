@@ -320,11 +320,22 @@ changes.
     - MN-8: `tools/health.py`'s fixed `probe_key = f"{settings.write_prefix}/_arkeology_health_probe"`
       gains a per-invocation ULID suffix, matching `startup.py`'s `{_PROBE_KEY_SUFFIX}_{ULID()}`
       pattern, so two concurrent `health_check` calls no longer race on one probe object.
-    - MN-9: `resources.py`'s two resource-handler `except Exception as exc:` blocks
-      (`arkeology://artifact/{id*}`, `arkeology://artifacts`) and `studio.py`'s catch-all stop
-      echoing `str(exc)` (which can carry ARNs/account IDs/bucket names) to the client, replacing it
-      with `write_artifacts.py`'s fixed-message pattern; the raw exception stays logged server-side
-      via `logger.exception`.
+    - MN-9: **subsequently reverted — not live.** It replaced the `str(exc)` echo in `resources.py`'s
+      two resource handlers (`arkeology://artifact/{id*}`, `arkeology://artifacts`) and `studio.py`'s
+      catch-all with `write_artifacts.py`'s fixed-message pattern, on the theory that a boto
+      exception string can carry ARNs/account IDs/bucket names. The operator decided that rationale
+      does not apply here: the caller is the operator's own agent, running with the operator's own
+      credentials against the operator's own AWS account, so the detail discloses nothing the caller
+      cannot already read and is materially more useful for diagnosing an AWS permission failure.
+      All three surfaces return the exception text again; the exception also stays logged
+      server-side via `logger.exception`. `CHANGELOG.md` records neither the item nor its revert:
+      the `v0.7.0` tag is force-moved onto the revert, so that release's net content never
+      included the change, and a changelog describes net release content rather than intermediate
+      commits.
+      The revert is wider than the item: `write_artifacts.py` — which had the fixed-message pattern
+      first, predating MN-9, and was what MN-9 copied — drops it too, in both its batch-level and
+      its per-artifact handler. Every tool and resource in the server now reports an unexpected
+      failure with the underlying exception text.
     - MN-10: two stale comments corrected to match current code — `resources.py`'s
       `register_data_resources` docstring drops the claim that the artifact resource "Includes a
       `lastModified` annotation derived from `last_edited_ulid` when present" (the handler explicitly
@@ -348,7 +359,9 @@ changes.
       `write_artifacts.py` and `migrate_artifacts.py`); every import site and every test that
       references these names directly is updated to match.
 
-    No behaviour change except MN-1, MN-8, and MN-9, each covered by a new or updated test.
+    No behaviour change except MN-1 and MN-8, each covered by a new or updated test. MN-9 was
+    a behaviour change when it landed, but has since been reverted — both the behaviour it
+    introduced and the tests covering it are gone.
     Archival specs, ADRs, and brainstorming documents that happen to name the renamed symbols in
     prose are not updated — they are historical records, not normative surfaces.
 

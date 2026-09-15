@@ -164,13 +164,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   never `corrupt_metadata`, so a gated artifact's stored state is never disclosed through
   this path. A caller that branched on `internal_error` from `read_artifact` to detect
   unparseable own-scope metadata must now branch on `corrupt_metadata`
-- an unexpected failure of a resource read or of `arkeology_studio` now returns a fixed
-  generic message instead of the underlying exception string, bringing those two surfaces
-  in line with the pattern `write_artifacts` already used; the exception detail is logged
-  server-side instead. A caller that parsed the exception text out of a resource body or
-  out of the Studio error content will no longer find it there. This covers those two
-  surfaces only — every other tool still returns the exception string in its error
-  `message` — so it is a consistency step, not a closed leak class
 
 ### Security
 - `search_artifacts` and `synthesise_artifacts` now re-check every candidate against the

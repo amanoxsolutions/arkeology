@@ -104,14 +104,11 @@ async def write_artifacts(
             file_extension=file_extension,
             overwrite=overwrite,
         )
-    except Exception:
-        # The raw exception (which may contain AWS-specific details —
-        # ARNs, account IDs, internal bucket names) is logged server-side for
-        # diagnostics but never echoed to the MCP caller.
+    except Exception as exc:
         logger.exception("Unexpected error in write_artifacts")
         return {
             "error": ErrorCode.INTERNAL_ERROR,
-            "message": "An unexpected internal error occurred while processing this batch.",
+            "message": str(exc),
             "results": [],
         }
 
@@ -204,14 +201,11 @@ async def _write_artifacts_inner(
                     "artifact_id": result.get("artifact_id", ""),
                     "sections_indexed": result.get("sections_indexed", 0),
                 }
-            except Exception:
-                # Same sanitization as the top-level handler above — the
-                # raw exception (which may contain AWS-specific details) is logged
-                # server-side but never echoed to the MCP caller.
+            except Exception as exc:
                 logger.exception("Unexpected error writing artifact '%s'", descriptor.get("title"))
                 return {
                     "error": ErrorCode.INTERNAL_ERROR,
-                    "message": "An unexpected internal error occurred while writing this artifact.",
+                    "message": str(exc),
                 }
 
     raw_results = await asyncio.gather(*[write_one(i, d) for i, d in enumerate(artifacts)])

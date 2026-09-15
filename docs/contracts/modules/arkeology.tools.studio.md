@@ -67,10 +67,6 @@ Never raises. A failure is returned as a structured error `ToolResult` with `is_
 - A failure of the inner `list_artifacts` call is surfaced as a structured error — **never** coerced
   into an empty listing, and never capped or reordered. An empty listing and a broken listing must
   remain distinguishable.
-- The outer catch-all's `content` message is a **fixed, generic** one and **never** the underlying
-  exception text. `str(exc)` on a boto error can carry a bucket name, an ARN, or an account id,
-  and this message reaches the client verbatim. The exception detail belongs in the server log,
-  written via `logger.exception`.
 - The underlying cross-scope gate is inherited from `list_artifacts`; this tool adds no access
   control of its own and must not weaken it.
 - When this tool is active and the browser UI triggers `read_artifact`, `list_artifacts`, or

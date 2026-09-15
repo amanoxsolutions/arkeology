@@ -715,12 +715,9 @@ def register_data_resources(
                 bedrock=bedrock,
             )
             return content
-        except Exception:
+        except Exception as exc:
             logger.exception("Unexpected error in arkeology://artifact/{id*} resource handler")
-            return (
-                "# Error: internal_error\n\n"
-                "An unexpected internal error occurred while reading this resource.\n"
-            )
+            return f"# Error: internal_error\n\n{exc}\n"
 
     @app.resource(
         "arkeology://artifacts",
@@ -740,12 +737,9 @@ def register_data_resources(
                 vectors=vectors,
                 bedrock=bedrock,
             )
-        except Exception:
+        except Exception as exc:
             logger.exception("Unexpected error in arkeology://artifacts resource handler")
-            return (
-                "# Error: internal_error\n\n"
-                "An unexpected internal error occurred while reading this resource.\n"
-            )
+            return f"# Error: internal_error\n\n{exc}\n"
 
     logger.debug(
         "arkeology data resources registered (arkeology://artifact/{id*}, arkeology://artifacts)"
