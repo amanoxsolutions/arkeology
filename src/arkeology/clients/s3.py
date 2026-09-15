@@ -102,7 +102,10 @@ class S3ClientImpl:
                 response = self._s3.put_object(**kwargs)
             except botocore.exceptions.ClientError as exc:
                 code = _error_code(exc)
-                if code == "PreconditionFailed":
+                # A conditional-write race can surface as either the classic
+                # PreconditionFailed (412) or ConditionalRequestConflict (409) —
+                # both signal the identical lost-race condition the CAS loops retry on.
+                if code in ("PreconditionFailed", "ConditionalRequestConflict"):
                     if if_none_match:
                         raise ArtifactCollisionError(key) from exc
                     if if_match is not None:

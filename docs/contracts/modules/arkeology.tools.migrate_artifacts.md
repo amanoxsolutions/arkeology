@@ -15,8 +15,8 @@ authored:
   by: "tech-writer"
   date: 2026-09-04
 revised:
-  by: "tech-writer"
-  date: 2026-09-06
+  by: "developer"
+  date: 2026-09-15
 ---
 
 # arkeology.tools.migrate_artifacts
@@ -57,7 +57,10 @@ failures are reported inside their own entries.
   the surfaced failure always matches the one a sequential scan would have hit first. A
   `CredentialError` raised during description enrichment is different: it is caught per descriptor
   and recorded as that descriptor's own generation failure, never surfaced as this top-level code.
-- `internal_error` — any otherwise unhandled exception.
+- `internal_error` — any otherwise unhandled exception. A non-credential, non-`KeyError`
+  transport failure from the per-candidate existence/indexing check specifically is no longer
+  such a case: it is caught per candidate and reported as that candidate's own `check_failed`
+  entry, never surfaced as this top-level code.
 
 **Invariants**
 
@@ -107,4 +110,10 @@ failures are reported inside their own entries.
   written with an empty description: in a live run its `results` entry is
   `{"written": False, "skipped": True, "reason": "description_generation_failed", "message": ...}`,
   distinct from the `skipped_existing` reason.
+- `check_failed` is present only when at least one candidate's existence/indexing check
+  (`head_object` or `list_vectors_by_metadata`) raised a non-credential, non-`KeyError`
+  exception; one entry per such candidate carrying `index`, `artifact_id`, `title`, and
+  `message`. Its `results` entry is `{"written": False, "skipped": True, "artifact_id": ...,
+  "reason": "existence_check_failed", "message": ...}`. This does not abort the batch — every
+  other candidate is still checked and, if eligible, written normally.
 - No pre-existing artifact's content, metadata, or link fields are modified by any run.

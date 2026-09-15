@@ -412,21 +412,33 @@ async def _link_metadata_inner(
                 # vector metadata (T58) — the annotation write above is its sole durable
                 # store; unconditionally drop any stale pre-T58 key here.
                 batch: list[dict[str, Any]] = []
-                for item in items:
-                    meta: dict[str, Any] = dict(item["metadata"])
-                    if merged_commit_refs:
-                        meta["commit_refs"] = cap_commit_refs_for_vectors(merged_commit_refs)
-                    else:
-                        meta.pop("commit_refs", None)
-                    meta.pop("references", None)
+                try:
+                    for item in items:
+                        meta: dict[str, Any] = dict(item["metadata"])
+                        if merged_commit_refs:
+                            meta["commit_refs"] = cap_commit_refs_for_vectors(merged_commit_refs)
+                        else:
+                            meta.pop("commit_refs", None)
+                        meta.pop("references", None)
 
-                    batch.append(
-                        {
-                            "key": item["key"],
-                            "vector": item["data"]["float32"],
-                            "metadata": meta,
-                        }
+                        batch.append(
+                            {
+                                "key": item["key"],
+                                "vector": item["data"]["float32"],
+                                "metadata": meta,
+                            }
+                        )
+                except KeyError:
+                    # MJ-10: a vector item missing its float32 embedding data is
+                    # malformed, not an orphan — a distinct, more concerning
+                    # condition from the head_object/annotation "S3 object gone"
+                    # KeyError below, so it gets its own diagnosis at WARNING.
+                    logger.warning(
+                        "link_metadata found a vector for artifact_id=%s with no "
+                        "embedding data (malformed) — skipping",
+                        artifact_id,
                     )
+                    return {"kind": "skip"}
 
                 try:
                     await asyncio.to_thread(vectors.put_vectors_batch, batch)

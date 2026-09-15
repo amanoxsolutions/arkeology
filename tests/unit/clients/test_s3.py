@@ -9,7 +9,7 @@ import pytest
 from arkeology.artifact import decode_metadata_value
 from arkeology.clients.s3 import S3ClientImpl
 from arkeology.clients.vectors import VectorsClientImpl
-from arkeology.errors import ArtifactCollisionError, CredentialError
+from arkeology.errors import ArtifactCollisionError, ArtifactConflictError, CredentialError
 
 # ---------------------------------------------------------------------------
 # S3ClientImpl — metadata transport encoding (T55: lossless, not lossy ASCII-strip)
@@ -204,6 +204,44 @@ def test_put_object_without_if_none_match_overwrites_existing_key(
     s3_client.put_object(key="test/overwrite.md", body="original", metadata={})
     s3_client.put_object(key="test/overwrite.md", body="replacement", metadata={})
     assert s3_client.get_object("test/overwrite.md") == "replacement"
+
+
+def test_put_object_if_none_match_raises_collision_on_conditional_request_conflict(
+    s3_client: S3ClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """A conditional-create put also raises ArtifactCollisionError when S3 reports the
+    race as ConditionalRequestConflict (HTTP 409) rather than the classic
+    PreconditionFailed (HTTP 412) — both codes signal the identical lost-race condition."""
+    conflict_exc = botocore.exceptions.ClientError(
+        {"Error": {"Code": "ConditionalRequestConflict", "Message": "Conflict"}},
+        "PutObject",
+    )
+    mocker.patch.object(s3_client._s3, "put_object", side_effect=conflict_exc)
+    with pytest.raises(ArtifactCollisionError) as exc_info:
+        s3_client.put_object(
+            key="test/conflict.md", body="content", metadata={}, if_none_match=True
+        )
+    assert exc_info.value.key == "test/conflict.md"
+
+
+def test_put_object_if_match_raises_conflict_on_conditional_request_conflict(
+    s3_client: S3ClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """A compare-and-swap put also raises ArtifactConflictError when S3 reports the race
+    as ConditionalRequestConflict (HTTP 409) rather than the classic PreconditionFailed
+    (HTTP 412)."""
+    conflict_exc = botocore.exceptions.ClientError(
+        {"Error": {"Code": "ConditionalRequestConflict", "Message": "Conflict"}},
+        "PutObject",
+    )
+    mocker.patch.object(s3_client._s3, "put_object", side_effect=conflict_exc)
+    with pytest.raises(ArtifactConflictError) as exc_info:
+        s3_client.put_object(
+            key="test/conflict.md", body="content", metadata={}, if_match='"some-etag"'
+        )
+    assert exc_info.value.key == "test/conflict.md"
 
 
 def test_put_vectors_batch_credential_error(

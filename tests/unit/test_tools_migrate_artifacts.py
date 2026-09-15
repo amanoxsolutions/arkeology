@@ -1585,6 +1585,58 @@ async def test_t61_mixed_corpus_all_three_categories_classified_independently(
     assert result["results"][2].get("written") is True
 
 
+async def test_t61_check_failed_from_head_object_does_not_abort_batch(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """A non-credential, non-KeyError exception from head_object for one candidate
+    is reported per-candidate as check_failed — it must not fail the whole batch
+    the way a CredentialError does, and the other candidates are still processed.
+    """
+    from arkeology.tools.migrate_artifacts import migrate_artifacts
+
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient()
+    descriptors = [_make_descriptor(0), _make_descriptor(1)]
+
+    real_head_object = s3_client.head_object
+
+    def flaky_head_object(key: str) -> dict[str, Any]:
+        if "decision-0" in key:
+            raise RuntimeError("boom")
+        return real_head_object(key)
+
+    mocker.patch.object(s3_client, "head_object", side_effect=flaky_head_object)
+
+    result = await migrate_artifacts(
+        s3=s3_client,
+        vectors=vectors_client,
+        bedrock=bedrock,
+        settings=settings,
+        descriptors=descriptors,
+        dry_run=False,
+    )
+
+    assert "error" not in result, f"batch must not abort on a per-candidate failure: {result}"
+    assert result["results"][1].get("written") is True, "the other candidate is unaffected"
+
+    check_failed = result.get("check_failed", [])
+    assert len(check_failed) == 1
+    assert check_failed[0]["index"] == 0
+    assert check_failed[0]["message"] == "boom"
+
+    entry = result["results"][0]
+    assert entry == {
+        "written": False,
+        "skipped": True,
+        "artifact_id": check_failed[0]["artifact_id"],
+        "reason": "existence_check_failed",
+        "message": "boom",
+    }
+
+
 async def test_t61_credential_error_from_vector_existence_query(
     monkeypatch: pytest.MonkeyPatch,
     s3_client: S3ClientImpl,

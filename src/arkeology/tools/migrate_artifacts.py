@@ -26,6 +26,12 @@ with a message pointing at ``reconcile_index`` for remediation. Detection and
 reporting only — ``migrate_artifacts`` never writes to or re-indexes an unindexed
 candidate itself.
 
+A non-credential, non-``KeyError`` exception (a transient or unmapped transport
+failure) from the per-candidate ``head_object`` or ``list_vectors_by_metadata``
+existence check is caught and reported per-candidate as ``"check_failed"`` — it does
+not abort the check for any other candidate in the same batch and does not fail the
+whole call the way a ``CredentialError`` does.
+
 A descriptor whose Nova Lite description generation fails is never written with an
 empty ``description`` — it is skipped (mirroring the skip-existing
 ``skipped_existing`` shape) and reported in the top-level ``"generation_failed"`` list,
@@ -181,6 +187,14 @@ async def migrate_artifacts(
             such candidate, with the message pointing at ``reconcile_index`` as the
             remediation path. Never folded into ``skipped_existing`` and never
             written to by ``migrate_artifacts`` itself.
+        A candidate whose existence check (``head_object`` or
+            ``list_vectors_by_metadata``) raised a non-credential, non-``KeyError``
+            exception is reported distinctly, present only when at least one such
+            candidate exists: its entry is ``{"written": False, "skipped": True,
+            "artifact_id": ..., "reason": "existence_check_failed", "message": ...}``,
+            and a top-level ``"check_failed"`` list is included (``index``, ``artifact_id``,
+            ``title``, ``message``), one entry per such candidate. This does not
+            abort the batch — every other candidate is still processed normally.
         A descriptor whose Nova Lite description generation fails is never
             written with an empty ``description``. In ``dry_run=False`` its result
             entry is ``{"written": False, "skipped": True,
@@ -337,6 +351,7 @@ async def _migrate_artifacts_inner(
     to_write_indices: list[int] = []
     skipped_existing: list[dict[str, Any]] = []
     skipped_unindexed: list[dict[str, Any]] = []
+    check_failed: list[dict[str, Any]] = []
     combined_results: list[dict[str, Any] | None] = [None] * len(enriched)
 
     # First pass (synchronous, CPU-only): resolve each descriptor's candidate S3
@@ -397,6 +412,11 @@ async def _migrate_artifacts_inner(
                 return idx, "new", None
             except CredentialError as exc:
                 return idx, "credential_error", exc
+            except Exception as exc:
+                # A transient/unmapped transport failure (timeout, unmapped ClientError)
+                # must not escape the gather below and fail every OTHER candidate in
+                # this batch too — report it per-candidate instead.
+                return idx, "check_failed", str(exc)
 
             # T61 self-heal detection: "S3 object exists" and "fully migrated" are
             # not the same fact — a prior attempt can have written S3 successfully
@@ -413,6 +433,8 @@ async def _migrate_artifacts_inner(
                 )
             except CredentialError as exc:
                 return idx, "credential_error", exc
+            except Exception as exc:
+                return idx, "check_failed", str(exc)
 
             return idx, ("indexed" if indexed_vector_keys else "unindexed"), None
 
@@ -432,6 +454,22 @@ async def _migrate_artifacts_inner(
         candidate_key = candidate_keys[idx]
         if outcome == "new":
             to_write_indices.append(idx)
+        elif outcome == "check_failed":
+            combined_results[idx] = {
+                "written": False,
+                "skipped": True,
+                "artifact_id": candidate_key,
+                "reason": "existence_check_failed",
+                "message": _payload,
+            }
+            check_failed.append(
+                {
+                    "index": idx,
+                    "artifact_id": candidate_key,
+                    "title": descriptor.get("title", ""),
+                    "message": _payload,
+                }
+            )
         elif outcome == "indexed":
             combined_results[idx] = {
                 "written": False,
@@ -497,6 +535,8 @@ async def _migrate_artifacts_inner(
         response["skipped_existing"] = skipped_existing
     if skipped_unindexed:
         response["skipped_unindexed"] = skipped_unindexed
+    if check_failed:
+        response["check_failed"] = check_failed
     if generation_failures:
         response["generation_failed"] = _generation_failed_report(descriptors, generation_failures)
     return _with_warning(response)

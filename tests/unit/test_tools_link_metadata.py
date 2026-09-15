@@ -6,6 +6,7 @@ references — durable S3 annotations first, then vector metadata reusing the
 existing float32 embeddings — with zero Bedrock calls (ADR-011 / T49, AC-59).
 """
 
+import logging
 import math
 from pathlib import Path
 from typing import Any
@@ -1346,6 +1347,52 @@ async def test_link_metadata_orphaned_vector_missing_s3_object_skipped_not_abort
     assert result.get("error") is None
     assert result.get("linked") == 1
     assert result.get("skipped") == 1
+
+
+async def test_link_metadata_malformed_vector_missing_embedding_data_skipped_distinct_log(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_2: VectorsClientImpl,
+    mocker: MockerFixture,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A vector returned by fetch_vectors_by_metadata with no float32 embedding data
+    (malformed, not an orphan) must be skipped-and-counted like an orphaned vector, but
+    logged with a distinct message/severity so the two causes are distinguishable —
+    MJ-10: this KeyError must not be misreported as "S3 object missing"."""
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient()
+    _seed_all(s3_client, vectors_client_2)
+
+    malformed_item = {
+        "key": KEY_A1,
+        "metadata": {**_BASE_META, "artifact_id": ID_A, "title": "Artifact Own A"},
+        "data": {},  # missing "float32"
+    }
+    mocker.patch(
+        "arkeology.tools.link_metadata.fetch_vectors_by_metadata",
+        return_value=[malformed_item],
+    )
+
+    caplog.set_level(logging.DEBUG, logger="arkeology.tools.link_metadata")
+    result = await link_metadata(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=bedrock,
+        artifact_ids=[ID_A],
+        commit_refs=["abc1234"],
+    )
+
+    assert result.get("error") is None
+    assert result.get("linked") == 0
+    assert result.get("skipped") == 1
+
+    messages = [r.message for r in caplog.records]
+    assert not any("object missing" in m for m in messages), messages
+    assert any(
+        r.levelno == logging.WARNING and "no embedding data" in r.message for r in caplog.records
+    ), messages
 
 
 # ---------------------------------------------------------------------------
