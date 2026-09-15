@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-09-15
+
 ### Changed
 - **Breaking:** the `warning` family of response keys is unified — one name per meaning,
   each named for what its value is. `archive_artifact` returned the own-scope referrer id
@@ -864,6 +866,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 - Credential-related boto3 exceptions caught at the AWS client layer and re-raised as structured typed errors; never exposed as raw stack traces to MCP callers
+
+[0.7.0]: https://github.com/amanoxsolutions/arkeology/compare/v0.6.0...v0.7.0
+
+[0.6.0]: https://github.com/amanoxsolutions/arkeology/compare/v0.5.0...v0.6.0
+
+[0.5.0]: https://github.com/amanoxsolutions/arkeology/compare/v0.4.0...v0.5.0
+
+[0.4.0]: https://github.com/amanoxsolutions/arkeology/compare/v0.3.1...v0.4.0
+
+[0.3.1]: https://github.com/amanoxsolutions/arkeology/compare/v0.3.0...v0.3.1
 
 [0.3.0]: https://github.com/amanoxsolutions/arkeology/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/amanoxsolutions/arkeology/compare/v0.1.1...v0.2.0
