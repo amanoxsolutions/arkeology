@@ -6,6 +6,8 @@ object annotations, their sole source of truth. No Bedrock calls.
 """
 
 import math
+import threading
+import time
 from typing import Any
 
 import pytest
@@ -744,6 +746,63 @@ async def test_commit_refs_resolution_non_credential_error_aborts_the_call(
 
     assert result.get("error") == "internal_error"
     assert "proposed" not in result
+
+
+async def test_commit_refs_fetch_is_concurrency_bounded(
+    monkeypatch: pytest.MonkeyPatch,
+    vectors_client_2: VectorsClientImpl,
+    s3_client: S3ClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """More distinct candidates than _COMMIT_REFS_CONCURRENCY on one page never drive
+    more than _COMMIT_REFS_CONCURRENCY concurrent annotation reads at once — the Step 5
+    fan-out is gated by a semaphore, not an unbounded asyncio.gather."""
+    from arkeology.tools.propose_commit_links import _COMMIT_REFS_CONCURRENCY
+
+    settings = _make_settings(monkeypatch)
+    candidate_count = _COMMIT_REFS_CONCURRENCY * 2
+    for i in range(candidate_count):
+        artifact_id = f"artifacts/bound-{i:02d}"
+        _put_proposable(
+            vectors_client_2,
+            s3_client,
+            f"{artifact_id}#summary",
+            _unit_vec(float(i) * 0.01 + 5.0),
+            {**_BASE_META, "artifact_id": artifact_id, "title": f"Bound {i}"},
+        )
+
+    lock = threading.Lock()
+    in_flight = 0
+    max_in_flight = 0
+    original_get_annotation = s3_client.get_object_annotation
+
+    def tracking_get_annotation(*args: Any, **kwargs: Any) -> Any:
+        nonlocal in_flight, max_in_flight
+        with lock:
+            in_flight += 1
+            max_in_flight = max(max_in_flight, in_flight)
+        try:
+            time.sleep(0.02)
+            return original_get_annotation(*args, **kwargs)
+        finally:
+            with lock:
+                in_flight -= 1
+
+    mocker.patch.object(s3_client, "get_object_annotation", side_effect=tracking_get_annotation)
+
+    result = await propose_commit_links(
+        settings=settings,
+        s3=s3_client,
+        vectors=vectors_client_2,
+        bedrock=None,
+        commit_sha=COMMIT_SHA,
+    )
+
+    assert len(result.get("proposed", [])) == candidate_count
+    assert max_in_flight <= _COMMIT_REFS_CONCURRENCY, (
+        f"Expected at most {_COMMIT_REFS_CONCURRENCY} concurrent annotation reads, "
+        f"observed {max_in_flight}"
+    )
 
 
 # ---------------------------------------------------------------------------

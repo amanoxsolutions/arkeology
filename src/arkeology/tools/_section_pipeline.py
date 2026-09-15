@@ -200,10 +200,17 @@ def disambiguate_section_slugs(sections: list[PreparedSection]) -> list[str]:
     ``"Notes"`` and ``"Notes!"`` both normalise to ``"notes"``). Using the bare
     slug as a vector key suffix (``f"{s3_key}#{slug}"``) would then collide: the
     second section's vector would silently overwrite the first's, and the write
-    path's ``sections_indexed`` count would under-report the true section count
+    path's ``sections_indexed`` count would under-report the true section count.
     Repeat occurrences of the same base slug within one artifact therefore get
-    a numeric suffix (``-2``, ``-3``, ...) appended, in document order, so every
-    section is guaranteed a distinct vector key.
+    a numeric suffix (``-2``, ``-3``, ...) appended, in document order.
+
+    A synthetic suffix is also checked against every other section's own
+    (un-suffixed) base slug: two "Step" headings naively suffix to ``"step"`` and
+    ``"step-2"``, but a third section literally titled "Step 2" also normalises
+    to ``"step-2"``, so that candidate is skipped in favour of the next free
+    number. A section's own base slug is never bumped to resolve someone else's
+    collision — only synthetic suffixes move — so numbering may skip integers
+    but every section is guaranteed a distinct vector key.
 
     Shared by ``write.py`` and ``reconcile.py`` so a collision is disambiguated
     identically on both the initial write and any later ``reconcile_index`` replay
@@ -215,11 +222,22 @@ def disambiguate_section_slugs(sections: list[PreparedSection]) -> list[str]:
     Returns:
         One disambiguated slug per section, same order and length as ``sections``.
     """
+    base_slugs = [section_slug(sec.heading) for sec in sections]
+    natural_slugs = set(base_slugs)
+
     occurrence_counts: dict[str, int] = {}
+    used: set[str] = set()
     slugs: list[str] = []
-    for sec in sections:
-        base_slug = section_slug(sec.heading)
+    for base_slug in base_slugs:
         occurrence_counts[base_slug] = occurrence_counts.get(base_slug, 0) + 1
         occurrence = occurrence_counts[base_slug]
-        slugs.append(base_slug if occurrence == 1 else f"{base_slug}-{occurrence}")
+        if occurrence == 1:
+            slug = base_slug
+        else:
+            slug = f"{base_slug}-{occurrence}"
+            while slug in used or slug in natural_slugs:
+                occurrence += 1
+                slug = f"{base_slug}-{occurrence}"
+        slugs.append(slug)
+        used.add(slug)
     return slugs

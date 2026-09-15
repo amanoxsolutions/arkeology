@@ -20,8 +20,10 @@ from arkeology.clients.s3 import S3ClientImpl
 from arkeology.clients.vectors import VectorsClientImpl
 from arkeology.config import Settings
 from arkeology.tools._section_pipeline import (
+    PreparedSection,
     build_document_embedding_text,
     build_section_embedding_text,
+    disambiguate_section_slugs,
     prepare_sections_for_embedding,
 )
 from arkeology.tools.reconcile import reconcile_index
@@ -254,6 +256,55 @@ def test_prepare_sections_filter_applied_before_cap(monkeypatch: pytest.MonkeyPa
     )
     # "Short" is filtered first; of the 3 remaining, only 2 survive the cap.
     assert [p.heading for p in result] == ["Long A", "Long B"]
+
+
+# ---------------------------------------------------------------------------
+# disambiguate_section_slugs
+# ---------------------------------------------------------------------------
+
+
+def _prepared(*headings: str) -> list[PreparedSection]:
+    return [PreparedSection(heading=h, embed_text="") for h in headings]
+
+
+def test_disambiguate_slugs_no_collisions_returns_bare_slugs() -> None:
+    """Distinct headings get their own bare slug, unperturbed."""
+    slugs = disambiguate_section_slugs(_prepared("Summary", "Details"))
+    assert slugs == ["summary", "details"]
+
+
+def test_disambiguate_slugs_repeat_heading_gets_numeric_suffix() -> None:
+    """Two headings normalising to the same base slug get -2, -3, ... suffixes."""
+    slugs = disambiguate_section_slugs(_prepared("Notes", "Notes!", "Notes?"))
+    assert slugs == ["notes", "notes-2", "notes-3"]
+
+
+def test_disambiguate_slugs_synthetic_suffix_avoids_natural_collision() -> None:
+    """A synthetic disambiguation suffix must never equal another section's own
+    natural (un-suffixed) slug elsewhere in the document.
+
+    Two "Step" sections naively disambiguate to "step" and "step-2". A third,
+    distinct section literally titled "Step 2" also normalises to "step-2" via
+    ``section_slug``, colliding with the second "Step"'s synthetic slug. The
+    "Step 2" section's own bare-slug claim must win; the second "Step" must be
+    bumped past it instead.
+    """
+    slugs = disambiguate_section_slugs(_prepared("Step", "Step", "Step 2"))
+    assert len(slugs) == len(set(slugs)), f"Expected all-distinct slugs, got {slugs}"
+    # "Step 2"'s own natural claim on "step-2" is not perturbed.
+    assert slugs[2] == "step-2"
+    assert slugs[0] == "step"
+    assert slugs[1] != "step-2"
+
+
+def test_disambiguate_slugs_natural_claim_ordered_before_repeats() -> None:
+    """Same collision, but the natural claimant appears before the repeats in
+    document order — the outcome must not depend on ordering."""
+    slugs = disambiguate_section_slugs(_prepared("Step 2", "Step", "Step"))
+    assert len(slugs) == len(set(slugs)), f"Expected all-distinct slugs, got {slugs}"
+    assert slugs[0] == "step-2"
+    assert slugs[1] == "step"
+    assert slugs[2] != "step-2"
 
 
 # ---------------------------------------------------------------------------

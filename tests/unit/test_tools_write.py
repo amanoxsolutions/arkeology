@@ -170,6 +170,50 @@ async def test_h2_heading_slug_collision_indexes_both_sections_distinctly(
     )
 
 
+async def test_synthetic_slug_collision_with_real_heading_indexes_all_sections_distinctly(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+) -> None:
+    """Two "Step" headings disambiguate to "step" and "step-2". A third, distinct
+    section literally titled "Step 2" also normalises to "step-2" via
+    ``section_slug``, colliding with the second "Step"'s synthetic suffix rather
+    than with another synthetic suffix. All three sections must still be indexed
+    as distinct vectors.
+    """
+    settings = _make_settings(monkeypatch)
+    bedrock = FakeBedrockClient()
+
+    content = (
+        "## Step\n\nFirst step section with enough body content to pass the "
+        "fifty character minimum length filter easily.\n\n"
+        "## Step\n\nSecond step section with deliberately different content, "
+        "also long enough to pass the same minimum length filter.\n\n"
+        "## Step 2\n\nThird section, a distinct real heading that happens to "
+        "normalise to the same slug the second Step section would naively claim.\n"
+    )
+    kwargs = {**_BASE_WRITE_KWARGS, "title": "Synthetic slug collision test", "content": content}
+
+    result = await write_artifact(
+        s3=s3_client, vectors=vectors_client, bedrock=bedrock, settings=settings, **kwargs
+    )
+
+    assert result.get("sections_indexed") == 3, (
+        f"Expected 3 distinct sections indexed despite the synthetic/natural slug "
+        f"collision on 'step-2', got: {result}"
+    )
+
+    artifact_id = result["artifact_id"]
+    all_keys = vectors_client.list_vectors_by_metadata({})
+    matching_keys = [k for k in all_keys if k == artifact_id or k.startswith(artifact_id + "#")]
+    assert len(matching_keys) == 3, (
+        f"Expected 3 distinct vector keys for the colliding-slug sections, got: {matching_keys}"
+    )
+    assert f"{artifact_id}#step-2" in matching_keys, (
+        "The real 'Step 2' heading should claim the un-suffixed 'step-2' slug"
+    )
+
+
 async def test_no_section_content_indexes_one_document_fallback(
     monkeypatch: pytest.MonkeyPatch,
     s3_client: S3ClientImpl,

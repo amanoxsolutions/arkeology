@@ -6,6 +6,7 @@ fields are read from each artifact's S3 object annotations. No Bedrock calls.
 
 import math
 import threading
+import time
 from typing import Any
 
 import pytest
@@ -1267,6 +1268,64 @@ async def test_list_vector_calls_run_off_event_loop(
     assert seen_threads, "list_vectors_by_metadata/get_vectors were never called"
     assert all(t is not main_thread for t in seen_threads), (
         "Vector calls ran on the event-loop thread — they must be offloaded"
+    )
+
+
+# ---------------------------------------------------------------------------
+# MJ-6 — per-artifact link-field fetch fan-out is concurrency-bounded
+# ---------------------------------------------------------------------------
+
+
+async def test_list_link_field_fetch_is_concurrency_bounded(
+    monkeypatch: pytest.MonkeyPatch,
+    vectors_client_8: VectorsClientImpl,
+    s3_client: S3ClientImpl,
+    mocker: MockerFixture,
+) -> None:
+    """A page with more distinct artifacts than _LINK_FIELD_CONCURRENCY never drives more
+    than _LINK_FIELD_CONCURRENCY concurrent annotation reads at once — the Step 4b
+    fan-out is gated by a semaphore, not an unbounded asyncio.gather."""
+    from arkeology.tools.list import _LINK_FIELD_CONCURRENCY
+
+    settings = _make_settings(monkeypatch)
+    artifact_count = _LINK_FIELD_CONCURRENCY * 2
+    for i in range(artifact_count):
+        _put_listable(
+            vectors_client_8,
+            s3_client,
+            f"artifacts/bound-{i:02d}#summary",
+            _unit_vec(float(i) * 0.01 + 3.0),
+            {**_BASE_VECTOR_META, "artifact_id": f"artifacts/bound-{i:02d}"},
+        )
+
+    lock = threading.Lock()
+    in_flight = 0
+    max_in_flight = 0
+    original_get_annotation = s3_client.get_object_annotation
+
+    def tracking_get_annotation(*args: Any, **kwargs: Any) -> Any:
+        nonlocal in_flight, max_in_flight
+        with lock:
+            in_flight += 1
+            max_in_flight = max(max_in_flight, in_flight)
+        try:
+            time.sleep(0.02)
+            return original_get_annotation(*args, **kwargs)
+        finally:
+            with lock:
+                in_flight -= 1
+
+    mocker.patch.object(s3_client, "get_object_annotation", side_effect=tracking_get_annotation)
+
+    result = await list_artifacts(
+        settings=settings, vectors=vectors_client_8, s3=s3_client, bedrock=None
+    )
+
+    assert "error" not in result
+    assert len(result.get("artifacts", [])) == artifact_count
+    assert max_in_flight <= _LINK_FIELD_CONCURRENCY, (
+        f"Expected at most {_LINK_FIELD_CONCURRENCY} concurrent annotation reads, "
+        f"observed {max_in_flight}"
     )
 
 

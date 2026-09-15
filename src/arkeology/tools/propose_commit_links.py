@@ -28,6 +28,11 @@ from arkeology.tools._search_helper import derive_last_edited_at, fetch_vectors_
 
 logger = logging.getLogger(__name__)
 
+# Bounded concurrency for the per-candidate commit_refs fetch loop (Step 5), mirroring
+# write_artifacts.py's asyncio.Semaphore-gated asyncio.gather pattern. Each artifact_id's
+# annotation read is independent of every other's.
+_COMMIT_REFS_CONCURRENCY = 5
+
 
 async def propose_commit_links(
     *,
@@ -136,13 +141,17 @@ async def _propose_commit_links_inner(
     # complete value, so read_link_annotations closes both gaps.
     # These are additional round trips beyond the single batched list_vectors_by_metadata
     # + get_vectors fetch above — the same accepted cost list.py/read.py already carry
-    # for the identical fix — so they run off the event loop and in parallel via
-    # asyncio.gather, mirroring list.py's _fetch_link_fields pattern exactly. No new
-    # bounded-concurrency setting: a candidate page is small relative to a single
-    # artifact's section count, so an unbounded gather is the proportionate choice here.
+    # for the identical fix — so they run off the event loop and in parallel via a
+    # semaphore-gated asyncio.gather, mirroring list.py's _fetch_link_fields pattern
+    # exactly.
+    commit_refs_semaphore = asyncio.Semaphore(_COMMIT_REFS_CONCURRENCY)
+
     async def _fetch_commit_refs(artifact_id: str) -> list[str]:
-        commit_refs, _references = await asyncio.to_thread(read_link_annotations, s3, artifact_id)
-        return commit_refs
+        async with commit_refs_semaphore:
+            commit_refs, _references = await asyncio.to_thread(
+                read_link_annotations, s3, artifact_id
+            )
+            return commit_refs
 
     distinct_ids = [artifact_id for artifact_id, _meta in base_entries]
     commit_refs_by_id: dict[str, list[str]] = {}

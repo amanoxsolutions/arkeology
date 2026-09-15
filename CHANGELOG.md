@@ -193,6 +193,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   listed, a foreign-scope tier-2 one is not, matching `list_artifacts`' default scope
 
 ### Fixed
+- `disambiguate_section_slugs` (the shared write-path helper both `write_artifact` and
+  `reconcile_index` use to build each section's vector-key suffix) could still produce a
+  collision it was meant to prevent: it suffixed repeat headings as `{slug}-{n}` but never
+  checked that suffix against the *natural* slug of a different, real heading elsewhere in
+  the same artifact. Two sections titled "Step" produced `"step"`/`"step-2"`; a third,
+  distinct section literally titled "Step 2" also normalises to `"step-2"` — so two
+  different sections ended up sharing one vector key, and whichever embedded second
+  silently overwrote the first's vector, with `sections_indexed` under-reporting the true
+  section count. The function now precomputes every section's own natural slug up front and
+  skips any synthetic suffix that would collide with one, bumping the suffix number until a
+  free one is found; a section's own natural slug is never itself perturbed to resolve
+  someone else's collision. Every section in an artifact is now guaranteed a distinct
+  vector key regardless of heading text or document order
+- `list_artifacts` and `propose_commit_links` each fetched every distinct artifact's
+  `commit_refs`/`references` annotations via an unbounded `asyncio.gather` — a large page or
+  discovery batch could drive an unbounded number of concurrent blocking S3 annotation reads
+  at once, unlike every comparable fan-out elsewhere in the codebase (`archive_artifact`'s
+  bulk deletes, `purge_archived`, `link_metadata`, `reconcile_index`), which are all bounded
+  by a semaphore. Both fan-outs are now capped at 5 concurrent reads each, matching that
+  established pattern; behaviour and response shape are otherwise unchanged
 - `reconcile_index`'s failure-log replay no longer loses link fields when several entries share
   one artifact and kind. It kept the first entry it read and pruned the rest, so consecutive failed
   writes to one artifact lost every other entry's `commit_refs` and `references` — the only

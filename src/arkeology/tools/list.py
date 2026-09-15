@@ -36,6 +36,11 @@ from arkeology.tools._search_helper import (
 
 logger = logging.getLogger(__name__)
 
+# Bounded concurrency for the per-artifact link-field fetch loop (Step 4b), mirroring
+# write_artifacts.py's asyncio.Semaphore-gated asyncio.gather pattern. Each artifact_id's
+# annotation read is independent of every other's.
+_LINK_FIELD_CONCURRENCY = 5
+
 
 async def list_artifacts(
     *,
@@ -225,12 +230,14 @@ async def _list_artifacts_inner(
     # blocking S3 annotation GETs, so this is N sequential-cost lookups for a page
     # of N distinct artifacts — there is no batched alternative (unlike the
     # single-query resolve_readable_targets below), so they run off the event loop
-    # and in parallel via asyncio.gather rather than one at a time. No new
-    # bounded-concurrency setting (compare write.py's SECTION_CONCURRENCY): a
-    # listing page is small relative to a single artifact's section count, so an
-    # unbounded gather is the proportionate choice here.
+    # and in parallel via a semaphore-gated asyncio.gather, mirroring
+    # write_artifacts.py's asyncio.Semaphore-gated asyncio.gather pattern, rather than
+    # one at a time or fully unbounded.
+    link_field_semaphore = asyncio.Semaphore(_LINK_FIELD_CONCURRENCY)
+
     async def _fetch_link_fields(artifact_id: str) -> tuple[list[str], list[str]]:
-        return await asyncio.to_thread(read_link_annotations, s3, artifact_id)
+        async with link_field_semaphore:
+            return await asyncio.to_thread(read_link_annotations, s3, artifact_id)
 
     distinct_ids = [artifact_id for artifact_id, _, _ in gated_entries]
     link_fields_by_id: dict[str, tuple[list[str], list[str]]] = {}
