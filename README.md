@@ -1,7 +1,22 @@
 # Arkeology
 
-> *Archaeology is the practice of reading what earlier lives left buried, one layer at a time.*
-> *Agents dig for agents.*
+<p align="center">
+  <img src="docs/arkeology-image.svg" alt="Arkeology" width="360">
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/python-3.14+-3776AB?logo=python&logoColor=white&labelColor=555555" alt="Python 3.14+">
+  <img src="https://img.shields.io/badge/OKF-0.1-blue.svg?labelColor=555555" alt="OKF 0.1">
+  <img src="https://img.shields.io/badge/MCP-server-6E56CF?labelColor=555555" alt="MCP server">
+  <img src="https://img.shields.io/badge/Amazon-S3%20Buckets-7AA116?labelColor=555555" alt="Amazon S3">
+  <img src="https://img.shields.io/badge/Amazon-S3%20Vectors-7AA116?labelColor=555555" alt="Amazon S3 Vectors">
+  <img src="https://img.shields.io/badge/Amazon-Bedrock-01A88D?labelColor=555555" alt="Amazon Bedrock">
+  <img src="https://img.shields.io/badge/license-Apache%202.0-98A4B3?labelColor=555555" alt="Apache License 2.0">
+</p>
+
+
+> *Arkeology is the practice of reading what earlier agents left buried, one layer at a time.*
+> *Agents digging for other agent artifacts.*
 
 Arkeology is a Python MCP server that gives AI agents persistent artifact memory, backed entirely
 by AWS — S3 for durable content storage, S3 Vectors for semantic search, and Amazon Bedrock for
@@ -294,4 +309,4 @@ uv run mypy src/
 
 Apache License 2.0 — see [LICENSE](LICENSE) for the full text.
 
-Copyright 2026 Amanox Solutions
+Copyright 2026 Axians Amanox AG
