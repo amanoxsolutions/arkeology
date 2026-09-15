@@ -100,6 +100,11 @@ result does.
   absent from the human-facing index.
 - A handler failure returns a Markdown error body, never an empty document — an empty listing and a
   failed listing must stay distinguishable to a reader.
+- That error body carries a **fixed, generic** message and **never** the underlying exception
+  text. `str(exc)` on a boto error can carry a bucket name, an ARN, or an account id, and a
+  resource body is returned to the client verbatim with no channel to strip it. The exception
+  detail belongs in the server log, written via `logger.exception`; interpolating it into the
+  returned body is a regression, not a debugging convenience.
 - The per-artifact `lastModified` annotation is **deliberately waived** on the template resource: a
   resource template declares its annotations once at registration and cannot vary them per id, and
   the pinned SDK's per-read content channel has no annotations field. The derivation helper is

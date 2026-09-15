@@ -144,6 +144,22 @@ def test_check2_read_access_denied_raises_startup_error(
     assert exc_info.value.check == "write_prefix"
 
 
+def test_check2_read_access_other_exception_raises_startup_error(
+    settings: Settings,
+    s3_client: S3ClientImpl,
+    vectors_client: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """Write probe succeeds but read raises something other than KeyError/CredentialError
+    (e.g. a 5xx ClientError or NonUtf8PayloadError) → still a structured
+    StartupValidationError check='write_prefix', not a raw exception escaping."""
+    mocker.patch.object(s3_client, "get_object", side_effect=RuntimeError("boom"))
+    bedrock = FakeBedrockClient()
+    with pytest.raises(StartupValidationError) as exc_info:
+        validate_startup(settings=settings, s3=s3_client, vectors=vectors_client, bedrock=bedrock)
+    assert exc_info.value.check == "write_prefix"
+
+
 # ── Check 3: Read prefix access ────────────────────────────────────────────────
 
 

@@ -70,9 +70,9 @@ from arkeology.constants import ErrorCode
 from arkeology.errors import CredentialError
 from arkeology.references import rewrite_content_references
 from arkeology.tools._concurrency import (
-    _ARTIFACT_CONCURRENCY_DEFAULT,
-    _ARTIFACT_CONCURRENCY_MAX,
-    _clamp_concurrency,
+    ARTIFACT_CONCURRENCY_DEFAULT,
+    ARTIFACT_CONCURRENCY_MAX,
+    clamp_concurrency,
 )
 from arkeology.tools._errors import credential_error_response
 from arkeology.tools.write_artifacts import write_artifacts as _write_artifacts
@@ -149,7 +149,7 @@ async def migrate_artifacts(
     bedrock: BedrockClientInterface,
     descriptors: list[dict[str, Any]],
     dry_run: bool = True,
-    artifact_concurrency: int = _ARTIFACT_CONCURRENCY_DEFAULT,
+    artifact_concurrency: int = ARTIFACT_CONCURRENCY_DEFAULT,
 ) -> dict[str, Any]:
     """Migrate a list of artifact descriptors, generating missing descriptions via Nova Lite.
 
@@ -227,12 +227,12 @@ async def _migrate_artifacts_inner(
     bedrock: BedrockClientInterface,
     descriptors: list[dict[str, Any]],
     dry_run: bool,
-    artifact_concurrency: int = _ARTIFACT_CONCURRENCY_DEFAULT,
+    artifact_concurrency: int = ARTIFACT_CONCURRENCY_DEFAULT,
 ) -> dict[str, Any]:
     """Inner implementation: enrich descriptions, then write or return."""
     # ── Clamp artifact_concurrency to [1, 15] ────────────────────────────────
-    effective, warning = _clamp_concurrency(
-        artifact_concurrency, default=_ARTIFACT_CONCURRENCY_DEFAULT, max_=_ARTIFACT_CONCURRENCY_MAX
+    effective, warning = clamp_concurrency(
+        artifact_concurrency, default=ARTIFACT_CONCURRENCY_DEFAULT, max_=ARTIFACT_CONCURRENCY_MAX
     )
 
     def _with_warning(resp: dict[str, Any]) -> dict[str, Any]:

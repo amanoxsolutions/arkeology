@@ -844,7 +844,7 @@ async def test_write_artifacts_descriptor_references_round_trips_to_annotation_o
 ) -> None:
     """A descriptor carrying references=['a-1'] writes references into the S3
     annotation (its sole durable store as of T58) and never into vector metadata —
-    write_artifacts delegates to _write_artifact_inner, which this contract governs."""
+    write_artifacts delegates to write_artifact_inner, which this contract governs."""
     try:
         from arkeology.tools.write_artifacts import write_artifacts
     except ImportError:
@@ -952,7 +952,7 @@ async def test_write_artifacts_per_descriptor_error_does_not_leak_raw_aws_detail
     )
     mocker.patch.object(
         write_artifacts_module,
-        "_write_artifact_inner",
+        "write_artifact_inner",
         side_effect=RuntimeError(raw_aws_message),
     )
 

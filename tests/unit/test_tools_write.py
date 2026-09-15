@@ -3423,9 +3423,9 @@ def test_embed_executor_has_adequate_max_workers() -> None:
     semaphore slots across all concurrent artifact writes can all run simultaneously.
     """
     import arkeology.tools.write as write_module
-    from arkeology.tools._concurrency import _ARTIFACT_CONCURRENCY_MAX
+    from arkeology.tools._concurrency import ARTIFACT_CONCURRENCY_MAX
 
-    expected_min = _ARTIFACT_CONCURRENCY_MAX * 5  # 5 = SECTION_CONCURRENCY default
+    expected_min = ARTIFACT_CONCURRENCY_MAX * 5  # 5 = SECTION_CONCURRENCY default
     assert write_module._EMBED_EXECUTOR._max_workers >= expected_min
 
 

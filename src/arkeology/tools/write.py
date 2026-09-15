@@ -29,6 +29,7 @@ from arkeology.artifact import (
     encode_metadata_value,
     generate_artifact_id,
 )
+from arkeology.clients.credentials import _error_code
 from arkeology.clients.interfaces import (
     BedrockClientInterface,
     S3ClientInterface,
@@ -78,7 +79,7 @@ _ORPHAN_DELETE_TRANSIENT_ERROR_CODES = frozenset(
 # serialise embed calls below the configured SECTION_CONCURRENCY when multiple
 # artifacts are written concurrently via write_artifacts.
 #
-# Sizing: artifact_concurrency_max (15, see _concurrency._ARTIFACT_CONCURRENCY_MAX)
+# Sizing: artifact_concurrency_max (15, see _concurrency.ARTIFACT_CONCURRENCY_MAX)
 # × EMBED_MAX_SECTIONS default (20) = 300.  All embed calls in this module use
 # run_in_executor(_EMBED_EXECUTOR, ...) rather than asyncio.to_thread() so the
 # pool is not shared with other blocking work on the default executor.
@@ -400,7 +401,7 @@ def _delete_orphan_vectors_with_retry(
             return exc
         except botocore.exceptions.ClientError as exc:
             last_exc = exc
-            code = exc.response.get("Error", {}).get("Code", "")
+            code = _error_code(exc)
             if code in _ORPHAN_DELETE_TRANSIENT_ERROR_CODES and attempt == 0:
                 logger.warning(
                     "Orphan vector delete transient error %s on attempt 1; retrying after %.1fs",
@@ -494,7 +495,7 @@ async def write_artifact(
     refs2: list[str] = references if references is not None else []
 
     try:
-        return await _write_artifact_inner(
+        return await write_artifact_inner(
             settings=settings,
             s3=s3,
             vectors=vectors,
@@ -522,7 +523,7 @@ async def write_artifact(
         return {"error": ErrorCode.INTERNAL_ERROR, "message": str(exc)}
 
 
-async def _write_artifact_inner(  # noqa: PLR0913
+async def write_artifact_inner(  # noqa: PLR0913
     *,
     settings: Settings,
     s3: S3ClientInterface,

@@ -57,12 +57,16 @@ reported *inside* its own entry. Only a failure of the tool itself yields `inter
   genuine service or configuration fault.
 - `health_check` never writes an artifact, a vector, or an annotation. The write-prefix probe is
   the sole exception to read-only operation: it performs a real PutObject → GetObject →
-  DeleteObject cycle on a single fixed probe key under the write prefix, because write
-  permission cannot be verified without exercising it. The probe key is excluded from
-  `reconcile_index`'s orphan scan, and a `finally` block re-attempts the delete if the cycle
-  fails part-way, so a failed probe leaves no durable object. An operator granting the
-  health-check principal read-only S3 permissions will see `write_prefix` permanently in
-  `error`.
+  DeleteObject cycle on a probe key under the write prefix, because write permission cannot be
+  verified without exercising it. The key is **unique per invocation** — a fixed probe marker
+  with a ULID appended, the pattern startup validation already uses — because two concurrent
+  calls sharing one key would race: one call's delete lands between the other's put and get, and
+  the loser reports `write_prefix` in `error` on a deployment whose write permissions are fine.
+  The key stays excluded from `reconcile_index`'s orphan scan, which matches the probe marker as
+  a **prefix** of the key's final path segment rather than comparing a whole key, so any
+  per-invocation suffix is covered. A `finally` block re-attempts the delete if the cycle fails
+  part-way, so a failed probe leaves no durable object. An operator granting the health-check
+  principal read-only S3 permissions will see `write_prefix` permanently in `error`.
 
 **Preconditions**
 

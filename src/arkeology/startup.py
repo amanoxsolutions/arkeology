@@ -25,7 +25,7 @@ from typing import Any
 import botocore.exceptions
 from ulid import ULID
 
-from arkeology.clients.credentials import is_annotation_permission_error
+from arkeology.clients.credentials import _error_code, is_annotation_permission_error
 from arkeology.clients.interfaces import (
     BedrockClientInterface,
     S3ClientInterface,
@@ -112,7 +112,7 @@ def _check_credentials(settings: Settings, s3: S3ClientInterface) -> None:
             ),
         ) from exc
     except botocore.exceptions.ClientError as exc:
-        code = exc.response.get("Error", {}).get("Code", "")
+        code = _error_code(exc)
         if code in _BUCKET_NOT_FOUND_CODES:
             raise StartupValidationError(
                 check="credentials",
@@ -159,11 +159,21 @@ def _check_write_prefix(settings: Settings, s3: S3ClientInterface) -> None:
         s3.get_object(probe_key)
     except CredentialError:
         # Must be re-raised explicitly: without this branch a real GetObject
-        # AccessDenied would propagate as a raw ClientError past this function (only
-        # KeyError is otherwise handled), crashing the process with an unstructured
-        # traceback instead of the structured credential error __main__.py reports.
+        # AccessDenied would propagate as a raw ClientError past this function,
+        # crashing the process with an unstructured traceback instead of the
+        # structured credential error __main__.py reports.
         raise
     except KeyError as exc:
+        raise StartupValidationError(
+            check="write_prefix",
+            message=(
+                f"Write prefix access check failed for '{write_prefix}': "
+                "cannot read from this prefix. "
+                f"Ensure the IAM policy includes s3:GetObject on "
+                f"arn:aws:s3:::{bucket}/{write_prefix}*."
+            ),
+        ) from exc
+    except Exception as exc:
         raise StartupValidationError(
             check="write_prefix",
             message=(

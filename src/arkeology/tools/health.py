@@ -12,6 +12,8 @@ import logging
 from collections.abc import Callable
 from typing import Any
 
+from ulid import ULID
+
 from arkeology.clients.interfaces import (
     BedrockClientInterface,
     S3ClientInterface,
@@ -22,6 +24,11 @@ from arkeology.constants import ANNOTATION_PROBE_NAME, ErrorCode
 from arkeology.errors import CredentialError
 
 logger = logging.getLogger(__name__)
+
+# A ULID is appended per invocation, matching startup.py's pattern: a fixed probe
+# key would let two hosts sharing one WRITE_PREFIX delete each other's in-flight
+# probe object mid-round-trip.
+_PROBE_KEY_SUFFIX = "_arkeology_health_probe"
 
 
 async def _probe(fn: Callable[[], Any]) -> dict[str, Any]:
@@ -121,7 +128,7 @@ async def _health_check_inner(
     # The whole round trip is one probe: it shares _probe's outcome mapping, and the
     # probe_written flag is what lets the object be cleaned up when a step between the
     # put and the delete is the one that failed.
-    probe_key = f"{settings.write_prefix}/_arkeology_health_probe"
+    probe_key = f"{settings.write_prefix}/{_PROBE_KEY_SUFFIX}_{ULID()}"
     probe_written = False
 
     def _write_prefix_roundtrip() -> None:

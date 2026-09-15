@@ -580,12 +580,14 @@ async def test_credential_error_on_write_prefix_probe_key_present(
     settings = _make_settings(monkeypatch, READ_PREFIXES="")
     bedrock = FakeBedrockClient()
 
-    # Only fail on the probe key write; allow head_bucket to succeed normally.
-    probe_key = f"{settings.write_prefix}/_arkeology_health_probe"
+    # Only fail on the probe key write; allow head_bucket to succeed normally. The
+    # probe key carries a per-invocation ULID suffix, so match by prefix rather than
+    # an exact literal.
+    probe_key_prefix = f"{settings.write_prefix}/_arkeology_health_probe"
     original_put = s3_client.put_object
 
     def put_object_side_effect(key: str, content: str, metadata: dict) -> None:
-        if key == probe_key:
+        if key.startswith(probe_key_prefix):
             raise CredentialError(
                 message="simulated credential error on probe put",
                 service="s3",
@@ -628,14 +630,16 @@ async def test_probe_object_cleaned_up_when_get_object_fails(
     settings = _make_settings(monkeypatch, READ_PREFIXES="")
     bedrock = FakeBedrockClient()
 
-    probe_key = f"{settings.write_prefix}/_arkeology_health_probe"
+    # The probe key carries a per-invocation ULID suffix, so match by prefix rather
+    # than an exact literal.
+    probe_key_prefix = f"{settings.write_prefix}/_arkeology_health_probe"
 
     # put_object succeeds (default moto behaviour)
     # get_object raises for the probe key
     original_get = s3_client.get_object
 
     def get_object_side_effect(key: str) -> str:
-        if key == probe_key:
+        if key.startswith(probe_key_prefix):
             raise RuntimeError("simulated get_object failure on probe key")
         return original_get(key)
 
@@ -646,9 +650,45 @@ async def test_probe_object_cleaned_up_when_get_object_fails(
 
     # Verify that delete_object was called for the probe key (cleanup)
     called_keys = [call.args[0] for call in delete_spy.call_args_list]
-    assert probe_key in called_keys, (
-        f"M22 Bug 2: s3.delete_object must be called for probe key '{probe_key}' as cleanup "
+    assert any(key.startswith(probe_key_prefix) for key in called_keys), (
+        f"M22 Bug 2: s3.delete_object must be called for the probe key as cleanup "
         f"even when get_object fails, but delete was only called for: {called_keys}"
+    )
+
+
+async def test_probe_key_is_unique_per_invocation(
+    monkeypatch: pytest.MonkeyPatch,
+    s3_client: S3ClientImpl,
+    vectors_client_8: VectorsClientImpl,
+    mocker: pytest.MonkeyPatch,
+) -> None:
+    """Two health_check calls sharing one WRITE_PREFIX must not reuse the same fixed
+    probe key — a constant key means two hosts sharing one scope can delete each
+    other's in-flight probe object mid-round-trip and report a spurious write_prefix
+    failure. The probe key must be unique per invocation (ULID-suffixed), matching
+    startup.py's pattern."""
+    settings = _make_settings(monkeypatch, READ_PREFIXES="")
+    bedrock = FakeBedrockClient()
+
+    seen_keys: list[str] = []
+    original_put = s3_client.put_object
+
+    def _recording_put(key: str, *args: object, **kwargs: object) -> None:
+        seen_keys.append(key)
+        original_put(key, *args, **kwargs)  # type: ignore[arg-type]
+
+    mocker.patch.object(s3_client, "put_object", side_effect=_recording_put)
+
+    await health_check(settings=settings, s3=s3_client, vectors=vectors_client_8, bedrock=bedrock)
+    await health_check(settings=settings, s3=s3_client, vectors=vectors_client_8, bedrock=bedrock)
+
+    probe_key_prefix = f"{settings.write_prefix}/_arkeology_health_probe"
+    probe_keys = [key for key in seen_keys if key.startswith(probe_key_prefix)]
+
+    assert len(probe_keys) == 2
+    assert len(set(probe_keys)) == 2, (
+        "Each health_check invocation must use a distinct probe key so two hosts "
+        "sharing WRITE_PREFIX cannot race on the same S3 object"
     )
 
 

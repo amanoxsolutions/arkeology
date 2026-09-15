@@ -162,6 +162,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   never `corrupt_metadata`, so a gated artifact's stored state is never disclosed through
   this path. A caller that branched on `internal_error` from `read_artifact` to detect
   unparseable own-scope metadata must now branch on `corrupt_metadata`
+- an unexpected failure of a resource read or of `arkeology_studio` now returns a fixed
+  generic message instead of the underlying exception string, bringing those two surfaces
+  in line with the pattern `write_artifacts` already used; the exception detail is logged
+  server-side instead. A caller that parsed the exception text out of a resource body or
+  out of the Studio error content will no longer find it there. This covers those two
+  surfaces only — every other tool still returns the exception string in its error
+  `message` — so it is a consistency step, not a closed leak class
 
 ### Security
 - `search_artifacts` and `synthesise_artifacts` now re-check every candidate against the
@@ -446,6 +453,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   raise. This closes a gap where `propose_commit_links` aborted its entire call with
   `internal_error` over a single dangling vector — a vector index entry whose underlying
   S3 object no longer exists — instead of skipping that one candidate and continuing
+- two concurrent `health_check` calls no longer report a spurious `write_prefix` failure. The
+  write-prefix probe wrote, read, and deleted one fixed key under the write prefix, so one
+  call's delete could land between the other's put and get and report `error` on a deployment
+  whose write permissions were fine. The probe key now carries a per-invocation ULID, the
+  pattern startup validation already used; `reconcile_index` excludes probe keys by matching the
+  probe marker as a prefix, so the suffix changes nothing about the orphan scan
+- the startup write-prefix check now reports an unmapped exception from its read step as a
+  structured validation error instead of letting it escape as a raw traceback. Its sibling write
+  step already had that fallback and the read step did not, so any failure neither branch mapped
+  aborted startup with a stack trace rather than the actionable message every other startup
+  check produces
 
 ## [0.6.0] - 2026-08-28
 

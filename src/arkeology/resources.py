@@ -666,8 +666,8 @@ def register_data_resources(
       because ``id`` is the full S3 key — ``{write_prefix}/{bare_id}{extension}`` —
       which contains ``/`` characters; a plain ``{id}`` segment parameter (the FastMCP
       default) only matches a single path segment and would reject every real
-      artifact_id. Includes a ``lastModified`` annotation derived
-      from ``last_edited_ulid`` when present.
+      artifact_id. Does NOT include a per-artifact ``lastModified`` annotation — see
+      the ``NOTE:`` comment in ``_artifact_resource`` below for why this is waived.
     - ``arkeology://artifacts`` — static listing; returns a markdown table of every active
       artifact readable in this scope (own-scope plus gate-passing foreign tier-3 shared),
       matching ``list_artifacts``' default scope.
@@ -715,9 +715,12 @@ def register_data_resources(
                 bedrock=bedrock,
             )
             return content
-        except Exception as exc:
+        except Exception:
             logger.exception("Unexpected error in arkeology://artifact/{id*} resource handler")
-            return f"# Error: internal_error\n\n{exc}\n"
+            return (
+                "# Error: internal_error\n\n"
+                "An unexpected internal error occurred while reading this resource.\n"
+            )
 
     @app.resource(
         "arkeology://artifacts",
@@ -737,9 +740,12 @@ def register_data_resources(
                 vectors=vectors,
                 bedrock=bedrock,
             )
-        except Exception as exc:
+        except Exception:
             logger.exception("Unexpected error in arkeology://artifacts resource handler")
-            return f"# Error: internal_error\n\n{exc}\n"
+            return (
+                "# Error: internal_error\n\n"
+                "An unexpected internal error occurred while reading this resource.\n"
+            )
 
     logger.debug(
         "arkeology data resources registered (arkeology://artifact/{id*}, arkeology://artifacts)"

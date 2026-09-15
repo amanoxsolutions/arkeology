@@ -34,6 +34,7 @@ from arkeology.errors import (
     InvalidFilterValueError,
     VectorDistanceMissingError,
 )
+from arkeology.tools._errors import credential_error_response
 from arkeology.tools._scope import build_scope_filter, coerce_tier, is_cross_scope_readable
 
 logger = logging.getLogger(__name__)
@@ -421,7 +422,7 @@ async def run_search_loop(
                 vectors.query_vectors, query_vector, settings.search_fetch_top_k, combined_filter
             )
         except CredentialError as exc:
-            return {"error": ErrorCode.CREDENTIAL_ERROR, "message": str(exc)}
+            return credential_error_response(exc)
         except VectorDistanceMissingError:
             # Distinct from the generic non-credential branch below: this signals
             # possible S3 Vectors index corruption (see the exception's own

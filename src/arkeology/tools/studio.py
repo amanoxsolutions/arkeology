@@ -167,9 +167,14 @@ async def arkeology_studio(
     """
     try:
         return await _arkeology_studio_inner(settings=settings, s3=s3, vectors=vectors, ctx=ctx)
-    except Exception as exc:
+    except Exception:
         logger.exception("Unexpected error in arkeology_studio")
         return ToolResult(
-            content=[TextContent(type="text", text=f"Error opening arkeology studio: {exc}")],
+            content=[
+                TextContent(
+                    type="text",
+                    text="An unexpected internal error occurred while opening arkeology studio.",
+                )
+            ],
             is_error=True,
         )

@@ -49,7 +49,7 @@ from arkeology.failure_log import (
     build_failure_entry,
     coerce_entry_tier,
 )
-from arkeology.tools._errors import credential_error_response
+from arkeology.tools._errors import annotation_unavailable_response, credential_error_response
 from arkeology.tools._scope import is_own_scope
 from arkeology.tools._search_helper import fetch_vectors_by_metadata, find_referrers
 
@@ -475,7 +475,7 @@ async def _archive_artifact_inner(
         # check 8 proves annotations work before the server accepts a request, so at
         # runtime this can only be post-setup IAM drift, which has a known remedy.
         _record_if_durable(exc)
-        return {"error": ErrorCode.ANNOTATION_UNAVAILABLE, "message": str(exc)}
+        return annotation_unavailable_response(exc)
     except Exception as exc:
         # Once the status flip is durable an unknown failure is a partial write, not a
         # clean failure: the entry is recorded and the code names the state to repair.

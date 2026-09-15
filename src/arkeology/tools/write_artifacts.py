@@ -2,7 +2,7 @@
 
 Accepts a list of artifact descriptors and writes all of them concurrently,
 bounded by the caller-supplied artifact_concurrency parameter (default 3).
-Each entry delegates to _write_artifact_inner so all write path logic (section
+Each entry delegates to write_artifact_inner so all write path logic (section
 embedding, orphan cleanup, failure logging) is inherited from the single
 implementation. Partial failures are isolated: a failed entry is recorded with
 an error field while all other entries continue.
@@ -24,11 +24,11 @@ from arkeology.clients.interfaces import (
 from arkeology.config import Settings
 from arkeology.constants import ArtifactStatus, ErrorCode
 from arkeology.tools._concurrency import (
-    _ARTIFACT_CONCURRENCY_DEFAULT,
-    _ARTIFACT_CONCURRENCY_MAX,
-    _clamp_concurrency,
+    ARTIFACT_CONCURRENCY_DEFAULT,
+    ARTIFACT_CONCURRENCY_MAX,
+    clamp_concurrency,
 )
-from arkeology.tools.write import _write_artifact_inner
+from arkeology.tools.write import write_artifact_inner
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +60,7 @@ async def write_artifacts(
     vectors: VectorsClientInterface,
     bedrock: BedrockClientInterface,
     artifacts: list[dict[str, Any]],
-    artifact_concurrency: int = _ARTIFACT_CONCURRENCY_DEFAULT,
+    artifact_concurrency: int = ARTIFACT_CONCURRENCY_DEFAULT,
     file_extension: str = ".md",
     overwrite: bool = False,
 ) -> dict[str, Any]:
@@ -123,14 +123,14 @@ async def _write_artifacts_inner(
     vectors: VectorsClientInterface,
     bedrock: BedrockClientInterface,
     artifacts: list[dict[str, Any]],
-    artifact_concurrency: int = _ARTIFACT_CONCURRENCY_DEFAULT,
+    artifact_concurrency: int = ARTIFACT_CONCURRENCY_DEFAULT,
     file_extension: str = ".md",
     overwrite: bool = False,
 ) -> dict[str, Any]:
     """Inner implementation: concurrent writes bounded by artifact_concurrency."""
     # ── Clamp artifact_concurrency to [1, 15] ────────────────────────────────
-    effective, warning = _clamp_concurrency(
-        artifact_concurrency, default=_ARTIFACT_CONCURRENCY_DEFAULT, max_=_ARTIFACT_CONCURRENCY_MAX
+    effective, warning = clamp_concurrency(
+        artifact_concurrency, default=ARTIFACT_CONCURRENCY_DEFAULT, max_=ARTIFACT_CONCURRENCY_MAX
     )
 
     semaphore = asyncio.Semaphore(effective)
@@ -173,7 +173,7 @@ async def _write_artifacts_inner(
             if validation_error:
                 return {"error": ErrorCode.VALIDATION_ERROR, "message": validation_error}
             try:
-                result = await _write_artifact_inner(
+                result = await write_artifact_inner(
                     settings=settings,
                     s3=s3,
                     vectors=vectors,
@@ -196,7 +196,7 @@ async def _write_artifacts_inner(
                     file_extension=descriptor.get("file_extension") or file_extension,
                     overwrite=descriptor.get("overwrite", overwrite),
                 )
-                # _write_artifact_inner returns error dict or success dict
+                # write_artifact_inner returns error dict or success dict
                 if "error" in result:
                     return result
                 return {

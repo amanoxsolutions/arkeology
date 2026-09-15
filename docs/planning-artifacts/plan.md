@@ -20,7 +20,7 @@ This project runs as a **single open phase**, not a pre-planned roadmap. Complet
 - **Status legend:** ⬜ pending · 🔄 in progress · 🔍 in review · ✅ done · 🔴 blocked
 - **Delivery model:** each **Phase** is a coherent slice of value delivered as a set of tasks. A phase ends when we judge it done.
 
-**Current state:** Phase 14 — Consistency Review Remediation is open, closing the findings of the 2026-09-05 whole-repository consistency review and the 2026-09-06 diff review; T73 (documentation sweep) and T74 are the only tasks still open. Prior phases below remain as delivered. Phase 12 — Artifact Cross-Referencing + Annotation-Backed Link Storage: all planned tasks **T45–T69** implemented, unit-tested (suite green), and merged to `main` (the `phase-12-cross-referencing` branch is merged; work is trunk-based on `main` per AGENTS.md); skills consolidated under `plugins/arkeology/skills/`; specs, ADR-011/ADR-012, and user docs aligned. **T57–T62** (added 2026-08-13) delivered the post-implementation remediation for a real vector-metadata-budget-overflow incident (guard coverage, `commit_refs`/`references` split-store fix, migration self-heal, bounded reconcile retry — see `adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal.md`, Accepted). Two closely-related review findings were folded directly into those specs rather than getting their own task numbers: I-4 (control-character validation gap) into T57's spec, and I-2 (`propose_commit_links.py` first-vector-only bug) into T58's spec — both touched the exact same file/function T57/T58 already opened. H-2 was folded into T62's spec (same file, already reopened by T62). Four other findings (F-1, F-3, H-1, I-3) were batched into follow-up task **T63**, and a further six batches of review-2026-08-13 remediation — **T64–T69** (I-6, J-2, C-1, J-1, cleanup-hygiene batch 2, and convention-class cleanup) — landed 2026-08-19/20, closing out every open finding from that review. No task in the phase remains open. Not yet released: latest tag is v0.5.0 (Phase 11 — Visual Reading Interface); `CHANGELOG.md`'s `[Unreleased]` section carries the accumulated Phase 12 changes pending a version cut.
+**Current state:** Phase 14 — Consistency Review Remediation is open. T73 and T74 (closing the 2026-09-05 whole-repository consistency review and the 2026-09-06 diff review) are both done. A further, separate full-codebase review on 2026-09-06 (`.docs/reviews/2026-09-06-review-full-codebase.md`, gitignored scratchpad) surfaced additional findings, closed incrementally as MJ-1/MJ-2/MJ-5/MJ-6 (`3f952d8`) and MJ-3/MJ-7/MJ-10 (`765bdaa`) without their own task numbers at the time; **T75** now tracks its remaining Minor-severity batch and is the only task open in the phase. Prior phases below remain as delivered. Phase 12 — Artifact Cross-Referencing + Annotation-Backed Link Storage: all planned tasks **T45–T69** implemented, unit-tested (suite green), and merged to `main` (the `phase-12-cross-referencing` branch is merged; work is trunk-based on `main` per AGENTS.md); skills consolidated under `plugins/arkeology/skills/`; specs, ADR-011/ADR-012, and user docs aligned. **T57–T62** (added 2026-08-13) delivered the post-implementation remediation for a real vector-metadata-budget-overflow incident (guard coverage, `commit_refs`/`references` split-store fix, migration self-heal, bounded reconcile retry — see `adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal.md`, Accepted). Two closely-related review findings were folded directly into those specs rather than getting their own task numbers: I-4 (control-character validation gap) into T57's spec, and I-2 (`propose_commit_links.py` first-vector-only bug) into T58's spec — both touched the exact same file/function T57/T58 already opened. H-2 was folded into T62's spec (same file, already reopened by T62). Four other findings (F-1, F-3, H-1, I-3) were batched into follow-up task **T63**, and a further six batches of review-2026-08-13 remediation — **T64–T69** (I-6, J-2, C-1, J-1, cleanup-hygiene batch 2, and convention-class cleanup) — landed 2026-08-19/20, closing out every open finding from that review. No task in the phase remains open. Not yet released: latest tag is v0.5.0 (Phase 11 — Visual Reading Interface); `CHANGELOG.md`'s `[Unreleased]` section carries the accumulated Phase 12 changes pending a version cut.
 
 ---
 
@@ -307,6 +307,50 @@ changes.
     was added to pin the restore rule below. The AGENTS.md staleness the review found (the "There is
     no CI" paragraph, now false, and the `failure_log.py` / `_search_helper.py` structure rows) is
     T73 step 6's, not this task's.
+
+75. ✅ **Minor-hygiene batch: startup/health robustness, sanitized error echoes, stale-comment
+    cleanup, and shared-helper reuse** *(review findings MN-1, MN-8, MN-9, MN-10, MN-14, MN-16, MN-20
+    from `.docs/reviews/2026-09-06-review-full-codebase.md` — gitignored scratchpad, not a tracked
+    doc; this entry plus the contracts/tests it touches is the scope of record; no dedicated spec per
+    AGENTS.md's pure-hygiene exemption)* —
+    - MN-1: `startup.py` `_check_write_prefix`'s `get_object` branch gains the same
+      `except Exception as exc: raise StartupValidationError(...)` fallback its sibling `put_object`
+      branch (and checks 1/3/4/6) already have, so an unmapped exception (a 5xx `ClientError`, a
+      `NonUtf8PayloadError`) produces a structured exit instead of a raw traceback.
+    - MN-8: `tools/health.py`'s fixed `probe_key = f"{settings.write_prefix}/_arkeology_health_probe"`
+      gains a per-invocation ULID suffix, matching `startup.py`'s `{_PROBE_KEY_SUFFIX}_{ULID()}`
+      pattern, so two concurrent `health_check` calls no longer race on one probe object.
+    - MN-9: `resources.py`'s two resource-handler `except Exception as exc:` blocks
+      (`arkeology://artifact/{id*}`, `arkeology://artifacts`) and `studio.py`'s catch-all stop
+      echoing `str(exc)` (which can carry ARNs/account IDs/bucket names) to the client, replacing it
+      with `write_artifacts.py`'s fixed-message pattern; the raw exception stays logged server-side
+      via `logger.exception`.
+    - MN-10: two stale comments corrected to match current code — `resources.py`'s
+      `register_data_resources` docstring drops the claim that the artifact resource "Includes a
+      `lastModified` annotation derived from `last_edited_ulid` when present" (the handler explicitly
+      waives this), and `clients/bedrock.py`'s module comment stops calling `health.py`'s Bedrock
+      calls "direct (non-offloaded)" now that `health.py`'s `_probe` wraps every probe in
+      `asyncio.to_thread`.
+    - MN-14: `write.py`'s `_delete_orphan_vectors_with_retry` and `startup.py`'s `_check_credentials`
+      stop hand-deriving `exc.response.get("Error", {}).get("Code", "")` and call
+      `credentials._error_code(exc)` instead — the helper that already exists precisely so this is
+      not hand-rolled.
+    - MN-16: `archive.py`'s bare `{"error": ErrorCode.ANNOTATION_UNAVAILABLE, "message": str(exc)}`
+      return and `_search_helper.py`'s bare `{"error": ErrorCode.CREDENTIAL_ERROR, "message":
+      str(exc)}` return both switch to `_errors.py`'s `annotation_unavailable_response`/
+      `credential_error_response` helpers, matching every other uniform call site.
+    - MN-20: four cross-module-imported private names become public, per AGENTS.md's rule that a
+      name imported by more than one module is public — `write.py`'s `_write_artifact_inner` →
+      `write_artifact_inner` (imported by `write_artifacts.py`), `config.py`'s `_VALID_LOG_LEVELS` →
+      `VALID_LOG_LEVELS` (imported by `__main__.py`), and `_concurrency.py`'s
+      `_ARTIFACT_CONCURRENCY_DEFAULT`/`_ARTIFACT_CONCURRENCY_MAX`/`_clamp_concurrency` →
+      `ARTIFACT_CONCURRENCY_DEFAULT`/`ARTIFACT_CONCURRENCY_MAX`/`clamp_concurrency` (imported by
+      `write_artifacts.py` and `migrate_artifacts.py`); every import site and every test that
+      references these names directly is updated to match.
+
+    No behaviour change except MN-1, MN-8, and MN-9, each covered by a new or updated test.
+    Archival specs, ADRs, and brainstorming documents that happen to name the renamed symbols in
+    prose are not updated — they are historical records, not normative surfaces.
 
 ## Risks and Open Questions
 

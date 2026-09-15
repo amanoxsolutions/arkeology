@@ -36,10 +36,10 @@ _RETRY_SLEEP_SECONDS: float = 2.0
 # by every async caller: search.py, synthesise.py, and reconcile.py route their
 # embed()/invoke_text_model() calls through `asyncio.to_thread`, and write.py routes
 # them through its bounded `_EMBED_EXECUTOR` — the entire synchronous call, retry sleep
-# included, runs on a worker thread, never on the event-loop thread. startup.py calls
-# these methods directly, but synchronously before the event loop starts. health.py's
-# direct (non-offloaded) calls are a known, separately-tracked gap: health.py runs only
-# on operator demand, never on a hot request path, so a blocked loop there is bounded.
+# included, runs on a worker thread, never on the event-loop thread. health.py's `_probe`
+# helper also wraps every probe call, Bedrock included, in `asyncio.to_thread`.
+# startup.py calls these methods directly, but synchronously before the event loop
+# starts, so there is no loop to block.
 
 
 class BedrockClientImpl:

@@ -14,7 +14,7 @@ from arkeology import server
 from arkeology.clients.bedrock import BedrockClientImpl
 from arkeology.clients.s3 import S3ClientImpl
 from arkeology.clients.vectors import VectorsClientImpl
-from arkeology.config import _VALID_LOG_LEVELS, load_settings
+from arkeology.config import VALID_LOG_LEVELS, load_settings
 from arkeology.errors import ConfigurationError, CredentialError, StartupValidationError
 from arkeology.startup import validate_startup
 
@@ -43,14 +43,14 @@ def configure_logging(level: str) -> None:
             Falls back to INFO if the value is invalid.
     """
     normalised = level.upper()
-    if normalised not in _VALID_LOG_LEVELS:
+    if normalised not in VALID_LOG_LEVELS:
         normalised = "INFO"
         # Use a temporary handler to emit the warning before full setup
         logging.basicConfig(stream=sys.stderr, level=logging.INFO)
         logging.getLogger(__name__).warning(
             "Invalid LOG_LEVEL '%s'; falling back to INFO. Valid values: %s",
             level,
-            ", ".join(sorted(_VALID_LOG_LEVELS)),
+            ", ".join(sorted(VALID_LOG_LEVELS)),
         )
 
     root = logging.getLogger()

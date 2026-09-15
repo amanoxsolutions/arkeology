@@ -13,7 +13,7 @@ from typing import Annotated, Any
 from pydantic import Field, ValidationError, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-_VALID_LOG_LEVELS: frozenset[str] = frozenset({"DEBUG", "INFO", "WARNING", "ERROR"})
+VALID_LOG_LEVELS: frozenset[str] = frozenset({"DEBUG", "INFO", "WARNING", "ERROR"})
 _config_logger = logging.getLogger(__name__)
 
 
@@ -296,8 +296,8 @@ class Settings(BaseSettings):
     @classmethod
     def validate_log_level(cls, v: str) -> str:
         upper = v.upper()
-        if upper not in _VALID_LOG_LEVELS:
-            raise ValueError(f"LOG_LEVEL must be one of {sorted(_VALID_LOG_LEVELS)} (got '{v}')")
+        if upper not in VALID_LOG_LEVELS:
+            raise ValueError(f"LOG_LEVEL must be one of {sorted(VALID_LOG_LEVELS)} (got '{v}')")
         return upper
 
     @field_validator("BEDROCK_EMBEDDING_MODEL")
