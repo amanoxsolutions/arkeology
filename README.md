@@ -144,7 +144,10 @@ schema discovery, and two data resources for human browsing — see the
 The following must be provisioned and accessible before running the `setting-up-arkeology`
 skill or starting the server manually:
 
-- **S3 bucket** — a standard S3 bucket for artifact content storage
+- **S3 bucket** — a standard S3 bucket for artifact content storage, **dedicated to Arkeology**.
+  Do not share it with other data: `reconcile_index` treats every object without vectors under
+  your write prefix as an artifact to re-index. Buckets cost nothing to create; a bucket shared
+  with other purpose/tool is an unsupported deployment.
 - **S3 Vectors bucket and index** — created with `float32` data type, `cosine` distance
   metric, and four non-filterable metadata keys — `description`, `source_artifacts`, `title`,
   and `author_role` (display fields never used in `$eq` filters, so declaring them non-filterable

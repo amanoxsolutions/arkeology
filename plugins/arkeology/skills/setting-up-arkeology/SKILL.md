@@ -52,7 +52,7 @@ confirmed before proceeding to Step 2.
 | Parameter | Description | Default |
 |-----------|-------------|---------|
 | `AWS_REGION` | AWS region for all services | — (required) |
-| `ARTIFACT_BUCKET` | S3 bucket name for artifact content (must exist) | — (required) |
+| `ARTIFACT_BUCKET` | S3 bucket name for artifact content (must exist, and be dedicated to Arkeology — never shared with other data) | — (required) |
 | `VECTORS_BUCKET` | S3 Vectors bucket name (must exist) | — (required) |
 | `VECTORS_INDEX` | S3 Vectors index name (must exist) | — (required) |
 | `BEDROCK_EMBEDDING_MODEL` | Bedrock embedding model ID | `amazon.titan-embed-text-v2:0` |
