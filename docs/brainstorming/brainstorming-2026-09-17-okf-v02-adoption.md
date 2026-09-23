@@ -27,7 +27,7 @@ authored:
   by: "analyst"
   date: 2026-09-17
 revised:
-  by: "analyst"
+  by: "pm"
   date: 2026-09-23
 ---
 
@@ -53,8 +53,9 @@ third trust rung without the bundle-root `log.md` a store does not have. A produ
 becomes the artifact id, so Git and Arkeology share one namespace. Graph fields are annotation-only;
 the existing `source_artifacts` vector-metadata projection is deleted rather than carried over.
 Arkeology's own archive marker is renamed to `archived: bool` to stop colliding with OKF `status`.
-What remains open is small: the revision-history annotation's shape, the actor-string and type
-mappings, and two charset/anchoring sub-questions on the supplied `id`.
+The small follow-ups closed the same day: the revision-history annotation's shape (D30, D31, D34),
+the actor-string and type mappings (D35, D37), and the charset and date-anchoring rules for a
+supplied `id` (D32, D33). Nothing remains open.
 
 This document is deliberately stamped `okf_version: "0.1"` like every other document in the repo,
 so the mechanical version-keyed migration pass sweeps it up with the rest rather than leaving it
@@ -99,11 +100,16 @@ graph and is not a relationship.
 
 Three things that all used to be called `status`, now kept apart:
 
-| Concern | Key | Values | Owner | Filterable |
-|---|---|---|---|---|
-| Archived or not | `archived` (was Arkeology `status`) | `true` / `false` | Arkeology — `archive_artifact` | yes |
-| Document lifecycle | `status` (OKF §5.4) | `draft` / `stable` / `deprecated` | the writer of *that* document | yes — newly ingested |
-| Succession lineage | `relationships[].type: supersedes` | edge on the **successor** | the writer of the successor | no — annotation only |
+| Concern | Key | Values | Owner | Stored where | Filterable |
+|---|---|---|---|---|---|
+| Archived or not | `archived` (was Arkeology `status`) | `true` / `false` | Arkeology — `archive_artifact` | S3 object metadata + vector metadata — where `status` lives today | yes |
+| Document lifecycle | `status` (OKF §5.4) | `draft` / `stable` / `deprecated` | the writer of *that* document | S3 object metadata + vector metadata — same as `archived` | yes — newly ingested |
+| Succession lineage | `relationships[].type: supersedes` | edge on the **successor** | the writer of the successor | structured annotation | no — annotation only |
+
+Both lifecycle keys are ordinary per-artifact metadata attributes, stored exactly where the
+current `status` key is stored today: S3 object metadata as the durable copy (what
+`reconcile_index` rebuilds from) and filterable vector metadata as the index. Neither is an
+annotation — annotations hold only link fields and revision history.
 
 **In-force** = `status != deprecated AND archived == false`. It is the default view; `draft` is
 in force by default with a caller option to exclude it; the `supersedes` edge never decides
@@ -154,8 +160,8 @@ The concrete work implied by the model above. Decisions record *why*; this recor
   pre-write id uniqueness check is added across the manifest.
 - **The type list opens** (D37): OKF `type` stored verbatim, matched exactly, no case-folding.
   Known types become a recommended list; Studio gets a default style for unknown ones. The 16
-  legacy snake_case values are rewritten once to their OKF display names via `reconcile_index`,
-  and code comparisons such as `type == "synthesis"` follow.
+  legacy snake_case values are rewritten once to their OKF display names by the store-migration
+  skill (D42), and code comparisons such as `type == "synthesis"` follow.
 
 **Artifact model**
 
@@ -166,14 +172,19 @@ The concrete work implied by the model above. Decisions record *why*; this recor
   forward.
 - **Arkeology's `status` key becomes `archived: bool`** (D21). `ArtifactStatus` is deleted rather
   than renamed — a boolean needs no `StrEnum`. Persisted-shape change in both stores, both data
-  contracts, the filter expressions, ~27 tool response/parameter sites, and Studio; migrated via
-  `reconcile_index`. The `status: all` sentinel ADR gains a note for the boolean shape
+  contracts, the filter expressions, ~27 tool response/parameter sites, and Studio; existing
+  artifacts migrated by the store-migration skill (D42). The `status: all` sentinel ADR gains a note for the boolean shape
   (`archived: false` default, `true`, omitted for all).
-- **OKF `status` (`draft | stable | deprecated`) is ingested as filterable vector metadata**
-  (D22). Three short values; negligible against the 2 KB budget.
-- **A lifecycle flip on an existing artifact must be possible without re-embedding** — today only
-  `archive_artifact` flips a status. Either `link_metadata`'s shape extended, or its own small
-  tool.
+- **OKF `status` (`draft | stable | deprecated`) is ingested as artifact metadata** — S3 object
+  metadata plus filterable vector metadata, alongside `archived` (D22). Three short values;
+  negligible against the 2 KB budget.
+- **A lifecycle flip on an existing artifact must be possible without re-embedding.** Both
+  lifecycle keys live in S3 object metadata, so a flip takes `archive_artifact`'s existing path:
+  in-place object re-PUT carrying current metadata and link annotations forward, then a vector
+  metadata update — no embedding. `link_metadata` does not apply: it writes annotations only.
+  Being a metadata-only write, a flip never moves `revised.at`. Whether OKF `status` gets its own
+  small tool sharing that path or `archive_artifact` is generalised is a tool-surface choice for
+  the spec.
 - **Ordering:** rename `status → archived` *first*, then introduce lifecycle `status`. Otherwise
   one key means two things for a release.
 
@@ -203,6 +214,18 @@ The concrete work implied by the model above. Decisions record *why*; this recor
 - `revised.at` must move only on content writes, never on link backfills, archive flips or
   reconcile re-indexes (D19).
 - Same two batched queries — this is an accuracy change, not a cost change.
+
+**Existing-store migration** (D42)
+
+- **A breaking change, with no compatibility aliases.** Old parameter and field names
+  (`status` as archive marker, `references`, `source_artifacts`, `author_role`, `timestamp`) are
+  rejected once the change lands.
+- **A new skill plus scripts migrates any project already holding artifacts in Arkeology** —
+  S3 objects, object metadata, vector metadata and annotations: `status` → `archived`, legacy
+  types → OKF display names, `authored`/`author_role`/`timestamp` → `generated`/`revised`,
+  comma-joined `references`/`source_artifacts` → the structured `sources`/`relationships`
+  annotation, and the `source_artifacts` vector-metadata key dropped. `reconcile_index` is not
+  a metadata-key migration tool and gains no migration code.
 
 **Explicitly unchanged**
 
@@ -321,8 +344,9 @@ consequence of OKF's reader-side model, not an unfinished generalisation waiting
   thing rather than the category, it *is* a boolean, and it frees the `status` key for the OKF
   lifecycle it now collides with. `ArtifactStatus` is deleted, not renamed. `ArkeologyStatus` /
   `ArkeologyLifecycle` were considered and rejected: they keep the colliding word.
-- **D22 — OKF document `status` is ingested as filterable vector metadata.** It is the writer's
-  statement about its own document and the key the in-force filter turns on.
+- **D22 — OKF document `status` is ingested as artifact metadata — S3 object metadata plus
+  filterable vector metadata, the same two stores `archived` (and today's `status`) use.** It is
+  the writer's statement about its own document and the key the in-force filter turns on.
 - **D23 — In-force is `status != deprecated AND archived == false`, and it is the default view.**
   Same discipline as the archive convention: default hides, an explicit option reveals lineage.
   Nothing is ever *hidden* — every artifact stays readable by id and listable on request, exactly
@@ -431,8 +455,8 @@ consequence of OKF's reader-side model, not an unfinished generalisation waiting
   to the same `code-review` today's `code_review` produces. **Consequence — one-time rewrite of
   legacy values:** the corpus stores `spec`, `code_review`, `synthesis`; migrated plugin
   documents store `Spec`, `Code Review`. Under exact matching those would split every type
-  filter, so the 16 legacy values are rewritten once to their OKF display names by
-  `reconcile_index`, and code comparisons follow (`type == "Synthesis"` in `find_referrers` and
+  filter, so the 16 legacy values are rewritten once to their OKF display names by the
+  store-migration skill (D42), and code comparisons follow (`type == "Synthesis"` in `find_referrers` and
   freshness). Case-insensitive matching was rejected: S3 Vectors filters are exact, so it would
   need a second normalised copy of `type`. Accepted loss: the typo guard — `Sepc` becomes a new
   type. `Contract` is likely out of scope regardless: contracts sit closer to code and are often
@@ -473,6 +497,12 @@ consequence of OKF's reader-side model, not an unfinished generalisation waiting
   ignores `revised` misses a warning, rather than reading a stale confirmation as current. The
   operator has argued on #28 (2026-09-23) that §5.3 *should* grow a tier for content updated
   since its last verification; if the spec adopts one, Arkeology maps the flag onto it (D39).
+
+- **D42 — Breaking change; existing stores migrated by a dedicated skill plus scripts, not by
+  `reconcile_index`.** *(PM session with operator, 2026-09-23.)* No deprecated aliases — the
+  no-fallback-paths rule applies to parameter names as much as to stores. `reconcile_index`
+  repairs index drift from S3; it is not a metadata-key migration tool, so the one-time rewrite
+  of objects, metadata, vectors and annotations lives in the migration skill's scripts.
 
 #### How the in-force decision is made (2026-09-23)
 

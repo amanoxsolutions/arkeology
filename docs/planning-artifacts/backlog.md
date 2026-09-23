@@ -84,6 +84,14 @@ Items that were promoted to a phase are **not** listed here — see the phase hi
   visual-reading-interface export path.
   Source: [`brainstorming-2026-06-15-okf-alignment.md`](../brainstorming/brainstorming-2026-06-15-okf-alignment.md) (D1, D2a, D4).
 
+- **B-13 — Freshness check for every document that carries sources.** Under OKF's reader-side
+  model (D20), any document with `sources` — a spec citing its brainstorming session, not only a
+  synthesis — can be checked by following each source edge forward: report a source missing,
+  archived, or stale against its captured `last_modified`. Undecided whether this surfaces on
+  read, in a widened scheduled audit, or not at all; `check_synthesis_freshness` stays
+  synthesis-only regardless. Needs a decision before it can be specced.
+  Source: [`brainstorming-2026-09-17-okf-v02-adoption.md`](../brainstorming/brainstorming-2026-09-17-okf-v02-adoption.md) (D20).
+
 - **B-4 — OKF import of foreign bundles.** Ingest an external OKF bundle into an Arkeology scope:
   the `migrating-to-arkeology` skill accepts an OKF bundle as an input source, and/or an
   `import_okf` tool that reads each concept, stores its content, and embeds it. Map OKF free-form
