@@ -464,6 +464,15 @@ consequence of OKF's reader-side model, not an unfinished generalisation waiting
   resolving the source during import confirms it exists at that version, which is itself a
   verification, so treating the citing document as fresh against it from that point is sound.
   External sources are left without it.
+- **D41 — "Unverified since revised" is an advisory signal, never a change to the trust tier.**
+  When an artifact's newest `verified.at` is older than its `revised.at`, Arkeology surfaces that
+  as an advisory flag beside the tier, not as a demotion. §5.3 derives the tier from verifiers
+  alone, with no timestamp ordering, so an artifact with a human verification stays
+  human-reviewed however many revisions follow; §5.2 already allows content to change without
+  re-confirmation. Keeping it advisory also keeps the failure direction safe: a consumer that
+  ignores `revised` misses a warning, rather than reading a stale confirmation as current. The
+  operator has argued on #28 (2026-09-23) that §5.3 *should* grow a tier for content updated
+  since its last verification; if the spec adopts one, Arkeology maps the flag onto it (D39).
 
 #### How the in-force decision is made (2026-09-23)
 
@@ -784,6 +793,12 @@ State as of 2026-09-23, read through `gh`. **No maintainer has replied to any of
   2026-09-17 comment on this thread still shows `direction: outbound` / `direction: inbound` on
   three edges, a shape the plugin has since abandoned; worth a follow-up so the thread does not
   carry it.
+  The Data Olympus maintainer's latest comment (2026-09-23) asked two things: whether `revised`
+  is a single object or the one-element form of a list, and whether "unverified since revised"
+  changes the §5.3 tier or is advisory. Arkeology's answers: a single object, latest only (D9) —
+  full history lives in Git for a repository and in an annotation for Arkeology, never in the
+  frontmatter; and advisory (D41). The operator replied accordingly and proposed that §5.3 gain
+  a tier for content updated since its last verification.
 - **#22 — query-time semantics for `supersedes` and `contradicts` on the #16 carrier.** Kept
   deliberately separate from #16 so a maintainer can accept the carrier and defer the registry.
   Supplies the three-rung model Arkeology's in-force mechanism maps onto (D25), and settles the
