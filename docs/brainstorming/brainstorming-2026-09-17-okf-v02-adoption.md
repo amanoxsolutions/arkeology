@@ -12,6 +12,7 @@ references:
   - https://github.com/GoogleCloudPlatform/open-knowledge-format/issues/16
   - https://github.com/GoogleCloudPlatform/open-knowledge-format/issues/28
   - https://github.com/GoogleCloudPlatform/open-knowledge-format/issues/22
+  - https://github.com/GoogleCloudPlatform/open-knowledge-format/issues/32
   - docs/architecture-decisions/adr-2026-08-12-status-all-sentinel-convention.md
   - ../amanox-ai-agents/.docs/brief-2026-09-22-arkeology-okf-0.2-impacts.md
   - ../amanox-ai-agents/docs/brainstorming/brainstorming-2026-09-17-okf-0.2-adoption.md
@@ -28,7 +29,7 @@ authored:
   date: 2026-09-17
 revised:
   by: "pm"
-  date: 2026-09-23
+  date: 2026-09-24
 ---
 
 # OKF v0.2 Adoption for Arkeology
@@ -147,9 +148,9 @@ The concrete work implied by the model above. Decisions record *why*; this recor
 
 - `references.py` — `extract_references_list` and its `^references:` frontmatter regex stop
   matching anything. Replaced by two resolvers with **different mechanisms**: `sources[].resource`
-  is a path needing the existing path→id map (URLs pass through untouched), while
-  `relationships[].to` is already an id and needs lookup, not normalisation.
-- The `backfilling-references` skill loses the same regex.
+  is a path resolved by reading the target file's own frontmatter `id:` (D43; URLs pass through
+  untouched), while `relationships[].to` is already an id and needs lookup, not normalisation.
+- The `backfilling-references` skill is kept, retargeted to `sources` only (D43).
 - **`id:` in frontmatter becomes the bare artifact id** (D28). `generate_artifact_id` is the
   fallback, not the rule, for migrated content. `_slugify` must **not** run on a supplied id —
   dots are legal in producer stems and would be collapsed. The offline snippet in
@@ -214,6 +215,14 @@ The concrete work implied by the model above. Decisions record *why*; this recor
 - `revised.at` must move only on content writes, never on link backfills, archive flips or
   reconcile re-indexes (D19).
 - Same two batched queries — this is an accuracy change, not a cost change.
+
+**Agent-facing schema resource**
+
+- The schema MCP resource is rewritten for the new model: every field — `archived`, OKF `status`,
+  `generated`, `revised`, `verified`, `sources` (including `last_modified` and the footnote-label
+  `id`), `relationships`, the free-form `type` and the recommended type list, and the in-force
+  view — is explained so an agent interprets it the way OKF defines it. Without this, an agent
+  reads `status` or `sources[].id` by guesswork. *(PM session with operator, 2026-09-24; FR-18.)*
 
 **Existing-store migration** (D42)
 
@@ -405,7 +414,7 @@ consequence of OKF's reader-side model, not an unfinished generalisation waiting
 - **D32 — Supplied ids carry no date-anchoring guarantee (was OQ3).** Tier-2 date-anchoring was
   a property of `generate_artifact_id`'s formula, where it kept a recurring title unique across
   days. Nothing in `src/` parses a date out of a key, and under D28 the producer guarantees
-  uniqueness. The artifact's date lives in the `date` metadata field, fed from `generated.at`.
+  uniqueness. *(Amended 2026-09-24.)* The `date` metadata field is removed — it is not an OKF field, and `generated.at` / `revised.at` carry both meanings it had. A generated tier-2 id anchors on the calendar day of `generated.at`; the store-migration skill (D42) drops `date` from existing artifacts.
   Generated ids keep the formula unchanged.
 - **D33 — Supplied ids are validated and never repaired, and are case-preserving (was OQ2,
   OQ10).** Charset `[A-Za-z0-9._-]`; first and last character alphanumeric; no `/` (the
@@ -424,8 +433,9 @@ consequence of OKF's reader-side model, not an unfinished generalisation waiting
   `list_artifacts` would otherwise pay per artifact on every page.
 - **D35 — `author_role` is dropped; `generated` and `revised` are first-class metadata (was
   D15).** The field predates OKF and, once it held a §7 actor string, duplicated `revised.by` —
-  each write overwrote it. `generated: {by, at}` (written once) and `revised: {by, at}` (set on
-  every content write) are stored in S3 object metadata and vector metadata as first-class
+  each write overwrote it. `generated: {by, at}` (written once) and `revised: {by, at}` (absent
+  until the first revision, then set on every later content write — *clarified 2026-09-24*, as
+  D40 already assumed) are stored in S3 object metadata and vector metadata as first-class
   fields, set by the writer. They are **not** derived from the revision-history annotation: that
   annotation is the log, whose first and last entries coincide with them. Actor values follow
   OKF §7 verbatim, unsplit — `<producer>/<version>`, `human:<id>`, `process:<id>`. Neither `by`
@@ -466,8 +476,7 @@ consequence of OKF's reader-side model, not an unfinished generalisation waiting
   sources used to be external only. At ingest a resolved source stores its resource as
   `arkeology://artifact/{id}`, a URL §5.1 permits and a scheme Arkeology already registers. On
   read, entries with that scheme pass through the existing `resolve_readable_targets` unchanged
-  (own-scope by prefix, foreign only if tier 3 and `shared`, unreadable dropped fail-safe so no
-  hidden artifact's existence leaks); URLs and unresolved paths pass untouched. Reusing the one
+  (own-scope by prefix, foreign only if tier 3 and `shared`, unreadable **redacted**, not dropped — amended by D47); URLs and unresolved paths pass untouched. Reusing the one
   gate function adds nothing new to the mutation scope. `relationships[].to` stays a bare id
   because #16 types it as an id; `sources[].resource` is typed as a URI — each follows its field.
 - **D39 — Arkeology does not wait for OKF rulings; it decides now and adapts later (was OQ8,
@@ -498,6 +507,55 @@ consequence of OKF's reader-side model, not an unfinished generalisation waiting
   operator has argued on #28 (2026-09-23) that §5.3 *should* grow a tier for content updated
   since its last verification; if the spec adopts one, Arkeology maps the flag onto it (D39).
 
+- **D43 — `sources[].resource` resolves through the target file's own `id:`; the backfill skill
+  is kept for `sources` only.** *(PM session with operator, 2026-09-24.)* Under D28 every target
+  file carries a frozen `id:`, so a path resolves by opening the file it names and reading that
+  key — no path→id map, and correct across file renames. The result is stored as
+  `arkeology://artifact/{id}`. `sources[].id` is **not** used for resolution: §5.1 defines it as a
+  per-document footnote label joining body citations to entries, optional, and unrelated to the
+  target's identity — reading it as a target id would resolve a coincidental label silently to the
+  wrong artifact. `relationships[].to` is already an id, so it never needs backfilling; a source
+  whose target was not yet in Arkeology at import still does, so `backfilling-references` stays,
+  scoped to `sources`, and records the resolved source's current `revised.at` as `last_modified`
+  (D40).
+- **D47 — Cross-scope filtering of `sources` and `relationships` redacts rather than drops
+  (amends D38).** *(PM session with operator, 2026-09-24.)* Silent dropping breaks OKF's trust
+  framework: a foreign reader sees a list that looks complete but is not, and judges the document
+  on provenance it does not actually rest on. Returning the hidden id is not acceptable either —
+  a tier-2 id can itself be sensitive. So the entries the reader cannot read are removed and
+  **one** redaction marker per list is appended carrying only their count — no id, resource,
+  title or timestamp. One marker per hidden entry was rejected: list positions carry no meaning
+  once the entries are gone, and the count is the only thing the reader needs. Own-scope readers still see the full list; the
+  stored annotation is never touched; a deleted source stays in the list and is reported
+  *missing* by freshness, as OKF's write-time-record semantics require. Stated limit: the gate
+  governs the structured field, which is emitted mechanically and in bulk, not the body, which is
+  authored — a shared document's author is responsible for what its prose names, as in any sharing
+  system. The provenance-honesty purpose (the reader learns the list is incomplete) does not
+  depend on the body at all. Raised upstream as OKF issue #32 (2026-09-24): partial visibility of
+  `sources` across a trust boundary, proposing a single counted `withheld` marker per list.
+- **D46 — `link_metadata` is renamed `add_artifact_links`; verifications get their own tool,
+  `add_artifact_verification`.** *(PM session with operator, 2026-09-24.)* The old name read as
+  "link the metadata" and did not say what the tool changes: it **adds** commit references,
+  sources and relationships — merge and dedupe, never remove (removal happens only through an
+  overwriting write). Storage location is deliberately kept out of the name. A verification is an
+  event appended to the `verified` annotation (D44), not a set merge, so it is a separate tool
+  rather than a parameter on the links tool; both build on one shared compare-and-swap
+  annotation-append helper, which the revision history (D30) needs anyway. The "revised after
+  verification" check is not a tool: `read_artifact` computes it (FR-71). Part of this release's
+  breaking change (D42) — no alias for the old name.
+- **D45 — The D41 flag is surfaced on read only for now.** *(PM session with operator,
+  2026-09-24.)* Listings and search are deferred to backlog item B-14, which records the chosen
+  approach — a vector-only `last_verified` projection derived from the `verified` annotation —
+  and the alternatives rejected.
+- **D44 — `verified` lives in its own annotation.** *(PM session with operator, 2026-09-24.)*
+  Not object or vector metadata: S3 user-defined object metadata is capped at 2 KB per object,
+  and a new vector-metadata key is filterable by default, so it would count against the 2 KB
+  filterable budget on every section vector. A list that grows with each review would eventually
+  trip the write-path budget check and block ordinary content writes. Its own annotation, apart
+  from the link annotation and the revision-history annotation, for D31's reason: reviewers
+  append to it on their own schedule, independently of link edits and content writes. Recording
+  a verification after the write is an annotation-only write — no re-PUT, no re-embedding, no
+  `revised` change. Nothing filters on it.
 - **D42 — Breaking change; existing stores migrated by a dedicated skill plus scripts, not by
   `reconcile_index`.** *(PM session with operator, 2026-09-23.)* No deprecated aliases — the
   no-fallback-paths rule applies to parameter names as much as to stores. `reconcile_index`
@@ -634,8 +692,8 @@ What the plugin commits to emitting. Decided, not yet implemented.
 - **`generated` / `revised` / `verified`** — as tabulated under D9 amended.
 - **`status`** — three values. **`type`** — free-form, capitalised.
 
-The two link fields resolve by **different mechanisms**: `sources[].resource` is a path needing the
-existing path→id map (URLs pass through), while `relationships[].to` is already an id and needs
+The two link fields resolve by **different mechanisms**: `sources[].resource` is a path resolved by
+reading the target file's own `id:` (D43; URLs pass through), while `relationships[].to` is already an id and needs
 lookup, not normalisation. `references.py`'s `extract_references_list` and its `^references:`
 regex, and the equivalent match in `backfilling-references`, stop matching anything.
 
@@ -837,6 +895,13 @@ State as of 2026-09-23, read through `gh`. **No maintainer has replied to any of
   keying on the retired concept's own `status: deprecated`; the in-force clause with its
   `archived` term; the four-row table; and an ask that the registration name "the target itself
   carries `status: deprecated`, attributed" as a second acceptable form of attributed resolution.
+
+- **#32 — partial visibility of `sources` across a trust boundary.** Filed by the operator
+  2026-09-24 out of D47. Asks the spec to rule drop / reveal / redact when a served document's
+  `sources` include entries the reader may not see, and proposes a single `withheld: <count>`
+  entry per list, emitted by the serving party and surfaced by consumers. Arkeology ships the
+  proposed shape now (D39 applies: adapt the marker's key if the ruling differs, storage is
+  untouched either way). No reply yet.
 
 Two items previously drafted here — a #16 comment on inverse cost and a new issue on
 `last_modified` capture semantics — were dropped; the operator wrote their own.

@@ -11,8 +11,8 @@ authored:
   by: "pm"
   date: "2026-08-21"
 revised:
-  by: ""
-  date: ""
+  by: "pm"
+  date: "2026-09-24"
 ---
 
 # Arkeology — Persistent Artifact Memory
@@ -64,6 +64,8 @@ Arkeology is not built for every team or every project. The following are perman
 Each deployment of Arkeology is a self-contained, independent persistent memory store for one team or project. Agents write artifacts at significant moments — end of session, after a code review, after an architecture decision. Future agents and engineers search and retrieve those artifacts to resume where prior work left off, without re-discovering what is already known.
 
 When a shared S3 bucket is deliberately configured across teams, tier 3 permanent knowledge — ADRs, canonical patterns, architecture decisions — becomes discoverable across project and team boundaries. A platform team's VPC peering decision surfaces for a microservices team agent that subscribed to the platform team's prefix. Tier 2 working documents are never served across scope boundaries (see the Cross-Scope Trust Constraint in `requirements.md`'s Constraints table for what this does and does not protect).
+
+Artifacts follow the Open Knowledge Format, so a document keeps in Arkeology the identifier, provenance, sources, relationships, and lifecycle status it carries in the repository. An agent moves between the Git corpus and Arkeology using the same names, with no translation step.
 
 The server is deployment-agnostic: it is given resource names and trusts the credentials it receives. Deployment topology — one shared org-wide bucket, one bucket per team, one per project — is entirely the operator's choice.
 
@@ -130,7 +132,7 @@ This section identifies the conditions under which Arkeology could work correctl
 - Semantic search is the right retrieval mechanism — if agents mostly know what they are looking for by type and metadata, a simpler system would suffice
 
 **What failure feels like**
-- The agent retrieves an artifact, trusts it, and acts on superseded or wrong information — no error, no signal, just quietly wrong
+- The agent retrieves an artifact, trusts it, and acts on superseded or wrong information — no error, no signal, just quietly wrong. *Mitigated by* the default in-force view, which leaves out documents their own writer has deprecated, and by per-source freshness, which flags a document whose sources changed after it was written
 - The agent asks questions that were already answered and documented — the developer answers again; the problem the server was meant to solve is still present
 - Writing feels like a ritual: artifacts go in, nothing useful comes back; teams stop writing
 - The store grows over months but the agent stays blind — confidence in the system collapses

@@ -92,6 +92,36 @@ Items that were promoted to a phase are **not** listed here — see the phase hi
   synthesis-only regardless. Needs a decision before it can be specced.
   Source: [`brainstorming-2026-09-17-okf-v02-adoption.md`](../brainstorming/brainstorming-2026-09-17-okf-v02-adoption.md) (D20).
 
+- **B-14 — "Unverified since revised" flag in listings and search results.** FR-71 surfaces the
+  advisory flag (D41) on `read_artifact` only, where it is free: the read already loads the
+  `verified` annotation and `revised` from object metadata. Showing it in `list_artifacts` and
+  `search_artifacts` too is deferred here. *Approach chosen (PM session with operator,
+  2026-09-24):* a **`last_verified: {by, at}`** key in **vector metadata only**, derived from the
+  last entry of the `verified` annotation — the `commit_refs` pattern: the annotation stays the
+  sole source of truth (D44), the vector copy is a derived projection that `reconcile_index`
+  rebuilds from it and that is never read back as truth. Recording a verification then becomes
+  annotation append → vector metadata update, the same two-store path and failure-log repair
+  `link_metadata` already uses.
+  - *Why not the other options.* Per-artifact reads of the `verified` annotation: annotations
+    are one GET each, so a listing would go from two to three GETs per artifact per page, and
+    search — which reads no annotations today — would gain one per result. `last_verified` in
+    **object** metadata, mirroring `revised`: unlike `revised`, which only moves on a content
+    write that re-PUTs the object anyway, a verification is not a content write and S3 object
+    metadata cannot be edited in place, so every verification would need an archive-style
+    re-PUT that first reads and then re-applies the link, revision-history and `verified`
+    annotations the re-PUT wipes — the heaviest write path, for a small append.
+  - *Constraints.* A new vector-metadata key is filterable by default, so it counts against the
+    2 KB filterable budget on every section vector (one `{by, at}` is ~70 bytes); non-filterable
+    slots are fixed at index creation, so making it non-filterable would need a re-index.
+    `last_verified` is a house key, not OKF — the schema resource (FR-18) must say it is the
+    latest entry of `verified`. D35's objection to deriving `revised` from the history annotation
+    does not apply: `verified` has no durable home other than its annotation.
+  - *When promoted.* Recording a verification is `add_artifact_verification`, separate from
+    `add_artifact_links` (D46). Adding the vector update makes it duplicate `add_artifact_links`'
+    vector-write-and-failure-log path — extract that into a shared helper at that point rather
+    than copying it. Migration of existing verifications is moot (none exist before this phase).
+  Source: [`brainstorming-2026-09-17-okf-v02-adoption.md`](../brainstorming/brainstorming-2026-09-17-okf-v02-adoption.md) (D41, D44).
+
 - **B-4 — OKF import of foreign bundles.** Ingest an external OKF bundle into an Arkeology scope:
   the `migrating-to-arkeology` skill accepts an OKF bundle as an input source, and/or an
   `import_okf` tool that reads each concept, stores its content, and embeds it. Map OKF free-form
