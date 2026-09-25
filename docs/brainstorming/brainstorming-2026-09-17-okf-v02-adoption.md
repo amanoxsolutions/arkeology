@@ -533,6 +533,21 @@ consequence of OKF's reader-side model, not an unfinished generalisation waiting
   system. The provenance-honesty purpose (the reader learns the list is incomplete) does not
   depend on the body at all. Raised upstream as OKF issue #32 (2026-09-24): partial visibility of
   `sources` across a trust boundary, proposing a single counted `withheld` marker per list.
+- **D48 — The `withheld` marker sits inside the list, and Arkeology always emits it (refines
+  D47).** *(PM session with operator, 2026-09-25, after the #32 reply.)* Shape: one entry
+  `{withheld: <n>}` appended to `sources` and to `relationships`, never a sibling key — the same
+  marker then covers both lists without inventing a `<field>_withheld` key per list, and a list
+  that says "and n more" reads naturally. **Emission is unconditional**: every response that
+  returns `sources` or `relationships` to a foreign-scope reader carries the marker whenever at
+  least one entry was withheld — no path, option, or format may omit it. The reason is the one
+  the #32 reply gave: unlike an ignored `revised`, which only understates recency, a missing
+  marker errs in no safe direction, since the hidden entries could have strengthened or weakened
+  the concept. Display remains the reading end's concern.
+  - *Accepted cost:* §5.1 makes `resource` REQUIRED in every entry, so a validator built on the
+    current text rejects a redacted document. Arkeology emits the marker anyway (D39) and #32 asks
+    for the §5.1 amendment in the same change.
+  - *Internal consumers:* the freshness check and the delete/archive warning are own-scope only,
+    so they never see a marker. Studio can show foreign-scope artifacts and must render it.
 - **D46 — `link_metadata` is renamed `add_artifact_links`; verifications get their own tool,
   `add_artifact_verification`.** *(PM session with operator, 2026-09-24.)* The old name read as
   "link the metadata" and did not say what the tool changes: it **adds** commit references,
@@ -901,7 +916,12 @@ State as of 2026-09-23, read through `gh`. **No maintainer has replied to any of
   `sources` include entries the reader may not see, and proposes a single `withheld: <count>`
   entry per list, emitted by the serving party and surfaced by consumers. Arkeology ships the
   proposed shape now (D39 applies: adapt the marker's key if the ruling differs, storage is
-  untouched either way). No reply yet.
+  untouched either way). **Reply 2026-09-25** from the Data Olympus maintainer (not a ruling):
+  supports a marker; frames the open choice as in-list versus a sibling key like
+  `usage_window`; notes the in-list form needs §5.1's `resource` REQUIRED rule amended in the
+  same change, or current validators reject it; and backs emission as unconditional on the
+  serving side with display as SHOULD on the reading side, because an ignored marker is not
+  conservative in either direction. Arkeology keeps the in-list form (D48).
 
 Two items previously drafted here — a #16 comment on inverse cost and a new issue on
 `last_modified` capture semantics — were dropped; the operator wrote their own.
