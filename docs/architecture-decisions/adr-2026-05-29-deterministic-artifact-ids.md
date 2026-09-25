@@ -11,8 +11,8 @@ authored:
   by: architect
   date: "2026-05-29"
 revised:
-  by: "analyst"
-  date: "2026-07-02"
+  by: "architect"
+  date: "2026-09-25"
 ---
 
 # Deterministic Slug-Based Artifact Identifiers
@@ -127,3 +127,31 @@ now rejects a write whose generated key already exists with a `validation_error`
 caller passes an explicit `overwrite=true` flag — collapsing two distinct titles onto the
 same key (the one case this ADR still treats as intentional dedup) now requires the same
 explicit opt-in as any other same-key overwrite, rather than happening silently.
+
+## Proposed Revision — 2026-09-25
+
+> **Pending.** Proposed by ADR-016 (draft, awaiting review); takes effect when ADR-016 is
+> accepted. Until then this ADR's Decision stands as written above.
+
+[The OKF v0.2 adoption ADR](adr-2026-09-25-okf-v02-adoption.md) proposes amending this ADR for the
+case where the writer already has an identifier:
+
+- **A supplied `id` is an attribute and becomes the key verbatim** —
+  `{WRITE_PREFIX}/{id}{file_extension}` — with no hash suffix, no slugification and no lowercasing,
+  so the same name addresses a document in its Git repository and in Arkeology. It is validated
+  (`[A-Za-z0-9._-]`, alphanumeric first and last character, no `/`, no `..`, at most 128
+  characters) and rejected when outside that form, never repaired. This amends the
+  deterministic-keys rule rather than breaking it: a frozen filename stem is deterministic, and the
+  rule's target — random and UUID keys — is untouched. Uniqueness of supplied ids is the producer's
+  guarantee, checked by the migration skill across the whole manifest before any write and by the
+  existing rejection of an existing key without `overwrite`.
+- **Generated ids are unchanged** whenever no `id` is supplied, hash suffix included. Tier 2's
+  `{date}` component is now the UTC calendar day of `generated.at`, because the separate `date`
+  field is removed. The store migration writes each existing artifact a `generated.at` on the UTC
+  day of its old `date`, so a later overwrite of a tier-2 artifact regenerates the key already
+  stored. Supplied ids carry no date anchoring.
+- **The type slug now comes from a free-form OKF type** (`Code Review`), which slugifies to the same
+  `code-review` the legacy `code_review` does, so existing ids do not move.
+
+Idempotency, tier-3 overwrite in place, the three collision classes and the explicit `overwrite`
+opt-in all stand.

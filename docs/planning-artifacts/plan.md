@@ -20,7 +20,7 @@ This project runs as a **single open phase**, not a pre-planned roadmap. Complet
 - **Status legend:** ⬜ pending · 🔄 in progress · 🔍 in review · ✅ done · 🔴 blocked
 - **Delivery model:** each **Phase** is a coherent slice of value delivered as a set of tasks. A phase ends when we judge it done.
 
-**Current state:** Phase 14 — Consistency Review Remediation is open. T73 and T74 (closing the 2026-09-05 whole-repository consistency review and the 2026-09-06 diff review) are both done. A further, separate full-codebase review on 2026-09-06 (`.docs/reviews/2026-09-06-review-full-codebase.md`, gitignored scratchpad) surfaced additional findings, closed incrementally as MJ-1/MJ-2/MJ-5/MJ-6 (`3f952d8`) and MJ-3/MJ-7/MJ-10 (`765bdaa`) without their own task numbers at the time; **T75** now tracks its remaining Minor-severity batch and is the only task open in the phase. Prior phases below remain as delivered. Phase 12 — Artifact Cross-Referencing + Annotation-Backed Link Storage: all planned tasks **T45–T69** implemented, unit-tested (suite green), and merged to `main` (the `phase-12-cross-referencing` branch is merged; work is trunk-based on `main` per AGENTS.md); skills consolidated under `plugins/arkeology/skills/`; specs, ADR-011/ADR-012, and user docs aligned. **T57–T62** (added 2026-08-13) delivered the post-implementation remediation for a real vector-metadata-budget-overflow incident (guard coverage, `commit_refs`/`references` split-store fix, migration self-heal, bounded reconcile retry — see `adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal.md`, Accepted). Two closely-related review findings were folded directly into those specs rather than getting their own task numbers: I-4 (control-character validation gap) into T57's spec, and I-2 (`propose_commit_links.py` first-vector-only bug) into T58's spec — both touched the exact same file/function T57/T58 already opened. H-2 was folded into T62's spec (same file, already reopened by T62). Four other findings (F-1, F-3, H-1, I-3) were batched into follow-up task **T63**, and a further six batches of review-2026-08-13 remediation — **T64–T69** (I-6, J-2, C-1, J-1, cleanup-hygiene batch 2, and convention-class cleanup) — landed 2026-08-19/20, closing out every open finding from that review. No task in the phase remains open. Not yet released: latest tag is v0.5.0 (Phase 11 — Visual Reading Interface); `CHANGELOG.md`'s `[Unreleased]` section carries the accumulated Phase 12 changes pending a version cut.
+**Current state:** Phase 15 — OKF v0.2 Adoption is open (T76–T90, all ⬜). Phase 14 — Consistency Review Remediation is complete. T73 and T74 (closing the 2026-09-05 whole-repository consistency review and the 2026-09-06 diff review) are both done. A further, separate full-codebase review on 2026-09-06 (`.docs/reviews/2026-09-06-review-full-codebase.md`, gitignored scratchpad) surfaced additional findings, closed incrementally as MJ-1/MJ-2/MJ-5/MJ-6 (`3f952d8`) and MJ-3/MJ-7/MJ-10 (`765bdaa`) without their own task numbers at the time; **T75** closed its remaining Minor-severity batch. Prior phases below remain as delivered. Phase 12 — Artifact Cross-Referencing + Annotation-Backed Link Storage: all planned tasks **T45–T69** implemented, unit-tested (suite green), and merged to `main` (the `phase-12-cross-referencing` branch is merged; work is trunk-based on `main` per AGENTS.md); skills consolidated under `plugins/arkeology/skills/`; specs, ADR-011/ADR-012, and user docs aligned. **T57–T62** (added 2026-08-13) delivered the post-implementation remediation for a real vector-metadata-budget-overflow incident (guard coverage, `commit_refs`/`references` split-store fix, migration self-heal, bounded reconcile retry — see `adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal.md`, Accepted). Two closely-related review findings were folded directly into those specs rather than getting their own task numbers: I-4 (control-character validation gap) into T57's spec, and I-2 (`propose_commit_links.py` first-vector-only bug) into T58's spec — both touched the exact same file/function T57/T58 already opened. H-2 was folded into T62's spec (same file, already reopened by T62). Four other findings (F-1, F-3, H-1, I-3) were batched into follow-up task **T63**, and a further six batches of review-2026-08-13 remediation — **T64–T69** (I-6, J-2, C-1, J-1, cleanup-hygiene batch 2, and convention-class cleanup) — landed 2026-08-19/20, closing out every open finding from that review. No task in the phase remains open. Not yet released: latest tag is v0.5.0 (Phase 11 — Visual Reading Interface); `CHANGELOG.md`'s `[Unreleased]` section carries the accumulated Phase 12 changes pending a version cut.
 
 ---
 
@@ -365,9 +365,162 @@ changes.
     Archival specs, ADRs, and brainstorming documents that happen to name the renamed symbols in
     prose are not updated — they are historical records, not normative surfaces.
 
+## Phase 15 — OKF v0.2 Adoption
+
+Goal: make Arkeology a full OKF v0.2 consumer and store — lifecycle keys that no longer collide,
+first-class provenance, structured `sources`/`relationships`, producer-supplied identifiers, an
+open type list, and an in-force default view — as one breaking release, with a store-migration
+skill for deployments that already hold artifacts. Decisions:
+[`adr-2026-09-25-okf-v02-adoption.md`](../architecture-decisions/adr-2026-09-25-okf-v02-adoption.md),
+from [`brainstorming-2026-09-17-okf-v02-adoption.md`](../brainstorming/brainstorming-2026-09-17-okf-v02-adoption.md).
+Requirements: FR-01, FR-04, FR-05, FR-08–FR-10, FR-14, FR-15, FR-17–FR-23, FR-46, FR-48,
+FR-51–FR-56, FR-58, FR-59, FR-67–FR-74, C-01, C-07, C-08.
+
+**How each task runs (TDD).** Every task below changes behaviour, so each gets its own spec in
+`docs/specs/p15-t<n>-<slug>.md` before any code. Per task: spec → contract amendments in
+`docs/contracts/` → tests written and **confirmed failing** (red) → implementation until the unit
+suite, ruff, mypy and `npm test` are green. A task is ✅ only when all of that holds. No aliases
+for removed names (D42): each rename task also proves the old name is rejected with a
+`validation_error` naming its replacement (AC-80).
+
+**Ordering.** Wave A must land first — renaming `status` → `archived` before OKF `status` is
+introduced keeps one key from meaning two things. Inside a wave, tasks marked *parallel* touch
+disjoint code and may run concurrently; everything else is sequential as listed.
+
+### Wave A — Free the colliding keys
+
+76. ⬜ **Archive marker `status` → `archived: bool`** — delete `ArtifactStatus`; store `archived` in
+    S3 object metadata and filterable vector metadata where `status` is today; every tool
+    parameter, response field and filter expression, Studio's facet, and the `status: all`
+    sentinel convention move to the boolean (`false` default, `true`, omitted for all).
+    `reconcile_index` reports and rebuilds, from S3 object metadata, any vector whose `archived`
+    is missing or not a boolean (D50). Done: archive, list, search, synthesise, purge, delete, studio and resources use `archived`
+    only; AC-08, AC-20, AC-52, AC-54 pass; the old `status` parameter is rejected (AC-80).
+    (FR-04, FR-05, FR-09, FR-14, FR-17, FR-22, FR-46, FR-48; D21, D50)
+
+77. ⬜ **Open type list** *(parallel with 76)* — accept any `type`, stored and matched verbatim;
+    known types become a recommended list in the schema resource; legacy code comparisons
+    (`type == "synthesis"` in `find_referrers` and freshness) move to OKF display names; Studio
+    gets a default style for unknown types; a generated id still slugifies the type, so existing
+    ids are unchanged. Done: AC-77 passes; `ARTIFACT_TYPES` is no longer a validator.
+    (FR-09, FR-18, FR-48; D37)
+
+### Wave B — Provenance and lifecycle
+
+78. ⬜ **Provenance: `generated` / `revised`; drop `date`, `author_role`, `timestamp`** — `generated:
+    {by, at}` required and written once, carried forward on every overwrite; `revised` absent
+    until the first overwriting content write; `at` values are ISO 8601 UTC with `Z` and compared
+    as parsed datetimes; a generated tier-2 id anchors on the UTC day of `generated.at` (ADR
+    default; the spec confirms it); link
+    backfills, archive, lifecycle changes, verifications and reconciliation never move `revised`.
+    Done: AC-04, AC-64, AC-72 pass; `date`/`author_role` are rejected (AC-80).
+    Blocked by 76. (FR-01, FR-08, FR-09, FR-15, FR-17, FR-59, FR-69; D9, D19, D32, D35)
+
+79. ⬜ **Revision-history annotation + shared compare-and-swap append helper** — one `{by, at}`
+    entry appended per content write in its own annotation, uncapped; carried across overwrites;
+    returned by `read_artifact`, omitted from listings unless asked. The append helper is built
+    once here and reused by 82. Done: AC-75 passes. Blocked by 78. (FR-54, FR-72; D26, D30, D31, D34)
+
+80. ⬜ **OKF lifecycle `status` + in-force default view** *(parallel with 79)* — ingest
+    `draft | stable | deprecated` into S3 object metadata and filterable vector metadata; search,
+    list and synthesis preparation default to in-force (`status != deprecated AND archived ==
+    false`), with options for full lineage and for excluding drafts; `supersedes` never excludes.
+    Done: AC-69, AC-70 pass. Blocked by 76. (FR-04, FR-46, FR-67; D22–D25)
+
+81. ⬜ **Change lifecycle status without re-embedding** — reuse `archive_artifact`'s re-PUT path
+    (carrying metadata and all three annotations forward); the tool surface (own tool vs
+    generalised archive) is decided in the spec. Done: AC-71 passes. Blocked by 79, 80.
+    (FR-14, FR-68)
+
+82. ⬜ **`verified` annotation, `add_artifact_verification`, "unverified since revised" on read** —
+    `verified` in its own annotation; the new tool appends `{by, at}` via 79's helper with no
+    re-PUT, re-embed or `revised` change; `read_artifact` returns the list and computes the
+    advisory signal. Listings and search stay out of scope (backlog B-14). Done: AC-73, AC-74 pass.
+    Blocked by 79. (FR-14, FR-70, FR-71; D41, D44, D45, D46)
+
+### Wave C — Link fields
+
+83. ⬜ **`sources` + `relationships` structured annotation; `link_metadata` → `add_artifact_links`** —
+    one structured annotation replaces the comma-joined `references` annotation and the
+    `source_artifacts` field; the `source_artifacts` vector projection is deleted (declared slot
+    stays unused — no re-index); `commit_refs` unchanged; overwrite replaces both fields with
+    exactly what the call supplies; a source resolving into Arkeology without `last_modified`
+    gets the source's current `revised.at` (or `generated.at`); `find_referrers` becomes a
+    `type` prefilter plus one annotation read per own-scope synthesis, and a failed read raises.
+    Done: AC-56–AC-61, AC-68 pass; `references`, `source_artifacts` and `link_metadata` are
+    rejected (AC-80). Blocked by 78. (FR-19, FR-21, FR-51, FR-53–FR-56, C-01, C-07, C-08; D17–D20, D29, D40, D46)
+
+84. ⬜ **Cross-scope gate for `sources` and `relationships`, with the `{withheld: n}` marker** —
+    Arkeology-pointing sources pass the existing gate in `_scope.py`; unreadable entries are
+    removed and one in-list `{withheld: n}` marker is emitted on **every** capability returning
+    link fields or content to a foreign-scope reader — in the structured field and in the
+    returned content's frontmatter alike (D49), never modifying the stored object. Done: AC-78
+    passes on read, list, synthesis and the data resources; mutation run over the declared Scope shows no new non-equivalent
+    survivor. Blocked by 83. (FR-10; D38, D47, D48, D49)
+
+85. ⬜ **Per-source freshness** *(parallel with 84)* — `check_synthesis_freshness` compares each
+    Arkeology source's current `revised.at` (or `generated.at`) with its captured
+    `last_modified` as parsed datetimes, and reports stale, archived and missing sources; a
+    revised synthesis no longer hides a source change; a source whose timestamp does not parse
+    is reported "unchecked: unreadable timestamp" and the rest are still checked (D50). Done:
+    AC-18 passes. Blocked by 83.
+    (FR-20; D19, D20)
+
+### Wave D — Identity and ingestion
+
+86. ⬜ **Producer-supplied `id` becomes the artifact id** *(parallel with Wave C)* — used verbatim
+    and case-preserved, no hash suffix; validated (charset, alphanumeric ends, no `/`, no `..`,
+    ≤128 chars) and never repaired; generated ids unchanged when absent. Done: AC-76 passes;
+    AGENTS.md's deterministic-keys rule and Working Conventions carry the ADR amendment.
+    Blocked by 78. (FR-08, FR-15, FR-73; D28, D32, D33)
+
+87. ⬜ **Migration skill + `references.py` + source-backfill skill for the new frontmatter** — honour
+    `id:`; check id uniqueness across the manifest before any write; prefer `generated.at` as the
+    first-authorship time; resolve `sources[].resource` paths by reading the target file's own
+    `id:`; carry `relationships` over unchanged; keep `sources[].id` as a label only; retarget
+    `backfilling-references` to sources, recording `last_modified`; update
+    `test_skill_artifact_id_drift.py`. Done: AC-58, AC-63, AC-81 pass. Blocked by 83, 86.
+    (FR-23, FR-52, FR-58; D28, D40, D43)
+
+### Wave E — Agent-facing surface and existing stores
+
+88. ⬜ **Schema resource rewrite** — the schema MCP resource explains every field in OKF terms so an
+    agent interprets it correctly: `archived`, `status`, the in-force view, `generated`,
+    `revised`, `verified` and the advisory signal, `sources` (incl. `last_modified`, the
+    footnote-label `id`, the `withheld` marker), `relationships`, supplied ids, the open type
+    list. Done: the resource content is reviewed against the ADR field by field, and its tests
+    pin each field's presence. Blocked by 76–87. (FR-18)
+
+89. ⬜ **Store-migration skill + scripts** — brings an existing deployment to the new shape in S3
+    object metadata, vector metadata and annotations: `status` → `archived`, legacy types → OKF
+    display names, `date`/`author_role`/`timestamp` → provenance, comma-joined link annotations →
+    the structured annotation, `source_artifacts` removed from vectors; dry-run report first,
+    changes only on operator confirmation, no re-embedding, idempotent. The `generated.at` it
+    writes for an existing artifact must fall on the UTC day of the old `date`, so a later
+    overwrite of a tier-2 artifact regenerates the key already stored. At the end of a run it
+    verifies that every vector carries a boolean `archived` and reports any it missed (D50).
+    `reconcile_index` gains no migration code. Done: AC-79 passes against a moto store seeded in the pre-Phase-15 shape;
+    a second run reports nothing to change. Blocked by 76–86. (FR-74; D42)
+
+90. ⬜ **Documentation, CHANGELOG, release notes** *(Tech Writer)* — README, SERVER-REFERENCE, the
+    setting-up and migration skills' agent snippets, AGENTS.md (Repository Structure, Working
+    Conventions on `ARTIFACT_TYPES`, comma-joined lists, deterministic keys; mutation Scope if
+    84 moved gate code), and a `[Unreleased]` **Breaking** CHANGELOG entry listing every removed
+    name with its replacement and pointing at the store-migration skill. Blocked by 88, 89.
+
 ## Risks and Open Questions
 
-- None
+- **Spec count.** Fifteen tasks means fifteen specs. Some Wave B/C tasks share most of their
+  surface (78 + 79, 83 + 84); merging their specs is an option the operator has not decided.
+- **OKF rulings pending (#16, #22, #28, #32).** Decided now and adapted later (D39). A ruling
+  against the in-list `withheld` marker or the per-edge trust blocks changes response shapes
+  only; storage does not move.
+- **Validator conflict.** A redacted document fails a strict OKF v0.2 validator (`resource` is
+  REQUIRED per `sources` entry, §5.1). Accepted; #32 asks for the amendment.
+- **Annotation round trips on read.** `read_artifact` gains two annotation GETs (revision history,
+  `verified`). Measured cost is expected to be small (D34) but has not been measured end to end.
+- **Store migration on a live corpus.** Task 89 is the first tool that rewrites every artifact in
+  place. Its dry-run and idempotency are the safety net; a partial run must be resumable.
 
 ---
 

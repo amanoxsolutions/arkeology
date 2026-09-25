@@ -13,8 +13,7 @@ authored:
   date: "2026-05-29"
 revised:
   by: "architect"
-  date: "2026-09-14"
-  reason: "States what an absent or unparseable tier/visibility means under the gate — the candidate is denied, in both forms of the gate"
+  date: "2026-09-25"
 ---
 
 # Tier-Based Cross-Scope Access Control Model
@@ -210,3 +209,32 @@ The wider policy this clause belongs to — what every tool does with malformed 
 data, including the loop-level skip-and-count behaviour that complements this denial — is recorded
 in [the malformed and ambiguous persisted data policy](adr-2026-09-14-malformed-persisted-data-policy.md).
 The tier + visibility rule itself is unchanged.
+
+## Proposed Revision — 2026-09-25
+
+> **Pending.** Proposed by ADR-016 (draft, awaiting review); takes effect when ADR-016 is
+> accepted. Until then this ADR's Decision stands as written above.
+
+[The OKF v0.2 adoption ADR](adr-2026-09-25-okf-v02-adoption.md) proposes extending what the gate is
+applied to and how a withheld link is reported. The rule itself — both forms, and denial on an unreadable
+`tier` or `visibility` — is unchanged and reused as-is.
+
+- **`sources` entries that point into Arkeology** (`arkeology://artifact/{id}`) now pass the gate,
+  as `relationships` entries do. Previously they did not, because sources were external only. URLs
+  and unresolved paths pass untouched.
+- **Unreadable link entries are redacted, not dropped.** When `sources` or `relationships` are
+  returned to a foreign-scope reader, the entries it could not independently read are removed and
+  one in-list `{withheld: n}` marker per list carries only their count — no id, resource, title or
+  timestamp. It is emitted on every capability that returns the lists, without exception. This
+  applies to entries *inside* a returned artifact; the Decision's exclusion of unreadable artifacts
+  from result sets is unchanged.
+- **The returned content's frontmatter is redacted the same way.** For a foreign-scope reader the
+  `sources:` and `relationships:` blocks of the *returned* content are rewritten with the same
+  entries removed and the same marker, because migration writes resolved sources into the
+  frontmatter and redacting only the field would leave every withheld id beside it. The stored
+  object is never modified. The surfaces are reading, listing (the field), synthesis preparation
+  and the data resources; search returns neither link fields nor content. The body is out of
+  scope — it is authored prose.
+- **The shared index exposes a little more.** Lifecycle `status`, `archived`, and the
+  `generated.by` / `revised.by` actor strings — which for humans are `human:<id>` — now sit in
+  vector metadata and fall under this ADR's mutual-trust assumption.

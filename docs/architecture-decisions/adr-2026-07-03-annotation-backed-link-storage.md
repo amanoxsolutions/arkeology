@@ -17,7 +17,7 @@ authored:
   date: "2026-07-03"
 revised:
   by: "architect"
-  date: "2026-09-06"
+  date: "2026-09-25"
 ---
 
 # Annotation-Backed Durable Storage for Mutable Link Fields (commit_refs + references)
@@ -556,3 +556,36 @@ separately diagnosable, and the "object durable, failure-log entry appended, art
 until reconciled" guarantee is restated as holding across all three codes rather than as a property
 of `partial_write` alone. Nothing about what is durable changes; only what the caller is told about
 why.
+
+## Proposed Revision — 2026-09-25
+
+> **Pending.** Proposed by ADR-016 (draft, awaiting review); takes effect when ADR-016 is
+> accepted. Until then this ADR's Decision stands as written above.
+
+[The OKF v0.2 adoption ADR](adr-2026-09-25-okf-v02-adoption.md) proposes changing what the annotations
+hold:
+
+- **The link payload becomes structured.** The comma-joined `references` annotation is replaced by
+  one structured annotation holding `sources` and `relationships` as distinct lists; the
+  comma-joined encoding remains for `commit_refs` only, which is otherwise unchanged in both
+  stores.
+- **The rejected "extending annotations to `source_artifacts`" alternative is reversed.** Its
+  successor, `sources`, lives in the structured annotation, and the `source_artifacts`
+  vector-metadata copy is deleted. This follows this ADR's own line — annotations hold post-hoc
+  mutable link data — since `sources` can now be backfilled and carries a per-entry `last_modified`
+  baseline that lives nowhere else.
+- **Two further annotations, each on its own**: revision history (one `{by, at}` per content write)
+  and `verified` (one `{by, at}` per verification). They are kept apart from the link annotation
+  because each mutates on a different schedule. Decision 6's compare-and-swap guards all of them,
+  since it is the object's ETag.
+- **Decision 4's replace semantics now apply to `sources` and `relationships`**, and the 2026-09-06
+  failure-log supersession rule applies to them exactly as it did to `references`. Every re-PUT —
+  overwrite, archive, and the new lifecycle change — must carry forward every annotation, not only
+  the link fields, together with `generated` in object metadata.
+- **Decision 1's identity metadata changes**: `date` and `author_role` leave; `archived`, OKF
+  `status`, `generated` and `revised` join. `link_metadata` is renamed `add_artifact_links`, and
+  `add_artifact_verification` appends to the `verified` annotation.
+
+Annotations stay the sole source of truth, and a failed annotation read still raises rather than
+returning empty — a rule that now also governs the synthesis delete/archive warning, which decides
+on what the `sources` annotation says.

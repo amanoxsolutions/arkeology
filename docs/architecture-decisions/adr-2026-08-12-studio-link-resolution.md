@@ -14,6 +14,9 @@ references:
 authored:
   by: architect
   date: "2026-08-12"
+revised:
+  by: "architect"
+  date: "2026-09-25"
 ---
 
 # Studio-Side Resolution of arkeology:// Links on the Human Read Surface
@@ -196,3 +199,28 @@ graph TD
   human surface would have to implement its own resolution. That is accepted: the alternative —
   making resolvability a property of the address — is the second addressing mechanism this ADR
   exists to prevent.
+
+## Proposed Revision — 2026-09-25
+
+> **Pending.** Proposed by ADR-016 (draft, awaiting review); takes effect when ADR-016 is
+> accepted. Until then this ADR's Decision stands as written above.
+
+[The OKF v0.2 adoption ADR](adr-2026-09-25-okf-v02-adoption.md) proposes changing what the `{id}` in
+an `arkeology://artifact/{id}` link can look like, and adding one thing Studio must render.
+
+- **An `{id}` may now carry a producer-supplied id verbatim.** It is case-sensitive, has no hash
+  suffix, and may contain dots (`[A-Za-z0-9._-]`, alphanumeric ends, no `/`, no `..`, at most 128
+  characters). D1's rule that Studio derives nothing from the `{id}` and passes it through
+  unchanged is what keeps this working: no lowercasing, no slug normalisation and no suffix
+  handling may be introduced on the client. D3's "malformed" category is unchanged: Studio does not
+  validate an id against that form, so a decodable URI is resolved and any rejection is the
+  server's own `read_artifact` error (D4). Whether a stored link carries
+  the full S3 key, as D1 assumes, or a bare id that the server resolves to one, is left to the
+  Phase 15 specs; if it becomes a bare id, D1's "full S3 key" wording must be revisited.
+- **Studio must render the `{withheld: n}` marker.** When Studio shows a foreign-scope artifact's
+  `sources` or `relationships`, the server has already removed the entries the reader cannot read
+  and appended one `{withheld: n}` entry per list; Studio displays it (for example "and n more
+  withheld") rather than dropping it or rendering it as a link. The same marker appears in the
+  returned content's frontmatter blocks, which Studio renders as ordinary content. This adds
+  nothing to D4: the server remains the sole authority, and Studio neither computes nor can reveal
+  what was withheld.

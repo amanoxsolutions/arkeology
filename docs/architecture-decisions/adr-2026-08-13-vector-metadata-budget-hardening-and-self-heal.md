@@ -20,6 +20,9 @@ references:
 authored:
   by: architect
   date: "2026-08-13"
+revised:
+  by: "architect"
+  date: "2026-09-25"
 ---
 
 # Vector Metadata Budget Hardening, Guard Coverage, and Migration Self-Heal
@@ -353,3 +356,22 @@ status is Accepted; the questions are retained here as the decision trail, not a
    straight to an open phase does not also get a backlog row. See `plan.md` Phase 12 and
    `brainstorming-2026-08-13-artifact-metadata-budget-overflow.md`'s OQ5 resolution.
    This document does not open that entry itself — backlog curation remains the PM's domain.
+
+## Proposed Revision — 2026-09-25
+
+> **Pending.** Proposed by ADR-016 (draft, awaiting review); takes effect when ADR-016 is
+> accepted. Until then this ADR's Decision stands as written above.
+
+[The OKF v0.2 adoption ADR](adr-2026-09-25-okf-v02-adoption.md) proposes building on D2's direction
+and taking it further: artifact-to-artifact edges leave vector metadata entirely. `sources` and
+`relationships` are annotation-only and the `source_artifacts` projection is deleted. None of this
+ADR's decisions changes, but two of its statements are directly affected:
+
+- **The filterable key mix changes**, so the "payload-shape-specific" note under D2 applies: `date`
+  and the old archive `status` leave the filterable metadata, and `archived`, OKF `status`,
+  `generated` and `revised` join it (about 140 bytes for the two provenance pairs). The calibration
+  must be re-run to confirm the 20-entry `commit_refs` cap against the new mix; "D1 adds none" no
+  longer describes the headroom.
+- **Option E's re-index premise holds and is avoided.** The `source_artifacts` and `author_role`
+  non-filterable slots stay declared and unused, and the new keys are filterable by default, so no
+  re-index is needed.

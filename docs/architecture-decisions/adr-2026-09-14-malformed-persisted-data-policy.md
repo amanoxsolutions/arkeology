@@ -18,6 +18,9 @@ references:
 authored:
   by: architect
   date: "2026-09-14"
+revised:
+  by: "architect"
+  date: "2026-09-25"
 ---
 
 # How Arkeology Treats Malformed and Ambiguous Persisted Data
@@ -361,3 +364,58 @@ alter either metadata encoding: `tier` stays a stringified integer in S3 object 
   to the call's shape, not to the tools that exist today. A tool added later that loops over
   candidates owes the same skip-and-count behaviour under the same key name. Like the `status="all"`
   convention, this is a review obligation; nothing in the type system will catch its absence.
+
+## Proposed Revision — 2026-09-25
+
+> **Pending.** Proposed by ADR-016 (draft, awaiting review); takes effect when ADR-016 is
+> accepted. Until then this ADR's Decision stands as written above.
+
+[The OKF v0.2 adoption ADR](adr-2026-09-25-okf-v02-adoption.md) proposes persisted fields this
+policy did not name: the required `generated` block and optional `revised` block in both metadata stores,
+the boolean `archived`, and three annotation payloads — the structured link annotation (`sources`,
+`relationships`), `verified`, and revision history. The policy applies to them unchanged, by the
+shape of the call.
+
+**What the existing clauses decide:**
+
+- **A missing or unparseable required `generated`**, a non-boolean `archived`, or an unparseable
+  `revised` is a record that was read successfully and cannot be interpreted. `read_artifact`
+  returns `corrupt_metadata` naming the field (D4) and never invents a default — which rules out
+  treating an absent `generated` as "now" or a non-boolean `archived` as `false`. An iterating tool
+  whose result shape carries the field skips the candidate and counts it under
+  `skipped_malformed_count` (D2, D3). None of these fields is a gate input, so D1 is unaffected and
+  the gate runs first as before.
+- **An annotation payload that is present but cannot be decoded** — not valid structured data, or
+  entries missing their required keys — is likewise a successful read of an uninterpretable record:
+  `corrupt_metadata` on a single read, skip and count in a listing. It is **never** an empty list.
+  D5's rule, that only a genuinely absent annotation (`NoSuchAnnotation`) is empty, extends to all
+  three new annotations, and D6's third row still fails the call on a failed or ambiguous read.
+- **`check_synthesis_freshness` now meets D6's middle row.** It reads each synthesis's `sources`
+  from its annotation rather than from vector metadata, so a synthesis whose object is found gone
+  is skipped and counted separately from `skipped_malformed_count`, as D6 prescribes; the field
+  name is for the spec. A *source* that is gone is not a skip — freshness reports it `missing`.
+
+**What the existing clauses did not decide, and the operator's decisions** (brainstorm D50):
+
+1. **A write that must carry forward or merge a value it cannot read fails** with
+   `corrupt_metadata` and writes nothing. This binds `add_artifact_links`,
+   `add_artifact_verification`, the revision-history append, and an overwrite carrying `generated`
+   and the annotations forward. The policy's reads-only clauses are extended to writes in the
+   direction D5 already takes: writing over data the server cannot read is how good data is lost,
+   and there is no second copy to recover it from.
+2. **The synthesis delete/archive warning never blocks and never under-warns silently.** A
+   synthesis whose `sources` cannot be read is listed under "could not check" beside the warning,
+   rather than skipped as D2 would skip it in a listing. Only own-scope ids appear there, so
+   nothing leaks.
+3. **A missing or non-boolean vector `archived` is detected and repaired, not silently
+   filtered.** The in-force filter runs inside the vector index and drops such a vector before any
+   code can count it, so D3's count cannot see it; the realistic cause is an interrupted store
+   migration. `reconcile_index` reports every such vector and rebuilds `archived` from S3 object
+   metadata, the durable copy, and the store-migration skill verifies at the end of its run that
+   every vector carries a boolean `archived` and reports any it missed.
+4. **An unreadable timestamp marks only its own source.** A `sources[].last_modified` or a
+   source's `revised.at` that does not parse is reported as "unchecked: unreadable timestamp";
+   the synthesis's other sources are still checked.
+5. **Redaction wins over error detail.** A `corrupt_metadata` error returned to a foreign-scope
+   reader names the field but never echoes its raw value. D4's "names the offending value" holds
+   for own-scope reads only.

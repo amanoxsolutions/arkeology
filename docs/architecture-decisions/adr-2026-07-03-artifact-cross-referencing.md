@@ -18,7 +18,7 @@ authored:
   date: "2026-07-03"
 revised:
   by: "architect"
-  date: "2026-08-13"
+  date: "2026-09-25"
 ---
 
 # Artifact Cross-Referencing — First-Class references Field, Migration Rewrite, and referenced_by Warning
@@ -510,3 +510,36 @@ per that ADR's D2). The `source_artifacts` half of D13 — the `type = synthesis
 in-process membership check — is unaffected, since `source_artifacts` was never stored in vector
 metadata.
 
+## Proposed Revision — 2026-09-25
+
+> **Pending.** Proposed by ADR-016 (draft, awaiting review); takes effect when ADR-016 is
+> accepted. Until then this ADR's Decision stands as written above.
+
+[The OKF v0.2 adoption ADR](adr-2026-09-25-okf-v02-adoption.md) proposes replacing the field this
+ADR designed and changing four of its decisions:
+
+- **`references` is replaced by `sources` and `relationships`.** `sources` records what an
+  artifact was built from (it also replaces `source_artifacts`); `relationships` records typed
+  `{to, type}` assertions about other artifacts. Both live in one structured annotation, with no
+  vector-metadata copy, and D2 and D7 now describe these two fields. D8's replace-versus-accrete
+  split carries over unchanged: both are replaced on an overwriting write, `commit_refs` still
+  accretes. `link_metadata` is renamed `add_artifact_links`.
+- **D4's manifest-wide path→id map is replaced for sources.** A `sources[].resource` path resolves
+  by reading the target file's own `id:`, which stays correct across file renames, and is stored as
+  `arkeology://artifact/{id}`. `sources[].id` is a footnote label and never used to resolve a
+  target; `relationships[].to` is already an id. D3's content-rewrite format and D16's
+  deterministic server-side rewrite stand. D10's backfill skill is kept, scoped to `sources`.
+- **D13's warning becomes synthesis-only.** It lists own-scope syntheses and reads each one's
+  `sources` annotation; relationship targets and non-synthesis citers get no warning, deliberately,
+  because freshness is the citing document's check, not the source's obligation. The 2026-08-13
+  revision's aside that `source_artifacts` "was never stored in vector metadata" was inaccurate —
+  it was stored as a non-filterable key. That projection is now deleted.
+- **Cross-scope reference visibility redacts instead of dropping.** Entries a foreign reader cannot
+  independently read — in `relationships`, and now also in `sources` that point into Arkeology,
+  which were previously ungated — are removed and one in-list `{withheld: n}` marker per list
+  carries only their count, on every response that returns the lists. Silent dropping presented an
+  incomplete provenance list as complete.
+
+D8's reason for never patching content retroactively still holds, on a different field: freshness
+now compares each source's captured `last_modified` against the source's current `revised.at`, and
+a content rewrite would move `revised.at` just as it moved `last_edited_ulid`.

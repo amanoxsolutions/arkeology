@@ -13,6 +13,9 @@ references:
 authored:
   by: architect
   date: "2026-08-12"
+revised:
+  by: "architect"
+  date: "2026-09-25"
 ---
 
 # The `status="all"` Sentinel as a Cross-Tool Convention for Query-Shaped Tools
@@ -224,3 +227,23 @@ flowchart TD
   rejected status value returns a structured `validation_error` naming the offending value. The
   omitted-clause path needs no additional signal: it is not an error condition, and the emitted
   filter is reconstructible from the request arguments.
+
+## Proposed Revision — 2026-09-25
+
+> **Pending.** Proposed by ADR-016 (draft, awaiting review); takes effect when ADR-016 is
+> accepted. Until then this ADR's Decision stands as written above.
+
+[The OKF v0.2 adoption ADR](adr-2026-09-25-okf-v02-adoption.md) proposes renaming the archive marker
+this ADR filters on: `status` (`active` / `inactive`, `ArtifactStatus`) becomes `archived: bool`, and
+`ArtifactStatus` is deleted, because `status` now carries the OKF document lifecycle
+(`draft | stable | deprecated`).
+
+- **The convention carries over to the boolean**: `archived=false` is the default, `archived=true`
+  replaces `status="inactive"`, and "all" is expressed by omitting the clause, exactly as D1
+  requires — never by matching a sentinel against stored data. The parameter shape by which a
+  caller asks for "all" is left to the spec.
+- **D2 still attaches to the parameter.** A caller-facing `status` parameter now means a lifecycle
+  filter; if a tool exposes one, it honours `"all"` identically.
+- **D4's default widens from active-only to in-force** — `status != deprecated AND archived == false`
+  — on search, listing and synthesis preparation. `synthesise_artifacts` may therefore gain a
+  caller option for full lineage, at which point D2 binds it, as the Consequences anticipated.

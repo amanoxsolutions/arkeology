@@ -533,6 +533,37 @@ consequence of OKF's reader-side model, not an unfinished generalisation waiting
   system. The provenance-honesty purpose (the reader learns the list is incomplete) does not
   depend on the body at all. Raised upstream as OKF issue #32 (2026-09-24): partial visibility of
   `sources` across a trust boundary, proposing a single counted `withheld` marker per list.
+- **D50 — Five malformed-data cases the existing policy did not decide.** *(PM session with
+  operator, 2026-09-25; surfaced while amending the malformed persisted data policy ADR.)*
+  1. **A write that must carry forward or merge a value it cannot read fails** with
+     `corrupt_metadata` and writes nothing — `add_artifact_links`, `add_artifact_verification`,
+     the revision-history append, and an overwrite carrying `generated` and the annotations
+     forward alike. Writing over data the server cannot read is how good data is lost.
+  2. **The synthesis delete/archive warning never blocks and never under-warns silently:** a
+     synthesis whose `sources` cannot be read is listed under "could not check". Own-scope ids
+     only, so nothing leaks.
+  3. **A missing or non-boolean vector `archived` is detected and repaired, not silently
+     filtered.** The in-force filter runs inside the vector index and drops such a vector before
+     any code can count it; the realistic cause is a store migration interrupted partway, leaving
+     artifacts with the old `status` and no `archived`. `reconcile_index` reports every such
+     vector and rebuilds `archived` from S3 object metadata, the durable copy; the store-migration
+     skill verifies at the end of its run that every vector carries a boolean `archived` and
+     reports any it missed.
+  4. **An unreadable timestamp marks only its own source** — a `last_modified` or a source's
+     `revised.at` that does not parse is reported as "unchecked: unreadable timestamp"; the other
+     sources of that synthesis are still checked.
+  5. **Redaction wins over error detail:** a `corrupt_metadata` error returned to a foreign-scope
+     reader names the field but never echoes its raw value.
+- **D49 — Redaction applies to the returned frontmatter as well as to the field (extends D47).**
+  *(PM session with operator, 2026-09-25.)* In an OKF document the frontmatter *is* the
+  metadata, and migration writes resolved sources into it as `arkeology://artifact/{id}`
+  (FR-52). Redacting only the structured field would leave every withheld id in the returned
+  content beside it — redaction would be decorative. So for a foreign-scope reader the server
+  rewrites the `sources:` and `relationships:` blocks of the **returned** content the same way,
+  with the same `{withheld: n}` marker; the stored object is never modified. This covers every
+  capability that returns content: read, synthesis preparation, the data resources. The body is
+  still out of scope — it is authored prose (D47's stated limit). Search returns neither link
+  fields nor content, so it is not a redaction surface.
 - **D48 — The `withheld` marker sits inside the list, and Arkeology always emits it (refines
   D47).** *(PM session with operator, 2026-09-25, after the #32 reply.)* Shape: one entry
   `{withheld: <n>}` appended to `sources` and to `relationships`, never a sibling key — the same
