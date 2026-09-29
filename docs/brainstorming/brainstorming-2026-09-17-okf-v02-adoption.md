@@ -533,6 +533,31 @@ consequence of OKF's reader-side model, not an unfinished generalisation waiting
   system. The provenance-honesty purpose (the reader learns the list is incomplete) does not
   depend on the body at all. Raised upstream as OKF issue #32 (2026-09-24): partial visibility of
   `sources` across a trust boundary, proposing a single counted `withheld` marker per list.
+- **D51 — Writing splits into `create_artifact` and `update_artifact`; the `overwrite` flag is
+  removed.** *(PM session with operator, 2026-09-29.)* The author mints the id (D28), but the
+  server never trusts it blindly: `create_artifact` succeeds only when the key does not exist,
+  enforced atomically by S3's `IfNoneMatch: *`, and `update_artifact` succeeds only when it does
+  (`not_found` otherwise). The flag stated no intent — `overwrite=true` could silently create an
+  artifact from a mistyped id, or replace one the caller did not mean to. `update_artifact` takes
+  the `artifact_id` directly, so the key never changes: retitling a tier-3 document no longer
+  lands on a new generated id and orphans the old one. An update is a **full replacement** —
+  S3 objects are immutable, so there is no partial patch — and it cannot change `tier`, `team`,
+  `project` or `type`, as today. The bulk tools split the same way now, as part of this release:
+  `write_artifacts` → `create_artifacts` plus a new `update_artifacts`; `migrate_artifacts` is
+  already create-only. **Case-only duplicate ids are accepted:** S3 keys are case-sensitive, and
+  a case-insensitive uniqueness check would need a lookup S3 cannot answer cheaply; the migration
+  skill's pre-write uniqueness check across the manifest is the guard. Part of D42's breaking
+  change — no aliases for `write_artifact`, `write_artifacts` or `overwrite`.
+  *Concurrency (2026-09-29):* the existence check is a condition on the write itself — the update
+  reads the object's ETag and writes with S3 `If-Match` on it, retrying a bounded number of times
+  when it changed — so an update racing a delete returns `not_found` and never recreates the
+  deleted artifact (a read-then-write check would). On top of that mechanism, a caller may pass
+  the `last_edited_ulid` it last read as an optional `if_match`: the update then fails with
+  `conflict` and changes nothing if anyone changed the artifact since, instead of the default
+  last-writer-wins (C-05). Opt-in, so a caller that passes nothing sees no change. When the bounded
+  retries run out under sustained contention, the update returns `conflict`, as
+  `archive_artifact` already does; `update_artifacts` accepts `if_match` per entry, since each
+  entry carries the same fields as a single update (FR-76).
 - **D50 — Five malformed-data cases the existing policy did not decide.** *(PM session with
   operator, 2026-09-25; surfaced while amending the malformed persisted data policy ADR.)*
   1. **A write that must carry forward or merge a value it cannot read fails** with

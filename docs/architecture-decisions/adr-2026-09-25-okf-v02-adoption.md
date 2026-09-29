@@ -2,7 +2,7 @@
 type: adr
 id: adr-2026-09-25-okf-v02-adoption
 title: OKF v0.2 Adoption
-description: "Proposes Arkeology's full adoption of Open Knowledge Format v0.2 as one breaking release: the archive marker becomes archived (bool) and OKF document status is ingested beside it, with an in-force default view keyed on each artifact's own lifecycle and never on a supersedes edge; first-class generated/revised provenance, with verifications and revision history in their own annotations; sources and relationships held in one structured annotation and gated across scopes with a counted withheld marker; producer-supplied ids used verbatim as artifact ids; an open type list; and store migration by a dedicated skill rather than reconcile_index."
+description: "Proposes Arkeology's full adoption of Open Knowledge Format v0.2 as one breaking release: the archive marker becomes archived (bool) and OKF document status is ingested beside it, with an in-force default view keyed on each artifact's own lifecycle and never on a supersedes edge; first-class generated/revised provenance, with verifications and revision history in their own annotations; sources and relationships held in one structured annotation and gated across scopes with a counted withheld marker; producer-supplied ids used verbatim as artifact ids; writing split into create_artifact and update_artifact, with the overwrite flag removed; an open type list; and store migration by a dedicated skill rather than reconcile_index."
 tags: []
 timestamp: 2026-09-25T00:00:00Z
 okf_version: "0.1"
@@ -38,6 +38,9 @@ relationships:
 authored:
   by: architect
   date: 2026-09-25
+revised:
+  by: architect
+  date: 2026-09-29
 ---
 
 # OKF v0.2 Adoption
@@ -58,8 +61,8 @@ v0.2 decisions and the fallbacks already scoped for the upstream rulings still p
 ## Status
 
 Draft (2026-09-25) — awaiting operator review. The decisions were taken with the operator in the
-OKF v0.2 adoption brainstorming session (2026-09-17 to 2026-09-25) and are locked there under
-`## Decisions`; this ADR consolidates them and cites their D-numbers as provenance. On acceptance it
+OKF v0.2 adoption brainstorming session (2026-09-17 to 2026-09-25, plus D51 on 2026-09-29) and are
+locked there under `## Decisions`; this ADR consolidates them and cites their D-numbers as provenance. On acceptance it
 amends the deterministic artifact ids, tier-based access control, annotation-backed link storage,
 artifact cross-referencing, `status="all"` sentinel, Studio link resolution and malformed persisted
 data policy ADRs, and builds on the vector-metadata budget ADR — each carries a proposed revision
@@ -97,7 +100,7 @@ the brainstorm's `## The Producer Contract (inbound)`) commits it to emitting:
   `title`, `author_role` are declared), so reclassifying a key means a full re-index.
 - **Annotations are roomy but fragile across overwrites.** An annotation holds up to 1 MiB, is
   mutable in place and leaves the object's ETag alone — but any re-PUT of the object wipes it, so
-  every overwriting path must read annotations forward.
+  every path that re-PUTs the object must read annotations forward.
 - **A store is not a bundle.** Issue #22's strongest trust rung for `supersedes` lives in a
   bundle-root `log.md`. Arkeology has no bundle root, so any equivalent must live on the artifact.
 - **Upstream is converging, not ruling.** #16 (typed relationships), #22 (supersedes semantics),
@@ -231,12 +234,13 @@ Two invariants make the freshness check in §4 sound:
 - **`revised` moves only on content writes** — never on a link backfill, an archive or lifecycle
   change, a verification or a reconciliation (D19; FR-69). Otherwise every document citing the
   artifact would falsely report stale.
-- **Every overwrite carries `generated` forward.** An overwriting `PUT` replaces all object
+- **Every update carries `generated` forward.** An overwriting `PUT` replaces all object
   metadata, the same trap the annotation read-forward already handles (D35).
 
 `last_edited_ulid` **stays**, as an internal token: archive's compare-and-swap, reconcile's
 ordering and the failure-log supersession check depend on it. It never appears in an OKF field
-(D19).
+(D19). `read_artifact` already returns it, and it is the revision a caller passes to
+`update_artifact`'s optional `if_match` (§8) — an opaque token, not provenance.
 
 **Revision history lives in its own annotation** (D26, D31), one `{by, at}` entry per content
 write (D30) — `at` is the same value set as `revised.at`. It is separate from the link annotation
@@ -294,8 +298,8 @@ representation to keep honest. The result is one home for every artifact-to-arti
 `commit_refs` the sole projected link field — and it is not a graph edge. The comma-joined encoding
 and its no-comma validators no longer apply to these fields.
 
-**Write semantics carry over from `references`** (FR-53, FR-55). On an overwriting write, `sources`
-and `relationships` are claims about the artifact's *current* links: each is set to exactly the
+**Write semantics carry over from `references`** (FR-53, FR-55). On an update (`update_artifact`,
+FR-75), `sources` and `relationships` are claims about the artifact's *current* links: each is set to exactly the
 (resolved) list supplied with the call, and a call that supplies none clears it. `commit_refs`
 stays accretive, read forward and merged. The backfill tool merges and deduplicates all three.
 
@@ -343,12 +347,13 @@ to what the producer wrote.
 
 **A producer-supplied `id:` becomes the bare artifact id** (D28; FR-08, FR-73). The operative key
 stays `{write_prefix}/{id}{ext}`, so cross-project uniqueness still comes from the prefix; when no
-`id` is supplied, `generate_artifact_id` runs as before, so ordinary `write_artifact` callers see no
-change. The question that decided it was *does the id need to be the key, or merely resolvable?*
+`id` is supplied, `generate_artifact_id` runs as before, so a `create_artifact` caller that supplies
+none gets the id it would have got before. The question that decided it was *does the id need to be the key, or merely resolvable?*
 It needs to be the key: `arkeology://artifact/{id}` and the producer's `relationships[].to` then
 share one namespace, and an agent moves between the Git corpus and Arkeology with the same names
 and no translation step. Retitle churn disappears for supplied ids (the producer measured ten
-retitles against four renames).
+retitles against four renames) — and, since an update addresses the artifact by id (below), for
+generated ids too.
 
 This **amends the deterministic-keys rule; it does not violate it**. A frozen filename stem is
 deterministic, and once supplied it is an attribute like any other; the rule's real target —
@@ -356,8 +361,38 @@ randomness and UUIDs — is untouched. The 8-hex hash suffix is **not** appended
 the suffix disambiguates collision classes of Arkeology's own slug formula, and the producer's
 uniqueness guarantee replaces it. Uniqueness follows the brief's division — the producer
 guarantees, Arkeology verifies: the migration skill checks the whole manifest for duplicate ids
-before writing anything (AC-81), and `write_artifact` keeps rejecting an existing key without
-`overwrite`.
+before writing anything (AC-81), and `create_artifact` rejects an existing key atomically.
+
+**Writing splits into `create_artifact` and `update_artifact`, and the `overwrite` flag is removed**
+(D51; FR-01, FR-75, FR-76, C-05). The author mints the id (D28), but the server never trusts it
+blindly: the caller states whether the artifact should exist, and the server checks it.
+`create_artifact` succeeds only when the key does not exist, enforced atomically at the store by
+S3's conditional `PutObject` (`IfNoneMatch: *`), so two racing creates cannot both land.
+`update_artifact` takes the `artifact_id` and succeeds only when it exists, returning `not_found`
+otherwise (FR-75). That existence check is **a condition on the write itself**, not a read before
+it: the update reads the object's ETag and writes with S3 `If-Match` on it, retrying a bounded
+number of times when the ETag changed in between. An update racing a delete therefore returns
+`not_found` and never recreates the deleted artifact — a read-then-write check would, and would
+break FR-75's "creates nothing". Racing updates between two callers stay last-writer-wins (C-05):
+the retry re-reads and lands, so the later writer's content stands. The flag stated no intent: `overwrite=true` on a mistyped id silently created an
+artifact, and on a correct one replaced whatever was there whether or not the caller meant to. With
+two tools, neither mistake can happen by accident — an update never creates and a create never
+replaces.
+
+Because `update_artifact` addresses the artifact by id, **the key never changes on update**. That
+fixes the orphaned-old-id problem of generated tier-3 ids: the key was re-derived from the title on
+every overwriting write, and the hash suffix is taken over the full title, so a retitle landed on a
+new id and left the old artifact behind. A retitled artifact now keeps its id. An update is a
+**full replacement** — S3 objects are immutable, so there is no partial patch — and it cannot
+change `tier`, `team`, `project` or `type`, as today. The bulk tools split the same way:
+`write_artifacts` becomes `create_artifacts`, a new `update_artifacts` joins it, and
+`migrate_artifacts` stays create-only.
+
+**Case-only duplicate ids are accepted.** S3 keys are case-sensitive, so `Spec-A` and `spec-a` are
+two keys and `IfNoneMatch` treats them as two artifacts. A case-insensitive uniqueness check would
+need a lookup S3 cannot answer cheaply — no conditional write or single request asks "does any key
+equal this one ignoring case". The guard is upstream: the migration skill's manifest-wide pre-write
+check (AC-81).
 
 **A supplied id is validated and never repaired, and it is case-preserving** (D33). Permitted:
 `[A-Za-z0-9._-]`, alphanumeric first and last character, no `/`, no `..`, at most 128 characters;
@@ -446,6 +481,17 @@ resources**. Search returns neither link fields nor content, so it is not a reda
 
 ### 8. Tool surface
 
+- **`write_artifact` / `write_artifacts` become `create_artifact` / `create_artifacts`, with new
+  `update_artifact` / `update_artifacts`** (D51; FR-01, FR-25, FR-75, FR-76). Create and update are
+  separate tools rather than one tool with a flag, because a tool's name states the caller's intent
+  and the server can then check it (§5). `migrate_artifacts` stays create-only.
+- **`update_artifact` takes an optional `if_match`** (D51; FR-75, AC-86): the `last_edited_ulid`
+  the caller last read. When supplied, the update fails with `conflict` (the existing error code)
+  and changes nothing if anyone changed the artifact since; when omitted, the default stays
+  last-writer-wins (C-05). It is opt-in, so a caller that passes nothing sees no change, and it
+  sits on top of the ETag condition rather than replacing it — the ETag condition guards the write
+  against a concurrent delete, `if_match` guards the caller's intent against a concurrent edit.
+  `update_artifacts` accepts it per entry.
 - **`link_metadata` is renamed `add_artifact_links`** (D46; FR-53). The old name read as "link the
   metadata" and did not say what the tool changes: it *adds* commit references, sources and
   relationships — merge and dedupe, never remove. Storage location is kept out of the name.
@@ -465,8 +511,9 @@ resources**. Search returns neither link fields nor content, so it is not a reda
 
 **This release is breaking and carries no compatibility aliases** (D42). The no-fallback-paths rule
 applies to parameter names as much as to stores. The former archive `status`, `references`,
-`source_artifacts`, `author_role`, `date`, `timestamp` and `link_metadata` are rejected once the
-change lands, with a validation error naming the replacement (AC-80).
+`source_artifacts`, `author_role`, `date`, `timestamp`, `link_metadata`, `write_artifact`,
+`write_artifacts` and `overwrite` are rejected once the change lands, with a validation error
+naming the replacement (AC-80).
 
 **Existing deployments are migrated by a new skill plus scripts**, not by `reconcile_index`
 (D42; FR-74). `reconcile_index` repairs index drift from S3; it is not a metadata-key migration
@@ -475,8 +522,10 @@ annotations to the new shape — `status` → `archived`, legacy types → OKF d
 `authored` / `date` / `author_role` / `timestamp` → `generated` / `revised`, comma-joined
 `references` / `source_artifacts` → the structured annotation, and the `source_artifacts`
 vector-metadata key dropped. For each existing artifact it writes a `generated.at` that falls on
-the UTC day of the artifact's old `date`, so that a later overwrite of a tier-2 artifact
-regenerates exactly the key already stored rather than minting a second one. It reports what it will change, waits for the operator's confirmation,
+the UTC day of the artifact's old `date`, so an existing tier-2 key keeps meaning what a new one
+means — its date component is the UTC day of `generated.at` — and a create of the same type and
+title on that day still hits the stored key and is rejected (AC-04). An update no longer depends on
+this: it addresses the artifact by id and re-derives nothing. It reports what it will change, waits for the operator's confirmation,
 never re-embeds, and changes nothing when re-run.
 
 Document migration of the repository's own files is the plugin's job; Arkeology's is to make the
@@ -490,7 +539,7 @@ single read and skip-and-count in a listing, and only a genuinely absent annotat
 cases that policy did not decide are decided here (D50):
 
 - **A write never proceeds over a value it cannot read.** `add_artifact_links`,
-  `add_artifact_verification`, the revision-history append, and an overwrite carrying `generated`
+  `add_artifact_verification`, the revision-history append, and an update carrying `generated`
   and the annotations forward each fail with `corrupt_metadata` and write nothing — writing over
   unreadable data is how good data is lost.
 - **The synthesis delete/archive warning never blocks.** A synthesis whose `sources` cannot be read
@@ -544,7 +593,7 @@ graph LR
 
 | Option | Pros | Cons |
 |--------|------|------|
-| **Chosen** — `generated` written once, `revised` latest-only, first-class in both stores; history and `verified` in their own annotations | Matches §5.1 and the #28 convergence; filterable at no index cost; growth kept out of the 2 KB budgets | Every overwrite must carry `generated` forward; `read_artifact` gains two annotation reads |
+| **Chosen** — `generated` written once, `revised` latest-only, first-class in both stores; history and `verified` in their own annotations | Matches §5.1 and the #28 convergence; filterable at no index cost; growth kept out of the 2 KB budgets | Every update must carry `generated` forward; `read_artifact` gains two annotation reads |
 | `generated` as a copy of the latest revision (the session's first reading of D9) | Mirrors existing `revised` | Contradicts §5.1: `generated.at` is when the concept was first written |
 | Keep `author_role` holding an actor string | No rename | Duplicates `revised.by`, overwritten on every write |
 | `verified` in object or vector metadata | No extra round trip | Grows without bound against a 2 KB cap; would eventually block ordinary content writes |
@@ -576,6 +625,15 @@ graph LR
 | Store `id:` as an indexed metadata field, key unchanged | Correct at ingest | Every later Git↔Arkeology cross-over pays a lookup |
 | Resolve migration sources through a manifest-wide path→id map | Already built | Wrong across file renames; unnecessary when every target declares its `id:` |
 | Case-insensitive type matching | Keeps `code_review` and `Code Review` together | S3 Vectors filters are exact, so it needs a second normalised copy of `type` |
+| Reject ids that differ from an existing one only in case | Catches `Spec-A` beside `spec-a` | S3 cannot answer a case-insensitive existence check in one request; the migration skill's manifest check is the guard |
+
+### Writing
+
+| Option | Pros | Cons |
+|--------|------|------|
+| **Chosen** — `create_artifact` (key must not exist, atomic `IfNoneMatch: *`) and `update_artifact` (by id, key must exist) | Two clearly named tools state the caller's intent, so the server can check it; the key never changes on update, so retitling keeps the id | A breaking rename; callers must know which one they mean |
+| Keep one write tool with the `overwrite` flag | No rename | A flag does not state intent — `overwrite=true` creates from a mistyped id, or replaces an artifact the caller did not mean to; the key is still re-derived from the title, so a retitle orphans the old id |
+| One tool with S3-style conditional preconditions (`if_none_match` / `if_match`) | Mirrors S3 exactly | Exact S3 mirroring is still one tool with the intent in a parameter; it moves the flag's problem rather than removing it |
 
 ### Cross-scope link visibility and migration
 
@@ -616,10 +674,17 @@ graph LR
   vector queries and reads each synthesis's `sources` from its annotation; it is an accuracy
   change, not a cost change.
 
-- **Every re-PUT must carry three annotations forward, not one.** Overwrite, archive and lifecycle
-  change all wipe annotations; each must restore the link annotation, the revision history and
-  `verified`, and carry `generated` forward in object metadata. The `verified` list surviving an
-  overwrite is what gives "unverified since revised" any meaning — without it, a revision would
+- **Updates now use a conditional write.** `update_artifact` writes with `If-Match` on the ETag it
+  read and retries a bounded number of times — the same compare-and-swap pattern `archive_artifact`
+  already uses (annotation-backed link storage ADR, Decision 6), not a new mechanism. The retry
+  exhausting under sustained contention surfaces as `conflict`, as it does for archive. The caller
+  `if_match` adds one comparison of `last_edited_ulid` inside that loop and no extra request.
+
+- **Every re-PUT must carry three annotations forward, not one.** Update, archive and lifecycle
+  change all re-PUT the object, and S3 wipes a key's annotations whenever it is overwritten; each
+  must restore the link annotation, the revision history and `verified`, and carry `generated`
+  forward in object metadata. The `verified` list surviving an update is what gives "unverified
+  since revised" any meaning — without it, a revision would
   erase the verification it is compared against.
 
 - **Destructive paths now read annotations to decide.** The synthesis warning and freshness's
@@ -659,9 +724,15 @@ graph LR
   control ADR's existing mutual-trust assumption and changes nothing in the gate, but the README's
   trust statement should name it.
 
+- **A generated id is a function of the attributes at creation, not of the current ones.** Once an
+  update retitles an artifact, its id no longer re-derives from its title: a create with the new
+  title mints a different id (a second artifact), and a create with the old title is rejected
+  against the retitled one. Nothing parses an id or re-derives one to find an artifact, so this is a
+  naming observation rather than a defect — the id is the address.
+
 - **Accepted losses.** The type typo guard (`Sepc` becomes a new type); relationship targets and
   non-synthesis citers get no delete/archive warning; supplied ids carry no date anchoring; agents
-  must carry ids with their case intact.
+  must carry ids with their case intact; ids differing only in case can coexist.
 
 - **Synthesis-only reverse lookup is deliberate.** A future reader finding it should read it as a
   consequence of OKF's reader-side model, not an unfinished generalisation waiting to be widened.

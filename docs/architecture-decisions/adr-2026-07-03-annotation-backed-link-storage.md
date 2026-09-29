@@ -17,7 +17,7 @@ authored:
   date: "2026-07-03"
 revised:
   by: "architect"
-  date: "2026-09-25"
+  date: "2026-09-29"
 ---
 
 # Annotation-Backed Durable Storage for Mutable Link Fields (commit_refs + references)
@@ -580,7 +580,7 @@ hold:
   since it is the object's ETag.
 - **Decision 4's replace semantics now apply to `sources` and `relationships`**, and the 2026-09-06
   failure-log supersession rule applies to them exactly as it did to `references`. Every re-PUT —
-  overwrite, archive, and the new lifecycle change — must carry forward every annotation, not only
+  update, archive, and the new lifecycle change — must carry forward every annotation, not only
   the link fields, together with `generated` in object metadata.
 - **Decision 1's identity metadata changes**: `date` and `author_role` leave; `archived`, OKF
   `status`, `generated` and `revised` join. `link_metadata` is renamed `add_artifact_links`, and

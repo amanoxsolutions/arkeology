@@ -20,7 +20,7 @@ This project runs as a **single open phase**, not a pre-planned roadmap. Complet
 - **Status legend:** ⬜ pending · 🔄 in progress · 🔍 in review · ✅ done · 🔴 blocked
 - **Delivery model:** each **Phase** is a coherent slice of value delivered as a set of tasks. A phase ends when we judge it done.
 
-**Current state:** Phase 15 — OKF v0.2 Adoption is open (T76–T90). Phases 1–14 are complete, and the latest tag is v0.7.0.
+**Current state:** Phase 15 — OKF v0.2 Adoption is open (T76–T91). Phases 1–14 are complete, and the latest tag is v0.7.0.
 
 ---
 
@@ -285,7 +285,7 @@ for removed names (D42): each rename task also proves the old name is rejected w
 `validation_error` naming its replacement (AC-80).
 
 **Ordering.** Tasks are listed in dependency order and each names what blocks it. T76 must land
-before T80 — renaming `status` → `archived` before OKF `status` is introduced keeps one key from
+before T81 — renaming `status` → `archived` before OKF `status` is introduced keeps one key from
 meaning two things. Tasks marked *parallel* touch disjoint code and may run concurrently.
 
 76. ⬜ **Archive marker `status` → `archived: bool`** — delete `ArtifactStatus`; store `archived` in
@@ -304,38 +304,52 @@ meaning two things. Tasks marked *parallel* touch disjoint code and may run conc
     ids are unchanged. Done: AC-77 passes; `ARTIFACT_TYPES` is no longer a validator.
     (FR-09, FR-18, FR-48; D37)
 
-78. ⬜ **Provenance: `generated` / `revised`; drop `date`, `author_role`, `timestamp`** — `generated:
+78. ⬜ **Split writing into `create_artifact` / `update_artifact`; drop `overwrite`** *(parallel
+    with 76, 77)* — `create_artifact` succeeds only if the key does not exist (atomic, S3
+    `IfNoneMatch: *`) and returns the id; `update_artifact` takes the `artifact_id`, succeeds only
+    if the key exists (`not_found` otherwise), and fully replaces content and metadata — S3 objects
+    are immutable, so there is no partial patch. The key never changes on update, so retitling
+    keeps the id; `tier`, `team`, `project` and `type` cannot change on update. The update writes
+    with S3 `If-Match` on the ETag it read, so an update racing a delete returns `not_found` and
+    never recreates it; an optional caller `if_match` (the `last_edited_ulid` it read) fails the
+    update with `conflict` if the artifact changed since. Same split for the
+    bulk tools: `write_artifacts` → `create_artifacts` plus a new `update_artifacts`;
+    `migrate_artifacts` stays create-only. Case-only duplicate ids are accepted. Done: AC-04,
+    AC-05, AC-82–AC-86 pass; `write_artifact`, `write_artifacts` and `overwrite` are rejected
+    (AC-80). (FR-01, FR-08, FR-13–FR-15, FR-25, FR-75, FR-76, C-05; D51)
+
+79. ⬜ **Provenance: `generated` / `revised`; drop `date`, `author_role`, `timestamp`** — `generated:
     {by, at}` required and written once, carried forward on every overwrite; `revised` absent
     until the first overwriting content write; `at` values are ISO 8601 UTC with `Z` and compared
     as parsed datetimes; a generated tier-2 id anchors on the UTC day of `generated.at` (ADR
     default; the spec confirms it); link
     backfills, archive, lifecycle changes, verifications and reconciliation never move `revised`.
     Done: AC-04, AC-64, AC-72 pass; `date`/`author_role` are rejected (AC-80).
-    Blocked by 76. (FR-01, FR-08, FR-09, FR-15, FR-17, FR-59, FR-69; D9, D19, D32, D35)
+    Blocked by 76, 78. (FR-01, FR-08, FR-09, FR-15, FR-17, FR-59, FR-69; D9, D19, D32, D35)
 
-79. ⬜ **Revision-history annotation + shared compare-and-swap append helper** — one `{by, at}`
+80. ⬜ **Revision-history annotation + shared compare-and-swap append helper** — one `{by, at}`
     entry appended per content write in its own annotation, uncapped; carried across overwrites;
     returned by `read_artifact`, omitted from listings unless asked. The append helper is built
-    once here and reused by 82. Done: AC-75 passes. Blocked by 78. (FR-54, FR-72; D26, D30, D31, D34)
+    once here and reused by 83. Done: AC-75 passes. Blocked by 79. (FR-54, FR-72; D26, D30, D31, D34)
 
-80. ⬜ **OKF lifecycle `status` + in-force default view** *(parallel with 79)* — ingest
+81. ⬜ **OKF lifecycle `status` + in-force default view** *(parallel with 80)* — ingest
     `draft | stable | deprecated` into S3 object metadata and filterable vector metadata; search,
     list and synthesis preparation default to in-force (`status != deprecated AND archived ==
     false`), with options for full lineage and for excluding drafts; `supersedes` never excludes.
     Done: AC-69, AC-70 pass. Blocked by 76. (FR-04, FR-46, FR-67; D22–D25)
 
-81. ⬜ **Change lifecycle status without re-embedding** — reuse `archive_artifact`'s re-PUT path
+82. ⬜ **Change lifecycle status without re-embedding** — reuse `archive_artifact`'s re-PUT path
     (carrying metadata and all three annotations forward); the tool surface (own tool vs
-    generalised archive) is decided in the spec. Done: AC-71 passes. Blocked by 79, 80.
+    generalised archive) is decided in the spec. Done: AC-71 passes. Blocked by 80, 81.
     (FR-14, FR-68)
 
-82. ⬜ **`verified` annotation, `add_artifact_verification`, "unverified since revised" on read** —
-    `verified` in its own annotation; the new tool appends `{by, at}` via 79's helper with no
+83. ⬜ **`verified` annotation, `add_artifact_verification`, "unverified since revised" on read** —
+    `verified` in its own annotation; the new tool appends `{by, at}` via 80's helper with no
     re-PUT, re-embed or `revised` change; `read_artifact` returns the list and computes the
     advisory signal. Listings and search stay out of scope (backlog B-14). Done: AC-73, AC-74 pass.
-    Blocked by 79. (FR-14, FR-70, FR-71; D41, D44, D45, D46)
+    Blocked by 80. (FR-14, FR-70, FR-71; D41, D44, D45, D46)
 
-83. ⬜ **`sources` + `relationships` structured annotation; `link_metadata` → `add_artifact_links`** —
+84. ⬜ **`sources` + `relationships` structured annotation; `link_metadata` → `add_artifact_links`** —
     one structured annotation replaces the comma-joined `references` annotation and the
     `source_artifacts` field; the `source_artifacts` vector projection is deleted (declared slot
     stays unused — no re-index); `commit_refs` unchanged; overwrite replaces both fields with
@@ -343,46 +357,46 @@ meaning two things. Tasks marked *parallel* touch disjoint code and may run conc
     gets the source's current `revised.at` (or `generated.at`); `find_referrers` becomes a
     `type` prefilter plus one annotation read per own-scope synthesis, and a failed read raises.
     Done: AC-56–AC-61, AC-68 pass; `references`, `source_artifacts` and `link_metadata` are
-    rejected (AC-80). Blocked by 78. (FR-19, FR-21, FR-51, FR-53–FR-56, C-01, C-07, C-08; D17–D20, D29, D40, D46)
+    rejected (AC-80). Blocked by 79. (FR-19, FR-21, FR-51, FR-53–FR-56, C-01, C-07, C-08; D17–D20, D29, D40, D46)
 
-84. ⬜ **Cross-scope gate for `sources` and `relationships`, with the `{withheld: n}` marker** —
+85. ⬜ **Cross-scope gate for `sources` and `relationships`, with the `{withheld: n}` marker** —
     Arkeology-pointing sources pass the existing gate in `_scope.py`; unreadable entries are
     removed and one in-list `{withheld: n}` marker is emitted on **every** capability returning
     link fields or content to a foreign-scope reader — in the structured field and in the
     returned content's frontmatter alike (D49), never modifying the stored object. Done: AC-78
     passes on read, list, synthesis and the data resources; mutation run over the declared Scope shows no new non-equivalent
-    survivor. Blocked by 83. (FR-10; D38, D47, D48, D49)
+    survivor. Blocked by 84. (FR-10; D38, D47, D48, D49)
 
-85. ⬜ **Per-source freshness** *(parallel with 84)* — `check_synthesis_freshness` compares each
+86. ⬜ **Per-source freshness** *(parallel with 85)* — `check_synthesis_freshness` compares each
     Arkeology source's current `revised.at` (or `generated.at`) with its captured
     `last_modified` as parsed datetimes, and reports stale, archived and missing sources; a
     revised synthesis no longer hides a source change; a source whose timestamp does not parse
     is reported "unchecked: unreadable timestamp" and the rest are still checked (D50). Done:
-    AC-18 passes. Blocked by 83.
+    AC-18 passes. Blocked by 84.
     (FR-20; D19, D20)
 
-86. ⬜ **Producer-supplied `id` becomes the artifact id** *(parallel with 83–85)* — used verbatim
+87. ⬜ **Producer-supplied `id` becomes the artifact id** *(parallel with 84–86)* — used verbatim
     and case-preserved, no hash suffix; validated (charset, alphanumeric ends, no `/`, no `..`,
     ≤128 chars) and never repaired; generated ids unchanged when absent. Done: AC-76 passes;
     AGENTS.md's deterministic-keys rule and Working Conventions carry the ADR amendment.
-    Blocked by 78. (FR-08, FR-15, FR-73; D28, D32, D33)
+    Blocked by 79. (FR-08, FR-15, FR-73; D28, D32, D33)
 
-87. ⬜ **Migration skill + `references.py` + source-backfill skill for the new frontmatter** — honour
+88. ⬜ **Migration skill + `references.py` + source-backfill skill for the new frontmatter** — honour
     `id:`; check id uniqueness across the manifest before any write; prefer `generated.at` as the
     first-authorship time; resolve `sources[].resource` paths by reading the target file's own
     `id:`; carry `relationships` over unchanged; keep `sources[].id` as a label only; retarget
     `backfilling-references` to sources, recording `last_modified`; update
-    `test_skill_artifact_id_drift.py`. Done: AC-58, AC-63, AC-81 pass. Blocked by 83, 86.
+    `test_skill_artifact_id_drift.py`. Done: AC-58, AC-63, AC-81 pass. Blocked by 84, 87.
     (FR-23, FR-52, FR-58; D28, D40, D43)
 
-88. ⬜ **Schema resource rewrite** — the schema MCP resource explains every field in OKF terms so an
+89. ⬜ **Schema resource rewrite** — the schema MCP resource explains every field in OKF terms so an
     agent interprets it correctly: `archived`, `status`, the in-force view, `generated`,
     `revised`, `verified` and the advisory signal, `sources` (incl. `last_modified`, the
     footnote-label `id`, the `withheld` marker), `relationships`, supplied ids, the open type
     list. Done: the resource content is reviewed against the ADR field by field, and its tests
-    pin each field's presence. Blocked by 76–87. (FR-18)
+    pin each field's presence. Blocked by 76–88. (FR-18)
 
-89. ⬜ **Store-migration skill + scripts** — brings an existing deployment to the new shape in S3
+90. ⬜ **Store-migration skill + scripts** — brings an existing deployment to the new shape in S3
     object metadata, vector metadata and annotations: `status` → `archived`, legacy types → OKF
     display names, `date`/`author_role`/`timestamp` → provenance, comma-joined link annotations →
     the structured annotation, `source_artifacts` removed from vectors; dry-run report first,
@@ -391,18 +405,18 @@ meaning two things. Tasks marked *parallel* touch disjoint code and may run conc
     overwrite of a tier-2 artifact regenerates the key already stored. At the end of a run it
     verifies that every vector carries a boolean `archived` and reports any it missed (D50).
     `reconcile_index` gains no migration code. Done: AC-79 passes against a moto store seeded in the pre-Phase-15 shape;
-    a second run reports nothing to change. Blocked by 76–86. (FR-74; D42)
+    a second run reports nothing to change. Blocked by 76–87. (FR-74; D42)
 
-90. ⬜ **Documentation, CHANGELOG, release notes** *(Tech Writer)* — README, SERVER-REFERENCE, the
+91. ⬜ **Documentation, CHANGELOG, release notes** *(Tech Writer)* — README, SERVER-REFERENCE, the
     setting-up and migration skills' agent snippets, AGENTS.md (Repository Structure, Working
     Conventions on `ARTIFACT_TYPES`, comma-joined lists, deterministic keys; mutation Scope if
-    84 moved gate code), and a `[Unreleased]` **Breaking** CHANGELOG entry listing every removed
-    name with its replacement and pointing at the store-migration skill. Blocked by 88, 89.
+    85 moved gate code), and a `[Unreleased]` **Breaking** CHANGELOG entry listing every removed
+    name with its replacement and pointing at the store-migration skill. Blocked by 89, 90.
 
 ## Risks and Open Questions
 
-- **Spec count.** Fifteen tasks means fifteen specs. Some tasks share most of their
-  surface (78 + 79, 83 + 84); merging their specs is an option the operator has not decided.
+- **Spec count.** Sixteen tasks means sixteen specs. Some tasks share most of their
+  surface (79 + 80, 84 + 85); merging their specs is an option the operator has not decided.
 - **OKF rulings pending (#16, #22, #28, #32).** Decided now and adapted later (D39). A ruling
   against the in-list `withheld` marker or the per-edge trust blocks changes response shapes
   only; storage does not move.
@@ -410,7 +424,7 @@ meaning two things. Tasks marked *parallel* touch disjoint code and may run conc
   REQUIRED per `sources` entry, §5.1). Accepted; #32 asks for the amendment.
 - **Annotation round trips on read.** `read_artifact` gains two annotation GETs (revision history,
   `verified`). Measured cost is expected to be small (D34) but has not been measured end to end.
-- **Store migration on a live corpus.** Task 89 is the first tool that rewrites every artifact in
+- **Store migration on a live corpus.** Task 90 is the first tool that rewrites every artifact in
   place. Its dry-run and idempotency are the safety net; a partial run must be resumable.
 
 ---

@@ -20,7 +20,7 @@ authored:
   date: "2026-09-14"
 revised:
   by: "architect"
-  date: "2026-09-25"
+  date: "2026-09-29"
 ---
 
 # How Arkeology Treats Malformed and Ambiguous Persisted Data
@@ -399,7 +399,7 @@ shape of the call.
 
 1. **A write that must carry forward or merge a value it cannot read fails** with
    `corrupt_metadata` and writes nothing. This binds `add_artifact_links`,
-   `add_artifact_verification`, the revision-history append, and an overwrite carrying `generated`
+   `add_artifact_verification`, the revision-history append, and an update carrying `generated`
    and the annotations forward. The policy's reads-only clauses are extended to writes in the
    direction D5 already takes: writing over data the server cannot read is how good data is lost,
    and there is no second copy to recover it from.

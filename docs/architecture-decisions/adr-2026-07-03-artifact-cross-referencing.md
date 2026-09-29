@@ -18,7 +18,7 @@ authored:
   date: "2026-07-03"
 revised:
   by: "architect"
-  date: "2026-09-25"
+  date: "2026-09-29"
 ---
 
 # Artifact Cross-Referencing — First-Class references Field, Migration Rewrite, and referenced_by Warning
@@ -522,8 +522,8 @@ ADR designed and changing four of its decisions:
   artifact was built from (it also replaces `source_artifacts`); `relationships` records typed
   `{to, type}` assertions about other artifacts. Both live in one structured annotation, with no
   vector-metadata copy, and D2 and D7 now describe these two fields. D8's replace-versus-accrete
-  split carries over unchanged: both are replaced on an overwriting write, `commit_refs` still
-  accretes. `link_metadata` is renamed `add_artifact_links`.
+  split carries over unchanged: both are replaced on an update (`update_artifact`), `commit_refs`
+  still accretes. `link_metadata` is renamed `add_artifact_links`.
 - **D4's manifest-wide path→id map is replaced for sources.** A `sources[].resource` path resolves
   by reading the target file's own `id:`, which stays correct across file renames, and is stored as
   `arkeology://artifact/{id}`. `sources[].id` is a footnote label and never used to resolve a

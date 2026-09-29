@@ -12,7 +12,7 @@ authored:
   date: "2026-05-29"
 revised:
   by: "architect"
-  date: "2026-09-25"
+  date: "2026-09-29"
 ---
 
 # Deterministic Slug-Based Artifact Identifiers
@@ -143,15 +143,26 @@ case where the writer already has an identifier:
   characters) and rejected when outside that form, never repaired. This amends the
   deterministic-keys rule rather than breaking it: a frozen filename stem is deterministic, and the
   rule's target — random and UUID keys — is untouched. Uniqueness of supplied ids is the producer's
-  guarantee, checked by the migration skill across the whole manifest before any write and by the
-  existing rejection of an existing key without `overwrite`.
+  guarantee, checked by the migration skill across the whole manifest before any write and by
+  `create_artifact`, which rejects an existing key atomically. Ids differing only in case are two
+  keys and are accepted.
 - **Generated ids are unchanged** whenever no `id` is supplied, hash suffix included. Tier 2's
   `{date}` component is now the UTC calendar day of `generated.at`, because the separate `date`
   field is removed. The store migration writes each existing artifact a `generated.at` on the UTC
-  day of its old `date`, so a later overwrite of a tier-2 artifact regenerates the key already
-  stored. Supplied ids carry no date anchoring.
+  day of its old `date`, so an existing tier-2 key's date component still is the UTC day of its
+  `generated.at`, and a create of the same type and title that day is still rejected against it.
+  Supplied ids carry no date anchoring.
 - **The type slug now comes from a free-form OKF type** (`Code Review`), which slugifies to the same
   `code-review` the legacy `code_review` does, so existing ids do not move.
+- **Writing splits into `create_artifact` and `update_artifact`; the `overwrite` flag is removed.**
+  `create_artifact` succeeds only when the key does not exist; `update_artifact` takes the
+  `artifact_id` and succeeds only when it does. Because an update addresses the artifact by id, a
+  generated id no longer has to be re-derivable from the current title for an update to reach it:
+  the key never changes on update, so a retitled tier-3 artifact keeps its id instead of landing on
+  a new hash-suffixed id and orphaning the old one. The Consequences' "a tier 3 artifact always
+  overwrites in place" becomes "a tier 3 artifact is updated in place by its id". A generated id
+  therefore reflects the attributes at creation, not necessarily the current ones.
 
-Idempotency, tier-3 overwrite in place, the three collision classes and the explicit `overwrite`
-opt-in all stand.
+Determinism, idempotency of the formula and the three collision classes all stand. The 2026-07-02
+revision's explicit `overwrite=true` opt-in is replaced by the separate `update_artifact` tool,
+which is the same explicit choice stated as a tool rather than a flag.
