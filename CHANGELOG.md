@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- Bumped three locked transitive Python dependencies in `uv.lock`, with `pyproject.toml`
+  unchanged: PyJWT (pulled in by `mcp`) from `2.13.0` to `2.15.1`, addressing thirteen
+  advisories — one critical, five high, seven moderate — in HMAC/asymmetric key confusion,
+  JWK and JWKS handling, token parsing denial of service and claim verification; urllib3
+  (pulled in by `botocore`) from `2.7.0` to `2.8.0`, addressing three advisories — two high,
+  one moderate — in chunked and deflate response streaming and HTTPS-proxy TLS
+  configuration; and the dev-only virtualenv (pulled in by `pre-commit`) from `21.7.3` to
+  `21.14.5`, with its python-discovery dependency moving from `1.5.1` to `1.6.1`,
+  addressing four advisories — three high, one moderate — in activation-script and
+  `pyvenv.cfg` prompt injection and unverified seed-wheel downloads
+
 ## [0.7.0] - 2026-09-15
 
 ### Changed
