@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-10-07
+
+### Changed
+- The artifact S3 bucket must now be dedicated to Arkeology; sharing it with other data is
+  an unsupported deployment, because `reconcile_index` re-indexes every object without
+  vectors under the write prefix (README and the `setting-up-arkeology` skill updated)
+
 ### Security
 - Bumped three locked transitive Python dependencies in `uv.lock`, with `pyproject.toml`
   unchanged: PyJWT (pulled in by `mcp`) from `2.13.0` to `2.15.1`, addressing thirteen
@@ -892,6 +899,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 - Credential-related boto3 exceptions caught at the AWS client layer and re-raised as structured typed errors; never exposed as raw stack traces to MCP callers
+
+[0.7.1]: https://github.com/amanoxsolutions/arkeology/compare/v0.7.0...v0.7.1
 
 [0.7.0]: https://github.com/amanoxsolutions/arkeology/compare/v0.6.0...v0.7.0
 

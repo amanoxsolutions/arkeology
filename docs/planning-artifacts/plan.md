@@ -9,8 +9,8 @@ generated:
   by: "axians-pm/unknown"
   at: 2026-05-29T10:46:28Z
 revised:
-  by: "axians-pm/claude-opus-5.5"
-  at: 2026-10-07T12:05:41Z
+  by: "axians-developer/claude-opus-5.5"
+  at: 2026-10-07T13:29:34Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
@@ -18,7 +18,7 @@ verified:
 
 # Plan: Arkeology
 
-_Project: arkeology_ · _Generated: 2026-05-29_ · _Last updated: 2026-10-07_ · _Status: **Phases 1–14 complete · Phase 15 open · latest tag v0.7.0**_
+_Project: arkeology_ · _Generated: 2026-05-29_ · _Last updated: 2026-10-07_ · _Status: **Phases 1–14 complete · Phase 15 open · latest tag v0.7.1**_
 
 ## How we work
 
@@ -29,7 +29,7 @@ This project runs as a **single open phase**, not a pre-planned roadmap. Complet
 - **Status legend:** ⬜ pending · 🔄 in progress · 🔍 in review · ✅ done · 🔴 blocked
 - **Delivery model:** each **Phase** is a coherent slice of value delivered as a set of tasks. A phase ends when we judge it done.
 
-**Current state:** Phase 15 — OKF v0.2 Adoption is open (T76–T91). Phases 1–14 are complete, and the latest tag is v0.7.0.
+**Current state:** Phase 15 — OKF v0.2 Adoption is open (T76–T91). Phases 1–14 are complete, and the latest tag is v0.7.1.
 
 ---
 
