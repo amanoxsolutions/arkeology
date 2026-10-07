@@ -8,7 +8,7 @@
     "test": "node --test tests/static/*.test.js"
   },
   "devDependencies": {
-    "dompurify": "3.4.13",
+    "dompurify": "3.4.16",
     "jsdom": "^30.0.1"
   }
 }

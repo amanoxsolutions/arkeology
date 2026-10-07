@@ -18,6 +18,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `21.14.5`, with its python-discovery dependency moving from `1.5.1` to `1.6.1`,
   addressing four advisories — three high, one moderate — in activation-script and
   `pyvenv.cfg` prompt injection and unverified seed-wheel downloads
+- Bumped the pinned DOMPurify dependency used by `arkeology_studio`'s browser-side
+  sanitisation (both the CDN import in `arkeology-studio.html` and the `package.json`
+  devDependency backing the sanitisation regression test) from `3.4.13` to `3.4.16`,
+  addressing one low-severity advisory in `IN_PLACE` sanitisation with an
+  `afterSanitize` hook. The advisory is not reachable through the studio's actual usage,
+  which calls `DOMPurify.sanitize(html)` with no config object and no hooks registered.
+  The same change moves the test harness's transitive `jsdom` dependencies in
+  `package-lock.json`: undici from `8.10.0` to `8.11.2`, addressing eleven advisories in
+  WebSocket, retry, cache, decompression and TLS handling, and source-map-js from `1.2.1`
+  to `1.2.2`, addressing one high-severity denial-of-service advisory
 
 ## [0.7.0] - 2026-09-15
 
