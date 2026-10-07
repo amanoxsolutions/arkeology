@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- Bumped the locked dev-only Werkzeug dependency (pulled in by `moto`) in `uv.lock`, with
+  `pyproject.toml` unchanged, from `3.1.8` to `3.1.9`, addressing one moderate advisory in
+  `safe_join()` handling of Windows special device names. The advisory is not reachable:
+  the tests use moto in-process, and the project targets POSIX hosts
+
 ## [0.7.1] - 2026-10-07
 
 ### Changed
