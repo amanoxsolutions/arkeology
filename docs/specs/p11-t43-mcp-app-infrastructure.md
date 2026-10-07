@@ -16,6 +16,9 @@ sources:
 generated:
   by: "axians-architect/claude-sonnet-4.5"
   at: 2026-06-24T00:00:00Z
+revised:
+  by: "axians-architect/claude-opus-5.5"
+  at: 2026-10-07T13:12:40Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
@@ -24,6 +27,19 @@ task: 43
 ---
 
 # T43 — MCP App Infrastructure and arkeology_studio Tool
+
+## Revision — 2026-10-07
+
+Superseded: the `## Boundaries` entry saying `arkeology_studio` receives `bedrock` as an injected
+dependency, and the `## Testing Approach` instruction to implement
+`arkeology_studio(settings, s3, vectors, bedrock, ctx)`.
+
+The tool takes no `bedrock`. Its signature is keyword-only `settings`, `s3`, `vectors` and `ctx`,
+returning a `ToolResult`: it only lists artifacts and never embeds. No committed implementation
+ever accepted `bedrock`; `s3` joined the signature in commit c911ae5.
+
+The normative signature is `### arkeology_studio` under `## Symbols` in
+[`docs/contracts/modules/arkeology.tools.studio.md`](../contracts/modules/arkeology.tools.studio.md).
 
 <!-- SCOPE BLOCK — frozen after approval -->
 

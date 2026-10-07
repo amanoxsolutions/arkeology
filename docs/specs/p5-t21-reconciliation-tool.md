@@ -10,8 +10,8 @@ generated:
   by: "axians-architect/unknown"
   at: 2026-05-31T00:00:00Z
 revised:
-  by: "axians-architect/claude-opus-4.8"
-  at: 2026-07-03T00:00:00Z
+  by: "axians-architect/claude-opus-5.5"
+  at: 2026-10-07T13:12:40Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
@@ -26,6 +26,24 @@ task: 21
 > metadata fields from the artifact's **durable S3 object annotations** (reading annotations, not
 > user-defined object metadata). This closes the earlier "reconcile drops `commit_refs`" limitation.
 > That behaviour is specced in `p12-t48`; this spec is not re-opened for it.
+
+## Revision — 2026-10-07
+
+Superseded: the Story 1 criterion under `## User Stories` that reports a failure-log entry whose
+S3 object no longer exists in `failed` with "S3 object not found", and the "Failure log replay"
+cases under `## Testing Approach` that expect such an entry in `failed` and kept in the log. The
+two sections also disagreed on whether that entry is kept; both are replaced.
+
+Such an entry is now resolved, not failed: it is reported once in `reconciled` with
+`source: "failure_log_obsolete"`, nothing is re-indexed, and the entry is pruned from the log. It
+is not routed through the bounded-retry counter. Leaving it in `failed` would have replayed it on
+every run forever.
+
+The normative statement is the `reconcile_index` Invariants and Postconditions in
+[`docs/contracts/modules/arkeology.tools.reconcile.md`](../contracts/modules/arkeology.tools.reconcile.md),
+`## Symbols`. The change landed in commit 773c164 and is recorded in
+[`p12-t62-bounded-reconcile-retry.md`](p12-t62-bounded-reconcile-retry.md),
+`## Revision — 2026-09-05`.
 
 <!-- SCOPE BLOCK — frozen after approval -->
 

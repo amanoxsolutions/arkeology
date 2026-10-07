@@ -9,6 +9,9 @@ okf_version: "0.2"
 generated:
   by: "axians-architect/unknown"
   at: 2026-05-31T00:00:00Z
+revised:
+  by: "axians-architect/claude-opus-5.5"
+  at: 2026-10-07T13:12:40Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
@@ -17,6 +20,23 @@ task: 22
 ---
 
 # T22 — Synthesis Freshness Check Tool
+
+## Revision — 2026-10-07
+
+Every statement below that decides staleness by `date` is superseded: Story 1 under
+`## User Stories`, the date-comparison rule under `## Requirements`, the ISO-8601 string-comparison
+entry under `## Boundaries`, and the "Stale detection" cases under `## Testing Approach`.
+
+A source is now stale when it was **written** after the synthesis, judged by `last_edited_ulid`
+rather than `date`. `date` is the artifact's subject date, not its write time, so comparing it
+missed a source overwritten in place under an unchanged date and flagged a later-dated source
+written before the synthesis. `date` remains only the fallback when either side lacks a
+`last_edited_ulid`, which is the one case Story 1's criteria still describe.
+
+The normative statement is the staleness invariant of `check_synthesis_freshness` in
+[`docs/contracts/modules/arkeology.tools.freshness.md`](../contracts/modules/arkeology.tools.freshness.md),
+`## Symbols`. The change landed in commit 151844a, which added the unit test
+`test_source_written_before_synthesis_is_not_stale_despite_a_later_date`.
 
 <!-- SCOPE BLOCK — frozen after approval -->
 
