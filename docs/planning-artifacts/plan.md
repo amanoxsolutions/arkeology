@@ -8,6 +8,9 @@ okf_version: "0.2"
 generated:
   by: "axians-pm/unknown"
   at: 2026-05-29T10:46:28Z
+revised:
+  by: "axians-pm/claude-opus-5.5"
+  at: 2026-10-07T12:05:41Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
@@ -15,7 +18,7 @@ verified:
 
 # Plan: Arkeology
 
-_Project: arkeology_ · _Generated: 2026-05-29_ · _Last updated: 2026-09-28_ · _Status: **Phases 1–14 complete · Phase 15 open · latest tag v0.7.0**_
+_Project: arkeology_ · _Generated: 2026-05-29_ · _Last updated: 2026-10-07_ · _Status: **Phases 1–14 complete · Phase 15 open · latest tag v0.7.0**_
 
 ## How we work
 
@@ -290,6 +293,12 @@ suite, ruff, mypy and `npm test` are green. A task is ✅ only when all of that 
 for removed names (D42): each rename task also proves the old name is rejected with a
 `validation_error` naming its replacement (AC-80).
 
+**Integration tests move with the code.** CI does not run `tests/integration/`, so a task that
+changes a tool's signature or behaviour also updates, in the same task, every integration test
+that change breaks — the rule Phase 2 applied to T7–T9 when T12 landed. A task is ✅ only once
+those tests are updated; the full integration suite passing against real AWS gates the release
+(T91).
+
 **Ordering.** Tasks are listed in dependency order and each names what blocks it. T76 must land
 before T81 — renaming `status` → `archived` before OKF `status` is introduced keeps one key from
 meaning two things. Tasks marked *parallel* touch disjoint code and may run concurrently.
@@ -378,7 +387,8 @@ meaning two things. Tasks marked *parallel* touch disjoint code and may run conc
     `last_modified` as parsed datetimes, and reports stale, archived and missing sources; a
     revised synthesis no longer hides a source change; a source whose timestamp does not parse
     is reported "unchecked: unreadable timestamp" and the rest are still checked (D50). Done:
-    AC-18 passes. Blocked by 84.
+    AC-18 passes; the integration freshness test — already failing, because it still makes a
+    source stale by date — is rewritten for per-source freshness. Blocked by 84.
     (FR-20; D19, D20)
 
 87. ⬜ **Producer-supplied `id` becomes the artifact id** *(parallel with 84–86)* — used verbatim
@@ -417,7 +427,8 @@ meaning two things. Tasks marked *parallel* touch disjoint code and may run conc
     setting-up and migration skills' agent snippets, AGENTS.md (Repository Structure, Working
     Conventions on `ARTIFACT_TYPES`, comma-joined lists, deterministic keys; mutation Scope if
     85 moved gate code), and a `[Unreleased]` **Breaking** CHANGELOG entry listing every removed
-    name with its replacement and pointing at the store-migration skill. Blocked by 89, 90.
+    name with its replacement and pointing at the store-migration skill. Blocked by 89, 90 and
+    a full integration-suite run against real AWS passing.
 
 ## Risks and Open Questions
 
