@@ -1,21 +1,19 @@
 ---
-type: spec
+type: Spec
+id: p8-t27-retry-throttle-fix
 title: Write Performance P2 — Retry and Throttle Fix
 description: Removes the duplicate ThrottlingException retry block from write.py and adds per-retry jitter to bedrock.py's backoff sleep to prevent thundering-herd re-throttling under concurrent embedding.
 tags: []
-timestamp: 2026-06-02T00:00:00Z
-okf_version: "0.1"
-feature: p8-t27-retry-throttle-fix
+status: stable
+okf_version: "0.2"
+generated:
+  by: "axians-architect/unknown"
+  at: 2026-06-02T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 phase: 8
 task: 27
-status: implemented
-references: []
-authored:
-  by: "architect"
-  date: "2026-06-02"
-revised:
-  by: ""
-  date: ""
 ---
 
 # Write Performance P2 — Retry and Throttle Fix

@@ -1,19 +1,21 @@
 ---
-type: brainstorming
+type: Brainstorming
+id: research-visual-reading-interface
 title: Research — Visual Reading / Browsing Interface for Arkeology Artifacts
 description: Research notes compiled 2026-06-14 surveying existing projects and reference architectures comparable to a self-hosted web app for humans to read and browse a markdown corpus with semantic search via S3 Vectors and Bedrock, identifying the unoccupied middle between RAG chat apps and static doc portals.
 tags: []
-timestamp: 2026-06-14T00:00:00Z
-okf_version: "0.1"
-status: complete
-references:
-  - docs/brainstorming/brainstorming-2026-06-14-visual-reading-interface.md
-authored:
-  by: "analyst"
-  date: "2026-06-14"
-revised:
-  by: ""
-  date: ""
+status: stable
+okf_version: "0.2"
+sources:
+  - resource: docs/brainstorming/brainstorming-2026-06-14-visual-reading-interface.md
+    title: Visual Reading / Browsing Interface for Arkeology Artifacts
+    last_modified: 2026-06-23T00:00:00Z
+generated:
+  by: "axians-analyst/claude-opus-4.8"
+  at: 2026-06-14T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 ---
 
 # Research — Visual Reading / Browsing Interface for Arkeology Artifacts

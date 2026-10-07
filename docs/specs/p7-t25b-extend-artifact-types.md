@@ -1,21 +1,19 @@
 ---
-type: spec
+type: Spec
+id: p7-t25b-extend-artifact-types
 title: Extend Artifact Type Vocabulary (+5 Types) and Flexible Migration Docs Root
 description: Adds five new artifact types (prd, plan, runbook, changelog, postmortem) to expand the vocabulary from 9 to 14 types, and fixes the migration skill to discover the project's docs root dynamically instead of assuming docs/.
 tags: []
-timestamp: 2026-06-01T00:00:00Z
-okf_version: "0.1"
-feature: p7-t25b-extend-artifact-types
+status: stable
+okf_version: "0.2"
+generated:
+  by: "axians-architect/unknown"
+  at: 2026-06-01T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 phase: 7
 task: 25b
-status: ready
-references: []
-authored:
-  by: "architect"
-  date: "2026-06-01"
-revised:
-  by: ""
-  date: ""
 ---
 
 # Extend Artifact Type Vocabulary (+5 types) and Flexible Migration Docs Root

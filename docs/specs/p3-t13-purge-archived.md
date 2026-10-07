@@ -1,22 +1,22 @@
 ---
-type: spec
+type: Spec
+id: p3-t13-purge-archived
 title: T13 — Purge Archived Tool
 description: Feature spec for the purge_archived MCP tool that bulk hard-deletes all inactive artifacts in own scope with synthesis cascade handling and a confirm gate.
 tags: []
-timestamp: 2026-05-30T00:00:00Z
-okf_version: "0.1"
-feature: p3-t13-purge-archived
-status: ready
+status: stable
+okf_version: "0.2"
+generated:
+  by: "axians-architect/unknown"
+  at: 2026-05-30T00:00:00Z
+revised:
+  by: "axians-pm/claude-opus-4.8"
+  at: 2026-06-29T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 phase: 3
 task: 13
-references:
-  - docs/contracts/modules/arkeology.tools.purge.md
-authored:
-  by: "architect"
-  date: "2026-05-30"
-revised:
-  by: "pm"
-  date: "2026-06-29"
 ---
 
 # T13 — Purge Archived Tool

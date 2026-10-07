@@ -1,26 +1,38 @@
 ---
-type: spec
+type: Spec
+id: p12-t46-references-field
 title: T46 — references First-Class Field on Artifact + write/read/list Surfacing + Filter
 description: Promote references to a first-class Artifact field, accept it at write time (dual-store as list[str] in vector metadata; durable annotation added in T47), surface it in write/read/list responses, and add a references list-membership filter with AND semantics. Legacy artifacts return [].
 tags: []
-timestamp: 2026-07-03T00:00:00Z
-okf_version: "0.1"
-feature: p12-t46-references-field
-status: ready
+status: stable
+okf_version: "0.2"
+sources:
+  - resource: docs/architecture-decisions/adr-2026-07-03-artifact-cross-referencing.md
+    title: Artifact Cross-Referencing — First-Class references Field, Migration Rewrite, and referenced_by Warning
+    last_modified: 2026-09-29T00:00:00Z
+  - resource: docs/architecture-decisions/adr-2026-07-03-annotation-backed-link-storage.md
+    title: Annotation-Backed Durable Storage for Mutable Link Fields (commit_refs + references)
+    last_modified: 2026-09-29T00:00:00Z
+  - resource: docs/specs/p10-t36-commit-refs-metadata-fields.md
+    title: T36 — commit_refs and last_edited_ulid Metadata Fields
+    last_modified: 2026-07-03T00:00:00Z
+  - resource: docs/specs/p12-t45-s3-annotation-client.md
+    title: T45 — S3 Object Annotation Client Support + moto Self-Mock Extension
+    last_modified: 2026-07-03T00:00:00Z
+  - resource: docs/planning-artifacts/requirements.md
+    title: Arkeology — Requirements
+    last_modified: 2026-09-24T00:00:00Z
+generated:
+  by: "axians-architect/claude-opus-4.8"
+  at: 2026-07-03T00:00:00Z
+revised:
+  by: "axians-architect/claude-sonnet-5"
+  at: 2026-08-17T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 phase: 12
 task: 46
-references:
-  - docs/architecture-decisions/adr-2026-07-03-artifact-cross-referencing.md
-  - docs/architecture-decisions/adr-2026-07-03-annotation-backed-link-storage.md
-  - docs/specs/p10-t36-commit-refs-metadata-fields.md
-  - docs/specs/p12-t45-s3-annotation-client.md
-  - docs/planning-artifacts/requirements.md
-authored:
-  by: "architect"
-  date: "2026-07-03"
-revised:
-  by: "architect"
-  date: "2026-08-17"
 ---
 
 # T46 — `references` First-Class Field on `Artifact` + write / read / list Surfacing

@@ -1,23 +1,35 @@
 ---
-type: adr
+type: ADR
+id: adr-2026-07-03-annotation-backed-link-storage
 title: Annotation-Backed Durable Storage for Mutable Link Fields (commit_refs + references)
 description: "Records the coupled decisions that move the durable store for the mutable link fields (commit_refs and the new references) from vector-metadata-only to S3 object annotations, dual-written with vector metadata, generalize link_commit into link_metadata, make reconcile lossless, preserve links across overwrite, and handle annotation availability without a hard startup gate. Supersedes only the vector-only commit_refs storage decision of the 2026-06-16 ADR."
 tags: []
-timestamp: 2026-07-03T00:00:00Z
-okf_version: "0.1"
-status: accepted
-references:
-  - docs/brainstorming/brainstorming-2026-07-01-artifact-cross-referencing.md
-  - docs/planning-artifacts/requirements.md
-  - docs/planning-artifacts/plan.md
-  - docs/architecture-decisions/adr-2026-06-16-artifact-commit-traceability.md
-  - docs/architecture-decisions/adr-2026-05-29-tier-based-access-control.md
-authored:
-  by: architect
-  date: "2026-07-03"
+status: stable
+okf_version: "0.2"
+sources:
+  - resource: docs/brainstorming/brainstorming-2026-07-01-artifact-cross-referencing.md
+    title: Artifact Cross-Referencing (Migration and Ongoing Writes)
+    last_modified: 2026-07-02T00:00:00Z
+  - resource: docs/planning-artifacts/requirements.md
+    title: Arkeology — Requirements
+    last_modified: 2026-09-24T00:00:00Z
+  - resource: docs/planning-artifacts/plan.md
+    title: Plan Arkeology
+  - resource: docs/architecture-decisions/adr-2026-05-29-tier-based-access-control.md
+    title: Tier-Based Cross-Scope Access Control Model
+    last_modified: 2026-09-25T00:00:00Z
+relationships:
+  - to: adr-2026-06-16-artifact-commit-traceability
+    type: supersedes
+generated:
+  by: "axians-architect/claude-opus-4.8"
+  at: 2026-07-03T00:00:00Z
 revised:
-  by: "architect"
-  date: "2026-09-29"
+  by: "axians-architect/claude-opus-5.5"
+  at: 2026-09-29T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 ---
 
 # Annotation-Backed Durable Storage for Mutable Link Fields (commit_refs + references)

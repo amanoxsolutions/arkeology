@@ -1,10 +1,16 @@
 ---
-type: adr
+type: ADR
+id: overview
 title: Arkeology — Architecture Overview
 description: System context, internal layer diagram, and component dependency summary for the Arkeology MCP server backed by Amazon S3, S3 Vectors, and Bedrock.
 tags: []
-timestamp: 2026-06-16T00:00:00Z
-okf_version: "0.1"
+okf_version: "0.2"
+generated:
+  by: "axians-architect/unknown"
+  at: 2026-06-08T09:46:16Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 ---
 
 # Arkeology — Architecture Overview

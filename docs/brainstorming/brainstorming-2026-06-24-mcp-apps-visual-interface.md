@@ -1,23 +1,27 @@
 ---
-type: brainstorming
+type: Brainstorming
+id: brainstorming-2026-06-24-mcp-apps-visual-interface
 title: MCP Apps as the Visual Reading Interface for Arkeology
 description: Evaluates MCP Apps (the official MCP interactive UI extension) as the visual reading interface for Arkeology artifacts, and determines whether it makes Direction 4 (AWS-hosted SPA) unnecessary.
 tags: []
-timestamp: 2026-06-24T00:00:00Z
-okf_version: "0.1"
-status: done
-references:
-  - docs/brainstorming/brainstorming-2026-06-14-visual-reading-interface.md
-  - docs/brainstorming/brainstorming-2026-06-10-mcp-transport-strategy.md
-  - https://gofastmcp.com/apps/overview
-  - https://gofastmcp.com/python-sdk/fastmcp-apps-app
-  - https://gofastmcp.com/apps/low-level
-authored:
-  by: "analyst"
-  date: 2026-06-24
-revised:
-  by: "analyst"
-  date: 2026-06-24
+status: stable
+okf_version: "0.2"
+sources:
+  - resource: docs/brainstorming/brainstorming-2026-06-14-visual-reading-interface.md
+    title: Visual Reading / Browsing Interface for Arkeology Artifacts
+    last_modified: 2026-06-23T00:00:00Z
+  - resource: docs/brainstorming/brainstorming-2026-06-10-mcp-transport-strategy.md
+    title: MCP Transport Strategy — stdio vs Streamable HTTP
+    last_modified: 2026-06-10T00:00:00Z
+  - resource: https://gofastmcp.com/apps/overview
+  - resource: https://gofastmcp.com/python-sdk/fastmcp-apps-app
+  - resource: https://gofastmcp.com/apps/low-level
+generated:
+  by: "axians-analyst/claude-sonnet-4.5"
+  at: 2026-06-24T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 ---
 
 # MCP Apps as the Visual Reading Interface for Arkeology

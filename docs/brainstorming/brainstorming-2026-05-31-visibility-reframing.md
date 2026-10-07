@@ -1,18 +1,17 @@
 ---
-type: brainstorming
+type: Brainstorming
+id: brainstorming-2026-05-31-visibility-reframing
 title: "Visibility Reframing: `confidential` → `hidden`"
 description: Catalogues all occurrences of the misleading `confidential` visibility value across code, tests, specs, requirements.md, and brainstorming files, and makes the case for replacing it with `hidden` to accurately describe the cross-scope visibility gate rather than implying a security boundary.
 tags: []
-timestamp: 2026-05-31T00:00:00Z
-okf_version: "0.1"
-status: complete
-references: []
-authored:
-  by: "analyst"
-  date: "2026-05-31"
-revised:
-  by: ""
-  date: ""
+status: stable
+okf_version: "0.2"
+generated:
+  by: "axians-analyst/unknown"
+  at: 2026-05-31T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 ---
 
 # Visibility Reframing: `confidential` → `hidden`

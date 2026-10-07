@@ -1,19 +1,21 @@
 ---
-type: brainstorming
+type: Brainstorming
+id: brainstorming-2026-06-10-mcp-transport-strategy
 title: MCP Transport Strategy — stdio vs Streamable HTTP
 description: Explores whether Arkeology should adopt Streamable HTTP transport alongside or instead of stdio, what it unlocks (concurrent calls, SSE progress events, multi-client), and what it costs in deployment complexity and authentication surface.
 tags: []
-timestamp: 2026-06-10T00:00:00Z
-okf_version: "0.1"
-status: in-progress
-references:
-  - docs/brainstorming/brainstorming-2026-06-01-write-performance.md
-authored:
-  by: "pm"
-  date: "2026-06-10"
-revised:
-  by: ""
-  date: ""
+status: draft
+okf_version: "0.2"
+sources:
+  - resource: docs/brainstorming/brainstorming-2026-06-01-write-performance.md
+    title: Write Performance — Reducing `write_artifact` Latency
+    last_modified: 2026-06-01T00:00:00Z
+generated:
+  by: "axians-pm/unknown"
+  at: 2026-06-10T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 ---
 
 # MCP Transport Strategy — stdio vs Streamable HTTP

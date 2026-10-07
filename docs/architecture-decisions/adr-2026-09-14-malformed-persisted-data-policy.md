@@ -1,26 +1,45 @@
 ---
-type: adr
+type: ADR
+id: adr-2026-09-14-malformed-persisted-data-policy
 title: How Arkeology Treats Malformed and Ambiguous Persisted Data
 description: "Records one cross-cutting policy for data this server reads but did not necessarily write: the cross-scope gate is total and denies on an unparseable tier or visibility rather than raising; a tool iterating over candidates skips a malformed one and reports the skip in a `skipped_malformed_count` field present only when non-zero; a single-artifact read fails loudly with a typed `corrupt_metadata` error naming the field rather than inventing a default; and an ambiguous not-found from the durable link store raises rather than reporting the artifact as having no links. Rejects failing the whole tool, skipping silently, and defaulting a missing value."
 tags: []
-timestamp: 2026-09-14T00:00:00Z
-okf_version: "0.1"
-status: accepted
-references:
-  - docs/architecture-decisions/adr-2026-05-29-tier-based-access-control.md
-  - docs/architecture-decisions/adr-2026-07-03-annotation-backed-link-storage.md
-  - docs/contracts/data/s3-annotations.artifact.md
-  - docs/contracts/modules/arkeology.tools.read.md
-  - docs/contracts/modules/arkeology.tools.search.md
-  - docs/contracts/modules/arkeology.tools.synthesise.md
-  - docs/contracts/modules/arkeology.tools.list.md
-  - docs/contracts/modules/arkeology.tools.freshness.md
-authored:
-  by: architect
-  date: "2026-09-14"
+status: stable
+okf_version: "0.2"
+sources:
+  - resource: docs/architecture-decisions/adr-2026-05-29-tier-based-access-control.md
+    title: Tier-Based Cross-Scope Access Control Model
+    last_modified: 2026-09-25T00:00:00Z
+  - resource: docs/architecture-decisions/adr-2026-07-03-annotation-backed-link-storage.md
+    title: Annotation-Backed Durable Storage for Mutable Link Fields (commit_refs + references)
+    last_modified: 2026-09-29T00:00:00Z
+  - resource: docs/contracts/data/s3-annotations.artifact.md
+    title: s3-annotations.artifact
+    last_modified: 2026-09-14T00:00:00Z
+  - resource: docs/contracts/modules/arkeology.tools.read.md
+    title: arkeology.tools.read
+    last_modified: 2026-09-14T00:00:00Z
+  - resource: docs/contracts/modules/arkeology.tools.search.md
+    title: arkeology.tools.search
+    last_modified: 2026-09-14T00:00:00Z
+  - resource: docs/contracts/modules/arkeology.tools.synthesise.md
+    title: arkeology.tools.synthesise
+    last_modified: 2026-09-14T00:00:00Z
+  - resource: docs/contracts/modules/arkeology.tools.list.md
+    title: arkeology.tools.list
+    last_modified: 2026-09-14T00:00:00Z
+  - resource: docs/contracts/modules/arkeology.tools.freshness.md
+    title: arkeology.tools.freshness
+    last_modified: 2026-09-14T00:00:00Z
+generated:
+  by: "axians-architect/claude-sonnet-5"
+  at: 2026-09-14T00:00:00Z
 revised:
-  by: "architect"
-  date: "2026-09-29"
+  by: "axians-architect/claude-opus-5.5"
+  at: 2026-09-29T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 ---
 
 # How Arkeology Treats Malformed and Ambiguous Persisted Data

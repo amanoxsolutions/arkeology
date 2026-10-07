@@ -1,21 +1,19 @@
 ---
-type: spec
+type: Spec
+id: p8-t28-section-caps
 title: Write Performance P3 — Configurable Section Caps
 description: Adds two configurable pre-embedding filters — EMBED_MIN_SECTION_LENGTH to skip short placeholder sections and EMBED_MAX_SECTIONS to cap the total sections indexed — bounding worst-case Bedrock call count without affecting typical structured artifacts.
 tags: []
-timestamp: 2026-06-02T00:00:00Z
-okf_version: "0.1"
-feature: p8-t28-section-caps
+status: stable
+okf_version: "0.2"
+generated:
+  by: "axians-architect/unknown"
+  at: 2026-06-02T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 phase: 8
 task: 28
-status: implemented
-references: []
-authored:
-  by: "architect"
-  date: "2026-06-02"
-revised:
-  by: ""
-  date: ""
 ---
 
 # Write Performance P3 — Configurable Section Caps

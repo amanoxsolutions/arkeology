@@ -1,25 +1,32 @@
 ---
-type: spec
+type: Spec
+id: p12-t50-referenced-by-warning
 title: T50 — Unified Own-Scope referenced_by Warning on Delete + Archive
 description: Before deleting or archiving an artifact, reverse-lookup other own-scope artifacts referencing it across both source_artifacts and references, branching by field filterability — a server-side $eq list-membership filter for filterable reference fields (references) and a filterable prefilter (type=synthesis) plus in-process membership check for the non-filterable source_artifacts. Warn-but-don't-block — delete stronger (permanent), archive informational (reversible). Strictly own-scope; never reveal foreign-scope identifiers.
 tags: []
-timestamp: 2026-07-03T00:00:00Z
-okf_version: "0.1"
-feature: p12-t50-referenced-by-warning
-status: ready
+status: stable
+okf_version: "0.2"
+sources:
+  - resource: docs/architecture-decisions/adr-2026-07-03-artifact-cross-referencing.md
+    title: Artifact Cross-Referencing — First-Class references Field, Migration Rewrite, and referenced_by Warning
+    last_modified: 2026-09-29T00:00:00Z
+  - resource: docs/specs/p12-t46-references-field.md
+    title: T46 — references First-Class Field on Artifact + write/read/list Surfacing + Filter
+    last_modified: 2026-08-17T00:00:00Z
+  - resource: docs/specs/p12-t55-metadata-validation.md
+    title: T55 — Write-Path Metadata Size + Charset Validation
+    last_modified: 2026-08-17T00:00:00Z
+  - resource: docs/planning-artifacts/requirements.md
+    title: Arkeology — Requirements
+    last_modified: 2026-09-24T00:00:00Z
+generated:
+  by: "axians-architect/claude-opus-4.8"
+  at: 2026-07-03T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 phase: 12
 task: 50
-references:
-  - docs/architecture-decisions/adr-2026-07-03-artifact-cross-referencing.md
-  - docs/specs/p12-t46-references-field.md
-  - docs/specs/p12-t55-metadata-validation.md
-  - docs/planning-artifacts/requirements.md
-authored:
-  by: "architect"
-  date: "2026-07-03"
-revised:
-  by: "architect"
-  date: "2026-07-03"
 ---
 
 # T50 — Unified Own-Scope `referenced_by` Warning on Delete + Archive

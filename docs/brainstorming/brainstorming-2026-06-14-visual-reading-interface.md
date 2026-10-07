@@ -1,25 +1,42 @@
 ---
-type: brainstorming
+type: Brainstorming
+id: brainstorming-2026-06-14-visual-reading-interface
 title: Visual Reading / Browsing Interface for Arkeology Artifacts
 description: Explores how to give humans a visual reading/browsing surface for Arkeology artifacts now that content lives in S3 rather than on disk, using a multi-agent adversarial approach to challenge assumptions around hosting, audience, rendering, and auth.
 tags: []
-timestamp: 2026-06-14T00:00:00Z
-okf_version: "0.1"
 status: draft
-references:
-  - docs/architecture-decisions/adr-2026-05-29-stdio-transport.md
-  - docs/architecture-decisions/adr-2026-05-29-tier-based-access-control.md
-  - docs/architecture-decisions/adr-2026-05-29-aws-backend-selection.md
-  - docs/brainstorming/brainstorming-2026-06-10-mcp-transport-strategy.md
-  - docs/brainstorming/brainstorming-2026-06-08-multi-team-multi-project-config.md
-  - docs/specs/p4-t18-mcp-resources.md
-  - docs/brainstorming/research-visual-reading-interface.md
-authored:
-  by: "analyst"
-  date: 2026-06-14
+okf_version: "0.2"
+sources:
+  - resource: docs/architecture-decisions/adr-2026-05-29-stdio-transport.md
+    title: stdio as the Primary MCP Transport
+    last_modified: 2026-06-08T00:00:00Z
+  - resource: docs/architecture-decisions/adr-2026-05-29-tier-based-access-control.md
+    title: Tier-Based Cross-Scope Access Control Model
+    last_modified: 2026-09-25T00:00:00Z
+  - resource: docs/architecture-decisions/adr-2026-05-29-aws-backend-selection.md
+    title: AWS S3 + S3 Vectors + Bedrock as the Storage and Embedding Backend
+    last_modified: 2026-05-29T00:00:00Z
+  - resource: docs/brainstorming/brainstorming-2026-06-10-mcp-transport-strategy.md
+    title: MCP Transport Strategy — stdio vs Streamable HTTP
+    last_modified: 2026-06-10T00:00:00Z
+  - resource: docs/brainstorming/brainstorming-2026-06-08-multi-team-multi-project-config.md
+    title: Multi-team / Multi-project Configuration
+    last_modified: 2026-06-08T00:00:00Z
+  - resource: docs/specs/p4-t18-mcp-resources.md
+    title: T18 — MCP Resources
+    last_modified: 2026-05-31T00:00:00Z
+  - resource: docs/brainstorming/research-visual-reading-interface.md
+    title: Research — Visual Reading / Browsing Interface for Arkeology Artifacts
+    last_modified: 2026-06-14T00:00:00Z
+generated:
+  by: "axians-analyst/claude-opus-4.8"
+  at: 2026-06-14T00:00:00Z
 revised:
-  by: "analyst"
-  date: 2026-06-23
+  by: "axians-analyst/claude-sonnet-4.5"
+  at: 2026-06-23T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 ---
 
 # Visual Reading / Browsing Interface for Arkeology Artifacts

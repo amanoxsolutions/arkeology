@@ -1,23 +1,26 @@
 ---
-type: spec
+type: Spec
+id: p2-t6-artifact-model
 title: T6 — Artifact Model and Key Generation
 description: Feature spec for the pure artifact model module providing deterministic key generation, markdown section parsing, and metadata validation shared by all Phase 2+ tools.
 tags: []
-timestamp: 2026-05-30T00:00:00Z
-okf_version: "0.1"
-feature: p2-t6-artifact-model
-status: ready
+status: stable
+okf_version: "0.2"
+sources:
+  - resource: docs/architecture-decisions/adr-2026-05-29-deterministic-artifact-ids.md
+    title: Deterministic Slug-Based Artifact Identifiers
+    last_modified: 2026-09-29T00:00:00Z
+generated:
+  by: "axians-architect/unknown"
+  at: 2026-05-30T00:00:00Z
+revised:
+  by: "axians-architect/claude-opus-5"
+  at: 2026-09-04T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 phase: 2
 task: 6
-references:
-  - docs/contracts/data/s3.artifact.md
-  - docs/architecture-decisions/adr-2026-05-29-deterministic-artifact-ids.md
-authored:
-  by: "architect"
-  date: "2026-05-30"
-revised:
-  by: "architect"
-  date: "2026-09-04"
 ---
 
 # T6 — Artifact Model and Key Generation

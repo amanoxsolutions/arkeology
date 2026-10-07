@@ -1,28 +1,38 @@
 ---
-type: spec
+type: Spec
+id: p12-t47-annotation-dual-write
 title: T47 — Annotation Dual-Write in the Write Path + Tier-3 Overwrite Preservation
 description: Write commit_refs and references to S3 object annotations (durable-first, before vectors) in the write path, and on an overwriting tier-3 write read-forward the prior commit_refs/references and re-apply them to both stores because PutObject clears annotations. No re-embed. last_edited_ulid stays in user-defined metadata.
 tags: []
-timestamp: 2026-07-03T00:00:00Z
-okf_version: "0.1"
-feature: p12-t47-annotation-dual-write
-status: ready
+status: stable
+okf_version: "0.2"
+sources:
+  - resource: docs/architecture-decisions/adr-2026-07-03-annotation-backed-link-storage.md
+    title: Annotation-Backed Durable Storage for Mutable Link Fields (commit_refs + references)
+    last_modified: 2026-09-29T00:00:00Z
+  - resource: docs/architecture-decisions/adr-2026-07-03-artifact-cross-referencing.md
+    title: Artifact Cross-Referencing — First-Class references Field, Migration Rewrite, and referenced_by Warning
+    last_modified: 2026-09-29T00:00:00Z
+  - resource: docs/specs/p12-t45-s3-annotation-client.md
+    title: T45 — S3 Object Annotation Client Support + moto Self-Mock Extension
+    last_modified: 2026-07-03T00:00:00Z
+  - resource: docs/specs/p12-t46-references-field.md
+    title: T46 — references First-Class Field on Artifact + write/read/list Surfacing + Filter
+    last_modified: 2026-08-17T00:00:00Z
+  - resource: docs/planning-artifacts/requirements.md
+    title: Arkeology — Requirements
+    last_modified: 2026-09-24T00:00:00Z
+generated:
+  by: "axians-architect/claude-opus-4.8"
+  at: 2026-07-03T00:00:00Z
+revised:
+  by: "axians-tech-writer/claude-sonnet-5"
+  at: 2026-09-06T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 phase: 12
 task: 47
-references:
-  - docs/contracts/data/s3-annotations.artifact.md
-  - docs/contracts/data/s3.artifact.md
-  - docs/architecture-decisions/adr-2026-07-03-annotation-backed-link-storage.md
-  - docs/architecture-decisions/adr-2026-07-03-artifact-cross-referencing.md
-  - docs/specs/p12-t45-s3-annotation-client.md
-  - docs/specs/p12-t46-references-field.md
-  - docs/planning-artifacts/requirements.md
-authored:
-  by: "architect"
-  date: "2026-07-03"
-revised:
-  by: "tech-writer"
-  date: "2026-09-06"
 ---
 
 # T47 — Annotation Dual-Write in the Write Path + Tier-3 Overwrite Preservation

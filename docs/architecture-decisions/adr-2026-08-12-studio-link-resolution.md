@@ -1,22 +1,33 @@
 ---
-type: adr
+type: ADR
+id: adr-2026-08-12-studio-link-resolution
 title: Studio-Side Resolution of arkeology:// Links on the Human Read Surface
 description: "Records that Arkeology Studio resolves arkeology://artifact/{id} links found in rendered artifact content itself — a click loads the target in the studio's own detail view via an ordinary read_artifact call — and that this is a read-surface convenience rather than a second addressing mechanism. Also records what the read surface does with URIs it cannot resolve (non-artifact arkeology:// URIs, malformed URIs, and untouched raw repository paths): they render as inert text, never as apparently-clickable dead links. Does not re-open ADR-012's content-rewrite format or its mixed-addressing steady state."
 tags: []
-timestamp: 2026-08-12T00:00:00Z
-okf_version: "0.1"
-status: accepted
-references:
-  - docs/architecture-decisions/adr-2026-07-03-artifact-cross-referencing.md
-  - docs/architecture-decisions/adr-2026-06-24-mcp-apps-visual-reading-interface.md
-  - docs/architecture-decisions/adr-2026-05-29-tier-based-access-control.md
-  - docs/specs/p11-t44-browser-ui.md
-authored:
-  by: architect
-  date: "2026-08-12"
+status: stable
+okf_version: "0.2"
+sources:
+  - resource: docs/architecture-decisions/adr-2026-07-03-artifact-cross-referencing.md
+    title: Artifact Cross-Referencing — First-Class references Field, Migration Rewrite, and referenced_by Warning
+    last_modified: 2026-09-29T00:00:00Z
+  - resource: docs/architecture-decisions/adr-2026-06-24-mcp-apps-visual-reading-interface.md
+    title: MCP Apps as the Visual Reading Interface
+    last_modified: 2026-07-05T00:00:00Z
+  - resource: docs/architecture-decisions/adr-2026-05-29-tier-based-access-control.md
+    title: Tier-Based Cross-Scope Access Control Model
+    last_modified: 2026-09-25T00:00:00Z
+  - resource: docs/specs/p11-t44-browser-ui.md
+    title: T44 — Browser UI (HTML/JS)
+    last_modified: 2026-08-12T00:00:00Z
+generated:
+  by: "axians-architect/claude-opus-5"
+  at: 2026-08-12T00:00:00Z
 revised:
-  by: "architect"
-  date: "2026-09-25"
+  by: "axians-architect/claude-opus-5.5"
+  at: 2026-09-25T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 ---
 
 # Studio-Side Resolution of arkeology:// Links on the Human Read Surface

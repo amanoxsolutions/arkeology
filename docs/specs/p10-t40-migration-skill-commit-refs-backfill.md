@@ -1,25 +1,35 @@
 ---
-type: spec
+type: Spec
+id: p10-t40-migration-skill-commit-refs-backfill
 title: T40 — Migration Skill commit_refs Backfill Options
 description: Spec for a new Step 5 in the migrating-to-arkeology skill offering three commit-refs backfill choices after migration — skip, bulk HEAD link, or per-file git history backfill.
 tags: []
-timestamp: 2026-06-16T00:00:00Z
-okf_version: "0.1"
-feature: p10-t40-migration-skill-commit-refs-backfill
-status: ready
+status: stable
+okf_version: "0.2"
+sources:
+  - resource: docs/brainstorming/brainstorming-2026-06-06-artifact-commit-refs.md
+    title: Artifact Commit References
+    last_modified: 2026-07-03T00:00:00Z
+  - resource: docs/architecture-decisions/adr-2026-06-16-artifact-commit-traceability.md
+    title: Artifact Commit Traceability — ULID Timestamps, Vector-Only Commit Links, and Agent-Driven Protocol
+    last_modified: 2026-07-03T00:00:00Z
+  - resource: docs/architecture-decisions/adr-2026-07-03-annotation-backed-link-storage.md
+    title: Annotation-Backed Durable Storage for Mutable Link Fields (commit_refs + references)
+    last_modified: 2026-09-29T00:00:00Z
+  - resource: docs/planning-artifacts/requirements.md
+    title: Arkeology — Requirements
+    last_modified: 2026-09-24T00:00:00Z
+generated:
+  by: "axians-architect/claude-sonnet-4.6"
+  at: 2026-06-16T00:00:00Z
+revised:
+  by: "axians-architect/claude-opus-4.8"
+  at: 2026-07-03T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 phase: 10
 task: 40
-references:
-  - docs/brainstorming/brainstorming-2026-06-06-artifact-commit-refs.md
-  - docs/architecture-decisions/adr-2026-06-16-artifact-commit-traceability.md
-  - docs/architecture-decisions/adr-2026-07-03-annotation-backed-link-storage.md
-  - docs/planning-artifacts/requirements.md
-authored:
-  by: architect
-  date: "2026-06-16"
-revised:
-  by: architect
-  date: "2026-07-03"
 ---
 
 # T40 — Migration Skill `commit_refs` Backfill Options

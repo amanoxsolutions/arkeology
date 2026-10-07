@@ -1,21 +1,32 @@
 ---
 type: Contract
+id: arkeology.tools.search
 title: arkeology.tools.search
 description: The search_artifacts MCP tool — embeds a natural-language query and returns the most semantically similar artifacts subject to the cross-scope gate, with explicit transparency flags when the result set was limited by something other than the true match count.
 tags: []
-timestamp: 2026-09-04T00:00:00Z
-okf_version: "0.1"
-references:
-  - docs/specs/p2-t8-search-artifacts.md
-  - docs/specs/p12-t54-search-age-transparency.md
-  - docs/specs/p10-t41-rename-feature-tags-to-tags.md
-  - docs/architecture-decisions/adr-2026-09-14-malformed-persisted-data-policy.md
-authored:
-  by: "tech-writer"
-  date: 2026-09-04
+okf_version: "0.2"
+sources:
+  - resource: docs/specs/p2-t8-search-artifacts.md
+    title: T8 — Search Artifacts Tool
+    last_modified: 2026-08-12T00:00:00Z
+  - resource: docs/specs/p12-t54-search-age-transparency.md
+    title: Surface artifact last-edited age in search results (Option A)
+    last_modified: 2026-07-03T00:00:00Z
+  - resource: docs/specs/p10-t41-rename-feature-tags-to-tags.md
+    title: "T41: Rename feature_tags → tags"
+    last_modified: 2026-06-18T00:00:00Z
+  - resource: docs/architecture-decisions/adr-2026-09-14-malformed-persisted-data-policy.md
+    title: How Arkeology Treats Malformed and Ambiguous Persisted Data
+    last_modified: 2026-09-29T00:00:00Z
+generated:
+  by: "axians-tech-writer/claude-opus-5"
+  at: 2026-09-04T00:00:00Z
 revised:
-  by: "architect"
-  date: 2026-09-14
+  by: "axians-architect/claude-sonnet-5"
+  at: 2026-09-14T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 ---
 
 # arkeology.tools.search

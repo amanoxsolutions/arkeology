@@ -1,22 +1,32 @@
 ---
-type: spec
+type: Spec
+id: p12-t60-narrow-reverse-lookup-warning
 title: T60 — Narrow the Delete/Archive Reverse-Lookup Warning to source_artifacts Only
 description: Once T58 removes references from S3 Vectors metadata, find_referrers references-half server-side $eq scan can no longer match anything. Narrow REFERENCE_FIELDS to source_artifacts only, preserving find_referrers unchanged and documenting the accepted references gap in the tool docstrings rather than adding an unbounded full-corpus annotation scan as a substitute.
 tags: []
-timestamp: 2026-08-17T00:00:00Z
-okf_version: "0.1"
-feature: p12-t60-narrow-reverse-lookup-warning
-status: ready
+status: stable
+okf_version: "0.2"
+sources:
+  - resource: docs/architecture-decisions/adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal.md
+    title: Vector Metadata Budget Hardening, Guard Coverage, and Migration Self-Heal
+    last_modified: 2026-09-25T00:00:00Z
+  - resource: docs/specs/p12-t58-commit-refs-cap-references-removal.md
+    title: T58 — commit_refs Vector-Metadata Cap (20) + references Vector-Metadata Removal + propose_commit_links Multi-Section Fix
+    last_modified: 2026-08-17T00:00:00Z
+  - resource: docs/specs/p12-t50-referenced-by-warning.md
+    title: T50 — Unified Own-Scope referenced_by Warning on Delete + Archive
+    last_modified: 2026-07-03T00:00:00Z
+  - resource: docs/architecture-decisions/adr-2026-07-03-artifact-cross-referencing.md
+    title: Artifact Cross-Referencing — First-Class references Field, Migration Rewrite, and referenced_by Warning
+    last_modified: 2026-09-29T00:00:00Z
+generated:
+  by: "axians-architect/claude-sonnet-5"
+  at: 2026-08-17T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 phase: 12
 task: 60
-references:
-  - docs/architecture-decisions/adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal.md
-  - docs/specs/p12-t58-commit-refs-cap-references-removal.md
-  - docs/specs/p12-t50-referenced-by-warning.md
-  - docs/architecture-decisions/adr-2026-07-03-artifact-cross-referencing.md
-authored:
-  by: "architect"
-  date: "2026-08-17"
 ---
 
 # T60 — Narrow the Delete/Archive Reverse-Lookup Warning to `source_artifacts` Only

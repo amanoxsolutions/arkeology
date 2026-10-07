@@ -1,28 +1,41 @@
 ---
-type: spec
+type: Spec
+id: p12-t58-commit-refs-cap-references-removal
 title: T58 — commit_refs Vector-Metadata Cap (20) + references Vector-Metadata Removal + propose_commit_links Multi-Section Fix
-description: Stop writing references into S3 Vectors metadata entirely across write.py, link_metadata.py, and reconcile.py — the S3 object annotation copy becomes its sole durable store and sole read surface. commit_refs stays in S3 Vectors metadata, filterable, but capped to the most-recently-appended 20 entries (real-AWS-calibrated; AWS accepts up to 36 entries for this payload shape, rejects 37); the complete, uncapped list remains durable in annotations regardless of the cap. Also fixes a related gap: propose_commit_links.py sources commit_refs from a single, first-occurrence-wins vector per artifact instead of annotations.read_current_link_fields, which the new cap would otherwise silently worsen (older commit refs beyond 20 would drop out of its already-incomplete view too) — by routing it through the same union-of-both-stores helper read.py/list.py already use.
+description: "Stop writing references into S3 Vectors metadata entirely across write.py, link_metadata.py, and reconcile.py — the S3 object annotation copy becomes its sole durable store and sole read surface. commit_refs stays in S3 Vectors metadata, filterable, but capped to the most-recently-appended 20 entries (real-AWS-calibrated; AWS accepts up to 36 entries for this payload shape, rejects 37); the complete, uncapped list remains durable in annotations regardless of the cap. Also fixes a related gap: propose_commit_links.py sources commit_refs from a single, first-occurrence-wins vector per artifact instead of annotations.read_current_link_fields, which the new cap would otherwise silently worsen (older commit refs beyond 20 would drop out of its already-incomplete view too) — by routing it through the same union-of-both-stores helper read.py/list.py already use."
 tags: []
-timestamp: 2026-08-17T00:00:00Z
-okf_version: "0.1"
-feature: p12-t58-commit-refs-cap-references-removal
-status: ready
+status: stable
+okf_version: "0.2"
+sources:
+  - resource: docs/architecture-decisions/adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal.md
+    title: Vector Metadata Budget Hardening, Guard Coverage, and Migration Self-Heal
+    last_modified: 2026-09-25T00:00:00Z
+  - resource: docs/specs/p12-t57-guard-coverage.md
+    title: T57 — Guard Coverage in link_metadata.py and reconcile.py + Control-Character Validation Fix
+    last_modified: 2026-08-17T00:00:00Z
+  - resource: docs/specs/p12-t46-references-field.md
+    title: T46 — references First-Class Field on Artifact + write/read/list Surfacing + Filter
+    last_modified: 2026-08-17T00:00:00Z
+  - resource: docs/specs/p12-t47-annotation-dual-write.md
+    title: T47 — Annotation Dual-Write in the Write Path + Tier-3 Overwrite Preservation
+    last_modified: 2026-09-06T00:00:00Z
+  - resource: docs/specs/p12-t48-reconcile-from-annotations.md
+    title: T48 — reconcile_index Rebuilds commit_refs + references from Annotations
+    last_modified: 2026-09-06T00:00:00Z
+  - resource: docs/specs/p12-t55-metadata-validation.md
+    title: T55 — Write-Path Metadata Size + Charset Validation
+    last_modified: 2026-08-17T00:00:00Z
+  - resource: docs/learnings.md
+    title: Learnings
+  - resource: tests/integration/test_calibration_vector_metadata_budget.py
+generated:
+  by: "axians-architect/claude-sonnet-5"
+  at: 2026-08-17T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 phase: 12
 task: 58
-references:
-  - docs/contracts/data/s3vectors.artifact.md
-  - docs/contracts/modules/arkeology.tools.link_metadata.md
-  - docs/architecture-decisions/adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal.md
-  - docs/specs/p12-t57-guard-coverage.md
-  - docs/specs/p12-t46-references-field.md
-  - docs/specs/p12-t47-annotation-dual-write.md
-  - docs/specs/p12-t48-reconcile-from-annotations.md
-  - docs/specs/p12-t55-metadata-validation.md
-  - docs/learnings.md
-  - tests/integration/test_calibration_vector_metadata_budget.py
-authored:
-  by: "architect"
-  date: "2026-08-17"
 ---
 
 # T58 — `commit_refs` Vector-Metadata Cap (20) + `references` Vector-Metadata Removal + `propose_commit_links` Multi-Section Fix

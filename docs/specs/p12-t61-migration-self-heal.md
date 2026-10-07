@@ -1,22 +1,32 @@
 ---
-type: spec
+type: Spec
+id: p12-t61-migration-self-heal
 title: T61 — Migration Self-Heal — skipped_unindexed Classification
 description: migrate_artifacts' Step 5 skip-existing filter checks S3 existence only, never live vector-index state, making a partial write (S3 object durably written, vector never indexed) permanently un-retryable through the normal migration path. Add one bounded, per-candidate vectors.list_vectors_by_metadata existence check so an S3-exists-but-not-indexed candidate is classified distinctly as skipped_unindexed and pointed at reconcile_index instead of silently folded into skipped_existing forever.
 tags: []
-timestamp: 2026-08-17T00:00:00Z
-okf_version: "0.1"
-feature: p12-t61-migration-self-heal
-status: ready
+status: stable
+okf_version: "0.2"
+sources:
+  - resource: docs/architecture-decisions/adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal.md
+    title: Vector Metadata Budget Hardening, Guard Coverage, and Migration Self-Heal
+    last_modified: 2026-09-25T00:00:00Z
+  - resource: docs/specs/p12-t57-guard-coverage.md
+    title: T57 — Guard Coverage in link_metadata.py and reconcile.py + Control-Character Validation Fix
+    last_modified: 2026-08-17T00:00:00Z
+  - resource: docs/specs/p12-t56-deterministic-content-reference-rewrite.md
+    title: T56 — Deterministic Server-Side Content Reference Rewrite (Frontmatter + Body)
+    last_modified: 2026-07-06T00:00:00Z
+  - resource: docs/specs/p9-t30-write-artifacts.md
+    title: Write Performance Z1 — write_artifacts + migrate_artifacts + P4 Section Truncation
+    last_modified: 2026-07-05T00:00:00Z
+generated:
+  by: "axians-architect/claude-sonnet-5"
+  at: 2026-08-17T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 phase: 12
 task: 61
-references:
-  - docs/architecture-decisions/adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal.md
-  - docs/specs/p12-t57-guard-coverage.md
-  - docs/specs/p12-t56-deterministic-content-reference-rewrite.md
-  - docs/specs/p9-t30-write-artifacts.md
-authored:
-  by: "architect"
-  date: "2026-08-17"
 ---
 
 # T61 — Migration Self-Heal — `skipped_unindexed` Classification

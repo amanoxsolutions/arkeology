@@ -1,23 +1,36 @@
 ---
-type: adr
+type: ADR
+id: adr-2026-06-16-artifact-commit-traceability
 title: Artifact Commit Traceability — ULID Timestamps, Vector-Only Commit Links, and Agent-Driven Protocol
 description: "Records the three coupled design decisions that close the artifact-to-commit traceability gap: ULID as the write-time timestamp, vector-metadata-only commit reference storage, and an agent-driven AGENTS.md post-commit protocol."
 tags: []
-timestamp: 2026-06-16T00:00:00Z
-okf_version: "0.1"
-status: Partially superseded by adr-2026-07-03-annotation-backed-link-storage.md
-references:
-  - docs/brainstorming/brainstorming-2026-06-06-artifact-commit-refs.md
-  - docs/specs/p10-t36-commit-refs-metadata-fields.md
-  - docs/specs/p10-t37-propose-commit-links.md
-  - docs/specs/p10-t38-link-commit.md
-  - docs/architecture-decisions/adr-2026-07-03-annotation-backed-link-storage.md
-authored:
-  by: architect
-  date: "2026-06-16"
+status: stable
+okf_version: "0.2"
+sources:
+  - resource: docs/brainstorming/brainstorming-2026-06-06-artifact-commit-refs.md
+    title: Artifact Commit References
+    last_modified: 2026-07-03T00:00:00Z
+  - resource: docs/specs/p10-t36-commit-refs-metadata-fields.md
+    title: T36 — commit_refs and last_edited_ulid Metadata Fields
+    last_modified: 2026-07-03T00:00:00Z
+  - resource: docs/specs/p10-t37-propose-commit-links.md
+    title: T37 — propose_commit_links Tool
+    last_modified: 2026-07-04T00:00:00Z
+  - resource: docs/specs/p10-t38-link-commit.md
+    title: T38 — link_commit Tool and AGENTS.md Post-Commit Protocol
+    last_modified: 2026-07-03T00:00:00Z
+  - resource: docs/architecture-decisions/adr-2026-07-03-annotation-backed-link-storage.md
+    title: Annotation-Backed Durable Storage for Mutable Link Fields (commit_refs + references)
+    last_modified: 2026-09-29T00:00:00Z
+generated:
+  by: "axians-architect/claude-sonnet-4.6"
+  at: 2026-06-16T00:00:00Z
 revised:
-  by: architect
-  date: "2026-07-03"
+  by: "axians-architect/claude-opus-4.8"
+  at: 2026-07-03T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 ---
 
 # Artifact Commit Traceability — ULID Timestamps, Vector-Only Commit Links, and Agent-Driven Protocol

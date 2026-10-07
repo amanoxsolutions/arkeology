@@ -1,18 +1,17 @@
 ---
-type: adr
+type: ADR
+id: adr-2026-05-29-aws-backend-selection
 title: AWS S3 + S3 Vectors + Bedrock as the Storage and Embedding Backend
 description: Records the choice of Amazon S3, Amazon S3 Vectors, and Amazon Bedrock as the unified AWS backend for content storage, semantic vector search, and model inference in Arkeology.
 tags: []
-timestamp: 2026-05-29T00:00:00Z
-okf_version: "0.1"
-status: accepted
-references: []
-authored:
-  by: architect
-  date: "2026-05-29"
-revised:
-  by: ""
-  date: ""
+status: stable
+okf_version: "0.2"
+generated:
+  by: "axians-architect/unknown"
+  at: 2026-05-29T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 ---
 
 # AWS S3 + S3 Vectors + Bedrock as the Storage and Embedding Backend

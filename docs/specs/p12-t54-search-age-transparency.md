@@ -1,22 +1,25 @@
 ---
-type: spec
+type: Spec
+id: p12-t54-search-age-transparency
 title: Surface artifact last-edited age in search results (Option A)
 description: Add the last-edited timestamp to each search_artifacts result so agents can judge and discount stale artifacts; no ranking change.
 tags: [retrieval, search, staleness, review-fix]
-timestamp: 2026-07-03T00:00:00Z
-okf_version: "0.1"
-feature: "Phase 12 · T54 — Option A: search age transparency"
-status: ready
-references:
-  - "docs/planning-artifacts/backlog.md (B-6 — recency-weighted ranking, Option B)"
-  - "docs/planning-artifacts/requirements.md (FR-03, AC-66)"
-  - "docs/planning-artifacts/plan.md (Phase 12, T54)"
-authored:
-  by: "pm"
-  date: "2026-07-03"
-revised:
-  by: "pm"
-  date: "2026-07-03"
+status: stable
+okf_version: "0.2"
+sources:
+  - resource: docs/planning-artifacts/backlog.md
+    title: Backlog (B-6 — recency-weighted ranking, Option B)
+  - resource: docs/planning-artifacts/requirements.md
+    title: Arkeology — Requirements (FR-03, AC-66)
+    last_modified: 2026-09-24T00:00:00Z
+  - resource: docs/planning-artifacts/plan.md
+    title: Plan Arkeology (Phase 12, T54)
+generated:
+  by: "axians-pm/claude-opus-4.8"
+  at: 2026-07-03T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 ---
 
 # Surface artifact last-edited age in search results (Option A)

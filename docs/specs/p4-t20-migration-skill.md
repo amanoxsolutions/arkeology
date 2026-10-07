@@ -1,26 +1,35 @@
 ---
-type: spec
+type: Spec
+id: p4-t20-migration-skill
 title: T20 — Migration Skill
 description: Provides a structured one-time workflow skill for bulk-migrating existing project documentation into Arkeology, supporting both agent-only (< 30 files) and manifest-plus-script (≥ 30 files) execution paths.
 tags: []
-timestamp: 2026-05-31T00:00:00Z
-okf_version: "0.1"
-feature: p4-t20-migration-skill
-status: superseded
+status: deprecated
+okf_version: "0.2"
+sources:
+  - resource: docs/specs/p7-t25b-extend-artifact-types.md
+    title: Extend Artifact Type Vocabulary (+5 Types) and Flexible Migration Docs Root
+    last_modified: 2026-06-01T00:00:00Z
+  - resource: docs/specs/p7-t25c-migration-skill-two-pass-classification.md
+    title: Migration Skill — Two-Pass File Classification
+    last_modified: 2026-06-01T00:00:00Z
+  - resource: docs/specs/p8-t29-migrate-skill.md
+    title: Write Performance L1+L2 — Migration Skill Parallel Writes
+    last_modified: 2026-06-02T00:00:00Z
+  - resource: docs/specs/p9-t30-write-artifacts.md
+    title: Write Performance Z1 — write_artifacts + migrate_artifacts + P4 Section Truncation
+    last_modified: 2026-07-05T00:00:00Z
+  - resource: docs/specs/p9-t31b-migration-skill-exclusion-gate.md
+    title: T31b — Migration Skill Exclusion Gate and ADR Gate Removal
+    last_modified: 2026-06-10T00:00:00Z
+generated:
+  by: "axians-architect/unknown"
+  at: 2026-05-31T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 phase: 4
 task: 20
-references:
-  - docs/specs/p7-t25b-extend-artifact-types.md
-  - docs/specs/p7-t25c-migration-skill-two-pass-classification.md
-  - docs/specs/p8-t29-migrate-skill.md
-  - docs/specs/p9-t30-write-artifacts.md
-  - docs/specs/p9-t31b-migration-skill-exclusion-gate.md
-authored:
-  by: "architect"
-  date: "2026-05-31"
-revised:
-  by: ""
-  date: ""
 ---
 
 # T20 — Migration Skill

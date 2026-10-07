@@ -1,10 +1,16 @@
 ---
-type: plan
+type: Plan
+id: backlog
 title: Backlog
 description: All work waiting to be started for Arkeology — deferred improvements, issues, and not-yet-built features organised by topic with stable IDs.
 tags: []
-timestamp: 2026-06-16T00:00:00Z
-okf_version: "0.1"
+okf_version: "0.2"
+generated:
+  by: "axians-pm/claude-sonnet-4.6"
+  at: 2026-06-13T18:25:19Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 ---
 
 # Backlog

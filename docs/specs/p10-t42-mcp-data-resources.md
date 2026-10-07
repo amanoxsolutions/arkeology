@@ -1,22 +1,22 @@
 ---
-type: spec
+type: Spec
+id: p10-t42-mcp-data-resources
 title: T42 — MCP Data Resources
 description: Feature spec for adding two MCP data resources — arkeology://artifact/{id} and arkeology://artifacts — that expose artifact content and index listings for human consumption via the MCP resources protocol.
 tags: []
-timestamp: 2026-06-23T00:00:00Z
-okf_version: "0.1"
-feature: p10-t42-mcp-data-resources
-status: ready
+status: stable
+okf_version: "0.2"
+generated:
+  by: "axians-architect/claude-sonnet-4.6"
+  at: 2026-06-23T00:00:00Z
+revised:
+  by: "axians-tech-writer/unknown"
+  at: 2026-07-04T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 phase: 10
 task: 42
-references:
-  - docs/contracts/modules/arkeology.resources.md
-authored:
-  by: "architect"
-  date: "2026-06-23"
-revised:
-  by: "tech-writer"
-  date: "2026-07-04"
 ---
 
 # T42 — MCP Data Resources

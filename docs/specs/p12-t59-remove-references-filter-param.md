@@ -1,22 +1,32 @@
 ---
-type: spec
+type: Spec
+id: p12-t59-remove-references-filter-param
 title: T59 — Remove the references= Filter Parameter from list_artifacts
 description: Remove the references= server-side filter parameter from list_artifacts outright, rather than silently returning empty results, now that T58 has removed references from S3 Vectors metadata and the filter can no longer match anything. commit_refs= filtering is unaffected.
 tags: []
-timestamp: 2026-08-17T00:00:00Z
-okf_version: "0.1"
-feature: p12-t59-remove-references-filter-param
-status: ready
+status: stable
+okf_version: "0.2"
+sources:
+  - resource: docs/architecture-decisions/adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal.md
+    title: Vector Metadata Budget Hardening, Guard Coverage, and Migration Self-Heal
+    last_modified: 2026-09-25T00:00:00Z
+  - resource: docs/specs/p12-t58-commit-refs-cap-references-removal.md
+    title: T58 — commit_refs Vector-Metadata Cap (20) + references Vector-Metadata Removal + propose_commit_links Multi-Section Fix
+    last_modified: 2026-08-17T00:00:00Z
+  - resource: docs/specs/p12-t46-references-field.md
+    title: T46 — references First-Class Field on Artifact + write/read/list Surfacing + Filter
+    last_modified: 2026-08-17T00:00:00Z
+  - resource: docs/planning-artifacts/requirements.md
+    title: Arkeology — Requirements
+    last_modified: 2026-09-24T00:00:00Z
+generated:
+  by: "axians-architect/claude-sonnet-5"
+  at: 2026-08-17T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 phase: 12
 task: 59
-references:
-  - docs/architecture-decisions/adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal.md
-  - docs/specs/p12-t58-commit-refs-cap-references-removal.md
-  - docs/specs/p12-t46-references-field.md
-  - docs/planning-artifacts/requirements.md
-authored:
-  by: "architect"
-  date: "2026-08-17"
 ---
 
 # T59 — Remove the `references=` Filter Parameter from `list_artifacts`

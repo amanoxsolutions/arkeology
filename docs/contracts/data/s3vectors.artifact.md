@@ -1,19 +1,23 @@
 ---
 type: Contract
+id: s3vectors.artifact
 title: s3vectors.artifact
 description: The per-artifact S3 Vectors metadata shape — the searchable, filterable projection of an artifact, its three byte budgets, and the deliberate ways it differs from the S3 object-metadata and annotation copies.
 tags: []
-timestamp: 2026-09-04T00:00:00Z
-okf_version: "0.1"
-references:
-  - docs/specs/p12-t55-metadata-validation.md
-  - docs/specs/p12-t58-commit-refs-cap-references-removal.md
-authored:
-  by: "tech-writer"
-  date: 2026-09-04
-revised:
-  by: ""
-  date: YYYY-MM-DD
+okf_version: "0.2"
+sources:
+  - resource: docs/specs/p12-t55-metadata-validation.md
+    title: T55 — Write-Path Metadata Size + Charset Validation
+    last_modified: 2026-08-17T00:00:00Z
+  - resource: docs/specs/p12-t58-commit-refs-cap-references-removal.md
+    title: T58 — commit_refs Vector-Metadata Cap (20) + references Vector-Metadata Removal + propose_commit_links Multi-Section Fix
+    last_modified: 2026-08-17T00:00:00Z
+generated:
+  by: "axians-tech-writer/claude-opus-5"
+  at: 2026-09-04T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 ---
 
 # s3vectors.artifact

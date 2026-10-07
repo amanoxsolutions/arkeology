@@ -1,22 +1,19 @@
 ---
-type: spec
+type: Spec
+id: p8-t29-migrate-skill
 title: Write Performance L1+L2 — Migration Skill Parallel Writes
 description: Restructures the migrating-to-arkeology skill's Path A into two phases (enrich-all then parallel-write via sub-agents) and adds concurrent writes to migrate.py, together reducing a 10-document migration from ~10 minutes to ~1 minute.
 tags: []
-timestamp: 2026-06-02T00:00:00Z
-okf_version: "0.1"
-feature: p8-t29-migrate-skill
+status: deprecated
+okf_version: "0.2"
+generated:
+  by: "axians-architect/unknown"
+  at: 2026-06-02T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 phase: 8
 task: 29
-status: superseded
-references:
-  - docs/contracts/modules/arkeology.tools.migrate_artifacts.md
-authored:
-  by: "architect"
-  date: "2026-06-02"
-revised:
-  by: ""
-  date: ""
 ---
 
 # Write Performance L1+L2 — Migration Skill Parallel Writes

@@ -1,18 +1,20 @@
 ---
-type: requirements
+type: Requirements
+id: requirements
 title: "Arkeology — Requirements"
 description: Functional, non-functional, acceptance-criteria, and constraint requirements for Arkeology, migrated from the retired prd.md.
 tags: []
-timestamp: 2026-08-21T00:00:00Z
-okf_version: "0.1"
-status: complete
-references: []
-authored:
-  by: "pm"
-  date: "2026-08-21"
+status: stable
+okf_version: "0.2"
+generated:
+  by: "axians-pm/claude-sonnet-5"
+  at: 2026-08-21T00:00:00Z
 revised:
-  by: "pm"
-  date: "2026-09-24"
+  by: "axians-pm/claude-fable-5.1"
+  at: 2026-09-24T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 ---
 
 # Arkeology — Requirements

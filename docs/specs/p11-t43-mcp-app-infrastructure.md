@@ -1,24 +1,26 @@
 ---
-type: spec
+type: Spec
+id: p11-t43-mcp-app-infrastructure
 title: T43 — MCP App Infrastructure and arkeology_studio Tool
 description: Server-side infrastructure for the MCP Apps visual reading interface — fastmcp[apps] dependency, arkeology_studio tool with graceful degradation, ui://arkeology-studio/index.html resource, and HTML placeholder as package data.
 tags: []
-timestamp: 2026-06-24T00:00:00Z
-okf_version: "0.1"
-feature: p11-t43-mcp-app-infrastructure
-status: complete
+status: stable
+okf_version: "0.2"
+sources:
+  - resource: docs/architecture-decisions/adr-2026-06-24-mcp-apps-visual-reading-interface.md
+    title: MCP Apps as the Visual Reading Interface
+    last_modified: 2026-07-05T00:00:00Z
+  - resource: docs/planning-artifacts/requirements.md
+    title: Arkeology — Requirements
+    last_modified: 2026-09-24T00:00:00Z
+generated:
+  by: "axians-architect/claude-sonnet-4.5"
+  at: 2026-06-24T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 phase: 11
 task: 43
-references:
-  - docs/contracts/modules/arkeology.tools.studio.md
-  - docs/architecture-decisions/adr-2026-06-24-mcp-apps-visual-reading-interface.md
-  - docs/planning-artifacts/requirements.md
-authored:
-  by: "architect"
-  date: "2026-06-24"
-revised:
-  by: ""
-  date: ""
 ---
 
 # T43 — MCP App Infrastructure and arkeology_studio Tool

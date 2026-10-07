@@ -1,25 +1,35 @@
 ---
-type: spec
+type: Spec
+id: p9-t31b-migration-skill-exclusion-gate
 title: T31b — Migration Skill Exclusion Gate and ADR Gate Removal
 description: Spec to add an arkeology:config pre-flight check to the migration skill, remove the ADR strategy gate, and source exclusions from the config block.
 tags: []
-timestamp: 2026-06-07T00:00:00Z
-okf_version: "0.1"
-feature: p9-t31b-migration-skill-exclusion-gate
-status: complete
+status: stable
+okf_version: "0.2"
+sources:
+  - resource: docs/brainstorming/brainstorming-2026-06-02-setting-up-arkeology-skill.md
+    title: Setting-Up-Arkeology Skill
+    last_modified: 2026-06-07T00:00:00Z
+  - resource: docs/brainstorming/brainstorming-2026-06-08-multi-team-multi-project-config.md
+    title: Multi-team / Multi-project Configuration
+    last_modified: 2026-06-08T00:00:00Z
+  - resource: docs/specs/p9-t31a-setting-up-arkeology-skill.md
+    title: T31a — Setting-Up-Arkeology Skill
+    last_modified: 2026-08-12T00:00:00Z
+  - resource: docs/planning-artifacts/requirements.md
+    title: Arkeology — Requirements
+    last_modified: 2026-09-24T00:00:00Z
+generated:
+  by: "axians-architect/unknown"
+  at: 2026-06-07T00:00:00Z
+revised:
+  by: "axians-tech-writer/unknown"
+  at: 2026-06-10T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 phase: 9
 task: 31b
-references:
-  - docs/brainstorming/brainstorming-2026-06-02-setting-up-arkeology-skill.md
-  - docs/brainstorming/brainstorming-2026-06-08-multi-team-multi-project-config.md
-  - docs/specs/p9-t31a-setting-up-arkeology-skill.md
-  - docs/planning-artifacts/requirements.md
-authored:
-  by: "architect"
-  date: "2026-06-07"
-revised:
-  by: "tech-writer"
-  date: "2026-06-10"
 ---
 
 # T31b — Migration Skill: Exclusion Gate and ADR Gate Removal

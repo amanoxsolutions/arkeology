@@ -1,18 +1,20 @@
 ---
-type: brainstorming
+type: Brainstorming
+id: brainstorming-2026-06-02-setting-up-arkeology-skill
 title: Setting-Up-Arkeology Skill
 description: Explores whether the Arkeology installation and provisioning workflow should be moved into a `setting-up-arkeology` skill, and designs the scope, exclusion model, and config block structure for that skill.
 tags: []
-timestamp: 2026-06-02T00:00:00Z
-okf_version: "0.1"
-status: complete
-references: []
-authored:
-  by: "analyst"
-  date: "2026-06-02"
+status: stable
+okf_version: "0.2"
+generated:
+  by: "axians-analyst/unknown"
+  at: 2026-06-02T00:00:00Z
 revised:
-  by: "analyst"
-  date: "2026-06-07"
+  by: "axians-analyst/unknown"
+  at: 2026-06-07T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 ---
 
 # Setting-Up-Arkeology Skill

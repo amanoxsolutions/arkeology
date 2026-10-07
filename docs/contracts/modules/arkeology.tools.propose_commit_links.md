@@ -1,21 +1,32 @@
 ---
 type: Contract
+id: arkeology.tools.propose_commit_links
 title: arkeology.tools.propose_commit_links
 description: The propose_commit_links MCP tool — read-only discovery of own-scope artifacts carrying no commit_refs, optionally bounded to those written since a session-start ULID, deciding eligibility from each artifact's durable S3 object annotations.
 tags: []
-timestamp: 2026-09-04T00:00:00Z
-okf_version: "0.1"
-references:
-  - docs/specs/p10-t37-propose-commit-links.md
-  - docs/specs/p10-t35-filter-range-operators.md
-  - docs/specs/p12-t58-commit-refs-cap-references-removal.md
-  - docs/architecture-decisions/adr-2026-07-03-annotation-backed-link-storage.md
-authored:
-  by: "tech-writer"
-  date: 2026-09-04
+okf_version: "0.2"
+sources:
+  - resource: docs/specs/p10-t37-propose-commit-links.md
+    title: T37 — propose_commit_links Tool
+    last_modified: 2026-07-04T00:00:00Z
+  - resource: docs/specs/p10-t35-filter-range-operators.md
+    title: T35 — Filter Range Operators ($gte / $lte)
+    last_modified: 2026-06-06T00:00:00Z
+  - resource: docs/specs/p12-t58-commit-refs-cap-references-removal.md
+    title: T58 — commit_refs Vector-Metadata Cap (20) + references Vector-Metadata Removal + propose_commit_links Multi-Section Fix
+    last_modified: 2026-08-17T00:00:00Z
+  - resource: docs/architecture-decisions/adr-2026-07-03-annotation-backed-link-storage.md
+    title: Annotation-Backed Durable Storage for Mutable Link Fields (commit_refs + references)
+    last_modified: 2026-09-29T00:00:00Z
+generated:
+  by: "axians-tech-writer/claude-opus-5"
+  at: 2026-09-04T00:00:00Z
 revised:
-  by: "architect"
-  date: 2026-09-06
+  by: "axians-architect/unknown"
+  at: 2026-09-06T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 ---
 
 # arkeology.tools.propose_commit_links

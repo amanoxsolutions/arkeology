@@ -1,23 +1,29 @@
 ---
-type: spec
+type: Spec
+id: p9-t33c-install-script
 title: T33c — Install Script
 description: Spec for an idempotent bash install.sh that detects installed AI tools and applies the correct user-level wiring for OpenCode, Claude Code, and Copilot.
 tags: []
-timestamp: 2026-06-09T00:00:00Z
-okf_version: "0.1"
-feature: p9-t33c-install-script
+status: stable
+okf_version: "0.2"
+sources:
+  - resource: docs/brainstorming/brainstorming-2026-06-08-skill-distribution.md
+    title: Phase 9 — Skill Distribution via Native Plugin Mechanisms
+    last_modified: 2026-06-10T00:00:00Z
+  - resource: docs/planning-artifacts/requirements.md
+    title: Arkeology — Requirements
+    last_modified: 2026-09-24T00:00:00Z
+generated:
+  by: "axians-architect/unknown"
+  at: 2026-06-09T00:00:00Z
+revised:
+  by: "axians-tech-writer/unknown"
+  at: 2026-06-10T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 phase: 9
 task: 33c
-status: complete
-references:
-  - docs/brainstorming/brainstorming-2026-06-08-skill-distribution.md
-  - docs/planning-artifacts/requirements.md
-authored:
-  by: "architect"
-  date: "2026-06-09"
-revised:
-  by: "tech-writer"
-  date: "2026-06-10"
 ---
 
 # T33c — Install Script

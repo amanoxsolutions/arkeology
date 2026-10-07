@@ -1,26 +1,32 @@
 ---
-type: spec
+type: Spec
+id: p12-t45-s3-annotation-client
 title: T45 — S3 Object Annotation Client Support + moto Self-Mock Extension
 description: Add put/get/list/delete object-annotation operations to the S3 Protocol interface and boto3 implementation, plus a moto conftest self-mock extension mirroring the query_vectors cosine patch. Prerequisite for all durable link storage in Phase 12.
 tags: []
-timestamp: 2026-07-03T00:00:00Z
-okf_version: "0.1"
-feature: p12-t45-s3-annotation-client
-status: ready
+status: stable
+okf_version: "0.2"
+sources:
+  - resource: docs/architecture-decisions/adr-2026-07-03-annotation-backed-link-storage.md
+    title: Annotation-Backed Durable Storage for Mutable Link Fields (commit_refs + references)
+    last_modified: 2026-09-29T00:00:00Z
+  - resource: docs/architecture-decisions/adr-2026-07-03-artifact-cross-referencing.md
+    title: Artifact Cross-Referencing — First-Class references Field, Migration Rewrite, and referenced_by Warning
+    last_modified: 2026-09-29T00:00:00Z
+  - resource: docs/brainstorming/brainstorming-2026-07-01-artifact-cross-referencing.md
+    title: Artifact Cross-Referencing (Migration and Ongoing Writes)
+    last_modified: 2026-07-02T00:00:00Z
+  - resource: docs/planning-artifacts/requirements.md
+    title: Arkeology — Requirements
+    last_modified: 2026-09-24T00:00:00Z
+generated:
+  by: "axians-architect/claude-opus-4.8"
+  at: 2026-07-03T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 phase: 12
 task: 45
-references:
-  - docs/contracts/data/s3-annotations.artifact.md
-  - docs/architecture-decisions/adr-2026-07-03-annotation-backed-link-storage.md
-  - docs/architecture-decisions/adr-2026-07-03-artifact-cross-referencing.md
-  - docs/brainstorming/brainstorming-2026-07-01-artifact-cross-referencing.md
-  - docs/planning-artifacts/requirements.md
-authored:
-  by: "architect"
-  date: "2026-07-03"
-revised:
-  by: ""
-  date: ""
 ---
 
 # T45 — S3 Object Annotation Client Support + moto Self-Mock Extension

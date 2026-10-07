@@ -1,21 +1,32 @@
 ---
 type: Contract
+id: arkeology.tools.archive
 title: arkeology.tools.archive
 description: The archive_artifact MCP tool — flips an artifact's status to inactive in S3 object metadata and every corresponding vector entry, preserving link fields across the status re-PUT that would otherwise wipe them.
 tags: []
-timestamp: 2026-09-04T00:00:00Z
-okf_version: "0.1"
-references:
-  - docs/specs/p3-t11-archive-artifact.md
-  - docs/specs/p12-t50-referenced-by-warning.md
-  - docs/specs/p12-t60-narrow-reverse-lookup-warning.md
-  - docs/architecture-decisions/adr-2026-07-03-annotation-backed-link-storage.md
-authored:
-  by: "tech-writer"
-  date: 2026-09-04
+okf_version: "0.2"
+sources:
+  - resource: docs/specs/p3-t11-archive-artifact.md
+    title: T11 — Archive Artifact Tool
+    last_modified: 2026-05-30T00:00:00Z
+  - resource: docs/specs/p12-t50-referenced-by-warning.md
+    title: T50 — Unified Own-Scope referenced_by Warning on Delete + Archive
+    last_modified: 2026-07-03T00:00:00Z
+  - resource: docs/specs/p12-t60-narrow-reverse-lookup-warning.md
+    title: T60 — Narrow the Delete/Archive Reverse-Lookup Warning to source_artifacts Only
+    last_modified: 2026-08-17T00:00:00Z
+  - resource: docs/architecture-decisions/adr-2026-07-03-annotation-backed-link-storage.md
+    title: Annotation-Backed Durable Storage for Mutable Link Fields (commit_refs + references)
+    last_modified: 2026-09-29T00:00:00Z
+generated:
+  by: "axians-tech-writer/claude-opus-5"
+  at: 2026-09-04T00:00:00Z
 revised:
-  by: "developer"
-  date: 2026-09-06
+  by: "axians-developer/unknown"
+  at: 2026-09-06T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 ---
 
 # arkeology.tools.archive

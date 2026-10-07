@@ -1,28 +1,39 @@
 ---
-type: brainstorming
+type: Brainstorming
+id: brainstorming-2026-07-01-artifact-cross-referencing
 title: Artifact Cross-Referencing (Migration and Ongoing Writes)
 description: Explores how Arkeology should handle references between artifacts — repo-relative paths embedded in migrated frontmatter and new artifacts written by ongoing sessions — given that a file path and an Arkeology artifact_id are fundamentally different addressing schemes.
 tags: []
-timestamp: 2026-07-01T00:00:00Z
-okf_version: "0.1"
-status: complete
-references:
-  - docs/brainstorming/brainstorming-2026-05-30-existing-project-migration.md
-  - docs/specs/p4-t20-migration-skill.md
-  - docs/specs/p9-t31b-migration-skill-exclusion-gate.md
-  - skills/migrating-to-arkeology/SKILL.md
-  - src/arkeology/artifact.py
-  - src/arkeology/tools/write.py
-  - src/arkeology/tools/link_commit.py
-  - src/arkeology/tools/delete.py
-  - src/arkeology/resources.py
-  - docs/architecture-decisions/adr-2026-05-29-tier-based-access-control.md
-authored:
-  by: "analyst"
-  date: "2026-07-01"
+status: stable
+okf_version: "0.2"
+sources:
+  - resource: docs/brainstorming/brainstorming-2026-05-30-existing-project-migration.md
+    title: Existing Project Migration
+    last_modified: 2026-05-30T00:00:00Z
+  - resource: docs/specs/p4-t20-migration-skill.md
+    title: T20 — Migration Skill
+    last_modified: 2026-05-31T00:00:00Z
+  - resource: docs/specs/p9-t31b-migration-skill-exclusion-gate.md
+    title: T31b — Migration Skill Exclusion Gate and ADR Gate Removal
+    last_modified: 2026-06-10T00:00:00Z
+  - resource: plugins/arkeology/skills/migrating-to-arkeology/SKILL.md
+  - resource: src/arkeology/artifact.py
+  - resource: src/arkeology/tools/write.py
+  - resource: https://github.com/amanoxsolutions/arkeology/blob/8c8cc117adf1af88146d27d3fcede38462f2993a/src/cairn_mcp/tools/link_commit.py
+  - resource: src/arkeology/tools/delete.py
+  - resource: src/arkeology/resources.py
+  - resource: docs/architecture-decisions/adr-2026-05-29-tier-based-access-control.md
+    title: Tier-Based Cross-Scope Access Control Model
+    last_modified: 2026-09-25T00:00:00Z
+generated:
+  by: "axians-analyst/claude-sonnet-5"
+  at: 2026-07-01T00:00:00Z
 revised:
-  by: "analyst"
-  date: "2026-07-02"
+  by: "axians-analyst/claude-opus-4.8"
+  at: 2026-07-02T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 ---
 
 # Artifact Cross-Referencing (Migration and Ongoing Writes)

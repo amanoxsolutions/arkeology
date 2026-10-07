@@ -1,24 +1,41 @@
 ---
 type: Contract
+id: s3-annotations.artifact
 title: s3-annotations.artifact
 description: The S3 object-annotation store holding an artifact's mutable link fields — the sole authoritative commit_refs and references copies, their comma-joined payload encoding, the raise-never-degrade read rule, and the object-ETag compare-and-swap guard that serialises every mutation against object-body writes but not against other annotation writes.
 tags: []
-timestamp: 2026-09-04T00:00:00Z
-okf_version: "0.1"
-references:
-  - docs/specs/p12-t45-s3-annotation-client.md
-  - docs/specs/p12-t47-annotation-dual-write.md
-  - docs/specs/p12-t48-reconcile-from-annotations.md
-  - docs/specs/p12-t52-annotation-availability-graceful.md
-  - docs/specs/p12-t58-commit-refs-cap-references-removal.md
-  - docs/architecture-decisions/adr-2026-07-03-annotation-backed-link-storage.md
-  - docs/architecture-decisions/adr-2026-09-14-malformed-persisted-data-policy.md
-authored:
-  by: "tech-writer"
-  date: 2026-09-04
+okf_version: "0.2"
+sources:
+  - resource: docs/specs/p12-t45-s3-annotation-client.md
+    title: T45 — S3 Object Annotation Client Support + moto Self-Mock Extension
+    last_modified: 2026-07-03T00:00:00Z
+  - resource: docs/specs/p12-t47-annotation-dual-write.md
+    title: T47 — Annotation Dual-Write in the Write Path + Tier-3 Overwrite Preservation
+    last_modified: 2026-09-06T00:00:00Z
+  - resource: docs/specs/p12-t48-reconcile-from-annotations.md
+    title: T48 — reconcile_index Rebuilds commit_refs + references from Annotations
+    last_modified: 2026-09-06T00:00:00Z
+  - resource: docs/specs/p12-t52-annotation-availability-graceful.md
+    title: T52 — Annotation Availability + IAM Probe, Runtime Graceful Handling, README + AGENTS.md
+    last_modified: 2026-09-06T00:00:00Z
+  - resource: docs/specs/p12-t58-commit-refs-cap-references-removal.md
+    title: T58 — commit_refs Vector-Metadata Cap (20) + references Vector-Metadata Removal + propose_commit_links Multi-Section Fix
+    last_modified: 2026-08-17T00:00:00Z
+  - resource: docs/architecture-decisions/adr-2026-07-03-annotation-backed-link-storage.md
+    title: Annotation-Backed Durable Storage for Mutable Link Fields (commit_refs + references)
+    last_modified: 2026-09-29T00:00:00Z
+  - resource: docs/architecture-decisions/adr-2026-09-14-malformed-persisted-data-policy.md
+    title: How Arkeology Treats Malformed and Ambiguous Persisted Data
+    last_modified: 2026-09-29T00:00:00Z
+generated:
+  by: "axians-tech-writer/claude-opus-5"
+  at: 2026-09-04T00:00:00Z
 revised:
-  by: "architect"
-  date: 2026-09-14
+  by: "axians-architect/claude-sonnet-5"
+  at: 2026-09-14T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 ---
 
 # s3-annotations.artifact

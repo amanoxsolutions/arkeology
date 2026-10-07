@@ -1,26 +1,38 @@
 ---
-type: spec
+type: Spec
+id: p12-t53-reference-backfill-skill
 title: T53 — Reference-Backfill Cleanup Skill (optional, decoupled, dry-run-first)
 description: An optional, skippable-by-default skill that content-scans artifacts against the migration path→identifier map, presents a dry-run batch report of proposed references backfills for operator review, and applies confirmed backfills via link_metadata. Never rewrites stored content; never mutates metadata without confirmation. Resolves OQ1-cleanup with a batch-approval UX.
 tags: []
-timestamp: 2026-07-03T00:00:00Z
-okf_version: "0.1"
-feature: p12-t53-reference-backfill-skill
-status: ready
+status: stable
+okf_version: "0.2"
+sources:
+  - resource: docs/architecture-decisions/adr-2026-07-03-artifact-cross-referencing.md
+    title: Artifact Cross-Referencing — First-Class references Field, Migration Rewrite, and referenced_by Warning
+    last_modified: 2026-09-29T00:00:00Z
+  - resource: docs/specs/p12-t49-link-metadata.md
+    title: T49 — link_metadata Tool (generalizes and supersedes link_commit)
+    last_modified: 2026-09-06T00:00:00Z
+  - resource: docs/specs/p12-t51-migration-reference-rewrite.md
+    title: T51 — Migration Frontmatter Reference Rewriting + arkeology:// Content Rewrite
+    last_modified: 2026-08-13T00:00:00Z
+  - resource: docs/specs/p10-t40-migration-skill-commit-refs-backfill.md
+    title: T40 — Migration Skill commit_refs Backfill Options
+    last_modified: 2026-07-03T00:00:00Z
+  - resource: docs/planning-artifacts/requirements.md
+    title: Arkeology — Requirements
+    last_modified: 2026-09-24T00:00:00Z
+generated:
+  by: "axians-architect/claude-opus-4.8"
+  at: 2026-07-03T00:00:00Z
+revised:
+  by: "axians-architect/claude-sonnet-5"
+  at: 2026-08-13T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 phase: 12
 task: 53
-references:
-  - docs/architecture-decisions/adr-2026-07-03-artifact-cross-referencing.md
-  - docs/specs/p12-t49-link-metadata.md
-  - docs/specs/p12-t51-migration-reference-rewrite.md
-  - docs/specs/p10-t40-migration-skill-commit-refs-backfill.md
-  - docs/planning-artifacts/requirements.md
-authored:
-  by: "architect"
-  date: "2026-07-03"
-revised:
-  by: "architect"
-  date: "2026-08-13"
 ---
 
 # T53 — Reference-Backfill Cleanup Skill (optional, decoupled, dry-run-first)

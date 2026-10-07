@@ -1,18 +1,20 @@
 ---
-type: adr
+type: ADR
+id: adr-2026-05-29-section-level-embedding
 title: Section-Level Embedding at H2 Boundaries
 description: Records the choice to embed each H2 section of an artifact as an independent vector rather than embedding the full artifact as a single document vector.
 tags: []
-timestamp: 2026-05-29T00:00:00Z
-okf_version: "0.1"
-status: accepted
-references: []
-authored:
-  by: architect
-  date: "2026-05-29"
+status: stable
+okf_version: "0.2"
+generated:
+  by: "axians-architect/unknown"
+  at: 2026-05-29T00:00:00Z
 revised:
-  by: developer
-  date: "2026-07-05"
+  by: "axians-developer/claude-opus-4.8"
+  at: 2026-07-05T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 ---
 
 # Section-Level Embedding at H2 Boundaries

@@ -1,21 +1,19 @@
 ---
-type: spec
+type: Spec
+id: p7-t25c-migration-skill-two-pass-classification
 title: Migration Skill — Two-Pass File Classification
 description: Replaces the fragile docs-root discovery and single-level subdirectory matching in the migration skill with a two-pass system — filename stem rules first, then path-segment pattern rules — to correctly classify files in non-standard directory layouts.
 tags: []
-timestamp: 2026-06-01T00:00:00Z
-okf_version: "0.1"
-feature: p7-t25c-migration-skill-two-pass-classification
+status: stable
+okf_version: "0.2"
+generated:
+  by: "axians-architect/unknown"
+  at: 2026-06-01T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 phase: 7
 task: 25c
-status: ready
-references: []
-authored:
-  by: "architect"
-  date: "2026-06-01"
-revised:
-  by: ""
-  date: ""
 ---
 
 # Migration Skill — Two-Pass File Classification

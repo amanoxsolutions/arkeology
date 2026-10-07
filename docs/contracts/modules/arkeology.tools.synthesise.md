@@ -1,20 +1,29 @@
 ---
 type: Contract
+id: arkeology.tools.synthesise
 title: arkeology.tools.synthesise
 description: The synthesise_artifacts MCP tool — combines semantic search with batch S3 content retrieval to return full content for the top-k matching artifacts in one call, assembling source material only.
 tags: []
-timestamp: 2026-09-04T00:00:00Z
-okf_version: "0.1"
-references:
-  - docs/specs/p3-t16-synthesise-artifacts.md
-  - docs/specs/p2-t8-search-artifacts.md
-  - docs/architecture-decisions/adr-2026-09-14-malformed-persisted-data-policy.md
-authored:
-  by: "tech-writer"
-  date: 2026-09-04
+okf_version: "0.2"
+sources:
+  - resource: docs/specs/p3-t16-synthesise-artifacts.md
+    title: T16 — Synthesise Artifacts Tool
+    last_modified: 2026-05-30T00:00:00Z
+  - resource: docs/specs/p2-t8-search-artifacts.md
+    title: T8 — Search Artifacts Tool
+    last_modified: 2026-08-12T00:00:00Z
+  - resource: docs/architecture-decisions/adr-2026-09-14-malformed-persisted-data-policy.md
+    title: How Arkeology Treats Malformed and Ambiguous Persisted Data
+    last_modified: 2026-09-29T00:00:00Z
+generated:
+  by: "axians-tech-writer/claude-opus-5"
+  at: 2026-09-04T00:00:00Z
 revised:
-  by: "architect"
-  date: 2026-09-14
+  by: "axians-architect/claude-sonnet-5"
+  at: 2026-09-14T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 ---
 
 # arkeology.tools.synthesise

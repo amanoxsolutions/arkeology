@@ -1,23 +1,38 @@
 ---
 type: Contract
+id: arkeology.tools.list
 title: arkeology.tools.list
 description: The list_artifacts MCP tool — metadata-only listings from the vector index with metadata filtering and cross-scope gate enforcement, with link fields resolved from each artifact's durable S3 object annotations.
 tags: []
-timestamp: 2026-09-04T00:00:00Z
-okf_version: "0.1"
-references:
-  - docs/specs/p3-t10-list-artifacts.md
-  - docs/specs/p10-t41-rename-feature-tags-to-tags.md
-  - docs/specs/p12-t58-commit-refs-cap-references-removal.md
-  - docs/specs/p12-t59-remove-references-filter-param.md
-  - docs/architecture-decisions/adr-2026-07-03-annotation-backed-link-storage.md
-  - docs/architecture-decisions/adr-2026-09-14-malformed-persisted-data-policy.md
-authored:
-  by: "tech-writer"
-  date: 2026-09-04
+okf_version: "0.2"
+sources:
+  - resource: docs/specs/p3-t10-list-artifacts.md
+    title: T10 — List Artifacts Tool
+    last_modified: 2026-07-05T00:00:00Z
+  - resource: docs/specs/p10-t41-rename-feature-tags-to-tags.md
+    title: "T41: Rename feature_tags → tags"
+    last_modified: 2026-06-18T00:00:00Z
+  - resource: docs/specs/p12-t58-commit-refs-cap-references-removal.md
+    title: T58 — commit_refs Vector-Metadata Cap (20) + references Vector-Metadata Removal + propose_commit_links Multi-Section Fix
+    last_modified: 2026-08-17T00:00:00Z
+  - resource: docs/specs/p12-t59-remove-references-filter-param.md
+    title: T59 — Remove the references= Filter Parameter from list_artifacts
+    last_modified: 2026-08-17T00:00:00Z
+  - resource: docs/architecture-decisions/adr-2026-07-03-annotation-backed-link-storage.md
+    title: Annotation-Backed Durable Storage for Mutable Link Fields (commit_refs + references)
+    last_modified: 2026-09-29T00:00:00Z
+  - resource: docs/architecture-decisions/adr-2026-09-14-malformed-persisted-data-policy.md
+    title: How Arkeology Treats Malformed and Ambiguous Persisted Data
+    last_modified: 2026-09-29T00:00:00Z
+generated:
+  by: "axians-tech-writer/claude-opus-5"
+  at: 2026-09-04T00:00:00Z
 revised:
-  by: "architect"
-  date: 2026-09-14
+  by: "axians-architect/claude-sonnet-5"
+  at: 2026-09-14T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 ---
 
 # arkeology.tools.list

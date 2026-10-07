@@ -1,21 +1,32 @@
 ---
 type: Contract
+id: arkeology.tools.link_metadata
 title: arkeology.tools.link_metadata
 description: The post-hoc, accretive backfill primitive for an artifact's commit_refs and references link fields — dual-writes the durable annotation copy and the bounded vector-metadata copy without re-embedding.
 tags: []
-timestamp: 2026-09-04T00:00:00Z
-okf_version: "0.1"
-references:
-  - docs/specs/p12-t49-link-metadata.md
-  - docs/specs/p12-t57-guard-coverage.md
-  - docs/specs/p12-t58-commit-refs-cap-references-removal.md
-  - docs/architecture-decisions/adr-2026-07-03-annotation-backed-link-storage.md
-authored:
-  by: "tech-writer"
-  date: 2026-09-04
+okf_version: "0.2"
+sources:
+  - resource: docs/specs/p12-t49-link-metadata.md
+    title: T49 — link_metadata Tool (generalizes and supersedes link_commit)
+    last_modified: 2026-09-06T00:00:00Z
+  - resource: docs/specs/p12-t57-guard-coverage.md
+    title: T57 — Guard Coverage in link_metadata.py and reconcile.py + Control-Character Validation Fix
+    last_modified: 2026-08-17T00:00:00Z
+  - resource: docs/specs/p12-t58-commit-refs-cap-references-removal.md
+    title: T58 — commit_refs Vector-Metadata Cap (20) + references Vector-Metadata Removal + propose_commit_links Multi-Section Fix
+    last_modified: 2026-08-17T00:00:00Z
+  - resource: docs/architecture-decisions/adr-2026-07-03-annotation-backed-link-storage.md
+    title: Annotation-Backed Durable Storage for Mutable Link Fields (commit_refs + references)
+    last_modified: 2026-09-29T00:00:00Z
+generated:
+  by: "axians-tech-writer/claude-opus-5"
+  at: 2026-09-04T00:00:00Z
 revised:
-  by: "architect"
-  date: 2026-09-06
+  by: "axians-architect/unknown"
+  at: 2026-09-06T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 ---
 
 # arkeology.tools.link_metadata

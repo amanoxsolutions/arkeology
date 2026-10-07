@@ -1,20 +1,26 @@
 ---
 type: Contract
+id: arkeology.tools.write_artifacts
 title: arkeology.tools.write_artifacts
 description: The write_artifacts MCP tool — bulk concurrent write of many artifact descriptors, bounded by a caller-supplied concurrency, delegating every entry to the single write implementation so no write-path logic is duplicated.
 tags: []
-timestamp: 2026-09-04T00:00:00Z
-okf_version: "0.1"
-references:
-  - docs/specs/p9-t30-write-artifacts.md
-  - docs/specs/p2-t7-write-artifact.md
-  - docs/specs/p10-t39-caller-controlled-artifact-concurrency.md
-authored:
-  by: "tech-writer"
-  date: 2026-09-04
-revised:
-  by: ""
-  date: YYYY-MM-DD
+okf_version: "0.2"
+sources:
+  - resource: docs/specs/p9-t30-write-artifacts.md
+    title: Write Performance Z1 — write_artifacts + migrate_artifacts + P4 Section Truncation
+    last_modified: 2026-07-05T00:00:00Z
+  - resource: docs/specs/p2-t7-write-artifact.md
+    title: T7 — Write Artifact Tool
+    last_modified: 2026-07-05T00:00:00Z
+  - resource: docs/specs/p10-t39-caller-controlled-artifact-concurrency.md
+    title: T39 — Caller-Controlled artifact_concurrency on write_artifacts and migrate_artifacts
+    last_modified: 2026-07-05T00:00:00Z
+generated:
+  by: "axians-tech-writer/claude-opus-5"
+  at: 2026-09-04T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 ---
 
 # arkeology.tools.write_artifacts

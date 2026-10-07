@@ -1,24 +1,38 @@
 ---
-type: adr
+type: ADR
+id: adr-2026-07-03-artifact-cross-referencing
 title: Artifact Cross-Referencing — First-Class references Field, Migration Rewrite, and referenced_by Warning
 description: "Records the design of Arkeology's artifact cross-referencing capability: references promoted to a first-class Artifact field holding resolved full S3 keys (the operative artifact_id); migration frontmatter rewrite scope and its bounded normalization ceiling; the arkeology://artifact/{id} content-rewrite target format; forward-reference resolution via a manifest-wide path→id map; mutability split by representation; AGENTS.md guidance; a deferred cleanup skill; and a unified own-scope referenced_by delete/archive warning. Durable storage mechanics are recorded in ADR-011; this ADR records the cross-referencing design."
 tags: []
-timestamp: 2026-07-03T00:00:00Z
-okf_version: "0.1"
-status: accepted
-references:
-  - docs/brainstorming/brainstorming-2026-07-01-artifact-cross-referencing.md
-  - docs/planning-artifacts/requirements.md
-  - docs/planning-artifacts/plan.md
-  - docs/architecture-decisions/adr-2026-07-03-annotation-backed-link-storage.md
-  - docs/architecture-decisions/adr-2026-05-29-deterministic-artifact-ids.md
-  - docs/architecture-decisions/adr-2026-05-29-tier-based-access-control.md
-authored:
-  by: architect
-  date: "2026-07-03"
+status: stable
+okf_version: "0.2"
+sources:
+  - resource: docs/brainstorming/brainstorming-2026-07-01-artifact-cross-referencing.md
+    title: Artifact Cross-Referencing (Migration and Ongoing Writes)
+    last_modified: 2026-07-02T00:00:00Z
+  - resource: docs/planning-artifacts/requirements.md
+    title: Arkeology — Requirements
+    last_modified: 2026-09-24T00:00:00Z
+  - resource: docs/planning-artifacts/plan.md
+    title: Plan Arkeology
+  - resource: docs/architecture-decisions/adr-2026-07-03-annotation-backed-link-storage.md
+    title: Annotation-Backed Durable Storage for Mutable Link Fields (commit_refs + references)
+    last_modified: 2026-09-29T00:00:00Z
+  - resource: docs/architecture-decisions/adr-2026-05-29-deterministic-artifact-ids.md
+    title: Deterministic Slug-Based Artifact Identifiers
+    last_modified: 2026-09-29T00:00:00Z
+  - resource: docs/architecture-decisions/adr-2026-05-29-tier-based-access-control.md
+    title: Tier-Based Cross-Scope Access Control Model
+    last_modified: 2026-09-25T00:00:00Z
+generated:
+  by: "axians-architect/claude-opus-4.8"
+  at: 2026-07-03T00:00:00Z
 revised:
-  by: "architect"
-  date: "2026-09-29"
+  by: "axians-architect/claude-opus-5.5"
+  at: 2026-09-29T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 ---
 
 # Artifact Cross-Referencing — First-Class references Field, Migration Rewrite, and referenced_by Warning

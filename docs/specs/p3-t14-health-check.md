@@ -1,22 +1,22 @@
 ---
-type: spec
+type: Spec
+id: p3-t14-health-check
 title: T14 — Health Check Tool
 description: Feature spec for the health_check MCP tool that independently probes each configured component (S3, S3 Vectors, Bedrock, prefixes) and returns a structured per-component status report without ever raising.
 tags: []
-timestamp: 2026-05-30T00:00:00Z
-okf_version: "0.1"
-feature: p3-t14-health-check
-status: ready
+status: stable
+okf_version: "0.2"
+generated:
+  by: "axians-architect/unknown"
+  at: 2026-05-30T00:00:00Z
+revised:
+  by: "axians-developer/claude-sonnet-4.6"
+  at: 2026-06-18T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 phase: 3
 task: 14
-references:
-  - docs/contracts/modules/arkeology.tools.health.md
-authored:
-  by: "architect"
-  date: "2026-05-30"
-revised:
-  by: "developer"
-  date: "2026-06-18"
 ---
 
 # T14 — Health Check Tool

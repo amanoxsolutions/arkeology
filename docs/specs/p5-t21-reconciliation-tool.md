@@ -1,22 +1,22 @@
 ---
-type: spec
+type: Spec
+id: p5-t21-reconciliation-tool
 title: T21 — Reconciliation Tool
 description: Introduces a reconcile_index MCP tool that repairs S3/vector-index inconsistencies by replaying the failure log and scanning for orphaned S3 objects, returning a structured summary of recovered and failed artifacts.
 tags: []
-timestamp: 2026-05-31T00:00:00Z
-okf_version: "0.1"
-feature: p5-t21-reconciliation-tool
-status: ready
+status: stable
+okf_version: "0.2"
+generated:
+  by: "axians-architect/unknown"
+  at: 2026-05-31T00:00:00Z
+revised:
+  by: "axians-architect/claude-opus-4.8"
+  at: 2026-07-03T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 phase: 5
 task: 21
-references:
-  - docs/contracts/modules/arkeology.tools.reconcile.md
-authored:
-  by: "architect"
-  date: "2026-05-31"
-revised:
-  by: "architect"
-  date: "2026-07-03"
 ---
 
 # T21 — Reconciliation Tool

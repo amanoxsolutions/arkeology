@@ -1,23 +1,29 @@
 ---
-type: spec
+type: Spec
+id: p9-t33e-readme-quick-install
 title: T33e — README Quick Install Section
 description: Spec to add a Quick Install section to the README with copy-paste-ready OpenCode and Claude Code install commands and a namespace coexistence note.
 tags: []
-timestamp: 2026-06-09T00:00:00Z
-okf_version: "0.1"
-feature: p9-t33e-readme-quick-install
+status: stable
+okf_version: "0.2"
+sources:
+  - resource: docs/brainstorming/brainstorming-2026-06-08-skill-distribution.md
+    title: Phase 9 — Skill Distribution via Native Plugin Mechanisms
+    last_modified: 2026-06-10T00:00:00Z
+  - resource: docs/planning-artifacts/requirements.md
+    title: Arkeology — Requirements
+    last_modified: 2026-09-24T00:00:00Z
+generated:
+  by: "axians-architect/unknown"
+  at: 2026-06-09T00:00:00Z
+revised:
+  by: "axians-tech-writer/unknown"
+  at: 2026-06-10T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 phase: 9
 task: 33e
-status: complete
-references:
-  - docs/brainstorming/brainstorming-2026-06-08-skill-distribution.md
-  - docs/planning-artifacts/requirements.md
-authored:
-  by: "architect"
-  date: "2026-06-09"
-revised:
-  by: "tech-writer"
-  date: "2026-06-10"
 ---
 
 # T33e — README Quick Install Section

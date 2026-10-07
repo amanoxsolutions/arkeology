@@ -1,22 +1,35 @@
 ---
 type: Contract
+id: arkeology.tools.read
 title: arkeology.tools.read
 description: The read_artifact MCP tool — fetches one artifact's content and metadata from S3, applying the cross-scope tier and visibility gate before any content is fetched.
 tags: []
-timestamp: 2026-09-04T00:00:00Z
-okf_version: "0.1"
-references:
-  - docs/specs/p2-t9-read-artifact.md
-  - docs/specs/p12-t46-references-field.md
-  - docs/specs/p12-t55-metadata-validation.md
-  - docs/architecture-decisions/adr-2026-07-03-annotation-backed-link-storage.md
-  - docs/architecture-decisions/adr-2026-09-14-malformed-persisted-data-policy.md
-authored:
-  by: "tech-writer"
-  date: 2026-09-04
+okf_version: "0.2"
+sources:
+  - resource: docs/specs/p2-t9-read-artifact.md
+    title: T9 — Read Artifact Tool
+    last_modified: 2026-07-03T00:00:00Z
+  - resource: docs/specs/p12-t46-references-field.md
+    title: T46 — references First-Class Field on Artifact + write/read/list Surfacing + Filter
+    last_modified: 2026-08-17T00:00:00Z
+  - resource: docs/specs/p12-t55-metadata-validation.md
+    title: T55 — Write-Path Metadata Size + Charset Validation
+    last_modified: 2026-08-17T00:00:00Z
+  - resource: docs/architecture-decisions/adr-2026-07-03-annotation-backed-link-storage.md
+    title: Annotation-Backed Durable Storage for Mutable Link Fields (commit_refs + references)
+    last_modified: 2026-09-29T00:00:00Z
+  - resource: docs/architecture-decisions/adr-2026-09-14-malformed-persisted-data-policy.md
+    title: How Arkeology Treats Malformed and Ambiguous Persisted Data
+    last_modified: 2026-09-29T00:00:00Z
+generated:
+  by: "axians-tech-writer/claude-opus-5"
+  at: 2026-09-04T00:00:00Z
 revised:
-  by: "architect"
-  date: 2026-09-14
+  by: "axians-architect/claude-sonnet-5"
+  at: 2026-09-14T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 ---
 
 # arkeology.tools.read

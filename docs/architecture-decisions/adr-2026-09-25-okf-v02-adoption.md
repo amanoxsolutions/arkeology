@@ -1,23 +1,24 @@
 ---
-type: adr
+type: ADR
 id: adr-2026-09-25-okf-v02-adoption
 title: OKF v0.2 Adoption
 description: "Proposes Arkeology's full adoption of Open Knowledge Format v0.2 as one breaking release: the archive marker becomes archived (bool) and OKF document status is ingested beside it, with an in-force default view keyed on each artifact's own lifecycle and never on a supersedes edge; first-class generated/revised provenance, with verifications and revision history in their own annotations; sources and relationships held in one structured annotation and gated across scopes with a counted withheld marker; producer-supplied ids used verbatim as artifact ids; writing split into create_artifact and update_artifact, with the overwrite flag removed; an open type list; and store migration by a dedicated skill rather than reconcile_index."
 tags: []
-timestamp: 2026-09-25T00:00:00Z
-okf_version: "0.1"
 status: draft
-references:
-  - docs/planning-artifacts/requirements.md
-  - docs/planning-artifacts/plan.md
-  - https://github.com/GoogleCloudPlatform/open-knowledge-format/blob/main/SPEC.md
-  - https://github.com/GoogleCloudPlatform/open-knowledge-format/issues/16
-  - https://github.com/GoogleCloudPlatform/open-knowledge-format/issues/22
-  - https://github.com/GoogleCloudPlatform/open-knowledge-format/issues/28
-  - https://github.com/GoogleCloudPlatform/open-knowledge-format/issues/32
+okf_version: "0.2"
 sources:
   - resource: docs/brainstorming/brainstorming-2026-09-17-okf-v02-adoption.md
     title: OKF v0.2 Adoption for Arkeology
+  - resource: docs/planning-artifacts/requirements.md
+    title: Arkeology — Requirements
+    last_modified: 2026-09-24T00:00:00Z
+  - resource: docs/planning-artifacts/plan.md
+    title: Plan Arkeology
+  - resource: https://github.com/GoogleCloudPlatform/open-knowledge-format/blob/main/SPEC.md
+  - resource: https://github.com/GoogleCloudPlatform/open-knowledge-format/issues/16
+  - resource: https://github.com/GoogleCloudPlatform/open-knowledge-format/issues/22
+  - resource: https://github.com/GoogleCloudPlatform/open-knowledge-format/issues/28
+  - resource: https://github.com/GoogleCloudPlatform/open-knowledge-format/issues/32
 relationships:
   - to: adr-2026-05-29-deterministic-artifact-ids
     type: amends
@@ -35,12 +36,15 @@ relationships:
     type: amends
   - to: adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal
     type: builds_on
-authored:
-  by: architect
-  date: 2026-09-25
+generated:
+  by: "axians-architect/claude-opus-5.5"
+  at: 2026-09-25T00:00:00Z
 revised:
-  by: architect
-  date: 2026-09-29
+  by: "axians-architect/claude-opus-5.5"
+  at: 2026-09-29T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 ---
 
 # OKF v0.2 Adoption

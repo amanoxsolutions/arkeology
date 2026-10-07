@@ -1,21 +1,27 @@
 ---
-type: spec
+type: Spec
+id: p12-t62-bounded-reconcile-retry
 title: T62 — Bounded reconcile_index Failure-Log Retry + Fetch-and-Reindex Dedup
-description: reconcile_index's failure-log replay (Phase 1) currently retries every entry every run, indefinitely, with no attempt count — a genuinely unfixable entry (e.g. an artifact that fails T57's own budget guard) would be replayed identically forever. Add a per-entry reconcile_attempts counter persisted in the failure log; once an entry crosses the existing CAS_MAX_ATTEMPTS = 3 precedent, stop auto-retrying it and report it once, loudly, in a new stuck_failures response field, instead of blending it into failed indistinguishably from a first-time failure. Also fixes a related gap: Phase 1 (failure-log replay) and Phase 2 (orphan scan) each independently duplicate the same get_object → _reindex_artifact → append-to-reconciled sequence — fixed by extracting one shared _fetch_and_reindex helper, since this task is already reopening Phase 1's exact loop.
+description: "reconcile_index's failure-log replay (Phase 1) currently retries every entry every run, indefinitely, with no attempt count — a genuinely unfixable entry (e.g. an artifact that fails T57's own budget guard) would be replayed identically forever. Add a per-entry reconcile_attempts counter persisted in the failure log; once an entry crosses the existing CAS_MAX_ATTEMPTS = 3 precedent, stop auto-retrying it and report it once, loudly, in a new stuck_failures response field, instead of blending it into failed indistinguishably from a first-time failure. Also fixes a related gap: Phase 1 (failure-log replay) and Phase 2 (orphan scan) each independently duplicate the same get_object → _reindex_artifact → append-to-reconciled sequence — fixed by extracting one shared _fetch_and_reindex helper, since this task is already reopening Phase 1's exact loop."
 tags: []
-timestamp: 2026-08-17T00:00:00Z
-okf_version: "0.1"
-feature: p12-t62-bounded-reconcile-retry
-status: ready
+status: stable
+okf_version: "0.2"
+sources:
+  - resource: docs/architecture-decisions/adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal.md
+    title: Vector Metadata Budget Hardening, Guard Coverage, and Migration Self-Heal
+    last_modified: 2026-09-25T00:00:00Z
+  - resource: docs/specs/p12-t57-guard-coverage.md
+    title: T57 — Guard Coverage in link_metadata.py and reconcile.py + Control-Character Validation Fix
+    last_modified: 2026-08-17T00:00:00Z
+  - resource: src/arkeology/annotations.py
+generated:
+  by: "axians-architect/claude-sonnet-5"
+  at: 2026-08-17T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 phase: 12
 task: 62
-references:
-  - docs/architecture-decisions/adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal.md
-  - docs/specs/p12-t57-guard-coverage.md
-  - src/arkeology/annotations.py
-authored:
-  by: "architect"
-  date: "2026-08-17"
 ---
 
 # T62 — Bounded `reconcile_index` Failure-Log Retry + Fetch-and-Reindex Dedup

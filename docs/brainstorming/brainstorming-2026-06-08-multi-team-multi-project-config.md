@@ -1,27 +1,29 @@
 ---
-type: brainstorming
+type: Brainstorming
+id: brainstorming-2026-06-08-multi-team-multi-project-config
 title: Multi-team / Multi-project Configuration
 description: Explores solutions for operators who work across multiple teams and projects and need Arkeology to correctly scope artifact writes without restarting the server, ranging from better docs to named profiles and a proxy layer.
 tags: []
-timestamp: 2026-06-08T00:00:00Z
-okf_version: "0.1"
-status: ready
-references:
-  - src/arkeology/config.py
-  - docs/planning-artifacts/requirements.md
-  - https://docs.aws.amazon.com/agent-toolkit/latest/userguide/multi-account-access.html
-  - https://opencode.ai/docs/config/
-  - https://opencode.ai/docs/mcp-servers/
-  - https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-mcp-servers
-  - https://developers.openai.com/codex/mcp
-  - https://github.com/github/copilot-cli/issues/1291
-  - https://github.com/github/copilot-cli/issues/2528
-authored:
-  by: analyst
-  date: 2026-06-08
-revised:
-  by: analyst
-  date: 2026-06-08
+status: stable
+okf_version: "0.2"
+sources:
+  - resource: src/arkeology/config.py
+  - resource: docs/planning-artifacts/requirements.md
+    title: Arkeology — Requirements
+    last_modified: 2026-09-24T00:00:00Z
+  - resource: https://docs.aws.amazon.com/agent-toolkit/latest/userguide/multi-account-access.html
+  - resource: https://opencode.ai/docs/config/
+  - resource: https://opencode.ai/docs/mcp-servers/
+  - resource: https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-mcp-servers
+  - resource: https://learn.chatgpt.com/docs/extend/mcp?surface=cli
+  - resource: https://github.com/github/copilot-cli/issues/1291
+  - resource: https://github.com/github/copilot-cli/issues/2528
+generated:
+  by: "axians-analyst/unknown"
+  at: 2026-06-08T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 ---
 
 # Multi-team / Multi-project Configuration

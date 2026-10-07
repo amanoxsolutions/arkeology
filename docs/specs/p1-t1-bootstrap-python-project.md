@@ -1,21 +1,19 @@
 ---
-type: spec
+type: Spec
+id: p1-t1-bootstrap-python-project
 title: T1 — Bootstrap Python Project
 description: Feature spec for bootstrapping the Arkeology Python project with uv, ruff, mypy, and pre-commit tooling.
 tags: []
-timestamp: 2026-05-29T00:00:00Z
-okf_version: "0.1"
-feature: p1-t1-bootstrap-python-project
-status: ready
+status: stable
+okf_version: "0.2"
+generated:
+  by: "axians-architect/unknown"
+  at: 2026-05-29T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 phase: 1
 task: 1
-references: []
-authored:
-  by: "architect"
-  date: "2026-05-29"
-revised:
-  by: ""
-  date: ""
 ---
 
 # T1 — Bootstrap Python Project

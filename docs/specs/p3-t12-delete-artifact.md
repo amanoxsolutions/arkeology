@@ -1,22 +1,19 @@
 ---
-type: spec
+type: Spec
+id: p3-t12-delete-artifact
 title: T12 — Delete Artifact Tool
 description: Feature spec for the delete_artifact MCP tool that hard-deletes an artifact (S3 object and all section vectors) from own scope with explicit confirmation and synthesis-reference warnings.
 tags: []
-timestamp: 2026-05-30T00:00:00Z
-okf_version: "0.1"
-feature: p3-t12-delete-artifact
-status: ready
+status: stable
+okf_version: "0.2"
+generated:
+  by: "axians-architect/unknown"
+  at: 2026-05-30T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 phase: 3
 task: 12
-references:
-  - docs/contracts/modules/arkeology.tools.delete.md
-authored:
-  by: "architect"
-  date: "2026-05-30"
-revised:
-  by: ""
-  date: ""
 ---
 
 # T12 — Delete Artifact Tool

@@ -1,18 +1,17 @@
 ---
-type: brainstorming
+type: Brainstorming
+id: brainstorming-2026-06-01-adr-git-arkeology-relationship
 title: ADR Relationship Between Git and Arkeology
 description: Explores the design question of whether Arkeology serves as authoritative store, search index, draft staging area, or nothing for ADRs, and resolves the contradiction between the migration skill's cleanup guidance and its AGENTS.md snippet.
 tags: []
-timestamp: 2026-06-01T00:00:00Z
-okf_version: "0.1"
-status: complete
-references: []
-authored:
-  by: "analyst"
-  date: "2026-06-01"
-revised:
-  by: ""
-  date: ""
+status: stable
+okf_version: "0.2"
+generated:
+  by: "axians-analyst/unknown"
+  at: 2026-06-01T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 ---
 
 # ADR Relationship Between Git and Arkeology

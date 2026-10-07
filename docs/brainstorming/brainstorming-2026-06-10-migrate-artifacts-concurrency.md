@@ -1,19 +1,24 @@
 ---
-type: brainstorming
+type: Brainstorming
+id: brainstorming-2026-06-10-migrate-artifacts-concurrency
 title: migrate_artifacts — Caller-Controlled Concurrency Parameter
 description: Explores whether `migrate_artifacts` concurrency should be a per-call parameter rather than a fixed server-side env var, to enable the skill to set appropriate concurrency based on file count and avoid slow bulk description generation.
 tags: []
-timestamp: 2026-06-10T00:00:00Z
-okf_version: "0.1"
-status: complete
-references:
-  - docs/brainstorming/brainstorming-2026-06-01-write-performance.md
-authored:
-  by: "pm"
-  date: "2026-06-10"
+status: stable
+okf_version: "0.2"
+sources:
+  - resource: docs/brainstorming/brainstorming-2026-06-01-write-performance.md
+    title: Write Performance — Reducing `write_artifact` Latency
+    last_modified: 2026-06-01T00:00:00Z
+generated:
+  by: "axians-pm/unknown"
+  at: 2026-06-10T00:00:00Z
 revised:
-  by: "analyst"
-  date: "2026-06-11"
+  by: "axians-analyst/unknown"
+  at: 2026-06-11T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 ---
 
 # migrate_artifacts — Caller-Controlled Concurrency Parameter

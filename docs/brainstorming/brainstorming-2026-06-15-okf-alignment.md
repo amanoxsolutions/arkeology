@@ -1,19 +1,31 @@
 ---
-status: ready # draft | ready | in-progress | done
-references:
-  - https://openknowledgeformat.com/
-  - https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md
-  - https://cloud.google.com/blog/products/data-analytics/how-the-open-knowledge-format-can-improve-data-sharing/
-  - docs/brainstorming/brainstorming-2026-06-14-visual-reading-interface.md
-  - docs/architecture-decisions/adr-2026-05-29-section-level-embedding.md
-  - docs/architecture-decisions/adr-2026-05-29-tier-based-access-control.md
-  - src/arkeology/artifact.py
-authored:
-  by: "analyst"
-  date: 2026-06-15
-revised:
-  by: ""
-  date:
+type: Brainstorming
+id: brainstorming-2026-06-15-okf-alignment
+title: OKF (Open Knowledge Format) Alignment for Arkeology
+description: Explores what the Open Knowledge Format (OKF) v0.1 means for Arkeology — both the strategic relationship and the concrete export/import/schema options.
+tags: []
+status: stable
+okf_version: "0.2"
+sources:
+  - resource: https://openknowledgeformat.com/
+  - resource: https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md
+  - resource: https://cloud.google.com/blog/products/data-analytics/how-the-open-knowledge-format-can-improve-data-sharing/
+  - resource: docs/brainstorming/brainstorming-2026-06-14-visual-reading-interface.md
+    title: Visual Reading / Browsing Interface for Arkeology Artifacts
+    last_modified: 2026-06-23T00:00:00Z
+  - resource: docs/architecture-decisions/adr-2026-05-29-section-level-embedding.md
+    title: Section-Level Embedding at H2 Boundaries
+    last_modified: 2026-07-05T00:00:00Z
+  - resource: docs/architecture-decisions/adr-2026-05-29-tier-based-access-control.md
+    title: Tier-Based Cross-Scope Access Control Model
+    last_modified: 2026-09-25T00:00:00Z
+  - resource: src/arkeology/artifact.py
+generated:
+  by: "axians-analyst/claude-sonnet-4.6"
+  at: 2026-06-15T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 ---
 
 # OKF (Open Knowledge Format) Alignment for Arkeology

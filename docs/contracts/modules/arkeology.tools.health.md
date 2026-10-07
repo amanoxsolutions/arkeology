@@ -1,19 +1,26 @@
 ---
 type: Contract
+id: arkeology.tools.health
 title: arkeology.tools.health
 description: The health_check MCP tool — independent per-component connectivity probes for S3, S3 Vectors, Bedrock, the write prefix, the annotation store, and every read prefix, reported as a structured status map that never raises.
 tags: []
-timestamp: 2026-09-04T00:00:00Z
-okf_version: "0.1"
-references:
-  - docs/specs/p3-t14-health-check.md
-  - docs/specs/p1-t5-startup-validation-sequence.md
-authored:
-  by: "tech-writer"
-  date: 2026-09-04
+okf_version: "0.2"
+sources:
+  - resource: docs/specs/p3-t14-health-check.md
+    title: T14 — Health Check Tool
+    last_modified: 2026-06-18T00:00:00Z
+  - resource: docs/specs/p1-t5-startup-validation-sequence.md
+    title: T5 — Startup Validation Sequence
+    last_modified: 2026-09-06T00:00:00Z
+generated:
+  by: "axians-tech-writer/claude-opus-5"
+  at: 2026-09-04T00:00:00Z
 revised:
-  by: "architect"
-  date: 2026-09-06
+  by: "axians-architect/claude-opus-5"
+  at: 2026-09-06T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 ---
 
 # arkeology.tools.health

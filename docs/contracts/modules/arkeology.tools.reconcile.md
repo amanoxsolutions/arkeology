@@ -1,23 +1,38 @@
 ---
 type: Contract
+id: arkeology.tools.reconcile
 title: arkeology.tools.reconcile
 description: "The reconcile_index MCP tool — the repair path: replays the partial-write failure log, re-indexes S3 objects absent from the vector index, prunes dangling vectors, and gives up loudly on entries that cannot be fixed."
 tags: []
-timestamp: 2026-09-04T00:00:00Z
-okf_version: "0.1"
-references:
-  - docs/specs/p5-t21-reconciliation-tool.md
-  - docs/specs/p9-t32-reconcile-phase3-dangling-vectors.md
-  - docs/specs/p12-t48-reconcile-from-annotations.md
-  - docs/specs/p12-t62-bounded-reconcile-retry.md
-  - docs/specs/p12-t67-orphan-vector-retry-and-selfheal.md
-  - docs/architecture-decisions/adr-2026-07-03-annotation-backed-link-storage.md
-authored:
-  by: "tech-writer"
-  date: 2026-09-04
+okf_version: "0.2"
+sources:
+  - resource: docs/specs/p5-t21-reconciliation-tool.md
+    title: T21 — Reconciliation Tool
+    last_modified: 2026-07-03T00:00:00Z
+  - resource: docs/specs/p9-t32-reconcile-phase3-dangling-vectors.md
+    title: Reconcile Phase 3 — Dangling Vector Pruning
+    last_modified: 2026-07-05T00:00:00Z
+  - resource: docs/specs/p12-t48-reconcile-from-annotations.md
+    title: T48 — reconcile_index Rebuilds commit_refs + references from Annotations
+    last_modified: 2026-09-06T00:00:00Z
+  - resource: docs/specs/p12-t62-bounded-reconcile-retry.md
+    title: T62 — Bounded reconcile_index Failure-Log Retry + Fetch-and-Reindex Dedup
+    last_modified: 2026-08-17T00:00:00Z
+  - resource: docs/specs/p12-t67-orphan-vector-retry-and-selfheal.md
+    title: T67 — Orphan-Vector Inline Retry + reconcile_index Self-Heal Repair
+    last_modified: 2026-08-19T00:00:00Z
+  - resource: docs/architecture-decisions/adr-2026-07-03-annotation-backed-link-storage.md
+    title: Annotation-Backed Durable Storage for Mutable Link Fields (commit_refs + references)
+    last_modified: 2026-09-29T00:00:00Z
+generated:
+  by: "axians-tech-writer/claude-opus-5"
+  at: 2026-09-04T00:00:00Z
 revised:
-  by: "developer"
-  date: 2026-09-07
+  by: "axians-developer/claude-opus-5"
+  at: 2026-09-07T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 ---
 
 # arkeology.tools.reconcile

@@ -1,21 +1,22 @@
 ---
-type: spec
+type: Spec
+id: p1-t5-startup-validation-sequence
 title: T5 — Startup Validation Sequence
 description: Feature spec for a startup validation sequence that verifies credentials, S3 prefix access, vector index existence, and embedding dimension before accepting any MCP tool call. Originally five checks; the running sequence is now eight — see the Revision sections.
 tags: []
-timestamp: 2026-05-29T00:00:00Z
-okf_version: "0.1"
-feature: p1-t5-startup-validation-sequence
-status: ready
+status: stable
+okf_version: "0.2"
+generated:
+  by: "axians-architect/unknown"
+  at: 2026-05-29T00:00:00Z
+revised:
+  by: "axians-tech-writer/claude-sonnet-5"
+  at: 2026-09-06T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 phase: 1
 task: 5
-references: []
-authored:
-  by: "architect"
-  date: "2026-05-29"
-revised:
-  by: "tech-writer"
-  date: "2026-09-06"
 ---
 
 # T5 — Startup Validation Sequence

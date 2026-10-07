@@ -1,18 +1,20 @@
 ---
-type: vision
+type: Vision
+id: vision
 title: "Arkeology — Persistent Artifact Memory"
 description: Vision for Arkeology, a Python MCP server that gives AI agents persistent and searchable artifact memory backed by AWS S3, S3 Vectors, and Amazon Bedrock.
 tags: []
-timestamp: 2026-08-21T00:00:00Z
-okf_version: "0.1"
-status: complete
-references: []
-authored:
-  by: "pm"
-  date: "2026-08-21"
+status: stable
+okf_version: "0.2"
+generated:
+  by: "axians-pm/claude-sonnet-5"
+  at: 2026-08-21T00:00:00Z
 revised:
-  by: "pm"
-  date: "2026-09-24"
+  by: "axians-pm/claude-fable-5.1"
+  at: 2026-09-24T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 ---
 
 # Arkeology — Persistent Artifact Memory

@@ -1,18 +1,17 @@
 ---
-type: brainstorming
+type: Brainstorming
+id: brainstorming-2026-05-30-delete-artifact
 title: Delete Artifact Capability
 description: Explores whether a true deletion capability — permanently removing an artifact from S3 and the vector index — is needed alongside the existing archive mechanism, and what shape it should take.
 tags: []
-timestamp: 2026-05-30T00:00:00Z
-okf_version: "0.1"
-status: complete
-references: []
-authored:
-  by: "analyst"
-  date: "2026-05-30"
-revised:
-  by: ""
-  date: ""
+status: stable
+okf_version: "0.2"
+generated:
+  by: "axians-analyst/unknown"
+  at: 2026-05-30T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 ---
 
 # Delete Artifact Capability

@@ -1,21 +1,30 @@
 ---
-type: adr
+type: ADR
+id: adr-2026-08-12-status-all-sentinel-convention
 title: The `status="all"` Sentinel as a Cross-Tool Convention for Query-Shaped Tools
 description: "Records that `status=\"all\"` is a server-side sentinel meaning \"apply no status filter\" that every query-shaped tool exposing a `status` parameter must honour identically — the clause is omitted entirely rather than matched against the literal string \"all\", which is not an `ArtifactStatus` member and would match no stored artifact. Extends the sentinel from `list_artifacts` to `search_artifacts` as a strict widening: nothing previously valid changes behaviour and unrecognised values still fail validation. Records the root cause — a point fix applied to one tool and never propagated to its sibling — as the failure mode the convention exists to prevent."
 tags: []
-timestamp: 2026-08-12T00:00:00Z
-okf_version: "0.1"
-status: accepted
-references:
-  - docs/specs/p3-t10-list-artifacts.md
-  - docs/specs/p2-t8-search-artifacts.md
-  - docs/architecture-decisions/adr-2026-06-24-mcp-apps-visual-reading-interface.md
-authored:
-  by: architect
-  date: "2026-08-12"
+status: stable
+okf_version: "0.2"
+sources:
+  - resource: docs/specs/p3-t10-list-artifacts.md
+    title: T10 — List Artifacts Tool
+    last_modified: 2026-07-05T00:00:00Z
+  - resource: docs/specs/p2-t8-search-artifacts.md
+    title: T8 — Search Artifacts Tool
+    last_modified: 2026-08-12T00:00:00Z
+  - resource: docs/architecture-decisions/adr-2026-06-24-mcp-apps-visual-reading-interface.md
+    title: MCP Apps as the Visual Reading Interface
+    last_modified: 2026-07-05T00:00:00Z
+generated:
+  by: "axians-architect/claude-opus-5"
+  at: 2026-08-12T00:00:00Z
 revised:
-  by: "architect"
-  date: "2026-09-25"
+  by: "axians-architect/claude-opus-5.5"
+  at: 2026-09-25T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 ---
 
 # The `status="all"` Sentinel as a Cross-Tool Convention for Query-Shaped Tools

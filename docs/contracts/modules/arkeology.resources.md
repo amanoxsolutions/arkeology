@@ -1,20 +1,29 @@
 ---
 type: Contract
+id: arkeology.resources
 title: arkeology.resources
 description: The MCP resource surface — five pure read-only schema resources describing the artifact model and two client-backed data resources returning artifact content and a readable-scope index, both under the arkeology:// scheme, plus the ui:// resource serving the Arkeology Studio MCP App and declaring its content-security policy.
 tags: []
-timestamp: 2026-09-04T00:00:00Z
-okf_version: "0.1"
-references:
-  - docs/specs/p4-t18-mcp-resources.md
-  - docs/specs/p10-t42-mcp-data-resources.md
-  - docs/specs/p11-t43-mcp-app-infrastructure.md
-authored:
-  by: "tech-writer"
-  date: 2026-09-04
+okf_version: "0.2"
+sources:
+  - resource: docs/specs/p4-t18-mcp-resources.md
+    title: T18 — MCP Resources
+    last_modified: 2026-05-31T00:00:00Z
+  - resource: docs/specs/p10-t42-mcp-data-resources.md
+    title: T42 — MCP Data Resources
+    last_modified: 2026-07-04T00:00:00Z
+  - resource: docs/specs/p11-t43-mcp-app-infrastructure.md
+    title: T43 — MCP App Infrastructure and arkeology_studio Tool
+    last_modified: 2026-06-24T00:00:00Z
+generated:
+  by: "axians-tech-writer/claude-opus-5"
+  at: 2026-09-04T00:00:00Z
 revised:
-  by: "architect"
-  date: 2026-09-04
+  by: "axians-architect/claude-opus-5"
+  at: 2026-09-04T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 ---
 
 # arkeology.resources

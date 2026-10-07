@@ -1,22 +1,22 @@
 ---
-type: spec
+type: Spec
+id: p2-t7-write-artifact
 title: T7 — Write Artifact Tool
 description: Feature spec for the write_artifact MCP tool that stores artifact content in S3, generates per-section Bedrock embeddings, and writes vectors to S3 Vectors with idempotent upsert semantics.
 tags: []
-timestamp: 2026-05-30T00:00:00Z
-okf_version: "0.1"
-feature: p2-t7-write-artifact
-status: ready
+status: stable
+okf_version: "0.2"
+generated:
+  by: "axians-architect/unknown"
+  at: 2026-05-30T00:00:00Z
+revised:
+  by: "axians-developer/claude-opus-4.8"
+  at: 2026-07-05T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 phase: 2
 task: 7
-references:
-  - docs/contracts/modules/arkeology.tools.write.md
-authored:
-  by: "architect"
-  date: "2026-05-30"
-revised:
-  by: "developer"
-  date: "2026-07-05"
 ---
 
 # T7 — Write Artifact Tool

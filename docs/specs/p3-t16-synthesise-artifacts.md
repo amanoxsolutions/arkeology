@@ -1,22 +1,19 @@
 ---
-type: spec
+type: Spec
+id: p3-t16-synthesise-artifacts
 title: T16 — Synthesise Artifacts Tool
 description: Feature spec for the synthesise_artifacts MCP tool that combines semantic search with batch content retrieval so an agent can assemble source artifacts for in-context synthesis in a single call.
 tags: []
-timestamp: 2026-05-30T00:00:00Z
-okf_version: "0.1"
-feature: p3-t16-synthesise-artifacts
-status: ready
+status: stable
+okf_version: "0.2"
+generated:
+  by: "axians-architect/unknown"
+  at: 2026-05-30T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 phase: 3
 task: 16
-references:
-  - docs/contracts/modules/arkeology.tools.synthesise.md
-authored:
-  by: "architect"
-  date: "2026-05-30"
-revised:
-  by: ""
-  date: ""
 ---
 
 # T16 — Synthesise Artifacts Tool

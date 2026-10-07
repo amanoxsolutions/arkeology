@@ -1,23 +1,26 @@
 ---
-type: spec
+type: Spec
+id: p2-t8-search-artifacts
 title: T8 — Search Artifacts Tool
 description: Feature spec for the search_artifacts MCP tool that performs semantic vector search with a re-fetch loop, cross-scope gate enforcement, and metadata filter support.
 tags: []
-timestamp: 2026-05-30T00:00:00Z
-okf_version: "0.1"
-feature: p2-t8-search-artifacts
-status: ready
+status: stable
+okf_version: "0.2"
+sources:
+  - resource: docs/architecture-decisions/adr-2026-08-12-status-all-sentinel-convention.md
+    title: The `status="all"` Sentinel as a Cross-Tool Convention for Query-Shaped Tools
+    last_modified: 2026-09-25T00:00:00Z
+generated:
+  by: "axians-architect/unknown"
+  at: 2026-05-30T00:00:00Z
+revised:
+  by: "axians-architect/claude-opus-5"
+  at: 2026-08-12T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 phase: 2
 task: 8
-references:
-  - docs/contracts/modules/arkeology.tools.search.md
-  - docs/architecture-decisions/adr-2026-08-12-status-all-sentinel-convention.md
-authored:
-  by: "architect"
-  date: "2026-05-30"
-revised:
-  by: "architect"
-  date: "2026-08-12"
 ---
 
 # T8 — Search Artifacts Tool

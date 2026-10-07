@@ -1,22 +1,19 @@
 ---
-type: spec
+type: Spec
+id: p4-t18-mcp-resources
 title: T18 — MCP Resources
 description: Exposes five Arkeology schema documents as MCP Resources so connected agents can discover valid artifact types, tier semantics, visibility rules, type catalogue, and query strategy at runtime without external documentation.
 tags: []
-timestamp: 2026-05-31T00:00:00Z
-okf_version: "0.1"
-feature: p4-t18-mcp-resources
-status: ready
+status: stable
+okf_version: "0.2"
+generated:
+  by: "axians-architect/unknown"
+  at: 2026-05-31T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 phase: 4
 task: 18
-references:
-  - docs/contracts/modules/arkeology.resources.md
-authored:
-  by: "architect"
-  date: "2026-05-31"
-revised:
-  by: ""
-  date: ""
 ---
 
 # T18 — MCP Resources

@@ -1,20 +1,29 @@
 ---
 type: Contract
+id: arkeology.tools.delete
 title: arkeology.tools.delete
 description: The delete_artifact MCP tool — irreversibly removes one own-scope artifact's S3 object and every section vector, vectors-first so a partial failure leaves a recoverable orphan rather than orphaned vectors.
 tags: []
-timestamp: 2026-09-04T00:00:00Z
-okf_version: "0.1"
-references:
-  - docs/specs/p3-t12-delete-artifact.md
-  - docs/specs/p12-t50-referenced-by-warning.md
-  - docs/specs/p12-t60-narrow-reverse-lookup-warning.md
-authored:
-  by: "tech-writer"
-  date: 2026-09-04
+okf_version: "0.2"
+sources:
+  - resource: docs/specs/p3-t12-delete-artifact.md
+    title: T12 — Delete Artifact Tool
+    last_modified: 2026-05-30T00:00:00Z
+  - resource: docs/specs/p12-t50-referenced-by-warning.md
+    title: T50 — Unified Own-Scope referenced_by Warning on Delete + Archive
+    last_modified: 2026-07-03T00:00:00Z
+  - resource: docs/specs/p12-t60-narrow-reverse-lookup-warning.md
+    title: T60 — Narrow the Delete/Archive Reverse-Lookup Warning to source_artifacts Only
+    last_modified: 2026-08-17T00:00:00Z
+generated:
+  by: "axians-tech-writer/claude-opus-5"
+  at: 2026-09-04T00:00:00Z
 revised:
-  by: "architect"
-  date: 2026-09-06
+  by: "axians-architect/claude-opus-5"
+  at: 2026-09-06T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 ---
 
 # arkeology.tools.delete

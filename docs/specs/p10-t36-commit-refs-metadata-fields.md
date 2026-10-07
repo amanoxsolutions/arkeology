@@ -1,23 +1,29 @@
 ---
-type: spec
+type: Spec
+id: p10-t36-commit-refs-metadata-fields
 title: T36 — commit_refs and last_edited_ulid Metadata Fields
 description: Spec to add commit_refs and last_edited_ulid as first-class metadata fields flowing through write, read, and list, enabling post-write commit annotation and time-range discovery.
 tags: []
-timestamp: 2026-06-06T00:00:00Z
-okf_version: "0.1"
-feature: p10-t36-commit-refs-metadata-fields
-status: ready
+status: stable
+okf_version: "0.2"
+sources:
+  - resource: docs/brainstorming/brainstorming-2026-06-06-artifact-commit-refs.md
+    title: Artifact Commit References
+    last_modified: 2026-07-03T00:00:00Z
+  - resource: docs/specs/p10-t35-filter-range-operators.md
+    title: T35 — Filter Range Operators ($gte / $lte)
+    last_modified: 2026-06-06T00:00:00Z
+generated:
+  by: "axians-analyst/unknown"
+  at: 2026-06-06T00:00:00Z
+revised:
+  by: "axians-architect/claude-opus-4.8"
+  at: 2026-07-03T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 phase: 10
 task: 36
-references:
-  - docs/brainstorming/brainstorming-2026-06-06-artifact-commit-refs.md
-  - docs/specs/p10-t35-filter-range-operators.md
-authored:
-  by: "analyst"
-  date: "2026-06-06"
-revised:
-  by: "architect"
-  date: "2026-07-03"
 ---
 
 # T36 — `commit_refs` and `last_edited_ulid` Metadata Fields

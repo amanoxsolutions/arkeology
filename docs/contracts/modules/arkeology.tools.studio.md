@@ -1,20 +1,29 @@
 ---
 type: Contract
+id: arkeology.tools.studio
 title: arkeology.tools.studio
 description: The arkeology_studio MCP tool — triggers the inline MCP Apps visual artifact browser on supporting hosts and returns a bounded plain-text listing on non-supporting hosts, never coercing a failure into an empty listing.
 tags: []
-timestamp: 2026-09-04T00:00:00Z
-okf_version: "0.1"
-references:
-  - docs/specs/p11-t43-mcp-app-infrastructure.md
-  - docs/specs/p11-t44-browser-ui.md
-  - docs/specs/p10-t42-mcp-data-resources.md
-authored:
-  by: "tech-writer"
-  date: 2026-09-04
+okf_version: "0.2"
+sources:
+  - resource: docs/specs/p11-t43-mcp-app-infrastructure.md
+    title: T43 — MCP App Infrastructure and arkeology_studio Tool
+    last_modified: 2026-06-24T00:00:00Z
+  - resource: docs/specs/p11-t44-browser-ui.md
+    title: T44 — Browser UI (HTML/JS)
+    last_modified: 2026-08-12T00:00:00Z
+  - resource: docs/specs/p10-t42-mcp-data-resources.md
+    title: T42 — MCP Data Resources
+    last_modified: 2026-07-04T00:00:00Z
+generated:
+  by: "axians-tech-writer/claude-opus-5"
+  at: 2026-09-04T00:00:00Z
 revised:
-  by: "tech-writer"
-  date: 2026-09-06
+  by: "axians-tech-writer/claude-opus-5"
+  at: 2026-09-06T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 ---
 
 # arkeology.tools.studio

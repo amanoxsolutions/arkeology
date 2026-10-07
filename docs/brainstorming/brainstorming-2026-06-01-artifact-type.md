@@ -1,18 +1,17 @@
 ---
-type: brainstorming
+type: Brainstorming
+id: brainstorming-2026-06-01-artifact-type
 title: Add `brainstorming` Artifact Type
 description: Makes the case for adding `brainstorming` as a first-class tier 2 artifact type to distinguish ideation outputs from session outcomes, restoring search precision for projects that produce both document kinds.
 tags: []
-timestamp: 2026-06-01T00:00:00Z
-okf_version: "0.1"
-status: complete
-references: []
-authored:
-  by: "analyst"
-  date: "2026-06-01"
-revised:
-  by: ""
-  date: ""
+status: stable
+okf_version: "0.2"
+generated:
+  by: "axians-analyst/unknown"
+  at: 2026-06-01T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 ---
 
 # Add `brainstorming` Artifact Type

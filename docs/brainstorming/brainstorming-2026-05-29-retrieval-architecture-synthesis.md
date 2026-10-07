@@ -1,18 +1,17 @@
 ---
-type: brainstorming
+type: Brainstorming
+id: brainstorming-2026-05-29-retrieval-architecture-synthesis
 title: Retrieval Architecture and Synthesis Layer
 description: Explores whether PageIndex ideas can improve retrieval quality for structured artifacts and what a synthesis/wiki layer above Arkeology would concretely look like.
 tags: []
-timestamp: 2026-05-29T00:00:00Z
-okf_version: "0.1"
-status: complete
-references: []
-authored:
-  by: "analyst"
-  date: "2026-05-29"
-revised:
-  by: ""
-  date: ""
+status: stable
+okf_version: "0.2"
+generated:
+  by: "axians-analyst/unknown"
+  at: 2026-05-29T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 ---
 
 # Retrieval Architecture and Synthesis Layer

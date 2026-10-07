@@ -1,22 +1,32 @@
 ---
-type: spec
+type: Spec
+id: p12-t57-guard-coverage
 title: T57 — Guard Coverage in link_metadata.py and reconcile.py + Control-Character Validation Fix
-description: Call the existing check_metadata_budgets guard from the two vector-metadata-writing paths that currently skip it entirely — link_metadata.py (before its annotation write, inside the CAS retry loop) and reconcile.py (before its put_vector call) — so an oversize commit_refs/references payload is rejected before either path durably writes anything. This is the root cause of the 2026-08-13 incident's permanent partial write. Also closes a related gap: link_metadata.py's `_validate_supplied_link_values` never checks for control characters, unlike Artifact.validate_commit_refs/validate_references — fixed by having it delegate to those classmethods directly instead of maintaining a hand-rolled parallel implementation that can drift.
+description: "Call the existing check_metadata_budgets guard from the two vector-metadata-writing paths that currently skip it entirely — link_metadata.py (before its annotation write, inside the CAS retry loop) and reconcile.py (before its put_vector call) — so an oversize commit_refs/references payload is rejected before either path durably writes anything. This is the root cause of the 2026-08-13 incident's permanent partial write. Also closes a related gap: link_metadata.py's `_validate_supplied_link_values` never checks for control characters, unlike Artifact.validate_commit_refs/validate_references — fixed by having it delegate to those classmethods directly instead of maintaining a hand-rolled parallel implementation that can drift."
 tags: []
-timestamp: 2026-08-17T00:00:00Z
-okf_version: "0.1"
-feature: p12-t57-guard-coverage
-status: ready
+status: stable
+okf_version: "0.2"
+sources:
+  - resource: docs/architecture-decisions/adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal.md
+    title: Vector Metadata Budget Hardening, Guard Coverage, and Migration Self-Heal
+    last_modified: 2026-09-25T00:00:00Z
+  - resource: docs/specs/p12-t55-metadata-validation.md
+    title: T55 — Write-Path Metadata Size + Charset Validation
+    last_modified: 2026-08-17T00:00:00Z
+  - resource: docs/specs/p12-t49-link-metadata.md
+    title: T49 — link_metadata Tool (generalizes and supersedes link_commit)
+    last_modified: 2026-09-06T00:00:00Z
+  - resource: docs/specs/p12-t48-reconcile-from-annotations.md
+    title: T48 — reconcile_index Rebuilds commit_refs + references from Annotations
+    last_modified: 2026-09-06T00:00:00Z
+generated:
+  by: "axians-architect/claude-sonnet-5"
+  at: 2026-08-17T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 phase: 12
 task: 57
-references:
-  - docs/architecture-decisions/adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal.md
-  - docs/specs/p12-t55-metadata-validation.md
-  - docs/specs/p12-t49-link-metadata.md
-  - docs/specs/p12-t48-reconcile-from-annotations.md
-authored:
-  by: "architect"
-  date: "2026-08-17"
 ---
 
 # T57 — Guard Coverage in `link_metadata.py` and `reconcile.py` + Control-Character Validation Fix

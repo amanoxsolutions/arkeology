@@ -1,10 +1,16 @@
 ---
-type: learning
+type: Learning
+id: learnings
 title: Learnings
 description: Accumulated implementation learnings for Arkeology covering AWS service behaviours, client conventions, testing patterns, and tool design decisions.
 tags: []
-timestamp: 2026-06-16T00:00:00Z
-okf_version: "0.1"
+okf_version: "0.2"
+generated:
+  by: "axians-pm/unknown"
+  at: 2026-06-10T11:51:16Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 ---
 
 ## Learnings

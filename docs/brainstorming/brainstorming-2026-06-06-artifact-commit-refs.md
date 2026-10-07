@@ -1,20 +1,27 @@
 ---
-type: brainstorming
+type: Brainstorming
+id: brainstorming-2026-06-06-artifact-commit-refs
 title: Artifact Commit References
 description: How to add git commit references to artifact metadata in Arkeology, solving the association problem where the commit SHA is unknown at write time, covering the metadata model, timestamp precision, trigger mechanism, and migration skill implications. NOTE (revised 2026-07-03) — several decisions here (D6, D13, and KL1/OQ2) were later SUPERSEDED by the 2026-07-02 session in brainstorming-2026-07-01-artifact-cross-referencing.md; see the "Superseded decisions (updated 2026-07-03)" section below.
 tags: []
-timestamp: 2026-06-06T00:00:00Z
-okf_version: "0.1"
-status: ready
-references:
-  - docs/brainstorming/brainstorming-2026-06-01-adr-git-arkeology-relationship.md
-  - docs/brainstorming/brainstorming-2026-07-01-artifact-cross-referencing.md  # supersedes D6, D13, KL1 (link_metadata dual-write + S3 annotations)
-authored:
-  by: "analyst"
-  date: "2026-06-06"
+status: stable
+okf_version: "0.2"
+sources:
+  - resource: docs/brainstorming/brainstorming-2026-06-01-adr-git-arkeology-relationship.md
+    title: ADR Relationship Between Git and Arkeology
+    last_modified: 2026-06-01T00:00:00Z
+  - resource: docs/brainstorming/brainstorming-2026-07-01-artifact-cross-referencing.md
+    title: Artifact Cross-Referencing (Migration and Ongoing Writes)
+    last_modified: 2026-07-02T00:00:00Z
+generated:
+  by: "axians-analyst/unknown"
+  at: 2026-06-06T00:00:00Z
 revised:
-  by: "analyst"
-  date: "2026-07-03"
+  by: "axians-analyst/claude-opus-4.8"
+  at: 2026-07-03T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 ---
 
 # Artifact Commit References

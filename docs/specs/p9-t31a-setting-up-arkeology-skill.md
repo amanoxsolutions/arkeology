@@ -1,28 +1,36 @@
 ---
-type: spec
+type: Spec
+id: p9-t31a-setting-up-arkeology-skill
 title: T31a — Setting-Up-Arkeology Skill
 description: Spec for a 6-step agent-driven skill that validates AWS resources, writes the Arkeology MCP config entry for the chosen client, and records the setup in AGENTS.md.
 tags: []
-timestamp: 2026-06-07T00:00:00Z
-okf_version: "0.1"
-feature: p9-t31a-setting-up-arkeology-skill
-status: ready
+status: stable
+okf_version: "0.2"
+sources:
+  - resource: docs/brainstorming/brainstorming-2026-06-02-setting-up-arkeology-skill.md
+    title: Setting-Up-Arkeology Skill
+    last_modified: 2026-06-07T00:00:00Z
+  - resource: docs/brainstorming/brainstorming-2026-06-08-multi-team-multi-project-config.md
+    title: Multi-team / Multi-project Configuration
+    last_modified: 2026-06-08T00:00:00Z
+  - resource: docs/planning-artifacts/requirements.md
+    title: Arkeology — Requirements
+    last_modified: 2026-09-24T00:00:00Z
+  - resource: https://code.claude.com/docs/en/mcp
+  - resource: https://opencode.ai/docs/mcp-servers/
+  - resource: https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-mcp-servers
+  - resource: https://learn.chatgpt.com/docs/extend/mcp?surface=cli
+generated:
+  by: "axians-architect/unknown"
+  at: 2026-06-07T00:00:00Z
+revised:
+  by: "axians-tech-writer/claude-opus-5"
+  at: 2026-08-12T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 phase: 9
 task: 31a
-references:
-  - docs/brainstorming/brainstorming-2026-06-02-setting-up-arkeology-skill.md
-  - docs/brainstorming/brainstorming-2026-06-08-multi-team-multi-project-config.md
-  - docs/planning-artifacts/requirements.md
-  - https://docs.anthropic.com/en/docs/claude-code/mcp
-  - https://opencode.ai/docs/mcp-servers/
-  - https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-mcp-servers
-  - https://developers.openai.com/codex/mcp
-authored:
-  by: "architect"
-  date: "2026-06-07"
-revised:
-  by: "tech-writer"
-  date: "2026-08-12"
 ---
 
 # T31a — Setting-Up-Arkeology Skill

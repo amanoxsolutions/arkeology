@@ -1,18 +1,20 @@
 ---
-type: adr
+type: ADR
+id: adr-2026-05-29-stdio-transport
 title: stdio as the Primary MCP Transport
 description: Records the choice of stdio (stdin/stdout) as the primary MCP transport for Arkeology and its implications for deployment topology and future extensibility.
 tags: []
-timestamp: 2026-05-29T00:00:00Z
-okf_version: "0.1"
-status: accepted
-references: []
-authored:
-  by: architect
-  date: "2026-05-29"
+status: stable
+okf_version: "0.2"
+generated:
+  by: "axians-architect/unknown"
+  at: 2026-05-29T00:00:00Z
 revised:
-  by: pm
-  date: "2026-06-08"
+  by: "axians-pm/unknown"
+  at: 2026-06-08T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 ---
 
 # stdio as the Primary MCP Transport

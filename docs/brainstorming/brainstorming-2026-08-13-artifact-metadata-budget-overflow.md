@@ -1,25 +1,39 @@
 ---
-type: brainstorming
+type: Brainstorming
+id: brainstorming-2026-08-13-artifact-metadata-budget-overflow
 title: Artifact Metadata Budget Overflow — Guard Coverage, Calibration, and Migration Self-Heal
 description: Explores why an artifact's references/commit_refs metadata can pass this project's local pre-write size approximation yet still be rejected by AWS's real accounting, why two of the codebase's three metadata-writing paths skip that check entirely, why the resulting stuck artifact was un-retryable through normal migration tooling, and resolves the deeper product question with a per-field split — references removed from the size-limited vector store entirely (annotation-only going forward), commit_refs retained as a capped, real-AWS-calibrated filterable copy (20 entries) since its $eq filtering is load-bearing, not a nice-to-have.
 tags: []
-timestamp: 2026-08-13T00:00:00Z
-okf_version: "0.1"
-status: complete
-references:
-  - docs/architecture-decisions/adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal.md
-  - docs/architecture-decisions/adr-2026-07-03-annotation-backed-link-storage.md
-  - docs/architecture-decisions/adr-2026-07-03-artifact-cross-referencing.md
-  - docs/specs/p12-t55-metadata-validation.md
-  - docs/specs/p12-t46-references-field.md
-  - docs/specs/p12-t47-annotation-dual-write.md
-  - docs/specs/p12-t56-deterministic-content-reference-rewrite.md
-authored:
-  by: "pm"
-  date: "2026-08-13"
-revised:
-  by: "pm"
-  date: "2026-08-13"
+status: stable
+okf_version: "0.2"
+sources:
+  - resource: docs/architecture-decisions/adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal.md
+    title: Vector Metadata Budget Hardening, Guard Coverage, and Migration Self-Heal
+    last_modified: 2026-09-25T00:00:00Z
+  - resource: docs/architecture-decisions/adr-2026-07-03-annotation-backed-link-storage.md
+    title: Annotation-Backed Durable Storage for Mutable Link Fields (commit_refs + references)
+    last_modified: 2026-09-29T00:00:00Z
+  - resource: docs/architecture-decisions/adr-2026-07-03-artifact-cross-referencing.md
+    title: Artifact Cross-Referencing — First-Class references Field, Migration Rewrite, and referenced_by Warning
+    last_modified: 2026-09-29T00:00:00Z
+  - resource: docs/specs/p12-t55-metadata-validation.md
+    title: T55 — Write-Path Metadata Size + Charset Validation
+    last_modified: 2026-08-17T00:00:00Z
+  - resource: docs/specs/p12-t46-references-field.md
+    title: T46 — references First-Class Field on Artifact + write/read/list Surfacing + Filter
+    last_modified: 2026-08-17T00:00:00Z
+  - resource: docs/specs/p12-t47-annotation-dual-write.md
+    title: T47 — Annotation Dual-Write in the Write Path + Tier-3 Overwrite Preservation
+    last_modified: 2026-09-06T00:00:00Z
+  - resource: docs/specs/p12-t56-deterministic-content-reference-rewrite.md
+    title: T56 — Deterministic Server-Side Content Reference Rewrite (Frontmatter + Body)
+    last_modified: 2026-07-06T00:00:00Z
+generated:
+  by: "axians-pm/claude-sonnet-5"
+  at: 2026-08-13T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 ---
 
 # Artifact Metadata Budget Overflow — Guard Coverage, Calibration, and Migration Self-Heal

@@ -1,25 +1,35 @@
 ---
-type: spec
+type: Spec
+id: p10-t38-link-commit
 title: T38 — link_commit Tool and AGENTS.md Post-Commit Protocol
 description: Spec for the link_commit MCP tool that appends a commit SHA to confirmed artifacts' vector metadata without re-embedding, plus the post-commit protocol for AGENTS.md.
 tags: []
-timestamp: 2026-06-06T00:00:00Z
-okf_version: "0.1"
-feature: p10-t38-link-commit
-status: superseded
+status: deprecated
+okf_version: "0.2"
+sources:
+  - resource: docs/brainstorming/brainstorming-2026-06-06-artifact-commit-refs.md
+    title: Artifact Commit References
+    last_modified: 2026-07-03T00:00:00Z
+  - resource: docs/specs/p10-t36-commit-refs-metadata-fields.md
+    title: T36 — commit_refs and last_edited_ulid Metadata Fields
+    last_modified: 2026-07-03T00:00:00Z
+  - resource: docs/specs/p10-t37-propose-commit-links.md
+    title: T37 — propose_commit_links Tool
+    last_modified: 2026-07-04T00:00:00Z
+  - resource: docs/architecture-decisions/adr-2026-07-03-annotation-backed-link-storage.md
+    title: Annotation-Backed Durable Storage for Mutable Link Fields (commit_refs + references)
+    last_modified: 2026-09-29T00:00:00Z
+generated:
+  by: "axians-analyst/unknown"
+  at: 2026-06-06T00:00:00Z
+revised:
+  by: "axians-architect/claude-opus-4.8"
+  at: 2026-07-03T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 phase: 10
 task: 38
-references:
-  - docs/brainstorming/brainstorming-2026-06-06-artifact-commit-refs.md
-  - docs/specs/p10-t36-commit-refs-metadata-fields.md
-  - docs/specs/p10-t37-propose-commit-links.md
-  - docs/architecture-decisions/adr-2026-07-03-annotation-backed-link-storage.md
-authored:
-  by: "analyst"
-  date: "2026-06-06"
-revised:
-  by: "architect"
-  date: "2026-07-03"
 ---
 
 # T38 — `link_commit` Tool and AGENTS.md Post-Commit Protocol

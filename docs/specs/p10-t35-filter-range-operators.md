@@ -1,22 +1,23 @@
 ---
-type: spec
+type: Spec
+id: p10-t35-filter-range-operators
 title: T35 — Filter Range Operators ($gte / $lte)
 description: Spec to add $gte and $lte comparison operators to filter.py, enabling ULID range queries required by the propose_commit_links tool.
 tags: []
-timestamp: 2026-06-06T00:00:00Z
-okf_version: "0.1"
-feature: p10-t35-filter-range-operators
-status: ready
+status: stable
+okf_version: "0.2"
+sources:
+  - resource: docs/brainstorming/brainstorming-2026-06-06-artifact-commit-refs.md
+    title: Artifact Commit References
+    last_modified: 2026-07-03T00:00:00Z
+generated:
+  by: "axians-analyst/unknown"
+  at: 2026-06-06T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 phase: 10
 task: 35
-references:
-  - docs/brainstorming/brainstorming-2026-06-06-artifact-commit-refs.md
-authored:
-  by: "analyst"
-  date: "2026-06-06"
-revised:
-  by: ""
-  date: ""
 ---
 
 # T35 — Filter Range Operators ($gte / $lte)

@@ -1,21 +1,19 @@
 ---
-type: spec
+type: Spec
+id: p4-t19-setup-documentation
 title: T19 — Setup Documentation and AGENTS.md Snippet
 description: Adds actionable AWS provisioning steps, minimum IAM policy, index immutability warnings, and a copy-paste AGENTS.md snippet to the README so operators can deploy and configure Arkeology from scratch.
 tags: []
-timestamp: 2026-05-31T00:00:00Z
-okf_version: "0.1"
-feature: p4-t19-setup-documentation
-status: ready
+status: stable
+okf_version: "0.2"
+generated:
+  by: "axians-architect/unknown"
+  at: 2026-05-31T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 phase: 4
 task: 19
-references: []
-authored:
-  by: "architect"
-  date: "2026-05-31"
-revised:
-  by: ""
-  date: ""
 ---
 
 # T19 — Setup Documentation and AGENTS.md Snippet

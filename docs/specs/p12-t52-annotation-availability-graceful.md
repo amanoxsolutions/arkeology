@@ -1,28 +1,41 @@
 ---
-type: spec
+type: Spec
+id: p12-t52-annotation-availability-graceful
 title: T52 — Annotation Availability + IAM Probe, Runtime Graceful Handling, README + AGENTS.md
 description: Add a one-time annotation availability + IAM-permission probe to the setting-up-arkeology skill (aws-cli ≥ 2.35.14 guard or boto3 uv run fallback); document the four required IAM actions and the unavailable regions/bucket types in the README; handle annotation-unavailable / AccessDenied gracefully at runtime in link_metadata and the write path; add arkeology:// referencing + reference-healing guidance to the AGENTS.md snippet. SUPERSEDED 2026-09-06 — annotation availability is now a hard startup gate; see the Revision section.
 tags: []
-timestamp: 2026-07-03T00:00:00Z
-okf_version: "0.1"
-feature: p12-t52-annotation-availability-graceful
-status: ready
+status: stable
+okf_version: "0.2"
+sources:
+  - resource: docs/architecture-decisions/adr-2026-07-03-annotation-backed-link-storage.md
+    title: Annotation-Backed Durable Storage for Mutable Link Fields (commit_refs + references)
+    last_modified: 2026-09-29T00:00:00Z
+  - resource: docs/architecture-decisions/adr-2026-07-03-artifact-cross-referencing.md
+    title: Artifact Cross-Referencing — First-Class references Field, Migration Rewrite, and referenced_by Warning
+    last_modified: 2026-09-29T00:00:00Z
+  - resource: docs/specs/p12-t45-s3-annotation-client.md
+    title: T45 — S3 Object Annotation Client Support + moto Self-Mock Extension
+    last_modified: 2026-07-03T00:00:00Z
+  - resource: docs/specs/p12-t47-annotation-dual-write.md
+    title: T47 — Annotation Dual-Write in the Write Path + Tier-3 Overwrite Preservation
+    last_modified: 2026-09-06T00:00:00Z
+  - resource: docs/specs/p12-t49-link-metadata.md
+    title: T49 — link_metadata Tool (generalizes and supersedes link_commit)
+    last_modified: 2026-09-06T00:00:00Z
+  - resource: docs/planning-artifacts/requirements.md
+    title: Arkeology — Requirements
+    last_modified: 2026-09-24T00:00:00Z
+generated:
+  by: "axians-architect/claude-opus-4.8"
+  at: 2026-07-03T00:00:00Z
+revised:
+  by: "axians-tech-writer/claude-sonnet-5"
+  at: 2026-09-06T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 phase: 12
 task: 52
-references:
-  - docs/contracts/data/s3-annotations.artifact.md
-  - docs/architecture-decisions/adr-2026-07-03-annotation-backed-link-storage.md
-  - docs/architecture-decisions/adr-2026-07-03-artifact-cross-referencing.md
-  - docs/specs/p12-t45-s3-annotation-client.md
-  - docs/specs/p12-t47-annotation-dual-write.md
-  - docs/specs/p12-t49-link-metadata.md
-  - docs/planning-artifacts/requirements.md
-authored:
-  by: "architect"
-  date: "2026-07-03"
-revised:
-  by: "tech-writer"
-  date: "2026-09-06"
 ---
 
 # T52 — Annotation Availability + IAM Probe, Runtime Graceful Handling, README + AGENTS.md

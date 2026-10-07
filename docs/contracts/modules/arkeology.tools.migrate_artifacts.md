@@ -1,22 +1,35 @@
 ---
 type: Contract
+id: arkeology.tools.migrate_artifacts
 title: arkeology.tools.migrate_artifacts
 description: The migrate_artifacts MCP tool — bulk one-time import with Nova Lite description enrichment, dry-run by default, and a skip-never-overwrite guarantee that makes re-running a migration idempotent and non-destructive.
 tags: []
-timestamp: 2026-09-04T00:00:00Z
-okf_version: "0.1"
-references:
-  - docs/specs/p8-t29-migrate-skill.md
-  - docs/specs/p7-t25c-migration-skill-two-pass-classification.md
-  - docs/specs/p9-t31b-migration-skill-exclusion-gate.md
-  - docs/specs/p12-t61-migration-self-heal.md
-  - docs/specs/p10-t39-caller-controlled-artifact-concurrency.md
-authored:
-  by: "tech-writer"
-  date: 2026-09-04
+okf_version: "0.2"
+sources:
+  - resource: docs/specs/p8-t29-migrate-skill.md
+    title: Write Performance L1+L2 — Migration Skill Parallel Writes
+    last_modified: 2026-06-02T00:00:00Z
+  - resource: docs/specs/p7-t25c-migration-skill-two-pass-classification.md
+    title: Migration Skill — Two-Pass File Classification
+    last_modified: 2026-06-01T00:00:00Z
+  - resource: docs/specs/p9-t31b-migration-skill-exclusion-gate.md
+    title: T31b — Migration Skill Exclusion Gate and ADR Gate Removal
+    last_modified: 2026-06-10T00:00:00Z
+  - resource: docs/specs/p12-t61-migration-self-heal.md
+    title: T61 — Migration Self-Heal — skipped_unindexed Classification
+    last_modified: 2026-08-17T00:00:00Z
+  - resource: docs/specs/p10-t39-caller-controlled-artifact-concurrency.md
+    title: T39 — Caller-Controlled artifact_concurrency on write_artifacts and migrate_artifacts
+    last_modified: 2026-07-05T00:00:00Z
+generated:
+  by: "axians-tech-writer/claude-opus-5"
+  at: 2026-09-04T00:00:00Z
 revised:
-  by: "developer"
-  date: 2026-09-15
+  by: "axians-developer/claude-sonnet-5"
+  at: 2026-09-15T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 ---
 
 # arkeology.tools.migrate_artifacts

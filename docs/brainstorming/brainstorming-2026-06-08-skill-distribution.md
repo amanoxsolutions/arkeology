@@ -1,19 +1,21 @@
 ---
-type: brainstorming
+type: Brainstorming
+id: brainstorming-2026-06-08-skill-distribution
 title: Phase 9 — Skill Distribution via Native Plugin Mechanisms
 description: Explores how to wire Arkeology's operator skills into engineers' AI tools (OpenCode, Claude Code, GitHub Copilot) using the Phase 5 native plugin pattern, adapting it for Arkeology's specific characteristics as a Python MCP server with only two skills.
 tags: []
-timestamp: 2026-06-08T00:00:00Z
-okf_version: "0.1"
-status: complete
-references:
-  - docs/brainstorming/brainstorming-2026-06-02-setting-up-arkeology-skill.md
-authored:
-  by: analyst
-  date: 2026-06-08
+status: stable
+okf_version: "0.2"
+sources:
+  - resource: docs/brainstorming/brainstorming-2026-06-02-setting-up-arkeology-skill.md
+    title: Setting-Up-Arkeology Skill
+    last_modified: 2026-06-07T00:00:00Z
+generated:
+  by: "axians-analyst/unknown"
+  at: 2026-06-08T00:00:00Z
 revised:
-  by: Matthieu
-  date: 2026-06-10
+  by: "human:mlnrt"
+  at: 2026-06-10T00:00:00Z
 ---
 
 # Phase 9 — Skill Distribution via Native Plugin Mechanisms

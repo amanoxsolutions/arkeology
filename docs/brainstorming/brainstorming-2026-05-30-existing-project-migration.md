@@ -1,18 +1,17 @@
 ---
-type: brainstorming
+type: Brainstorming
+id: brainstorming-2026-05-30-existing-project-migration
 title: Existing Project Migration
 description: Explores how a team adopting Arkeology would migrate accumulated project documentation (ADRs, specs, brainstorming files) into Arkeology, covering discovery, classification, metadata enrichment, import mechanism, and post-migration strategy.
 tags: []
-timestamp: 2026-05-30T00:00:00Z
-okf_version: "0.1"
-status: complete
-references: []
-authored:
-  by: "analyst"
-  date: "2026-05-30"
-revised:
-  by: ""
-  date: ""
+status: stable
+okf_version: "0.2"
+generated:
+  by: "axians-analyst/unknown"
+  at: 2026-05-30T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 ---
 
 # Existing Project Migration

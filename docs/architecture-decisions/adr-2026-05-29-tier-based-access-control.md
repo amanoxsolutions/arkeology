@@ -1,19 +1,24 @@
 ---
-type: adr
+type: ADR
+id: adr-2026-05-29-tier-based-access-control
 title: Tier-Based Cross-Scope Access Control Model
 description: Records the model that controls which artifacts from foreign scopes are readable by a given Arkeology deployment, governed by tier and visibility attributes and enforced server-side.
 tags: []
-timestamp: 2026-05-29T00:00:00Z
-okf_version: "0.1"
-status: accepted
-references:
-  - docs/architecture-decisions/adr-2026-09-14-malformed-persisted-data-policy.md
-authored:
-  by: architect
-  date: "2026-05-29"
+status: stable
+okf_version: "0.2"
+sources:
+  - resource: docs/architecture-decisions/adr-2026-09-14-malformed-persisted-data-policy.md
+    title: How Arkeology Treats Malformed and Ambiguous Persisted Data
+    last_modified: 2026-09-29T00:00:00Z
+generated:
+  by: "axians-architect/unknown"
+  at: 2026-05-29T00:00:00Z
 revised:
-  by: "architect"
-  date: "2026-09-25"
+  by: "axians-architect/claude-opus-5.5"
+  at: 2026-09-25T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 ---
 
 # Tier-Based Cross-Scope Access Control Model

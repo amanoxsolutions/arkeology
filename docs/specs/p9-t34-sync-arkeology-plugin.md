@@ -1,24 +1,29 @@
 ---
-type: spec
+type: Spec
+id: p9-t34-sync-arkeology-plugin
 title: T34 — sync-arkeology-plugin
 description: Spec for a single tool-aware sync-arkeology-plugin skill that updates Arkeology skill content across OpenCode, Claude Code, and Copilot with the correct action for each.
 tags: []
-timestamp: 2026-06-10T00:00:00Z
-okf_version: "0.1"
-feature: p9-t34-sync-arkeology-plugin
+status: stable
+okf_version: "0.2"
+sources:
+  - resource: docs/planning-artifacts/requirements.md
+    title: Arkeology — Requirements
+    last_modified: 2026-09-24T00:00:00Z
+  - resource: docs/specs/p9-t33a-opencode-js-plugin.md
+    title: T33a — OpenCode JS Plugin
+    last_modified: 2026-06-10T00:00:00Z
+  - resource: docs/specs/p9-t33b-claude-code-plugin.md
+    title: T33b — Claude Code Plugin
+    last_modified: 2026-06-10T00:00:00Z
+generated:
+  by: "axians-architect/unknown"
+  at: 2026-06-10T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 phase: 9
 task: 34
-status: ready
-references:
-  - docs/planning-artifacts/requirements.md
-  - docs/specs/p9-t33a-opencode-js-plugin.md
-  - docs/specs/p9-t33b-claude-code-plugin.md
-authored:
-  by: "architect"
-  date: "2026-06-10"
-revised:
-  by: ""
-  date: ""
 ---
 
 # T34 — sync-arkeology-plugin

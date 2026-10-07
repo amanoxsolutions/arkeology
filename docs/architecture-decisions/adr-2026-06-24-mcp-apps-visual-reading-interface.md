@@ -1,21 +1,30 @@
 ---
-type: adr
+type: ADR
+id: adr-2026-06-24-mcp-apps-visual-reading-interface
 title: MCP Apps as the Visual Reading Interface
 description: Records the adoption of the MCP Apps extension (io.modelcontextprotocol/ui) as the visual reading interface for Arkeology artifacts, replacing the previously considered AWS-hosted SPA (Direction 4).
 tags: []
-timestamp: 2026-06-24T00:00:00Z
-okf_version: "0.1"
-status: accepted
-references:
-  - docs/brainstorming/brainstorming-2026-06-14-visual-reading-interface.md
-  - docs/brainstorming/brainstorming-2026-06-24-mcp-apps-visual-interface.md
-  - docs/architecture-decisions/adr-2026-05-29-fastmcp-framework.md
-authored:
-  by: architect
-  date: "2026-06-24"
+status: stable
+okf_version: "0.2"
+sources:
+  - resource: docs/brainstorming/brainstorming-2026-06-14-visual-reading-interface.md
+    title: Visual Reading / Browsing Interface for Arkeology Artifacts
+    last_modified: 2026-06-23T00:00:00Z
+  - resource: docs/brainstorming/brainstorming-2026-06-24-mcp-apps-visual-interface.md
+    title: MCP Apps as the Visual Reading Interface for Arkeology
+    last_modified: 2026-06-24T00:00:00Z
+  - resource: docs/architecture-decisions/adr-2026-05-29-fastmcp-framework.md
+    title: FastMCP as the MCP Server Framework
+    last_modified: 2026-05-29T00:00:00Z
+generated:
+  by: "axians-architect/claude-sonnet-4.5"
+  at: 2026-06-24T00:00:00Z
 revised:
-  by: "tech-writer"
-  date: "2026-07-05"
+  by: "axians-tech-writer/claude-opus-4.8"
+  at: 2026-07-05T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 ---
 
 # MCP Apps as the Visual Reading Interface

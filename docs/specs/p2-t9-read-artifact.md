@@ -1,22 +1,22 @@
 ---
-type: spec
+type: Spec
+id: p2-t9-read-artifact
 title: T9 — Read Artifact Tool
 description: Feature spec for the read_artifact MCP tool that fetches full artifact content by identifier with cross-scope gate enforcement blocking foreign-scope tier 2 and hidden artifacts.
 tags: []
-timestamp: 2026-05-30T00:00:00Z
-okf_version: "0.1"
-feature: p2-t9-read-artifact
-status: ready
+status: stable
+okf_version: "0.2"
+generated:
+  by: "axians-architect/unknown"
+  at: 2026-05-30T00:00:00Z
+revised:
+  by: "axians-architect/claude-opus-4.8"
+  at: 2026-07-03T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 phase: 2
 task: 9
-references:
-  - docs/contracts/modules/arkeology.tools.read.md
-authored:
-  by: "architect"
-  date: "2026-05-30"
-revised:
-  by: "architect"
-  date: "2026-07-03"
 ---
 
 # T9 — Read Artifact Tool

@@ -1,22 +1,22 @@
 ---
-type: spec
+type: Spec
+id: p9-t30-write-artifacts
 title: Write Performance Z1 — write_artifacts + migrate_artifacts + P4 Section Truncation
 description: Spec for concurrent bulk write and migration tools plus section truncation guard, resolving migration performance problems by moving all logic server-side.
 tags: []
-timestamp: 2026-06-03T00:00:00Z
-okf_version: "0.1"
-feature: p9-t30-write-artifacts
+status: stable
+okf_version: "0.2"
+generated:
+  by: "axians-architect/unknown"
+  at: 2026-06-03T00:00:00Z
+revised:
+  by: "axians-developer/claude-opus-4.8"
+  at: 2026-07-05T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 phase: 9
 task: 30
-status: complete
-references:
-  - docs/contracts/modules/arkeology.tools.write_artifacts.md
-authored:
-  by: "architect"
-  date: "2026-06-03"
-revised:
-  by: "developer"
-  date: "2026-07-05"
 ---
 
 # Write Performance Z1 — write_artifacts + migrate_artifacts + P4 Section Truncation

@@ -1,23 +1,29 @@
 ---
-type: spec
+type: Spec
+id: p1-t3-aws-client-layer
 title: T3 — AWS Client Layer
 description: Feature spec for typed, testable AWS client interfaces (S3, S3 Vectors, Bedrock) with credential error wrapping and in-memory fakes for unit tests.
 tags: []
-timestamp: 2026-05-29T00:00:00Z
-okf_version: "0.1"
-feature: p1-t3-aws-client-layer
-status: ready
+status: stable
+okf_version: "0.2"
+sources:
+  - resource: docs/architecture-decisions/adr-2026-05-29-hexagonal-architecture.md
+    title: Layered Architecture with Protocol-Based Client Interfaces
+    last_modified: 2026-05-29T00:00:00Z
+  - resource: docs/specs/p7-t25-moto-migration.md
+    title: Migrate Unit Tests from Hand-Rolled Fakes to Moto
+    last_modified: 2026-06-01T00:00:00Z
+generated:
+  by: "axians-architect/unknown"
+  at: 2026-05-29T00:00:00Z
+revised:
+  by: "axians-architect/claude-opus-5"
+  at: 2026-09-04T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 phase: 1
 task: 3
-references:
-  - docs/architecture-decisions/adr-2026-05-29-hexagonal-architecture.md
-  - docs/specs/p7-t25-moto-migration.md
-authored:
-  by: "architect"
-  date: "2026-05-29"
-revised:
-  by: "architect"
-  date: "2026-09-04"
 ---
 
 # T3 — AWS Client Layer

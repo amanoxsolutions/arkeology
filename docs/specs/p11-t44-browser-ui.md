@@ -1,31 +1,42 @@
 ---
-type: spec
+type: Spec
+id: p11-t44-browser-ui
 title: T44 — Browser UI (HTML/JS)
 description: Feature spec for arkeology-studio.html — a self-contained HTML/JS single-pane view-switching artifact browser shipped as a static MCP App asset. The primary deliverable is the arkeology_studio non-supporting host path (structured artifact listing in structured_content). The MCP App iframe is registered and served but discovered post-implementation to have practical rendering constraints in supporting hosts.
 tags: []
-timestamp: 2026-06-24T00:00:00Z
-okf_version: "0.1"
-feature: p11-t44-browser-ui
-status: complete
+status: stable
+okf_version: "0.2"
+sources:
+  - resource: docs/planning-artifacts/requirements.md
+    title: Arkeology — Requirements
+    last_modified: 2026-09-24T00:00:00Z
+  - resource: docs/architecture-decisions/adr-2026-06-24-mcp-apps-visual-reading-interface.md
+    title: MCP Apps as the Visual Reading Interface
+    last_modified: 2026-07-05T00:00:00Z
+  - resource: docs/architecture-decisions/adr-2026-08-12-studio-link-resolution.md
+    title: Studio-Side Resolution of arkeology:// Links on the Human Read Surface
+    last_modified: 2026-09-25T00:00:00Z
+  - resource: docs/architecture-decisions/adr-2026-07-03-artifact-cross-referencing.md
+    title: Artifact Cross-Referencing — First-Class references Field, Migration Rewrite, and referenced_by Warning
+    last_modified: 2026-09-29T00:00:00Z
+  - resource: docs/specs/p11-t43-mcp-app-infrastructure.md
+    title: T43 — MCP App Infrastructure and arkeology_studio Tool
+    last_modified: 2026-06-24T00:00:00Z
+  - resource: https://gofastmcp.com/apps/overview
+  - resource: https://gofastmcp.com/python-sdk/fastmcp-apps-app
+  - resource: https://gofastmcp.com/apps/fastmcp-app
+  - resource: https://gofastmcp.com/apps/low-level
+generated:
+  by: "axians-architect/claude-sonnet-4.5"
+  at: 2026-06-24T00:00:00Z
+revised:
+  by: "axians-architect/claude-opus-5"
+  at: 2026-08-12T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 phase: 11
 task: 44
-references:
-  - docs/planning-artifacts/requirements.md
-  - docs/architecture-decisions/adr-2026-06-24-mcp-apps-visual-reading-interface.md
-  - docs/architecture-decisions/adr-2026-08-12-studio-link-resolution.md
-  - docs/architecture-decisions/adr-2026-07-03-artifact-cross-referencing.md
-  - docs/specs/p11-t43-mcp-app-infrastructure.md
-  - docs/contracts/design/arkeology-studio-tokens.html
-  - https://gofastmcp.com/apps/overview
-  - https://gofastmcp.com/python-sdk/fastmcp-apps-app
-  - https://gofastmcp.com/apps/fastmcp-app
-  - https://gofastmcp.com/apps/low-level
-authored:
-  by: "architect"
-  date: "2026-06-24"
-revised:
-  by: "architect"
-  date: "2026-08-12"
 ---
 
 # T44 — Browser UI (HTML/JS)

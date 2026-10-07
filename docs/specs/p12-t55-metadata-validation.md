@@ -1,28 +1,37 @@
 ---
-type: spec
+type: Spec
+id: p12-t55-metadata-validation
 title: T55 — Write-Path Metadata Size + Charset Validation
 description: Validate metadata size budgets (S3 user-metadata aggregate, vector filterable, vector total) and neutralise control characters BEFORE any storage write, so an oversize or malformed write fails fast with a structured error and never produces a partial write that reconcile replays. Bound title length in the model and preserve non-ASCII titles losslessly so read_artifact and search_artifacts always agree.
 tags: []
-timestamp: 2026-07-03T00:00:00Z
-okf_version: "0.1"
-feature: p12-t55-metadata-validation
-status: ready
+status: stable
+okf_version: "0.2"
+sources:
+  - resource: docs/planning-artifacts/requirements.md
+    title: Arkeology — Requirements
+    last_modified: 2026-09-24T00:00:00Z
+  - resource: docs/planning-artifacts/plan.md
+    title: Plan Arkeology
+  - resource: docs/architecture-decisions/adr-2026-07-03-annotation-backed-link-storage.md
+    title: Annotation-Backed Durable Storage for Mutable Link Fields (commit_refs + references)
+    last_modified: 2026-09-29T00:00:00Z
+  - resource: docs/specs/p12-t46-references-field.md
+    title: T46 — references First-Class Field on Artifact + write/read/list Surfacing + Filter
+    last_modified: 2026-08-17T00:00:00Z
+  - resource: docs/specs/p12-t47-annotation-dual-write.md
+    title: T47 — Annotation Dual-Write in the Write Path + Tier-3 Overwrite Preservation
+    last_modified: 2026-09-06T00:00:00Z
+generated:
+  by: "axians-architect/claude-opus-4.8"
+  at: 2026-07-03T00:00:00Z
+revised:
+  by: "axians-architect/claude-sonnet-5"
+  at: 2026-08-17T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 phase: 12
 task: 55
-references:
-  - docs/contracts/data/s3vectors.artifact.md
-  - docs/contracts/data/s3.artifact.md
-  - docs/planning-artifacts/requirements.md
-  - docs/planning-artifacts/plan.md
-  - docs/architecture-decisions/adr-2026-07-03-annotation-backed-link-storage.md
-  - docs/specs/p12-t46-references-field.md
-  - docs/specs/p12-t47-annotation-dual-write.md
-authored:
-  by: "architect"
-  date: "2026-07-03"
-revised:
-  by: "architect"
-  date: "2026-08-17"
 ---
 
 # T55 — Write-Path Metadata Size + Charset Validation

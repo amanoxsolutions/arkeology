@@ -1,24 +1,34 @@
 ---
-type: spec
+type: Spec
+id: p12-t56-deterministic-content-reference-rewrite
 title: T56 — Deterministic Server-Side Content Reference Rewrite (Frontmatter + Body)
-description: Extend the migration content rewrite so a path already resolved from a file's frontmatter references: list is rewritten to arkeology://artifact/{id} everywhere it occurs in stored content — the frontmatter block AND markdown link targets in the body — executed as a deterministic, server-side pure helper inside migrate_artifacts instead of the current agent-in-context frontmatter-only rewrite. Does not reopen in-body link discovery.
+description: "Extend the migration content rewrite so a path already resolved from a file's frontmatter references: list is rewritten to arkeology://artifact/{id} everywhere it occurs in stored content — the frontmatter block AND markdown link targets in the body — executed as a deterministic, server-side pure helper inside migrate_artifacts instead of the current agent-in-context frontmatter-only rewrite. Does not reopen in-body link discovery."
 tags: []
-timestamp: 2026-07-06T00:00:00Z
-okf_version: "0.1"
-feature: p12-t56-deterministic-content-reference-rewrite
-status: ready
+status: stable
+okf_version: "0.2"
+sources:
+  - resource: docs/architecture-decisions/adr-2026-07-03-artifact-cross-referencing.md
+    title: Artifact Cross-Referencing — First-Class references Field, Migration Rewrite, and referenced_by Warning
+    last_modified: 2026-09-29T00:00:00Z
+  - resource: docs/specs/p12-t51-migration-reference-rewrite.md
+    title: T51 — Migration Frontmatter Reference Rewriting + arkeology:// Content Rewrite
+    last_modified: 2026-08-13T00:00:00Z
+  - resource: docs/brainstorming/brainstorming-2026-07-01-artifact-cross-referencing.md
+    title: Artifact Cross-Referencing (Migration and Ongoing Writes)
+    last_modified: 2026-07-02T00:00:00Z
+  - resource: docs/specs/p9-t30-write-artifacts.md
+    title: Write Performance Z1 — write_artifacts + migrate_artifacts + P4 Section Truncation
+    last_modified: 2026-07-05T00:00:00Z
+  - resource: src/arkeology/references.py
+  - resource: plugins/arkeology/skills/migrating-to-arkeology/SKILL.md
+generated:
+  by: "axians-architect/claude-opus-4.8"
+  at: 2026-07-06T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 phase: 12
 task: 56
-references:
-  - docs/architecture-decisions/adr-2026-07-03-artifact-cross-referencing.md
-  - docs/specs/p12-t51-migration-reference-rewrite.md
-  - docs/brainstorming/brainstorming-2026-07-01-artifact-cross-referencing.md
-  - docs/specs/p9-t30-write-artifacts.md
-  - src/arkeology/references.py
-  - plugins/arkeology/skills/migrating-to-arkeology/SKILL.md
-authored:
-  by: "architect"
-  date: "2026-07-06"
 ---
 
 # T56 — Deterministic Server-Side Content Reference Rewrite (Frontmatter + Body)

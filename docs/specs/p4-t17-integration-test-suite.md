@@ -1,21 +1,19 @@
 ---
-type: spec
+type: Spec
+id: p4-t17-integration-test-suite
 title: T17 — Run Full Integration Test Suite
 description: Closes the Phase 3 empirical gap by running the full integration test suite against live AWS credentials to confirm upsert semantics, valid S3 Vectors key characters, and $nin filter support.
 tags: []
-timestamp: 2026-05-31T00:00:00Z
-okf_version: "0.1"
-feature: p4-t17-integration-test-suite
-status: ready
+status: stable
+okf_version: "0.2"
+generated:
+  by: "axians-architect/unknown"
+  at: 2026-05-31T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 phase: 4
 task: 17
-references: []
-authored:
-  by: "architect"
-  date: "2026-05-31"
-revised:
-  by: ""
-  date: ""
 ---
 
 # T17 — Run Full Integration Test Suite

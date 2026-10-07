@@ -1,21 +1,19 @@
 ---
-type: spec
+type: Spec
+id: p1-t2-fastmcp-server-skeleton
 title: T2 — FastMCP Server Skeleton
 description: Feature spec for wiring up a runnable FastMCP server skeleton with stdio transport, structured logging to stderr, and graceful shutdown.
 tags: []
-timestamp: 2026-05-29T00:00:00Z
-okf_version: "0.1"
-feature: p1-t2-fastmcp-server-skeleton
-status: ready
+status: stable
+okf_version: "0.2"
+generated:
+  by: "axians-architect/unknown"
+  at: 2026-05-29T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 phase: 1
 task: 2
-references: []
-authored:
-  by: "architect"
-  date: "2026-05-29"
-revised:
-  by: ""
-  date: ""
 ---
 
 # T2 — FastMCP Server Skeleton

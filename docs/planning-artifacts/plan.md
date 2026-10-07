@@ -1,10 +1,16 @@
 ---
-type: plan
+type: Plan
+id: plan
 title: Plan Arkeology
 description: Full phase history and current open phase for Arkeology development, tracking all completed and in-progress tasks from foundation through OKF schema alignment.
 tags: []
-timestamp: 2026-06-18T00:00:00Z
-okf_version: "0.1"
+okf_version: "0.2"
+generated:
+  by: "axians-pm/unknown"
+  at: 2026-05-29T10:46:28Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 ---
 
 # Plan: Arkeology
@@ -433,11 +439,11 @@ meaning two things. Tasks marked *parallel* touch disjoint code and may run conc
 
 - [`docs/planning-artifacts/vision.md`](./vision.md)
 - [`docs/planning-artifacts/requirements.md`](./requirements.md)
-- [`docs/brainstorming/brainstorming-artifact-store.md`](../brainstorming/brainstorming-artifact-store.md)
+- [`docs/brainstorming/brainstorming-artifact-store.md`](../brainstorming/brainstorming-2026-05-27-artifact-store.md)
 - [`docs/brainstorming/research-artifact-store.md`](../brainstorming/research-artifact-store.md)
-- [`docs/brainstorming/brainstorming-delete-artifact-2026-05-30.md`](../brainstorming/brainstorming-delete-artifact-2026-05-30.md)
-- [`docs/brainstorming/brainstorming-existing-project-migration-2026-05-30.md`](../brainstorming/brainstorming-existing-project-migration-2026-05-30.md)
-- [`docs/brainstorming/brainstorming-write-performance-2026-06-01.md`](../brainstorming/brainstorming-write-performance-2026-06-01.md)
+- [`docs/brainstorming/brainstorming-delete-artifact-2026-05-30.md`](../brainstorming/brainstorming-2026-05-30-delete-artifact.md)
+- [`docs/brainstorming/brainstorming-existing-project-migration-2026-05-30.md`](../brainstorming/brainstorming-2026-05-30-existing-project-migration.md)
+- [`docs/brainstorming/brainstorming-write-performance-2026-06-01.md`](../brainstorming/brainstorming-2026-06-01-write-performance.md)
 - [`docs/specs/p8-t26-concurrent-embedding.md`](../specs/p8-t26-concurrent-embedding.md)
 - [`docs/specs/p8-t27-retry-throttle-fix.md`](../specs/p8-t27-retry-throttle-fix.md)
 - [`docs/specs/p8-t28-section-caps.md`](../specs/p8-t28-section-caps.md)
@@ -447,7 +453,7 @@ meaning two things. Tasks marked *parallel* touch disjoint code and may run conc
 - [`docs/specs/p9-t31a-setting-up-arkeology-skill.md`](../specs/p9-t31a-setting-up-arkeology-skill.md)
 - [`docs/specs/p9-t31b-migration-skill-exclusion-gate.md`](../specs/p9-t31b-migration-skill-exclusion-gate.md)
 - [`docs/specs/p9-t31c-readme-reduction.md`](../specs/p9-t31c-readme-reduction.md)
-- [`docs/brainstorming/brainstorming-reconcile-dangling-vectors-2026-06-03.md`](../brainstorming/brainstorming-reconcile-dangling-vectors-2026-06-03.md)
+- [`docs/brainstorming/brainstorming-reconcile-dangling-vectors-2026-06-03.md`](../brainstorming/brainstorming-2026-06-03-reconcile-dangling-vectors.md)
 - [`docs/specs/p9-t32-reconcile-phase3-dangling-vectors.md`](../specs/p9-t32-reconcile-phase3-dangling-vectors.md)
 - [`docs/brainstorming/brainstorming-2026-06-06-artifact-commit-refs.md`](../brainstorming/brainstorming-2026-06-06-artifact-commit-refs.md)
 - [`docs/specs/p10-t35-filter-range-operators.md`](../specs/p10-t35-filter-range-operators.md)

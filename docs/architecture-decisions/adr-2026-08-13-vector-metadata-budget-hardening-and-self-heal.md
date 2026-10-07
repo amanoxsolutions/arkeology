@@ -1,28 +1,48 @@
 ---
-type: adr
+type: ADR
+id: adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal
 title: "Vector Metadata Budget Hardening, Guard Coverage, and Migration Self-Heal"
 description: "Proposes a coherent fix for three converging findings from a real 57-file migration incident: (1) check_metadata_budgets's local byte-budget approximation under-counts relative to AWS's real PutVectors accounting, producing a permanent partial write (S3 object durably written, vector never indexed); (2) the budget guard is only called from write.py, never from link_metadata.py or reconcile.py, so both paths can durably write metadata that would be rejected on first write; (3) migrate_artifacts' skip-existing filter checks S3 existence only, never live vector-index state, making a partial write permanently un-retryable through the normal migration path, and the operator's manual write_artifact(overwrite=true) workaround silently bypassed the T56 content-rewrite pass. This document lays out verified real constraints, presents options honestly (no hidden winner), and records the operator's locked decision, including a real-AWS calibration test run as a deliberately-sequenced-ahead exception — no code, spec, or existing ADR file is otherwise touched by this document."
 tags: []
-timestamp: 2026-08-13T00:00:00Z
-okf_version: "0.1"
-status: "Accepted"
-references:
-  - docs/specs/p12-t55-metadata-validation.md
-  - docs/specs/p12-t56-deterministic-content-reference-rewrite.md
-  - docs/specs/p12-t46-references-field.md
-  - docs/specs/p12-t47-annotation-dual-write.md
-  - docs/specs/p12-t48-reconcile-from-annotations.md
-  - docs/architecture-decisions/adr-2026-07-03-annotation-backed-link-storage.md
-  - docs/architecture-decisions/adr-2026-07-03-artifact-cross-referencing.md
-  - docs/brainstorming/brainstorming-2026-08-13-artifact-metadata-budget-overflow.md
-  - tests/integration/test_calibration_vector_metadata_budget.py
-  - docs/learnings.md
-authored:
-  by: architect
-  date: "2026-08-13"
+status: stable
+okf_version: "0.2"
+sources:
+  - resource: docs/specs/p12-t55-metadata-validation.md
+    title: T55 — Write-Path Metadata Size + Charset Validation
+    last_modified: 2026-08-17T00:00:00Z
+  - resource: docs/specs/p12-t56-deterministic-content-reference-rewrite.md
+    title: T56 — Deterministic Server-Side Content Reference Rewrite (Frontmatter + Body)
+    last_modified: 2026-07-06T00:00:00Z
+  - resource: docs/specs/p12-t46-references-field.md
+    title: T46 — references First-Class Field on Artifact + write/read/list Surfacing + Filter
+    last_modified: 2026-08-17T00:00:00Z
+  - resource: docs/specs/p12-t47-annotation-dual-write.md
+    title: T47 — Annotation Dual-Write in the Write Path + Tier-3 Overwrite Preservation
+    last_modified: 2026-09-06T00:00:00Z
+  - resource: docs/specs/p12-t48-reconcile-from-annotations.md
+    title: T48 — reconcile_index Rebuilds commit_refs + references from Annotations
+    last_modified: 2026-09-06T00:00:00Z
+  - resource: docs/architecture-decisions/adr-2026-07-03-annotation-backed-link-storage.md
+    title: Annotation-Backed Durable Storage for Mutable Link Fields (commit_refs + references)
+    last_modified: 2026-09-29T00:00:00Z
+  - resource: docs/architecture-decisions/adr-2026-07-03-artifact-cross-referencing.md
+    title: Artifact Cross-Referencing — First-Class references Field, Migration Rewrite, and referenced_by Warning
+    last_modified: 2026-09-29T00:00:00Z
+  - resource: docs/brainstorming/brainstorming-2026-08-13-artifact-metadata-budget-overflow.md
+    title: Artifact Metadata Budget Overflow — Guard Coverage, Calibration, and Migration Self-Heal
+    last_modified: 2026-08-13T00:00:00Z
+  - resource: tests/integration/test_calibration_vector_metadata_budget.py
+  - resource: docs/learnings.md
+    title: Learnings
+generated:
+  by: "axians-architect/claude-sonnet-5"
+  at: 2026-08-13T00:00:00Z
 revised:
-  by: "architect"
-  date: "2026-09-25"
+  by: "axians-architect/claude-opus-5.5"
+  at: 2026-09-25T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 ---
 
 # Vector Metadata Budget Hardening, Guard Coverage, and Migration Self-Heal

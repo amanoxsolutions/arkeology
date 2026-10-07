@@ -1,18 +1,17 @@
 ---
-type: adr
+type: ADR
+id: adr-2026-05-29-hexagonal-architecture
 title: Layered Architecture with Protocol-Based Client Interfaces
 description: Records the choice of a layered architecture isolating domain and tool logic from AWS service calls behind typing.Protocol interfaces, with concrete clients injected as dependencies.
 tags: []
-timestamp: 2026-05-29T00:00:00Z
-okf_version: "0.1"
-status: accepted
-references: []
-authored:
-  by: architect
-  date: "2026-05-29"
-revised:
-  by: ""
-  date: ""
+status: stable
+okf_version: "0.2"
+generated:
+  by: "axians-architect/unknown"
+  at: 2026-05-29T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 ---
 
 # Layered Architecture with Protocol-Based Client Interfaces

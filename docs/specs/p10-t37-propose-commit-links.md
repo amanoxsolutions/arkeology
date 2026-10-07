@@ -1,25 +1,32 @@
 ---
-type: spec
+type: Spec
+id: p10-t37-propose-commit-links
 title: T37 — propose_commit_links Tool
 description: Spec for a read-only MCP tool that discovers own-scope artifacts with no commit_refs, optionally bounded by a session-start ULID, for operator confirmation before linking.
 tags: []
-timestamp: 2026-06-06T00:00:00Z
-okf_version: "0.1"
-feature: p10-t37-propose-commit-links
-status: ready
+status: stable
+okf_version: "0.2"
+sources:
+  - resource: docs/brainstorming/brainstorming-2026-06-06-artifact-commit-refs.md
+    title: Artifact Commit References
+    last_modified: 2026-07-03T00:00:00Z
+  - resource: docs/specs/p10-t35-filter-range-operators.md
+    title: T35 — Filter Range Operators ($gte / $lte)
+    last_modified: 2026-06-06T00:00:00Z
+  - resource: docs/specs/p10-t36-commit-refs-metadata-fields.md
+    title: T36 — commit_refs and last_edited_ulid Metadata Fields
+    last_modified: 2026-07-03T00:00:00Z
+generated:
+  by: "axians-analyst/unknown"
+  at: 2026-06-06T00:00:00Z
+revised:
+  by: "axians-tech-writer/unknown"
+  at: 2026-07-04T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 phase: 10
 task: 37
-references:
-  - docs/contracts/modules/arkeology.tools.propose_commit_links.md
-  - docs/brainstorming/brainstorming-2026-06-06-artifact-commit-refs.md
-  - docs/specs/p10-t35-filter-range-operators.md
-  - docs/specs/p10-t36-commit-refs-metadata-fields.md
-authored:
-  by: "analyst"
-  date: "2026-06-06"
-revised:
-  by: "tech-writer"
-  date: "2026-07-04"
 ---
 
 # T37 — `propose_commit_links` Tool

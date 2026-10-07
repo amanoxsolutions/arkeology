@@ -1,35 +1,57 @@
 ---
-type: brainstorming
+type: Brainstorming
+id: brainstorming-2026-09-17-okf-v02-adoption
 title: "OKF v0.2 Adoption for Arkeology"
 description: Explores what the Open Knowledge Format v0.2 release changes for Arkeology — the frontmatter migration, the provenance-block correction, and the ingestion model for the producer-side sources/relationships split, landing on a derivation-versus-association distinction that determines which edges need storage machinery and which need only trust signals, and on an in-force query model keyed on the target's own lifecycle rather than on the supersedes edge.
 tags: []
-timestamp: 2026-09-17T00:00:00Z
-okf_version: "0.1"
-status: ready
-references:
-  - https://openknowledgeformat.com/
-  - https://github.com/GoogleCloudPlatform/open-knowledge-format/blob/main/SPEC.md
-  - https://github.com/GoogleCloudPlatform/open-knowledge-format/issues/16
-  - https://github.com/GoogleCloudPlatform/open-knowledge-format/issues/28
-  - https://github.com/GoogleCloudPlatform/open-knowledge-format/issues/22
-  - https://github.com/GoogleCloudPlatform/open-knowledge-format/issues/32
-  - docs/architecture-decisions/adr-2026-08-12-status-all-sentinel-convention.md
-  - ../amanox-ai-agents/.docs/brief-2026-09-22-arkeology-okf-0.2-impacts.md
-  - ../amanox-ai-agents/docs/brainstorming/brainstorming-2026-09-17-okf-0.2-adoption.md
-  - docs/brainstorming/brainstorming-2026-06-15-okf-alignment.md
-  - docs/brainstorming/brainstorming-2026-07-01-artifact-cross-referencing.md
-  - docs/architecture-decisions/adr-2026-05-29-deterministic-artifact-ids.md
-  - docs/architecture-decisions/adr-2026-07-03-artifact-cross-referencing.md
-  - docs/architecture-decisions/adr-2026-07-03-annotation-backed-link-storage.md
-  - docs/architecture-decisions/adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal.md
-  - docs/contracts/data/s3-annotations.artifact.md
-  - docs/contracts/data/s3vectors.artifact.md
-authored:
-  by: "analyst"
-  date: 2026-09-17
+status: stable
+okf_version: "0.2"
+sources:
+  - resource: https://openknowledgeformat.com/
+  - resource: https://github.com/GoogleCloudPlatform/open-knowledge-format/blob/main/SPEC.md
+  - resource: https://github.com/GoogleCloudPlatform/open-knowledge-format/issues/16
+  - resource: https://github.com/GoogleCloudPlatform/open-knowledge-format/issues/28
+  - resource: https://github.com/GoogleCloudPlatform/open-knowledge-format/issues/22
+  - resource: https://github.com/GoogleCloudPlatform/open-knowledge-format/issues/32
+  - resource: docs/architecture-decisions/adr-2026-08-12-status-all-sentinel-convention.md
+    title: The `status="all"` Sentinel as a Cross-Tool Convention for Query-Shaped Tools
+    last_modified: 2026-09-25T00:00:00Z
+  - resource: ../amanox-ai-agents/.docs/brief-2026-09-22-arkeology-okf-0.2-impacts.md
+  - resource: https://github.com/amanoxsolutions/amanox-ai-agents/blob/main/docs/brainstorming/brainstorming-2026-09-17-okf-0.2-adoption.md
+    title: OKF v0.2 Full Adoption
+  - resource: docs/brainstorming/brainstorming-2026-06-15-okf-alignment.md
+    title: OKF (Open Knowledge Format) Alignment for Arkeology
+    last_modified: 2026-06-15T00:00:00Z
+  - resource: docs/brainstorming/brainstorming-2026-07-01-artifact-cross-referencing.md
+    title: Artifact Cross-Referencing (Migration and Ongoing Writes)
+    last_modified: 2026-07-02T00:00:00Z
+  - resource: docs/architecture-decisions/adr-2026-05-29-deterministic-artifact-ids.md
+    title: Deterministic Slug-Based Artifact Identifiers
+    last_modified: 2026-09-29T00:00:00Z
+  - resource: docs/architecture-decisions/adr-2026-07-03-artifact-cross-referencing.md
+    title: Artifact Cross-Referencing — First-Class references Field, Migration Rewrite, and referenced_by Warning
+    last_modified: 2026-09-29T00:00:00Z
+  - resource: docs/architecture-decisions/adr-2026-07-03-annotation-backed-link-storage.md
+    title: Annotation-Backed Durable Storage for Mutable Link Fields (commit_refs + references)
+    last_modified: 2026-09-29T00:00:00Z
+  - resource: docs/architecture-decisions/adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal.md
+    title: Vector Metadata Budget Hardening, Guard Coverage, and Migration Self-Heal
+    last_modified: 2026-09-25T00:00:00Z
+  - resource: docs/contracts/data/s3-annotations.artifact.md
+    title: s3-annotations.artifact
+    last_modified: 2026-09-14T00:00:00Z
+  - resource: docs/contracts/data/s3vectors.artifact.md
+    title: s3vectors.artifact
+    last_modified: 2026-09-04T00:00:00Z
+generated:
+  by: "axians-analyst/claude-opus-5.5"
+  at: 2026-09-17T00:00:00Z
 revised:
-  by: "pm"
-  date: 2026-09-24
+  by: "axians-pm/claude-fable-5.1"
+  at: 2026-09-24T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 ---
 
 # OKF v0.2 Adoption for Arkeology

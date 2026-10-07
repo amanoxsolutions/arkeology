@@ -1,21 +1,22 @@
 ---
-type: spec
+type: Spec
+id: p9-t32-reconcile-phase3-dangling-vectors
 title: Reconcile Phase 3 — Dangling Vector Pruning
 description: Spec to add Scenario 3 to reconcile_index — detecting and deleting vector entries whose backing S3 object no longer exists.
 tags: []
-timestamp: 2026-06-03T00:00:00Z
-okf_version: "0.1"
-feature: p9-t32-reconcile-phase3-dangling-vectors
+status: stable
+okf_version: "0.2"
+generated:
+  by: "axians-architect/unknown"
+  at: 2026-06-03T00:00:00Z
+revised:
+  by: "axians-developer/claude-opus-4.8"
+  at: 2026-07-05T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 phase: 9
 task: 32
-status: complete
-references: []
-authored:
-  by: "architect"
-  date: "2026-06-03"
-revised:
-  by: "developer"
-  date: "2026-07-05"
 ---
 
 # Reconcile Phase 3 — Dangling Vector Pruning

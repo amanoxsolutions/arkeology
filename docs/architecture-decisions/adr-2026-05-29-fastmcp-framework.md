@@ -1,18 +1,17 @@
 ---
-type: adr
+type: ADR
+id: adr-2026-05-29-fastmcp-framework
 title: FastMCP as the MCP Server Framework
 description: Records the choice of fastmcp as the Python MCP server framework for its decorator-based tool registration, built-in stdio transport, and automatic JSON schema generation.
 tags: []
-timestamp: 2026-05-29T00:00:00Z
-okf_version: "0.1"
-status: accepted
-references: []
-authored:
-  by: architect
-  date: "2026-05-29"
-revised:
-  by: ""
-  date: ""
+status: stable
+okf_version: "0.2"
+generated:
+  by: "axians-architect/unknown"
+  at: 2026-05-29T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 ---
 
 # FastMCP as the MCP Server Framework

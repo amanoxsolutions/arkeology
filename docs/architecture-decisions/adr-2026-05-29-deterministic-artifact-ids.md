@@ -1,18 +1,20 @@
 ---
-type: adr
+type: ADR
+id: adr-2026-05-29-deterministic-artifact-ids
 title: Deterministic Slug-Based Artifact Identifiers
 description: Records the choice to generate artifact identifiers deterministically from artifact attributes using a slug-based scheme, with tier-aware date inclusion for idempotency and deduplication.
 tags: []
-timestamp: 2026-05-29T00:00:00Z
-okf_version: "0.1"
-status: accepted
-references: []
-authored:
-  by: architect
-  date: "2026-05-29"
+status: stable
+okf_version: "0.2"
+generated:
+  by: "axians-architect/unknown"
+  at: 2026-05-29T00:00:00Z
 revised:
-  by: "architect"
-  date: "2026-09-29"
+  by: "axians-architect/claude-opus-5.5"
+  at: 2026-09-29T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 ---
 
 # Deterministic Slug-Based Artifact Identifiers

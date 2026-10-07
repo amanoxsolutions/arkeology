@@ -1,22 +1,28 @@
 ---
-type: spec
+type: Spec
+id: p12-t67-orphan-vector-retry-and-selfheal
 title: T67 — Orphan-Vector Inline Retry + reconcile_index Self-Heal Repair
-description: write.py's Step 8 orphan-vector cleanup claims reconcile_index "can collect any leftover orphan vectors later," but nothing makes that true today — the failure isn't logged, and none of reconcile_index's three existing repair mechanisms detect "an artifact has some correct vectors and some stale extra ones mixed together." Operator-approved fix, in order: (b) wrap Step 8's delete_vectors call in a bounded inline retry with backoff, matching bedrock.py's existing throttle-retry shape, so a transient failure self-heals immediately; (c) when retries are exhausted, log a distinct failure-log entry kind carrying the exact orphan vector keys still needing deletion, and extend reconcile_index's Phase 1 to recognise and repair that kind directly (a targeted delete_vectors call, not a full re-index), participating in T62's existing reconcile_attempts/stuck_failures bounding rather than a parallel mechanism.
+description: "write.py's Step 8 orphan-vector cleanup claims reconcile_index \"can collect any leftover orphan vectors later,\" but nothing makes that true today — the failure isn't logged, and none of reconcile_index's three existing repair mechanisms detect \"an artifact has some correct vectors and some stale extra ones mixed together.\" Operator-approved fix, in order: (b) wrap Step 8's delete_vectors call in a bounded inline retry with backoff, matching bedrock.py's existing throttle-retry shape, so a transient failure self-heals immediately; (c) when retries are exhausted, log a distinct failure-log entry kind carrying the exact orphan vector keys still needing deletion, and extend reconcile_index's Phase 1 to recognise and repair that kind directly (a targeted delete_vectors call, not a full re-index), participating in T62's existing reconcile_attempts/stuck_failures bounding rather than a parallel mechanism."
 tags: []
-timestamp: 2026-08-19T00:00:00Z
-okf_version: "0.1"
-feature: p12-t67-orphan-vector-retry-and-selfheal
-status: ready
+status: stable
+okf_version: "0.2"
+sources:
+  - resource: docs/specs/p12-t62-bounded-reconcile-retry.md
+    title: T62 — Bounded reconcile_index Failure-Log Retry + Fetch-and-Reindex Dedup
+    last_modified: 2026-08-17T00:00:00Z
+  - resource: docs/architecture-decisions/adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal.md
+    title: Vector Metadata Budget Hardening, Guard Coverage, and Migration Self-Heal
+    last_modified: 2026-09-25T00:00:00Z
+  - resource: src/arkeology/clients/bedrock.py
+  - resource: src/arkeology/annotations.py
+generated:
+  by: "axians-architect/unknown"
+  at: 2026-08-19T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 phase: 13
 task: 67
-references:
-  - docs/specs/p12-t62-bounded-reconcile-retry.md
-  - docs/architecture-decisions/adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal.md
-  - src/arkeology/clients/bedrock.py
-  - src/arkeology/annotations.py
-authored:
-  by: "architect"
-  date: "2026-08-19"
 ---
 
 # T67 — Orphan-Vector Inline Retry + `reconcile_index` Self-Heal Repair

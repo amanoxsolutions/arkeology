@@ -1,19 +1,23 @@
 ---
 type: Contract
+id: arkeology.tools.purge
 title: arkeology.tools.purge
 description: The purge_archived MCP tool — hard-deletes every inactive artifact in the own scope, cascading to synthesis artifacts whose every source is in the purge set, and reporting per-artifact outcomes rather than aborting on first failure.
 tags: []
-timestamp: 2026-09-04T00:00:00Z
-okf_version: "0.1"
-references:
-  - docs/specs/p3-t13-purge-archived.md
-  - docs/specs/p3-t12-delete-artifact.md
-authored:
-  by: "tech-writer"
-  date: 2026-09-04
-revised:
-  by: ""
-  date: YYYY-MM-DD
+okf_version: "0.2"
+sources:
+  - resource: docs/specs/p3-t13-purge-archived.md
+    title: T13 — Purge Archived Tool
+    last_modified: 2026-06-29T00:00:00Z
+  - resource: docs/specs/p3-t12-delete-artifact.md
+    title: T12 — Delete Artifact Tool
+    last_modified: 2026-05-30T00:00:00Z
+generated:
+  by: "axians-tech-writer/claude-opus-5"
+  at: 2026-09-04T00:00:00Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-10-07T08:09:33Z
 ---
 
 # arkeology.tools.purge
