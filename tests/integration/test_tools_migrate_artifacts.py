@@ -11,12 +11,11 @@ moto cannot be trusted to stand in for on its own.
 
 Deferred coverage (explicitly, not silently skipped): the Nova Lite
 description-generation path (missing "description" → BEDROCK_TEXT_MODEL call)
-is NOT exercised here because this environment's .env does not configure
-BEDROCK_TEXT_MODEL (Settings().bedrock_text_model is None). Exercising a real
-Nova Lite generation call — success or failure — requires that model to be
-configured and entitled in the target account; that is a deployment-specific
-prerequisite outside this test suite's control. The one assertion this file
-CAN make about that path with the current environment — the guard returns a
+is NOT exercised here. Exercising a real Nova Lite generation call — success
+or failure — requires that model to be configured and entitled in the target
+account; that is a deployment-specific prerequisite outside this test suite's
+control. The one assertion this file
+CAN make about that path without a text model — the guard returns a
 structured configuration_error rather than silently writing an
 empty-description artifact — is included below.
 """
@@ -211,19 +210,14 @@ async def test_migrate_artifacts_missing_description_without_text_model_is_confi
 ) -> None:
     """Guard against silently writing an empty description when generation cannot run.
 
-    This environment's .env does not configure BEDROCK_TEXT_MODEL (see module
-    docstring), so a descriptor missing "description" must be rejected up front
-    with a structured configuration_error — never written with an empty
-    description. This exercises the real (unmocked) Settings object; it does
+    With no text model configured, a descriptor missing "description" must be
+    rejected up front with a structured configuration_error — never written
+    with an empty description. The test pins that precondition on its own copy
+    of Settings rather than inheriting the operator's configuration; it does
     not require a live Nova Lite call, since the guard runs before any Bedrock
     text-model invocation is attempted.
     """
-    assert settings.bedrock_text_model is None, (
-        "This test assumes BEDROCK_TEXT_MODEL is unset in the integration "
-        "environment; if it has since been configured, the deferred Nova Lite "
-        "generation coverage noted in this file's docstring should be added "
-        "instead of relying on this configuration_error guard test."
-    )
+    no_text_model_settings = settings.model_copy(update={"BEDROCK_TEXT_MODEL": None})
 
     descriptor = {
         **_BASE_KWARGS,
@@ -233,7 +227,7 @@ async def test_migrate_artifacts_missing_description_without_text_model_is_confi
     }
 
     result = await migrate_artifacts(
-        settings=settings,
+        settings=no_text_model_settings,
         s3=s3,
         vectors=vectors,
         bedrock=bedrock,

@@ -218,19 +218,20 @@ async def test_reconcile_failure_log_entry_reconciled(
 
 
 # ---------------------------------------------------------------------------
-# Test 3: Failure log entry for non-existent artifact → in failed; log entry retained
+# Test 3: Failure log entry for non-existent artifact → resolved as obsolete; log pruned
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.integration
-async def test_reconcile_failure_log_nonexistent_artifact_in_failed(
+async def test_reconcile_failure_log_nonexistent_artifact_resolved_as_obsolete(
     settings_with_tmp_log: Settings,
     s3: S3ClientImpl,
     vectors: VectorsClientImpl,
     bedrock: BedrockClientImpl,
 ) -> None:
-    """Failure log entry for non-existent artifact_id → entry in failed;
-    failure log entry retained."""
+    """Failure log entry whose artifact_id has no S3 object (a genuine 404 from real S3)
+    → resolved, not retried: reported in reconciled with source='failure_log_obsolete',
+    absent from failed, and pruned from the failure log."""
     # Use a deterministically unique key that won't exist in the real environment
     nonexistent_id = (
         f"{settings_with_tmp_log.write_prefix}/"
@@ -259,10 +260,11 @@ async def test_reconcile_failure_log_nonexistent_artifact_in_failed(
     )
 
     assert "error" not in result
-    failed_ids = [e["artifact_id"] for e in result["failed"]]
-    assert nonexistent_id in failed_ids
-    # Entry was not resolved → should remain in log
-    assert result["failure_log_entries_after"] >= 1
+    assert nonexistent_id in [e["artifact_id"] for e in result["reconciled"]]
+    obsolete_entry = next(e for e in result["reconciled"] if e["artifact_id"] == nonexistent_id)
+    assert obsolete_entry["source"] == "failure_log_obsolete"
+    assert nonexistent_id not in [e["artifact_id"] for e in result["failed"]]
+    assert result["failure_log_entries_after"] == 0
 
 
 # ---------------------------------------------------------------------------

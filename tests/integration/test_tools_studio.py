@@ -92,7 +92,7 @@ async def test_arkeology_studio_non_supporting_host_lists_real_artifact(
         ctx = MagicMock()
         ctx.client_supports_extension.return_value = False
 
-        result = await arkeology_studio(settings=settings, vectors=vectors, ctx=ctx)
+        result = await arkeology_studio(settings=settings, s3=s3, vectors=vectors, ctx=ctx)
 
         assert isinstance(result, ToolResult)
         assert not result.is_error
