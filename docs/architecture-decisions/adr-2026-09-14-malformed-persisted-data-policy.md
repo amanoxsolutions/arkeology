@@ -384,10 +384,10 @@ alter either metadata encoding: `tier` stays a stringified integer in S3 object 
   candidates owes the same skip-and-count behaviour under the same key name. Like the `status="all"`
   convention, this is a review obligation; nothing in the type system will catch its absence.
 
-## Proposed Revision — 2026-09-25
+## Revision — 2026-09-25 (accepted 2026-10-13)
 
-> **Pending.** Proposed by ADR-017 (draft, awaiting review); takes effect when ADR-017 is
-> accepted. Until then this ADR's Decision stands as written above.
+> **Accepted.** Adopted by ADR-017 (accepted 2026-10-13). This ADR's Decision above is
+> superseded by the revision below.
 
 [The OKF v0.2 adoption ADR](adr-2026-09-25-okf-v02-adoption.md) proposes persisted fields this
 policy did not name: the required `generated` block and optional `revised` block in both metadata stores,

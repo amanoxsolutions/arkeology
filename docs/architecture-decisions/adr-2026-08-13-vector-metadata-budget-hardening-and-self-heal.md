@@ -377,10 +377,10 @@ status is Accepted; the questions are retained here as the decision trail, not a
    `brainstorming-2026-08-13-artifact-metadata-budget-overflow.md`'s OQ5 resolution.
    This document does not open that entry itself — backlog curation remains the PM's domain.
 
-## Proposed Revision — 2026-09-25
+## Revision — 2026-09-25 (accepted 2026-10-13)
 
-> **Pending.** Proposed by ADR-017 (draft, awaiting review); takes effect when ADR-017 is
-> accepted. Until then this ADR's Decision stands as written above.
+> **Accepted.** Adopted by ADR-017 (accepted 2026-10-13). This ADR's Decision above is
+> superseded by the revision below.
 
 [The OKF v0.2 adoption ADR](adr-2026-09-25-okf-v02-adoption.md) proposes building on D2's direction
 and taking it further: artifact-to-artifact edges leave vector metadata entirely. `sources` and

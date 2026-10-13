@@ -237,10 +237,10 @@ flowchart TD
   omitted-clause path needs no additional signal: it is not an error condition, and the emitted
   filter is reconstructible from the request arguments.
 
-## Proposed Revision — 2026-09-25
+## Revision — 2026-09-25 (accepted 2026-10-13)
 
-> **Pending.** Proposed by ADR-017 (draft, awaiting review); takes effect when ADR-017 is
-> accepted. Until then this ADR's Decision stands as written above.
+> **Accepted.** Adopted by ADR-017 (accepted 2026-10-13). This ADR's Decision above is
+> superseded by the revision below.
 
 [The OKF v0.2 adoption ADR](adr-2026-09-25-okf-v02-adoption.md) proposes renaming the archive marker
 this ADR filters on: `status` (`active` / `inactive`, `ArtifactStatus`) becomes `archived: bool`, and

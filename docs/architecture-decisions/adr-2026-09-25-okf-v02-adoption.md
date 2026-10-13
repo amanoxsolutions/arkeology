@@ -4,7 +4,7 @@ id: adr-2026-09-25-okf-v02-adoption
 title: OKF v0.2 Adoption
 description: "Proposes Arkeology's full adoption of Open Knowledge Format v0.2 as one breaking release: the archive marker becomes archived (bool) and OKF document status is ingested beside it, with an in-force default view keyed on each artifact's own lifecycle and never on a supersedes edge; first-class generated/revised provenance, with verifications and revision history in their own annotations; sources and relationships held in one structured annotation and gated across scopes with a counted withheld marker; producer-supplied ids used verbatim as artifact ids; writing split into create_artifact and update_artifact, with the overwrite flag removed; an open type list; and store migration by a dedicated skill rather than reconcile_index."
 tags: []
-status: draft
+status: stable
 okf_version: "0.2"
 sources:
   - resource: docs/brainstorming/brainstorming-2026-09-17-okf-v02-adoption.md
@@ -66,13 +66,13 @@ v0.2 decisions and the fallbacks already scoped for the upstream rulings still p
 
 ## Status
 
-Draft (2026-09-25) — awaiting operator review. The decisions were taken with the operator in the
+Accepted (2026-10-13). The decisions were taken with the operator in the
 OKF v0.2 adoption brainstorming session (2026-09-17 to 2026-09-25, plus D51 on 2026-09-29) and are
-locked there under `## Decisions`; this ADR consolidates them and cites their D-numbers as provenance. On acceptance it
+locked there under `## Decisions`; this ADR consolidates them and cites their D-numbers as provenance. It
 amends the deterministic artifact ids, tier-based access control, annotation-backed link storage,
 artifact cross-referencing, `status="all"` sentinel, Studio link resolution and malformed persisted
-data policy ADRs, and builds on the vector-metadata budget ADR — each carries a proposed revision
-note pointing here, which takes effect only when this ADR is accepted. Implementation is Phase 15
+data policy ADRs, and builds on the vector-metadata budget ADR — each of those now carries an
+accepted revision note pointing here. Implementation is Phase 15
 of `plan.md`.
 
 ## Context

@@ -524,10 +524,10 @@ per that ADR's D2). The `source_artifacts` half of D13 — the `type = synthesis
 in-process membership check — is unaffected, since `source_artifacts` was never stored in vector
 metadata.
 
-## Proposed Revision — 2026-09-25
+## Revision — 2026-09-25 (accepted 2026-10-13)
 
-> **Pending.** Proposed by ADR-017 (draft, awaiting review); takes effect when ADR-017 is
-> accepted. Until then this ADR's Decision stands as written above.
+> **Accepted.** Adopted by ADR-017 (accepted 2026-10-13). This ADR's Decision above is
+> superseded by the revision below.
 
 [The OKF v0.2 adoption ADR](adr-2026-09-25-okf-v02-adoption.md) proposes replacing the field this
 ADR designed and changing four of its decisions:

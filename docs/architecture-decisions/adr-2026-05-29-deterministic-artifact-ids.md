@@ -130,10 +130,10 @@ caller passes an explicit `overwrite=true` flag — collapsing two distinct titl
 same key (the one case this ADR still treats as intentional dedup) now requires the same
 explicit opt-in as any other same-key overwrite, rather than happening silently.
 
-## Proposed Revision — 2026-09-25
+## Revision — 2026-09-25 (accepted 2026-10-13)
 
-> **Pending.** Proposed by ADR-017 (draft, awaiting review); takes effect when ADR-017 is
-> accepted. Until then this ADR's Decision stands as written above.
+> **Accepted.** Adopted by ADR-017 (accepted 2026-10-13). This ADR's Decision above is
+> superseded by the revision below.
 
 [The OKF v0.2 adoption ADR](adr-2026-09-25-okf-v02-adoption.md) proposes amending this ADR for the
 case where the writer already has an identifier:
