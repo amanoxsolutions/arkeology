@@ -45,6 +45,8 @@ revised:
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
+  - by: "human:mlnrt"
+    at: 2026-10-13T11:55:44Z
 ---
 
 # OKF v0.2 Adoption
@@ -77,13 +79,14 @@ of `plan.md`.
 
 ### What the producer will send
 
-The `amanox-ai-agents` plugin writes the documents Arkeology imports. Its brief of 2026-09-22 (see
+The producer `amanox-ai-agents` plugin writes the documents Arkeology imports. Its brief of 2026-09-22 (see
 the brainstorm's `## The Producer Contract (inbound)`) commits it to emitting:
 
-- **`id:`** — seeded from the filename stem at creation and frozen thereafter; dots are legal;
-  uniqueness is the producer's guarantee.
-- **`sources:`** — OKF §5.1 entries: `resource` (a bundle-relative path or a URL), optional `id`
-  and `title`.
+- **`id:`** — seeded from the filename stem at creation and frozen thereafter, constrained to
+  D33's validated charset (`[A-Za-z0-9._-]`, alphanumeric first and last character, no `..`, at
+  most 128 characters); dots are legal; uniqueness is the producer's guarantee.
+- **`sources:`** — OKF §5.1 entries: `resource` (a bundle-relative path or a URL) and
+  `last_modified` (D19), with optional `id` and `title`.
 - **`relationships:`** — a house key shaped after the open OKF proposal #16, constrained to
   `{to, type}`, outbound only, where `to` is an id and never a path.
 - **`generated` / `revised` / `verified`** — first authorship written once, latest revision only,
@@ -105,10 +108,10 @@ the brainstorm's `## The Producer Contract (inbound)`) commits it to emitting:
 - **Annotations are roomy but fragile across overwrites.** An annotation holds up to 1 MiB, is
   mutable in place and leaves the object's ETag alone — but any re-PUT of the object wipes it, so
   every path that re-PUTs the object must read annotations forward.
-- **A store is not a bundle.** Issue #22's strongest trust rung for `supersedes` lives in a
+- **A store is not a bundle.** OKF GitHub issue #22's strongest trust rung for `supersedes` lives in a
   bundle-root `log.md`. Arkeology has no bundle root, so any equivalent must live on the artifact.
-- **Upstream is converging, not ruling.** #16 (typed relationships), #22 (supersedes semantics),
-  #28 (`generated` semantics) and #32 (partial visibility of `sources`) have community
+- **Upstream is converging, not ruling.** OKF issues #16 (typed relationships), #22 (supersedes
+  semantics), #28 (`generated` semantics) and #32 (partial visibility of `sources`) have community
   implementations converging in public and no maintainer ruling.
 - **Nothing parses artifact-id structure.** The only split in `src/` is a `/`-prefix split for the
   reconcile probe key, so changing who mints ids reaches a rule rather than a parser.
@@ -182,14 +185,16 @@ machine-derivable and written on a *different* document from the one it retires;
 exclude, one automated writer asserting "B supersedes A" would drop a real A out of every in-force
 answer while B stood in for it — the threat #22 exists to guard against. `status: deprecated` on
 A has none of those properties: it is a write *to A*, under the own-scope write authority that can
-already archive or delete A, and it is attributed through A's `revised.by`. That reaches #22's
+already archive or delete A. That write *is* the attributed resolution — not a byline field
+recording it afterward, but the fact that making it happen at all required the authority that
+governs A. Forging a log entry is cheap; forging write-authority over A is not. That reaches #22's
 strongest rung without a `log.md`:
 
 | #22 rung | Their evidence | Arkeology equivalent | Effect on in-force |
 |---|---|---|---|
 | 1 — edge provenance | `generated` / `verified` on the edge | the edge exists on B | none — lineage only |
 | 2 — source eligibility | B is itself in force | B `stable` and not archived | none — at most, A's read shows B as a proposed successor |
-| 3 — attributed resolution | an entry in the bundle-root `log.md` | `status: deprecated` on A, attributed via A's `revised.by` | A excluded |
+| 3 — attributed resolution | an entry in the bundle-root `log.md` | `status: deprecated` on A, written under A's own write authority | A excluded |
 
 Cross-scope falls out for free: another team's B may declare it supersedes our A, but it cannot
 write our A, so A stays in force in our results and the claim is visible as lineage. The producer
@@ -553,9 +558,10 @@ cases that policy did not decide are decided here (D50):
   an interrupted store migration. `reconcile_index` reports these vectors and rebuilds `archived`
   from S3 object metadata, and the store-migration skill verifies at the end of its run that every
   vector carries a boolean `archived`.
-- **An unreadable timestamp marks only its own source.** An unparseable `last_modified` or source
-  `revised.at` reports that source as "unchecked: unreadable timestamp"; the synthesis's other
-  sources are still checked.
+- **An unreadable timestamp marks only its own source.** An ingested `last_modified` or source
+  `revised.at` that fails to parse, or that parses but carries no UTC offset — D19 compares parsed,
+  offset-aware datetimes, and a naive value cannot be compared against one safely — reports that
+  source as "unchecked: unreadable timestamp"; the synthesis's other sources are still checked.
 - **Redaction wins over error detail.** A `corrupt_metadata` error returned to a foreign-scope
   reader names the field but never echoes its raw value, which could hold exactly the entries §7
   withholds.

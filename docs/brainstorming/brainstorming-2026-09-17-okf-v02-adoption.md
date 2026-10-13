@@ -62,8 +62,8 @@ Google Cloud released Open Knowledge Format v0.2. It deprecates two v0.1 constru
 provenance/trust/lifecycle layer, and introduces an Attested Computation type. This session
 establishes Arkeology's adoption posture (full adoption) and records the per-field decisions.
 
-On 2026-09-22 the producer side — the `amanox-ai-agents` plugin, which writes the documents
-Arkeology ingests — settled its own adoption and issued a written brief of what its documents will
+On 2026-09-22 the producer `amanox-ai-agents` plugin, which writes the documents Arkeology
+ingests, settled its own adoption and issued a written brief of what its documents will
 emit. Working through that brief surfaced a distinction the session had been circling without
 naming: **derivation edges and association edges are different kinds**, and only derivation edges
 create a decay relationship. That single distinction resolves what had looked like an arbitrary
@@ -665,7 +665,7 @@ conflated two axes and mis-stated a third.
 | **View** | latest-only, or full lineage? | the **caller**, per query (D23) |
 | **Trust** | how does the server honour an in-force request when it cannot verify `type: supersedes` from one frontmatter line? | the **server**, as policy (D25) |
 
-The trust axis is *not* about hiding. Issue #22's threat is the inverse of hiding: an automated
+The trust axis is *not* about hiding. OKF GitHub issue #22's threat is the inverse of hiding: an automated
 writer emits `type: supersedes` against a real spec, a caller asks for in-force, and the real spec
 drops out of that answer while the impostor stands in for it. #22 guards this with three rungs —
 edge provenance authorises nothing; source eligibility (the asserting concept is itself in force)
@@ -775,10 +775,12 @@ its own identifiers for migrated content, which reaches into ADR-005 and a Non-N
 What the plugin commits to emitting. Decided, not yet implemented.
 
 - **`id:`** — house key seeded from the filename stem at creation, frozen thereafter. Charset is
-  whatever a filename stem is, including dots. Uniqueness is the producer's guarantee; Arkeology
+  constrained to D33's validated set (`[A-Za-z0-9._-]`, alphanumeric first and last character, no
+  `..`, at most 128 characters); dots are legal. Uniqueness is the producer's guarantee; Arkeology
   is asked to verify it before ingest.
-- **`sources:`** — OKF §5.1. Each entry carries `resource` (bundle-relative path or URL) plus
-  optional `id` and `title`. Cross-repo targets become `sources` with a repository URL.
+- **`sources:`** — OKF §5.1. Each entry carries `resource` (bundle-relative path or URL) and
+  `last_modified` (D19), plus optional `id` and `title`. Cross-repo targets become `sources` with
+  a repository URL.
 - **`relationships:`** — house key, shape from #16, constrained to `{to, type}`, outbound only.
   `to` is an `id`, **never a path**. The constraint exists so that if #16 rules "frontmatter is a
   derived index over body links", the ingested list is byte-identical to a projection.

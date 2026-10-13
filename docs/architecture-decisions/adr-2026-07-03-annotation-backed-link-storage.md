@@ -571,7 +571,7 @@ why.
 
 ## Proposed Revision — 2026-09-25
 
-> **Pending.** Proposed by ADR-016 (draft, awaiting review); takes effect when ADR-016 is
+> **Pending.** Proposed by ADR-017 (draft, awaiting review); takes effect when ADR-017 is
 > accepted. Until then this ADR's Decision stands as written above.
 
 [The OKF v0.2 adoption ADR](adr-2026-09-25-okf-v02-adoption.md) proposes changing what the annotations

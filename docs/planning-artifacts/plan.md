@@ -284,7 +284,7 @@ skill for deployments that already hold artifacts. Decisions:
 [`adr-2026-09-25-okf-v02-adoption.md`](../architecture-decisions/adr-2026-09-25-okf-v02-adoption.md),
 from [`brainstorming-2026-09-17-okf-v02-adoption.md`](../brainstorming/brainstorming-2026-09-17-okf-v02-adoption.md).
 Requirements: FR-01, FR-04, FR-05, FR-08–FR-10, FR-14, FR-15, FR-17–FR-23, FR-46, FR-48,
-FR-51–FR-56, FR-58, FR-59, FR-67–FR-74, C-01, C-07, C-08.
+FR-51–FR-56, FR-58, FR-59, FR-67–FR-74, C-01, C-06, C-07, C-08.
 
 **How each task runs (TDD).** Every task below changes behaviour, so each gets its own spec in
 `docs/specs/p15-t<n>-<slug>.md` before any code. Per task: spec → contract amendments in
