@@ -137,7 +137,7 @@ Artifacts are stored in S3, indexed in S3 Vectors, and embedded with Amazon Bedr
 schema discovery, and two data resources for human browsing — see the
 [Server Reference](SERVER-REFERENCE.md#tools) for the complete tool and resource tables.
 
-![Architecture](docs/diagrams/arkeology-architecture.png) 
+![Architecture](docs/architecture-decisions/arkeology-architecture.png) 
 
 ---
 
