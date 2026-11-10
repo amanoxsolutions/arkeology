@@ -12,7 +12,6 @@ generated:
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
-phase: 1
 ---
 
 # Phase 1 — Foundation: Runnable Server with Startup Validation

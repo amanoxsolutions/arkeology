@@ -29,13 +29,11 @@ generated:
   by: "axians-architect/claude-opus-4.8"
   at: 2026-07-03T00:00:00Z
 revised:
-  by: "axians-tech-writer/claude-sonnet-5"
-  at: 2026-09-06T00:00:00Z
+  by: "axians-architect/claude-opus-5-5"
+  at: 2026-11-09T19:21:34Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
-phase: 12
-task: 52
 ---
 
 # T52 — Annotation Availability + IAM Probe, Runtime Graceful Handling, README + AGENTS.md
@@ -65,8 +63,6 @@ the four required IAM actions, and the documented unavailable regions and bucket
 runtime `annotation_unavailable` structured error also survives, but it now signals post-setup IAM
 drift on a deployment the startup gate already proved good — not a supported degraded mode.
 
-<!-- SCOPE BLOCK — frozen after approval -->
-
 ## TL;DR
 
 Handle S3 object annotation availability and IAM as a **feature-level** concern, not a hard server
@@ -77,7 +73,7 @@ runtime in `link_metadata` and the write path (structured, actionable, never a r
 core content / vector / embedding store keeps working); and add the D9 `arkeology://` referencing and
 reference-healing guidance to the AGENTS.md snippet. (FR-57, NFR-12, AC-62.)
 
-## Problem Statement
+## 1. Problem Statement
 
 Annotations are unavailable in some regions (UAE, Bahrain) and on some bucket types (directory
 buckets, which is what the S3 Express One Zone storage class uses, and Outposts buckets) and need
@@ -87,71 +83,86 @@ annotation problem would be disproportionate. Instead the deployment needs a fri
 setup and graceful degradation at runtime to cover post-setup drift (an IAM edit, a bucket/region
 change) a one-time check cannot catch.
 
-## User Stories
+All four stories are P1: runtime graceful handling (P1); server still boots without annotations
+(P1); setup probe reports availability + IAM (P1); README + AGENTS.md guidance (P1).
 
-### Story 1 — Runtime graceful handling (P1)
+## 2. Rules — Runtime handling
 
-**Acceptance criteria:**
-- Given annotations are unavailable or access is denied, when `link_metadata` runs then it returns a
-  structured, actionable error (not a raw exception), and the core content / vector / embedding store
-  still functions for other operations. (AC-62)
-- Given the same condition, when `write_artifact` runs then the artifact's content + vectors are
-  still persisted and the response carries a structured, actionable `warning` that durable link
-  storage (annotations) is unavailable — never a raw exception. (AC-62)
-- Given a normal (available) deployment, then no warning appears and both fields are durably stored.
+### R1 — Unavailability and access denial are detected at the S3 client layer as a typed error
 
-### Story 2 — Server still boots without annotations (P1)
+When an annotation client call raises a botocore error indicating unavailability (e.g.
+`NotImplemented` / region/bucket-type rejection) or access denial (`AccessDenied`), the system
+detects it at the S3 client layer and raises a typed, structured error — a new
+`AnnotationUnavailableError`, distinct from `CredentialError` — consistent with the Phase-1
+credential-wrapping pattern.
 
-**Acceptance criteria:**
-- Given a deployment where annotations are unavailable, when the server starts then startup
-  validation still passes and the server serves content and search — annotation availability is NOT
-  a startup check. (ADR-011 decision 5)
+### R2 — `link_metadata` returns a structured error; the write path succeeds with a warning
 
-### Story 3 — Setup probe reports availability + IAM (P1)
+When annotations are unavailable or access is denied, the outcome depends on the surface, and in
+both cases the core content / vector / embedding store still functions for other operations and
+no annotation failure reaches the MCP caller as a raw exception:
 
-**Acceptance criteria:**
-- Given the `setting-up-arkeology` skill runs, then it probes annotation availability and IAM permission
-  (put→get→delete a throwaway annotation) and reports the result plus the four required IAM actions;
-  on failure it gives friendly remediation guidance and lets the operator decide to proceed (feature
-  degrades, core still works). (AC-62)
-- Given `aws-cli` ≥ 2.35.14, then the probe uses the CLI natively; otherwise it falls back to a
-  boto3 snippet run via `uv run` (botocore supports the APIs regardless of CLI version).
+| Surface | Behaviour |
+|---|---|
+| `link_metadata` | Catches the error and returns a structured `annotation_unavailable` error with actionable text (which IAM actions / region constraints). The durable write is its contract, so it does not report `linked`. |
+| The write path (`write_artifact`) | Catches the error after content + vectors are persisted and returns its normal success payload plus a top-level structured, actionable `warning` noting that durable link storage (annotations) is unavailable. The artifact (content + vectors) is preserved — degraded, not lost; it is never discarded when only the annotation write fails. |
 
-### Story 4 — README + AGENTS.md guidance (P1)
+**Why:** This split satisfies AC-62 ("structured, actionable error … core operations continue to
+function") while never losing an artifact. OQ-T52-a — resolved by recommendation; confirm with the operator if
+a uniform error-for-both is preferred.
 
-**Acceptance criteria:**
-- Given the README, then it documents the four IAM actions and the regions / bucket types where
-  annotations are unavailable.
-- Given the AGENTS.md snippet, then it includes (1) proactive `arkeology://artifact/{id}` referencing
-  guidance and (2) reference-healing guidance (search + propose a fix, never silently rewrite). (D9)
-- Given the post-commit protocol snippet, then it references `link_metadata` (not the retired
-  `link_commit`).
+Source: AC-62
 
-## Requirements
+### R3 — A normal deployment shows no warning
 
-- WHEN an annotation client call raises a botocore error indicating unavailability (e.g.
-  `NotImplemented` / region/bucket-type rejection) or access denial (`AccessDenied`) THE SYSTEM SHALL
-  detect it at the S3 client layer and raise a typed, structured error (a new
-  `AnnotationUnavailableError`, distinct from `CredentialError`).
-- WHEN `link_metadata` catches that error THE SYSTEM SHALL return a structured `annotation_unavailable`
-  error with actionable text (which IAM actions / region constraints) — the durable write is its
-  contract, so it does not report `linked`.
-- WHEN the write path catches that error after content + vectors are persisted THE SYSTEM SHALL
-  return its normal success payload plus a top-level `warning` noting durable link storage is
-  unavailable — the artifact is never lost.
-- WHEN the server starts THE SYSTEM SHALL NOT add an annotation availability startup check
-  (ADR-011 decision 5) — the existing startup sequence is unchanged.
-- WHEN the `setting-up-arkeology` skill runs its pre-flight checks THE SYSTEM SHALL add an annotation
-  availability + IAM probe (CLI ≥ 2.35.14 or boto3 `uv run` fallback) that put→get→deletes a
-  throwaway annotation and reports the outcome + the four IAM actions.
-- WHEN the README reference policy is updated THE SYSTEM SHALL list `s3:PutObjectAnnotation`,
-  `s3:GetObjectAnnotation`, `s3:ListObjectAnnotations`, `s3:DeleteObjectAnnotation` and the
-  unavailable regions (UAE, Bahrain) and bucket types (directory buckets, which use the S3 Express
-  One Zone storage class, and Outposts buckets).
-- WHEN the AGENTS.md snippet is updated THE SYSTEM SHALL add the two D9 guidance clauses and switch
-  the post-commit protocol to `link_metadata`.
+Given a normal (available) deployment, no warning appears and both fields are durably stored.
 
-## Boundaries
+## 3. Rules — Startup
+
+### R4 — The server still boots without annotations
+
+When the server starts on a deployment where annotations are unavailable, startup validation still
+passes and the server serves content and search: annotation availability is NOT a startup check,
+the system adds no annotation availability startup check, and the existing startup sequence is
+unchanged. Annotation availability is a feature-level concern — never a hard startup gate.
+
+Because annotations back only the `commit_refs` / `references` feature — not the core store —
+refusing to boot over an annotation problem would be disproportionate.
+
+Source: ADR-011 decision 5; D15
+
+## 4. Rules — Setup probe
+
+### R5 — The `setting-up-arkeology` skill probes annotation availability and IAM
+
+When the `setting-up-arkeology` skill runs its pre-flight checks, it probes annotation availability
+and IAM permission by put→get→deleting a throwaway annotation, and reports the outcome plus the four
+required IAM actions. On failure it gives friendly remediation guidance and lets the operator decide
+to proceed (feature degrades, core still works).
+
+Given `aws-cli` ≥ 2.35.14, the probe uses the CLI natively; otherwise it falls back to a boto3
+snippet run via `uv run` (botocore supports the APIs regardless of CLI version).
+
+Source: AC-62 — the probe-and-report part
+
+## 5. Rules — README and AGENTS.md guidance
+
+### R6 — The README documents the four IAM actions and where annotations are unavailable
+
+When the README reference policy is updated, it lists `s3:PutObjectAnnotation`,
+`s3:GetObjectAnnotation`, `s3:ListObjectAnnotations`, `s3:DeleteObjectAnnotation`, and the README
+documents the unavailable regions (UAE, Bahrain) and bucket types (directory buckets, which use the
+S3 Express One Zone storage class, and Outposts buckets).
+
+### R7 — The AGENTS.md snippet carries the D9 guidance and the `link_metadata` post-commit protocol
+
+When the AGENTS.md snippet is updated, it includes (1) proactive `arkeology://artifact/{id}`
+referencing guidance and (2) reference-healing guidance (search + propose a fix, never silently
+rewrite), and its post-commit protocol references `link_metadata` (not the retired `link_commit`).
+
+Source: D9 — the two guidance clauses part
+
+## 6. Boundaries
 
 **Always:**
 - Annotation availability is a feature-level concern — never a hard startup gate (D15).
@@ -168,9 +179,9 @@ change) a one-time check cannot catch.
 - Do not let an annotation failure raise a raw exception to the MCP caller.
 - Do not discard the artifact content/vectors when only the annotation write fails.
 
-<!-- IMPLEMENTATION BLOCK — agent-owned -->
+## 7. For the developer agent
 
-## Files to Touch
+### Files to Touch
 
 | File | Action | Notes |
 |------|--------|-------|
@@ -186,7 +197,11 @@ change) a one-time check cannot catch.
 | `README.md` | Modify | Add the four IAM actions to the reference policy; document unavailable regions / bucket types |
 | `skills/setting-up-arkeology/references/agents-snippet.md` | Modify | Add D9 `arkeology://` referencing + reference-healing clauses; switch post-commit protocol to `link_metadata` |
 
-## Testing Approach
+### Contracts
+
+None.
+
+### Testing Approach
 
 **TDD cycle — test file before implementation file in each pair (code portions only):**
 
@@ -203,10 +218,3 @@ change) a one-time check cannot catch.
 Skill / README / snippet changes are prose (no unit tests); verify against the plan's done-condition
 manually (probe present, IAM actions listed, regions/bucket-types documented, AGENTS.md guidance
 present, `uv run arkeology` still starts).
-
-## Open Questions
-
-- **OQ-T52-a (resolved by recommendation):** write-path degrade = success + `warning` (artifact
-  preserved); `link_metadata` degrade = structured error (durable link write is its contract). This
-  split satisfies AC-62 ("structured, actionable error … core operations continue to function")
-  while never losing an artifact. Confirm with the operator if a uniform error-for-both is preferred.

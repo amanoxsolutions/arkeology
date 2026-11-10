@@ -69,13 +69,12 @@ relationships:
 generated:
   by: "axians-architect/claude-opus-5.5"
   at: 2026-10-13T19:23:58Z
-phase: 15
-task: 89
+revised:
+  by: "axians-architect/claude-opus-5-5"
+  at: 2026-11-09T23:21:06Z
 ---
 
 # T89 — Schema Resource Rewrite
-
-<!-- SCOPE BLOCK — frozen after approval -->
 
 ## TL;DR
 
@@ -87,7 +86,7 @@ of them gets the meaning from the resource instead of guessing. Tests check that
 present and fit the live tool responses, and do not depend on the wording (FR-18; ADR-017
 `### 8. Tool surface`).
 
-## Problem Statement
+## 1. Problem Statement
 
 T76–T88 replace most of the artifact model. Each of those tasks edited only its own rows of the
 schema resource, so the result lists fields by name and type but does not say what they mean or
@@ -106,65 +105,71 @@ should interpret it". The brainstorming session recorded the risk in its
 - `last_edited_at` is when the server stored the artifact. For an imported document that is the
   import time, not when the content was revised.
 
-## User Stories
+The five user stories of this spec are kept as labelled examples under the rules they illustrate
+(Story 1 to Story 5); all five are P1. The decisions taken in this spec keep their titles as
+labelled **Why** lines on the rules they settle, and the answered question keeps its number (Open
+Questions item 1).
 
-### Story 1 — Every field has an entry an agent can find (P1)
+## 2. Rules — Structure
+
+### R1 — `arkeology://schema/artifact` is markdown in three parts, with one `` ### `name` `` heading per field and no other heading of that form
+
+The system serves `arkeology://schema/artifact` as markdown with three parts:
+
+- a conventions section;
+- one entry per field in the table below, each headed by a level-3 heading whose
+  whole text is the field name in backticks (`` ### `status` ``);
+- a section on the in-force view.
+
+No other level-3 heading in this resource takes that form.
+
+Example (Story 1, every field has an entry an agent can find):
 
 - Given `arkeology://schema/artifact`, then it has exactly one entry for each field in the
-  Requirements table, and each entry states the field's meaning, type, where it appears and its OKF
+  Requirements table (R7), and each entry states the field's meaning, type, where it appears and its OKF
   mapping.
-- Given an artifact returned by `read_artifact`, `list_artifacts` (with the revision history
-  requested) or `search_artifacts`, then every key on it has an entry, with one exception: the
-  search ranking key `score`.
 
-### Story 2 — Overloaded names are disambiguated (P1)
+**Why (One heading per field, four labelled parts):** An agent can find a field by its name, and a
+test can collect the set of headings without depending on any prose. A single table was rejected
+because the meanings FR-18 asks for do not fit in table cells. One resource per field family was
+rejected because the contract fixes five URIs and nothing needs more.
 
-- Given an agent reading `sources[].id`, then the resource says it is a footnote label and not an
-  artifact id.
-- Given `tier: 3`, then the resource says this is Arkeology's access tier and not OKF's trust tier.
-- Given `generated.at`, then the resource says it is the time of first authorship and that
-  `revised.at` holds the latest change.
-- Given `status: null`, then the resource says OKF reads a missing status as `stable`, that the
-  artifact is in force, and that `status="stable"` does not match it.
+Source: FR-18
 
-### Story 3 — An agent asks for the view it means (P1)
+### R2 — Each field entry carries the four labelled parts `Meaning:`, `Type:`, `Appears in:` and `OKF:`
 
-- Given the in-force section, then an agent can build the default call, the full-lineage call
-  (`archived="all"` with `status="all"`) and the exclude-drafts call, and knows that `supersedes`
-  never removes an artifact from the default view.
+Each field entry carries four labelled parts: `Meaning:`, `Type:`, `Appears in:` and `OKF:`.
 
-### Story 4 — A foreign reader understands the marker (P1)
+- `Type` states the shape and whether the field is required, optional or set by the server.
+- `Appears in` names the tools that accept the field and the tools that return it.
 
-- Given a foreign artifact whose `sources` ends in `{withheld: 2}`, then the resource says two
-  entries were removed because they point at artifacts this reader cannot read, and that the
-  marker is not a source.
+Source: FR-18
 
-### Story 5 — No removed name is taught (P1)
+### R3 — Sub-keys of `sources` and `relationships` are described inside their parent's entry
 
-- Given any of the five schema resources, then none names a name that AC-80 lists as removed.
+Sub-keys of `sources` and `relationships` are described inside their parent's entry, not as entries
+of their own.
 
-## Requirements
+Source: FR-18
 
-**Structure** (FR-18)
+### R4 — `artifact_schema_content` is pure, identical across calls and deployments, AWS-free, and reads the type list live
 
-- THE SYSTEM SHALL serve `arkeology://schema/artifact` as markdown with three parts:
-  - a conventions section;
-  - one entry per field in the table below, each headed by a level-3 heading whose whole text is
-    the field name in backticks (`` ### `status` ``);
-  - a section on the in-force view.
+The system keeps `artifact_schema_content` pure, identical across calls and deployments, and free
+of AWS access. It reads the recommended type list live from `RECOMMENDED_ARTIFACT_TYPES` (T77).
 
-  No other level-3 heading in this resource SHALL take that form.
-- Each field entry SHALL carry four labelled parts: `Meaning:`, `Type:`, `Appears in:` and `OKF:`.
-  - `Type` states the shape and whether the field is required, optional or set by the server.
-  - `Appears in` names the tools that accept the field and the tools that return it.
-- Sub-keys of `sources` and `relationships` SHALL be described inside their parent's entry, not as
-  entries of their own.
-- THE SYSTEM SHALL keep `artifact_schema_content` pure, identical across calls and deployments, and
-  free of AWS access. It SHALL read the recommended type list live from
-  `RECOMMENDED_ARTIFACT_TYPES` (T77).
-- Every reference to OKF SHALL cite a section (`§5.1`) or be written out as "OKF GitHub issue #N".
+Source: FR-18
 
-**Conventions section** (D19, D35; OKF §7)
+### R5 — Every reference to OKF cites a section or is written out as "OKF GitHub issue #N"
+
+Every reference to OKF cites a section (`§5.1`) or is written out as "OKF GitHub issue #N".
+
+Source: FR-18
+
+## 3. Rules — Conventions section
+
+### R6 — The conventions section states the actor, timestamp, baseline, comparison and metadata-source conventions
+
+The resource's conventions section states:
 
 - Every `by` is an OKF §7 actor (`<producer>/<version>`, `human:<id>` or `process:<id>`) and is
   stored verbatim.
@@ -174,8 +179,14 @@ should interpret it". The brainstorming session recorded the risk in its
 - Metadata comes only from tool parameters. The server never parses the content's frontmatter to
   fill a field.
 
-**Field entries** (FR-18, FR-09). An entry may add detail, but it SHALL NOT contradict the cited
-spec. Each row lists what the entry SHALL make clear.
+Source: D19, D35; OKF §7
+
+## 4. Rules — Field entries
+
+### R7 — Each field entry makes clear what its row states, and may add detail but never contradicts the cited spec
+
+An entry may add detail, but it does not contradict the cited spec. Each row lists what the entry
+makes clear.
 
 | Field | The entry SHALL make clear | OKF mapping | Traces to |
 |---|---|---|---|
@@ -202,7 +213,55 @@ spec. Each row lists what the entry SHALL make clear.
 | `last_edited_ulid` | Opaque server token that changes only on create and update. Pass it as `if_match` to `update_artifact`, which then fails with `conflict` if the artifact has changed since. Pass it as `since_ulid` to `propose_commit_links`. It is not provenance and is not comparable with `revised.at` | None | D19, FR-75, AC-86; T78, T79 |
 | `last_edited_at` | On search, synthesise and `propose_commit_links` results: when Arkeology stored the latest create or update, derived from `last_edited_ulid` (`null` if it cannot be parsed). This is storage time, so for an imported document it is the import time. Judge recency by `revised.at` or `generated.at` instead | None | D19; T79 |
 
-**In-force view section** (FR-04, FR-67; D23–D25)
+Examples (Story 2, overloaded names are disambiguated):
+
+- Given an agent reading `sources[].id`, then the resource says it is a footnote label and not an
+  artifact id.
+- Given `tier: 3`, then the resource says this is Arkeology's access tier and not OKF's trust tier.
+- Given `generated.at`, then the resource says it is the time of first authorship and that
+  `revised.at` holds the latest change.
+- Given `status: null`, then the resource says OKF reads a missing status as `stable`, that the
+  artifact is in force, and that `status="stable"` does not match it.
+
+Example (Story 4, a foreign reader understands the marker):
+
+- Given a foreign artifact whose `sources` ends in `{withheld: 2}`, then the resource says two
+  entries were removed because they point at artifacts this reader cannot read, and that the
+  marker is not a source.
+
+**Open Questions item 1 — Resolved 2026-10-13 — keep the import clause.** The operator accepted
+importing `revised` and FR-69 was reworded to match. *Original question:* the import clause of
+`revised`. The `revised` entry says a document imported by `migrate_artifacts` may arrive with its
+`revised`, following T88's Decision 1. T88's Open Question 2, on how literally to read FR-69, is
+still open. If it is decided the literal way, delete that one clause; nothing else in the entry
+changes.
+
+Source: FR-18, FR-09
+
+### R8 — Every key on an artifact returned by `read_artifact`, `list_artifacts` (revision history requested) or `search_artifacts` has an entry, except `score`
+
+(Story 1, continued) Given an artifact returned by `read_artifact`, `list_artifacts` (with the revision history
+requested) or `search_artifacts`, every key on it has an entry, with one exception: the search
+ranking key `score`.
+
+**Why (What counts as a field):** A field is anything a create or update tool accepts, or anything
+`read_artifact`, `list_artifacts`, `search_artifacts` or `synthesise_artifacts` returns for each
+artifact, plus `last_edited_at`. Keys that describe one call rather than one artifact are excluded,
+because the tool descriptions own them: `score`, `skipped_malformed_count`, `truncated`,
+`included`, and the freshness report lists. `unchecked_sources` appears only to explain
+`last_modified`. The in-force view is a query rule, not a field, so it gets a section.
+
+**Why (Completeness is checked against live responses):** FR-18 says "always-current". In practice that
+breaks when a later task adds a response key and leaves the resource alone, and a hand-kept test
+list cannot notice. One test therefore compares real response keys against the headings.
+
+Source: —
+
+## 5. Rules — In-force view section
+
+### R9 — The in-force view section states what in force means, where the view applies, and how each filter value changes it
+
+The resource's in-force view section states:
 
 - In force means `status` is not `deprecated` and `archived` is `false`. An artifact in `draft`, or
   with no status, is in force.
@@ -218,53 +277,70 @@ spec. Each row lists what the entry SHALL make clear.
 - Whether an artifact is in force depends only on its own `status` and `archived`. A `supersedes`
   edge never excludes anything.
 
-**The other schema resources** (FR-18)
+Example (Story 3, an agent asks for the view it means):
 
-- `tiers_schema_content` SHALL state that a supplied `id` replaces both generated formats. The key
-  is then `<WRITE_PREFIX>/<id><extension>`, verbatim, with no hash and no date anchor (D28, D32;
-  T87).
-- `visibility_schema_content` SHALL state that the gate also applies inside link fields. For a
-  foreign reader, entries in `sources` and `relationships`, and in the matching frontmatter blocks
-  of returned content, that point at artifacts the reader cannot read are removed, and one
-  `{withheld: n}` entry is added per list (D47–D49; T85).
-- `query_strategy_content` SHALL tell agents to judge recency by `revised.at`, or `generated.at`
-  when `revised` is `null`, rather than `last_edited_at`. Its line describing the artifact resource
-  SHALL describe the field reference.
-- `_SCHEMA_RESOURCES` SHALL describe `arkeology://schema/artifact` as the field reference: meaning,
-  type, where each field appears, its OKF mapping, and the in-force view.
-- None of the five resources SHALL name, as a code span, any name that AC-80 lists as removed:
-  `references`, `source_artifacts`, `author_role`, `date`, `timestamp`, `link_metadata`,
-  `write_artifact`, `write_artifacts`, `overwrite`, `active` or `inactive`.
+- Given the in-force section, then an agent can build the default call, the full-lineage call
+  (`archived="all"` with `status="all"`) and the exclude-drafts call, and knows that `supersedes`
+  never removes an artifact from the default view.
 
-### Decisions taken in this spec
+Source: FR-04, FR-67; D23–D25
 
-**One heading per field, four labelled parts.** An agent can find a field by its name, and a test
-can collect the set of headings without depending on any prose. A single table was rejected because
-the meanings FR-18 asks for do not fit in table cells. One resource per field family was rejected
-because the contract fixes five URIs and nothing needs more.
+## 6. Rules — The other schema resources
 
-**What counts as a field.** A field is anything a create or update tool accepts, or anything
-`read_artifact`, `list_artifacts`, `search_artifacts` or `synthesise_artifacts` returns for each
-artifact, plus `last_edited_at`. Keys that describe one call rather than one artifact are excluded,
-because the tool descriptions own them: `score`, `skipped_malformed_count`, `truncated`,
-`included`, and the freshness report lists. `unchecked_sources` appears only to explain
-`last_modified`. The in-force view is a query rule, not a field, so it gets a section.
+### R10 — `tiers_schema_content` states that a supplied `id` replaces both generated formats
 
-**Removed names are not documented.** The AC-80 rejection already names the replacement, and the
-**Breaking** CHANGELOG entry (T91) carries the mapping. A list of old names in the resource would
-grow with every release and keep dead names in every agent's context.
+`tiers_schema_content` states that a supplied `id` replaces both generated formats. The key is then
+`<WRITE_PREFIX>/<id><extension>`, verbatim, with no hash and no date anchor.
 
-**Recency moves from `last_edited_at` to `revised.at`.** `last_edited_at` is when the server stored
+Source: FR-18; D28, D32; T87
+
+### R11 — `visibility_schema_content` states that the gate also applies inside link fields
+
+`visibility_schema_content` states that the gate also applies inside link fields. For a foreign
+reader, entries in `sources` and `relationships`, and in the matching frontmatter blocks of
+returned content, that point at artifacts the reader cannot read are removed, and one
+`{withheld: n}` entry is added per list.
+
+Source: FR-18; D47–D49; T85
+
+### R12 — `query_strategy_content` tells agents to judge recency by `revised.at`, or `generated.at` when `revised` is `null`, rather than `last_edited_at`
+
+`query_strategy_content` tells agents to judge recency by `revised.at`, or `generated.at` when
+`revised` is `null`, rather than `last_edited_at`. Its line describing the artifact resource
+describes the field reference.
+
+**Why (Recency moves from `last_edited_at` to `revised.at`):** `last_edited_at` is when the server stored
 the artifact, so every imported document would look freshly edited. OKF §5.2 says consumers use
 the content's change time "to tell a recent edit from a stale fact". In Arkeology that time is
 `revised.at`, falling back to `generated.at`, which is the same order Studio uses (T79) and the
 same effective time freshness uses (T86).
 
-**Completeness is checked against live responses.** FR-18 says "always-current". In practice that
-breaks when a later task adds a response key and leaves the resource alone, and a hand-kept test
-list cannot notice. One test therefore compares real response keys against the headings.
+Source: FR-18
 
-## Boundaries
+### R13 — `_SCHEMA_RESOURCES` describes `arkeology://schema/artifact` as the field reference
+
+`_SCHEMA_RESOURCES` describes `arkeology://schema/artifact` as the field reference: meaning, type,
+where each field appears, its OKF mapping, and the in-force view.
+
+Source: FR-18
+
+### R14 — None of the five resources names, as a code span, a name AC-80 lists as removed
+
+None of the five resources names, as a code span, any name that AC-80 lists as removed:
+`references`, `source_artifacts`, `author_role`, `date`, `timestamp`, `link_metadata`,
+`write_artifact`, `write_artifacts`, `overwrite`, `active` or `inactive`.
+
+Example (Story 5, no removed name is taught):
+
+- Given any of the five schema resources, then none names a name that AC-80 lists as removed.
+
+**Why (Removed names are not documented):** The AC-80 rejection already names the replacement, and the
+**Breaking** CHANGELOG entry (T91) carries the mapping. A list of old names in the resource would
+grow with every release and keep dead names in every agent's context.
+
+Source: FR-18
+
+## 7. Boundaries
 
 **Always:**
 - Describe the target state.
@@ -285,9 +361,9 @@ list cannot notice. One test therefore compares real response keys against the h
 
 AC-80 does not apply to this task: T89 removes no parameter, field or tool name.
 
-<!-- IMPLEMENTATION BLOCK — agent-owned -->
+## 8. For the developer agent
 
-## Files to Touch
+### Files to Touch
 
 | File | Action | Notes |
 |---|---|---|
@@ -296,7 +372,7 @@ AC-80 does not apply to this task: T89 removes no parameter, field or tool name.
 
 No other source file changes. `tests/unit/test_data_resources.py` is not affected.
 
-## Contract Amendments
+### Contracts
 
 - `modules/arkeology.resources.md`, `### register_resources`, Invariants:
   - `arkeology://schema/artifact` holds exactly one `` ### `name` `` entry per artifact field, as
@@ -310,7 +386,7 @@ No other source file changes. `tests/unit/test_data_resources.py` is not affecte
 
 No other contract changes.
 
-## Testing Approach
+### Testing Approach
 
 TDD: test file first, confirmed failing, then `resources.py`. No acceptance criterion cites FR-18,
 so every test below proves FR-18 and plan.md's T89 Done condition. Tests match field, parameter,
@@ -320,7 +396,7 @@ file in the mutation `only_mutate` scope is touched, so no mutation run is neede
 
 1. `tests/unit/test_resources.py` → `src/arkeology/resources.py`:
    - **Field set.** The `` ### `name` `` headings parsed from `artifact_schema_content()` equal the
-     test-owned set of the 23 names in the Requirements table, exactly (Story 1).
+     test-owned set of the 23 names in the Requirements table (R7), exactly (Story 1).
    - **Four parts.** Each entry's section, which runs to the next heading, contains `Meaning:`,
      `Type:`, `Appears in:` and `OKF:`.
    - **Key tokens per entry.** A test-owned table maps each field to tokens its section must
@@ -361,10 +437,3 @@ file in the mutation `only_mutate` scope is touched, so no mutation run is neede
 
 **Review (Done condition):** before marking the task done, check the rendered resource field by
 field against ADR-017 `## Decision` and the cited specs, and record the result in the PR.
-
-## Open Questions
-
-1. **Resolved 2026-10-13 — keep the import clause.** The operator accepted importing `revised` and FR-69 was reworded to match. *Original question:* the import clause of `revised`. The `revised` entry says a document imported
-   by `migrate_artifacts` may arrive with its `revised`, following T88's Decision 1. T88's Open
-   Question 2, on how literally to read FR-69, is still open. If it is decided the literal way,
-   delete that one clause; nothing else in the entry changes.

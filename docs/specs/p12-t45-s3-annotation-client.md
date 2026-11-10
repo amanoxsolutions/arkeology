@@ -22,16 +22,15 @@ sources:
 generated:
   by: "axians-architect/claude-opus-4.8"
   at: 2026-07-03T00:00:00Z
+revised:
+  by: "axians-architect/claude-opus-5-5"
+  at: 2026-11-09T18:22:34Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
-phase: 12
-task: 45
 ---
 
 # T45 — S3 Object Annotation Client Support + moto Self-Mock Extension
-
-<!-- SCOPE BLOCK — frozen after approval -->
 
 ## TL;DR
 
@@ -41,7 +40,7 @@ that self-mocks the annotation APIs (moto 5.2.2 has zero native annotation suppo
 hard prerequisite for every durable-link-storage task in Phase 12 (T46–T54): annotations are the
 durable store for `commit_refs` and `references` (ADR-011, FR-54). No tool changes in this task.
 
-## Problem Statement
+## 1. Problem Statement
 
 ADR-011 (FR-54) moves the durable copy of the mutable link fields (`commit_refs`, `references`)
 from vector-metadata-only to **S3 object annotations** — a named payload, mutable in place via
@@ -49,73 +48,105 @@ from vector-metadata-only to **S3 object annotations** — a named payload, muta
 timestamp. `botocore` already exposes the four annotation operations, but the project's client
 layer does not surface them and moto (the mandated S3 test backend) does not implement them. Until
 the client layer and a moto self-mock exist, nothing downstream can be written, read, or unit-tested.
+With them, the write path and `link_metadata` can put, read back, list, and delete a named
+annotation on an S3 object via the injected `s3` client.
 
-## User Stories
+Priority: the annotation round-trip through the client (R1–R4), the overwrite-wipe fidelity of the
+self-mock (R9) and structured credential and access errors (R6) are all P1.
 
-### Story 1 — Annotation round-trip through the client (P1)
+## 2. Rules — Annotation operations on the S3 client
 
-The write path and `link_metadata` can put, read back, list, and delete a named annotation on an
-S3 object via the injected `s3` client.
+### R1 — Put an annotation
 
-**Acceptance criteria:**
+When `put_object_annotation(key, annotation_name, payload)` is called, the client calls the boto3
+`put_object_annotation` operation with `Bucket`, `Key=key`, `AnnotationName=annotation_name`, and
+`AnnotationPayload=payload.encode("utf-8")`.
+
+**Example**
+
 - Given an object at key `K`, when `s3.put_object_annotation(K, "commit_refs", "abc,def")` is
-  called then `s3.get_object_annotation(K, "commit_refs")` returns `"abc,def"`.
-- Given two annotations written to `K` (`"commit_refs"` and `"references"`), when
-  `s3.list_object_annotations(K)` is called then it returns both annotation names.
-- Given an annotation on `K`, when `s3.delete_object_annotation(K, "commit_refs")` is called then
-  a subsequent `get_object_annotation(K, "commit_refs")` raises `KeyError` (annotation absent).
+  called, then `s3.get_object_annotation(K, "commit_refs")` returns `"abc,def"`.
+
+### R2 — Get an annotation
+
+When `get_object_annotation(key, annotation_name)` is called, the client returns the payload
+decoded as a UTF-8 string, and raises `KeyError(key)` when the object or the named annotation does
+not exist (mirrors the `get_object` missing-key contract).
+
+**Example**
+
 - Given a key with no annotation named `"references"`, when `get_object_annotation` is called for
-  it, then `KeyError` is raised (mirrors the `get_object` missing-key contract).
+  it, then `KeyError` is raised.
 
-### Story 2 — Overwrite wipes annotations (fidelity requirement) (P1)
+### R3 — List annotations
 
-The moto self-mock faithfully models the real S3 behaviour that overwriting an object clears its
-annotations — this is what T47's overwrite-preservation tests depend on.
+When `list_object_annotations(key)` is called, the client returns the list of annotation names
+present on the object, paginating via `ContinuationToken` if the response is truncated.
 
-**Acceptance criteria:**
+**Example**
+
+- Given two annotations written to `K` (`"commit_refs"` and `"references"`), when
+  `s3.list_object_annotations(K)` is called, then it returns both annotation names.
+
+### R4 — Delete an annotation
+
+When `delete_object_annotation(key, annotation_name)` is called, the client deletes the named
+annotation and does not raise if it is already absent (mirrors `delete_object`).
+
+**Example**
+
+- Given an annotation on `K`, when `s3.delete_object_annotation(K, "commit_refs")` is called, then
+  a subsequent `get_object_annotation(K, "commit_refs")` raises `KeyError` (annotation absent).
+
+### R5 — Optional `if_match` on put and delete (optimistic concurrency)
+
+Forward-pointer requirement (2026-07-06, shipped in `7a697dd`): `put_object_annotation` and
+`delete_object_annotation` take an optional `if_match` parameter that is sent as the boto3
+`ObjectIfMatch` parameter. When `ObjectIfMatch` is supplied and does not match the object's current
+ETag, the client translates the resulting HTTP 412 `PreconditionFailed` into `ArtifactConflictError`
+(never a raw exception). The caller (the write path, `link_metadata`, `archive_artifact`) is
+responsible for the bounded retry/re-merge cycle that consumes this signal; this client's contract
+is only to expose the parameter and translate the precondition failure. This required extending the
+moto self-mock annotation extension to honour `ObjectIfMatch`. See
+`docs/specs/p2-t7-write-artifact.md`'s equivalent forward-pointer note for how callers consume this.
+
+Source: ADR-011 decision 6
+
+### R6 — Credential errors are structured
+
+When any annotation call encounters a credential error, the client raises `CredentialError` via
+`wrap_credential_errors("s3")` — never a raw botocore exception.
+
+**Example**
+
+- Given a credential failure during any annotation call, when the client method runs, then it
+  raises `CredentialError` (via the existing `wrap_credential_errors`).
+
+### R7 — The Protocol carries the four signatures
+
+When the four methods are added to `S3ClientImpl`, their signatures are also added to the
+`S3ClientInterface` `typing.Protocol` — structural conformance only, no `ABC`.
+
+## 3. Rules — moto self-mock extension
+
+### R8 — Unit tests use the conftest self-mock
+
+When a unit test needs annotation behaviour, it exercises it through the moto self-mock extension
+registered once at conftest module load, mirroring the `query_vectors` patch.
+
+### R9 — Overwrite wipes annotations (fidelity requirement)
+
+When an object is overwritten via `put_object`, the moto self-mock clears all annotations
+previously stored for that key, matching real S3 semantics. T47's overwrite-preservation tests
+depend on the self-mock modelling this faithfully.
+
+**Example**
+
 - Given an object at `K` with a `"commit_refs"` annotation, when `s3.put_object(K, ...)` is called
   again (overwrite), then `get_object_annotation(K, "commit_refs")` raises `KeyError` (the
   annotation was cleared by the object overwrite).
 
-### Story 3 — Credential and access errors are structured (P1)
-
-**Acceptance criteria:**
-- Given a credential failure during any annotation call, when the client method runs then it raises
-  `CredentialError` — never a raw botocore exception (via the existing `wrap_credential_errors`).
-
-## Requirements
-
-- WHEN `put_object_annotation(key, annotation_name, payload)` is called THE SYSTEM SHALL call the
-  boto3 `put_object_annotation` operation with `Bucket`, `Key=key`, `AnnotationName=annotation_name`,
-  and `AnnotationPayload=payload.encode("utf-8")`.
-- WHEN `get_object_annotation(key, annotation_name)` is called THE SYSTEM SHALL return the payload
-  decoded as a UTF-8 string, and SHALL raise `KeyError(key)` when the object or the named annotation
-  does not exist.
-- WHEN `list_object_annotations(key)` is called THE SYSTEM SHALL return the list of annotation names
-  present on the object (paginating via `ContinuationToken` if the response is truncated).
-- WHEN `delete_object_annotation(key, annotation_name)` is called THE SYSTEM SHALL delete the named
-  annotation and SHALL NOT raise if it is already absent (mirrors `delete_object`).
-- WHEN any annotation call encounters a credential error THE SYSTEM SHALL raise `CredentialError`
-  via `wrap_credential_errors("s3")`.
-
-> **Forward-pointer requirement (2026-07-06, shipped in `7a697dd`) — optimistic-concurrency
-> support.** `put_object_annotation` and `delete_object_annotation` gained an optional `if_match`
-> parameter that is sent as the boto3 `ObjectIfMatch` parameter. WHEN `ObjectIfMatch` is supplied
-> and does not match the object's current ETag THE SYSTEM SHALL translate the resulting HTTP 412
-> `PreconditionFailed` into `ArtifactConflictError` (never a raw exception) — the caller (the write
-> path, `link_metadata`, `archive_artifact`) is responsible for the bounded retry/re-merge cycle
-> that consumes this signal; this client task's contract is only to expose the parameter and
-> translate the precondition failure. This required extending the moto self-mock annotation
-> extension to honour `ObjectIfMatch`. See `docs/specs/p2-t7-write-artifact.md`'s equivalent
-> forward-pointer note for how callers consume this; rationale: ADR-011 decision 6.
-- WHEN the four methods are added to `S3ClientImpl` THE SYSTEM SHALL also add their signatures to
-  the `S3ClientInterface` `typing.Protocol` — structural conformance only, no `ABC`.
-- WHEN a unit test needs annotation behaviour THE SYSTEM SHALL exercise it through the moto
-  self-mock extension registered once at conftest module load, mirroring the `query_vectors` patch.
-- WHEN an object is overwritten via `put_object` THE SYSTEM SHALL (in the moto self-mock) clear all
-  annotations previously stored for that key, matching real S3 semantics.
-
-## Boundaries
+## 4. Boundaries
 
 **Always:**
 - Interfaces are `typing.Protocol` — `S3ClientImpl` satisfies them structurally; never add `ABC`
@@ -140,9 +171,9 @@ annotations — this is what T47's overwrite-preservation tests depend on.
 - Do not gate server startup on annotation availability (that is T52 / D15).
 - Do not re-implement the `query_vectors` patch or touch it — add a parallel annotation extension.
 
-<!-- IMPLEMENTATION BLOCK — agent-owned -->
+## 5. For the developer agent
 
-## Files to Touch
+### Files to Touch
 
 | File | Action | Notes |
 |------|--------|-------|
@@ -153,7 +184,11 @@ annotations — this is what T47's overwrite-preservation tests depend on.
 | `tests/integration/clients/test_s3_annotations.py` | Create | Real-AWS round-trip against a real bucket (written first for integration Red) |
 | `AGENTS.md` | Modify | Add the annotation methods to the repo-structure / testing-conventions notes (self-mocked via conftest extension, precedent: `query_vectors`) |
 
-## Testing Approach
+### Contracts
+
+None.
+
+### Testing Approach
 
 **TDD cycle — moto extension + client tests before implementation:**
 
@@ -189,8 +224,3 @@ annotations — this is what T47's overwrite-preservation tests depend on.
 4. **Integration (`tests/integration/clients/test_s3_annotations.py`, Red for integration):**
    put→get→list→delete round-trip against a real bucket; assert the moto extension's behaviour
    matches the real annotation API (per the plan's done-condition).
-
-## Open Questions
-
-*(none — boto3 operation shapes confirmed from the installed botocore service model; the moto
-integration seam is an implementation detail to iterate on, with a fixed behavioural contract above)*

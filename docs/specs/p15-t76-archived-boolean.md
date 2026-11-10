@@ -108,13 +108,12 @@ relationships:
 generated:
   by: "axians-architect/claude-opus-5.5"
   at: 2026-10-13T15:57:36Z
-phase: 15
-task: 76
+revised:
+  by: "axians-architect/claude-opus-5-5"
+  at: 2026-11-09T21:19:08Z
 ---
 
 # T76 — Archive Marker `status` → `archived` (bool)
-
-<!-- SCOPE BLOCK — frozen after approval -->
 
 ## TL;DR
 
@@ -124,7 +123,31 @@ and the data resources. `ArtifactStatus` is deleted, and `reconcile_index` repai
 `archived` is missing or not a boolean (D50). T76 lands before T81, so once it ships no code path
 writes, filters on or returns a `status` key, and the key is free for the OKF lifecycle (D21).
 
-## Problem Statement
+## Open Questions
+
+3. **Behaviour on a store not yet migrated (not blocking).** On a store written before T76, no
+object or vector carries `archived`. T76's code does not fall back to `status`, so, in a loud
+rather than silent way:
+
+- `list_artifacts`, `search_artifacts` (`zero_results: true`), `synthesise_artifacts`,
+  `arkeology://artifacts` and Studio's Not archived view return nothing.
+- `archived="all"` and Studio's default All view return no entries and a
+  `skipped_malformed_count` equal to the number of candidates.
+- `read_artifact` returns `corrupt_metadata` naming `archived`.
+- `purge_archived` finds nothing.
+- The delete and archive referrer warnings find no referrers.
+- `check_synthesis_freshness` checks nothing and reports `all_fresh: true`. This is the one
+  misleading signal, and it is bounded by `total_checked: 0`.
+- `archive_artifact` still works and adds `archived` while carrying the legacy `status` forward.
+- `reconcile_index` lists every own-scope artifact under `failed`, with S3 `archived`
+  unreadable, and writes nothing. That is the operator's clearest indication that the store
+  needs migrating.
+
+The remedy is T90's store-migration skill (ADR-017 §9: run the migration before or with the
+upgrade). The coordinator has asked the operator whether a startup check should refuse to start
+on an unmigrated store. If the answer is yes, it belongs to T90's scope, not T76's.
+
+## 1. Problem Statement
 
 Today one key, `status`, records whether Arkeology has archived an artifact. OKF v0.2 documents
 carry their own `status` (`draft | stable | deprecated`), which T81 ingests. If both existed, a
@@ -134,192 +157,323 @@ content. Code could tell them apart, but an agent reading the payload could not 
 what it records. It must ship alone and first, so that `status` never means two things in one
 release (plan.md `## Phase 15`, Ordering).
 
-## User Stories
+Six user stories frame this spec, all P1: archiving is a boolean, filtered with three
+states; no `status` key in data the server writes or returns; purge, delete and freshness key on
+`archived`; humans see the same default view; vectors with a missing or non-boolean `archived`
+are repaired; the old parameter is rejected, not aliased.
 
-### Story 1 — Archiving is a boolean, filtered with three states (P1)
+## 2. Rules — Storage
+
+### R1 — `archived` is stored as an exact string in S3 and a native boolean in vectors, never as `status`
+
+When any path writes an artifact's metadata, it stores `archived` as follows and writes no
+`status` key:
+
+| Store | `archived` |
+|-------|------------|
+| S3 object metadata | exactly the string `"true"` or `"false"` (the exact lowercase strings) |
+| Vector metadata | a native boolean, in filterable metadata |
+
+No index change is needed: keys are filterable by default (ADR-017 `## Consequences`,
+"No re-index").
+
+**Why:** ADR-017 `## Deferred to the Specs` leaves the persisted encodings to the data contracts,
+and they are set here. S3 object metadata holds strings because S3 user metadata is string-only.
+Vector metadata holds a native boolean, which S3 Vectors supports and filters with `$eq` (AWS S3
+Vectors metadata filtering documentation).
+
+Source: FR-09, D21, D50, aws-s3vectors-filtering
+
+### R2 — Creating an artifact writes `archived` false and takes no archive marker
+
+When an artifact is created (`write_artifact`, or `create_artifact` after T78, including through
+the bulk and migrate tools), `archived` is written false in both stores. Create takes no archive
+marker: the `status` parameter is removed from create rather than renamed, and its AC-80 row
+names `archive_artifact`.
+
+**Why:** ADR-017 §2 names `archive_artifact` as the owner of `archived`, and FR-14 lists archiving
+as a post-write operation. T78's update already carries the marker forward instead of accepting
+it. If create also accepted it, there would be a second writer of the marker outside archive's
+partial-failure and idempotency machinery. No caller needs to create an artifact that is already
+archived; the one test that does so writes and then archives.
+
+Source: FR-09, D21, D50, FR-14, ADR-017 §2, AC-80
+
+### R3 — `archived` is read back strictly, and any other value is uninterpretable
+
+When reading `archived` back, only `"true"` / `"false"` (case-sensitive) are accepted from S3
+object metadata, and only a native boolean from vector metadata. Any other value, including
+absence, is uninterpretable. It is never defaulted, and it is never derived from a legacy
+`status` key.
+
+**Why:** a tolerant parser (`"True"`, `"1"`) would be a second encoding that nothing writes.
+
+Source: FR-09, D21, D50
+
+### R4 — No `status` key in artifact data after T76
+
+After T76, no code path writes, filters on or returns a `status` key for artifact data. A store
+written or migrated after T76 therefore holds none. `health_check`'s per-component `status` is a
+different field and is unchanged.
+
+**Example**
+
+- Given any artifact written after T76, when it is read, listed, searched or synthesised, then
+  each entry carries `archived` as a JSON boolean and carries no `status` key. Its S3 object
+  metadata and vector metadata hold `archived` and no `status`.
+
+Source: None
+
+## 3. Rules — Query
+
+### R5 — `list_artifacts` and `search_artifacts` filter on a three-state `archived`, default `false`
+
+`list_artifacts` and `search_artifacts` accept `archived: bool | Literal["all"] = False` with
+three states, and AND the result with the scope filter exactly as the `status` clause is ANDed
+today:
+
+| `archived` | Clause added |
+|------------|--------------|
+| `false`, the default | `archived $eq false` |
+| `true` | `archived $eq true` |
+| `"all"` | no archived clause |
+
+The schema advertises `anyOf: [boolean, {const: "all"}]`. JSON `null` is rejected as the "all"
+spelling.
+
+**Example**
 
 - Given an artifact X that has been archived, when the caller lists or searches with default
   parameters, then X is not returned (AC-08).
 - Given the same store, when the caller passes `archived=true`, then only archived artifacts are
   returned. When the caller passes `archived="all"`, archived and non-archived artifacts are both
   returned.
-- Given `archive_artifact` succeeds, then its response is `{"artifact_id": …, "archived": true}`,
-  and X's S3 object metadata and every one of its vectors record it as archived.
 
-### Story 2 — No `status` key in data the server writes or returns (P1)
+**Why:** the sentinel ADR's revision leaves the shape of "all" to the spec. This shape keeps the
+one accepted literal `"all"`, checked before validation, so Studio's existing `"all"` default
+carries over unchanged. JSON `null` was rejected because many MCP clients send `null` for an
+optional they mean to leave unset, and that would silently widen to "all".
 
-- Given any artifact written after T76, when it is read, listed, searched or synthesised, then
-  each entry carries `archived` as a JSON boolean and carries no `status` key. Its S3 object
-  metadata and vector metadata hold `archived` and no `status`.
+Source: FR-04, FR-05, FR-14, D21, adr-2026-08-12-status-all-sentinel-convention `## Revision — 2026-09-25`, AC-08
 
-### Story 3 — Purge, delete and freshness key on `archived` (P1)
+### R6 — An `archived` value that is neither a boolean nor `"all"` is rejected
+
+The value is compared against `"all"` before it is validated. When the value is neither a
+boolean nor `"all"`, the call returns `validation_error` naming the value. Through MCP, the
+tool's input schema already rejects such a value before dispatch, with FastMCP's argument error.
+That error is not the structured `validation_error` that `status="activ"` returns today; this is
+accepted. Callers that bypass MCP — `resources.py`, Studio's fallback and unit tests — get the
+structured `validation_error` from the inner check.
+
+**Why:** a FastMCP argument error is how a `tier` type mismatch already behaves, and the value is
+still rejected.
+
+Note (probed 2026-10-13, with the pinned FastMCP 3.4.6): `"all"`, `true` and `false` pass, the
+string `"true"` is coerced to `true`, and `null`, `"All"` and `"inactive"` are rejected with
+FastMCP's argument error before dispatch.
+
+Source: FR-04, FR-05, FR-14, D21, adr-2026-08-12-status-all-sentinel-convention `## Revision — 2026-09-25`
+
+### R7 — `synthesise_artifacts` always applies `archived $eq false`
+
+`synthesise_artifacts` keeps exposing no archive parameter and always applies
+`archived $eq false`.
+
+Source: FR-04, FR-05, FR-14, D21, adr-2026-08-12-status-all-sentinel-convention `## Revision — 2026-09-25`
+
+### R8 — Listed, searched and synthesised entries carry `archived`; a non-boolean vector value is skipped and counted
+
+When `list_artifacts`, `search_artifacts` or `synthesise_artifacts` returns an entry, the entry
+includes `archived` as a boolean. When a candidate's vector `archived` is not a boolean, the
+candidate is skipped and counted under `skipped_malformed_count`, as for an unreadable `tier`.
+
+Source: FR-04, FR-05, FR-14, D21, adr-2026-08-12-status-all-sentinel-convention `## Revision — 2026-09-25`, adr-2026-09-14-malformed-persisted-data-policy D2, D3 and its revision
+
+### R9 — `read_artifact` returns `archived` from S3 object metadata, or `corrupt_metadata` naming `archived`
+
+When `read_artifact` succeeds, it returns `archived` parsed from S3 object metadata. When that
+value is uninterpretable, it returns `corrupt_metadata` naming `archived`. The raw value appears
+in the message only for an own-scope reader. The gate still runs first, so a denied foreign
+artifact returns `access_denied`.
+
+Source: FR-04, FR-05, FR-14, D21, adr-2026-08-12-status-all-sentinel-convention `## Revision — 2026-09-25`, D50 (case 5)
+
+## 4. Rules — Archive, purge, delete, freshness
+
+### R10 — `archive_artifact` sets `archived` true in both stores
+
+When `archive_artifact` succeeds, it sets S3 `archived` to `"true"` through the existing
+compare-and-swap re-PUT, sets every vector's `archived` to `true`, and returns
+`{"artifact_id": …, "archived": true}` plus today's optional keys (`already_archived`,
+`referrers`, `warning_message`).
+
+**Example**
+
+- Given `archive_artifact` succeeds on X, then its response is
+  `{"artifact_id": …, "archived": true}`, and X's S3 object metadata and every one of its vectors
+  record it as archived.
+
+Source: FR-05, FR-14, FR-22
+
+### R11 — `archive_artifact` short-circuits only when both stores already hold archived `true`
+
+When S3 `archived` parses as true and every vector's `archived` is the boolean `true`,
+`archive_artifact` short-circuits with `already_archived: true`. Any other vector value falls
+through and completes the flip.
+
+Source: FR-05, FR-14, FR-22
+
+### R12 — `purge_archived` selects on `archived`
+
+`purge_archived` selects its purge set as own-scope vectors with `archived $eq true`, and its
+cascade candidates as own-scope syntheses with `archived $eq false`.
+
+**Example**
 
 - Given archived artifacts A and B and a non-archived synthesis S whose every source is A or B,
-  when `purge_archived(confirm=True)` runs, then A, B and S are deleted from S3 and the index, and S
-  is named in the response (AC-20).
+  when `purge_archived(confirm=True)` runs, then A, B and S are deleted from S3 and the index, and
+  S is named in the response (AC-20).
+
+Source: FR-05, FR-14, FR-22, AC-20
+
+### R13 — The referrer lookup considers only non-archived own-scope referrers
+
+The referrer lookup used by `delete_artifact` and `archive_artifact` (`find_referrers`) considers
+only own-scope referrers with `archived $eq false`.
+
+Source: FR-05, FR-14, FR-22
+
+### R14 — `check_synthesis_freshness` audits non-archived syntheses and reports archived sources by the boolean
+
+`check_synthesis_freshness` audits own-scope syntheses with `archived $eq false`, and reports a
+source as archived when its vector `archived` is the boolean `true`.
+
+**Example**
+
 - Given a non-archived synthesis citing an archived source, when the freshness audit runs, then
   the source is listed under `archived_sources`.
 
-### Story 4 — Humans see the same default view (P1)
+Source: FR-05, FR-14, FR-22
+
+## 5. Rules — Resources and Studio
+
+### R15 — `arkeology://artifacts` uses `list_artifacts`' default `archived`
+
+`arkeology://artifacts` delegates to `list_artifacts` with the default `archived`.
+
+**Example**
 
 - Given archived and non-archived own-scope artifacts, when a host reads `arkeology://artifacts`,
   then only the non-archived ones are listed (AC-52).
-- Given Studio is open, when the operator picks a value in the archived facet, then
-  `list_artifacts` and `search_artifacts` are called with the matching `archived` argument (the
-  archived-state part of AC-54; see Open Questions).
 
-### Story 5 — Vectors with a missing or non-boolean `archived` are repaired (P1)
+Source: FR-46, FR-48, AC-52
+
+### R16 — The schema resource describes `archived` and no longer mentions `status`
+
+The schema resource describes `archived` as a required boolean, set only by `archive_artifact`,
+and no longer mentions `status`, `active` or `inactive`. T89 rewrites the rest of the resource.
+
+Source: FR-46, FR-48
+
+### R17 — Studio's archived facet sends the same `archived` value to list and search
+
+Studio's archived facet offers All (the default), Not archived and Archived. These send
+`archived: "all"`, `false` and `true` respectively, and the same value is sent to both
+`list_artifacts` and `search_artifacts`. The detail view shows an "archived" pill when
+`archived` is true and no pill otherwise. This rule covers the archived-state part of AC-54; the
+lifecycle-status facet half of AC-54 / FR-48 is T81's.
+
+**Example**
+
+- Given Studio is open, when the operator picks a value in the archived facet, then
+  `list_artifacts` and `search_artifacts` are called with the matching `archived` argument.
+
+**Why:** resolved 2026-10-13 — T81 owns the lifecycle-status half: plan.md's T81 entry now
+includes "Studio gains a lifecycle-status facet" and AC-54, and T76 proves only the
+archived-state half. AC-54 requires Studio facets for archived state *and* lifecycle status, and
+lifecycle status does not exist until T81. AC-08 and AC-52 do not have this problem: before T81
+no artifact carries a lifecycle status, so "not archived" and "in force" select the same set.
+
+Source: FR-46, FR-48, AC-54
+
+## 6. Rules — Reconcile
+
+### R18 — The `reconcile_index` rebuild takes `archived` strictly from S3 and fails an artifact whose value is uninterpretable
+
+When `reconcile_index` rebuilds an artifact's vectors, it takes `archived` from its S3 object
+metadata. When that value is uninterpretable, it writes no vectors for that artifact and reports
+it under `failed` with a reason naming `archived`. This replaces today's default to `active`.
+
+Source: FR-17, D42, D50
+
+### R19 — `reconcile_index` repairs vectors whose `archived` is absent or not a boolean when the S3 value is interpretable
+
+When `reconcile_index` runs, after its existing three phases it examines every own-scope vector
+whose `archived` is absent or not a boolean, using a strict type test (`0` and `1` are not
+booleans). For each affected artifact still in S3 and not reported as dangling:
+
+| The artifact's S3 `archived` | Outcome |
+|------------------------------|---------|
+| Interpretable | Each affected vector is rewritten with that value, keeping its embedding and every other metadata key, with no embedding call. The artifact is reported in `reconciled` with `source: "archived_repair"` and the count of vectors rewritten. |
+| Uninterpretable | Nothing is written. The artifact is reported under `failed` with a reason naming `archived`. |
+
+The report reuses the existing fields: a repair is a `reconciled` entry with a fifth `source`
+value, `archived_repair`, and an unrepairable artifact goes in `failed`; no new top-level key is
+added. To detect bad values, the own-scope vector listing that reconcile already takes is
+fetched together with its metadata (`fetch_vectors_by_metadata`), which adds one `get_vectors`
+pass. A filter of `archived $nin [true, false]` is not used.
+
+**Example**
 
 - Given a vector whose `archived` is absent, or is a string or a number, and whose S3 object
-  metadata says `archived: "true"`, when `reconcile_index` runs, then the vector is rewritten with
-  `archived: true` and keeps its embedding, the artifact is reported, and no embedding call is made
-  (D50).
+  metadata says `archived: "true"`, when `reconcile_index` runs, then the vector is rewritten
+  with `archived: true` and keeps its embedding, the artifact is reported, and no embedding call
+  is made (D50).
 
-### Story 6 — The old parameter is rejected, not aliased (P1)
-
-- Given a caller passing `status` to `list_artifacts` or `search_artifacts`, when it calls through
-  MCP, then the call returns `validation_error` naming `archived` and is not dispatched (AC-80;
-  D42).
-
-## Requirements
-
-**Storage** (FR-09; D21, D50)
-
-- WHEN any path writes an artifact's S3 object metadata THE SYSTEM SHALL store `archived` as
-  exactly the string `"true"` or `"false"`, and SHALL NOT write a `status` key.
-- WHEN any path writes an artifact's vector metadata THE SYSTEM SHALL store `archived` as a native
-  boolean in filterable metadata, and SHALL NOT write a `status` key. No index change is needed:
-  keys are filterable by default (ADR-017 `## Consequences`, "No re-index").
-- WHEN an artifact is created (`write_artifact`, or `create_artifact` after T78, including through
-  the bulk and migrate tools) THE SYSTEM SHALL write `archived` false in both stores.
-- WHEN reading `archived` back THE SYSTEM SHALL accept only `"true"` / `"false"` from S3 object
-  metadata (case-sensitive) and only a native boolean from vector metadata. Any other value,
-  including absence, is uninterpretable. It is never defaulted, and it is never derived from a
-  legacy `status` key.
-
-**Query** (FR-04, FR-05, FR-14; D21; status-all sentinel ADR, `## Revision — 2026-09-25`)
-
-- WHEN `list_artifacts` or `search_artifacts` is called THE SYSTEM SHALL accept `archived` with
-  three states and AND the result with the scope filter exactly as the `status` clause is ANDed
-  today:
-  - `false`, the default, adds the clause `archived $eq false`;
-  - `true` adds `archived $eq true`;
-  - `"all"` adds no archived clause.
-- THE SYSTEM SHALL compare against `"all"` before validating. WHEN the value is neither a boolean
-  nor `"all"` THE SYSTEM SHALL return `validation_error` naming the value. Through MCP, the tool's
-  input schema already rejects such a value before dispatch (see the decisions below).
-- `synthesise_artifacts` SHALL keep exposing no archive parameter and SHALL always apply
-  `archived $eq false`.
-- WHEN `list_artifacts`, `search_artifacts` or `synthesise_artifacts` returns an entry THE SYSTEM
-  SHALL include `archived` as a boolean in it. WHEN a candidate's vector `archived` is not a
-  boolean THE SYSTEM SHALL skip it and count it under `skipped_malformed_count`, as for an
-  unreadable `tier` (malformed-data ADR D2/D3 and its revision).
-- WHEN `read_artifact` succeeds THE SYSTEM SHALL return `archived` parsed from S3 object metadata.
-  WHEN that value is uninterpretable THE SYSTEM SHALL return `corrupt_metadata` naming `archived`.
-  The raw value appears in the message only for an own-scope reader (D50, case 5). The gate still
-  runs first, so a denied foreign artifact returns `access_denied`.
-
-**Archive, purge, delete, freshness** (FR-05, FR-14, FR-22)
-
-- WHEN `archive_artifact` succeeds THE SYSTEM SHALL set S3 `archived` to `"true"` through the
-  existing compare-and-swap re-PUT, set every vector's `archived` to `true`, and return
-  `{"artifact_id": …, "archived": true}` plus today's optional keys (`already_archived`,
-  `referrers`, `warning_message`).
-- WHEN S3 `archived` parses as true AND every vector's `archived` is the boolean `true` THE SYSTEM
-  SHALL short-circuit with `already_archived: true`. Any other vector value falls through and
-  completes the flip.
-- `purge_archived` SHALL select its purge set as own-scope vectors with `archived $eq true`, and
-  its cascade candidates as own-scope syntheses with `archived $eq false`.
-- The referrer lookup used by `delete_artifact` and `archive_artifact` (`find_referrers`) SHALL
-  consider only own-scope referrers with `archived $eq false`.
-- `check_synthesis_freshness` SHALL audit own-scope syntheses with `archived $eq false`, and SHALL
-  report a source as archived when its vector `archived` is the boolean `true`.
-
-**Resources and Studio** (FR-46, FR-48)
-
-- `arkeology://artifacts` SHALL delegate to `list_artifacts` with the default `archived`.
-- The schema resource SHALL describe `archived` as a required boolean, set only by
-  `archive_artifact`, and SHALL no longer mention `status`, `active` or `inactive`. T89 rewrites
-  the rest of the resource.
-- Studio's archived facet SHALL offer All (the default), Not archived and Archived. These send
-  `archived: "all"`, `false` and `true` respectively, and the same value is sent to both
-  `list_artifacts` and `search_artifacts`. The detail view SHALL show an "archived" pill when
-  `archived` is true and no pill otherwise.
-
-**Reconcile** (FR-17; D42, D50)
-
-- WHEN `reconcile_index` rebuilds an artifact's vectors THE SYSTEM SHALL take `archived` from its
-  S3 object metadata. WHEN that value is uninterpretable THE SYSTEM SHALL write no vectors for that
-  artifact and SHALL report it under `failed` with a reason naming `archived`. This replaces
-  today's default to `active`.
-- WHEN `reconcile_index` runs THE SYSTEM SHALL, after its existing three phases, examine every
-  own-scope vector whose `archived` is absent or not a boolean, using a strict type test (`0` and
-  `1` are not booleans). For each affected artifact still in S3 and not reported as dangling:
-  - WHEN its S3 `archived` is interpretable THE SYSTEM SHALL rewrite each affected vector with that
-    value, keeping its embedding and every other metadata key, making no embedding call, and SHALL
-    report the artifact in `reconciled` with `source: "archived_repair"` and the count of vectors
-    rewritten.
-  - WHEN its S3 `archived` is uninterpretable THE SYSTEM SHALL write nothing and report it under
-    `failed` with a reason naming `archived`.
-- THE SYSTEM SHALL NOT translate a legacy `status` value into `archived` anywhere in
-  `reconcile_index`. Store migration is T90's (D42).
-
-**Removed name** (AC-80; D42)
-
-- T76 SHALL add rows to the per-tool removed-name table and middleware in `server.py` that T78's
-  spec defines (`### Decisions taken in this spec`, "How removed names are rejected"). Whichever of
-  T76 and T78 lands first creates the table. The rows are:
-  - (`list_artifacts`, `status`) → `archived`;
-  - (`search_artifacts`, `status`) → `archived`;
-  - (`write_artifact`, `status`) → `archive_artifact`. After T78 lands, the same row exists for
-    `create_artifact` and `update_artifact` instead.
-- WHEN a bulk descriptor in `write_artifacts` (`create_artifacts` / `update_artifacts` after T78)
-  carries a `status` key THE SYSTEM SHALL fail that entry with `validation_error` naming
-  `archive_artifact`. `migrate_artifacts` inherits this through its delegation.
-
-**Invariant** — After T76, no code path writes, filters on or returns a `status` key for artifact
-data. A store written or migrated after T76 therefore holds none. `health_check`'s per-component
-`status` is a different field and is unchanged.
-
-### Decisions taken in this spec
-
-**The shape of "all": `archived: bool | Literal["all"] = False`.** The sentinel ADR's revision
-leaves this shape to the spec. It keeps the one accepted literal `"all"`, checked before
-validation, so Studio's existing `"all"` default carries over unchanged. JSON `null` was rejected
-as the "all" spelling, because many MCP clients send `null` for an optional they mean to leave
-unset, and that would silently widen to "all". The schema advertises
-`anyOf: [boolean, {const: "all"}]`. With the pinned FastMCP 3.4.6 (probed 2026-10-13): `"all"`,
-`true` and `false` pass, the string `"true"` is coerced to `true`, and `null`, `"All"` and
-`"inactive"` are rejected with FastMCP's argument error before dispatch. That error is not the
-structured `validation_error` that `status="activ"` returns today. This is accepted: it is how a
-`tier` type mismatch already behaves, and the value is still rejected. Callers that bypass MCP —
-`resources.py`, Studio's fallback and unit tests — get the structured `validation_error` from the
-inner check.
-
-**Create takes no archive marker.** ADR-017 §2 names `archive_artifact` as the owner of
-`archived`, and FR-14 lists archiving as a post-write operation. T78's update already carries the
-marker forward instead of accepting it. If create also accepted it, there would be a second writer
-of the marker outside archive's partial-failure and idempotency machinery. No caller needs to
-create an artifact that is already archived; the one test that does so writes and then archives.
-The `status` parameter is therefore removed from create rather than renamed, and its AC-80 row
-names `archive_artifact`.
-
-**Persisted encodings.** ADR-017 `## Deferred to the Specs` leaves these to the data contracts,
-and they are set here. S3 object metadata holds the exact lowercase strings `"true"` / `"false"`,
-because S3 user metadata is string-only. Vector metadata holds a native boolean, which S3 Vectors
-supports and filters with `$eq` (AWS S3 Vectors metadata filtering documentation). Parsing is
-strict: a tolerant parser (`"True"`, `"1"`) would be a second encoding that nothing writes.
-
-**The reconcile report reuses existing fields.** A repair is reported as a `reconciled` entry with
-a fifth `source` value, `archived_repair`, and an unrepairable artifact goes in `failed`. This adds
-no new top-level key, and consumers already filter `reconciled` on `source`. To detect bad values,
-the own-scope vector listing that reconcile already takes is fetched together with its metadata
-(`fetch_vectors_by_metadata`). That adds one `get_vectors` pass, which is accepted because
-reconcile is an operator-triggered repair tool. A filter of `archived $nin [true, false]` was
-rejected: the in-process evaluator compares with Python `==`, where `1 == True`, so it would miss
+**Why:** consumers already filter `reconciled` on `source`. The extra `get_vectors` pass is
+accepted because reconcile is an operator-triggered repair tool. The `$nin` filter was rejected
+because the in-process evaluator compares with Python `==`, where `1 == True`, so it would miss
 exactly the non-boolean values it exists to catch.
 
-## Boundaries
+Source: FR-17, D42, D50
+
+### R20 — `reconcile_index` never translates a legacy `status` into `archived`
+
+`reconcile_index` translates a legacy `status` value into `archived` nowhere. Store migration is
+T90's (D42).
+
+Source: FR-17, D42, D50
+
+## 7. Rules — Removed name
+
+### R21 — `status` is a removed name on the list, search and write tools
+
+T76 adds rows to the per-tool removed-name table and middleware in `server.py` that T78's spec
+defines (`### Decisions taken in this spec`, "How removed names are rejected"). Whichever of T76
+and T78 lands first creates the table. The rows are:
+
+- (`list_artifacts`, `status`) → `archived`;
+- (`search_artifacts`, `status`) → `archived`;
+- (`write_artifact`, `status`) → `archive_artifact`. After T78 lands, the same row exists for
+  `create_artifact` and `update_artifact` instead.
+
+**Example**
+
+- Given a caller passing `status` to `list_artifacts` or `search_artifacts`, when it calls
+  through MCP, then the call returns `validation_error` naming `archived` and is not dispatched
+  (AC-80; D42).
+
+Source: AC-80, D42
+
+### R22 — A bulk descriptor carrying `status` fails only that entry
+
+When a bulk descriptor in `write_artifacts` (`create_artifacts` / `update_artifacts` after T78)
+carries a `status` key, that entry fails with `validation_error` naming `archive_artifact`.
+`migrate_artifacts` inherits this through its delegation.
+
+Source: AC-80, D42
+
+## 8. Boundaries
 
 **Always:**
 - The archived clause is ANDed beside the scope filter. It never replaces or loosens the
@@ -334,7 +488,7 @@ exactly the non-boolean values it exists to catch.
   today.
 
 **Ask First:**
-- None. Every outcome is decided above or handed off under Open Questions.
+- None. Every outcome is decided above or handed off (under Hand-offs, or under Open Questions).
 
 **Never:**
 - Read a legacy `status` key as a fallback for a missing `archived`, in any tool. This is the
@@ -353,9 +507,9 @@ exactly the non-boolean values it exists to catch.
   so the filterable budget only gains headroom. Calibrating against the final Phase 15 key mix is
   outside T76.
 
-<!-- IMPLEMENTATION BLOCK — agent-owned -->
+## 9. For the developer agent
 
-## Files to Touch
+### Files to Touch
 
 | File | Action | Notes |
 |------|--------|-------|
@@ -368,7 +522,7 @@ exactly the non-boolean values it exists to catch.
 | `src/arkeology/tools/synthesise.py` | Modify | `archived $eq false` |
 | `src/arkeology/tools/read.py` | Modify | Return `archived` from the S3 parser. `corrupt_metadata` when it is uninterpretable, echoing the raw value only for an own-scope reader |
 | `src/arkeology/tools/archive.py` | Modify | Set S3 `"true"` and vector `True`. Idempotency test and response use `archived`. Step constant value `archive_status_reput` becomes `archive_reput` (the step set is open, nothing branches on it, and T82 reuses this path). Docstrings and comments: "status flip" becomes "archive flip" |
-| `src/arkeology/tools/purge.py`, `freshness.py` | Modify | Clauses and the archived-source test as in Requirements |
+| `src/arkeology/tools/purge.py`, `freshness.py` | Modify | Clauses and the archived-source test as in R12 and R14 |
 | `src/arkeology/tools/reconcile.py` | Modify | The rebuild takes `archived` strictly from S3 and fails the artifact when it is unreadable. Fetch the Phase 2 own-scope listing with metadata. Add the post-Phase-3 archived-repair pass |
 | `src/arkeology/resources.py` | Modify | Schema row and enum line. `_artifacts_listing_content` relies on the default (drop `status=`) |
 | `src/arkeology/server.py` | Modify | `list_artifacts` and `search_artifacts` signatures and docstrings. The write tool loses `status`. Add the removed-name rows (create the table and middleware per T78 if T78 has not landed) |
@@ -377,7 +531,7 @@ exactly the non-boolean values it exists to catch.
 | `plugins/arkeology/skills/backfilling-references/SKILL.md` | Modify | Drop `status="active"` from both `list_artifacts` calls (the default is now non-archived). Otherwise the skill fails AC-80 until T88 rewrites it |
 | Tests | Modify / Create | See Testing Approach |
 
-## Contract Amendments
+### Contracts
 
 Amend these before writing tests (plan.md `## Phase 15`, TDD rule):
 
@@ -413,7 +567,7 @@ Amend these before writing tests (plan.md `## Phase 15`, TDD rule):
 - **`design/arkeology-studio-tokens.html`** — The illustrative facet sample `status: active ▾`
   becomes `archived: all ▾`.
 
-## Testing Approach
+### Testing Approach
 
 **TDD order** (each test file is red before the implementation file it gates):
 1. `tests/unit/test_artifact.py`, then `artifact.py` and `constants.py`.
@@ -437,7 +591,7 @@ not the string `"false"` or a missing key.
 
 **Unit tests to add or change (with the AC each proves):**
 - Storage: a create writes S3 `archived == "false"` and every vector `archived is False`, with no
-  `status` key in either store or in the response (Story 2). The S3 parser maps only the two exact
+  `status` key in either store or in the response (R4). The S3 parser maps only the two exact
   strings; `"True"`, `""` and absent all give `None`.
 - Query, parameterised over list and search:
   - The default excludes an archived artifact (AC-08).
@@ -503,44 +657,13 @@ not the string `"false"` or a missing key.
 - T78 renames `write_artifact` in the same files. Whichever task lands second rebases the other's
   fixture edits.
 
-## Open Questions
+### Hand-offs
 
-1. **Resolved 2026-10-13 — T81 owns it.** plan.md's T81 entry now includes "Studio gains a
-   lifecycle-status facet" and AC-54; T76 proves only the archived-state half. *Original
-   question:* who owns the lifecycle-status half of AC-54 / FR-48? plan.md's T76 entry lists
-   AC-54 under Done, but AC-54 requires Studio facets for archived state *and* lifecycle status.
-   Lifecycle status does not exist until T81, and T81's plan entry names neither Studio nor AC-54,
-   so no task builds that facet. *Recommended answer:* T76 proves the archived-state half (Story 4,
-   the static test above), and the plan's T81 entry gains "Studio lifecycle-status facet; AC-54
-   passes". AC-08 and AC-52 do not have this problem: before T81 no artifact carries a lifecycle
-   status, so "not archived" and "in force" select the same set.
-
-2. **Hand-off to T81 (not blocking) — delete the `status` rows if the name is reused.** The
-   (`list_artifacts`, `status`) and (`search_artifacts`, `status`) rows, and the write-tool rows,
-   exist only until T81. If T81 reintroduces `status` as the OKF lifecycle filter or as a write
-   parameter (D22), it must delete the matching rows. After that, an old caller sending
-   `status: "active"` or `"inactive"` must still get `validation_error` as an unrecognised
-   lifecycle value, and the message must name `archived` (or `archive_artifact` on a write tool).
-   T81's spec must include that test. Per ADR-017 §2, the `"all"` convention also binds any
-   lifecycle `status` filter T81 adds.
-
-3. **Behaviour on a store not yet migrated (not blocking).** On a store written before T76, no
-   object or vector carries `archived`. T76's code does not fall back to `status`, so, in a loud
-   rather than silent way:
-   - `list_artifacts`, `search_artifacts` (`zero_results: true`), `synthesise_artifacts`,
-     `arkeology://artifacts` and Studio's Not archived view return nothing.
-   - `archived="all"` and Studio's default All view return no entries and a
-     `skipped_malformed_count` equal to the number of candidates.
-   - `read_artifact` returns `corrupt_metadata` naming `archived`.
-   - `purge_archived` finds nothing.
-   - The delete and archive referrer warnings find no referrers.
-   - `check_synthesis_freshness` checks nothing and reports `all_fresh: true`. This is the one
-     misleading signal, and it is bounded by `total_checked: 0`.
-   - `archive_artifact` still works and adds `archived` while carrying the legacy `status` forward.
-   - `reconcile_index` lists every own-scope artifact under `failed`, with S3 `archived`
-     unreadable, and writes nothing. That is the operator's clearest indication that the store
-     needs migrating.
-
-   The remedy is T90's store-migration skill (ADR-017 §9: run the migration before or with the
-   upgrade). The coordinator has asked the operator whether a startup check should refuse to start
-   on an unmigrated store. If the answer is yes, it belongs to T90's scope, not T76's.
+- Open Questions item 2 — **Hand-off to T81 (not blocking) — delete the `status` rows if the name is reused.** The
+  (`list_artifacts`, `status`) and (`search_artifacts`, `status`) rows, and the write-tool rows,
+  exist only until T81. If T81 reintroduces `status` as the OKF lifecycle filter or as a write
+  parameter (D22), it must delete the matching rows. After that, an old caller sending
+  `status: "active"` or `"inactive"` must still get `validation_error` as an unrecognised
+  lifecycle value, and the message must name `archived` (or `archive_artifact` on a write tool).
+  T81's spec must include that test. Per ADR-017 §2, the `"all"` convention also binds any
+  lifecycle `status` filter T81 adds.

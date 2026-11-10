@@ -17,18 +17,14 @@ generated:
   by: "axians-architect/unknown"
   at: 2026-06-09T00:00:00Z
 revised:
-  by: "axians-tech-writer/unknown"
-  at: 2026-06-10T00:00:00Z
+  by: "axians-architect/claude-opus-5-5"
+  at: 2026-11-09T16:49:20Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
-phase: 9
-task: 33a
 ---
 
 # T33a — OpenCode JS Plugin
-
-<!-- SCOPE BLOCK — frozen after approval -->
 
 ## TL;DR
 
@@ -37,7 +33,7 @@ self-installing OpenCode plugin. Engineers make both Arkeology skills (`setting-
 `migrating-to-arkeology`) discoverable in any OpenCode session by adding one line to their
 global `~/.config/opencode/opencode.jsonc` — no file copying, no env vars.
 
-## Problem Statement
+## 1. Problem Statement
 
 Engineers who adopt Arkeology currently have to manually locate the `skills/` path and add
 it to `config.skills.paths` in their OpenCode config. The OpenCode JS plugin system —
@@ -45,47 +41,62 @@ specifically the `config` hook and Bun's git package resolver — allows the rep
 self-register: one line in the global config installs and activates both skills, and
 OpenCode's Bun plugin manager handles caching and update checks on restart.
 
-## User Stories
+All three stories this spec was written from are P1: one-line install (R1), automatic updates on
+restart (R3), and the HTTPS alternative (R2).
 
-### Story 1 — One-line install (P1)
+## 2. Rules — Installation
 
-As an Arkeology operator, I add one line to `~/.config/opencode/opencode.jsonc` and both
-Arkeology skills are available to the agent in my next OpenCode session.
+### R1 — One line in the global OpenCode config makes both skills available
 
-**Acceptance criteria:**
-- Given the plugin line is present in `opencode.jsonc` and OpenCode has been restarted,
-  when the engineer invokes the `skill` tool, then both `setting-up-arkeology` and
-  `migrating-to-arkeology` appear and are loadable.
+When an Arkeology operator adds one line to `~/.config/opencode/opencode.jsonc`, both Arkeology
+skills are available to the agent in their next OpenCode session.
 
-### Story 2 — Automatic updates on restart (P1)
+**Example**
 
-As an Arkeology operator, after a new skill release I get the updated skill without any
-manual action other than restarting OpenCode.
+- Given the plugin line is present in `opencode.jsonc` and OpenCode has been restarted, when the
+  engineer invokes the `skill` tool, then both `setting-up-arkeology` and `migrating-to-arkeology`
+  appear and are loadable.
 
-**Acceptance criteria:**
+### R2 — Installing via `git+https://` works identically to `git+ssh://`
+
+When Bun installs the plugin via `git+https://`, the plugin works identically to `git+ssh://`: an
+Arkeology operator without SSH configured for GitHub can use `git+https://` instead of
+`git+ssh://` and the plugin installs and works identically.
+
+**Example**
+
+- Given the engineer substitutes `git+https://` for `git+ssh://` in the plugin line, when they
+  start a new OpenCode session, then both skills are loadable by the agent.
+
+### R3 — A restart after a release activates the updated skills
+
+After a new skill release, an Arkeology operator gets the updated skill without any manual action
+other than restarting OpenCode.
+
+**Example**
+
 - Given the plugin line is already present in `opencode.jsonc`, when the engineer restarts
   OpenCode after a new release has been pushed, then the updated skill content is active.
 
-### Story 3 — HTTPS alternative (P1)
+## 3. Rules — Plugin behaviour
 
-As an Arkeology operator without SSH configured for GitHub, I can use `git+https://` instead
-of `git+ssh://` and the plugin installs and works identically.
+### R4 — The plugin registers `skills/` through the `config` hook
 
-**Acceptance criteria:**
-- Given the engineer substitutes `git+https://` for `git+ssh://` in the plugin line, when
-  they start a new OpenCode session, then both skills are loadable by the agent.
+When the plugin is loaded by OpenCode, it registers the absolute path to `skills/` in
+`config.skills.paths` using the `config` hook.
 
-## Requirements
+### R5 — The `skills/` path is derived from the plugin file's own location
 
-- WHEN the plugin is loaded by OpenCode THE SYSTEM SHALL register the absolute path to
-  `skills/` in `config.skills.paths` using the `config` hook.
-- WHEN the plugin resolves the `skills/` directory path THE SYSTEM SHALL derive it relative
-  to the plugin file itself via `import.meta.url` — never a hardcoded absolute path — so
-  the plugin works regardless of Bun's cache location.
-- WHEN the `config` hook encounters an error THE SYSTEM SHALL catch the exception, log it to
-  `stderr`, and return without throwing — a hook error must never crash the OpenCode session.
-- WHEN Bun installs the plugin via `git+https://` THE SYSTEM SHALL work identically to
-  `git+ssh://`.
+When the plugin resolves the `skills/` directory path, it derives it relative to the plugin file
+itself via `import.meta.url` — never a hardcoded absolute path — so the plugin works regardless of
+Bun's cache location.
+
+### R6 — A `config` hook error never crashes the OpenCode session
+
+When the `config` hook encounters an error, the plugin catches the exception, logs it to `stderr`,
+and returns without throwing — a hook error must never crash the OpenCode session.
+
+## 4. Boundaries
 
 **Always:**
 - Plugin file is ESM format (`"type": "module"` in `package.json`).
@@ -109,16 +120,17 @@ of `git+ssh://` and the plugin installs and works identically.
   (upstream limitation: opencode#6159, unresolved). `install.sh` must delete
   `~/.cache/opencode/packages/arkeology@git+*` so the next restart re-fetches from GitHub.
 
+**Ask First:**
+- None.
+
 **Never:**
 - No hardcoded absolute paths inside the plugin file.
 - No `experimental.chat.messages.transform` bootstrap injection.
 - No Windows-native install path — engineers on Windows use WSL Ubuntu.
 
----
+## 5. For the developer agent
 
-<!-- IMPLEMENTATION BLOCK — agent-owned -->
-
-## Files to Touch
+### Files to Touch
 
 | File | Action | Notes |
 |------|--------|-------|
@@ -127,7 +139,11 @@ of `git+ssh://` and the plugin installs and works identically.
 | `README.md` | Modify | Add OpenCode plugin line (SSH primary, HTTPS alternative) to the Quick Install section added by T33e |
 | `CONTRIBUTING.md` | Modify | Reference the plugin line and `install.sh` for OpenCode setup |
 
-## Testing Approach
+### Contracts
+
+None.
+
+### Testing Approach
 
 Testing is manual smoke tests (no TDD for non-server files).
 
@@ -141,7 +157,3 @@ Testing is manual smoke tests (no TDD for non-server files).
 4. **No crash on hook error:** Introduce a deliberate error in the config hook (wrong path
    type); verify OpenCode starts without crashing and logs to stderr.
 5. **Idempotency:** Restart OpenCode twice in a row; verify skills are not duplicated.
-
-## Open Questions
-
-None.

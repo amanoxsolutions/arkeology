@@ -52,13 +52,12 @@ relationships:
 generated:
   by: "axians-architect/claude-opus-5.5"
   at: 2026-10-13T13:02:46Z
-phase: 15
-task: 78
+revised:
+  by: "axians-architect/claude-opus-5-5"
+  at: 2026-11-09T21:19:08Z
 ---
 
 # T78 — Split Writing into `create_artifact` / `update_artifact`; Drop `overwrite`
-
-<!-- SCOPE BLOCK — frozen after approval -->
 
 ## TL;DR
 
@@ -69,7 +68,7 @@ so the key never moves, and use S3 conditional writes so an update cannot recrea
 was deleted while it ran. This removes the two silent failures of the flag: a mistyped id that
 creates an artifact, and an overwrite of something the caller did not mean to replace (D51).
 
-## Problem Statement
+## 1. Problem Statement
 
 `overwrite` does not say what the caller intends. `overwrite=true` on a mistyped id creates a new
 artifact, and on a correct id replaces whatever is stored whether the caller meant to or not. The key
@@ -78,182 +77,313 @@ and leaves the old artifact orphaned. The producer `amanox-ai-agents` plugin now
 so the server has to check what the caller says it is doing rather than trust the id: a create
 must not replace anything, and an update must not create anything (ADR-017 `## Decision`, "Identity" and "Tool surface"; FR-75, C-05).
 
-## User Stories
+Six user stories frame this spec, all P1: create never replaces; update replaces in place, by id;
+update cannot move an artifact across type, tier, team or project; opt-in optimistic concurrency;
+bulk update; removed names are rejected, not aliased.
 
-### Story 1 — Create never replaces (P1)
+## 2. Rules — Create
+
+### R1 — `create_artifact` writes with a conditional create and no existence read
+
+When `create_artifact` is called, the key is derived exactly as `write_artifact` does today and
+the object is written with a conditional create (`IfNoneMatch: "*"`), with no existence read
+beforehand. The conditional write is the existence check.
+
+**Why:** the `head_object` before the write existed only to choose between the overwrite and create
+branches. Without `overwrite` it saves nothing. The conditional put is already the authoritative
+check, and removing the read saves one round trip on every successful create.
+
+Source: FR-01, FR-08, FR-13, FR-15, FR-25, C-05, D51
+
+### R2 — A create whose key already exists returns `validation_error` naming `update_artifact` and writes nothing
+
+When the key already exists, including when a concurrent create lands first, the call returns
+`validation_error` carrying `artifact_id` with a message naming `update_artifact`, and writes
+nothing to S3, annotations, vectors or the failure log.
+
+**Example**
+
 - Given a tier 2 artifact already stored, when the same type, date and title are created again,
   then the call returns `validation_error` naming `update_artifact`, and one S3 object and the
   original vectors remain unchanged (AC-04).
 - Given a tier 3 artifact already stored, when the same type and title are created again, on the
-  same day or a different one, then the call returns `validation_error` and nothing changes (AC-05).
+  same day or a different one, then the call returns `validation_error` and nothing changes
+  (AC-05).
 - Given two concurrent creates of the same key, when both run, then exactly one succeeds and the
   other returns `validation_error` (C-05).
 
-### Story 2 — Update replaces in place, by id (P1)
-- Given a stored tier 2 or tier 3 artifact, when `update_artifact` is called with its `artifact_id`
-  and new content, then the content is replaced in place, exactly one stored artifact remains, and
-  stale section vectors are removed (AC-04, AC-05).
+Source: FR-01, FR-08, FR-13, FR-15, FR-25, C-05, D51, AC-04, AC-05
+
+### R3 — A successful create returns what `write_artifact` returns today, and all other behaviour is unchanged
+
+When `create_artifact` succeeds, it returns what `write_artifact` returns today. All other
+behaviour (validation, metadata budgets, section pipeline, annotation write, failure log) is
+unchanged. Until T76 lands, `create_artifact` keeps today's `status` parameter; T76 removes the
+archive-marker parameter from `create_artifact`.
+
+Source: FR-01, FR-08, FR-13, FR-15, FR-25, C-05, D51
+
+## 3. Rules — Update: addressing and existence
+
+### R4 — An update of a foreign-scope id returns `access_denied` before any read
+
+When `update_artifact` receives an `artifact_id` that does not start with `write_prefix + "/"`,
+it returns `access_denied` before any read, as `archive_artifact` and `delete_artifact` do.
+
+Source: FR-75, AC-82, AC-83, D51
+
+### R5 — An update of a missing id returns `not_found` and creates nothing
+
+When no object exists at `artifact_id` (exact, case-sensitive match), the call returns
+`not_found` and creates nothing.
+
+**Example**
+
+- Given no artifact with id X, when X is updated, then the call returns `not_found` and nothing
+  is created (AC-82). The same holds when X differs from a stored id only in letter case.
+
+Source: FR-75, AC-82, AC-83, D51
+
+### R6 — An update writes to the supplied id and never derives a key, so the id never changes
+
+An update writes to the supplied `artifact_id` and never derives a key from the title, date or
+type, so the id never changes, including on a retitle.
+
+**Example**
+
 - Given a tier 3 artifact with a generated id, when it is updated with a new title, then its id is
   unchanged, reading it returns the new title, and no second artifact exists (AC-83).
-- Given no artifact with id X, when X is updated, then the call returns `not_found` and nothing is
-  created (AC-82). The same holds when X differs from a stored id only in letter case.
 
-### Story 3 — Update cannot move an artifact across type, tier, team or project (P1)
-- Given a stored artifact, when an update supplies a different `tier`, `team`, `project` or `type`,
-  then it returns `validation_error` and the stored artifact is unchanged (AC-84).
+Source: FR-75, AC-82, AC-83, D51
 
-### Story 4 — Opt-in optimistic concurrency (P1)
+### R7 — Every object write of an update is conditional, and an object gone mid-update returns `not_found`
+
+Every object write of an update is conditional (`If-Match`) on the ETag read in the same attempt.
+When S3 reports the object gone, whether on a re-read or as a 404 from the conditional write, the
+call returns `not_found` and never recreates the object.
+
+Source: FR-75, AC-82, AC-83, D51
+
+## 4. Rules — Update: what is replaced, checked and carried forward
+
+### R8 — An update replaces the mutable fields with exactly what the call supplies, with no partial patch
+
+An update replaces content, `title`, `description`, `visibility`, `tags`, `author_role`,
+`source_artifacts` and `references` with exactly what the call supplies. An omitted optional
+field takes its create default. There is no partial patch.
+
+**Example**
+
+- Given a stored tier 2 or tier 3 artifact, when `update_artifact` is called with its
+  `artifact_id` and new content, then the content is replaced in place, exactly one stored
+  artifact remains, and stale section vectors are removed (AC-04, AC-05).
+
+Source: FR-55, FR-69, FR-75, AC-84, C-07, D50, AC-04, AC-05
+
+### R9 — `type`, `team`, `project` and `tier` are optional on update and must match what is stored
+
+When the call supplies `type`, `team`, `project` or `tier` and the value differs from the one
+stored, the call returns `validation_error` naming the field and changes nothing. An omitted
+value, or one equal to the stored value, is accepted. Either way the stored value is the one
+written. The comparison runs on every attempt's re-read.
+
+**Example**
+
+- Given a stored artifact, when an update supplies a different `tier`, `team`, `project` or
+  `type`, then it returns `validation_error` and the stored artifact is unchanged (AC-84).
+
+**Why:** FR-75 makes `tier`, `team`, `project` and `type` immutable but AC-84 expects an update
+that *supplies* a different value to fail with `validation_error`. They are therefore optional
+parameters that must match what is stored, not absent parameters. As absent parameters, an MCP
+call would get FastMCP's generic unknown-argument error, and a bulk descriptor would drop them
+silently. Optional-must-match also lets a caller send back the full descriptor it created with,
+and a mismatch tells the caller it has the wrong id, which is D51's principle that the server
+checks the caller's stated intent.
+
+Source: FR-55, FR-69, FR-75, AC-84, C-07, D50, D51
+
+### R10 — `date` and the archive marker are carried forward and are not update parameters
+
+An update carries `date` and the archive marker forward from stored object metadata into both
+object and vector metadata. The archive marker is `status` until T76 lands and `archived` after
+it. Neither is an update parameter. Once T81 lands, the OKF lifecycle `status` is also carried
+forward when an update omits it; only an explicit `status: null` clears it (T81, operator
+decision 2026-10-13).
+
+**Why:** `date` is the first-authorship day that anchors tier-2 ids (FR-08), and first-authorship
+provenance survives every update (FR-69). T79 replaces it with `generated`, carried forward the
+same way, so this is the end-state behaviour. The archive marker belongs to `archive_artifact`
+(ADR-017 `## Decision`, "Lifecycle"), and an update that silently un-archived would be a
+lifecycle change made through a content write (FR-14).
+
+Source: FR-55, FR-69, FR-75, AC-84, C-07, D50, FR-08, FR-14, operator decision 2026-10-13
+
+### R11 — An unreadable stored `tier` returns `corrupt_metadata` and writes nothing
+
+When the stored `tier` cannot be read, the call returns `corrupt_metadata` and writes nothing
+(D50: a write never proceeds over a value it cannot read).
+
+Source: FR-55, FR-69, FR-75, AC-84, C-07, D50
+
+### R12 — Today's overwrite link-field semantics are kept unchanged
+
+Today's overwrite link-field semantics are kept unchanged. `commit_refs` is read forward from its
+annotation and union-merged with the supplied value. `references` is set to exactly the supplied
+list.
+
+Source: FR-55, FR-69, FR-75, AC-84, C-07, D50
+
+### R13 — An update regenerates `last_edited_ulid`, cleans up orphaned section vectors and returns three fields
+
+An update regenerates `last_edited_ulid`, cleans up orphaned section vectors, and returns
+`artifact_id`, `sections_indexed` and `last_edited_ulid`.
+
+Source: FR-55, FR-69, FR-75, AC-84, C-07, D50
+
+## 5. Rules — Update: concurrency
+
+### R14 — An ETag change retries the whole cycle up to `CAS_MAX_ATTEMPTS` times
+
+When the ETag changes between read and write, the whole cycle (read, merge, conditional write,
+conditional annotation write) is retried up to `CAS_MAX_ATTEMPTS` times, re-merging the caller's
+original values each time. On exhaustion the call returns `conflict` if nothing landed and
+`partial_write` if the final attempt's object write landed. This is today's overwrite cycle.
+Without `if_match`, racing updates are last-writer-wins.
+
+Source: C-05, FR-75, AC-86, D51
+
+### R15 — An `if_match` that differs from the stored `last_edited_ulid` returns `conflict`, checked until this call's own object write lands
+
+When `if_match` is supplied and the stored `last_edited_ulid` read in the same attempt differs
+from it, or is absent, the call returns `conflict` and changes nothing. The check runs on every
+attempt until this call's own object write lands. After that the condition is proven, because
+that write was conditional on the ETag read together with the matching ulid, so later retries in
+the same call do not repeat the check.
+
+**Example**
+
 - Given a caller that read X at revision R, and another writer that has since updated X, when the
   caller updates X with `if_match=R`, then it returns `conflict` and X keeps the other writer's
   content. When the same update omits `if_match`, it succeeds and replaces X (AC-86).
 
-### Story 5 — Bulk update (P1)
+**Why:** if the check ran on every attempt, it would wrongly fail an update whose own write had
+already landed: a retry re-reads this call's *own* new ulid. Returning `conflict` at that point
+would leave this call's content durable while reporting that nothing changed. Checking until the
+object write lands, together with the `If-Match` on the ETag read in the same `head_object` as
+the ulid, makes the check atomic with the write.
+
+Source: C-05, FR-75, AC-86, D51
+
+## 6. Rules — Bulk
+
+### R16 — `create_artifacts` is today's `write_artifacts` with `overwrite` removed
+
+`create_artifacts` is today's `write_artifacts` with `overwrite` removed from both the batch and
+the descriptors. Each entry runs the create logic.
+
+Source: FR-25, FR-76, AC-85, D51
+
+### R17 — `update_artifacts` updates each descriptor independently, with positionally aligned results
+
+`update_artifacts` accepts a list of update descriptors, each with the fields of
+`update_artifact` including an optional per-entry `if_match`, plus `artifact_concurrency` with
+the same clamp and `concurrency_warning`. Its results are positionally aligned and in the same
+shape as `create_artifacts`. A failure in one entry never aborts the others.
+
+**Example**
+
 - Given three update descriptors, one naming an id that does not exist, when `update_artifacts`
   runs, then the two existing artifacts are updated, the third entry reports `not_found`, and the
   batch is not aborted (AC-85).
 
-### Story 6 — Removed names are rejected, not aliased (P1)
+Source: FR-25, FR-76, AC-85, D51
+
+### R18 — A repeated `artifact_id` in one `update_artifacts` call fails every later descriptor
+
+When two descriptors in one `update_artifacts` call name the same `artifact_id`, every later one
+fails with `validation_error` naming the first index, mirroring the duplicate pre-flight in
+`create_artifacts`.
+
+Source: FR-25, FR-76, AC-85, D51
+
+### R19 — `migrate_artifacts` delegates to `create_artifacts` and never updates
+
+`migrate_artifacts` delegates to `create_artifacts`. Its skip-existing behaviour is unchanged and
+it never updates.
+
+Source: FR-25, FR-76, AC-85, D51
+
+## 7. Rules — Removed names
+
+### R20 — A call to `write_artifact` or `write_artifacts` returns `validation_error` naming the replacements
+
+When a tool call names `write_artifact` or `write_artifacts`, the call returns
+`{"error": "validation_error", "message": …}` naming `create_artifact` / `update_artifact`
+(respectively `create_artifacts` / `update_artifacts`) without dispatching. Neither name appears
+in the tool list.
+
+**Example**
+
 - Given a caller using `write_artifact`, `write_artifacts` or `overwrite`, when it calls the
   server, then the call returns `validation_error` naming the replacement (AC-80; D42).
 
-## Requirements
+Source: AC-80, D42
 
-**Create** (FR-01, FR-08, FR-13, FR-15, FR-25, C-05; D51)
+### R21 — An `overwrite` argument or descriptor key returns `validation_error` naming `update_artifact` (`update_artifacts` for the bulk tools)
 
-- WHEN `create_artifact` is called THE SYSTEM SHALL derive the key exactly as `write_artifact` does
-  today and write the object with a conditional create (`IfNoneMatch: "*"`), with no existence read
-  beforehand. The conditional write is the existence check.
-- WHEN the key already exists, including when a concurrent create lands first, THE SYSTEM SHALL
-  return `validation_error` carrying `artifact_id` with a message naming `update_artifact`, and SHALL
-  write nothing to S3, annotations, vectors or the failure log.
-- WHEN `create_artifact` succeeds THE SYSTEM SHALL return what `write_artifact` returns today. All
-  other behaviour (validation, metadata budgets, section pipeline, annotation write, failure log) is
-  unchanged.
+When a call to `create_artifact`, `create_artifacts`, `update_artifact` or `update_artifacts`
+passes an `overwrite` argument, the call returns `validation_error` naming `update_artifact`
+(`update_artifacts` for the bulk tools). When a bulk descriptor carries an `overwrite` key, that
+entry fails the same way.
 
-**Update: addressing and existence** (FR-75, AC-82, AC-83; D51)
+Source: AC-80, D42
 
-- WHEN `update_artifact` receives an `artifact_id` that does not start with `write_prefix + "/"`
-  THE SYSTEM SHALL return `access_denied` before any read, as `archive_artifact` and
-  `delete_artifact` do.
-- WHEN no object exists at `artifact_id` (exact, case-sensitive match) THE SYSTEM SHALL return
-  `not_found` and create nothing.
-- THE SYSTEM SHALL write to the supplied `artifact_id` and never derive a key from the title, date
-  or type, so the id never changes, including on a retitle.
-- THE SYSTEM SHALL make every object write of an update conditional (`If-Match`) on the ETag read
-  in the same attempt. WHEN S3 reports the object gone, whether on a re-read or as a 404 from the
-  conditional write, THE SYSTEM SHALL return `not_found` and never recreate the object.
+### R22 — How removed names are rejected: one per-tool table and one middleware in `server.py`
 
-**Update: what is replaced, checked and carried forward** (FR-55, FR-69, FR-75, AC-84, C-07; D50)
+`server.py` gets one table mapping removed tool names, and removed (tool, parameter) pairs, to
+their replacements, and one FastMCP `Middleware` whose `on_call_tool` consults it before dispatch
+and argument validation. It returns a `ToolResult` whose structured content is the usual error
+dict. The table is per tool. No stub tools and no kept `overwrite` parameter are used.
 
-- THE SYSTEM SHALL replace content, `title`, `description`, `visibility`, `tags`, `author_role`,
-  `source_artifacts` and `references` with exactly what the call supplies. An omitted optional
-  field takes its create default. There is no partial patch.
-- WHEN the call supplies `type`, `team`, `project` or `tier` and the value differs from the one
-  stored THE SYSTEM SHALL return `validation_error` naming the field and change nothing. An
-  omitted value, or one equal to the stored value, is accepted. Either way the stored value is the
-  one written. The comparison runs on every attempt's re-read.
-- THE SYSTEM SHALL carry `date` and the archive marker forward from stored object metadata into
-  both object and vector metadata. The archive marker is `status` until T76 lands and `archived`
-  after it. Neither is an update parameter. Once T81 lands, the OKF lifecycle `status` is also
-  carried forward when an update omits it; only an explicit `status: null` clears it (T81,
-  operator decision 2026-10-13).
-- WHEN the stored `tier` cannot be read THE SYSTEM SHALL return `corrupt_metadata` and write
-  nothing (D50: a write never proceeds over a value it cannot read).
-- THE SYSTEM SHALL keep today's overwrite link-field semantics unchanged. `commit_refs` is read
-  forward from its annotation and union-merged with the supplied value. `references` is set to
-  exactly the supplied list.
-- THE SYSTEM SHALL regenerate `last_edited_ulid`, clean up orphaned section vectors, and return
-  `artifact_id`, `sections_indexed` and `last_edited_ulid`.
+Later rename tasks (T76, T79, T84) add rows to the same table, and whichever of T76 and T78 lands
+first creates it. T76 adds per-tool `status` rows, including `update_artifact` and bulk
+descriptors; the T76 spec has confirmed this shape. Bulk descriptor keys are inside a
+`list[dict]` the middleware cannot see, so each bulk tool checks those itself.
 
-**Update: concurrency** (C-05, FR-75, AC-86; D51)
-
-- WHEN the ETag changes between read and write THE SYSTEM SHALL retry the whole cycle (read,
-  merge, conditional write, conditional annotation write) up to `CAS_MAX_ATTEMPTS` times,
-  re-merging the caller's original values each time. On exhaustion it returns `conflict` if
-  nothing landed and `partial_write` if the final attempt's object write landed. This is today's
-  overwrite cycle. Without `if_match`, racing updates are last-writer-wins.
-- WHEN `if_match` is supplied and the stored `last_edited_ulid` read in the same attempt differs
-  from it, or is absent, THE SYSTEM SHALL return `conflict` and change nothing. The check runs on
-  every attempt until this call's own object write lands. After that the condition is proven,
-  because that write was conditional on the ETag read together with the matching ulid, so later
-  retries in the same call do not repeat the check.
-
-**Bulk** (FR-25, FR-76, AC-85; D51)
-
-- `create_artifacts` SHALL be today's `write_artifacts` with `overwrite` removed from both the batch
-  and the descriptors. Each entry runs the create logic.
-- `update_artifacts` SHALL accept a list of update descriptors, each with the fields of
-  `update_artifact` including an optional per-entry `if_match`, plus `artifact_concurrency` with the
-  same clamp and `concurrency_warning`. Its results SHALL be positionally aligned and in the same
-  shape as `create_artifacts`. A failure in one entry never aborts the others.
-- WHEN two descriptors in one `update_artifacts` call name the same `artifact_id` THE SYSTEM SHALL
-  fail every later one with `validation_error` naming the first index, mirroring the duplicate
-  pre-flight in `create_artifacts`.
-- `migrate_artifacts` SHALL delegate to `create_artifacts`. Its skip-existing behaviour is unchanged
-  and it never updates.
-
-**Removed names** (AC-80; D42)
-
-- WHEN a tool call names `write_artifact` or `write_artifacts` THE SYSTEM SHALL return
-  `{"error": "validation_error", "message": …}` naming `create_artifact` / `update_artifact`
-  (respectively `create_artifacts` / `update_artifacts`) without dispatching. Neither name appears
-  in the tool list.
-- WHEN a call to `create_artifact`, `create_artifacts`, `update_artifact` or `update_artifacts`
-  passes an `overwrite` argument THE SYSTEM SHALL return `validation_error` naming `update_artifact`
-  (`update_artifacts` for the bulk tools). WHEN a bulk descriptor carries an `overwrite` key THE
-  SYSTEM SHALL fail that entry the same way.
-- THE SYSTEM SHALL add no case-insensitive id check. Ids that differ only in case are distinct keys
-  (D51; FR-08).
-
-### Decisions taken in this spec
-
-**Which fields an update takes.** FR-75 makes `tier`, `team`, `project` and `type` immutable but
-AC-84 expects an update that *supplies* a different value to fail with `validation_error`. They are
-therefore optional parameters that must match what is stored, not absent parameters. As absent
-parameters, an MCP call would get FastMCP's generic unknown-argument error, and a bulk descriptor
-would drop them silently. Optional-must-match also lets a caller send back the full descriptor it
-created with, and a mismatch tells the caller it has the wrong id, which is D51's principle that
-the server checks the caller's stated intent. `date` and the archive marker are carried forward
-and are not parameters. `date` is the first-authorship day that anchors tier-2 ids (FR-08), and
-first-authorship provenance survives every update (FR-69). T79 replaces it with `generated`,
-carried forward the same way, so this is the end-state behaviour. The archive marker belongs to
-`archive_artifact` (ADR-017 `## Decision`, "Lifecycle"), and an update that silently un-archived would be a lifecycle
-change made through a content write (FR-14).
-
-**When `if_match` is checked.** If the check ran on every attempt, it would wrongly fail an update
-whose own write had already landed: a retry re-reads this call's *own* new ulid. Returning
-`conflict` at that point would leave this call's content durable while reporting that nothing
-changed. Checking until the object write lands, together with the `If-Match` on the ETag read in
-the same `head_object` as the ulid, makes the check atomic with the write.
-
-**How removed names are rejected.** With the pinned FastMCP 3.4.6, an unregistered tool returns
-`Unknown tool: '<name>'` and an unknown argument returns a pydantic unexpected-argument error,
-verified 2026-10-13. Neither is a structured `validation_error` and neither names a replacement.
-`server.py` therefore gets one table mapping removed tool names, and removed (tool, parameter)
-pairs, to their replacements, and one FastMCP `Middleware` whose `on_call_tool` consults it before
-dispatch and argument validation. It returns a `ToolResult` whose structured content is the usual
-error dict. The table is per tool because T81 reintroduces `status` with a new meaning, so a
-global parameter table would break it. Alternatives rejected:
+**Why:** the pinned FastMCP's own errors for a removed tool or argument (note below) are not a
+structured `validation_error` and name no replacement, so `server.py` maps the removed names
+itself. The table is per tool because T81 reintroduces
+`status` with a new meaning, so a global parameter table would break it. Alternatives rejected:
 - Stub tools that always error would stay in the tool list, cost context tokens in every session,
   and read as the aliases D42 forbids.
 - A kept `overwrite` parameter that errors would stay in the schema and invite its own use.
 
-Later rename tasks (T76, T79, T84) add rows to the same table. Bulk descriptor keys are inside a
-`list[dict]` the middleware cannot see, so each bulk tool checks those itself.
+Note (verified 2026-10-13, with the pinned FastMCP 3.4.6): an unregistered tool returns
+`Unknown tool: '<name>'` and an unknown argument returns a pydantic unexpected-argument error.
 
-**Module layout.** `create_artifact` and `update_artifact` both live in `tools/write.py`, and
-`create_artifacts` and `update_artifacts` in `tools/write_artifacts.py`. The pairs share all of
-the section, vector, orphan and failure-log pipeline, which is why `write_artifacts` already
-delegates to `write_artifact_inner`. Separate modules would need a third shared module for no
-behavioural gain, and the contract ids `arkeology.tools.write` and
+Source: AC-80, D42
+
+### R23 — No case-insensitive id check
+
+No case-insensitive id check is added. Ids that differ only in case are distinct keys.
+
+Source: AC-80, D42, D51, FR-08
+
+## 8. Rules — Module layout
+
+### R24 — The create and update pairs share their modules
+
+`create_artifact` and `update_artifact` both live in `tools/write.py`, and `create_artifacts` and
+`update_artifacts` in `tools/write_artifacts.py`.
+
+**Why:** the pairs share all of the section, vector, orphan and failure-log pipeline, which is why
+`write_artifacts` already delegates to `write_artifact_inner`. Separate modules would need a third
+shared module for no behavioural gain, and the contract ids `arkeology.tools.write` and
 `arkeology.tools.write_artifacts` stay valid.
 
-**Create issues no existence read.** The `head_object` before the write existed only to choose
-between the overwrite and create branches. Without `overwrite` it saves nothing. The conditional
-put is already the authoritative check, and removing the read saves one round trip on every
-successful create.
+Source: None
 
-## Boundaries
+## 9. Boundaries
 
 **Always:**
 - Use `is_own_scope` (`startswith(scope + "/")`) for the update scope check.
@@ -279,9 +409,9 @@ successful create.
   AGENTS.md (T91).
 - Change `migrate_artifacts`' skip-existing semantics.
 
-<!-- IMPLEMENTATION BLOCK — agent-owned -->
+## 10. For the developer agent
 
-## Files to Touch
+### Files to Touch
 
 | File | Action | Notes |
 |------|--------|-------|
@@ -302,7 +432,7 @@ successful create.
 | `src/arkeology/errors.py`, `annotations.py`, `failure_log.py`, `tools/archive.py`, `tools/reconcile.py`, `tools/link_metadata.py`, `tools/freshness.py` | Modify | Docstring and comment wording only (`write_artifact` / `overwrite` become `create_artifact` / `update_artifact`). *Uncertain:* sweep with `grep -rn "write_artifact\|overwrite" src/` and leave S3-semantics uses of "overwrite" alone |
 | `tests/integration/*` | Modify | See Testing Approach |
 
-## Contract Amendments
+### Contracts
 
 Amend these before the tests (plan.md `## Phase 15`, TDD rule):
 
@@ -337,7 +467,7 @@ Amend these before the tests (plan.md `## Phase 15`, TDD rule):
   `arkeology.tools.freshness.md`**: wording only, renaming `write_artifact` / `write_artifacts` /
   "overwriting write" to the new tools and "update".
 
-## Testing Approach
+### Testing Approach
 
 **TDD order** (each test file red before the implementation file it gates):
 1. `tests/unit/clients/test_s3.py`, then `clients/s3.py`.
@@ -387,7 +517,7 @@ which runs after the conditional check, so it composes unchanged.
   - A matching `if_match` succeeds.
   - An absent stored ulid gives `conflict`.
   - Our object write lands, the annotation write conflicts once, and the retry succeeds without
-    `conflict` (the check-window decision).
+    `conflict` (R15, the check-window decision).
 - Bulk:
   - `update_artifacts` with three entries, one missing, gives two updated and one `not_found`
     (AC-85).
@@ -419,12 +549,3 @@ which runs after the conditional check, so it composes unchanged.
   `test_tools_studio.py`, `test_tools_synthesise.py`.
 - Not broken, and only docstrings mention the old names: `test_tools_migrate_artifacts.py`,
   `test_calibration_vector_metadata_budget.py`, `clients/test_s3_annotations.py`.
-
-## Open Questions
-
-None. No contradiction was found between ADR-017, requirements.md and plan.md for this task. One
-open dependency: T76 and T79 add their removed-name rows to the table in `server.py` that this
-spec defines, and whichever of T76 and T78 lands first creates it. The T76 spec has confirmed this
-shape. It adds per-tool `status` rows, including `update_artifact` and bulk descriptors, and it
-removes the archive-marker parameter from `create_artifact`. Until T76 lands, `create_artifact`
-keeps today's `status` parameter.

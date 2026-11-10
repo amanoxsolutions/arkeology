@@ -13,16 +13,15 @@ sources:
 generated:
   by: "axians-analyst/unknown"
   at: 2026-06-06T00:00:00Z
+revised:
+  by: "axians-architect/claude-opus-5-5"
+  at: 2026-11-09T17:13:45Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
-phase: 10
-task: 35
 ---
 
 # T35 — Filter Range Operators ($gte / $lte)
-
-<!-- SCOPE BLOCK — frozen after approval -->
 
 ## TL;DR
 
@@ -31,7 +30,7 @@ Add `$gte` (greater-than-or-equal) and `$lte` (less-than-or-equal) comparison op
 `propose_commit_links`, which must range-filter on `last_edited_ulid` strings. No tool or
 client interface changes are required — only `filter.py` and its tests.
 
-## Problem Statement
+## 1. Problem Statement
 
 `filter.py` currently supports `$eq`, `$in`, `$nin`, `$and`, and `$or`. There is no way to
 express "field value is at least X" or "field value is at most Y", which is required to
@@ -43,64 +42,74 @@ ULIDs are lexicographically sortable strings, so Python string comparison (`>=`,
 the correct operator implementation for both ULID range queries and any other string-valued
 range fields added in the future (e.g., ISO-8601 date ranges).
 
-## User Stories
+All four user stories this spec covers — a lower bound, an upper bound, a combined interval, and
+an unsupported operator still raising — are P1.
 
-### Story 1 — Range filter on a scalar string field (P1)
+## 2. Rules — Range operators
 
-A caller constructs `{"last_edited_ulid": {"$gte": "01JXYZ..."}}` and passes it to
-`matches_filter`. Only metadata dicts where `last_edited_ulid >= "01JXYZ..."` should match.
+### R1 — `$gte` matches a field at or above the operand (inclusive)
 
-**Acceptance criteria:**
+When `matches_filter` encounters `{"field": {"$gte": value}}` — e.g. a caller constructs
+`{"last_edited_ulid": {"$gte": "01JXYZ..."}}` and passes it to `matches_filter` — it returns
+`True` if and only if `metadata[field] >= value` using Python string comparison. Equality at the
+boundary matches.
+
+**Example**
+
 - Given a metadata dict with `last_edited_ulid = "01JXYZ_HIGH"` and a filter
-  `{"last_edited_ulid": {"$gte": "01JXYZ_LOW"}}`, when `matches_filter` is called, it
+  `{"last_edited_ulid": {"$gte": "01JXYZ_LOW"}}`, when `matches_filter` is called, then it
   returns `True`.
 - Given a metadata dict with `last_edited_ulid = "01JXYZ_LOW"` and a filter
-  `{"last_edited_ulid": {"$gte": "01JXYZ_HIGH"}}`, when `matches_filter` is called, it
+  `{"last_edited_ulid": {"$gte": "01JXYZ_HIGH"}}`, when `matches_filter` is called, then it
   returns `False`.
-- Given equality at the boundary (`$gte` with the same value), when `matches_filter` is
-  called, it returns `True` (inclusive).
+- Given equality at the boundary (`$gte` with the same value), when `matches_filter` is called,
+  then it returns `True` (inclusive).
 
-### Story 2 — Upper bound filter on a scalar string field (P1)
+### R2 — `$lte` matches a field at or below the operand (inclusive)
 
-A caller constructs `{"last_edited_ulid": {"$lte": "01JXYZ..."}}`. Only dicts where the
-field is at or below the bound should match.
+When `matches_filter` encounters `{"field": {"$lte": value}}` — e.g.
+`{"last_edited_ulid": {"$lte": "01JXYZ..."}}` — it returns `True` if and only if
+`metadata[field] <= value` using Python string comparison. Equality at the boundary matches.
 
-**Acceptance criteria:**
-- Given a metadata dict with `last_edited_ulid` below the bound, when `matches_filter` is
-  called with `$lte`, it returns `True`.
-- Given a metadata dict with `last_edited_ulid` above the bound, when `matches_filter` is
-  called with `$lte`, it returns `False`.
-- Given equality at the boundary (`$lte` with the same value), it returns `True` (inclusive).
+**Example**
 
-### Story 3 — Combined $gte + $lte in an $and expression (P1)
+- Given a metadata dict with `last_edited_ulid` below the bound, when `matches_filter` is called
+  with `$lte`, then it returns `True`.
+- Given a metadata dict with `last_edited_ulid` above the bound, when `matches_filter` is called
+  with `$lte`, then it returns `False`.
+- Given equality at the boundary (`$lte` with the same value), then it returns `True` (inclusive).
 
-A caller needs a closed interval: `{"$and": [{"f": {"$gte": lo}}, {"f": {"$lte": hi}}]}`.
+### R3 — An absent field matches neither range operator
 
-**Acceptance criteria:**
-- Given a value within the interval, `matches_filter` returns `True`.
-- Given a value below the lower bound, `matches_filter` returns `False`.
-- Given a value above the upper bound, `matches_filter` returns `False`.
+When the field is absent from the metadata dict, `matches_filter` treats the field value as
+`None`; `None >= value` and `None <= value` evaluate to `False`.
 
-### Story 4 — Unsupported operator still raises ValueError (P1)
+### R4 — `$gte` and `$lte` on the same field in an `$and` form a closed interval
 
-**Acceptance criteria:**
-- Given a filter with an unknown operator (e.g. `$gt` without the `e`), when
-  `matches_filter` is called, it raises `ValueError` — not silently returns `False`.
+When both `$gte` and `$lte` are used on the same field in an `$and` expression —
+`{"$and": [{"f": {"$gte": lo}}, {"f": {"$lte": hi}}]}` — `matches_filter` evaluates each clause
+independently and ANDs them.
 
-## Requirements
+**Example**
 
-- WHEN `matches_filter` encounters `{"field": {"$gte": value}}` THE SYSTEM SHALL return
-  `True` if and only if `metadata[field] >= value` using Python string comparison.
-- WHEN `matches_filter` encounters `{"field": {"$lte": value}}` THE SYSTEM SHALL return
-  `True` if and only if `metadata[field] <= value` using Python string comparison.
-- WHEN the field is absent from the metadata dict THE SYSTEM SHALL treat the field value as
-  `None`; `None >= value` and `None <= value` evaluate to `False`.
-- WHEN both `$gte` and `$lte` are used on the same field in an `$and` expression THE
-  SYSTEM SHALL evaluate each clause independently and AND them.
-- WHEN an unknown operator string is encountered THE SYSTEM SHALL raise `ValueError` with a
-  message identifying the operator — unchanged from current behaviour.
+- Given a value within the interval, then `matches_filter` returns `True`.
+- Given a value below the lower bound, then `matches_filter` returns `False`.
+- Given a value above the upper bound, then `matches_filter` returns `False`.
 
-## Boundaries
+## 3. Rules — Unsupported operators
+
+### R5 — An unknown operator still raises `ValueError`
+
+When `matches_filter` encounters an unknown operator string, it raises `ValueError` with a
+message identifying the operator — not silently returns `False` — unchanged from current
+behaviour.
+
+**Example**
+
+- Given a filter with an unknown operator (e.g. `$gt` without the `e`), when `matches_filter` is
+  called, then it raises `ValueError`.
+
+## 4. Boundaries
 
 **Always:**
 - `$gte`/`$lte` use Python `>=`/`<=` string comparison — no type coercion, no numeric
@@ -120,23 +129,25 @@ A caller needs a closed interval: `{"$and": [{"f": {"$gte": lo}}, {"f": {"$lte":
 - Do not modify `$eq` list-field semantics — `$gte`/`$lte` only need to handle scalar
   fields (ULID strings are never stored as lists).
 
-<!-- IMPLEMENTATION BLOCK — agent-owned -->
+## 5. For the developer agent
 
-## Files to Touch
+### Files to Touch
 
 | File | Action | Notes |
 |------|--------|-------|
 | `tests/unit/clients/test_filter.py` | Create | Written first (Red); all range operator tests |
 | `src/arkeology/clients/filter.py` | Modify | Add `$gte` and `$lte` branches; update module docstring |
 
-## Testing Approach
+### Contracts
+
+None.
+
+### Testing Approach
 
 **TDD cycle (unit only — `filter.py` is pure Python, no AWS):**
 
 Write `tests/unit/clients/test_filter.py` first → run → all range tests fail → add `$gte`
 and `$lte` branches to `matches_filter` → all tests pass.
-
----
 
 **`tests/unit/clients/test_filter.py` — unit tests:**
 
@@ -165,7 +176,3 @@ Combined `$and` interval:
 Existing operators still pass (regression guard):
 - `$eq`, `$in`, `$nin` scalar and list variants each tested with one assertion.
 - Unknown operator raises `ValueError`.
-
-## Open Questions
-
-*(none — all constraints are defined)*

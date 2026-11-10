@@ -9,16 +9,15 @@ okf_version: "0.2"
 generated:
   by: "axians-architect/unknown"
   at: 2026-06-02T00:00:00Z
+revised:
+  by: "axians-architect/claude-opus-5-5"
+  at: 2026-11-09T13:29:03Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
-phase: 8
-task: 27
 ---
 
 # Write Performance P2 — Retry and Throttle Fix
-
-<!-- SCOPE BLOCK — frozen after approval -->
 
 ## TL;DR
 
@@ -28,7 +27,7 @@ with `bedrock.py`'s internal retry, adding up to 5 s to the cost of a single thr
 concurrent embed callers to retry at the same moment (thundering herd). This spec removes the
 duplicate retry from `write.py` and adds jitter to `bedrock.py`'s backoff sleep.
 
-## Problem Statement
+## 1. Problem Statement
 
 The brainstorming session (2026-06-01) identified three retry-related bottlenecks (RC-3,
 RC-4, B2, B3). A single `ThrottlingException` currently costs up to 5 s per section:
@@ -37,60 +36,80 @@ again, triggering a second 2-second sleep inside `bedrock.py`. With the concurre
 from P1, multiple sections may throttle at once — without jitter they all retry at the same
 instant, re-triggering throttling. These are correctness issues, not just performance issues.
 
-## User Stories
+All three user stories this spec states are P1: the duplicate retry in `write.py` is removed,
+jitter is added to the `bedrock.py` retry sleep, and non-transient errors are never retried.
 
-### Story 1 — Duplicate retry in write.py is removed (P1)
+## 2. Rules — Retry ownership
 
-An operator examining `write.py` sees a single, consistent error path: if `bedrock.embed`
-raises after its internal retry, `write.py` catches it once, logs to the failure log, and
-returns a structured error.
+### R1 — All retry logic lives in `bedrock.py`
 
-**Acceptance criteria:**
-- Given Bedrock raises `ThrottlingException` on both the first attempt and the internal retry
-  in `bedrock.py`, when `write_artifact` is called, then `bedrock.embed` is called exactly
-  twice (one initial + one retry inside `bedrock.py`) — not three times or more.
+When `write.py` receives any exception from `bedrock.embed`, it does not catch
+`ThrottlingException` and retry — all retry logic lives exclusively in `bedrock.py`. An operator
+examining `write.py` sees a single, consistent error path: if `bedrock.embed` raises after its
+internal retry, `write.py` catches it once, logs to the failure log, and returns a structured
+error.
+
+**Example**
+
+- Given Bedrock raises `ThrottlingException` on both the first attempt and the internal retry in
+  `bedrock.py`, when `write_artifact` is called, then `bedrock.embed` is called exactly twice (one
+  initial + one retry inside `bedrock.py`) — not three times or more.
+
+Source: —
+
+### R2 — An exhausted retry follows the existing failure path
+
+When `bedrock.embed` raises after exhausting its internal retry, `write_artifact` follows the
+existing `embed_error` / `doc_embed_error` path: append to failure log, return
+`{"error": "partial_write", ...}`.
+
+**Example**
+
 - Given Bedrock raises `ThrottlingException` exhausting all `bedrock.py` retries, when
-  `write_artifact` returns, then the response contains `{"error": "partial_write", ...}` and
-  the failure log contains one entry — no additional `asyncio.sleep` penalty from `write.py`.
+  `write_artifact` returns, then the response contains `{"error": "partial_write", ...}` and the
+  failure log contains one entry — no additional `asyncio.sleep` penalty from `write.py`.
 
-### Story 2 — Jitter is added to the bedrock.py retry sleep (P1)
+Source: —
 
-When multiple section embeds throttle simultaneously, they do not all retry at the same moment.
+### R3 — Non-transient errors are never retried
 
-**Acceptance criteria:**
-- Given `bedrock.py` triggers a retry sleep for a `ThrottlingException`, when the sleep
-  duration is measured, then it equals `_RETRY_SLEEP_SECONDS + jitter` where `jitter` is drawn
-  from `random.uniform(0, 1)` — verifiable by patching `random.uniform` in tests.
-- Given the same scenario for `ModelTimeoutException` and `ServiceUnavailableException`,
-  when retry sleep is measured, then jitter is applied identically.
+Removing the `write.py` retry block does not alter the handling of non-transient errors. When a
+`CredentialError` is raised in `write.py`, it continues to return
+`{"error": "credential_error", ...}` immediately, unchanged from today.
 
-### Story 3 — Non-transient errors are never retried (P1)
+**Example**
 
-Removing the `write.py` retry block must not alter the handling of non-transient errors.
-
-**Acceptance criteria:**
 - Given Bedrock raises a non-transient `ClientError` (e.g. `ValidationException`), when
   `write_artifact` is called, then `bedrock.embed` is called exactly once (no retry in either
   `write.py` or `bedrock.py`) and the error surfaces immediately as `"partial_write"`.
 - Given a `CredentialError`, when `write_artifact` is called, then the response is
   `{"error": "credential_error", ...}` without any retry.
 
-## Requirements
+Source: —
 
-- WHEN `bedrock.py` retries a transient error THE SYSTEM SHALL sleep for
-  `_RETRY_SLEEP_SECONDS + random.uniform(0, 1)` seconds instead of `_RETRY_SLEEP_SECONDS`
-  exactly.
-- WHEN `write.py` receives any exception from `bedrock.embed` THE SYSTEM SHALL NOT catch
-  `ThrottlingException` and retry — all retry logic lives exclusively in `bedrock.py`.
-- WHEN `bedrock.embed` raises after exhausting its internal retry THE SYSTEM SHALL follow the
-  existing `embed_error` / `doc_embed_error` path: append to failure log, return
-  `{"error": "partial_write", ...}`.
-- WHEN a `CredentialError` is raised in `write.py` THE SYSTEM SHALL continue to return
-  `{"error": "credential_error", ...}` immediately, unchanged from today.
+## 3. Rules — Retry sleep
 
-## Boundaries
+### R4 — The retry sleep carries jitter
+
+When `bedrock.py` retries a transient error, it sleeps for
+`_RETRY_SLEEP_SECONDS + random.uniform(0, 1)` seconds instead of `_RETRY_SLEEP_SECONDS` exactly,
+so that when multiple section embeds throttle simultaneously, they do not all retry at the same
+moment.
+
+**Example**
+
+- Given `bedrock.py` triggers a retry sleep for a `ThrottlingException`, when the sleep duration
+  is measured, then it equals `_RETRY_SLEEP_SECONDS + jitter` where `jitter` is drawn from
+  `random.uniform(0, 1)` — verifiable by patching `random.uniform` in tests.
+- Given the same scenario for `ModelTimeoutException` and `ServiceUnavailableException`, when
+  retry sleep is measured, then jitter is applied identically.
+
+Source: —
+
+## 4. Boundaries
 
 **Always:**
+
 - Jitter uses `random.uniform(0, 1)` — adds 0 to 1 second of randomness on top of the base
   sleep; the base constant `_RETRY_SLEEP_SECONDS = 2.0` is unchanged.
 - `bedrock.py` continues to use `time.sleep` for the retry sleep. With P1's
@@ -101,18 +120,20 @@ Removing the `write.py` retry block must not alter the handling of non-transient
 - `_RETRY_SLEEP_SECONDS` remains a named constant.
 
 **Ask First:**
+
 - Whether the jitter ceiling of 1 second is appropriate. Raising it would further distribute
   retry bursts but increase maximum latency.
 
 **Never:**
+
 - Do not change `bedrock.py` to `async def embed` in this spec.
 - Do not add a retry loop — exactly one retry remains the complete scope.
 - Do not remove the `CredentialError` catch in `write.py` — that path is correct and must
   remain.
 
-<!-- IMPLEMENTATION BLOCK — agent-owned -->
+## 5. For the developer agent
 
-## Files to Touch
+### Files to Touch
 
 | File | Action | Notes |
 |------|--------|-------|
@@ -121,7 +142,11 @@ Removing the `write.py` retry block must not alter the handling of non-transient
 | `src/arkeology/clients/bedrock.py` | Modify | Add `import random`; change `time.sleep(_RETRY_SLEEP_SECONDS)` to `time.sleep(_RETRY_SLEEP_SECONDS + random.uniform(0, 1))` |
 | `src/arkeology/tools/write.py` | Modify | Remove both `except botocore.exceptions.ClientError` blocks that catch `ThrottlingException` and call `asyncio.sleep(1)` + retry `bedrock.embed` (section path and document-level fallback path); retain all `CredentialError` catches |
 
-## Testing Approach
+### Contracts
+
+None.
+
+### Testing Approach
 
 **TDD cycle A (bedrock client):** update `test_fake_bedrock.py` first (Red) →
 update `bedrock.py` with jitter (Green).
@@ -150,7 +175,3 @@ remove duplicate retry from `write.py` (Green).
 - `test_no_extra_sleep_from_write_on_throttle` — patch `asyncio.sleep` to record calls;
   configure `FakeBedrockClient` to exhaust throttle retries; call `write_artifact`; assert
   `asyncio.sleep` is never called with any positive argument from inside `write.py`.
-
-## Open Questions
-
-*(none — all decisions resolved per brainstorming session 2026-06-01)*

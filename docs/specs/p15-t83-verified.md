@@ -91,13 +91,12 @@ relationships:
 generated:
   by: "axians-architect/claude-opus-5.5"
   at: 2026-10-13T17:50:06Z
-phase: 15
-task: 83
+revised:
+  by: "axians-architect/claude-opus-5-5"
+  at: 2026-11-09T21:57:10Z
 ---
 
 # T83 — `verified` Annotation, `add_artifact_verification`, and the "Unverified Since Revised" Flag
-
-<!-- SCOPE BLOCK — frozen after approval -->
 
 ## TL;DR
 
@@ -108,7 +107,19 @@ append helper. It never re-PUTs the object, re-embeds, or moves `revised`, the r
 boolean, true only when the newest verification predates the latest revision; the tier never changes
 (FR-70, FR-71; D41, D44, D45, D46).
 
-## Problem Statement
+## Open Questions
+
+1. **Non-blocking — hand-off to T88.** Producer documents carry a `verified:` list, and T88's plan
+   entry does not mention it. *Recommended:* T88 imports each entry by calling
+   `add_artifact_verification` with the entry's `at` after the create. As T79 open question 2 notes,
+   an import writes no `revised`, so an imported verification never raises the flag until the first
+   update — consistent with FR-71.
+2. **Non-blocking — B-14 wording.** B-14 derives `last_verified` from "the last entry" of the
+   annotation. Entries may be backdated out of order, so the projection must use the newest `at`, as
+   the read flag does. *Recommended:* the PM rewords B-14 to "the entry with the latest `at`" when it
+   is next touched.
+
+## 1. Problem Statement
 
 After T79 an artifact carries first authorship and its latest revision, but nothing records that
 anyone confirmed the content still holds. OKF v0.2 carries that as a `verified` list (D6). It cannot
@@ -119,158 +130,268 @@ because reviewers append on their own schedule (D31, D44). Recording one must no
 revised after its last verification, a reader should be told so — as a warning, not a demotion
 (D41).
 
-## User Stories
+All four of this spec's user stories are P1: record a verification without disturbing the artifact
+(R11), the advisory flag on read (R15), verifications survive every re-PUT (R3), and refusals (R4,
+R8, R19).
 
-### Story 1 — Record a verification without disturbing the artifact (P1)
+## 2. Rules — Storage
+
+### R1 — Verifications live in their own `verified` S3 object annotation, encoded as T80's `revision_history`, with no copy in object or vector metadata and never read from content
+
+THE SYSTEM SHALL keep verifications in their own S3 object annotation, `verified`, encoded exactly
+as T80's `revision_history`: a JSON array of `{"by", "at"}` objects in the order recorded,
+non-ASCII escaped, decoded and size-checked by T80's log functions. An absent annotation is `[]`.
+No copy is kept in object or vector metadata, and nothing filters on it.
+
+The content's own frontmatter is not read. A producer document may carry a `verified:` block in its
+stored content. The annotation is the store's record; content is never parsed for it.
+
+Source: FR-54, FR-70, C-06, C-07, C-08; D44; T80
+
+### R2 — `create_artifact` writes no `verified` annotation
+
+`create_artifact` SHALL write no `verified` annotation.
+
+Source: FR-54, FR-70, C-06, C-07, C-08; D44
+
+### R3 — `verified` joins the carried set, so every re-PUT path carries it forward and none appends to it
+
+`verified` SHALL join the carried set in `annotations.py` (T82), so `update_artifact`,
+`archive_artifact` and `set_artifact_status` each read it before their re-PUT, carry it across
+compare-and-swap attempts by the log rule (ordered union), restore it unchanged after the re-PUT,
+and record it in any failure-log entry they write. None of them appends to it.
+
+**Example**
+
+- Given a verified artifact, when it is updated, archived or has its lifecycle status changed, then
+  its `verified` list reads back unchanged (ADR-017 `## Consequences`, "Every re-PUT must carry three
+  annotations forward").
+
+Source: FR-54, FR-70, C-06, C-07, C-08; D44; T82; ADR-017 `## Consequences`
+
+### R4 — An unreadable `verified` payload on a re-PUT path returns `corrupt_metadata` and writes nothing, until that call's own re-PUT has landed
+
+WHEN any of those paths — `update_artifact`, `archive_artifact` and `set_artifact_status` — reads an
+unreadable `verified` payload THE SYSTEM SHALL return `corrupt_metadata` naming `verified` and write
+nothing; once that call's own re-PUT has landed, the existing failure-log path applies instead (D50,
+case 1; T80, T82).
+
+**Example**
+
+- Given a `verified` payload that does not decode, when the artifact is read, verified, updated,
+  archived or has its status changed, then `corrupt_metadata` names `verified` and nothing is written
+  (D50, case 1).
+
+Source: FR-54, FR-70, C-06, C-07, C-08; D44; D50, case 1; T80, T82
+
+### R5 — `reconcile_index` restores a failure-log entry's `verified` by ordered union and never adds a verification
+
+WHEN `reconcile_index` replays failure-log entries carrying `verified` THE SYSTEM SHALL restore it
+by T80's ordered-union rule. Reconcile never adds a verification.
+
+Source: FR-54, FR-70, C-06, C-07, C-08; D44; T80
+
+### R6 — The C-06 and C-07 residuals apply unchanged
+
+The C-06 and C-07 residuals apply unchanged. In particular, a verification appended between a
+re-PUT's read and its object write is lost when that re-PUT restores what it read.
+
+Source: FR-54, FR-70, C-06, C-07, C-08; D44
+
+## 3. Rules — `add_artifact_verification`
+
+### R7 — `add_artifact_verification` takes one artifact and one `{by, at}` block named `verification`
+
+THE SYSTEM SHALL provide `add_artifact_verification`, taking `artifact_id` (the full own-scope key)
+and `verification`, a `{by, at}` block with `by` required and `at` optional. One call records one
+entry on one artifact: there is no list of entries and no `artifact_ids` batch.
+
+**Why:** AC-73 and D46 treat a verification as one event on one artifact, so there is no list of
+entries and no `artifact_ids` batch (unlike `add_artifact_links`, which merges sets). The block reuses
+T79's resolver unchanged, so actor and timestamp rules cannot drift between `generated`, `revised`
+and verifications. It is named `verification`, not `verified`, because OKF's `verified` is the list
+and a single object under that name would misstate the shape. The response echoes the resolved block
+so a caller that omitted `at` learns the stamped time; the full list is `read_artifact`'s job.
+
+Source: FR-14, FR-70, AC-72, AC-73; D46; ADR-017 `### 8. Tool surface`; T79
+
+### R8 — A foreign-scope `artifact_id` is refused with `access_denied` before any storage call
+
+WHEN `artifact_id` fails `is_own_scope` against the write prefix THE SYSTEM SHALL return
+`access_denied` before any storage call. Verification is own scope only.
+
+**Example**
+
+- Given a foreign-scope artifact, when a verification is requested, then `access_denied` is returned
+  before any storage call.
+
+**Why:** Every write path is own-scope (archive, T82, `add_artifact_links`). A foreign verification
+would let one team move another team's advisory signal and add `human:` verifiers that an OKF §5.3
+consumer derives a trust tier from, and it would need annotation write access to another team's
+prefix. `access_denied` rather than a silent skip matches T82's single-artifact tool; cross-team
+review is recorded by the owning team.
+
+Source: FR-14, FR-70, AC-72, AC-73; D46; ADR-017 `### 8. Tool surface`; T82
+
+### R9 — `verification` is validated and resolved by T79's provenance-block resolver before any storage call; `at` is optional and unordered
+
+THE SYSTEM SHALL validate and resolve `verification` with T79's provenance-block resolver before
+any storage call: OKF §7 actor forms for `by`, ISO 8601 with an explicit offset for `at` (an
+offset-naive value or a bare date is rejected, never assumed UTC), any other key rejected — each a
+`validation_error` naming the field. An accepted `at` is stored in T79's canonical UTC form
+(`YYYY-MM-DDTHH:MM:SSZ`, truncated to seconds); an omitted `at` is the server clock in that form,
+resolved once per call so every retry appends the same entry.
+
+`at` is optional and unordered, as T79 decided for `revised`. No check runs against `generated.at`,
+`revised.at` or the clock.
+
+**Why:** Importing a producer document's existing `verified` list needs past times. The owner records
+its own statement under the same write authority that could withhold it. A future-dated entry
+therefore suppresses the flag until a later revision — accepted, as the flag is advisory.
+
+Source: FR-14, FR-70, AC-72, AC-73; D46; ADR-017 `### 8. Tool surface`; T79
+
+### R10 — The entry is appended with T80's append helper, and each outcome maps to one response
+
+THE SYSTEM SHALL append the resolved entry with T80's append helper and map its outcomes:
+
+| Outcome | Response |
+|---------|----------|
+| object gone | `not_found` |
+| unreadable payload | `corrupt_metadata` naming `verified`, nothing written |
+| payload past the annotation limit | `validation_error` |
+| retries exhausted | `conflict` |
+| `CredentialError` | `credential_error` |
+| `AnnotationUnavailableError` | `annotation_unavailable` |
+
+Source: FR-14, FR-70, AC-72, AC-73; D46; ADR-017 `### 8. Tool surface`; T80
+
+### R11 — Recording a verification makes no Bedrock call, object PUT or vector write, and leaves the object and every other annotation as they were
+
+THE SYSTEM SHALL make no Bedrock call, no object PUT and no vector write. The object's ETag,
+metadata (`generated`, `revised`, `last_edited_ulid`, `archived`, `status`) and every other
+annotation stay as they were (FR-69, FR-72). No failure-log entry is ever written: the only write
+is the annotation, which either lands or does not.
+
+**Example**
+
 - Given an own-scope artifact, when a verification is recorded and then a second one, then no
   embedding call is made, content, `revised`, `revision_history` and `last_edited_ulid` are
   unchanged, and reading it returns both verifications in the order recorded (AC-73).
 - Given an artifact created by X and updated by Y, when a verification is recorded, then
   `generated` still names X and `revised` still names Y at Y's time (the verification leg of AC-72).
 
-### Story 2 — The advisory flag on read (P1)
+Source: FR-14, FR-69, FR-70, FR-72, AC-72, AC-73; D46; ADR-017 `### 8. Tool surface`
+
+### R12 — Archived, deprecated and draft artifacts may be verified
+
+Archived, deprecated and draft artifacts MAY be verified; no archive or lifecycle check runs.
+
+Source: FR-14, FR-70, AC-72, AC-73; D46; ADR-017 `### 8. Tool surface`
+
+### R13 — Success returns the artifact id and the resolved block; an escaping exception returns `internal_error`
+
+On success THE SYSTEM SHALL return `{"artifact_id": …, "verification": {"by": …, "at": …}}` with
+the resolved values. The public function delegates to `_inner` inside `try/except Exception`; an
+escaping exception returns `internal_error`.
+
+Source: FR-14, FR-70, AC-72, AC-73; D46; ADR-017 `### 8. Tool surface`
+
+## 4. Rules — Reading and the flag
+
+### R14 — A successful `read_artifact` always returns `verified` and `unverified_since_revised`, read after the cross-scope gate
+
+WHEN `read_artifact` succeeds THE SYSTEM SHALL return `verified` as the stored list (or `[]`) and
+`unverified_since_revised` as a boolean, both always present, next to `tier`. Both are read and
+computed after the cross-scope gate, so a denied artifact's `verified` is never fetched; a reader
+the gate admits receives both.
+
+**Why:** Absent signal is `false`, never an omitted key, matching T79's house rule that response keys
+are always present (`revised: null`). The name states the condition in FR-71's own words.
+
+Source: FR-70, FR-71, AC-73, AC-74; D19, D41, D45; ADR-017 `### 10`; T79
+
+### R15 — `unverified_since_revised` is true only when the latest `verified.at` is strictly earlier than `revised.at`
+
+THE SYSTEM SHALL set `unverified_since_revised` to true only WHEN `verified` is non-empty AND
+`revised` is present AND the latest `verified.at` — the maximum over all entries, not the last
+entry — is strictly earlier than `revised.at`, both compared as parsed, offset-aware datetimes
+(D19). Otherwise it is false. `generated.at` is never used as a fallback.
+
+**Example**
+
 - Given an artifact verified by X and then updated by Y, when it is read, then
   `unverified_since_revised` is true and `tier` is unchanged. After a new verification is
   recorded, it reads false (AC-74).
 - Given an artifact never verified, or verified after its latest revision, or never revised, when it
   is read, then `unverified_since_revised` is false (AC-74; FR-71).
 
-### Story 3 — Verifications survive every re-PUT (P1)
-- Given a verified artifact, when it is updated, archived or has its lifecycle status changed, then
-  its `verified` list reads back unchanged (ADR-017 `## Consequences`, "Every re-PUT must carry three
-  annotations forward").
-
-### Story 4 — Refusals (P1)
-- Given a foreign-scope artifact, when a verification is requested, then `access_denied` is returned
-  before any storage call.
-- Given a `verified` payload that does not decode, when the artifact is read, verified, updated,
-  archived or has its status changed, then `corrupt_metadata` names `verified` and nothing is written
-  (D50, case 1).
-- Given a caller passing `verified` to `create_artifact` or `update_artifact`, or as a key in a
-  `create_artifacts` / `update_artifacts` descriptor, then the call (or entry) fails with
-  `validation_error` naming `add_artifact_verification`.
-
-## Requirements
-
-**Storage** (FR-54, FR-70, C-06, C-07, C-08; D44)
-
-- THE SYSTEM SHALL keep verifications in their own S3 object annotation, `verified`, encoded exactly
-  as T80's `revision_history`: a JSON array of `{"by", "at"}` objects in the order recorded,
-  non-ASCII escaped, decoded and size-checked by T80's log functions. An absent annotation is `[]`.
-  No copy is kept in object or vector metadata, and nothing filters on it.
-- `create_artifact` SHALL write no `verified` annotation.
-- `verified` SHALL join the carried set in `annotations.py` (T82), so `update_artifact`,
-  `archive_artifact` and `set_artifact_status` each read it before their re-PUT, carry it across
-  compare-and-swap attempts by the log rule (ordered union), restore it unchanged after the re-PUT,
-  and record it in any failure-log entry they write. None of them appends to it.
-- WHEN any of those paths reads an unreadable `verified` payload THE SYSTEM SHALL return
-  `corrupt_metadata` naming `verified` and write nothing; once that call's own re-PUT has landed, the
-  existing failure-log path applies instead (D50, case 1; T80, T82).
-- WHEN `reconcile_index` replays failure-log entries carrying `verified` THE SYSTEM SHALL restore it
-  by T80's ordered-union rule. Reconcile never adds a verification.
-- The C-06 and C-07 residuals apply unchanged. In particular, a verification appended between a
-  re-PUT's read and its object write is lost when that re-PUT restores what it read.
-
-**`add_artifact_verification`** (FR-14, FR-70, AC-72, AC-73; D46; ADR-017 `### 8. Tool surface`)
-
-- THE SYSTEM SHALL provide `add_artifact_verification`, taking `artifact_id` (the full own-scope key)
-  and `verification`, a `{by, at}` block with `by` required and `at` optional.
-- WHEN `artifact_id` fails `is_own_scope` against the write prefix THE SYSTEM SHALL return
-  `access_denied` before any storage call.
-- THE SYSTEM SHALL validate and resolve `verification` with T79's provenance-block resolver before
-  any storage call: OKF §7 actor forms for `by`, ISO 8601 with an explicit offset for `at` (an
-  offset-naive value or a bare date is rejected, never assumed UTC), any other key rejected — each a
-  `validation_error` naming the field. An accepted `at` is stored in T79's canonical UTC form
-  (`YYYY-MM-DDTHH:MM:SSZ`, truncated to seconds); an omitted `at` is the server clock in that form,
-  resolved once per call so every retry appends the same entry.
-- THE SYSTEM SHALL append the resolved entry with T80's append helper and map its outcomes: object
-  gone → `not_found`; unreadable payload → `corrupt_metadata` naming `verified`, nothing written;
-  payload past the annotation limit → `validation_error`; retries exhausted → `conflict`;
-  `CredentialError` → `credential_error`; `AnnotationUnavailableError` → `annotation_unavailable`.
-- THE SYSTEM SHALL make no Bedrock call, no object PUT and no vector write. The object's ETag,
-  metadata (`generated`, `revised`, `last_edited_ulid`, `archived`, `status`) and every other
-  annotation stay as they were (FR-69, FR-72). No failure-log entry is ever written: the only write
-  is the annotation, which either lands or does not.
-- Archived, deprecated and draft artifacts MAY be verified; no archive or lifecycle check runs.
-- On success THE SYSTEM SHALL return `{"artifact_id": …, "verification": {"by": …, "at": …}}` with
-  the resolved values. The public function delegates to `_inner` inside `try/except Exception`; an
-  escaping exception returns `internal_error`.
-
-**Reading and the flag** (FR-70, FR-71, AC-73, AC-74; D19, D41, D45; ADR-017 `### 10`)
-
-- WHEN `read_artifact` succeeds THE SYSTEM SHALL return `verified` as the stored list (or `[]`) and
-  `unverified_since_revised` as a boolean, both always present, next to `tier`. Both are read and
-  computed after the cross-scope gate, so a denied artifact's `verified` is never fetched; a reader
-  the gate admits receives both.
-- THE SYSTEM SHALL set `unverified_since_revised` to true only WHEN `verified` is non-empty AND
-  `revised` is present AND the latest `verified.at` — the maximum over all entries, not the last
-  entry — is strictly earlier than `revised.at`, both compared as parsed, offset-aware datetimes
-  (D19). Otherwise it is false. `generated.at` is never used as a fallback.
-- WHEN the `verified` payload is unreadable `read_artifact` SHALL return `corrupt_metadata` naming
-  `verified` and never echo the payload, to any reader (D50, case 5). An unreadable `revised` already
-  returns `corrupt_metadata` (T79), so the flag is never computed from an unreadable timestamp.
-- Computing the flag SHALL write nothing and SHALL NOT alter `tier`, `visibility` or any other
-  returned field (D41).
-- `list_artifacts`, `search_artifacts`, `synthesise_artifacts`, Studio and the `arkeology://`
-  resources SHALL NOT return `verified` or the flag (D45; backlog B-14).
-
-**Redirect for a write-time `verified`** (FR-70; D42)
-
-- THE SYSTEM SHALL add rows to T78's per-tool removed-name table: `create_artifact` and
-  `update_artifact`, name `verified`, replacement `add_artifact_verification`. WHEN a
-  `create_artifacts` or `update_artifacts` descriptor carries a `verified` key THE SYSTEM SHALL fail
-  that entry with the same `validation_error`; `migrate_artifacts` inherits this through delegation.
-
-### Decisions taken in this spec
-
-**Signature: one artifact, one entry, a `{by, at}` block named `verification`.** AC-73 and D46 treat
-a verification as one event on one artifact, so there is no list of entries and no `artifact_ids`
-batch (unlike `add_artifact_links`, which merges sets). The block reuses T79's resolver unchanged,
-so actor and timestamp rules cannot drift between `generated`, `revised` and verifications. It is
-named `verification`, not `verified`, because OKF's `verified` is the list and a single object under
-that name would misstate the shape. The response echoes the resolved block so a caller that omitted
-`at` learns the stamped time; the full list is `read_artifact`'s job.
-
-**Own scope only, `access_denied` before any read.** Every write path is own-scope (archive, T82,
-`add_artifact_links`). A foreign verification would let one team move another team's advisory
-signal and add `human:` verifiers that an OKF §5.3 consumer derives a trust tier from, and it would
-need annotation write access to another team's prefix. `access_denied` rather than a silent skip
-matches T82's single-artifact tool; cross-team review is recorded by the owning team.
-
-**`at` is optional and unordered, as T79 decided for `revised`.** Importing a producer document's
-existing `verified` list needs past times. No check runs against `generated.at`, `revised.at` or the
-clock: the owner records its own statement under the same write authority that could withhold it.
-A future-dated entry therefore suppresses the flag until a later revision — accepted, as the flag is
-advisory. Because entries can arrive out of time order, the flag uses the maximum `at`, not the last
-entry.
-
-**No `revised` means no flag.** FR-71 asks whether content was revised after the most recent
+**Why:** Because entries can arrive out of time order, the flag uses the maximum `at`, not the last
+entry. No `revised` means no flag: FR-71 asks whether content was revised after the most recent
 verification; an artifact never revised was not, whatever its `generated.at`. FR-71 and AC-74 say
 "never revised" is false outright. Falling back to `generated.at` would flag a verification
 backdated before first authorship, which is a data-entry oddity, not a revision.
 
-**Unreadable timestamps fail the read, not just the flag.** ADR-017 `### 10`'s "marks only its own
-source" rule is about freshness sources. A `verified` entry's `at` is validated when decoded, so an
-unreadable one makes the whole annotation payload uninterpretable, which the same section makes
-`corrupt_metadata` on a single read. Returning the artifact with the flag silently false would be the
-degraded path AGENTS.md forbids, and would under-warn.
+Source: FR-70, FR-71, AC-73, AC-74; D19, D41, D45; ADR-017 `### 10`
 
-**Always-present boolean.** Absent signal is `false`, never an omitted key, matching T79's house rule
-that response keys are always present (`revised: null`). The name states the condition in FR-71's own
-words.
+### R16 — An unreadable `verified` payload fails the read with `corrupt_metadata`, never echoing the payload
 
-**Write-time verification is a second call, and a `verified` argument is redirected.** FR-70 allows
-recording "at write time or at any later point". Calling `add_artifact_verification` right after the
-create or update satisfies it with one code path, and keeps create/update signatures as T78 and T79
-froze them. Today a bulk descriptor's unknown key is silently ignored, so a migration passing
-frontmatter `verified` would drop verifications without error; the redirect rows turn that into a
-`validation_error` naming the tool. `verified` was never a parameter, so this is not an AC-80 removed
-name; the row reuses T78's mechanism as T79 did for `timestamp`.
+WHEN the `verified` payload is unreadable `read_artifact` SHALL return `corrupt_metadata` naming
+`verified` and never echo the payload, to any reader (D50, case 5). An unreadable `revised` already
+returns `corrupt_metadata` (T79), so the flag is never computed from an unreadable timestamp.
+Unreadable timestamps fail the read, not just the flag.
 
-**The content's own frontmatter is not read.** A producer document may carry a `verified:` block in
-its stored content. The annotation is the store's record; content is never parsed for it.
+**Why:** ADR-017 `### 10`'s "marks only its own source" rule is about freshness sources. A
+`verified` entry's `at` is validated when decoded, so an unreadable one makes the whole annotation
+payload uninterpretable, which the same section makes `corrupt_metadata` on a single read. Returning
+the artifact with the flag silently false would be the degraded path AGENTS.md forbids, and would
+under-warn.
 
-## Boundaries
+Source: FR-70, FR-71, AC-73, AC-74; D19, D41, D45; ADR-017 `### 10`; D50, case 5; T79
+
+### R17 — Computing the flag writes nothing and alters no returned field
+
+Computing the flag SHALL write nothing and SHALL NOT alter `tier`, `visibility` or any other
+returned field (D41).
+
+Source: FR-70, FR-71, AC-73, AC-74; D19, D41, D45; ADR-017 `### 10`
+
+### R18 — Listings, search, synthesis, Studio and the `arkeology://` resources do not return `verified` or the flag
+
+`list_artifacts`, `search_artifacts`, `synthesise_artifacts`, Studio and the `arkeology://`
+resources SHALL NOT return `verified` or the flag (D45; backlog B-14).
+
+Source: FR-70, FR-71, AC-73, AC-74; D19, D41, D45; ADR-017 `### 10`; B-14
+
+## 5. Rules — Redirect for a write-time `verified`
+
+### R19 — A write-time `verified` is redirected to `add_artifact_verification` with `validation_error`
+
+THE SYSTEM SHALL add rows to T78's per-tool removed-name table: `create_artifact` and
+`update_artifact`, name `verified`, replacement `add_artifact_verification`. WHEN a
+`create_artifacts` or `update_artifacts` descriptor carries a `verified` key THE SYSTEM SHALL fail
+that entry with the same `validation_error`; `migrate_artifacts` inherits this through delegation.
+
+Write-time verification is a second call: calling `add_artifact_verification` right after the
+create or update.
+
+**Example**
+
+- Given a caller passing `verified` to `create_artifact` or `update_artifact`, or as a key in a
+  `create_artifacts` / `update_artifacts` descriptor, then the call (or entry) fails with
+  `validation_error` naming `add_artifact_verification`.
+
+**Why:** FR-70 allows recording "at write time or at any later point". Calling
+`add_artifact_verification` right after the create or update satisfies it with one code path, and
+keeps create/update signatures as T78 and T79 froze them. Today a bulk descriptor's unknown key is
+silently ignored, so a migration passing frontmatter `verified` would drop verifications without
+error; the redirect rows turn that into a `validation_error` naming the tool. `verified` was never a
+parameter, so this is not an AC-80 removed name; the row reuses T78's mechanism as T79 did for
+`timestamp`.
+
+Source: FR-70; D42; T78, T79
+
+## 6. Boundaries
 
 **Always:**
 - Check `is_own_scope` and validate the block before any storage call.
@@ -295,9 +416,9 @@ its stored content. The annotation is the store's record; content is never parse
 - Rewrite the schema resource (T89), migrate stored verifications (T88, T90), or edit README,
   SERVER-REFERENCE, CHANGELOG or AGENTS.md (T91).
 
-<!-- IMPLEMENTATION BLOCK — agent-owned -->
+## 7. For the developer agent
 
-## Files to Touch
+### Files to Touch
 
 The plan blocks T83 on T80 only. Where T82 has not landed yet, the carried set does not exist; the
 uncertain rows below say what changes in that case.
@@ -315,7 +436,7 @@ uncertain rows below say what changes in that case.
 | `src/arkeology/tools/_errors.py` | None expected | Reuse T80's `CorruptAnnotationError` → `corrupt_metadata` mapping |
 | Tests | Modify / Create | See Testing Approach |
 
-## Contract Amendments
+### Contracts
 
 Amend these before writing tests (plan.md `## Phase 15`, TDD rule):
 
@@ -340,7 +461,7 @@ Amend these before writing tests (plan.md `## Phase 15`, TDD rule):
 - **`modules/arkeology.tools.reconcile.md`** — A failure-log entry may carry `verified`, restored by
   ordered union; reconcile never adds one.
 
-## Testing Approach
+### Testing Approach
 
 **TDD order** (each test file is red before the implementation file it gates). T83 removes no name,
 so no AC-80 test applies; the redirect rows are tested in step 6 through the same middleware.
@@ -395,15 +516,3 @@ not an exact key set, and no integration test pins the set of annotations on an 
 `tests/integration/test_tools_verification.py`: against real AWS, create, verify, update (a real
 re-PUT wipes and restores `verified`), read → the list is intact and the flag true; verify again →
 false; the object ETag is unchanged across each verification.
-
-## Open Questions
-
-1. **Non-blocking — hand-off to T88.** Producer documents carry a `verified:` list, and T88's plan
-   entry does not mention it. *Recommended:* T88 imports each entry by calling
-   `add_artifact_verification` with the entry's `at` after the create. As T79 open question 2 notes,
-   an import writes no `revised`, so an imported verification never raises the flag until the first
-   update — consistent with FR-71.
-2. **Non-blocking — B-14 wording.** B-14 derives `last_verified` from "the last entry" of the
-   annotation. Entries may be backdated out of order, so the projection must use the newest `at`, as
-   the read flag does. *Recommended:* the PM rewords B-14 to "the entry with the latest `at`" when it
-   is next touched.

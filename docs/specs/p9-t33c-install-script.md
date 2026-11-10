@@ -17,18 +17,14 @@ generated:
   by: "axians-architect/unknown"
   at: 2026-06-09T00:00:00Z
 revised:
-  by: "axians-tech-writer/unknown"
-  at: 2026-06-10T00:00:00Z
+  by: "axians-architect/claude-opus-5-5"
+  at: 2026-11-09T16:52:42Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
-phase: 9
-task: 33c
 ---
 
 # T33c — Install Script
-
-<!-- SCOPE BLOCK — frozen after approval -->
 
 ## TL;DR
 
@@ -37,14 +33,9 @@ installed and applies the correct user-level wiring for each: OpenCode (prints t
 snippet), Claude Code (registers marketplace + installs plugin + writes settings.json
 pre-approval for `arkeology:plugin-sync`), and Copilot (via `gh skill install`, spec T33d).
 The script always ends by printing a labelled session-refresh section that repeats the
-OpenCode plugin lines verbatim. Running the script twice produces the same state as
-running it once.
+OpenCode plugin lines verbatim, and running it twice produces the same state as running it once.
 
-There is no CLAUDE.md `@`-import step and no agent symlinks step — Arkeology has no
-agents and its AGENTS.md is server-setup documentation unsuitable for global injection
-(decision D1, documented in the brainstorming doc).
-
-## Problem Statement
+## 1. Problem Statement
 
 Without an install script, operators must perform separate per-tool manual steps: look up
 the OpenCode plugin snippet, run two Claude Code CLI commands, merge a JSON settings file.
@@ -52,80 +43,106 @@ These steps are error-prone, not in a runnable form, and not idempotent. A singl
 that detects what is installed and applies the correct wiring eliminates manual burden,
 makes the install reproducible, and ensures every operator ends in the same state.
 
-## User Stories
+All four stories this spec was written from are P1: single-command wiring (R1), idempotent re-run
+(R8), session-refresh instructions always printed (R9), and Claude Code full wiring (R4, R5).
 
-### Story 1 — Single-command wiring (P1)
+## 2. Rules — Detection
 
-As an Arkeology operator, I run `./install.sh` from the repo root and all my installed AI
-tools are wired in one step without consulting per-tool documentation.
+### R1 — One run wires every detected tool and skips the others
 
-**Acceptance criteria:**
+When `install.sh` is run, it detects the presence of `claude`, `opencode`, and `copilot` on PATH
+and applies wiring only for detected tools. When a tool is not detected on PATH, the script skips
+all wiring for that tool and prints an informational message. An Arkeology operator runs
+`./install.sh` from the repo root and all their installed AI tools are wired in one step without
+consulting per-tool documentation.
+
+**Example**
+
 - Given the operator has at least one supported tool installed (`claude`, `opencode`, or
   `copilot`), when they run `./install.sh`, then each detected tool is wired and a per-tool
   summary of what was done is printed; tools not detected are skipped with an informational
   message.
 
-### Story 2 — Idempotent re-run (P1)
+### R2 — With no supported tool detected, the script exits cleanly
 
-As an Arkeology operator, I can re-run `./install.sh` at any time without side effects.
+When no supported tools are detected, the script prints a message and exits cleanly (no error).
 
-**Acceptance criteria:**
-- Given the operator has already run `install.sh` successfully, when they run it again,
-  then the result is identical — no duplicate `settings.json` entries, no errors.
+## 3. Rules — Per-tool wiring
 
-### Story 3 — Session-refresh instructions always printed (P1)
+### R3 — OpenCode: the script prints both plugin lines and does not patch the config
 
-As an Arkeology operator, I always know what to do after install completes — including
-what to run manually if the automated SSH step failed silently.
+When `opencode` is detected, the script prints both the SSH and HTTPS plugin line snippets for the
+operator to add to `~/.config/opencode/opencode.jsonc` — the script does not patch the file
+directly.
 
-**Acceptance criteria:**
-- Given `install.sh` has completed regardless of which tools were wired, when the script
-  prints its final output, then a labelled section:
+### R4 — Claude Code: the script registers the marketplace and installs the plugin
+
+When `claude` is detected, the script runs
+`claude plugin marketplace add git@github.com:amanoxsolutions/arkeology.git` and
+`claude plugin install arkeology@arkeology`; both calls use `|| true` so a non-zero exit from an
+already-registered marketplace or already-installed plugin does not abort the script. `|| true`
+means a silent SSH failure (e.g. port 22 blocked by firewall) does not abort the script — the
+session-refresh section mitigates this by printing the HTTPS alternative so the operator can re-run
+manually if the automated step produced no result.
+
+**Example**
+
+- Given `claude` is detected on PATH, when `install.sh` runs, then
+  `claude plugin marketplace add` and `claude plugin install arkeology@arkeology` have been run,
+  and `~/.claude/settings.json` contains the pre-approval rule for `arkeology:plugin-sync`.
+
+### R5 — Claude Code: the script merges the pre-approval rule into `~/.claude/settings.json` once
+
+When `claude` is detected, the script merges the pre-approval rule `"Bash(git -C * pull)"` into
+`~/.claude/settings.json` using an inline Python 3 script, creating the file if absent and merging
+without touching unrelated entries if it exists. When the pre-approval rule is already present in
+`~/.claude/settings.json`, the script does not add it a second time (idempotency).
+
+### R6 — Copilot: the script applies the Copilot wiring specified in T33d
+
+When `copilot` is detected, the script applies Copilot wiring as specified in T33d.
+
+### R7 — No CLAUDE.md `@`-import step and no agent symlinks step
+
+There is no CLAUDE.md `@`-import step and no agent symlinks step — Arkeology has no agents and its
+AGENTS.md is server-setup documentation unsuitable for global injection.
+
+Source: brainstorming-2026-06-08-skill-distribution D1
+
+## 4. Rules — Re-runs and final output
+
+### R8 — Re-running the script produces the same state
+
+An Arkeology operator can re-run `./install.sh` at any time without side effects: running the
+script twice produces the same state as running it once.
+
+**Example**
+
+- Given the operator has already run `install.sh` successfully, when they run it again, then the
+  result is identical — no duplicate `settings.json` entries, no errors.
+
+### R9 — The script always ends with a labelled session-refresh section
+
+When all wiring is complete, the script prints a session-refresh section that:
+
+- states the restart action for each wired tool;
+- repeats both the SSH and HTTPS OpenCode plugin lines verbatim in this section;
+- repeats both the SSH and HTTPS forms of `claude plugin marketplace add`, with the HTTPS form
+  labelled "HTTPS alternative (if SSH / port 22 is blocked)".
+
+An Arkeology operator always knows what to do after install completes — including what to run
+manually if the automated SSH step failed silently.
+
+**Example**
+
+- Given `install.sh` has completed regardless of which tools were wired, when the script prints
+  its final output, then a labelled section:
   - lists the session-refresh action for each wired tool;
   - repeats both the SSH and HTTPS OpenCode plugin lines verbatim;
   - repeats both the SSH and HTTPS forms of `claude plugin marketplace add` with the HTTPS
     form clearly labelled as the fallback for environments where outbound SSH is blocked.
 
-### Story 4 — Claude Code full wiring (P1)
-
-As an Arkeology Claude Code operator, `install.sh` handles all Claude Code setup steps.
-
-**Acceptance criteria:**
-- Given `claude` is detected on PATH, when `install.sh` runs, then
-  `claude plugin marketplace add` and `claude plugin install arkeology@arkeology` have been run,
-  and `~/.claude/settings.json` contains the pre-approval rule for `arkeology:plugin-sync`.
-
-## Requirements
-
-- WHEN `install.sh` is run THE SYSTEM SHALL detect presence of `claude`, `opencode`, and
-  `copilot` on PATH and apply wiring only for detected tools.
-- WHEN `opencode` is detected THE SYSTEM SHALL print both the SSH and HTTPS plugin line
-  snippets for the operator to add to `~/.config/opencode/opencode.jsonc` — the script does
-  not patch the file directly.
-- WHEN `claude` is detected THE SYSTEM SHALL run
-  `claude plugin marketplace add git@github.com:amanoxsolutions/arkeology.git` and
-  `claude plugin install arkeology@arkeology`; both calls use `|| true` so a non-zero exit from
-  an already-registered marketplace or already-installed plugin does not abort the script.
-  Note: `|| true` means a silent SSH failure (e.g. port 22 blocked by firewall) does not
-  abort the script — the session-refresh section mitigates this by printing the HTTPS
-  alternative so the operator can re-run manually if the automated step produced no result.
-- WHEN `claude` is detected THE SYSTEM SHALL merge the pre-approval rule
-  `"Bash(git -C * pull)"` into `~/.claude/settings.json` using an inline Python 3 script,
-  creating the file if absent and merging without touching unrelated entries if it exists.
-- WHEN the pre-approval rule is already present in `~/.claude/settings.json` THE SYSTEM
-  SHALL not add it a second time (idempotency).
-- WHEN `copilot` is detected THE SYSTEM SHALL apply Copilot wiring as specified in T33d.
-- WHEN a tool is not detected on PATH THE SYSTEM SHALL skip all wiring for that tool and
-  print an informational message.
-- WHEN all wiring is complete THE SYSTEM SHALL print a session-refresh section that:
-  - states the restart action for each wired tool;
-  - repeats both the SSH and HTTPS OpenCode plugin lines verbatim in this section;
-  - repeats both the SSH and HTTPS forms of `claude plugin marketplace add`, with the
-    HTTPS form labelled "HTTPS alternative (if SSH / port 22 is blocked)".
-- WHEN no supported tools are detected THE SYSTEM SHALL print a message and exit cleanly
-  (no error).
-
-## Boundaries
+## 5. Boundaries
 
 **Always:**
 - Bash only — no PowerShell, no Python wrapper (the JSON merge is an inline `python3 -`
@@ -140,6 +157,9 @@ As an Arkeology Claude Code operator, `install.sh` handles all Claude Code setup
 - The session-refresh summary at the bottom repeats both plugin lines (G7 — they scroll
   off during multi-tool installs).
 
+**Ask First:**
+- None.
+
 **Never:**
 - No CLAUDE.md `@`-import step (D1 — Arkeology AGENTS.md is server-setup documentation,
   not general engineering conventions).
@@ -149,11 +169,9 @@ As an Arkeology Claude Code operator, `install.sh` handles all Claude Code setup
   this script manages (settings.json pre-approval block).
 - No Windows-native execution — WSL Ubuntu only on Windows.
 
----
+## 6. For the developer agent
 
-<!-- IMPLEMENTATION BLOCK — agent-owned -->
-
-## Files to Touch
+### Files to Touch
 
 | File | Action | Notes |
 |------|--------|-------|
@@ -161,7 +179,11 @@ As an Arkeology Claude Code operator, `install.sh` handles all Claude Code setup
 | `README.md` | Modify | Add "Quick install" section (T33e) referencing `./install.sh` |
 | `CONTRIBUTING.md` | Modify | Update tool setup section to reference `install.sh` as the primary setup path |
 
-## Testing Approach
+### Contracts
+
+None.
+
+### Testing Approach
 
 Testing is manual smoke tests (no TDD for non-server files).
 
@@ -182,7 +204,3 @@ Testing is manual smoke tests (no TDD for non-server files).
      clearly labelled as the SSH-blocked fallback.
 6. **No tools detected:** Run with `claude`, `opencode`, and `copilot` all removed from
    PATH; verify the script prints a no-tools message and exits with code 0.
-
-## Open Questions
-
-None.

@@ -20,18 +20,14 @@ generated:
   by: "axians-analyst/unknown"
   at: 2026-06-06T00:00:00Z
 revised:
-  by: "axians-tech-writer/unknown"
-  at: 2026-07-04T00:00:00Z
+  by: "axians-architect/claude-opus-5-5"
+  at: 2026-11-09T17:18:17Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
-phase: 10
-task: 37
 ---
 
 # T37 — `propose_commit_links` Tool
-
-<!-- SCOPE BLOCK — frozen after approval -->
 
 ## TL;DR
 
@@ -41,7 +37,7 @@ ULID. It presents the candidate list to the agent for confirmation before any wr
 it has no side effects. This tool is the discovery half of the post-commit linking workflow
 (`link_metadata`, T49, is the write half — superseding the original T38 `link_commit`).
 
-## Problem Statement
+## 1. Problem Statement
 
 After committing, an agent needs to know which artifacts were produced during the session
 and have not yet been associated with a commit SHA. Without a discovery tool, the agent
@@ -51,80 +47,106 @@ ranked candidate list with human-readable timestamps so the operator can confirm
 augment the set before calling `link_metadata` (the write half — `link_commit` (T38) was
 superseded by `link_metadata` (T49), ADR-011; `propose_commit_links` itself is unchanged).
 
-## User Stories
+All five user stories this spec covers — discover unlinked artifacts since session start;
+discover all unlinked artifacts in scope (no `since_ulid`); response includes a human-readable
+timestamp; own-scope only, foreign-scope artifacts excluded; and credential failure returns a
+structured error — are P1.
 
-### Story 1 — Discover unlinked artifacts since session start (P1)
+## 2. Rules — Discovering candidates
 
-At the end of a session, the agent calls `propose_commit_links` with `since_ulid` set to
-the ULID it captured at session start. Only artifacts written during this session that have
-no `commit_refs` are returned.
+### R1 — With `since_ulid`, only own-scope artifacts written at or after it are scanned
 
-**Acceptance criteria:**
+When `propose_commit_links` is called with `since_ulid`, the system filters the vector index to
+own-scope artifacts where `last_edited_ulid >= since_ulid`. At the end of a session, the agent
+calls `propose_commit_links` with `since_ulid` set to the ULID it captured at session start, so
+only artifacts written during this session that have no `commit_refs` are returned.
+
+**Example**
+
 - Given three artifacts: A written before the session (ULID < since_ulid), B written during
   the session with no `commit_refs`, and C written during the session with
   `commit_refs=["prev"]`; when `propose_commit_links` is called with `since_ulid` set to a
   value between A's and B's ULID, then only B appears in the proposed list.
-- Given no unlinked artifacts in the time range, when `propose_commit_links` returns, then
-  `proposed` is an empty list — not an error.
 
-### Story 2 — Discover all unlinked artifacts in scope (no since_ulid) (P1)
+### R2 — Without `since_ulid`, all own-scope artifacts are scanned regardless of age
 
-An agent runs the tool without `since_ulid` to find every artifact in scope that has never
-been linked to a commit.
+When `propose_commit_links` is called without `since_ulid`, the system retrieves all own-scope
+artifacts from the vector index without a time-range filter. An agent runs the tool this way to
+find every artifact in scope that has never been linked to a commit.
 
-**Acceptance criteria:**
+**Example**
+
 - Given several own-scope artifacts, some with `commit_refs` and some without, when
   `propose_commit_links` is called without `since_ulid`, then all artifacts without
   `commit_refs` are returned regardless of age.
+
+### R3 — Candidates are deduplicated by `artifact_id`, then kept only when `commit_refs` is absent or empty
+
+When results are assembled, the system deduplicates by `artifact_id` (multiple section vectors
+per artifact are common) and then filters client-side to keep only artifacts where
+`commit_refs` is absent or empty. Candidate filtering (checking for empty `commit_refs`) is
+client-side after `get_vectors` — no `$exists` operator is needed or added. When no artifact
+qualifies, `proposed` is an empty list — not an error.
+
+**Example**
+
+- Given no unlinked artifacts in the time range, when `propose_commit_links` returns, then
+  `proposed` is an empty list — not an error.
 - Given own-scope artifacts that all have `commit_refs`, when called without `since_ulid`,
   then `proposed` is empty.
 
-### Story 3 — Response includes human-readable timestamp (P1)
+### R4 — Only own-scope artifacts are proposed; foreign-scope artifacts are excluded
 
-The operator needs to eyeball the write-time date to confirm which artifacts belong to the
-current session.
+Scope is own-scope only: the filter uses `{"scope": {"$eq": settings.write_prefix}}`. Foreign-scope
+artifacts never appear in `proposed` — only own-scope artifacts can be commit-linked.
 
-**Acceptance criteria:**
-- Given an artifact with a known `last_edited_ulid`, when it appears in `proposed`, then
-  the entry includes a `last_edited_at` field containing a non-empty ISO-8601 datetime
-  string derived from that ULID.
+**Example**
 
-### Story 4 — Own-scope only; foreign-scope artifacts excluded (P1)
-
-**Acceptance criteria:**
 - Given a foreign-scope tier-3 shared artifact that has no `commit_refs`, when
   `propose_commit_links` is called, then it does NOT appear in `proposed` — only own-scope
   artifacts can be commit-linked.
 
-### Story 5 — Credential failure returns structured error (P1)
+## 3. Rules — Response
 
-**Acceptance criteria:**
+### R5 — Each proposed entry carries the artifact's identity and a human-readable write time
+
+When an artifact qualifies, the system includes in its entry: `artifact_id`, `title`, `type`,
+`last_edited_ulid`, and `last_edited_at` (ISO-8601 datetime string derived from the ULID via
+`python-ulid`). The operator needs to eyeball the write-time date to confirm which artifacts
+belong to the current session.
+
+**Example**
+
+- Given an artifact with a known `last_edited_ulid`, when it appears in `proposed`, then
+  the entry includes a `last_edited_at` field containing a non-empty ISO-8601 datetime
+  string derived from that ULID.
+
+### R6 — An artifact without `last_edited_ulid` is still a candidate, with null timestamps
+
+When `last_edited_ulid` is absent from an artifact's metadata, the system includes
+`last_edited_ulid: null` and `last_edited_at: null` in that artifact's entry — it is still a
+candidate for linking.
+
+### R7 — A successful call returns the proposed list and the supplied `commit_sha`
+
+When `propose_commit_links` completes successfully, the system returns
+`{"proposed": [...], "commit_sha": "<the supplied commit_sha>"}`.
+
+### R8 — A credential failure returns a structured error
+
+When `propose_commit_links` encounters a `CredentialError`, the system returns a structured
+error — never a raw exception.
+
+**Example**
+
 - Given a credential failure during the vector scan, when `propose_commit_links` returns,
   then a structured error dict is returned — not a raw exception.
 
-## Requirements
+### R9 — `propose_commit_links` makes no writes
 
-- WHEN `propose_commit_links` is called with `since_ulid` THE SYSTEM SHALL filter the
-  vector index to own-scope artifacts where `last_edited_ulid >= since_ulid`.
-- WHEN `propose_commit_links` is called without `since_ulid` THE SYSTEM SHALL retrieve all
-  own-scope artifacts from the vector index without a time-range filter.
-- WHEN results are assembled THE SYSTEM SHALL deduplicate by `artifact_id` (multiple
-  section vectors per artifact are common) and then filter client-side to keep only
-  artifacts where `commit_refs` is absent or empty.
-- WHEN an artifact qualifies THE SYSTEM SHALL include in its entry: `artifact_id`, `title`,
-  `type`, `last_edited_ulid`, and `last_edited_at` (ISO-8601 datetime string derived from
-  the ULID via `python-ulid`).
-- WHEN `last_edited_ulid` is absent from an artifact's metadata THE SYSTEM SHALL include
-  `last_edited_ulid: null` and `last_edited_at: null` in that artifact's entry — it is
-  still a candidate for linking.
-- WHEN `propose_commit_links` completes successfully THE SYSTEM SHALL return
-  `{"proposed": [...], "commit_sha": "<the supplied commit_sha>"}`.
-- WHEN `propose_commit_links` encounters a CredentialError THE SYSTEM SHALL return a
-  structured error — never a raw exception.
-- WHEN `propose_commit_links` is called THE SYSTEM SHALL make no writes — it is strictly
-  read-only.
+When `propose_commit_links` is called, the system makes no writes — it is strictly read-only.
 
-## Boundaries
+## 4. Boundaries
 
 **Always:**
 - Scope is own-scope only: filter uses `{"scope": {"$eq": settings.write_prefix}}`.
@@ -145,9 +167,9 @@ current session.
 - Do not add a `$exists` operator to `filter.py` — client-side filtering of `commit_refs`
   absence is sufficient and simpler.
 
-<!-- IMPLEMENTATION BLOCK — agent-owned -->
+## 5. For the developer agent
 
-## Files to Touch
+### Files to Touch
 
 | File | Action | Notes |
 |------|--------|-------|
@@ -155,12 +177,14 @@ current session.
 | `src/arkeology/tools/propose_commit_links.py` | Create | Written after unit tests (Green) |
 | `src/arkeology/server.py` | Modify | Register `propose_commit_links` on `_app` |
 
-## Testing Approach
+### Contracts
+
+None.
+
+### Testing Approach
 
 **TDD cycle (unit):** write `test_tools_propose_commit_links.py` → fail → implement
 `tools/propose_commit_links.py` → pass → register in `server.py`.
-
----
 
 **`test_tools_propose_commit_links.py` — unit tests (moto + FakeBedrockClient):**
 
@@ -190,7 +214,3 @@ Test cases:
   `last_edited_at: null`, still included as a candidate.
 - `list_vectors_by_metadata` raises `CredentialError` → structured error response.
 - `get_vectors` raises `CredentialError` → structured error response.
-
-## Open Questions
-
-*(none — all constraints are defined)*

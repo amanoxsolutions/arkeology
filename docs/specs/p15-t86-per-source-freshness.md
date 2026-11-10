@@ -73,13 +73,12 @@ relationships:
 generated:
   by: "axians-architect/claude-opus-5.5"
   at: 2026-10-13T18:19:14Z
-phase: 15
-task: 86
+revised:
+  by: "axians-architect/claude-opus-5-5"
+  at: 2026-11-09T22:44:57Z
 ---
 
 # T86 — Per-Source Freshness
-
-<!-- SCOPE BLOCK — frozen after approval -->
 
 ## TL;DR
 
@@ -91,7 +90,18 @@ affects the verdict. A source whose baseline is absent, or whose timestamp canno
 a new `unchecked_sources` list with a reason. Every other source of that synthesis is still checked
 (FR-20, AC-18; D19, D20, D50).
 
-## Problem Statement
+## Open Questions
+
+1. **Non-blocking — baselines for store-migrated syntheses (T90).** T90 converts legacy
+   `source_artifacts` into `sources` entries. If it writes them without `last_modified`, every
+   migrated synthesis reports every Arkeology source as `no_baseline`, and `all_fresh` stays
+   `false` until each synthesis is updated. *Recommended:* T90's spec fills `last_modified` on
+   each converted entry, and chooses between two values. The source's current effective time
+   follows FR-51's fill rule, but reads every migrated synthesis as fresh. The citing synthesis's
+   own effective time keeps visible any source change made after the synthesis was written, which
+   is what today's ULID check reports. T86 does not change either way.
+
+## 1. Problem Statement
 
 Today a source is stale when its `last_edited_ulid` is later than the synthesis's. That baseline
 covers the whole synthesis, so any write to the synthesis moves it forward. A cosmetic edit made
@@ -125,99 +135,139 @@ as written. These statements in it no longer hold:
 T22's `source_artifacts`, `status` and lower-case `synthesis` statements were already superseded
 by T84, T76 and T77. T86 does not repeat those changes.
 
-## User Stories
+**Read-time freshness for non-synthesis documents is not added.** D20 makes freshness a
+reader-side check that applies to any document. Arkeology meets that duty by returning `sources`
+with `last_modified`, and each source's `revised`, on read. ADR-017 `## Deferred to the Specs`
+calls widening the scheduled audit "optional", and the plan entry scopes T86 to
+`check_synthesis_freshness`.
 
-### Story 1 — A source revised after its baseline is stale (P1)
+The seven user stories, kept below as labelled examples (Story 1 to Story 7), are all P1.
 
-- Given a synthesis whose source entry carries `last_modified: 2026-01-01T00:00:00Z`, and a source
-  whose `revised.at` is `2026-02-01T00:00:00Z`, when the audit runs, then the source's key is in
-  that synthesis's `stale_sources` (AC-18).
-- Given the source's effective time equals the baseline, or is earlier, then it is not reported.
-- Given a source that was never revised, then its `generated.at` is the time compared.
+## 2. Rules — Which sources are checked
 
-### Story 2 — Revising the synthesis never hides it (P1)
+### R1 — Every `sources` entry is resolved through T84's resolver against the synthesis; an entry that resolves to no key is not looked up, reported, or counted against `all_fresh`
 
-- Given the stale source in Story 1, when the synthesis is updated with the same entry and the same
-  `last_modified`, then the source is still stale, whatever the synthesis's own `revised.at` or
-  `last_edited_ulid` (AC-18, FR-20).
-- Given the synthesis is then updated with the entry but without `last_modified`, then T84's fill
-  records the source's current time and the source is no longer stale. This is how a baseline is
-  refreshed.
+The system must resolve every `sources` entry of an audited synthesis through T84's resolver in
+`_scope.py`, with the synthesis's key as the carrier. An entry that resolves to no key (a URL, an
+unresolved path, or any other non-Arkeology `resource`) must not be looked up, reported, or counted
+against `all_fresh`.
 
-### Story 3 — Instants, not strings (P1)
-
-- Given `last_modified: 2026-10-13T10:00:00+02:00` (08:00 UTC) and a source `revised.at` of
-  `2026-10-13T09:00:00Z`, then the source is stale, although the second string sorts first as
-  text (D19).
-
-### Story 4 — An unreadable timestamp marks only its own source (P1)
-
-- Given a synthesis with two sources, one whose `last_modified` does not parse or has no UTC
-  offset, and one revised after its baseline, then the first is in `unchecked_sources` with reason
-  `unreadable_timestamp`, the second is in `stale_sources`, and `all_fresh` is `false` (D50 case 4,
-  ADR-017 `### 10`).
-- Given a source whose stored provenance is unreadable, then it is `unreadable_timestamp`. The
-  check never falls back to a time it can read on that source.
-
-### Story 5 — No baseline is unchecked, not fresh (P1)
-
-- Given an entry that resolves to a readable source but carries no `last_modified`, then it is in
-  `unchecked_sources` with reason `no_baseline`.
-
-### Story 6 — External sources are not checked (P1)
+**Example (Story 6 — External sources are not checked)**
 
 - Given a synthesis whose only sources are a URL and an unresolved path, then nothing is looked up
   or reported for them, the synthesis is counted in `total_checked`, and it is neither malformed
   nor a reason for `all_fresh` to be `false` (FR-20, AC-18).
 
-### Story 7 — Archived, missing and foreign sources behave as before (P1)
+Source: FR-20, AC-18, D20, D38
 
-- Given an archived source, then it is in `archived_sources` and its timestamp is judged as well.
+### R2 — One batched lookup covers every source, and no S3 object or annotation is read for a source
+
+The system must keep today's single batched lookup for all distinct resolved keys across every
+audited synthesis (`fetch_vectors_by_artifact_ids`), and must read no S3 object or annotation for a
+source.
+
+Source: FR-20, AC-18, D20, D38
+
+### R3 — The gate is applied first; a source with no vectors or denied by the gate is missing, and nothing else is decided for it
+
+The system must apply `is_cross_scope_readable` to each source vector before using any of its
+metadata, as today. A key with no vectors, or whose vectors the gate denies, is **missing**, and
+nothing else is decided for that entry. Every other verdict therefore needs the gate's admission
+first. This includes `unchecked`, even when its cause lies in the synthesis's own entry.
+
+**Example (Story 7 — Archived, missing and foreign sources behave as before: missing and foreign)**
+
 - Given a source with no vectors, or a foreign source the gate denies, then it is in
   `missing_sources` only. The two cases cannot be told apart, and neither ever appears in
   `unchecked_sources`.
 
-## Requirements
+**Why:** `missing` is decided first, and only after the gate. A gate-denied foreign source must
+look exactly like an absent one (`arkeology.tools.freshness` contract, gate invariant).
 
-**Which sources are checked** (FR-20, AC-18; D20, D38)
+Source: FR-20, AC-18, D20, D38
 
-- THE SYSTEM SHALL resolve every `sources` entry of an audited synthesis through T84's resolver in
-  `_scope.py`, with the synthesis's key as the carrier. An entry that resolves to no key (a URL, an
-  unresolved path, or any other non-Arkeology `resource`) SHALL NOT be looked up, reported, or
-  counted against `all_fresh`.
-- THE SYSTEM SHALL keep today's single batched lookup for all distinct resolved keys across every
-  audited synthesis (`fetch_vectors_by_artifact_ids`), and SHALL read no S3 object or annotation
-  for a source.
-- THE SYSTEM SHALL apply `is_cross_scope_readable` to each source vector before using any of its
-  metadata, as today. A key with no vectors, or whose vectors the gate denies, is **missing**, and
-  nothing else is decided for that entry.
+### R4 — A foreign source the gate admits is judged like an own-scope source
 
-**The current time of a source** (D19, D40; ADR-017 `### 3. Provenance`)
+A foreign source the gate admits (tier 3 and `shared`) is judged like an own-scope source.
 
-- WHEN a source has several vectors THE SYSTEM SHALL use the vector with the newest
-  `last_edited_ulid`, as today (`_is_newer_write`). This is the same rule T84's baseline fill
-  applies, so the fill and the check read the same value.
-- THE SYSTEM SHALL read that vector's provenance with T79's stored-provenance reader. The source's
-  **effective time** is `revised.at` when `revised` is present and `generated.at` otherwise.
-- WHEN T79's reader finds the source's provenance unreadable (a key missing or empty, a half-present
-  `revised`, or an `at` that does not parse or has no UTC offset) THE SYSTEM SHALL treat the
-  source's time as unreadable. It SHALL NOT fall back from an unreadable `revised` to `generated`.
+**Why:** its provenance is already visible to this reader through `read_artifact`, so reporting it
+as stale or unchecked reveals nothing. T85 does not touch this tool. It reads only own-scope
+carriers and acts on the stored entries, so no `{withheld: n}` marker ever reaches it
+(T85 `### Surfaces`).
 
-**The verdict for each entry that resolves to a readable source** (FR-20, AC-18; D19, D50 case 4)
+## 3. Rules — The current time of a source
 
-- THE SYSTEM SHALL report the source in `archived_sources` WHEN its vector `archived` is the
-  boolean `true` (T76). This is independent of the time verdict below.
-- THE SYSTEM SHALL then give the entry exactly one time verdict, checking in this order:
-  1. `last_modified` absent: **unchecked**, reason `no_baseline`;
-  2. `last_modified` does not parse to an offset-aware datetime under T79's strict parser:
-     **unchecked**, reason `unreadable_timestamp`;
-  3. the source's time is unreadable: **unchecked**, reason `unreadable_timestamp`;
-  4. effective time strictly later than `last_modified`, both as parsed instants: **stale**;
-  5. otherwise **fresh**, which is not reported.
-- THE SYSTEM SHALL NOT read the synthesis's own `generated`, `revised` or `last_edited_ulid` for
-  any verdict. It SHALL NOT read the source's lifecycle `status` or any `relationships` (D25).
-- An unchecked or stale verdict SHALL affect only that entry. The synthesis's other entries are
-  still judged, and the synthesis is still counted in `total_checked`.
+### R5 — A source's effective time is `revised.at` when `revised` is present and `generated.at` otherwise, read from its newest-write vector
+
+When a source has several vectors the system must use the vector with the newest
+`last_edited_ulid`, as today (`_is_newer_write`). This is the same rule T84's baseline fill
+applies, so the fill and the check read the same value.
+
+The system must read that vector's provenance with T79's stored-provenance reader. The source's
+**effective time** is `revised.at` when `revised` is present and `generated.at` otherwise.
+
+**Why:** effective time comes from the source's newest vector. Freshness already reads only vector
+metadata for sources. T79 writes all four provenance keys there, and T84's fill reads the same
+vector by the same newest-write rule. Reading S3 object metadata would cost one request per
+source, and it could disagree with the value the fill copied. The vector copy lags S3 only after a
+failed vector write, which the failure log and `reconcile_index` already repair.
+
+Source: D19, D40, ADR-017 `### 3. Provenance`
+
+### R6 — `last_edited_ulid` only chooses which of a source's vectors is current, and syntheses are deduplicated by `artifact_id` alone
+
+`last_edited_ulid` is used in one place only: it still chooses which of a source's disagreeing
+vectors is current. It is never compared between two artifacts. The synthesis-side
+`_is_newer_write` pass is removed: no synthesis metadata reaches a verdict any more, so the
+syntheses are deduplicated by `artifact_id` alone.
+
+**Why:** D19 keeps the ULID for internal ordering, and a back-dated `revised.at` must not outrank a
+newer write.
+
+Source: D19
+
+### R7 — A source whose provenance T79's reader finds unreadable has an unreadable time, with no fallback from `revised` to `generated`
+
+When T79's reader finds the source's provenance unreadable (a key missing or empty, a half-present
+`revised`, or an `at` that does not parse or has no UTC offset) the system must treat the source's
+time as unreadable. It must not fall back from an unreadable `revised` to `generated`.
+
+"Unreadable" uses T79's reader and T79's strict parser. A naive value is unreadable
+(ADR-017 `### 10`), and a bare date is unreadable too. A half-present block can be reported as
+`unreadable_timestamp` even when its `at` would parse.
+
+**Why:** one definition of "unreadable", shared with the fill. T84's fill refuses to copy from
+unreadable provenance. Because the check uses the same test, it never compares a value the fill
+would have refused. The reason names what the audit could not use, and the fault behind a
+half-present block is corrupt provenance either way. There is no fallback from `revised` to
+`generated`, because that would compare an older time and could hide a stale source. D50 fails
+toward reporting.
+
+Source: D19, D40, ADR-017 `### 3. Provenance`
+
+## 4. Rules — The verdict for each entry that resolves to a readable source
+
+### R8 — A source whose vector `archived` is the boolean `true` is reported in `archived_sources`, independently of its time verdict
+
+The system must report the source in `archived_sources` when its vector `archived` is the boolean
+`true` (T76). This is independent of the time verdict.
+
+**Example (Story 7 — Archived, missing and foreign sources behave as before: archived)**
+
+- Given an archived source, then it is in `archived_sources` and its timestamp is judged as well.
+
+Source: FR-20, AC-18, D19, D50 case 4
+
+### R9 — Each readable entry gets exactly one time verdict, checked in a fixed order; stale only when the effective time is strictly later than `last_modified`
+
+The system must then give the entry exactly one time verdict, checking in this order:
+
+1. `last_modified` absent: **unchecked**, reason `no_baseline`;
+2. `last_modified` does not parse to an offset-aware datetime under T79's strict parser:
+   **unchecked**, reason `unreadable_timestamp`;
+3. the source's time is unreadable: **unchecked**, reason `unreadable_timestamp`;
+4. effective time strictly later than `last_modified`, both as parsed instants: **stale**;
+5. otherwise **fresh**, which is not reported.
 
 | Entry | Reported in |
 |---|---|
@@ -229,63 +279,33 @@ by T84, T76 and T77. T86 does not repeat those changes.
 | Readable, effective time > `last_modified` | `stale_sources` |
 | Readable, effective time ≤ `last_modified` | nowhere |
 
-**Response** (FR-20; malformed-data ADR D3)
+**Example (Story 1 — A source revised after its baseline is stale)**
 
-- THE SYSTEM SHALL return `unchecked_sources` on every successful call, the early no-synthesis
-  return included. It is a list of `{"artifact_id": <synthesis>, "unchecked_sources": [{"artifact_id":
-  <source key>, "reason": "no_baseline" | "unreadable_timestamp"}]}`. There is one entry per
-  synthesis with at least one unchecked source. The always-present keys become nine: `stale`,
-  `archived_sources`, `missing_sources`, `unchecked_sources`, `malformed`, `deleted_malformed`,
-  `delete_failed`, `total_checked`, `all_fresh`. The conditional `skipped_malformed_count` and
-  T84's `skipped_deleted_count` are unchanged.
-- `stale`, `archived_sources` and `missing_sources` SHALL keep their shapes. Each source is
-  identified by its **resolved key**, never by the stored `resource` string.
-- Within one synthesis's list, THE SYSTEM SHALL list each value once, in stored order: a key in the
-  three string lists, and a (key, reason) pair in `unchecked_sources`.
-- `all_fresh` SHALL be `false` WHEN `unchecked_sources` is non-empty, on the same footing as the
-  other categories. A run that could not judge a source has not shown that everything is fresh.
+- Given a synthesis whose source entry carries `last_modified: 2026-01-01T00:00:00Z`, and a source
+  whose `revised.at` is `2026-02-01T00:00:00Z`, when the audit runs, then the source's key is in
+  that synthesis's `stale_sources` (AC-18).
+- Given the source's effective time equals the baseline, or is earlier, then it is not reported.
+- Given a source that was never revised, then its `generated.at` is the time compared.
 
-**Deletion** (FR-20; T22 Story 5)
+**Example (Story 3 — Instants, not strings)**
 
-- `confirm=True` SHALL keep deleting only syntheses that T84 classes as malformed (no `sources`
-  entries). A stale, archived, missing or unchecked source never makes a synthesis a deletion
-  candidate, at any `confirm` value. With `confirm=False` the audit writes nothing.
+- Given `last_modified: 2026-10-13T10:00:00+02:00` (08:00 UTC) and a source `revised.at` of
+  `2026-10-13T09:00:00Z`, then the source is stale, although the second string sorts first as
+  text (D19).
 
-**Unchanged.** Synthesis selection (own scope, `type` exactly `Synthesis`, `archived $eq false`; T76,
-T77), T84's annotation read and its skip counts, the `_inner` wrapper, the error codes, and the
-off-event-loop calls.
+**Example (Story 5 — No baseline is unchecked, not fresh)**
 
-### Decisions taken in this spec
+- Given an entry that resolves to a readable source but carries no `last_modified`, then it is in
+  `unchecked_sources` with reason `no_baseline`.
 
-**Strictly later, and equal is fresh.** T84's fill copies the source's `revised.at` (or
+**Why:** strictly later, and equal is fresh. T84's fill copies the source's `revised.at` (or
 `generated.at`) byte for byte. A freshly filled baseline therefore equals the source's current
 time. Only a strict comparison lets that entry read as fresh. T79 stores whole seconds, so two
 revisions of a source within one second cannot be told apart. T79 accepts that limit. A baseline
 later than the source's time (a producer clock ahead, or a back-dated `revised.at`) reads as fresh.
 Nothing in D19 makes that a defect, and reporting it would only add noise.
 
-**Effective time comes from the source's newest vector.** Freshness already reads only vector
-metadata for sources. T79 writes all four provenance keys there, and T84's fill reads the same
-vector by the same newest-write rule. Reading S3 object metadata would cost one request per
-source, and it could disagree with the value the fill copied. The vector copy lags S3 only after a
-failed vector write, which the failure log and `reconcile_index` already repair.
-
-**`last_edited_ulid` is used in one place only.** It still chooses which of a source's
-disagreeing vectors is current. D19 keeps the ULID for internal ordering, and a back-dated
-`revised.at` must not outrank a newer write. It is never compared between two artifacts. The
-synthesis-side `_is_newer_write` pass is removed: no synthesis metadata reaches a verdict any more,
-so the syntheses are deduplicated by `artifact_id` alone.
-
-**One definition of "unreadable", shared with the fill.** "Unreadable" uses T79's reader and T79's
-strict parser. A naive value is unreadable (ADR-017 `### 10`), and a bare date is unreadable too.
-T84's fill refuses to copy from unreadable provenance. Because the check uses the same test, it
-never compares a value the fill would have refused. A half-present block can be reported as
-`unreadable_timestamp` even when its `at` would parse. The reason names what the audit could not
-use, and the fault behind it is corrupt provenance either way. There is no fallback from `revised`
-to `generated`, because that would compare an older time and could hide a stale source. D50 fails
-toward reporting.
-
-**`no_baseline` is a second unchecked reason, not a silent pass.** T84 leaves `last_modified`
+**Why:** `no_baseline` is a second unchecked reason, not a silent pass. T84 leaves `last_modified`
 absent when the target is missing, unreadable, or has unreadable provenance at write time. The
 target can become readable later. With no baseline there is nothing to compare, so FR-20's test
 cannot be applied. Reporting the entry as fresh would be a partial result that looks complete,
@@ -294,41 +314,109 @@ nobody observed. A distinct reason tells the operator what to do: update the syn
 re-supply the entry without `last_modified`. `add_artifact_links` cannot refresh a baseline,
 because its merge keeps the first entry for each `resource` (T84).
 
-**`missing` is decided first, and only after the gate.** A gate-denied foreign source must look
-exactly like an absent one (`arkeology.tools.freshness` contract, gate invariant). Every other
-verdict therefore needs the gate's admission first. This includes `unchecked`, even when its cause
-lies in the synthesis's own entry.
+Source: FR-20, AC-18, D19, D50 case 4
 
-**Response: keep the three lists, add one.** AC-18 asks for archived and missing sources to be
-reported "separately", and the contract promises lists a caller can act on independently. Only the
-new category needs a reason, so only its items are objects. Restructuring every list into a
+### R10 — The synthesis's own `generated`, `revised` or `last_edited_ulid` is read for no verdict, and the source's lifecycle `status` and any `relationships` are never read
+
+The system must not read the synthesis's own `generated`, `revised` or `last_edited_ulid` for any
+verdict. It must not read the source's lifecycle `status` or any `relationships` (D25).
+`supersedes` edges are lineage only and are never read here (D25).
+
+**Example (Story 2 — Revising the synthesis never hides it)**
+
+- Given the stale source in Story 1, when the synthesis is updated with the same entry and the same
+  `last_modified`, then the source is still stale, whatever the synthesis's own `revised.at` or
+  `last_edited_ulid` (AC-18, FR-20).
+- Given the synthesis is then updated with the entry but without `last_modified`, then T84's fill
+  records the source's current time and the source is no longer stale. This is how a baseline is
+  refreshed.
+
+**Why:** deprecated sources are not reported. FR-20, AC-18 and D20 list exactly three states:
+stale, archived and missing. A source's lifecycle `status` is its owner's view of whether it is
+still in force. It does not mean that a document built from it is now wrong. The source's content
+at the baseline is unchanged, and a lifecycle change never moves `revised` (FR-69). T81 also gives
+this tool no lifecycle clause. Reporting deprecation would add a fourth category to a `final`
+requirement, so it is out of scope (see Boundaries, Ask First).
+
+Source: FR-20, AC-18, D19, D50 case 4
+
+### R11 — An unchecked or stale verdict affects only its own entry
+
+An unchecked or stale verdict must affect only that entry. The synthesis's other entries are still
+judged, and the synthesis is still counted in `total_checked`.
+
+**Example (Story 4 — An unreadable timestamp marks only its own source)**
+
+- Given a synthesis with two sources, one whose `last_modified` does not parse or has no UTC
+  offset, and one revised after its baseline, then the first is in `unchecked_sources` with reason
+  `unreadable_timestamp`, the second is in `stale_sources`, and `all_fresh` is `false` (D50 case 4,
+  ADR-017 `### 10`).
+- Given a source whose stored provenance is unreadable, then it is `unreadable_timestamp`. The
+  check never falls back to a time it can read on that source.
+
+Source: FR-20, AC-18, D19, D50 case 4
+
+## 5. Rules — Response
+
+### R12 — Every successful call returns `unchecked_sources`, one entry per synthesis with at least one unchecked source, and nine always-present keys
+
+The system must return `unchecked_sources` on every successful call, the early no-synthesis return
+included. It is a list of `{"artifact_id": <synthesis>, "unchecked_sources": [{"artifact_id":
+<source key>, "reason": "no_baseline" | "unreadable_timestamp"}]}`. There is one entry per
+synthesis with at least one unchecked source. The always-present keys become nine: `stale`,
+`archived_sources`, `missing_sources`, `unchecked_sources`, `malformed`, `deleted_malformed`,
+`delete_failed`, `total_checked`, `all_fresh`. The conditional `skipped_malformed_count` and
+T84's `skipped_deleted_count` are unchanged.
+
+Source: FR-20, malformed-data ADR D3
+
+### R13 — `stale`, `archived_sources` and `missing_sources` keep their shapes; each source is identified by its resolved key and listed once per synthesis, in stored order
+
+`stale`, `archived_sources` and `missing_sources` must keep their shapes. Each source is identified
+by its **resolved key**, never by the stored `resource` string.
+
+Within one synthesis's list, the system must list each value once, in stored order: a key in the
+three string lists, and a (key, reason) pair in `unchecked_sources`.
+
+**Why:** keep the three lists, add one. AC-18 asks for archived and missing sources to be reported
+"separately", and the contract promises lists a caller can act on independently. Only the new
+category needs a reason, so only its items are objects. Restructuring every list into a
 per-synthesis record of per-source verdicts would break every caller, and it would add nothing
 AC-18 needs. Sources are reported by resolved key, which is what `read_artifact` takes. A bare id
 in `arkeology://artifact/{id}` cannot be passed there (T84 Open Question 2). The bare-id and
 full-key forms of one target collapse to one key, which is why the lists deduplicate. Timestamps
 are not echoed: a caller who wants them reads the source or the synthesis.
 
-**Deprecated sources are not reported.** FR-20, AC-18 and D20 list exactly three states: stale,
-archived and missing. A source's lifecycle `status` is its owner's view of whether it is still in
-force. It does not mean that a document built from it is now wrong. The source's content at the
-baseline is unchanged, and a lifecycle change never moves `revised` (FR-69). T81 also gives this
-tool no lifecycle clause. Reporting deprecation would add a fourth category to a `final`
-requirement, so it is out of scope (see `## Boundaries`, Ask First). `supersedes` edges are lineage
-only and are never read here (D25).
+Source: FR-20, malformed-data ADR D3
 
-**Foreign sources.** A foreign source the gate admits (tier 3 and `shared`) is judged like an
-own-scope source. Its provenance is already visible to this reader through `read_artifact`, so
-reporting it as stale or unchecked reveals nothing. T85 does not touch this tool. It reads only
-own-scope carriers and acts on the stored entries, so no `{withheld: n}` marker ever reaches it
-(T85 `### Surfaces`).
+### R14 — `all_fresh` is `false` when `unchecked_sources` is non-empty
 
-**Read-time freshness for non-synthesis documents is not added.** D20 makes freshness a
-reader-side check that applies to any document. Arkeology meets that duty by returning `sources`
-with `last_modified`, and each source's `revised`, on read. ADR-017 `## Deferred to the Specs`
-calls widening the scheduled audit "optional", and the plan entry scopes T86 to
-`check_synthesis_freshness`.
+`all_fresh` must be `false` when `unchecked_sources` is non-empty, on the same footing as the other
+categories. A run that could not judge a source has not shown that everything is fresh.
 
-## Boundaries
+Source: FR-20, malformed-data ADR D3
+
+## 6. Rules — Deletion
+
+### R15 — `confirm=True` keeps deleting only syntheses T84 classes as malformed; `confirm=False` writes nothing
+
+`confirm=True` must keep deleting only syntheses that T84 classes as malformed (no `sources`
+entries). A stale, archived, missing or unchecked source never makes a synthesis a deletion
+candidate, at any `confirm` value. With `confirm=False` the audit writes nothing.
+
+Source: FR-20, T22 Story 5
+
+## 7. Rules — Unchanged
+
+### R16 — Synthesis selection, T84's annotation read and its skip counts, the `_inner` wrapper, the error codes and the off-event-loop calls are unchanged
+
+**Unchanged.** Synthesis selection (own scope, `type` exactly `Synthesis`, `archived $eq false`; T76,
+T77), T84's annotation read and its skip counts, the `_inner` wrapper, the error codes, and the
+off-event-loop calls.
+
+Source: T76, T77
+
+## 8. Boundaries
 
 **Always:**
 - Parse both timestamps with T79's strict parser, and compare them as offset-aware datetimes. Never
@@ -354,9 +442,9 @@ calls widening the scheduled audit "optional", and the plan entry scopes T86 to
 - Write during the audit. Refreshing a baseline is the caller's update.
 - Delete a synthesis for anything but T84's malformed rule.
 
-<!-- IMPLEMENTATION BLOCK — agent-owned -->
+## 9. For the developer agent
 
-## Files to Touch
+### Files to Touch
 
 | File | Action | Notes |
 |------|--------|-------|
@@ -369,9 +457,9 @@ calls widening the scheduled audit "optional", and the plan entry scopes T86 to
 and T84's resolver as they stand. If T79's reader does not expose the effective time directly,
 derive it in `freshness.py` from the reader's output, and do not add a second parser.
 
-## Contract Amendments
+### Contracts
 
-Make these before the tests, on top of the T76, T77, T79 and T84 amendments.
+Contract amendments. Make these before the tests, on top of the T76, T77, T79 and T84 amendments.
 
 - **`modules/arkeology.tools.freshness.md`**
   - `**Invariants**`: replace the two staleness bullets (the ULID rule, and T79's "not stale when
@@ -394,7 +482,7 @@ Make these before the tests, on top of the T76, T77, T79 and T84 amendments.
 No data contract changes. T86 reads T79's `generated_*`/`revised_*` vector keys and T84's `links`
 entries exactly as those contracts define them.
 
-## Testing Approach
+### Testing Approach
 
 **TDD order:** `tests/unit/test_tools_freshness.py` (confirmed red) → `freshness.py` →
 `tests/integration/test_tools_freshness.py` (red against real AWS) → green. Fixtures seed source
@@ -483,13 +571,6 @@ the resolver is T84's, so no mutation run is owed for this task.
 **Quality gates.** Unit suite, `ruff check`, `ruff format --check`, `mypy src/` and `npm test`
 green. The integration file passes against real AWS before ✅.
 
-## Open Questions
+### Hand-offs
 
-1. **Non-blocking — baselines for store-migrated syntheses (T90).** T90 converts legacy
-   `source_artifacts` into `sources` entries. If it writes them without `last_modified`, every
-   migrated synthesis reports every Arkeology source as `no_baseline`, and `all_fresh` stays
-   `false` until each synthesis is updated. *Recommended:* T90's spec fills `last_modified` on
-   each converted entry, and chooses between two values. The source's current effective time
-   follows FR-51's fill rule, but reads every migrated synthesis as fresh. The citing synthesis's
-   own effective time keeps visible any source change made after the synthesis was written, which
-   is what today's ULID check reports. T86 does not change either way.
+None.

@@ -24,16 +24,15 @@ sources:
 generated:
   by: "axians-architect/claude-opus-4.8"
   at: 2026-07-06T00:00:00Z
+revised:
+  by: "axians-architect/claude-opus-5-5"
+  at: 2026-11-09T19:54:36Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
-phase: 12
-task: 56
 ---
 
 # T56 — Deterministic Server-Side Content Reference Rewrite (Frontmatter + Body)
-
-<!-- SCOPE BLOCK — frozen after approval -->
 
 ## TL;DR
 
@@ -48,7 +47,7 @@ hand-rewrite instructions from the `migrating-to-arkeology` skill. In-body link 
 resolving a path that was never declared in a file's own frontmatter `references:` list — remains
 explicitly out of scope (ADR-012 D1, reaffirmed in the ADR-012 Revision, 2026-07-06).
 
-## Problem Statement
+## 1. Problem Statement
 
 T51 gave migration a deterministic *resolution* algorithm (the path→id map, `references.py`) but
 left the *content rewrite* itself as agent-in-context text editing: the skill instructs the agent
@@ -64,160 +63,284 @@ known. This spec closes both gaps with one change: move the rewrite into a teste
 server-side helper, and extend its reach to cover the identical already-resolved path wherever it
 occurs in the file — without adding any capability to discover a path that was never declared in
 that file's own frontmatter.
+All six user stories of the earlier format — resolved frontmatter reference rewritten with quote
+style preserved; the same resolved path rewritten wherever it occurs in the body; undeclared
+body-only links never discovered or rewritten; fenced code blocks never touched; deterministic and
+idempotent; no re-embed, no metadata leakage, migration-only — are P1.
 
-## User Stories
+## 2. Rules — What is rewritten
 
-### Story 1 — Resolved frontmatter reference rewritten, quote style preserved (P1)
+### R1 — Resolved paths are rewritten in the frontmatter list and in body link targets
 
-**Acceptance criteria:**
+When a `migrate_artifacts` descriptor carries a non-empty `resolved_references_map`, every literal
+occurrence of each map key in the descriptor's `content` — both within the frontmatter
+`references:` YAML list and within markdown link targets in the body — is rewritten to
+`arkeology://artifact/{id}`, before any write, applied identically in both `dry_run` modes.
+
+Source: FR-52 extension
+
+### R2 — A resolved frontmatter `references:` entry is rewritten with its quote style and position preserved
+
+When a frontmatter `references:` list item's unquoted value exactly equals a
+`resolved_references_map` key, it is replaced with `arkeology://artifact/{id}`, preserving the
+item's original quote style (unquoted, single-, or double-quoted) and its position in the list.
+Only block-style (`- item` per line) `references:` lists are matched; a single-line flow-style list
+(`references: ["a.md", "b.md"]`) is left untouched (safe no-op, never mis-parsed) — flow-style YAML
+`references:` lists are out of scope for v1. The skill's examples and the existing migrated corpus
+use block style exclusively.
+
+**Example**
+
 - Given a file whose frontmatter `references:` list contains `- "../decisions/B.md"` and this
   entry already resolved (per T51/D4) to B's artifact_id, when `migrate_artifacts` writes the
   file, then the stored content's frontmatter entry reads `- "arkeology://artifact/{B-id}"` — double
-  quotes preserved, list position unchanged. (FR-52 extension)
+  quotes preserved, list position unchanged.
 - Given the same entry written unquoted (`- ../decisions/B.md`), then the rewritten entry is
-  unquoted (`- arkeology://artifact/{B-id}`). (FR-52 extension)
+  unquoted (`- arkeology://artifact/{B-id}`).
 - Given a `references:` list with three entries where only the second resolves, when the file is
   written, then only the second entry is rewritten; the first and third are left completely
-  untouched and the list still has three entries in the same order. (FR-52 extension)
+  untouched and the list still has three entries in the same order.
 
-### Story 2 — The same resolved path is rewritten wherever it occurs in the body (P1)
+Source: FR-52 extension; the flow-style part: OQ-T56-d (FROZEN 2026-07-06)
 
-**Acceptance criteria:**
+### R3 — A body inline link target whose path matches a resolved key is rewritten
+
+When a markdown inline link target (`[text](target)`) — split on the first `#` into a path portion
+and an optional anchor — has a path portion that equals a `resolved_references_map` key after
+applying `normalize_reference_path` (`references.py`) to both sides, the target is replaced with
+`arkeology://artifact/{id}` (dropping the anchor from the URI). The link *text* is left unchanged,
+and every occurrence of the resolved path in the file is rewritten, not just the first.
+
+Reference-style markdown links — `[text][ref]` + a separate `[ref]: path "title"` definition — are
+a different Markdown construct from inline `](path)` links and are not rewritten (out of scope for
+v1). Not a limitation the developer needs to guard against beyond simply not matching it.
+
+Nested/balanced parentheses inside a link target (implementation note, no operator decision
+needed): a link target containing an unescaped `)` before its own closing paren can defeat a naive
+`\]\(([^)]+)\)`-style extraction. Full CommonMark-correct balanced-paren parsing is not required —
+choose a pragmatic extraction and document the known limitation in the helper's docstring; migrated
+repo-relative paths are not expected to contain parentheses in practice.
+
+**Example**
+
 - Given a file whose body contains an inline markdown link `[the decision](../decisions/B.md)`
   using the exact path text already resolved from frontmatter, when `migrate_artifacts` writes the
   file, then the body link target is rewritten to `arkeology://artifact/{B-id}` and the link *text*
-  (`the decision`) is left unchanged. (FR-52 extension)
-- Given the body link is `[the decision](../decisions/B.md#outcome)` (carrying an anchor), then
-  the rewritten target drops the anchor from the URI AND a human-readable note is appended
-  immediately after the link's closing `)`: `[the decision](arkeology://artifact/{B-id}) ("outcome"
-  section)`. The note text is the raw fragment after `#`, verbatim. (anchor decision — FROZEN)
-- Given a hyphenated / multi-word anchor `[x](../decisions/B.md#my-decision)`, then the note is
-  `("my-decision" section)` — the fragment is preserved verbatim, never de-slugified to
-  `"my decision"`.
-- Given the already-rewritten anchored link `[the decision](arkeology://artifact/{B-id}) ("outcome"
-  section)` is passed through the helper a second time, then the output is identical — the note is
-  not re-appended (the rewritten target is `arkeology://artifact/{B-id}` with no `#`, and
-  `arkeology://…` is not a key in `resolved_map`, so the second pass matches nothing).
+  (`the decision`) is left unchanged.
 - Given the same resolved path appears as two separate body links in the same file, when the file
   is written, then both occurrences are rewritten, not just the first.
-- Given a body link `[other](../decisions/B.md.bak)` — NOT an exact match to the resolved path
-  after normalization — then it is left completely untouched (collision safety).
 - Given a body link written with a different but `normalize_reference_path`-equivalent spelling of
   the same resolved-map key (e.g. the map key is `decisions/B.md` and the body link is
   `./decisions/B.md` — both normalize to `decisions/B.md`, since `normalize_reference_path` strips
   a leading `./`), when both sides are passed through the existing bounded
   `normalize_reference_path`, then the body link is rewritten.
-  A spelling that would only match via the *join* step is left completely untouched, with no
+
+Source: FR-52 extension — the link-text part; the reference-style part: OQ-T56-b (FROZEN 2026-07-06); the parentheses part: OQ-T56-f; the `./`-spelling example: spec-consistency correction (PM, 2026-07-06)
+
+### R4 — A matched link's anchor is dropped from the URI and kept as a note
+
+When a matched link carried a non-empty anchor (text after the first `#`), the anchor is dropped
+from the URI and a human-readable note is appended immediately after the rewritten link's closing
+`)`, in the exact form `<space>("<anchor>" section)`, where `<anchor>` is the raw fragment text
+after `#`, verbatim and un-de-slugified (e.g. `my-decision` stays `my-decision`) — so
+`[text](../adr.md#my-decision)` becomes `[text](arkeology://artifact/{id}) ("my-decision" section)`.
+When a matched link carried no anchor, the target is rewritten with no appended note. When
+already-rewritten content is passed through `rewrite_content_references` again, the anchor note is
+not re-appended or duplicated: the rewritten target is `arkeology://artifact/{id}` with no `#`, and
+`arkeology://…` is never a key in `resolved_references_map`, so a second pass finds no match and
+appends nothing (explicit test required).
+
+**Example**
+
+- Given the body link is `[the decision](../decisions/B.md#outcome)` (carrying an anchor), then
+  the rewritten target drops the anchor from the URI AND a human-readable note is appended
+  immediately after the link's closing `)`: `[the decision](arkeology://artifact/{B-id}) ("outcome"
+  section)`. The note text is the raw fragment after `#`, verbatim.
+- Given a hyphenated / multi-word anchor `[x](../decisions/B.md#my-decision)`, then the note is
+  `("my-decision" section)` — the fragment is preserved verbatim, never de-slugified to
+  `"my decision"`.
+- Given the already-rewritten anchored link `[the decision](arkeology://artifact/{B-id}) ("outcome"
+  section)` is passed through the helper a second time, then the output is identical — the note is
+  not re-appended.
+
+**Why:** the `arkeology://artifact/{id*}` template matches the id verbatim with no fragment-aware
+resolution today (and URI fragments are commonly stripped client-side before a resource read), so
+keeping `#anchor` in the URI risks breaking id resolution on hosts that pass the fragment through —
+while the appended note retains the human pointing precision the anchor conveyed.
+
+Source: OQ-T56-a (FROZEN 2026-07-06)
+
+### R5 — Body-link matching is normalization-equivalent, not join-equivalent, and misses are silent
+
+A body link that would only resolve to the same target via `join_reference_path`'s directory-join
+(a different implicit base directory than the frontmatter entry's) is not rewritten — only the
+non-join bounded `normalize_reference_path` is applied during content matching. **No report is
+produced for body occurrences left unrewritten** — this is correctly out of scope, not a failure,
+and Step 4 verification's reference-resolution report (inherited from T51) continues to cover only
+unresolved *frontmatter* `references:` entries, exactly as before. The developer must NOT add any
+"body occurrence left unrewritten" reporting.
+
+**Example**
+
+- A spelling that would only match via the *join* step is left completely untouched, with no
   report — e.g. the map key is `../decisions/B.md` (which `normalize_reference_path` leaves
   unchanged, because a leading `../` is **not** stripped) while the body link is `./decisions/B.md`
   (normalizes to `decisions/B.md`): the two do not compare equal, so the body link is not rewritten.
-  Join is deliberately not available inside the pure content helper, which has no per-occurrence
-  file context — see OQ-T56-e. *(Spec-consistency correction, PM 2026-07-06: the earlier example
-  paired `../decisions/B.md` with `./decisions/B.md` and wrongly implied a match; the frozen
-  normalize-only rule does not match that pair. The implemented behaviour + its regression test are
-  correct; only this illustrative example was fixed.)*
 
-### Story 3 — Undeclared body-only links are never discovered or rewritten (P1)
+**Why:** a body-found candidate cannot safely be assumed to share the frontmatter entry's
+referencing directory; join is deliberately not available inside the pure content helper, which has
+no per-occurrence file context.
 
-**Acceptance criteria:**
+Source: OQ-T56-e (FROZEN 2026-07-06); the join-spelling example: spec-consistency correction (PM, 2026-07-06)
+
+### R6 — A candidate that matches no key is left untouched
+
+When a candidate path portion or frontmatter list value does not match any
+`resolved_references_map` key — exactly for frontmatter, or via `normalize_reference_path` for body
+links — it is left completely untouched; no partial, fuzzy, or substring-containment rewrite is ever
+performed.
+
+**Example**
+
+- Given a body link `[other](../decisions/B.md.bak)` — NOT an exact match to the resolved path
+  after normalization — then it is left completely untouched (collision safety).
+
+Source: None
+
+### R7 — An `http://` or `https://` target is never a rewrite candidate
+
+When a target begins with `http://` or `https://`, it is never treated as a rewrite candidate,
+matching ADR-012 D5, checked before any normalization or comparison.
+
+Source: ADR-012 D5
+
+## 3. Rules — What is never rewritten
+
+### R8 — A path never declared in this file's frontmatter is never discovered or rewritten
+
+In-body link **discovery** — resolving a path that was never declared in a file's own frontmatter
+`references:` list — is out of scope: such a link is left completely untouched, never discovered,
+resolved, or rewritten, regardless of whether it would otherwise be resolvable against the
+manifest.
+
+**Example**
+
 - Given a body link `[unrelated](../decisions/C.md)` where `C.md` was never listed in *this*
   file's frontmatter `references:` — even if `C.md` is itself a real, resolvable migrated artifact
   elsewhere in the manifest — when `migrate_artifacts` writes the file, then the link is left
-  completely untouched: it is never discovered, resolved, or rewritten. (ADR-012 D1 preserved)
+  completely untouched: it is never discovered, resolved, or rewritten.
+
+Source: ADR-012 D1 (preserved; reaffirmed in the ADR-012 Revision, 2026-07-06)
+
+### R9 — A bare prose mention is never rewritten
+
+A bare prose mention of a path with no markdown link syntax is left untouched, even when that path
+resolved from this file's frontmatter — only frontmatter list items and markdown link-target syntax
+are ever rewritten.
+
+**Example**
+
 - Given a bare prose mention `"see ../decisions/B.md for details"` with no markdown link syntax,
   even though `B.md` did resolve from this file's frontmatter, then the prose mention is left
-  untouched — only frontmatter list items and markdown link-target syntax are ever rewritten.
-  (markdown-awareness scoping)
+  untouched.
 
-### Story 4 — Fenced code blocks are never touched (P1)
+Source: markdown-awareness scoping
 
-**Acceptance criteria:**
+### R10 — Fenced code blocks are never touched
+
+When text falls inside a fenced code block (opened by a ``` or ```lang line and not yet closed
+by a matching ``` line), it is left completely untouched, including any text that would otherwise
+match a frontmatter-list or link-target pattern. An unterminated (odd count) code fence does not
+make the helper raise — everything from the unmatched opening fence to end-of-content is treated as
+still-inside-code and left untouched (safer to under-rewrite than to rewrite inside a
+probably-still-code region). Only backtick fences (```` ``` ````) are skip-protected; `~~~`-fenced
+blocks are not specially detected (tilde-fenced code blocks are out of scope for v1). This project's
+documentation uses backtick fences exclusively, so practical exposure is nil.
+
+**Example**
+
 - Given a fenced code block (```` ``` ````-delimited) containing the literal text
   `[link](../decisions/B.md)` — e.g. inside a documented example — when `migrate_artifacts`
   writes the file, then the text inside the fence is left byte-for-byte untouched, even though it
   would otherwise match.
-- Given an unterminated (odd count) code fence, when the helper runs, then it does not raise —
-  everything from the unmatched opening fence to end-of-content is treated as still-inside-code
-  and left untouched (safer to under-rewrite than to rewrite inside a probably-still-code region).
 
-### Story 5 — Deterministic and idempotent (P1)
+Source: OQ-T56-c (FROZEN 2026-07-06) — the tilde-fence part
 
-**Acceptance criteria:**
-- Given the same `content` and `resolved_map`, when `rewrite_content_references` is called twice,
-  then both calls return byte-identical output.
-- Given content that has already been rewritten once, when the helper is called again with the
-  same map, then the output is unchanged — no double-wrapping, no
-  `arkeology://artifact/arkeology://artifact/...` nesting.
-- Given an empty or absent `resolved_map`, when the helper runs, then `content` is returned
-  completely unchanged, including whitespace and formatting in the frontmatter block.
+## 4. Rules — Determinism and idempotency
 
-### Story 6 — No re-embed, no metadata leakage, migration-only (P1)
+### R11 — The same inputs give byte-identical output
 
-**Acceptance criteria:**
+When `rewrite_content_references` is called twice with the same `(content, resolved_map)`, both
+calls return byte-identical output.
+
+Source: None
+
+### R12 — Already-rewritten content is unchanged by a second pass
+
+When content that has already been rewritten once is passed to the helper again with the same map,
+the output is unchanged — no double-wrapping, no `arkeology://artifact/arkeology://artifact/...`
+nesting.
+
+Source: None
+
+### R13 — An absent or empty map changes nothing
+
+When `resolved_references_map` is absent or empty on a descriptor, that descriptor's `content` is
+left completely unchanged, including whitespace and formatting in the frontmatter block.
+
+Source: None
+
+## 5. Rules — Placement inside `migrate_artifacts`
+
+### R14 — The rewrite runs before the skip-existing check, so stored and embedded content are the same
+
+When the content rewrite runs inside `migrate_artifacts`, it is applied after description
+generation/clipping and before the skip-existing check and the delegation to `write_artifacts`, so
+the content that is stored, parsed into sections, and embedded is the same final (rewritten) text in
+every case — no separate re-embed step is introduced.
+
+**Example**
+
 - Given a descriptor with a non-empty `resolved_references_map`, when
   `migrate_artifacts(dry_run=False)` writes the artifact, then the content stored in S3, the
   content parsed into sections and embedded, and the content later returned by `read_artifact` are
   all identical (the rewritten version) — embedding happens exactly once, on the final content.
   (no re-embed)
-- Given the same call, when the response, the S3 object metadata, and the vector metadata are
-  inspected, then no `resolved_references_map` key appears anywhere. (no leakage)
+
+Source: None
+
+### R15 — The transient `resolved_references_map` key never surfaces
+
+`migrate_artifacts` never surfaces the transient `resolved_references_map` key — in a dry-run
+descriptor echo, a write result, or an error — it is consumed and discarded before the descriptor is
+returned or handed to `write_artifacts`.
+
+**Example**
+
+- Given a descriptor with a non-empty `resolved_references_map`, when
+  `migrate_artifacts(dry_run=False)` writes the artifact and the response, the S3 object metadata,
+  and the vector metadata are inspected, then no `resolved_references_map` key appears anywhere.
+  (no leakage)
 - Given `dry_run=True` with the same descriptor, when the enriched descriptor is returned, then
   its `content` field already reflects the rewrite (the preview shows the true final content), and
   `resolved_references_map` is absent from the returned descriptor.
+
+Source: None
+
+### R16 — The rewrite is `migrate_artifacts`-only
+
+When `write_artifact` or `write_artifacts` is called directly (outside `migrate_artifacts`), no
+content rewrite of this kind is applied — the capability is `migrate_artifacts`-only and is never
+wired into the general write path.
+
+**Example**
+
 - Given a direct call to `write_artifact` or `write_artifacts` (outside `migrate_artifacts`), when
-  a caller supplies an unrecognised `resolved_references_map`-shaped key, then it has no effect —
-  this capability is `migrate_artifacts`-only and is never wired into the general write path.
+  a caller supplies an unrecognised `resolved_references_map`-shaped key, then it has no effect.
 
-## Requirements
+Source: None
 
-- WHEN a `migrate_artifacts` descriptor carries a non-empty `resolved_references_map` THE SYSTEM
-  SHALL rewrite every literal occurrence of each map key in the descriptor's `content` — both
-  within the frontmatter `references:` YAML list and within markdown link targets in the body —
-  to `arkeology://artifact/{id}`, before any write, applied identically in both `dry_run` modes.
-- WHEN a frontmatter `references:` list item's unquoted value exactly equals a
-  `resolved_references_map` key THE SYSTEM SHALL replace it with `arkeology://artifact/{id}`,
-  preserving the item's original quote style (unquoted, single-, or double-quoted) and its
-  position in the list.
-- WHEN a markdown inline link target (`[text](target)`) — split on the first `#` into a path
-  portion and an optional anchor — has a path portion that equals a `resolved_references_map` key
-  after applying `normalize_reference_path` (`references.py`) to both sides THE SYSTEM SHALL
-  replace the target with `arkeology://artifact/{id}` (dropping the anchor from the URI).
-- WHEN such a matched link carried a non-empty anchor (text after the first `#`) THE SYSTEM SHALL
-  append a human-readable note immediately after the rewritten link's closing `)`, in the exact
-  form `<space>("<anchor>" section)`, where `<anchor>` is the raw fragment text after `#`,
-  verbatim and un-de-slugified (e.g. `my-decision` stays `my-decision`) — so
-  `[text](../adr.md#my-decision)` becomes `[text](arkeology://artifact/{id}) ("my-decision" section)`.
-- WHEN such a matched link carried no anchor THE SYSTEM SHALL rewrite the target with no appended
-  note.
-- WHEN already-rewritten content is passed through `rewrite_content_references` again THE SYSTEM
-  SHALL NOT re-append or duplicate the anchor note: the rewritten target is `arkeology://artifact/{id}`
-  with no `#`, and `arkeology://…` is never a key in `resolved_references_map`, so a second pass finds
-  no match and appends nothing.
-- WHEN a candidate path portion or frontmatter list value does not match any
-  `resolved_references_map` key — exactly for frontmatter, or via `normalize_reference_path` for
-  body links — THE SYSTEM SHALL leave it completely untouched; no partial, fuzzy, or
-  substring-containment rewrite is ever performed.
-- WHEN a target begins with `http://` or `https://` THE SYSTEM SHALL never treat it as a rewrite
-  candidate, matching ADR-012 D5, checked before any normalization or comparison.
-- WHEN text falls inside a fenced code block (opened by a ``` or ```lang line and not yet closed
-  by a matching ``` line) THE SYSTEM SHALL leave it completely untouched, including any text that
-  would otherwise match a frontmatter-list or link-target pattern.
-- WHEN `rewrite_content_references` is called twice with the same `(content, resolved_map)` THE
-  SYSTEM SHALL return byte-identical output on both calls.
-- WHEN `resolved_references_map` is absent or empty on a descriptor THE SYSTEM SHALL leave that
-  descriptor's `content` completely unchanged.
-- WHEN the content rewrite runs inside `migrate_artifacts` THE SYSTEM SHALL apply it after
-  description generation/clipping and before the skip-existing check and the delegation to
-  `write_artifacts`, so the content that is stored, parsed into sections, and embedded is the same
-  final (rewritten) text in every case — no separate re-embed step is introduced.
-- WHEN `migrate_artifacts` returns a response THE SYSTEM SHALL never surface the transient
-  `resolved_references_map` key — in a dry-run descriptor echo, a write result, or an error — it
-  is consumed and discarded before the descriptor is returned or handed to `write_artifacts`.
-- WHEN `write_artifact` or `write_artifacts` is called directly (outside `migrate_artifacts`) THE
-  SYSTEM SHALL NOT apply any content rewrite of this kind — the capability is
-  `migrate_artifacts`-only.
-
-## Boundaries
+## 6. Boundaries
 
 **Always:**
 - Only paths already present as keys in the per-descriptor `resolved_references_map` — built
@@ -240,9 +363,10 @@ that file's own frontmatter.
   is implemented (Green).
 
 **Ask First:**
-- Nothing — all operator decisions are frozen (see Open Questions). Reference-style `[text][ref]`
-  links, tilde (`~~~`) fences, and flow-style YAML `references:` lists are confirmed out of scope
-  for v1; anchor handling is confirmed drop-from-URI-preserve-as-note.
+- Nothing — all operator decisions are frozen (OQ-T56-a to OQ-T56-e, folded into R4, R3, R10, R2
+  and R5). Reference-style `[text][ref]` links, tilde (`~~~`) fences, and flow-style YAML
+  `references:` lists are confirmed out of scope for v1; anchor handling is confirmed
+  drop-from-URI-preserve-as-note.
 
 **Never:**
 - Do not perform a full YAML parse-and-re-dump of the frontmatter block to apply the rewrite — this
@@ -262,9 +386,9 @@ that file's own frontmatter.
   `references:` list, regardless of whether it would otherwise be resolvable against the manifest
   (ADR-012 D1).
 
-<!-- IMPLEMENTATION BLOCK — agent-owned -->
+## 7. For the developer agent
 
-## Files to Touch
+### Files to Touch
 
 | File | Action | Notes |
 |------|--------|-------|
@@ -276,7 +400,11 @@ that file's own frontmatter.
 | `docs/architecture-decisions/adr-2026-07-03-artifact-cross-referencing.md` | Already modified (architect) | Revision section (2026-07-06) reversing the no-server-side-rewrite call for this bounded case |
 | `docs/brainstorming/brainstorming-2026-07-01-artifact-cross-referencing.md` | Already modified (architect) | D16 addendum (Session 2026-07-06) recording the decision |
 
-## Testing Approach
+### Contracts
+
+None.
+
+### Testing Approach
 
 **Project uses TDD.** Write `tests/unit/test_references_content_rewrite.py` first (Red), then
 implement `rewrite_content_references` in `src/arkeology/references.py` (Green). Then add the
@@ -325,45 +453,3 @@ placement contract.
 file A's frontmatter references file B (with a matching body link) round-trips through
 `migrate_artifacts(dry_run=False)` against real AWS; `read_artifact` on A returns content with both
 the frontmatter and body occurrences rewritten to `arkeology://artifact/{B-id}`.
-
-## Open Questions
-
-All operator decisions are FROZEN — this spec is dispatch-ready with no open operator questions.
-The resolved decisions and their (implementation-note) limitations are recorded below.
-
-- **OQ-T56-a — Anchor handling (FROZEN 2026-07-06).** A body link `[text](path#anchor)` is
-  rewritten with the anchor dropped from the URI, and the anchor is preserved as a human-readable
-  note appended immediately after the rewritten link: `[text](arkeology://artifact/{id}) ("anchor"
-  section)`. `<anchor>` is the raw fragment text after `#`, verbatim (never de-slugified). A link
-  with no anchor gets no note. Rationale: the `arkeology://artifact/{id*}` template matches the id
-  verbatim with no fragment-aware resolution today (and URI fragments are commonly stripped
-  client-side before a resource read), so keeping `#anchor` in the URI risks breaking id resolution
-  on hosts that pass the fragment through — while the appended note retains the human pointing
-  precision the anchor conveyed. Idempotency holds because the rewritten target has no `#` and
-  `arkeology://…` is never a `resolved_references_map` key, so a second pass appends nothing (explicit
-  test required — see Testing Approach).
-- **OQ-T56-b — Reference-style markdown links: OUT OF SCOPE for v1 (FROZEN 2026-07-06).**
-  `[text][ref]` + a separate `[ref]: path "title"` definition is a different Markdown construct
-  from inline `](path)` links and is not rewritten by this spec. Not a limitation the developer
-  needs to guard against beyond simply not matching it.
-- **OQ-T56-c — Tilde-fenced code blocks: OUT OF SCOPE for v1 (FROZEN 2026-07-06).** Only backtick
-  fences (```` ``` ````) are skip-protected; `~~~`-fenced blocks are not specially detected. This
-  project's documentation uses backtick fences exclusively, so practical exposure is nil.
-- **OQ-T56-d — Flow-style YAML `references:` lists: OUT OF SCOPE for v1 (FROZEN 2026-07-06).** Only
-  block-style (`- item` per line) `references:` lists are matched; a single-line flow-style list
-  (`references: ["a.md", "b.md"]`) is left untouched (safe no-op, never mis-parsed). The skill's
-  examples and the existing migrated corpus use block style exclusively.
-- **OQ-T56-e — Body-link matching is normalization-equivalent, not join-equivalent, and misses are
-  SILENT (FROZEN 2026-07-06).** A body link that would only resolve to the same target via
-  `join_reference_path`'s directory-join (a different implicit base directory than the frontmatter
-  entry's) is not rewritten — only the non-join bounded `normalize_reference_path` is applied during
-  content matching, for the safety reason in Boundaries/Never. **No report is produced for body
-  occurrences left unrewritten** — this is correctly out of scope, not a failure, and Step 4
-  verification's reference-resolution report (inherited from T51) continues to cover only
-  unresolved *frontmatter* `references:` entries, exactly as before. The developer must NOT add any
-  "body occurrence left unrewritten" reporting.
-- **OQ-T56-f — Nested/balanced parentheses inside a link target (implementation note, no operator
-  decision needed).** A link target containing an unescaped `)` before its own closing paren can
-  defeat a naive `\]\(([^)]+)\)`-style extraction. Full CommonMark-correct balanced-paren parsing
-  is not required — choose a pragmatic extraction and document the known limitation in the helper's
-  docstring; migrated repo-relative paths are not expected to contain parentheses in practice.

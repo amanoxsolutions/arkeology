@@ -9,121 +9,164 @@ okf_version: "0.2"
 generated:
   by: "axians-architect/unknown"
   at: 2026-06-01T00:00:00Z
+revised:
+  by: "axians-architect/claude-opus-5-5"
+  at: 2026-11-09T13:17:08Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
-phase: 7
-task: 25
 ---
 
 # Migrate unit tests from hand-rolled fakes to moto
 
-<!-- SCOPE BLOCK — frozen after approval -->
+## TL;DR
 
-## Problem Statement
+Unit tests for S3 and S3 Vectors stop injecting the hand-rolled `FakeS3Client` and
+`FakeVectorsClient` and inject moto-backed `S3ClientImpl` and `VectorsClientImpl` instead, with a
+`query_vectors` cosine-similarity extension patched onto moto for the one operation moto lacks.
+This brings the unit suite in line with the project's moto testing convention and makes unit-test
+scores use production's `[−1, 1]` range, for everyone writing and maintaining the unit tests.
+
+## 1. Problem Statement
 
 Unit tests for S3 and S3 Vectors use hand-rolled in-memory fakes (`FakeS3Client`,
 `FakeVectorsClient`) instead of moto, violating the project's testing convention (testing
 skill: "Mock AWS services with moto"). Additionally, `FakeVectorsClient.query_vectors` returns
 scores in `[0, 2]` (shifted cosine similarity) while `VectorsClientImpl.query_vectors` returns
 scores in `[-1, 1]` (`1.0 − cosine_distance`), making score assertions in unit tests unreliable
-and inconsistent with production behaviour. Both issues must be resolved before v0.1.0.
+and inconsistent with production behaviour. Both issues must be resolved before v0.1.0. This is a
+test infrastructure change covering unit tests only. All four user stories this spec states are
+P1: S3 mocked with moto, S3 Vectors mocked with moto plus the `query_vectors` extension, score
+range aligned between unit and production, and AGENTS.md documenting the convention.
 
-## User Stories
+## 2. Rules — Moto-backed clients
 
-### Story 1 — S3 mocked with moto (P1)
+### R1 — S3 unit tests use a moto-backed `S3ClientImpl`
 
-All unit tests that currently inject `FakeS3Client` instead inject an `S3ClientImpl` instance
-backed by moto. `FakeS3Client` and its test file are deleted.
+When a unit test requires an S3 client, a shared pytest fixture provides an `S3ClientImpl`
+instance backed by moto. All unit tests that currently inject `FakeS3Client` instead inject this
+moto-backed `S3ClientImpl`. `FakeS3Client` and its test file are deleted.
 
-**Acceptance criteria:**
-- Given the `@mock_aws` decorator active and a real S3 bucket pre-created, when a tool test
-  calls any S3 operation through `S3ClientImpl`, then the call succeeds against moto without
-  hitting real AWS.
-- Given `fake_s3.py` deleted, when `uv run ruff check src/ tests/` runs, then there are no
+**Example**
+
+- Given the `@mock_aws` decorator active and a real S3 bucket pre-created, when a tool test calls
+  any S3 operation through `S3ClientImpl`, then the call succeeds against moto without hitting
+  real AWS.
+- Given `fake_s3.py` deleted, when `uv run ruff check src/ tests/` runs, then there are no import
+  errors.
+
+Source: —
+
+### R2 — S3 Vectors unit tests use a moto-backed `VectorsClientImpl`
+
+When a unit test requires a Vectors client, a shared pytest fixture provides a
+`VectorsClientImpl` instance backed by moto (with `query_vectors` patched). All unit tests that
+currently inject `FakeVectorsClient` instead inject this moto-backed `VectorsClientImpl`.
+`FakeVectorsClient` and its test file are deleted.
+
+**Example**
+
+- Given `fake_vectors.py` deleted, when `uv run ruff check src/ tests/` runs, then there are no
   import errors.
 
-### Story 2 — S3 Vectors mocked with moto + `query_vectors` extension (P1)
+Source: —
 
-All unit tests that currently inject `FakeVectorsClient` instead inject a `VectorsClientImpl`
-instance backed by moto. A `query_vectors` extension is patched onto moto's
-`S3VectorsBackend` to cover the one unimplemented operation. `FakeVectorsClient` and its test
-file are deleted.
+### R3 — `query_vectors` extension ranks by score and applies the filter
 
-**Acceptance criteria:**
-- Given the `@mock_aws` decorator active, a real vector bucket and index pre-created, and
-  vectors written via `put_vectors`, when `VectorsClientImpl.query_vectors` is called, then it
-  returns results ranked by cosine similarity without hitting real AWS.
-- Given `fake_vectors.py` deleted, when `uv run ruff check src/ tests/` runs, then there are
-  no import errors.
+A `query_vectors` extension is patched onto moto's `S3VectorsBackend` to cover the one
+unimplemented operation. When `query_vectors` is called on the moto-backed client, it returns
+results ordered by `score = 1.0 − cosine_distance` descending, applying the `filter_expr` via
+`arkeology.clients.filter.matches_filter`.
 
-### Story 3 — Score range aligned between unit and production (P1)
+**Example**
+
+- Given the `@mock_aws` decorator active, a real vector bucket and index pre-created, and vectors
+  written via `put_vectors`, when `VectorsClientImpl.query_vectors` is called, then it returns
+  results ranked by cosine similarity without hitting real AWS.
+
+Source: —
+
+### R4 — Score range aligned between unit and production
 
 The `query_vectors` moto extension returns `score = 1.0 − cosine_distance` (i.e. cosine
 similarity), range `[−1, 1]`, matching `VectorsClientImpl` exactly.
 
-**Acceptance criteria:**
+**Example**
+
 - Given two identical unit vectors stored and queried, when `query_vectors` is called via the
   moto-backed `VectorsClientImpl`, then the returned score is `1.0`.
 - Given two orthogonal vectors stored and queried, when `query_vectors` is called, then the
   returned score is `0.0`.
-- Given `test_all_scores_in_valid_range` updated to assert `−1.0 ≤ score ≤ 1.0`, when the
-  unit test suite runs, then it passes.
+- Given `test_all_scores_in_valid_range` updated to assert `−1.0 ≤ score ≤ 1.0`, when the unit
+  test suite runs, then it passes.
 
-### Story 4 — AGENTS.md documents the convention (P1)
+Source: —
+
+## 3. Rules — Failure simulation and call tracking
+
+### R5 — Credential errors are simulated by patching the method under test
+
+When a test needs to simulate a credential error on S3 or Vectors, it uses `mocker.patch.object`
+to raise `CredentialError` on the specific client method under test.
+
+Source: —
+
+### R6 — Call counts are tracked with a spy
+
+When a test needs to track call counts on a client method, it uses `mocker.spy` or
+`mocker.patch.object(…, wraps=…)`.
+
+Source: —
+
+### R7 — Partial failures are simulated with a side effect
+
+When a test needs to simulate a partial failure (e.g. `put_vector` raises), it uses
+`mocker.patch.object(…, side_effect=…)`.
+
+Source: —
+
+## 4. Rules — Documentation
+
+### R8 — AGENTS.md documents the convention
 
 AGENTS.md is updated so future contributors know to use moto, know `query_vectors` is patched
-via extension, and know `FakeBedrockClient` is kept intentionally.
+via extension, and know `FakeBedrockClient` is kept intentionally. A developer reading AGENTS.md
+can find: (a) the moto convention for AWS mocking, (b) where the `query_vectors` extension lives
+and why it exists, (c) why `FakeBedrockClient` is kept despite the moto convention.
 
-**Acceptance criteria:**
-- Given a developer reads AGENTS.md, they can find: (a) the moto convention for AWS mocking,
-  (b) where the `query_vectors` extension lives and why it exists, (c) why `FakeBedrockClient`
-  is kept despite the moto convention.
+Source: —
 
-## Requirements
-
-- WHEN a unit test requires an S3 client THE SYSTEM SHALL provide an `S3ClientImpl` instance
-  backed by moto via a shared pytest fixture.
-- WHEN a unit test requires a Vectors client THE SYSTEM SHALL provide a `VectorsClientImpl`
-  instance backed by moto (with `query_vectors` patched) via a shared pytest fixture.
-- WHEN `query_vectors` is called on the moto-backed client THE SYSTEM SHALL return results
-  ordered by `score = 1.0 − cosine_distance` descending, applying the `filter_expr` via
-  `arkeology.clients.filter.matches_filter`.
-- WHEN a test needs to simulate a credential error on S3 or Vectors THE SYSTEM SHALL use
-  `mocker.patch.object` to raise `CredentialError` on the specific client method under test.
-- WHEN a test needs to track call counts on a client method THE SYSTEM SHALL use
-  `mocker.spy` or `mocker.patch.object(…, wraps=…)`.
-- WHEN a test needs to simulate a partial failure (e.g. `put_vector` raises) THE SYSTEM SHALL
-  use `mocker.patch.object(…, side_effect=…)`.
-
-## Boundaries
+## 5. Boundaries
 
 **Always:**
-- `FakeBedrockClient` is kept — moto's `invoke_model` returns a generic stub, not
-  deterministic per-text embedding vectors; the hash-derived unit vectors in `FakeBedrockClient`
-  are required for search ordering assertions.
-- `src/arkeology/clients/filter.py` is kept — reused by both the `query_vectors` moto
-  extension and `VectorsClientImpl.list_vectors_by_metadata`.
+
+- `FakeBedrockClient` is kept — moto's `invoke_model` returns a generic stub, not deterministic
+  per-text embedding vectors; the hash-derived unit vectors in `FakeBedrockClient` are required
+  for search ordering assertions.
+- `src/arkeology/clients/filter.py` is kept — reused by both the `query_vectors` moto extension
+  and `VectorsClientImpl.list_vectors_by_metadata`.
 - All tests must pass `uv run pytest tests/unit/ -q -m 'not integration'` after migration.
 - ruff check, ruff format, and mypy must all be clean after migration.
 - The moto `query_vectors` extension must be applied once, in `tests/unit/conftest.py`, before
   any test session begins — not per-test or per-file.
 
 **Ask First:**
-- If the moto `S3VectorsBackend` internal data structure for stored vectors cannot be
-  determined from moto source inspection, ask before implementing the extension.
+
+- If the moto `S3VectorsBackend` internal data structure for stored vectors cannot be determined
+  from moto source inspection, ask before implementing the extension.
 
 **Never:**
+
 - Do not reintroduce hand-rolled fakes for S3 or S3 Vectors.
 - Do not use `unittest.mock.MagicMock` as a drop-in for entire client objects — use
   `mocker.patch.object` on specific methods only.
 - Do not modify any integration test — this spec covers unit tests only.
-- Do not change any tool source code in `src/arkeology/` — this is a test infrastructure
-  change only.
+- Do not change any tool source code in `src/arkeology/` — this is a test infrastructure change
+  only.
 
-<!-- IMPLEMENTATION BLOCK — agent-owned -->
+## 6. For the developer agent
 
-## Files to Touch
+### Files to Touch
 
 | File | Action | Notes |
 |------|--------|-------|
@@ -148,10 +191,14 @@ via extension, and know `FakeBedrockClient` is kept intentionally.
 | `tests/unit/test_tools_freshness.py` | Modify | Replace `FakeVectorsClient` with moto-backed client |
 | `AGENTS.md` | Modify | Update Repository Structure table (remove `fake_s3.py`, `fake_vectors.py`; add `test_moto_query_vectors_extension.py`); update Working Conventions; add moto testing convention to a new Testing Conventions section; fix score range in High-Friction Areas (currently says `[0.0, 1.0]`, must be `[−1, 1]`) |
 
-## Testing Approach
+### Contracts
 
-This spec is TDD. The extension is new logic; it is written test-first. The test migrations
-are transformations of existing tests; they follow the existing test behaviour.
+None.
+
+### Testing Approach
+
+This spec is TDD. The extension is new logic; it is written test-first. The test migrations are
+transformations of existing tests; they follow the existing test behaviour.
 
 **Red phase — write and confirm failing:**
 
@@ -192,7 +239,20 @@ are transformations of existing tests; they follow the existing test behaviour.
 
 **Implementation patterns for the developer:**
 
-### conftest.py — `query_vectors` extension and fixtures
+Two details settled against moto and the test settings:
+
+- **moto `S3VectorsBackend` internals.** The extension (`_backend_query_vectors()` in
+  `tests/unit/conftest.py`) reaches moto's in-memory vector store through
+  `self.vector_buckets[...].indexes[...].vectors`: it looks up the bucket via
+  `self.vector_buckets.values()` matching `vector_bucket_name`, then the index via
+  `bucket.indexes.values()` matching `index_name`, then iterates `index.vectors.items()`.
+- **`us-east-1` bucket creation.** boto3/moto requires no `CreateBucketConfiguration` for
+  `us-east-1`. Tests use `us-east-1` (set via `monkeypatch.setenv("AWS_REGION", "us-east-1")` in
+  `conftest.py`'s `_make_settings()`), so the `s3_client` fixture's `create_bucket()` call carries
+  no `CreateBucketConfiguration`/`LocationConstraint` — unlike the `s3_client` pattern below,
+  which shows one.
+
+#### conftest.py — `query_vectors` extension and fixtures
 
 ```python
 import math
@@ -299,7 +359,7 @@ def vectors_client(aws_mock, settings):
     )
 ```
 
-### Credential error simulation (replaces `set_credential_failure`)
+#### Credential error simulation (replaces `set_credential_failure`)
 
 ```python
 # Before
@@ -317,7 +377,7 @@ def test_credential_error_on_head_bucket(mocker, s3_client, vectors_client, bedr
     ...
 ```
 
-### Missing index simulation (replaces `FakeVectorsClient(index_missing=True)`)
+#### Missing index simulation (replaces `FakeVectorsClient(index_missing=True)`)
 
 ```python
 # After — use a fixture that does NOT create the index
@@ -334,7 +394,7 @@ def vectors_client_no_index(aws_mock, settings):
     )
 ```
 
-### Call tracking (replaces `TrackingVectors` subclass)
+#### Call tracking (replaces `TrackingVectors` subclass)
 
 ```python
 # Before
@@ -348,7 +408,7 @@ spy = mocker.spy(vectors_client, "put_vector")
 assert spy.call_count == expected
 ```
 
-### Partial failure simulation (replaces `ExplodingVectors` subclass)
+#### Partial failure simulation (replaces `ExplodingVectors` subclass)
 
 ```python
 # Before
@@ -358,20 +418,3 @@ class ExplodingVectors(FakeVectorsClient):
 # After
 mocker.patch.object(vectors_client, "put_vector", side_effect=Exception("simulated failure"))
 ```
-
-## Open Questions
-
-- [x] **moto S3VectorsBackend internals**: The `query_vectors` extension accesses moto's
-  in-memory vector store via `self.vector_buckets[...].indexes[...].vectors`. The developer
-  must inspect the moto S3 Vectors source at the installed version to confirm the exact
-  attribute path before implementing. If the path differs, adjust the extension accordingly.
-  **Resolved** — the shipped extension in `tests/unit/conftest.py`'s `_backend_query_vectors()`
-  confirms this attribute path: it looks up the bucket via `self.vector_buckets.values()`
-  matching `vector_bucket_name`, then the index via `bucket.indexes.values()` matching
-  `index_name`, then iterates `index.vectors.items()`.
-- [x] **`us-east-1` bucket creation**: boto3/moto requires no `CreateBucketConfiguration`
-  for `us-east-1`. If `settings.aws_region` is `us-east-1` in tests, remove the
-  `LocationConstraint` from the `s3_client` fixture. Confirm the region used in tests.
-  **Resolved** — tests use `us-east-1` (set via `monkeypatch.setenv("AWS_REGION",
-  "us-east-1")` in `conftest.py`'s `_make_settings()`), and the `s3_client` fixture's
-  `create_bucket()` call carries no `CreateBucketConfiguration`/`LocationConstraint`.

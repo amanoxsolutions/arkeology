@@ -108,13 +108,12 @@ relationships:
 generated:
   by: "axians-architect/claude-opus-5.5"
   at: 2026-10-13T18:53:42Z
-phase: 15
-task: 88
+revised:
+  by: "axians-architect/claude-opus-5-5"
+  at: 2026-11-09T22:57:02Z
 ---
 
 # T88 — Migration and Source-Backfill Skills for OKF v0.2 Frontmatter
-
-<!-- SCOPE BLOCK — frozen after approval -->
 
 ## TL;DR
 
@@ -126,7 +125,7 @@ the `id:` the target file declares, and `migrate_artifacts` rewrites the path in
 filled in later. Studio and the `arkeology://artifact/{id*}` resource open the bare-id links this
 writes, through T84's resolver (FR-23, FR-48, FR-52, FR-58; D28, D40, D43).
 
-## Problem Statement
+## 1. Problem Statement
 
 Today the migration skill reads a house `references:` list, derives every id from type, title and
 date, and recovers a `date`. After T76–T87 the server accepts `id`, `generated`, `status`,
@@ -138,88 +137,85 @@ two import questions to this task: what happens to a document's `revised`, and t
 list. Migration is also the first writer of bare-id links into content. Neither Studio nor the
 `arkeology://artifact/{id*}` resource can open them, because both expect a full key.
 
-## User Stories
+The seven user stories of this spec are kept as labelled examples under the rules they illustrate
+(Story 1 to Story 7); all seven are P1. The ten decisions taken in this spec keep their numbers
+(Decision 1 to Decision 10) as labelled **Why** lines on the rules they settle, and the two
+answered questions keep theirs (Open Questions item 2, Resolved Questions item 1).
 
-### Story 1 — A producer document keeps its identity and provenance (P1)
-- Given `docs/adr/okf.md` declaring `id: ADR-005.okf-adoption`, `type: ADR`, `status: stable`,
-  `generated: {by: "axians-architect/x", at: 2026-03-01T10:00:00Z}` and
-  `revised: {by: "human:ana", at: 2026-04-02T08:00:00Z}`. When it is migrated, then it is stored at
-  `{WRITE_PREFIX}/ADR-005.okf-adoption.md`. `read_artifact` returns that type, status, `generated`
-  and `revised`, and `revision_history` is those two entries in that order (FR-73; D28, D35, D37).
-- Given a file with no frontmatter and no date in its name, when it is migrated, then its id is
-  generated (T87). Its
-  `generated.at` is the file's first-commit day at `T00:00:00Z` and `generated.by` is
-  `process:migrating-to-arkeology` (FR-23; D9).
+## 2. Rules — Reading frontmatter
 
-### Story 2 — Sources resolve through the target's own `id:` (P1)
-- Given A listed before B in the migration. A's `sources` has a label-`b` entry with
-  `resource: docs/specs/new-name.md` and no `last_modified`, a URL entry, and an entry pointing at
-  an excluded path. B lives at `docs/specs/new-name.md` but declares `id: old-name`. When the
-  migration runs:
-  - A's first source becomes `arkeology://artifact/old-name` in both the structured field and the
-    stored frontmatter, with label `b` and its title unchanged and `last_modified` set to B's
-    `revised.at`;
-  - the URL and excluded-path entries are byte-identical;
-  - A's `relationships` equal its frontmatter list (AC-58).
+### R1 — The skills read frontmatter only through one documented offline snippet, as literal text
 
-### Story 3 — Duplicate or invalid ids stop the run (P1)
+The skills read a file's frontmatter only through one documented offline snippet. Its
+authoritative, unit-tested implementation is in `references.py`.
+
+- Frontmatter is the block from an opening `---` first line to the next `---` line. This is the
+  rule `_frontmatter_end_index` already applies. A file without such a block declares nothing.
+- The block is parsed with no implicit typing. Every scalar is the literal text in the file with
+  its quotes removed: `id: 001` stays `"001"`, and a timestamp keeps its spelling.
+- When the block does not parse as YAML or is not a mapping, the file is reported as unreadable.
+
+**Why (Decision 6 — One snippet, literal text, PyYAML):** `sources` and `relationships` are lists
+of mappings, which the stdlib-only fallback cannot parse without becoming a YAML parser. The skill
+already runs `uv run` with PyYAML for manifest validation, so the snippet runs under
+`uv run --with pyyaml`. Parsing with no implicit typing keeps ids such as `001` and `1.0` exact, and
+keeps timestamps as written.
+
+Source: FR-23; D10, D28
+
+### R2 — The skills read only OKF v0.2 keys
+
+The skills read only OKF v0.2 keys. They never read the house `references:`, `timestamp:` or
+`authored:` keys.
+
+**Why (Decision 7 — House keys are not read):** D42 ships no aliases, and D10 makes converting the
+documents the producer's job. First authorship falls back to Git history, which FR-23 permits.
+
+Source: FR-23; D10, D28
+
+## 3. Rules — Pre-write checks
+
+### R3 — A duplicate or T87-invalid declared id, a missing file or unreadable frontmatter stops the run before the first `migrate_artifacts` call
+
+When a run is about to make its first `migrate_artifacts` call, the skill first reads every file in
+the migration: in Step 3.A every confirmed file, in Step 3.B every manifest entry whatever its
+`status`. It stops, writes nothing, and names every file involved, when:
+
+- two or more files declare the same `id`, compared exactly (AC-81);
+- a declared `id` fails T87's rule, which is reported with T87's message;
+- a file is missing, or its frontmatter is unreadable.
+
+Example (Story 3, duplicate or invalid ids stop the run):
+
 - Given two files that both declare `id: plan`, when the skill runs, then it stops before any
   `migrate_artifacts` call and names both files (AC-81). The same happens for a declared id that
   T87 rejects, or a frontmatter block that does not parse.
+
+**Why (Decision 4 — What stops a run):** A duplicate is AC-81. An invalid declared id is checked
+here rather than per entry: every file whose `sources` or `relationships` names that id would also
+fail T84's id check, so one bad file would fail many. An unreadable block would silently drop the
+file's declared `id`.
+
+Source: FR-23, FR-73, AC-81; D28, D33; ADR-017 `### 5`, "Case-only duplicate ids"
+
+### R4 — Ids that differ only in letter case continue only on the operator's explicit confirmation
+
+When two or more declared ids differ only in letter case, the skill lists them and continues only on
+the operator's explicit confirmation.
+
+Example (Story 3, continued):
+
 - Given `Spec-A` and `spec-a` declared by two files, then the skill lists them and continues only on
   the operator's explicit confirmation.
 
-### Story 4 — Verifications arrive after the write (P1)
-- Given a file declaring two `verified` entries, when it is migrated, then `read_artifact` returns
-  both. Re-running the migration records nothing further (FR-70; T83).
+**Why (Decision 4, continued):** Case-only ids are legal (FR-08), but ADR-017 names this check as
+the guard against them. That is why they need confirmation rather than causing a stop.
 
-### Story 5 — Unresolved sources are backfilled later (P1)
-- Given A was migrated while B was excluded, so A kept `resource: docs/b.md`, and B has since been
-  migrated. When `backfilling-references` runs, then it presents a dry-run report proposing
-  `arkeology://artifact/<B's id>` for A before any write. On confirmation it calls
-  `add_artifact_links`, and A gains that entry with B's current revision time as `last_modified`.
-  A's content and `revised` are unchanged. Declining changes nothing (AC-63).
+Source: FR-23, FR-73, AC-81; D28, D33; ADR-017 `### 5`, "Case-only duplicate ids"
 
-### Story 6 — The renamed descriptor key is rejected (P1)
-- Given a `migrate_artifacts` descriptor carrying `resolved_references_map`, then that entry fails
-  with `validation_error` naming `resolved_sources_map` (AC-80; D42).
+## 4. Rules — Descriptor fields
 
-### Story 7 — Bare-id links open where readers follow them (P1)
-- Given a migrated A whose content links to `arkeology://artifact/old-name` (B's declared id). When
-  a reader activates that link in Studio's view of A, then B opens, resolved against A's scope. A
-  link inside B then resolves against B (FR-48; D28).
-- Given a host reads `arkeology://artifact/old-name`, then B's content is returned (AC-51).
-- Given a foreign shared artifact `P/a.md` whose content links to bare `t2`, a tier-2 artifact in P.
-  When a reader follows that link in Studio, then the view shows `read_artifact`'s `access_denied`
-  message verbatim. Nothing is decided in Studio itself (FR-10; Studio link-resolution ADR, D4).
-
-## Requirements
-
-**Reading frontmatter** (FR-23; D10, D28)
-
-- THE SKILLS SHALL read a file's frontmatter only through one documented offline snippet. Its
-  authoritative, unit-tested implementation is in `references.py`. Frontmatter is the block from an
-  opening `---` first line to the next `---` line. This is the rule `_frontmatter_end_index` already
-  applies. A file without such a block declares nothing.
-- THE SYSTEM SHALL parse the block with no implicit typing. Every scalar is the literal text in the
-  file with its quotes removed: `id: 001` stays `"001"`, and a timestamp keeps its spelling.
-- WHEN the block does not parse as YAML or is not a mapping THE SYSTEM SHALL report the file as
-  unreadable.
-- THE SKILLS SHALL read only OKF v0.2 keys. They never read the house `references:`, `timestamp:` or
-  `authored:` keys.
-
-**Pre-write checks** (FR-23, FR-73, AC-81; D28, D33; ADR-017 `### 5`, "Case-only duplicate ids")
-
-- WHEN a run is about to make its first `migrate_artifacts` call THE SKILL SHALL first read every
-  file in the migration: in Step 3.A every confirmed file, in Step 3.B every manifest entry
-  whatever its `status`. It SHALL stop, write nothing, and name every file involved, WHEN:
-  - two or more files declare the same `id`, compared exactly (AC-81);
-  - a declared `id` fails T87's rule, which is reported with T87's message;
-  - a file is missing, or its frontmatter is unreadable.
-- WHEN two or more declared ids differ only in letter case THE SKILL SHALL list them and SHALL
-  continue only on the operator's explicit confirmation.
-
-**Descriptor fields** (FR-23, FR-26, FR-73; D9, D22, D28, D35, D37)
+### R5 — Each descriptor key comes from the frontmatter as this table states
 
 | Descriptor key | Source |
 |---|---|
@@ -231,195 +227,411 @@ list. Migration is also the first writer of bare-id links into content. Neither 
 | `relationships` | Frontmatter list, verbatim |
 | `sources` | Frontmatter list after resolution (below) |
 
-- `generated_at` (manifest field in Step 3.B, held in memory in Step 3.A) SHALL be taken from the
-  first available of: the frontmatter `generated.at` verbatim; a `YYYY-MM-DD` in the filename; the
-  file's first commit for **both** tiers; today. Every value except the first is written as
-  `<day>T00:00:00Z`. An operator edit to `generated_at` takes precedence.
-- THE SKILL SHALL never put `verified` in a descriptor, because T83 redirects it.
+Example (Story 1, a producer document keeps its identity and provenance):
 
-**Imported `revised`** (FR-20, FR-69, FR-72; D19, D35)
+- Given `docs/adr/okf.md` declaring `id: ADR-005.okf-adoption`, `type: ADR`, `status: stable`,
+  `generated: {by: "axians-architect/x", at: 2026-03-01T10:00:00Z}` and
+  `revised: {by: "human:ana", at: 2026-04-02T08:00:00Z}`. When it is migrated, then it is stored at
+  `{WRITE_PREFIX}/ADR-005.okf-adoption.md`. `read_artifact` returns that type, status, `generated`
+  and `revised`, and `revision_history` is those two entries in that order (FR-73; D28, D35, D37).
 
-- WHEN a `migrate_artifacts` descriptor carries `revised` THE SYSTEM SHALL require both `by` and `at`
-  and validate them with T79's provenance-block resolver, with no clock fallback. It SHALL then write
-  `revised` at create alongside `generated` and seed `revision_history` with `[generated, revised]`.
-  An invalid block fails only that entry, with `validation_error` naming the field.
-- WHEN `create_artifact`, or a `create_artifacts` descriptor, carries `revised` THE SYSTEM SHALL
-  return `validation_error` naming `update_artifact`, for the call or for that entry. `revised`
-  reaches a create only through `migrate_artifacts`.
-- A `skipped_existing` artifact is never re-imported, so its stored `revised` is never touched.
+Source: FR-23, FR-26, FR-73; D9, D22, D28, D35, D37
 
-**Source resolution** (FR-52, AC-58; D40, D43)
+### R6 — `generated_at` is the first available of the declared time, a filename date, the first commit or today, unless the operator edits it
 
-- For each frontmatter `sources` entry, THE SKILL SHALL leave an `http(s)://` or `arkeology://`
-  `resource` unchanged.
-- For any other `resource`, it SHALL join `./` and `../` paths against the citing file's directory
-  and apply today's bounded normalisation. WHEN the result is the path of a manifest entry whose file
-  declares an `id` THE SKILL SHALL:
-  - set `resource` to `arkeology://artifact/<id>`;
-  - add `{original resource text: id}` to the descriptor's `resolved_sources_map`.
-- WHEN the result names no manifest entry (an excluded, never-migrated or missing target) or a
-  target that declares no `id` THE SKILL SHALL leave the entry unchanged and list it in the migration
-  report with that reason.
-- THE SKILL SHALL never read an excluded path and never use `sources[].id` to resolve. It SHALL keep
-  every other key and the order of entries.
-- WHEN a resolved entry has no `last_modified` THE SKILL SHALL set it to the effective time on the
-  target's own descriptor: `revised.at`, otherwise `generated.at`.
-- Resolution SHALL depend only on the manifest and the ids the files declare, so write order and
-  session never change its result.
+`generated_at` (manifest field in Step 3.B, held in memory in Step 3.A) is taken from the first
+available of:
 
-**Content rewrite in `migrate_artifacts`** (FR-52, AC-58)
+1. the frontmatter `generated.at`, verbatim;
+2. a `YYYY-MM-DD` in the filename;
+3. the file's first commit, for **both** tiers;
+4. today.
 
-- THE SYSTEM SHALL accept a transient descriptor key `resolved_sources_map` in place of
-  `resolved_references_map`. It SHALL apply the map in both `dry_run` modes, before the existence
-  check and the delegation, and then pop it. The key is never stored or returned.
-- Inside the frontmatter's block-style `sources:` list, THE SYSTEM SHALL rewrite every `resource:`
-  value whose text, quotes removed, equals a map key to `arkeology://artifact/<id>`, keeping its
-  quoting. This applies whether the key sits on the entry's `- ` line or on a later line.
-- Every other frontmatter byte SHALL stay unchanged. That includes label `id:`, `title:` and
-  `last_modified:` lines, the `relationships:` block and a top-level `resource:` key.
-- Body markdown links SHALL be rewritten exactly as today. A flow-style `sources: [...]` list is not
-  rewritten in content. This existing limitation is kept, and the structured field is still
-  resolved.
+Every value except the first is written as `<day>T00:00:00Z`. An operator edit to `generated_at`
+takes precedence.
 
-**Imported verifications** (FR-70; D41, D44, D46)
+Example (Story 1, continued):
 
-- After each write step, and on every resumed run, THE SKILL SHALL process each migration entry that
-  has an `artifact_id` and whose file declares `verified`, as follows:
-  - call `read_artifact` once;
-  - for each frontmatter entry, in file order, that is not already recorded, call
-    `add_artifact_verification` once. An entry is already recorded when one with the same `by` and
-    the same instant exists.
-- WHEN the tool returns `validation_error` THE SKILL SHALL report the file and the entry and
-  continue. On any other error it SHALL stop the pass and report, per file, which entries were and
-  were not recorded. A re-run records only the missing ones.
-- Each manifest entry SHALL gain the `artifact_id` from its result, whether written or skipped.
+- Given a file with no frontmatter and no date in its name, when it is migrated, then its id is
+  generated (T87). Its `generated.at` is the file's first-commit day at `T00:00:00Z` and
+  `generated.by` is `process:migrating-to-arkeology` (FR-23; D9).
 
-**`backfilling-references`** (FR-58, AC-63; D40, D43)
+**Why (Decision 7, continued):** The first commit replaces the tier-3 last-commit rule, because
+`generated` means first authorship (D9). Tier-3 ids are date-independent, so no id changes.
 
-- THE SKILL SHALL read the structured `sources` of every non-archived own-scope artifact
-  (`list_artifacts(..., status="all")`) and never its content.
-- An entry SHALL be proposed only WHEN all of these hold:
-  - its `resource` is neither a URL nor an `arkeology://` value;
-  - its path, joined against the artifact's manifest `path` when one is known and then normalised,
-    names a repository file outside `local_only_paths`;
-  - that file declares a valid `id`;
-  - `{write prefix}/{id}.md` is an own-scope artifact;
-  - the artifact's `sources` do not already hold `arkeology://artifact/<id>`.
-- The write prefix is any own-scope `artifact_id` up to its last `/`, or the operator's answer when
-  no such artifact exists.
-- THE SKILL SHALL present one dry-run batch report. Only after the operator confirms SHALL it call
-  `add_artifact_links(artifact_ids=[<artifact>], sources=[{resource:
-  "arkeology://artifact/<id>", title: <copied when present>}])` once per artifact, with no
-  `last_modified`. The server then fills in the source's current revision time (T84). Declining
-  writes nothing.
-- Relationships SHALL never be proposed.
+Source: FR-23, FR-26, FR-73; D9, D22, D28, D35, D37
 
-**Removed name** (AC-80; D42)
+### R7 — The skill never puts `verified` in a descriptor
 
-- WHEN a `migrate_artifacts` descriptor carries `resolved_references_map` THE SYSTEM SHALL fail that
-  entry with `validation_error` naming `resolved_sources_map`.
+The skill never puts `verified` in a descriptor, because T83 redirects it.
 
-**Following bare-id links** (FR-10, FR-46, FR-48, AC-51; D28; Studio link-resolution ADR, D1 and D4)
+Source: FR-23, FR-26, FR-73; D9, D22, D28, D35, D37
 
-- `read_artifact` SHALL accept an optional `linked_from`, the full key of the artifact whose content
-  holds the link. WHEN it is supplied THE SYSTEM SHALL do three things in order:
-  - resolve `artifact_id` through T84's resolver, with `linked_from` as the carrier;
-  - run the existing scope check and cross-scope gate on the resolved key;
-  - return the resolved key as `artifact_id`.
+## 5. Rules — Imported `revised`
 
-  A full-key `artifact_id` resolves to itself.
-- WHEN `linked_from` contains no `/` THE SYSTEM SHALL return `validation_error` naming
-  `linked_from`, before any storage call.
-- WHEN `linked_from` is omitted, behaviour is unchanged: a bare `artifact_id` lies in no accessible
-  scope and returns `access_denied`.
-- `linked_from` grants no access. A caller could pass the resolved key directly, and either way the
-  gate decides on that key.
-- WHEN Studio activates an `arkeology://artifact/` link in a detail view THE SYSTEM SHALL call
-  `read_artifact` with the decoded id unchanged and with `linked_from` set to the key of the
-  artifact open in that view. A list-row click sends no `linked_from`.
-- Once the response arrives, the view SHALL use the returned `artifact_id` for its scope pill, its
-  list highlight and its next followed link.
-- Studio SHALL derive nothing from the id and check nothing before the call, and SHALL show a server
-  error verbatim (ADR D1, D4). Link classification and sanitisation are unchanged.
-- WHEN `arkeology://artifact/{id*}` is read with an `id` that contains no `/` THE SYSTEM SHALL
-  resolve it through the same resolver with the server's own scope as the carrier, giving
-  `{WRITE_PREFIX}/{id}.md`. It SHALL then read the resolved key through `read_artifact`, as today. A
-  full key is unchanged, and the template stays `{id*}`.
+### R8 — A `migrate_artifacts` descriptor's `revised` is validated, written at create and seeds the history
 
-**Skill surface** (D42, D46, D51)
+When a `migrate_artifacts` descriptor carries `revised`, the system requires both `by` and `at` and
+validates them with T79's provenance-block resolver, with no clock fallback. It then writes
+`revised` at create alongside `generated` and seeds `revision_history` with `[generated, revised]`.
+An invalid block fails only that entry, with `validation_error` naming the field.
 
-- Both skills SHALL use only Phase 15 names: `add_artifact_links` (including the migration skill's
-  commit-refs Step 5), `create_artifact`, and no `status="active"` or `references`.
-- THE SKILLS SHALL NOT compute generated ids. The migration skill's offline id snippet and its
-  "Determining `write_prefix`" step are deleted.
+**Why (Decision 1 — Import carries `revised`, T79 hand-off):** The alternative is to import
+`generated` only. A source's effective time would then be its first authorship, earlier than every
+baseline a producer-written citation captured. Every imported citation would read as fresh, so all
+staleness that existed in Git before import would be lost. Studio would order every imported living
+document by its creation date, and T83's flag could never be raised until a first update. Importing
+`revised` keeps every baseline comparing exactly as it did in Git. FR-69's "absent until the first
+update" is read as governing Arkeology-originated writes. T80 recommends that T90 writes a
+carried-over `revised` in the same way. The exception is limited to `migrate_artifacts`, and agent
+creates still cannot set `revised` (Open Questions, item 2).
 
-### Decisions taken in this spec
+**Open Questions item 2 — Resolved 2026-10-13 — FR-69 reworded.** The operator accepted importing
+`revised`; FR-69 now reads "absent until the first update, unless the artifact is imported with the
+document's existing latest revision". *Original question:* FR-69 wording. Decision 1 imports
+`revised` at create. FR-69 says `revised` is "absent until the first update". *Recommended:* clarify
+the row through `writing-requirements`, for example "absent until the first update, unless imported
+with the document's existing revision". If the operator prefers the literal reading instead, drop
+"Imported `revised`" and its tests. Imported citations then lose all pre-import staleness, as
+Decision 1 describes.
 
-**1. Import carries `revised` (T79 hand-off).** The alternative is to import `generated` only. A
-source's effective time would then be its first authorship, earlier than every baseline a
-producer-written citation captured. Every imported citation would read as fresh, so all staleness
-that existed in Git before import would be lost. Studio would order every imported living document
-by its creation date, and T83's flag could never be raised until a first update. Importing `revised`
-keeps every baseline comparing exactly as it did in Git. FR-69's "absent until the first update"
-is read as governing Arkeology-originated writes. T80 recommends that T90 writes a carried-over
-`revised` in the same way. The exception is limited to `migrate_artifacts`, and agent creates
-still cannot set `revised` (Open Questions, item 2).
+Source: FR-20, FR-69, FR-72; D19, D35
 
-**2. Verifications through a post-write pass (T83 hand-off).** As T83 recommends, every entry goes
-through `add_artifact_verification`. The tool appends rather than merges, so the skill makes the pass
-idempotent by checking first against `read_artifact`. No extra manifest state is needed, and a run
-that fails partway is resumed by running the pass again.
+### R9 — `revised` on `create_artifact` or a `create_artifacts` descriptor is rejected, naming `update_artifact`
 
-**3. A target without `id:` does not resolve.** FR-52 and FR-58 resolve a source by the id the
-target declares. Under D10 the producer's OKF migration gives every document an `id:` before
-import. Falling back to a generated id would bring back the title-derived map that ADR-017 rejects
-as "wrong across file renames". It would also be a second resolution path that
+When `create_artifact`, or a `create_artifacts` descriptor, carries `revised`, the system returns
+`validation_error` naming `update_artifact`, for the call or for that entry. `revised` reaches a
+create only through `migrate_artifacts`.
+
+Source: FR-20, FR-69, FR-72; D19, D35
+
+### R10 — A `skipped_existing` artifact's stored `revised` is never touched
+
+A `skipped_existing` artifact is never re-imported, so its stored `revised` is never touched.
+
+Source: FR-20, FR-69, FR-72; D19, D35
+
+## 6. Rules — Source resolution
+
+### R11 — A URL or `arkeology://` `resource` is left unchanged
+
+For each frontmatter `sources` entry, the skill leaves an `http(s)://` or `arkeology://`
+`resource` unchanged.
+
+Source: FR-52, AC-58; D40, D43
+
+### R12 — A path that names a manifest entry declaring an `id` resolves to `arkeology://artifact/<id>`
+
+For any other `resource`, the skill joins `./` and `../` paths against the citing file's directory
+and applies today's bounded normalisation. When the result is the path of a manifest entry whose
+file declares an `id`, the skill:
+
+- sets `resource` to `arkeology://artifact/<id>`;
+- adds `{original resource text: id}` to the descriptor's `resolved_sources_map`.
+
+Example (Story 2, sources resolve through the target's own `id:`):
+
+- Given A listed before B in the migration. A's `sources` has a label-`b` entry with
+  `resource: docs/specs/new-name.md` and no `last_modified`, a URL entry, and an entry pointing at
+  an excluded path. B lives at `docs/specs/new-name.md` but declares `id: old-name`. When the
+  migration runs:
+  - A's first source becomes `arkeology://artifact/old-name` in both the structured field and the
+    stored frontmatter, with label `b` and its title unchanged and `last_modified` set to B's
+    `revised.at`;
+  - the URL and excluded-path entries are byte-identical;
+  - A's `relationships` equal its frontmatter list (AC-58).
+
+Source: FR-52, AC-58; D40, D43
+
+### R13 — A target that is not a manifest entry, or declares no `id`, leaves the entry unchanged and reported
+
+When the result names no manifest entry (an excluded, never-migrated or missing target) or a target
+that declares no `id`, the skill leaves the entry unchanged and lists it in the migration report
+with that reason.
+
+**Why (Decision 3 — A target without `id:` does not resolve):** FR-52 and FR-58 resolve a source by
+the id the target declares. Under D10 the producer's OKF migration gives every document an `id:`
+before import. Falling back to a generated id would bring back the title-derived map that ADR-017
+rejects as "wrong across file renames". It would also be a second resolution path that
 `backfilling-references` could never reproduce, because FR-58 matches on declared ids only.
 
-**4. What stops a run.** A duplicate is AC-81. An invalid declared id is checked here rather than per
-entry: every file whose `sources` or `relationships` names that id would also fail T84's id check,
-so one bad file would fail many. An unreadable block would silently drop the file's declared `id`.
-Case-only ids are legal (FR-08), but ADR-017 names this check as the guard against them. That is why
-they need confirmation rather than causing a stop.
+Source: FR-52, AC-58; D40, D43
 
-**5. The skill fills `last_modified`.** In one batch, writes run concurrently. T84's server-side fill
-would therefore depend on whether the target already existed, and FR-52 requires the result not to
-depend on order. The target's own descriptor holds the value it is imported with, which is D40's
-"current revision time".
+### R14 — Resolution never reads an excluded path or uses `sources[].id`, and keeps every other key and the entry order
 
-**6. One snippet, literal text, PyYAML.** `sources` and `relationships` are lists of mappings, which
-the stdlib-only fallback cannot parse without becoming a YAML parser. The skill already runs
-`uv run` with PyYAML for manifest validation, so the snippet runs under `uv run --with pyyaml`.
-Parsing with no implicit typing keeps ids such as `001` and `1.0` exact, and keeps timestamps as
-written.
+The skill never reads an excluded path and never uses `sources[].id` to resolve. It keeps every
+other key and the order of entries.
 
-**7. House keys are not read.** D42 ships no aliases, and D10 makes converting the documents the
-producer's job. First authorship falls back to Git history, which FR-23 permits. The first commit
-replaces the tier-3 last-commit rule, because `generated` means first authorship (D9). Tier-3 ids
-are date-independent, so no id changes.
+Source: FR-52, AC-58; D40, D43
 
-**8. A backfilled entry sits beside the unresolved one.** `add_artifact_links` only adds (FR-53), and
-FR-58 forbids rewriting content. Copying the label `id` would give two entries one footnote label,
-so the label stays on the entry the body cites.
+### R15 — A resolved entry with no `last_modified` gets the target descriptor's effective time
 
-**9. The map key is renamed.** It now drives `sources:`, and keeping the name `references` would
-misdescribe it. A stale caller also sends `references`, which T84 already rejects.
+When a resolved entry has no `last_modified`, the skill sets it to the effective time on the
+target's own descriptor: `revised.at`, otherwise `generated.at`.
 
-**10. Studio sends the carrier, and the resource uses the reader's own scope.** Studio knows the
-carrier, because it is the artifact open in the view. Sending it and letting the server resolve keeps
-two rules intact: the Studio link-resolution ADR's D1 (Studio derives nothing) and T84's single
-resolver. A parameter on `read_artifact` is the smallest server path: no new tool, and the gate
-already sits there. It is named `linked_from` because it states where the link was found.
+**Why (Decision 5 — The skill fills `last_modified`):** In one batch, writes run concurrently.
+T84's server-side fill would therefore depend on whether the target already existed, and FR-52
+requires the result not to depend on order. The target's own descriptor holds the value it is
+imported with, which is D40's "current revision time".
 
-A resource URI carries only the id, so the resource cannot know which artifact held the link. It
-resolves against the reader's own scope, which is where migration writes every bare id (AC-58), so
-every migrated link opens. A bare link inside a foreign artifact therefore resolves into the
-reader's own scope. At worst that gives a wrong target or `not_found`, never extra access, because
-the gate runs on the resolved key. T84 warns against resolving against the reader's prefix, but
-that concerns list redaction, where a foreign entry would pass unredacted. A resource read returns
-only what the reader may already read.
+Source: FR-52, AC-58; D40, D43
 
-## Boundaries
+### R16 — Resolution depends only on the manifest and the declared ids
+
+Resolution depends only on the manifest and the ids the files declare, so write order and session
+never change its result.
+
+Source: FR-52, AC-58; D40, D43
+
+## 7. Rules — Content rewrite in `migrate_artifacts`
+
+### R17 — `migrate_artifacts` accepts the transient key `resolved_sources_map` in place of `resolved_references_map`
+
+The system accepts a transient descriptor key `resolved_sources_map` in place of
+`resolved_references_map`. It applies the map in both `dry_run` modes, before the existence check
+and the delegation, and then pops it. The key is never stored or returned.
+
+**Why (Decision 9 — The map key is renamed):** It now drives `sources:`, and keeping the name
+`references` would misdescribe it. A stale caller also sends `references`, which T84 already
+rejects.
+
+Source: FR-52, AC-58
+
+### R18 — Inside the block-style `sources:` list, only matching `resource:` values are rewritten; every other frontmatter byte stays
+
+Inside the frontmatter's block-style `sources:` list, the system rewrites every `resource:` value
+whose text, quotes removed, equals a map key to `arkeology://artifact/<id>`, keeping its quoting.
+This applies whether the key sits on the entry's `- ` line or on a later line.
+
+Every other frontmatter byte stays unchanged. That includes label `id:`, `title:` and
+`last_modified:` lines, the `relationships:` block and a top-level `resource:` key.
+
+Source: FR-52, AC-58
+
+### R19 — Body links are rewritten as today; a flow-style `sources: [...]` list is not rewritten in content
+
+Body markdown links are rewritten exactly as today. A flow-style `sources: [...]` list is not
+rewritten in content. This existing limitation is kept, and the structured field is still
+resolved.
+
+Source: FR-52, AC-58
+
+## 8. Rules — Imported verifications
+
+### R20 — After each write step and on every resumed run, each declared verification not yet recorded is added once
+
+After each write step, and on every resumed run, the skill processes each migration entry that has
+an `artifact_id` and whose file declares `verified`, as follows:
+
+- call `read_artifact` once;
+- for each frontmatter entry, in file order, that is not already recorded, call
+  `add_artifact_verification` once. An entry is already recorded when one with the same `by` and
+  the same instant exists.
+
+Example (Story 4, verifications arrive after the write):
+
+- Given a file declaring two `verified` entries, when it is migrated, then `read_artifact` returns
+  both. Re-running the migration records nothing further (FR-70; T83).
+
+**Why (Decision 2 — Verifications through a post-write pass, T83 hand-off):** As T83 recommends,
+every entry goes through `add_artifact_verification`. The tool appends rather than merges, so the
+skill makes the pass idempotent by checking first against `read_artifact`. No extra manifest state
+is needed, and a run that fails partway is resumed by running the pass again.
+
+Source: FR-70; D41, D44, D46
+
+### R21 — A `validation_error` is reported and the pass continues; any other error stops the pass with a per-file report
+
+When the tool returns `validation_error`, the skill reports the file and the entry and continues.
+On any other error it stops the pass and reports, per file, which entries were and were not
+recorded. A re-run records only the missing ones.
+
+Source: FR-70; D41, D44, D46
+
+### R22 — Each manifest entry gains the `artifact_id` from its result, whether written or skipped
+
+Each manifest entry gains the `artifact_id` from its result, whether written or skipped.
+
+Source: FR-70; D41, D44, D46
+
+## 9. Rules — `backfilling-references`
+
+### R23 — `backfilling-references` reads the structured `sources` of every non-archived own-scope artifact, never its content
+
+The skill reads the structured `sources` of every non-archived own-scope artifact
+(`list_artifacts(..., status="all")`) and never its content.
+
+Source: FR-58, AC-63; D40, D43
+
+### R24 — An entry is proposed only when all five conditions hold
+
+An entry is proposed only when all of these hold:
+
+- its `resource` is neither a URL nor an `arkeology://` value;
+- its path, joined against the artifact's manifest `path` when one is known and then normalised,
+  names a repository file outside `local_only_paths`;
+- that file declares a valid `id`;
+- `{write prefix}/{id}.md` is an own-scope artifact;
+- the artifact's `sources` do not already hold `arkeology://artifact/<id>`.
+
+The write prefix is any own-scope `artifact_id` up to its last `/`, or the operator's answer when
+no such artifact exists.
+
+Source: FR-58, AC-63; D40, D43
+
+### R25 — One dry-run batch report; only on confirmation, one `add_artifact_links` call per artifact with no `last_modified`
+
+The skill presents one dry-run batch report. Only after the operator confirms does it call
+`add_artifact_links(artifact_ids=[<artifact>], sources=[{resource:
+"arkeology://artifact/<id>", title: <copied when present>}])` once per artifact, with no
+`last_modified`. The server then fills in the source's current revision time (T84). Declining
+writes nothing.
+
+Example (Story 5, unresolved sources are backfilled later):
+
+- Given A was migrated while B was excluded, so A kept `resource: docs/b.md`, and B has since been
+  migrated. When `backfilling-references` runs, then it presents a dry-run report proposing
+  `arkeology://artifact/<B's id>` for A before any write. On confirmation it calls
+  `add_artifact_links`, and A gains that entry with B's current revision time as `last_modified`.
+  A's content and `revised` are unchanged. Declining changes nothing (AC-63).
+
+**Why (Decision 8 — A backfilled entry sits beside the unresolved one):** `add_artifact_links` only
+adds (FR-53), and FR-58 forbids rewriting content. Copying the label `id` would give two entries
+one footnote label, so the label stays on the entry the body cites.
+
+Source: FR-58, AC-63; D40, D43
+
+### R26 — Relationships are never proposed
+
+Relationships are never proposed.
+
+Source: FR-58, AC-63; D40, D43
+
+## 10. Rules — Removed name
+
+### R27 — A `migrate_artifacts` descriptor carrying `resolved_references_map` fails that entry, naming `resolved_sources_map`
+
+When a `migrate_artifacts` descriptor carries `resolved_references_map`, the system fails that
+entry with `validation_error` naming `resolved_sources_map`.
+
+Example (Story 6, the renamed descriptor key is rejected):
+
+- Given a `migrate_artifacts` descriptor carrying `resolved_references_map`, then that entry fails
+  with `validation_error` naming `resolved_sources_map` (AC-80; D42).
+
+Source: AC-80; D42
+
+## 11. Rules — Following bare-id links
+
+**Resolved Questions item 1 — Bare-id links on read surfaces.** *Original question:* T88 is the
+first writer of `arkeology://artifact/<bare id>` into stored content (AC-58). The
+`arkeology://artifact/{id*}` resource and Studio expected a full key, so those links would not open.
+T84's Open Question 2 left this open, and T85 declined it. *Resolution (2026-10-13, Phase 15
+coordinator):* plan.md's T88 entry now routes Studio's link click and the resource through T84's
+resolver (FR-48). This is specified under "Following bare-id links", Story 7 and Decision 10.
+
+### R28 — `read_artifact`'s optional `linked_from` resolves a bare id through T84's resolver before the gate, and returns the resolved key
+
+`read_artifact` accepts an optional `linked_from`, the full key of the artifact whose content holds
+the link. When it is supplied, the system does three things in order:
+
+1. resolve `artifact_id` through T84's resolver, with `linked_from` as the carrier;
+2. run the existing scope check and cross-scope gate on the resolved key;
+3. return the resolved key as `artifact_id`.
+
+A full-key `artifact_id` resolves to itself.
+
+**Why (Decision 10 — Studio sends the carrier, and the resource uses the reader's own scope):**
+Studio knows the carrier, because it is the artifact open in the view. Sending it and letting the
+server resolve keeps two rules intact: the Studio link-resolution ADR's D1 (Studio derives nothing)
+and T84's single resolver. A parameter on `read_artifact` is the smallest server path: no new tool,
+and the gate already sits there. It is named `linked_from` because it states where the link was
+found.
+
+Source: FR-10, FR-46, FR-48, AC-51; D28; Studio link-resolution ADR, D1 and D4
+
+### R29 — A `linked_from` with no `/` returns `validation_error` before any storage call
+
+When `linked_from` contains no `/`, the system returns `validation_error` naming `linked_from`,
+before any storage call.
+
+Source: FR-10, FR-46, FR-48, AC-51; D28; Studio link-resolution ADR, D1 and D4
+
+### R30 — Without `linked_from`, behaviour is unchanged: a bare `artifact_id` returns `access_denied`
+
+When `linked_from` is omitted, behaviour is unchanged: a bare `artifact_id` lies in no accessible
+scope and returns `access_denied`.
+
+Source: FR-10, FR-46, FR-48, AC-51; D28; Studio link-resolution ADR, D1 and D4
+
+### R31 — `linked_from` grants no access
+
+`linked_from` grants no access. A caller could pass the resolved key directly, and either way the
+gate decides on that key.
+
+Source: FR-10, FR-46, FR-48, AC-51; D28; Studio link-resolution ADR, D1 and D4
+
+### R32 — Studio sends the decoded id unchanged with the open artifact's key as `linked_from`, adopts the returned key, and decides nothing itself
+
+When Studio activates an `arkeology://artifact/` link in a detail view, the system calls
+`read_artifact` with the decoded id unchanged and with `linked_from` set to the key of the artifact
+open in that view. A list-row click sends no `linked_from`.
+
+Once the response arrives, the view uses the returned `artifact_id` for its scope pill, its list
+highlight and its next followed link.
+
+Studio derives nothing from the id and checks nothing before the call, and shows a server error
+verbatim (ADR D1, D4). Link classification and sanitisation are unchanged.
+
+Examples (Story 7, bare-id links open where readers follow them):
+
+- Given a migrated A whose content links to `arkeology://artifact/old-name` (B's declared id). When
+  a reader activates that link in Studio's view of A, then B opens, resolved against A's scope. A
+  link inside B then resolves against B (FR-48; D28).
+- Given a foreign shared artifact `P/a.md` whose content links to bare `t2`, a tier-2 artifact in P.
+  When a reader follows that link in Studio, then the view shows `read_artifact`'s `access_denied`
+  message verbatim. Nothing is decided in Studio itself (FR-10; Studio link-resolution ADR, D4).
+
+Source: FR-10, FR-46, FR-48, AC-51; D28; Studio link-resolution ADR, D1 and D4
+
+### R33 — The `arkeology://artifact/{id*}` resource resolves a bare id against the server's own scope
+
+When `arkeology://artifact/{id*}` is read with an `id` that contains no `/`, the system resolves it
+through the same resolver with the server's own scope as the carrier, giving
+`{WRITE_PREFIX}/{id}.md`. It then reads the resolved key through `read_artifact`, as today. A full
+key is unchanged, and the template stays `{id*}`.
+
+Example (Story 7, continued):
+
+- Given a host reads `arkeology://artifact/old-name`, then B's content is returned (AC-51).
+
+**Why (Decision 10, continued):** A resource URI carries only the id, so the resource cannot know
+which artifact held the link. It resolves against the reader's own scope, which is where migration
+writes every bare id (AC-58), so every migrated link opens. A bare link inside a foreign artifact
+therefore resolves into the reader's own scope. At worst that gives a wrong target or `not_found`,
+never extra access, because the gate runs on the resolved key. T84 warns against resolving against
+the reader's prefix, but that concerns list redaction, where a foreign entry would pass
+unredacted. A resource read returns only what the reader may already read.
+
+Source: FR-10, FR-46, FR-48, AC-51; D28; Studio link-resolution ADR, D1 and D4
+
+## 12. Rules — Skill surface
+
+### R34 — Both skills use only Phase 15 names
+
+Both skills use only Phase 15 names: `add_artifact_links` (including the migration skill's
+commit-refs Step 5), `create_artifact`, and no `status="active"` or `references`.
+
+Source: D42, D46, D51
+
+### R35 — The skills do not compute generated ids
+
+The skills do not compute generated ids. The migration skill's offline id snippet and its
+"Determining `write_prefix`" step are deleted.
+
+Source: D42, D46, D51
+
+## 13. Boundaries
 
 **Always:**
 - Run the pre-write checks over the whole migration before the first `migrate_artifacts` call.
@@ -444,9 +656,9 @@ only what the reader may already read.
   Rewrite the schema resource (T89). Edit README, SERVER-REFERENCE, CHANGELOG, AGENTS.md or the
   setting-up skill's snippet (T91).
 
-<!-- IMPLEMENTATION BLOCK — agent-owned -->
+## 14. For the developer agent
 
-## Files to Touch
+### Files to Touch
 
 T88 lands after T84 and T87 and edits the code that T76–T87 leave.
 
@@ -473,7 +685,7 @@ T88 lands after T84 and T87 and edits the code that T76–T87 leave.
 | `src/arkeology/static/arkeology-studio.html` | Modify | `activateArtifactLink` passes the open artifact's key. `selectArtifact` takes an optional carrier, sends it as `linked_from`, and adopts the returned `artifact_id`; its stale-response guard compares against the requested id. The `artifactTarget` comment no longer says "full S3 key" |
 | `tests/unit/test_server.py`, `src/arkeology/server.py` | Modify | `create_artifact` redirect row for `revised` (T78's table). `read_artifact` gains `linked_from: str \| None = None` and forwards it. The `migrate_artifacts` docstring names the new descriptor keys |
 
-## Contract Amendments
+### Contracts
 
 Make these on top of the T78–T87 amendments, and before writing the tests:
 
@@ -510,7 +722,7 @@ Make these on top of the T78–T87 amendments, and before writing the tests:
 - `references.py` has no contract and gets none. As today, its docstrings and unit tests are the
   authority.
 
-## Testing Approach
+### Testing Approach
 
 **TDD order** (each test file confirmed red before the implementation file it gates):
 
@@ -609,20 +821,3 @@ already exercise against real AWS, plus a key resolution that happens before any
 **Mutation testing.** T88 changes no file in `only_mutate`. If the history seed has to touch
 `annotations.py` after all, run `uv run mutmut run` alone, clear `__pycache__`, and triage the
 survivors as AGENTS.md describes.
-
-## Open Questions
-
-2. **Resolved 2026-10-13 — FR-69 reworded.** The operator accepted importing `revised`; FR-69 now reads "absent until the first update, unless the artifact is imported with the document's existing latest revision". *Original question:* FR-69 wording. Decision 1 imports `revised` at create. FR-69 says `revised` is
-   "absent until the first update". *Recommended:* clarify the row through `writing-requirements`,
-   for example "absent until the first update, unless imported with the document's existing
-   revision". If the operator prefers the literal reading instead, drop "Imported `revised`" and its
-   tests. Imported citations then lose all pre-import staleness, as Decision 1 describes.
-
-## Resolved Questions
-
-1. **Bare-id links on read surfaces.** *Original question:* T88 is the first writer of
-   `arkeology://artifact/<bare id>` into stored content (AC-58). The `arkeology://artifact/{id*}`
-   resource and Studio expected a full key, so those links would not open. T84's Open Question 2
-   left this open, and T85 declined it. *Resolution (2026-10-13, Phase 15 coordinator):* plan.md's
-   T88 entry now routes Studio's link click and the resource through T84's resolver (FR-48). This is
-   specified under "Following bare-id links", Story 7 and Decision 10.

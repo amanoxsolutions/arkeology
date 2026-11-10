@@ -10,166 +10,186 @@ generated:
   by: "axians-architect/unknown"
   at: 2026-05-31T00:00:00Z
 revised:
-  by: "axians-architect/claude-opus-5.5"
-  at: 2026-10-07T13:12:40Z
+  by: "axians-architect/claude-opus-5-5"
+  at: 2026-11-09T12:05:23Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
-phase: 5
-task: 22
 ---
 
 # T22 — Synthesis Freshness Check Tool
 
-## Revision — 2026-10-07
+## TL;DR
 
-Every statement below that decides staleness by `date` is superseded: Story 1 under
-`## User Stories`, the date-comparison rule under `## Requirements`, the ISO-8601 string-comparison
-entry under `## Boundaries`, and the "Stale detection" cases under `## Testing Approach`.
+`check_synthesis_freshness` audits the own-scope synthesis artifacts and reports those whose
+sources were written after them (stale), have been archived, or are missing, so operators can
+identify and clean outdated knowledge summaries. Syntheses written without any `source_artifacts`
+are malformed: they are always reported, and hard-deleted only when the tool is called with
+`confirm=True`.
 
-A source is now stale when it was **written** after the synthesis, judged by `last_edited_ulid`
-rather than `date`. `date` is the artifact's subject date, not its write time, so comparing it
-missed a source overwritten in place under an unchanged date and flagged a later-dated source
-written before the synthesis. `date` remains only the fallback when either side lacks a
-`last_edited_ulid`, which is the one case Story 1's criteria still describe.
+## 1. Problem Statement
 
-The normative statement is the staleness invariant of `check_synthesis_freshness` in
-[`docs/contracts/modules/arkeology.tools.freshness.md`](../contracts/modules/arkeology.tools.freshness.md),
-`## Symbols`. The change landed in commit 151844a, which added the unit test
-`test_source_written_before_synthesis_is_not_stale_despite_a_later_date`.
+Synthesis artifacts consolidate findings from multiple source artifacts into a single summary. Over
+time, source artifacts evolve: an implementation note may be rewritten after a refactor, or an ADR
+may be archived when a decision is reversed. A synthesis that was accurate when written becomes
+stale or misleading without any visible signal. There is currently no way to identify which
+synthesis artifacts are out-of-date or reference archived sources — an agent reading a synthesis
+has no signal that it no longer reflects current knowledge. A third class of problem also exists:
+synthesis artifacts written without any `source_artifacts` are structurally malformed — a synthesis
+that references nothing cannot be traced and should not remain in the store.
 
-<!-- SCOPE BLOCK — frozen after approval -->
+This tool provides a freshness audit that (1) identifies stale and archived-source syntheses for
+operator review, and (2) hard-deletes any malformed (empty-source) syntheses when called with
+`confirm=True`. The five stories — stale syntheses identified, syntheses referencing archived
+sources flagged, missing sources flagged, an all-fresh report returning a clean summary, and
+malformed syntheses reported and deleted — are all P1.
 
-## Problem Statement
+## 2. Rules — What is checked
 
-Synthesis artifacts consolidate findings from multiple source artifacts into a single
-summary. Over time, source artifacts evolve: an implementation note may be rewritten
-after a refactor, or an ADR may be archived when a decision is reversed. A synthesis
-that was accurate when written becomes stale or misleading without any visible signal.
-There is currently no way to identify which synthesis artifacts are out-of-date or
-reference archived sources — an agent reading a synthesis has no signal that it no longer
-reflects current knowledge. A third class of problem also exists: synthesis artifacts
-written without any `source_artifacts` are structurally malformed — a synthesis that
-references nothing cannot be traced and should not remain in the store.
+### R1 — Only active own-scope syntheses are scanned, via the vector index
 
-This tool provides a freshness audit that (1) identifies stale and archived-source
-syntheses for operator review, and (2) hard-deletes any malformed (empty-source)
-syntheses when called with `confirm=True`.
+When `check_synthesis_freshness` is called, the system scans all active `synthesis` type artifacts
+in own scope (`WRITE_PREFIX`) via the vector index: only syntheses whose `artifact_id` starts with
+`write_prefix + "/"` are checked and deleted.
 
-## User Stories
+Source: none
 
-### Story 1 — Stale syntheses identified by date comparison (P1)
+### R2 — Syntheses are deduplicated by `artifact_id`
 
-A synthesis artifact was written six months ago. Since then, two of its source
-implementation notes have been rewritten (their `date` field updated). The operator
-calls `check_synthesis_freshness` and the synthesis appears in the `stale` list with
-the two updated sources identified.
+The system deduplicates synthesis artifacts by `artifact_id` before checking sources — multiple
+section vectors share the same `artifact_id`.
 
-**Acceptance criteria:**
-- Given a synthesis with `date: "2026-01-01"` that references a source with
-  `date: "2026-03-15"`, when `check_synthesis_freshness` is called, then the synthesis
-  appears in `stale` with the source listed under `stale_sources`.
-- Given a synthesis with `date: "2026-06-01"` that references a source with
-  `date: "2026-03-15"`, when `check_synthesis_freshness` is called, then the synthesis
-  does not appear in `stale`.
-- Given a synthesis with multiple sources, some newer and some older than the synthesis,
-  when `check_synthesis_freshness` is called, then only the newer sources appear in
-  `stale_sources`.
+Source: none
 
-### Story 2 — Syntheses referencing archived sources are flagged (P1)
+### R3 — Each unique source is looked up once, in the full vector index
 
-A synthesis references a source ADR that has since been archived (superseded by a newer
-decision). The synthesis is still active but references outdated content.
+The system deduplicates all unique source artifact IDs across all syntheses and fetches their
+metadata once each — it does not issue redundant queries per synthesis. Source artifact metadata
+lookups use the full vector index (not scoped) — a source artifact may be from a foreign scope that
+was shared and is legitimately in the index.
 
-**Acceptance criteria:**
-- Given a synthesis that references a source with `status: "inactive"`, when
-  `check_synthesis_freshness` is called, then the synthesis appears in `archived_sources`
-  with the archived source listed.
-- Given a synthesis that references a source with `status: "active"`, when
-  `check_synthesis_freshness` is called, then that source does not appear in
-  `archived_sources`.
+Source: none
 
-### Story 3 — Missing sources are flagged (P1)
+### R4 — Freshness data comes from the vector index only
 
-A synthesis references a source that no longer has any vector index entries — it was
-hard-deleted from both S3 and the vector index.
+The system does not fetch S3 content for freshness checks — all freshness data comes from the
+vector index. S3 reads are only used during malformed-synthesis deletion to confirm existence
+before deleting (via `head_object`).
 
-**Acceptance criteria:**
-- Given a synthesis that references an `artifact_id` that returns no results from
-  `list_vectors_by_metadata`, when `check_synthesis_freshness` is called, then that
-  source appears in `missing_sources` for that synthesis.
+Source: none
 
-### Story 4 — All-fresh report returns clean summary (P1)
+## 3. Rules — Source checks
 
-**Acceptance criteria:**
-- Given all synthesis artifacts reference only active, non-stale sources, when
-  `check_synthesis_freshness` is called, then `stale` and `archived_sources` and
-  `missing_sources` are all empty and `all_fresh` is `true`.
-- Given no synthesis artifacts exist in own scope, when `check_synthesis_freshness`
-  is called, then `total_checked` is 0, `all_fresh` is `true`, and no error is returned.
+### R5 — A source is stale when it was written after the synthesis
 
-### Story 5 — Malformed syntheses are reported and deleted (P1)
+A source is stale when it was **written** after the synthesis, judged by `last_edited_ulid` rather
+than `date`. `date` is the artifact's subject date, not its write time, so comparing it missed a
+source overwritten in place under an unchanged date and flagged a later-dated source written before
+the synthesis. `date` remains only the fallback when either side lacks a `last_edited_ulid`. A
+synthesis with a stale source appears in `stale`, with its stale sources listed under
+`stale_sources`.
 
-A synthesis artifact exists with an empty `source_artifacts` list — it was written
-without any sources, making it untraceable and useless for knowledge lineage. The
-operator calls `check_synthesis_freshness(confirm=True)` and the malformed synthesis is
-deleted and reported in the response.
+**Example** — the `date` fallback, where either side lacks a `last_edited_ulid`
 
-**Acceptance criteria:**
-- Given a synthesis with an empty `source_artifacts` field, when
-  `check_synthesis_freshness` is called (with or without `confirm`), then the synthesis
-  appears in `malformed` in the response.
-- Given a synthesis with an empty `source_artifacts` field, when
-  `check_synthesis_freshness(confirm=True)` is called, then the synthesis is hard-deleted
-  from S3 and the vector index, and appears in `deleted_malformed` in the response.
-- Given a synthesis with an empty `source_artifacts` field, when
-  `check_synthesis_freshness` is called without `confirm=True`, then the synthesis
-  appears in `malformed` but is NOT deleted.
-- Given no malformed syntheses exist, when `check_synthesis_freshness` is called, then
-  `malformed` is an empty list and `deleted_malformed` is an empty list.
+- Given a synthesis with `date: "2026-01-01"` that references a source with `date: "2026-03-15"`,
+  when `check_synthesis_freshness` is called, then the synthesis appears in `stale` with the source
+  listed under `stale_sources`.
+- Given a synthesis with `date: "2026-06-01"` that references a source with `date: "2026-03-15"`,
+  when `check_synthesis_freshness` is called, then the synthesis does not appear in `stale`.
+- Given a synthesis with multiple sources, some newer and some older than the synthesis, when
+  `check_synthesis_freshness` is called, then only the newer sources appear in `stale_sources`.
 
-## Requirements
+Source: `docs/contracts/modules/arkeology.tools.freshness.md`, commit 151844a
 
-- WHEN `check_synthesis_freshness` is called THE SYSTEM SHALL scan all active `synthesis`
-  type artifacts in own scope (`WRITE_PREFIX`) via the vector index.
-- WHEN comparing dates THE SYSTEM SHALL compare the `date` field of each source artifact
-  against the synthesis artifact's `date` field using ISO-8601 string comparison; a
-  source is stale if `source.date > synthesis.date`.
-- WHEN a source artifact has `status: "inactive"` in vector metadata THE SYSTEM SHALL
-  report it as an archived source for that synthesis.
-- WHEN a source artifact ID returns no results from `list_vectors_by_metadata` THE SYSTEM
-  SHALL report it as a missing source for that synthesis.
-- WHEN a synthesis has no entries in its `source_artifacts` metadata field THE SYSTEM
-  SHALL include it in `malformed` in the response regardless of `confirm`.
-- WHEN `confirm=True` AND a synthesis has an empty `source_artifacts` field THE SYSTEM
-  SHALL hard-delete it (vectors first, then S3 object) following the same ordering as
-  `delete_artifact`, and include it in `deleted_malformed` in the response.
-- WHEN `confirm` is `False` or absent AND a malformed synthesis is found THE SYSTEM
-  SHALL report it in `malformed` but NOT delete it.
-- THE SYSTEM SHALL NOT fetch S3 content for freshness checks — all freshness data comes
-  from the vector index; S3 reads are only used during malformed-synthesis deletion to
-  confirm existence before deleting (via `head_object`).
-- THE SYSTEM SHALL deduplicate synthesis artifacts by `artifact_id` before checking
-  sources — multiple section vectors share the same artifact_id.
-- THE SYSTEM SHALL deduplicate all unique source artifact IDs across all syntheses and
-  fetch their metadata once each — do not issue redundant queries per synthesis.
-- WHEN `check_synthesis_freshness` is called THE SYSTEM SHALL return `stale` (list),
-  `archived_sources` (list), `missing_sources` (list), `malformed` (list),
-  `deleted_malformed` (list), `total_checked` (int), and `all_fresh` (bool).
-- `all_fresh` SHALL be `True` iff `stale`, `archived_sources`, `missing_sources`, and
-  `malformed` are all empty.
-- WHEN any unexpected exception occurs THE SYSTEM SHALL return
-  `{"error": "internal_error", "message": str(exc)}`.
+### R6 — A source with `status: "inactive"` is reported as archived
 
-## Boundaries
+A synthesis may reference a source ADR that has since been archived (superseded by a newer
+decision): the synthesis is still active but references outdated content. When a source artifact
+has `status: "inactive"` in vector metadata, the system reports it as an archived source for that
+synthesis: the synthesis appears in `archived_sources` with the archived source listed. A source
+with `status: "active"` does not appear in `archived_sources`.
+
+Source: none
+
+### R7 — A source with no vector index entries is reported as missing
+
+A synthesis may reference a source that no longer has any vector index entries — it was
+hard-deleted from both S3 and the vector index. When a source artifact ID returns no results from
+`list_vectors_by_metadata`, the system reports it as a missing source for that synthesis: that
+source appears in `missing_sources` for that synthesis.
+
+Source: none
+
+## 4. Rules — Malformed syntheses
+
+### R8 — A synthesis with no `source_artifacts` is reported as malformed regardless of `confirm`
+
+A synthesis artifact with an empty `source_artifacts` list was written without any sources, making
+it untraceable and useless for knowledge lineage. When a synthesis has no entries in its
+`source_artifacts` metadata field, the system includes it in `malformed` in the response regardless
+of `confirm` — when `check_synthesis_freshness` is called with or without `confirm`, the synthesis
+appears in `malformed`.
+
+Source: none
+
+### R9 — With `confirm=True`, a malformed synthesis is hard-deleted, vectors first
+
+The operator calls `check_synthesis_freshness(confirm=True)` and the malformed synthesis is deleted
+and reported in the response. When `confirm=True` and a synthesis has an empty `source_artifacts`
+field, the system hard-deletes it from S3 and the vector index — vectors first, then S3 object —
+following the same ordering as `delete_artifact`, and includes it in `deleted_malformed` in the
+response.
+
+Source: none
+
+### R10 — Without `confirm=True`, a malformed synthesis is reported but not deleted
+
+When `confirm` is `False` or absent and a malformed synthesis is found, the system reports it in
+`malformed` but does NOT delete it.
+
+Source: none
+
+## 5. Rules — Response
+
+### R11 — Every non-error response carries seven fields, and `all_fresh` summarises them
+
+When `check_synthesis_freshness` is called, the system returns:
+
+| Field | Type |
+|-------|------|
+| `stale` | list |
+| `archived_sources` | list |
+| `missing_sources` | list |
+| `malformed` | list |
+| `deleted_malformed` | list |
+| `total_checked` | int |
+| `all_fresh` | bool |
+
+`all_fresh` is `True` iff `stale`, `archived_sources`, `missing_sources`, and `malformed` are all
+empty.
+
+| Given | When `check_synthesis_freshness` is called, then |
+|-------|--------------------------------------------------|
+| All synthesis artifacts reference only active, non-stale sources | `stale` and `archived_sources` and `missing_sources` are all empty and `all_fresh` is `true` |
+| No synthesis artifacts exist in own scope | `total_checked` is 0, `all_fresh` is `true`, and no error is returned |
+| No malformed syntheses exist | `malformed` is an empty list and `deleted_malformed` is an empty list |
+
+Source: none
+
+### R12 — An unexpected exception returns `internal_error`
+
+When any unexpected exception occurs, the system returns
+`{"error": "internal_error", "message": str(exc)}`.
+
+Source: none
+
+## 6. Boundaries
 
 **Always:**
 - Scoped to own-scope synthesis artifacts only — only syntheses whose `artifact_id`
   starts with `write_prefix + "/"` are checked and deleted.
 - Source artifact metadata lookups use the full vector index (not scoped) — a source
   artifact may be from a foreign scope that was shared and is legitimately in the index.
-- ISO-8601 date comparison is a string comparison (`"2026-06-01" > "2026-01-01"`) — this
-  is correct and safe for the `YYYY-MM-DD` format used throughout the system.
 - Follow the `public_fn / _inner` delegation pattern: `check_synthesis_freshness`
   delegates to `_check_synthesis_freshness_inner` wrapped in `try/except Exception`.
 - Malformed-synthesis deletion follows the same ordering as `delete_artifact`: vectors
@@ -194,9 +214,9 @@ deleted and reported in the response.
 - Do not issue one `list_vectors_by_metadata` call per source per synthesis — collect
   all distinct source IDs first, then look up each unique ID once.
 
-<!-- IMPLEMENTATION BLOCK — agent-owned -->
+## 7. For the developer agent
 
-## Files to Touch
+### Files to Touch
 
 | File | Action | Notes |
 |------|--------|-------|
@@ -205,7 +225,14 @@ deleted and reported in the response.
 | `tests/integration/test_tools_freshness.py` | Create | Written after unit tests (Red for integration), implemented by the same tool |
 | `src/arkeology/server.py` | Modify | Import and register `check_synthesis_freshness(confirm=False)` inside `register_tools()` |
 
-## Testing Approach
+### Contracts
+
+- [`docs/contracts/modules/arkeology.tools.freshness.md`](../contracts/modules/arkeology.tools.freshness.md),
+  `## Symbols` — the staleness invariant of `check_synthesis_freshness` is the normative statement
+  of when a source is stale (written after the synthesis, judged by `last_edited_ulid`, with `date`
+  only as the fallback).
+
+### Testing Approach
 
 **TDD cycle:** write `test_tools_freshness.py` first (Red) → implement `freshness.py`
 (Green) → write integration test (Red) → integration passes (Green).
@@ -223,12 +250,8 @@ All-fresh state:
   `True`, `stale` is empty, `archived_sources` is empty.
 
 Stale detection:
-- One synthesis (`date: "2026-01-01"`), one source (`date: "2026-06-01"`) → synthesis
-  appears in `stale`, source listed in `stale_sources`.
-- One synthesis, two sources — one newer, one older → only the newer source appears in
-  `stale_sources`.
-- Synthesis date equals source date (same-day) → NOT reported as stale (boundary: only
-  strictly greater `source.date > synthesis.date`).
+- `test_source_written_before_synthesis_is_not_stale_despite_a_later_date` — a source written
+  before the synthesis is not stale even though its `date` is later.
 
 Archived source detection:
 - One synthesis referencing one source with `status: "inactive"` → synthesis appears in
@@ -296,7 +319,3 @@ the tool itself deletes — teardown must be idempotent on missing artifacts).
   `malformed`, artifact still present in index.
 - Write a synthesis with empty `source_artifacts`, call with `confirm=True` → appears in
   `deleted_malformed`, artifact no longer retrievable.
-
-## Open Questions
-
-*(none — empty-source deletion resolved: hard-delete with confirm=True, report without confirm)*

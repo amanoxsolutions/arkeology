@@ -9,102 +9,145 @@ okf_version: "0.2"
 generated:
   by: "axians-architect/unknown"
   at: 2026-05-31T00:00:00Z
+revised:
+  by: "axians-architect/claude-opus-5-5"
+  at: 2026-11-09T12:05:23Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
-phase: 4
-task: 18
 ---
 
 # T18 — MCP Resources
 
-<!-- SCOPE BLOCK — frozen after approval -->
+## TL;DR
 
-## Problem Statement
+Five read-only MCP Resources expose the Arkeology schema — artifact fields, tier semantics,
+visibility rules, the type catalogue and query strategy — as markdown any connected agent can list
+and read at runtime, without a README or a loaded skill. The type lists derive from
+`ARTIFACT_TYPES`, so the resources stay in sync with the running server as the schema evolves.
 
-Connected agents currently have no runtime mechanism to discover the Arkeology schema.
-Valid artifact types, required vs optional fields, tier semantics, cross-scope visibility
-rules, and effective query strategy all live in the README — external documentation an
-agent cannot access during a session. Agents are forced to infer schema from tool call
-failures or consult a loaded skill. MCP Resources provide a first-class runtime discovery
-mechanism: any MCP-compatible agent calls `resources/list` to enumerate what is available
-and `resources/read` to fetch any of the five schema documents. The resources must stay
-permanently in sync with the running server by deriving their content directly from the
-same code constants the server uses — not from hardcoded strings that silently drift when
-the schema evolves.
+## 1. Problem Statement
 
-## User Stories
+Connected agents currently have no runtime mechanism to discover the Arkeology schema. Valid
+artifact types, required vs optional fields, tier semantics, cross-scope visibility rules, and
+effective query strategy all live in the README — external documentation an agent cannot access
+during a session. Agents are forced to infer schema from tool call failures or consult a loaded
+skill. MCP Resources provide a first-class runtime discovery mechanism: any MCP-compatible agent
+calls `resources/list` to enumerate what is available and `resources/read` to fetch any of the five
+schema documents. The resources must stay permanently in sync with the running server by deriving
+their content directly from the same code constants the server uses — not from hardcoded strings
+that silently drift when the schema evolves. The six stories — runtime discovery of valid types and
+field constraints, tier semantics, cross-scope visibility rules, the type catalogue with usage
+guidance, query strategy guidance, and all five resources appearing in `resources/list` — are all
+P1.
 
-### Story 1 — Agent discovers valid types and field constraints at runtime (P1)
+## 2. Rules — Resource set and format
 
-An agent starting a new session calls `arkeology://schema/artifact` and knows immediately
-which fields are required, which are optional, and what values are valid for each enum
-field — without reading a README or loading a skill.
+### R1 — Five schema resources, all enumerated by `resources/list`
 
-**Acceptance criteria:**
-- Given a connected agent reads `arkeology://schema/artifact`, then the response lists all
-  required fields (type, team, project, tier, date, status, title, visibility,
-  description), all optional fields (tags, author_role, source_artifacts),
-  all valid enum values per field, and the description 280-character constraint.
-- Given `ARTIFACT_TYPES` in `artifact.py` gains a new entry, when the server restarts,
-  then `arkeology://schema/artifact` includes the new type with no other file changed.
+The system exposes five MCP Resources at these URIs:
 
-### Story 2 — Agent understands tier semantics without external docs (P1)
+- `arkeology://schema/artifact`
+- `arkeology://schema/tiers`
+- `arkeology://schema/visibility`
+- `arkeology://schema/types`
+- `arkeology://schema/query-strategy`
 
-**Acceptance criteria:**
-- Given a connected agent reads `arkeology://schema/tiers`, then the response describes:
-  tier 2 (project-local, date-anchored key, append-only, immutable content), tier 3
-  (permanent, date-independent key, overwrites in place), and the key format for each
-  (`{type_slug}-{date}-{title_slug}` vs `{type_slug}-{title_slug}`).
+When a connected agent calls `resources/list`, all five URIs are present.
 
-### Story 3 — Agent understands cross-scope visibility rules (P1)
+Source: none
 
-**Acceptance criteria:**
-- Given a connected agent reads `arkeology://schema/visibility`, then the response describes
-  the two visibility values (shared, hidden), when each applies, and the cross-scope access
-  rule: only tier 3 shared artifacts are accessible outside the deployment's own scope.
+### R2 — Every resource returns markdown text a model can use directly
 
-### Story 4 — Agent reads type catalogue with usage guidance (P1)
+When any resource is read, the system returns markdown-formatted text that a language model can
+directly use without post-processing.
 
-**Acceptance criteria:**
-- Given a connected agent reads `arkeology://schema/types`, then the response lists every type
-  in `ARTIFACT_TYPES` with a one-line description of when to use it.
+Source: none
 
-### Story 5 — Agent reads query strategy guidance (P1)
+### R3 — Resource handlers receive no AWS clients and make no AWS calls
 
-**Acceptance criteria:**
-- Given a connected agent reads `arkeology://schema/query-strategy`, then the response covers:
-  start narrow (type filter + tags before relying on pure semantic similarity),
-  broaden only when narrow queries return insufficient results, when to use `list_artifacts`
-  vs `search_artifacts`, and when to use `synthesise_artifacts` (and how to write the
-  result back as a tier 3 synthesis with `source_artifacts`).
+Resource handlers do not receive injected AWS clients — they are pure schema documentation with no
+AWS calls.
 
-### Story 6 — All five resources appear in resources/list (P1)
+Source: none
 
-**Acceptance criteria:**
-- Given a connected agent calls `resources/list`, then all five URIs are present:
-  `arkeology://schema/artifact`, `arkeology://schema/tiers`, `arkeology://schema/visibility`,
-  `arkeology://schema/types`, `arkeology://schema/query-strategy`.
+### R4 — Resources live in `resources.py` and are registered from `server.py`
 
-## Requirements
+The resources are implemented in a dedicated `src/arkeology/resources.py` module that exposes a
+`register_resources(app)` function; `server.py` calls it alongside `register_tools()`.
 
-- THE SYSTEM SHALL expose five MCP Resources at these URIs: `arkeology://schema/artifact`,
-  `arkeology://schema/tiers`, `arkeology://schema/visibility`, `arkeology://schema/types`,
-  `arkeology://schema/query-strategy`.
-- WHEN any resource is read THE SYSTEM SHALL return markdown-formatted text that a
-  language model can directly use without post-processing.
-- THE `arkeology://schema/artifact` resource SHALL derive its list of valid types from
-  `ARTIFACT_TYPES` in `artifact.py` — not a hardcoded copy.
-- THE `arkeology://schema/types` resource SHALL also derive its type list from `ARTIFACT_TYPES`
-  directly so both stay in sync automatically on schema changes.
-- THE SYSTEM SHALL implement resources in a dedicated `src/arkeology/resources.py` module
-  that exposes a `register_resources(app)` function; `server.py` calls it alongside
-  `register_tools()`.
-- Resource handlers SHALL NOT receive injected AWS clients — they are pure schema
-  documentation with no AWS calls.
-- WHEN `resources/list` is called THE SYSTEM SHALL enumerate all five URIs.
+Source: none
 
-## Boundaries
+## 3. Rules — Resource content
+
+### R5 — `arkeology://schema/artifact` states the fields and their constraints
+
+An agent starting a new session calls `arkeology://schema/artifact` and knows immediately which
+fields are required, which are optional, and what values are valid for each enum field — without
+reading a README or loading a skill. When a connected agent reads `arkeology://schema/artifact`,
+the response lists:
+
+- all required fields (type, team, project, tier, date, status, title, visibility, description);
+- all optional fields (tags, author_role, source_artifacts);
+- all valid enum values per field;
+- the description 280-character constraint.
+
+Source: none
+
+### R6 — `arkeology://schema/tiers` states tier semantics and key formats
+
+When a connected agent reads `arkeology://schema/tiers`, the response describes:
+
+- tier 2 (project-local, date-anchored key, append-only, immutable content);
+- tier 3 (permanent, date-independent key, overwrites in place);
+- the key format for each (`{type_slug}-{date}-{title_slug}` vs `{type_slug}-{title_slug}`).
+
+Source: none
+
+### R7 — `arkeology://schema/visibility` states the visibility values and the cross-scope rule
+
+When a connected agent reads `arkeology://schema/visibility`, the response describes the two
+visibility values (shared, hidden), when each applies, and the cross-scope access rule: only tier 3
+shared artifacts are accessible outside the deployment's own scope.
+
+Source: none
+
+### R8 — `arkeology://schema/types` lists every type with usage guidance
+
+When a connected agent reads `arkeology://schema/types`, the response lists every type in
+`ARTIFACT_TYPES` with a one-line description of when to use it.
+
+Source: none
+
+### R9 — `arkeology://schema/query-strategy` covers narrow-first querying and tool choice
+
+When a connected agent reads `arkeology://schema/query-strategy`, the response covers:
+
+- start narrow (type filter + tags before relying on pure semantic similarity);
+- broaden only when narrow queries return insufficient results;
+- when to use `list_artifacts` vs `search_artifacts`;
+- when to use `synthesise_artifacts` (and how to write the result back as a tier 3 synthesis with
+  `source_artifacts`).
+
+Source: none
+
+## 4. Rules — Sync with `ARTIFACT_TYPES`
+
+### R10 — Both type lists derive from `ARTIFACT_TYPES`, never a hardcoded copy
+
+The `arkeology://schema/artifact` resource derives its list of valid types from `ARTIFACT_TYPES` in
+`artifact.py` — not a hardcoded copy. The `arkeology://schema/types` resource also derives its type
+list from `ARTIFACT_TYPES` directly, so both stay in sync automatically on schema changes rather
+than silently drifting when the schema evolves.
+
+**Example**
+
+- Given `ARTIFACT_TYPES` in `artifact.py` gains a new entry, when the server restarts, then
+  `arkeology://schema/artifact` includes the new type with no other file changed.
+
+Source: none
+
+## 5. Boundaries
 
 **Always:**
 - Resources are read-only — no write path, no state changes.
@@ -124,9 +167,9 @@ field — without reading a README or loading a skill.
 - Do not return resource content as structured JSON — markdown text only (MCP Resources
   spec expects text/markdown MIME type for documentation resources).
 
-<!-- IMPLEMENTATION BLOCK — agent-owned -->
+## 6. For the developer agent
 
-## Files to Touch
+### Files to Touch
 
 | File | Action | Notes |
 |------|--------|-------|
@@ -134,11 +177,13 @@ field — without reading a README or loading a skill.
 | `src/arkeology/resources.py` | Create | Written after unit tests (Green) |
 | `src/arkeology/server.py` | Modify | Call `register_resources(_app)` — add the import and call |
 
-## Testing Approach
+### Contracts
+
+None.
+
+### Testing Approach
 
 **TDD cycle:** write `test_resources.py` first → fail → implement `resources.py` → pass.
-
----
 
 **`test_resources.py` — unit tests (no AWS, no fakes needed):**
 
@@ -183,7 +228,3 @@ Sync invariant:
   type — confirming live derivation rather than a cached copy.
 
 No integration tests are needed — resources contain no AWS calls.
-
-## Open Questions
-
-*(none — all constraints are defined)*

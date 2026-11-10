@@ -10,22 +10,20 @@ generated:
   by: "axians-architect/claude-sonnet-4.6"
   at: 2026-06-23T00:00:00Z
 revised:
-  by: "axians-tech-writer/unknown"
-  at: 2026-07-04T00:00:00Z
+  by: "axians-architect/claude-opus-5-5"
+  at: 2026-11-09T17:26:51Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
-phase: 10
-task: 42
 ---
 
 # T42 — MCP Data Resources
 
-<!-- SCOPE BLOCK -->
-
 ## TL;DR
 
 Add two MCP data resources to arkeology: `arkeology://artifact/{id}` (URI template, returns full markdown content of a named artifact) and `arkeology://artifacts` (static, returns a markdown index of all active own-scope artifacts). Both carry `audience: ["user"]` annotations and delegate to the existing `read_artifact` and `list_artifacts` tool logic.
+
+## 1. Problem Statement
 
 > **Revised 2026-07-04 (tech-writer).** The canonical `references`/`artifact_id`
 > identifier is the full S3 key `{write_prefix}/{id}{ext}`, which contains `/` characters. FastMCP's
@@ -34,35 +32,54 @@ Add two MCP data resources to arkeology: `arkeology://artifact/{id}` (URI templa
 > `*`), which does. Every reference to `arkeology://artifact/{id}` below and in requirements.md/ADR-012 is
 > conceptually the same resource; the registered URI template literal is `arkeology://artifact/{id*}`.
 
-## Problem Statement
-
 Arkeology already exposes five schema resources (`arkeology://schema/*`) for agent-readable documentation. These are registered at module load time with no AWS calls. There is currently no way for a human using an MCP client to browse or read stored artifact content through the MCP resources protocol — they must invoke tools. Adding data resources allows human users to read individual artifacts and browse the artifact index directly from the MCP resources panel, without constructing tool calls.
 
-## User Stories
+Both user stories this spec covers — a human reads a single artifact by ID, and a human browses
+all active own-scope artifacts — are P1.
 
-### Story 1 — Human reads a single artifact by ID (P1)
+## 2. Rules — `arkeology://artifact/{id}`
 
-A developer using an MCP client wants to read the full content of a known artifact.
+### R1 — Reading `arkeology://artifact/{id}` returns the artifact's full markdown content
 
-**Acceptance criteria:**
-- Given a valid own-scope artifact ID, when the user reads `arkeology://artifact/{id}`, then the resource returns the full markdown content with `mimeType: "text/markdown"`.
-- Given a foreign-scope tier 2 artifact ID, when the user reads `arkeology://artifact/{id}`, then the resource returns an error consistent with the cross-scope gate (not the content).
-- Given an artifact ID that does not exist, when the user reads `arkeology://artifact/{id}`, then the resource returns a not-found error.
-- Given an artifact with a `last_edited_ulid`, when the resource is returned, then a `lastModified` ISO 8601 value derived from that ULID is *available* (computed by `_artifact_last_modified`). **Emission of this value as a protocol-level annotation is WAIVED** — see the "Known limitation: `lastModified` emission" note under Requirements.
+When a client reads `arkeology://artifact/{id}`, the system returns the full artifact content as
+`mimeType: "text/markdown"` with `audience: ["user"]` annotation. A developer using an MCP client
+uses it to read the full content of a known artifact.
 
-### Story 2 — Human browses all active own-scope artifacts (P1)
+**Example**
 
-A developer wants to see what artifacts are stored in their scope without running a tool call.
+- Given a valid own-scope artifact ID, when the user reads `arkeology://artifact/{id}`, then the
+  resource returns the full markdown content with `mimeType: "text/markdown"`.
 
-**Acceptance criteria:**
-- Given active own-scope artifacts exist, when the user reads `arkeology://artifacts`, then the resource returns a markdown table listing identifier, title, type, and description for each artifact.
-- Given no active own-scope artifacts exist, when the user reads `arkeology://artifacts`, then the resource returns an empty or minimal markdown response (not an error).
+### R2 — A foreign-scope tier 2 artifact returns the cross-scope gate's error, not its content
 
-## Requirements
+When `arkeology://artifact/{id}` is read for a foreign-scope tier 2 artifact, the system returns
+an error consistent with the cross-scope gate enforced by `read_artifact` (not the content).
+`arkeology://artifact/{id}` delegates to `_read_artifact_inner` (or calls `read_artifact`) — it
+does not duplicate the scope/tier/visibility gate logic.
 
-- WHEN a client reads `arkeology://artifact/{id}` THE SYSTEM SHALL return the full artifact content as `mimeType: "text/markdown"` with `audience: ["user"]` annotation.
-- WHEN `arkeology://artifact/{id}` is read for a foreign-scope tier 2 artifact THE SYSTEM SHALL return an error consistent with the cross-scope gate enforced by `read_artifact`.
-- WHEN `arkeology://artifact/{id}` is read for an artifact with `last_edited_ulid` THE SYSTEM SHALL derive a `lastModified` ISO 8601 value from that ULID (via `_artifact_last_modified`). Emitting it as a protocol annotation is **WAIVED** — see the note below.
+### R3 — An unknown artifact ID returns a not-found error
+
+Given an artifact ID that does not exist, when the user reads `arkeology://artifact/{id}`, then
+the resource returns a not-found error.
+
+### R4 — Resource handlers return a structured markdown error string rather than raising
+
+Resource handlers return a structured markdown error string rather than raising; `resources.py`'s
+`_error_markdown()` builds it from the tool result's `error`/`message` fields, and both resource
+handlers additionally catch unexpected exceptions and return an `internal_error` markdown string
+rather than letting them propagate.
+
+### R5 — A `lastModified` value is derived from `last_edited_ulid`; emitting it is waived
+
+When `arkeology://artifact/{id}` is read for an artifact with `last_edited_ulid`, the system
+derives a `lastModified` ISO 8601 value from that ULID (via `_artifact_last_modified`), so the
+value is *available*. Emitting it as a protocol annotation is **WAIVED**. When the artifact has
+no `last_edited_ulid`, `_artifact_last_modified` returns `None`.
+
+No manual bit-extraction formula is written for the ULID-to-ISO-8601 conversion:
+`derive_last_edited_at()` (see `src/arkeology/tools/_search_helper.py`) delegates to the `ulid`
+package's `ULID.from_str(last_edited_ulid).datetime.isoformat()`, returning `None` on a
+malformed ULID.
 
 > **Known limitation: `lastModified` emission (WAIVER, 2026-06-25).** This requirement is not
 > satisfiable on `arkeology://artifact/{id}` with the pinned stack (FastMCP 3.4.2 + the MCP SDK).
@@ -76,11 +93,47 @@ A developer wants to see what artifacts are stored in their scope without runnin
 > that derives the value is retained and unit-tested in isolation (`test_artifact_resource_last_modified_annotation_{present,absent}`) so the conversion is correct and ready to wire in once the
 > protocol/SDK supports per-read resource-content annotations. The `audience: ["user"]` annotation
 > *is* emitted (it is static and identical for every read). Content is always fresh.
-- WHEN a client reads `arkeology://artifacts` THE SYSTEM SHALL return a markdown-formatted index of all active own-scope artifacts with identifier, title, type, and description; the scope and filter parameters SHALL match `list_artifacts` default parameters.
-- WHEN `arkeology://artifacts` or `arkeology://artifact/{id}` is read THE SYSTEM SHALL carry `audience: ["user"]` annotation.
-- WHEN the server starts, `arkeology://artifact/{id}` SHALL appear in `resources/templates/list` and `arkeology://artifacts` SHALL appear in `resources/list`.
 
-## Boundaries
+**Why:** `lastModified` cannot be emitted per-read on a template resource: `TextResourceContents`
+has no `annotations` field and template registration annotations are static (cannot vary per
+`{id}`).
+
+## 3. Rules — `arkeology://artifacts`
+
+### R6 — Reading `arkeology://artifacts` returns a markdown index of all active own-scope artifacts
+
+When a client reads `arkeology://artifacts`, the system returns a markdown-formatted index of all
+active own-scope artifacts with identifier, title, type, and description; the scope and filter
+parameters match `list_artifacts` default parameters. `arkeology://artifacts` delegates to
+`_list_artifacts_inner` (or calls `list_artifacts`) with `status="active"` and no other filters.
+A developer uses it to see what artifacts are stored in their scope without running a tool call.
+
+**Example**
+
+- Given active own-scope artifacts exist, when the user reads `arkeology://artifacts`, then the
+  resource returns a markdown table listing identifier, title, type, and description for each
+  artifact.
+
+### R7 — An empty scope returns minimal markdown, not an error
+
+Given no active own-scope artifacts exist, when the user reads `arkeology://artifacts`, then the
+resource returns an empty or minimal markdown response (not an error).
+
+## 4. Rules — Both resources
+
+### R8 — Both resources carry the `audience: ["user"]` annotation on every read
+
+When `arkeology://artifacts` or `arkeology://artifact/{id}` is read, the system carries
+`audience: ["user"]` annotation. `audience` is set as a static `Annotations` on the resource
+registration (decorator parameter) and is emitted on every read, using FastMCP's annotation
+support — not hand-crafted JSON-RPC responses.
+
+### R9 — Both resources are listed once the server starts
+
+When the server starts, `arkeology://artifact/{id}` appears in `resources/templates/list` and
+`arkeology://artifacts` appears in `resources/list`.
+
+## 5. Boundaries
 
 **Always:**
 - `arkeology://artifact/{id}` delegates to `_read_artifact_inner` (or calls `read_artifact`) — do not duplicate the scope/tier/visibility gate logic.
@@ -96,9 +149,9 @@ A developer wants to see what artifacts are stored in their scope without runnin
 - Do not re-implement the cross-scope gate inline in the resource handler — always delegate to the existing tool logic.
 - Do not store artifact content in the resource URI or annotations — content belongs in the `text` field of the resource content object.
 
-<!-- IMPLEMENTATION BLOCK -->
+## 6. For the developer agent
 
-## Files to Touch
+### Files to Touch
 
 | File | Action | Notes |
 |------|--------|-------|
@@ -106,7 +159,11 @@ A developer wants to see what artifacts are stored in their scope without runnin
 | `src/arkeology/resources.py` | Modify | Add `register_data_resources(app, settings, s3, vectors, bedrock)` function with the two resource handlers as closures |
 | `src/arkeology/server.py` | Modify | Import `register_data_resources` and call it at the end of `register_tools()` |
 
-## Testing Approach
+### Contracts
+
+None.
+
+### Testing Approach
 
 This project uses TDD. Test file is written before the implementation it gates.
 
@@ -131,9 +188,3 @@ Add `register_data_resources`. Both handlers are async closures over `settings`,
 **3. `src/arkeology/server.py`** — gated by the test file above.
 
 Import `register_data_resources` from `arkeology.resources`. Call `register_data_resources(_app, settings, s3, vectors, bedrock)` as the last statement in `register_tools()`.
-
-## Open Questions
-
-- [x] ULID-to-ISO-8601: confirm the correct conversion approach for deriving `lastModified` from `last_edited_ulid`. ULIDs encode a millisecond timestamp in their first 10 characters — confirm the extraction formula before implementing. **Resolved** — no manual bit-extraction formula was written; `derive_last_edited_at()` (see `src/arkeology/tools/_search_helper.py`) delegates to the `ulid` package's `ULID.from_str(last_edited_ulid).datetime.isoformat()`, returning `None` on a malformed ULID.
-- [x] FastMCP annotation API — **RESOLVED (2026-06-25).** `audience` is set as a static `Annotations` on the resource registration (decorator parameter) and is emitted on every read. `lastModified` cannot be emitted per-read on a template resource: `TextResourceContents` has no `annotations` field and template registration annotations are static (cannot vary per `{id}`). Requirement waived — see the "Known limitation" note under Requirements.
-- [x] Error surface for resource handlers: confirm whether FastMCP resource handlers should raise a Python exception (FastMCP maps it to `-32002`/`-32603`) or return a structured error string. Check FastMCP 3.x resource error handling conventions. **Resolved** — resource handlers return a structured markdown error string rather than raising; `resources.py`'s `_error_markdown()` builds it from the tool result's `error`/`message` fields, and both resource handlers additionally catch unexpected exceptions and return an `internal_error` markdown string rather than letting them propagate.

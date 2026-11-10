@@ -28,8 +28,6 @@ revised:
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
-phase: 10
-task: 38
 ---
 
 # T38 — `link_commit` Tool and AGENTS.md Post-Commit Protocol

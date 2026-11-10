@@ -26,167 +26,180 @@ generated:
   by: "axians-architect/claude-opus-4.8"
   at: 2026-07-03T00:00:00Z
 revised:
-  by: "axians-tech-writer/claude-sonnet-5"
-  at: 2026-09-06T00:00:00Z
+  by: "axians-architect/claude-opus-5-5"
+  at: 2026-11-09T18:46:42Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
-phase: 12
-task: 48
 ---
 
 # T48 — `reconcile_index` Rebuilds `commit_refs` + `references` from Annotations
 
-> **Superseded 2026-08-17 (architect, `adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal.md`
-> D2, implemented in T58).** This spec's TL;DR, Story 1, and Requirements describe
-> `_reindex_artifact` restoring **both** `commit_refs` and `references` into the rebuilt vector
-> metadata. As of T58, this is narrowed: `_reindex_artifact` still calls
-> `read_current_link_fields` and still reads the union of both durable stores for **both** fields
-> (unchanged — the union-read itself is not superseded, since a legacy vector written before T58
-> may still carry a stale `references` value that must not be silently dropped from the read side),
-> but it now writes only `commit_refs` (capped to the most-recently-appended 20 entries, per T58)
-> into the rebuilt vector metadata — `references` is read but never re-written into vector metadata.
-> The T57 guard-coverage addition (a `check_metadata_budgets` call before this spec's `put_vector`
-> calls) is layered on top of this spec's rebuild logic and is unaffected by it. See
-> `docs/specs/p12-t57-guard-coverage.md` and `docs/specs/p12-t58-commit-refs-cap-references-removal.md`.
-
-## Revision — 2026-09-06
-
-What `_reindex_artifact` reads to rebuild vector metadata is superseded. This spec — and the
-2026-08-17 note above it — describe reconcile sourcing both link fields from the **union of both
-durable stores**, deliberately still reading a `references` key out of vector metadata for
-backward-read compatibility. That fallback is gone. The `## Revision — 2026-09-05` section of
-[adr-2026-07-03-annotation-backed-link-storage.md](../architecture-decisions/adr-2026-07-03-annotation-backed-link-storage.md) makes the S3 object annotation the
-**sole** source of truth, so reconcile now reads the annotation copy alone.
-
-What replaces it:
-
-- The read goes through `annotations.read_link_annotations`, which consults the annotation and
-  nothing else. The helpers this spec names — `read_current_link_fields` and its
-  `_read_vector_link_fields` half — no longer exist anywhere in the codebase.
-- That read **raises** on failure rather than returning empty. Absence of an annotation still
-  returns a true empty; a failed read never masquerades as one, because an empty value on a
-  read-modify-write path would be written straight back over good link data.
-- No path may fall back to a vector-metadata copy of either field. That copy is a derived filter
-  index — capped for `commit_refs`, absent entirely for `references` — and never an authority.
-- The raise-on-failure rule matters most precisely here: reconcile's whole job is to rebuild vector
-  metadata from what it reads, so a read degraded to empty would write emptiness over good data.
-
-Unchanged and still correct: reconcile restores from annotations rather than standard object
-metadata, which is what closed ADR-011's OQ2, and the 2026-08-17 narrowing that only `commit_refs`
-is written back into the rebuilt vector metadata.
-
-<!-- SCOPE BLOCK — frozen after approval -->
+> **Revision — 2026-09-06**
+>
+> What `_reindex_artifact` reads to rebuild vector metadata is superseded. This spec — and the
+> 2026-08-17 note above it — describe reconcile sourcing both link fields from the **union of both
+> durable stores**, deliberately still reading a `references` key out of vector metadata for
+> backward-read compatibility. That fallback is gone. The `## Revision — 2026-09-05` section of
+> [adr-2026-07-03-annotation-backed-link-storage.md](../architecture-decisions/adr-2026-07-03-annotation-backed-link-storage.md) makes the S3 object annotation the
+> **sole** source of truth, so reconcile now reads the annotation copy alone.
+>
+> What replaces it:
+>
+> - The read goes through `annotations.read_link_annotations`, which consults the annotation and
+>   nothing else. The helpers this spec names — `read_current_link_fields` and its
+>   `_read_vector_link_fields` half — no longer exist anywhere in the codebase.
+> - That read **raises** on failure rather than returning empty. Absence of an annotation still
+>   returns a true empty; a failed read never masquerades as one, because an empty value on a
+>   read-modify-write path would be written straight back over good link data.
+> - No path may fall back to a vector-metadata copy of either field. That copy is a derived filter
+>   index — capped for `commit_refs`, absent entirely for `references` — and never an authority.
+> - The raise-on-failure rule matters most precisely here: reconcile's whole job is to rebuild vector
+>   metadata from what it reads, so a read degraded to empty would write emptiness over good data.
+>
+> Unchanged and still correct: reconcile restores from annotations rather than standard object
+> metadata, which is what closed ADR-011's OQ2, and the 2026-08-17 narrowing that only `commit_refs`
+> is written back into the rebuilt vector metadata.
 
 ## TL;DR
 
 Change `reconcile_index`'s `_reindex_artifact` so that when it rebuilds an artifact's vector
-metadata it restores `commit_refs` and `references` by reading the **union of both durable stores**
-— the object's S3 annotations (via the T45 client) AND the existing vector metadata, via
-`annotations.read_current_link_fields` — instead of the annotations alone or standard object
-metadata. Because the write path (T47) and `link_metadata` (T49) now store these fields as
-annotations, and because neither store is sole authority (see ADR-011's
-authority model), a reconcile run no longer drops them. This resolves OQ2 and the ADR-009
-"reconcile drops commit links" limitation. (FR-17, FR-54, AC-59.)
+metadata it restores `commit_refs` (capped to the most-recently-appended 20 entries) by reading the
+**union of both durable stores** — the object's S3 annotations (via the T45 client) AND the existing
+vector metadata, via `annotations.read_current_link_fields` — instead of the annotations alone or
+standard object metadata; `references` is read the same way but never re-written into the rebuilt
+vector metadata. Because the write path (T47) and `link_metadata` (T49) now store these fields as
+annotations, and because neither store is sole authority (see ADR-011's authority model), a
+reconcile run no longer drops them. This resolves OQ2 and the ADR-009 "reconcile drops commit links"
+limitation. (FR-17, FR-54, AC-59.)
 
-> **Revised 2026-07-04 (tech-writer).** The original scope below specified
-> reading `commit_refs` / `references` from annotations only. The shipped implementation reads the
-> **union of the annotation copy and the existing vector-metadata copy** — a naive annotations-only
-> read would erase a value that survives only in vector metadata (e.g. under an annotation-unavailable
-> deployment, T52), which is exactly the loss this task exists to prevent. `reconcile.py` also
-> re-raises `CredentialError` from that read rather than degrading it — a credential failure is
-> very likely to break the surrounding reconcile call too and must not be silently treated as "no
-> link fields". See the corrected Requirements/Boundaries below.
->
-> **Note (2026-07-06, shipped in `7a697dd`).** The write path's `commit_refs`/`references` handling
-> has since diverged per field (`references` replaces on an overwriting write; `commit_refs` still
-> accretes — see `docs/specs/p12-t46-references-field.md`'s forward-pointer note).
-> **This task is unaffected**: reconcile is a repair operation, not a write-time policy — it
-> continues to restore *both* fields as the union of the annotation copy and the existing
-> vector-metadata copy regardless of how each field's stored value came to be written, exactly as
-> specified below.
-
-## Problem Statement
+## 1. Problem Statement
 
 `_reindex_artifact` currently reads `commit_refs` from S3 user-defined metadata
 (`coerce_list_field(raw_s3_meta, "commit_refs")`). After T47, the write path no longer writes
 `commit_refs` (or `references`) into user-defined metadata — the durable copy is an annotation. So
 without this change, any reconcile that rebuilds vectors would drop both link fields, silently
 losing the append-only link trail on the very operation meant to repair the index. Reading the
-fields from annotations closes the gap and makes reconcile lossless for link data.
+fields from annotations closes the gap and makes reconcile lossless for link data. For example, an
+artifact's vectors were lost (partial write or external deletion); `reconcile_index` rebuilds them,
+restoring `commit_refs` from the object's annotations.
 
-## User Stories
+All three stories this spec states are P1: reconcile restores link fields from annotations; the
+regression proof that it reads the union, not S3 metadata; clean state and scope unaffected.
 
-### Story 1 — Reconcile restores link fields from annotations (P1)
+This spec depends on the T45 annotation client, the T47 `read_link_annotations` helper, and
+annotations actually being written by T47/T49.
 
-An artifact's vectors were lost (partial write or external deletion). `reconcile_index` rebuilds
-them, restoring `commit_refs` and `references` from the object's annotations.
+## 2. Rules — Where `_reindex_artifact` reads the link fields
 
-**Acceptance criteria:**
-- Given an own-scope artifact whose S3 object carries `commit_refs` and `references` annotations and
-  whose vectors are absent from the index, when `reconcile_index` runs then the rebuilt vector
-  metadata carries `commit_refs` (capped to the most-recently-appended 20 entries, per T58) sourced
-  from the union of the annotations and any existing vector metadata. `[SUPERSEDED by T58]` — the
-  rebuilt vector metadata no longer carries `references` at all; `references` is still read as part
-  of the same union (for internal consistency and because reconcile never re-writes content), it is
-  simply never placed into the vector-metadata output. (AC-59, narrowed)
-- Given an artifact re-indexed via failure-log replay (Phase 1) or orphan scan (Phase 2), then both
-  paths restore the link fields identically (they share `_reindex_artifact`).
+### R1 — Both link fields are read as the union of both durable stores
 
-### Story 2 — Regression proof: reads the union, not S3 metadata (P1)
+When `_reindex_artifact` builds vector metadata, it reads `commit_refs` and `references` via
+`annotations.read_current_link_fields(s3, vectors, artifact_id)` — the order-preserving dedup union
+of the S3 annotation copy AND the artifact's existing indexed vector-metadata copy — rather than
+`coerce_list_field(raw_s3_meta, ...)` or the annotation copy alone. The source of truth for
+`commit_refs` / `references` during re-index is never annotations alone and never S3 user-defined
+metadata; `source_artifacts` and identity fields continue to be read from S3 user-defined metadata
+(they are not annotation-backed).
 
-**Acceptance criteria:**
+A naive annotations-only read would erase a value that survives only in vector metadata (e.g. under
+an annotation-unavailable deployment, T52), which is exactly the loss this task exists to prevent.
+The union-read applies to **both** fields, `references` included — a legacy vector written before
+T58 may still carry a stale `references` value that must not be silently dropped from the read side.
+
+This union-restore is unaffected by the write path's per-field replace-vs-accrete split (since
+2026-07-06, shipped in `7a697dd`, `references` replaces on an overwriting write and `commit_refs`
+still accretes — see `docs/specs/p12-t46-references-field.md`'s forward-pointer note): reconcile is
+a repair operation, not a write-time policy, and it continues to restore *both* fields as the union
+of the annotation copy and the existing vector-metadata copy regardless of how each field's stored
+value came to be written.
+
+**Example**
+
 - Given an artifact whose S3 user-defined metadata has NO `commit_refs` / `references` keys (the
-  post-T47 reality) but whose annotations carry them, when `reconcile_index` rebuilds its vectors
+  post-T47 reality) but whose annotations carry them, when `reconcile_index` rebuilds its vectors,
   then the rebuilt metadata carries the link fields — proving the source is the annotation/vector
   union, not S3 metadata. (This is the test written first that fails before implementation.)
 - Given an artifact whose annotations are absent (e.g. annotation-unavailable deployment) but whose
   *existing* vector metadata already carries `commit_refs` / `references`, when `reconcile_index`
-  rebuilds its vectors then those fields are still present — proving the vector-metadata side of the
-  union is not discarded either.
+  rebuilds its vectors, then those fields are still present — proving the vector-metadata side of
+  the union is not discarded either.
 
-### Story 3 — Clean state and scope unaffected (P1)
+Source: ADR-011
 
-**Acceptance criteria:**
-- Given an artifact with no link annotations, when re-indexed then `commit_refs` / `references` are
+### R2 — `_reindex_artifact` receives the S3 client at every call site
+
+When `_reindex_artifact` needs the S3 client, it receives `s3` as a parameter (it does not today) so
+it can read annotations; all call sites (Phase 1 replay, Phase 2 orphan scan) pass it.
+
+**Example**
+
+- Given an artifact re-indexed via failure-log replay (Phase 1) or orphan scan (Phase 2), then both
+  paths restore the link fields identically (they share `_reindex_artifact`).
+
+## 3. Rules — What the rebuilt vector metadata carries
+
+### R3 — Only `commit_refs` is written back, capped
+
+When `commit_refs` is non-empty, `_reindex_artifact` adds it to the rebuilt vector metadata as
+`list[str]`, capped to the most-recently-appended 20 entries (per T58), omitting the key when empty
+(the existing S3-Vectors empty-array rule). The rebuilt vector metadata never carries `references`:
+`references` is still read as part of the same union (for internal consistency and because
+reconcile never re-writes content), it is simply never placed into the vector-metadata output. The
+T57 guard-coverage addition (a `check_metadata_budgets` call before this spec's `put_vector` calls)
+is layered on top of this rebuild logic and is unaffected by it. See
+`docs/specs/p12-t57-guard-coverage.md` and
+`docs/specs/p12-t58-commit-refs-cap-references-removal.md`.
+
+**Example**
+
+- Given an own-scope artifact whose S3 object carries `commit_refs` and `references` annotations and
+  whose vectors are absent from the index, when `reconcile_index` runs, then the rebuilt vector
+  metadata carries `commit_refs` (capped to the most-recently-appended 20 entries) sourced from the
+  union of the annotations and any existing vector metadata, and no `references`.
+- Given an artifact with no link annotations, when re-indexed, then `commit_refs` / `references` are
   simply omitted from the rebuilt vector metadata (no error).
-- Given the existing own-scope gate, then foreign-scope artifacts are never re-indexed or touched
-  (unchanged from Phases 1–3).
+
+Source: AC-59; adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal.md D2 (the `commit_refs`-only narrowing, the 20-entry cap and the T57 note)
+
+## 4. Rules — Failure handling
+
+### R4 — An unavailable annotation side never aborts reconcile
+
+When the annotation side of the union read is unavailable / access is denied, the system logs and
+falls back to the vector-metadata side of the union only — the reconcile does not abort.
+
+**Example**
+
 - Given annotations are unavailable at reconcile time, then `_reindex_artifact` degrades to omitting
   the link fields (logged), and the rest of the reconcile completes — it does not raise.
 
-## Requirements
+### R5 — A credential error propagates
 
-- WHEN `_reindex_artifact` builds vector metadata THE SYSTEM SHALL read `commit_refs` and
-  `references` via `annotations.read_current_link_fields(s3, vectors, artifact_id)` — the
-  order-preserving dedup union of the S3 annotation copy AND the artifact's existing indexed
-  vector-metadata copy — rather than `coerce_list_field(raw_s3_meta, ...)`
-  or the annotation copy alone.
-- WHEN either field is non-empty THE SYSTEM SHALL add it to the rebuilt vector metadata as `list[str]`
-  (omitting the key when empty — the existing S3-Vectors empty-array rule).
-- WHEN `_reindex_artifact` needs the S3 client THE SYSTEM SHALL receive `s3` as a parameter (it does
-  not today) so it can read annotations; all call sites (Phase 1 replay, Phase 2 orphan scan) pass it.
-- WHEN the annotation side of the union read is unavailable / access is denied THE SYSTEM SHALL log
-  and fall back to the vector-metadata side of the union only — the reconcile SHALL NOT abort.
-- WHEN the union read raises `CredentialError` THE SYSTEM SHALL propagate it to the caller — a
-  credential failure signals a general authentication problem likely to also break
-  the surrounding reconcile call, and must never be silently treated as "no link fields".
-- WHEN reconcile completes THE SYSTEM SHALL preserve its existing response schema unchanged (this is
-  an internal source-of-truth change, not a new field).
+When the union read raises `CredentialError`, the system propagates it to the caller — a credential
+failure signals a general authentication problem likely to also break the surrounding reconcile
+call, and must never be silently treated as "no link fields".
 
-## Boundaries
+## 5. Rules — What stays unchanged
+
+### R6 — The reconcile response schema is unchanged
+
+When reconcile completes, it preserves its existing response schema unchanged — this is an internal
+source-of-truth change, not a new field.
+
+### R7 — Own-scope gate and phase structure are unchanged
+
+The own-scope gate and the Phase 1/2/3 structure are unchanged — this is a metadata-source swap
+inside `_reindex_artifact`. Foreign-scope artifacts are never re-indexed or touched (unchanged from
+Phases 1–3).
+
+## 6. Boundaries
 
 **Always:**
 - Source of truth for `commit_refs` / `references` during re-index is the **union of both durable
-  stores** — S3 annotations and existing vector metadata (ADR-011's authority model) — never
-  annotations alone and never S3 user-defined metadata. `source_artifacts`
-  and identity fields continue to be read from S3 user-defined metadata (they are not
-  annotation-backed). This union-restore applies to **both** fields — see the note above the
-  Problem Statement: reconcile is unaffected by the write path's per-field replace-vs-accrete split.
+  stores** — S3 annotations and existing vector metadata (R1).
 - Reuse the `annotations.read_current_link_fields` helper (T47) — do not re-implement the union
   read or the decode logic.
-- The own-scope gate and Phase 1/2/3 structure are unchanged (this is a metadata-source swap inside
-  `_reindex_artifact`).
 
 **Ask First:**
 - Nothing — behaviour fixed by ADR-011.
@@ -199,9 +212,9 @@ them, restoring `commit_refs` and `references` from the object's annotations.
 - Do not let an annotation-read *availability* failure (non-credential) abort an otherwise-successful
   reconcile; DO let a `CredentialError` propagate and abort.
 
-<!-- IMPLEMENTATION BLOCK — agent-owned -->
+## 7. For the developer agent
 
-## Files to Touch
+### Files to Touch
 
 | File | Action | Notes |
 |------|--------|-------|
@@ -209,7 +222,11 @@ them, restoring `commit_refs` and `references` from the object's annotations.
 | `src/arkeology/tools/reconcile.py` | Modify | Add `s3` param to `_reindex_artifact`; read link fields via `annotations.read_current_link_fields` (union of both stores); drop the `coerce_list_field(..., "commit_refs")` source; pass `s3` at both call sites; propagate `CredentialError` |
 | `tests/integration/test_tools_reconcile.py` | Modify | Real-AWS: write + backfill via `link_metadata` → drop vectors → reconcile → assert both fields restored — Red for integration |
 
-## Testing Approach
+### Contracts
+
+None.
+
+### Testing Approach
 
 **TDD cycle — unit test first, then implementation:**
 
@@ -231,8 +248,3 @@ New / modified unit tests:
 
 **Integration:** end-to-end reconcile-survival (shared with T49's integration intent): write →
 `link_metadata` backfill → force re-index → assert `commit_refs` + `references` present.
-
-## Open Questions
-
-*(none — depends on T45 annotation client, T47 `read_link_annotations` helper, and annotations
-actually being written by T47/T49)*

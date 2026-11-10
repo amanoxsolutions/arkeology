@@ -17,18 +17,14 @@ generated:
   by: "axians-architect/unknown"
   at: 2026-06-09T00:00:00Z
 revised:
-  by: "axians-tech-writer/unknown"
-  at: 2026-06-10T00:00:00Z
+  by: "axians-architect/claude-opus-5-5"
+  at: 2026-11-09T16:56:48Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
-phase: 9
-task: 33e
 ---
 
 # T33e — README Quick Install Section
-
-<!-- SCOPE BLOCK — frozen after approval -->
 
 ## TL;DR
 
@@ -39,7 +35,7 @@ other installed plugins. This replaces the four-layer composability model from t
 reference project — Arkeology is a specific tool, not a personal engineering baseline, so
 the composability framing adds no value here.
 
-## Problem Statement
+## 1. Problem Statement
 
 The README currently documents the server setup in detail but gives no quick-start for
 wiring the Arkeology skills into AI tools. Engineers who clone the repo to run the server
@@ -48,57 +44,68 @@ that in under 10 lines of content — enough for an engineer to be up and runnin
 reading the full setup documentation, and short enough to sit at the top of the README
 before the detailed sections.
 
-## User Stories
+Both stories this spec was written from are P1: engineer gets wired in under two minutes (R5), and
+coexistence with other plugins is clear (R4).
 
-### Story 1 — Engineer gets wired in under two minutes (P1)
+## 2. Rules — Quick Install section content
 
-As an Arkeology operator who has already provisioned the AWS resources and started the
-server, I read the Quick Install section and wire the skills into my AI tools without
-consulting any other documentation.
+### R1 — The section gives the OpenCode plugin snippet, SSH primary and HTTPS alternative
 
-**Acceptance criteria:**
-- Given the operator has the repo cloned and their AI tool(s) installed, when they follow
-  the Quick Install section verbatim, then skills are discoverable in their next session.
-- All commands in the section are copy-paste-ready — no placeholders, no invented syntax.
+When an engineer reads the Quick Install section, it provides:
 
-### Story 2 — Coexistence with other plugins is clear (P1)
+- The one-line OpenCode plugin snippet, SSH primary:
+  `"plugin": ["arkeology@git+ssh://git@github.com/amanoxsolutions/arkeology.git"]`
+- The HTTPS alternative clearly labelled (no SSH key required):
+  `"plugin": ["arkeology@git+https://github.com/amanoxsolutions/arkeology.git"]`
+- A note that the snippet goes in `~/.config/opencode/opencode.jsonc`.
 
-As an operator who already has another AI plugin installed (e.g. from a shared engineering
-plugin set), I confirm from the README that adding Arkeology's plugin does not break
-anything already installed.
+### R2 — The section gives the Claude Code install, SSH primary and HTTPS alternative
 
-**Acceptance criteria:**
-- Given the operator reads the Quick Install section, when they reach the coexistence note,
-  then they understand that `arkeology:` is a distinct namespace that does not shadow or collide
-  with skills from other installed plugins.
+When an engineer reads the Quick Install section, it provides:
 
-## Requirements
+- The Claude Code install, SSH primary:
+  ```
+  claude plugin marketplace add git@github.com:amanoxsolutions/arkeology.git
+  claude plugin install arkeology@arkeology
+  ```
+- The Claude Code HTTPS alternative clearly labelled (for environments where outbound
+  SSH / port 22 is blocked):
+  ```
+  claude plugin marketplace add https://github.com/amanoxsolutions/arkeology.git
+  claude plugin install arkeology@arkeology
+  ```
 
-- WHEN an engineer reads the Quick Install section THE SYSTEM SHALL provide:
-  - The one-line OpenCode plugin snippet, SSH primary:
-    `"plugin": ["arkeology@git+ssh://git@github.com/amanoxsolutions/arkeology.git"]`
-  - The HTTPS alternative clearly labelled (no SSH key required):
-    `"plugin": ["arkeology@git+https://github.com/amanoxsolutions/arkeology.git"]`
-  - A note that the snippet goes in `~/.config/opencode/opencode.jsonc`.
-  - The Claude Code install, SSH primary:
-    ```
-    claude plugin marketplace add git@github.com:amanoxsolutions/arkeology.git
-    claude plugin install arkeology@arkeology
-    ```
-  - The Claude Code HTTPS alternative clearly labelled (for environments where outbound
-    SSH / port 22 is blocked):
-    ```
-    claude plugin marketplace add https://github.com/amanoxsolutions/arkeology.git
-    claude plugin install arkeology@arkeology
-    ```
-  - A note to run `./install.sh` to handle all wiring automatically (including GitHub
-    Copilot via `gh skill install`).
-  - A coexistence note: the `arkeology:` namespace does not collide with skills from other
-    plugins; both can be active simultaneously.
-- WHEN the section is rendered THE SYSTEM SHALL not require any placeholder substitution —
-  all commands are literal and copy-paste-ready.
+### R3 — The section points to `./install.sh` for automatic wiring
 
-## Boundaries
+When an engineer reads the Quick Install section, it provides a note to run `./install.sh` to
+handle all wiring automatically (including GitHub Copilot via `gh skill install`).
+
+### R4 — The section carries a coexistence note
+
+When an engineer reads the Quick Install section, it provides a coexistence note: the `arkeology:`
+namespace does not collide with skills from other plugins; both can be active simultaneously. An
+operator who already has another AI plugin installed (e.g. from a shared engineering plugin set)
+confirms from the README that adding Arkeology's plugin does not break anything already installed.
+
+**Example**
+
+- Given the operator reads the Quick Install section, when they reach the coexistence note, then
+  they understand that `arkeology:` is a distinct namespace that does not shadow or collide with
+  skills from other installed plugins.
+
+### R5 — Every command in the section is literal and copy-paste-ready
+
+When the section is rendered, it does not require any placeholder substitution — all commands are
+literal and copy-paste-ready: no placeholders, no invented syntax. An Arkeology operator who has
+already provisioned the AWS resources and started the server reads the Quick Install section and
+wires the skills into their AI tools without consulting any other documentation.
+
+**Example**
+
+- Given the operator has the repo cloned and their AI tool(s) installed, when they follow the
+  Quick Install section verbatim, then skills are discoverable in their next session.
+
+## 3. Boundaries
 
 **Always:**
 - Section lives in `README.md`, placed before the full server setup section so it is
@@ -109,6 +116,9 @@ anything already installed.
 - The HTTPS alternative is always shown alongside the SSH form — not only in a footnote.
 - Commands match exactly what T33a, T33b, T33c specify — no invented or speculative syntax.
 
+**Ask First:**
+- None.
+
 **Never:**
 - No four-layer composability model — Arkeology is a specific tool, not a personal
   engineering baseline (D4).
@@ -116,17 +126,19 @@ anything already installed.
   pattern pointing at the real repo.
 - No content about Codex or Cursor — not in T33 scope.
 
----
+## 4. For the developer agent
 
-<!-- IMPLEMENTATION BLOCK — agent-owned -->
-
-## Files to Touch
+### Files to Touch
 
 | File | Action | Notes |
 |------|--------|-------|
 | `README.md` | Modify | Add "Quick install" section before the server setup / configuration section; content: OpenCode snippet (SSH + HTTPS), Claude Code two-command install, `./install.sh` note, coexistence paragraph |
 
-## Testing Approach
+### Contracts
+
+None.
+
+### Testing Approach
 
 1. **Copy-paste check — OpenCode:** Add the printed plugin line verbatim to a test
    `opencode.jsonc`; restart OpenCode; confirm both skills are loadable.
@@ -144,7 +156,3 @@ anything already installed.
 5. **Coexistence note accuracy:** If another plugin is installed (e.g. a shared engineering
    plugin), confirm that adding the Arkeology plugin line alongside it and restarting
    OpenCode makes both plugin's skills simultaneously available without error.
-
-## Open Questions
-
-None.

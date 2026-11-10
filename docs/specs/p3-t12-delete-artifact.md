@@ -9,122 +9,161 @@ okf_version: "0.2"
 generated:
   by: "axians-architect/unknown"
   at: 2026-05-30T00:00:00Z
+revised:
+  by: "axians-architect/claude-opus-5-5"
+  at: 2026-11-09T12:01:40Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
-phase: 3
-task: 12
 ---
 
 # T12 — Delete Artifact Tool
 
-<!-- SCOPE BLOCK — frozen after approval -->
+## TL;DR
 
-## Problem Statement
+`delete_artifact` permanently removes a single artifact — its S3 object and all its section vectors —
+from the deployment's own scope, for stale or sensitive artifacts where archiving is not enough. It
+requires explicit confirmation, warns but proceeds when a synthesis references the artifact, and
+deletes vectors before S3 so the worst-case partial failure is recoverable by reconciliation.
 
-Archive hides an artifact from search and list but the content remains in S3 and is still
-reachable by identifier. For stale or sensitive artifacts — a three-year-old bug report, a
-superseded spec, a hidden artifact — permanent removal is the correct remedy. The delete
-tool hard-deletes a single artifact (S3 object + all section vectors) from the deployment's
-own scope. It requires explicit confirmation to prevent accidental one-liner deletion.
-Deletion ordering (vectors first, then S3) ensures the worst-case partial failure leaves an
-orphaned S3 object that can be recovered by reconciliation — not orphaned vectors that make
-the artifact appear in search results but fail on read.
+## 1. Problem Statement
 
-This task also updates all existing T7–T9 integration tests to use `delete_artifact` in
-teardown so every artifact written during integration tests is cleaned up automatically.
+Archive hides an artifact from search and list but the content remains in S3 and is still reachable by
+identifier. For stale or sensitive artifacts — a three-year-old bug report, a superseded spec, a hidden
+artifact — permanent removal is the correct remedy; for example, a developer agent removes a
+three-year-old bug report that is creating confusion. The delete tool hard-deletes a single artifact
+(S3 object + all section vectors) from the deployment's own scope. It requires explicit confirmation to
+prevent accidental one-liner deletion.
 
-Tier 2 immutability is content-only (decisions doc Q1): content cannot be edited, but tier 2
-artifacts may be deleted or archived as lifecycle operations.
+This task also updates all existing T7–T9 integration tests to use `delete_artifact` in teardown so
+every artifact written during integration tests is cleaned up automatically.
 
-## User Stories
+All decisions this spec rests on are resolved in brainstorming-delete-artifact-2026-05-30.md.
 
-### Story 1 — Agent hard-deletes an artifact from own scope (P1)
+All five stories this spec covers are priority P1.
 
-A developer agent removes a three-year-old bug report that is creating confusion.
+## 2. Rules — Gates
 
-**Acceptance criteria:**
-- Given an active artifact in own scope, when `delete_artifact` is called with its
-  `artifact_id` and `confirm=True`, then the artifact is not retrievable by ID, not
-  returned by search, and not returned by list.
-- Given `confirm` is `False` or absent, when `delete_artifact` is called, then a structured
-  error is returned and no deletion occurs.
+### R1 — `confirm=True` is a hard gate
 
-### Story 2 — Synthesis warning does not block deletion (P1)
+When `delete_artifact` is called without `confirm=True` — `confirm` is `False` or absent — the system
+returns a structured error, makes no AWS write calls, and no deletion occurs. No deletion happens
+without `confirm=True`.
 
-An artifact referenced by an active synthesis is still deletable; the caller receives a
-warning listing the affected synthesis identifiers but the deletion proceeds.
+Source: none
 
-**Acceptance criteria:**
-- Given an artifact that is listed as a `source_artifact` in one or more active synthesis
-  artifacts, when `delete_artifact` is called with `confirm=True`, then the artifact is
-  deleted AND the response includes a `warnings` field listing the affected synthesis
-  `artifact_id`s.
-- Given an artifact not referenced by any synthesis, when `delete_artifact` returns, then
-  the `warnings` field is absent or empty.
+### R2 — Only own-scope artifacts can be deleted
 
-### Story 3 — Foreign-scope artifacts cannot be deleted (P1)
+When `delete_artifact` is called, the system determines scope using
+`artifact_id.startswith(scope + "/")` against `settings.write_prefix`; if the artifact is not in own
+scope, the system returns a structured access-denied error and nothing is deleted. The own-scope gate
+mirrors archive — `startswith(settings.write_prefix + "/")`.
 
-**Acceptance criteria:**
-- Given an artifact whose prefix matches a READ_PREFIX but not the WRITE_PREFIX, when
-  `delete_artifact` is called, then a structured access-denied error is returned and nothing
-  is deleted.
+**Example**
 
-### Story 4 — Partial failure is recoverable (P1)
+- Given an artifact whose prefix matches a READ_PREFIX but not the WRITE_PREFIX, when `delete_artifact`
+  is called, then a structured access-denied error is returned and nothing is deleted.
 
-If vectors are deleted but the S3 delete call fails, reconciliation can recover the orphaned
-S3 object. The caller receives a structured partial-failure error.
+Source: none
 
-**Acceptance criteria:**
-- Given a simulated S3 delete failure after vectors are successfully deleted, when
-  `delete_artifact` returns, then a structured partial-failure error is returned including
-  the `artifact_id`; the S3 object still exists and is recoverable via reconciliation.
-- Given a simulated vector delete failure, when `delete_artifact` returns, then a structured
-  error is returned and the artifact remains fully intact (vectors and S3 both present).
+### R3 — Tier 2 artifacts are deletable
 
-### Story 5 — Credential errors return structured responses (P1)
+Tier 2 immutability is content-only: content cannot be edited, but tier 2 artifacts may be deleted or
+archived as lifecycle operations, so a tier 2 artifact is deletable like a tier 3 one.
 
-**Acceptance criteria:**
-- Given a credential failure during any AWS call, when `delete_artifact` returns, then a
-  structured error is returned — not a raw exception.
+Source: decisions doc Q1
 
-## Requirements
+## 3. Rules — Synthesis references
 
-- WHEN `delete_artifact` is called without `confirm=True` THE SYSTEM SHALL return a
-  structured error and make no AWS write calls.
-- WHEN `delete_artifact` is called THE SYSTEM SHALL determine scope using
-  `artifact_id.startswith(scope + "/")` against `settings.write_prefix`; if not in own
-  scope THE SYSTEM SHALL return a structured access-denied error.
-- WHEN the artifact is in own scope THE SYSTEM SHALL check for synthesis references by
-  querying the vector index for active synthesis artifacts whose `source_artifacts` metadata
-  contains the `artifact_id`.
-- WHEN synthesis references are found THE SYSTEM SHALL include their identifiers in a
-  `warnings` list in the response but proceed with deletion.
-- WHEN deletion proceeds THE SYSTEM SHALL first find all vector keys for the artifact via
-  `list_vectors_by_metadata({"artifact_id": {"$eq": s3_key}})`, then call
-  `delete_vectors(keys)` before touching S3.
-- WHEN `delete_vectors` fails THE SYSTEM SHALL return a structured error; the S3 object
-  must remain untouched (artifact fully intact).
-- WHEN `delete_vectors` succeeds THE SYSTEM SHALL call `s3.delete_object(s3_key)`; if S3
-  delete fails THE SYSTEM SHALL return a structured partial-failure error including the
-  `artifact_id` (the S3 orphan is recoverable via reconciliation FR-17).
-- WHEN deletion fully succeeds THE SYSTEM SHALL return:
-  `{"artifact_id": str, "deleted": True}` (plus optional `warnings` list).
-- WHEN the `artifact_id` does not exist in S3 THE SYSTEM SHALL return a structured
-  not-found error.
-- WHEN a CredentialError is raised THE SYSTEM SHALL return a structured error — never a
-  raw exception.
+### R4 — Synthesis references warn and do not block deletion
 
-## Boundaries
+When the artifact is in own scope, the system checks for synthesis references by querying the vector
+index for active synthesis artifacts whose `source_artifacts` metadata contains the `artifact_id`.
+When synthesis references are found, the system includes their identifiers in a `warnings` list in
+the response but proceeds with deletion — the check is warn-and-proceed, never blocking.
+
+**Example**
+
+- Given an artifact that is listed as a `source_artifact` in one or more active synthesis artifacts,
+  when `delete_artifact` is called with `confirm=True`, then the artifact is deleted AND the response
+  includes a `warnings` field listing the affected synthesis `artifact_id`s.
+- Given an artifact not referenced by any synthesis, when `delete_artifact` returns, then the
+  `warnings` field is absent or empty.
+
+Source: decisions doc Q3
+
+## 4. Rules — Deletion order and partial failure
+
+### R5 — Vectors are deleted before S3
+
+When deletion proceeds, the system first finds all vector keys for the artifact via
+`list_vectors_by_metadata({"artifact_id": {"$eq": s3_key}})`, then calls `delete_vectors(keys)` before
+touching S3. Deletion ordering is vectors-first, S3-second.
+
+Rationale: this ordering ensures the worst-case partial failure leaves an orphaned S3 object that can
+be recovered by reconciliation — not orphaned vectors that make the artifact appear in search results
+but fail on read.
+
+Source: decisions doc Q4
+
+### R6 — A vector delete failure leaves the artifact fully intact
+
+When `delete_vectors` fails, the system returns a structured error; the S3 object must remain untouched
+(artifact fully intact).
+
+**Example**
+
+- Given a simulated vector delete failure, when `delete_artifact` returns, then a structured error is
+  returned and the artifact remains fully intact (vectors and S3 both present).
+
+Source: none
+
+### R7 — An S3 delete failure after vector deletion returns a partial-failure error
+
+When `delete_vectors` succeeds, the system calls `s3.delete_object(s3_key)`; if the S3 delete fails,
+the system returns a structured partial-failure error including the `artifact_id` (the S3 orphan is
+recoverable via reconciliation). A partial failure is never silently swallowed.
+
+**Example**
+
+- Given a simulated S3 delete failure after vectors are successfully deleted, when `delete_artifact`
+  returns, then a structured partial-failure error is returned including the `artifact_id`; the S3
+  object still exists and is recoverable via reconciliation.
+
+Source: FR-17
+
+## 5. Rules — Response and errors
+
+### R8 — A full deletion returns `deleted: True`
+
+When deletion fully succeeds, the system returns `{"artifact_id": str, "deleted": True}` (plus optional
+`warnings` list).
+
+**Example**
+
+- Given an active artifact in own scope, when `delete_artifact` is called with its `artifact_id` and
+  `confirm=True`, then the artifact is not retrievable by ID, not returned by search, and not returned
+  by list.
+
+Source: none
+
+### R9 — A non-existent artifact returns a not-found error
+
+When the `artifact_id` does not exist in S3, the system returns a structured not-found error.
+
+Source: none
+
+### R10 — Credential errors return a structured error
+
+When a `CredentialError` is raised — a credential failure during any AWS call — the system returns a
+structured error, never a raw exception.
+
+Source: none
+
+## 6. Boundaries
 
 **Always:**
-- `confirm=True` is a hard gate — no deletion without it.
-- Deletion ordering is vectors-first, S3-second (see decisions doc Q4).
-- Synthesis reference check is warn-and-proceed (decisions doc Q3).
-- Own-scope gate mirrors archive — `startswith(settings.write_prefix + "/")`.
-- Tier 2 artifacts are deletable (immutability is content-only — decisions doc Q1).
-- The tool receives `settings`, `s3`, `vectors`, and `bedrock` (unused) as injected
-  dependencies.
+- The tool receives `settings`, `s3`, `vectors`, and `bedrock` (unused) as injected dependencies.
 
 **Ask First:**
 - Nothing — all constraints are frozen from the decisions doc.
@@ -133,12 +172,12 @@ S3 object. The caller receives a structured partial-failure error.
 - Do not delete S3 before deleting vectors.
 - Do not block on synthesis references — warn and proceed.
 - Do not skip the `confirm=True` check.
-- Do not silently swallow a partial failure — return a structured partial-failure error with
-  the `artifact_id` so reconciliation can recover the orphan.
+- Do not silently swallow a partial failure — return a structured partial-failure error with the
+  `artifact_id` so reconciliation can recover the orphan.
 
-<!-- IMPLEMENTATION BLOCK — agent-owned -->
+## 7. For the developer agent
 
-## Files to Touch
+### Files to Touch
 
 | File | Action | Notes |
 |------|--------|-------|
@@ -150,23 +189,25 @@ S3 object. The caller receives a structured partial-failure error.
 | `tests/integration/test_tools_search.py` | Modify | Update teardown to call `delete_artifact` |
 | `tests/integration/test_tools_read.py` | Modify | Update teardown to call `delete_artifact` |
 
-## Testing Approach
+### Contracts
 
-**TDD cycle A (unit):** write `test_tools_delete.py` first → fail → implement
-`tools/delete.py` → unit tests pass.
+None.
+
+### Testing Approach
+
+**TDD cycle A (unit):** write `test_tools_delete.py` first → fail → implement `tools/delete.py` → unit
+tests pass.
 
 **TDD cycle B (integration):** write integration tests first → fail → wire tool → pass.
 
-**TDD cycle C (teardown update):** update T7–T9 integration tests to use `delete_artifact`
-in teardown — these must pass with the new teardown before the task is done.
-
----
+**TDD cycle C (teardown update):** update T7–T9 integration tests to use `delete_artifact` in teardown
+— these must pass with the new teardown before the task is done.
 
 **`test_tools_delete.py` — unit tests (FakeS3Client + FakeVectorsClient):**
 
-Seed fake S3 with own-scope artifacts (tier 2 and tier 3), foreign-scope artifacts, and
-active synthesis artifacts with `source_artifacts` referencing some of the own-scope
-artifacts. Seed fake vectors with section vectors for each S3 artifact.
+Seed fake S3 with own-scope artifacts (tier 2 and tier 3), foreign-scope artifacts, and active
+synthesis artifacts with `source_artifacts` referencing some of the own-scope artifacts. Seed fake
+vectors with section vectors for each S3 artifact.
 
 Confirmation gate:
 - `confirm=False` → structured error, no AWS writes.
@@ -179,8 +220,8 @@ Happy path:
 - Artifact not referenced by any synthesis → no `warnings` field (or empty list).
 
 Synthesis warning:
-- Artifact referenced by one active synthesis → response includes `warnings` with that
-  synthesis `artifact_id`; artifact is still deleted.
+- Artifact referenced by one active synthesis → response includes `warnings` with that synthesis
+  `artifact_id`; artifact is still deleted.
 - Artifact referenced by two syntheses → both identifiers in `warnings`.
 
 Cross-scope gate:
@@ -191,23 +232,22 @@ Not found:
 - Own-scope `artifact_id` absent from fake S3 → not-found error; no vector deletes.
 
 Ordering and partial failure:
-- Simulate `delete_vectors` raising a non-credential exception → structured error; S3
-  object still present in fake S3.
-- Simulate `delete_object` failing after `delete_vectors` succeeds → structured
-  partial-failure error with `artifact_id`; vectors absent from fake (simulating orphan
-  state); S3 object still present.
+- Simulate `delete_vectors` raising a non-credential exception → structured error; S3 object still
+  present in fake S3.
+- Simulate `delete_object` failing after `delete_vectors` succeeds → structured partial-failure error
+  with `artifact_id`; vectors absent from fake (simulating orphan state); S3 object still present.
 
 Credential failures:
 - `head_object` raises `CredentialError` → structured error.
 - `list_vectors_by_metadata` raises `CredentialError` → structured error; no deletes.
 - `delete_vectors` raises `CredentialError` → structured error; S3 intact.
-- `delete_object` raises `CredentialError` after vectors deleted → structured
-  partial-failure error with `artifact_id`.
+- `delete_object` raises `CredentialError` after vectors deleted → structured partial-failure error
+  with `artifact_id`.
 
 **`tests/integration/test_tools_delete.py` — integration tests (`@pytest.mark.integration`):**
 
-- Write an artifact; delete it with `confirm=True` → no longer retrievable by ID; absent
-  from list results.
+- Write an artifact; delete it with `confirm=True` → no longer retrievable by ID; absent from list
+  results.
 - Delete without `confirm=True` → error; artifact still retrievable.
 - Delete foreign-scope artifact → access-denied error.
 - Delete non-existent artifact → not-found error.
@@ -217,9 +257,4 @@ Credential failures:
 
 - All existing integration test fixtures that write artifacts must be updated to call
   `delete_artifact(artifact_id=..., confirm=True)` in their teardown/finally block.
-- Each updated test file must pass (all existing assertions still green) after the teardown
-  change.
-
-## Open Questions
-
-*(none — all decisions resolved in brainstorming-delete-artifact-2026-05-30.md)*
+- Each updated test file must pass (all existing assertions still green) after the teardown change.

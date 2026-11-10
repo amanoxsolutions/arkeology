@@ -9,103 +9,43 @@ okf_version: "0.2"
 generated:
   by: "axians-architect/unknown"
   at: 2026-05-29T00:00:00Z
+revised:
+  by: "axians-architect/claude-opus-5-5"
+  at: 2026-11-10T05:48:47Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
-phase: 1
-task: 4
 ---
 
 # T4 — Configuration Model
 
-<!-- SCOPE BLOCK -->
+## TL;DR
 
-## Problem Statement
+A single validated `Settings` model that reads every environment variable once at process start,
+applies documented defaults, and fails fast with a clear, actionable message when a required variable
+is missing or a value is invalid. It replaces scattered `os.environ` reads, so configuration failures
+surface immediately instead of deep in an unrelated call stack.
 
-The server is configured entirely by environment variables. Without a single, validated
-configuration model, each module reads from `os.environ` independently, type casting errors
-surface at runtime during unrelated operations, and missing required variables produce cryptic
-`KeyError` or `None` failures deep in the call stack. This task creates a `Settings` dataclass
-that reads and validates all configuration at process start, so failures are immediate, clear, and
-actionable.
+## 1. Problem Statement
 
-## User Stories
+The server is configured entirely by environment variables. Without a single, validated configuration
+model, each module reads from `os.environ` independently, type casting errors surface at runtime
+during unrelated operations, and missing required variables produce cryptic `KeyError` or `None`
+failures deep in the call stack. This task creates a `Settings` dataclass that reads and validates all
+configuration at process start, so failures are immediate, clear, and actionable. Both goals — a clear
+error for a missing required variable before startup, and optional variables parsing to correct types
+with documented defaults — are priority P1.
 
-### Story 1 — Missing required variable produces a clear error before startup (P1)
+## 2. Rules — Reading configuration
 
-When a required environment variable is absent, the developer sees an error message identifying
-exactly which variable is missing and what it is used for — before any AWS calls are attempted.
+### R1 — Configuration is read once, at construction
 
-**Acceptance criteria:**
-- Given `AWS_REGION` is not set in the environment, when the server starts, then it exits immediately with a message: `"Missing required configuration: AWS_REGION — AWS region for all API calls"`.
-- Given `ARTIFACT_BUCKET` is not set, when the server starts, then it exits with a message identifying `ARTIFACT_BUCKET` as missing.
-- Given all required variables are set, when the server starts, then no configuration error is raised and execution proceeds to startup validation (T5).
+When the `Settings` object is constructed, it reads all environment variables from `os.environ` (or the
+system environment) once, at construction time.
 
-### Story 2 — Optional variables parse to correct types with documented defaults (P1)
+### R2 — Environment variables, defaults and constraints
 
-Optional variables have documented defaults. A misconfigured optional variable (e.g. a non-integer
-value where an integer is expected) produces a clear error, not a silent wrong value.
-
-**Acceptance criteria:**
-- Given `SEARCH_FETCH_TOP_K` is not set, when Settings is constructed, then `search_fetch_top_k` is `25`.
-- Given `SEARCH_FETCH_TOP_K=150` (above the ceiling of 100), when Settings is constructed, then a validation error is raised: `"SEARCH_FETCH_TOP_K must be between 1 and 100 (got 150)"`.
-- Given `SEARCH_FETCH_TOP_K=abc`, when Settings is constructed, then a validation error is raised indicating the value is not an integer.
-
-## Requirements
-
-- WHEN the `Settings` object is constructed THE SYSTEM SHALL read all environment variables from `os.environ` (or the system environment) once, at construction time.
-- WHEN a required variable is absent THE SYSTEM SHALL raise a `ConfigurationError` with the variable name, its purpose, and a remediation hint before any other processing occurs.
-- WHEN `SEARCH_FETCH_TOP_K` is set to a value above 100 THE SYSTEM SHALL raise a `ConfigurationError` identifying the ceiling constraint.
-- WHEN `READ_PREFIXES` is set to a comma-separated string THE SYSTEM SHALL parse it into a `list[str]` with whitespace and surrounding slashes stripped from each entry and empty entries removed. Surrounding slashes are normalized away (mirroring `WRITE_PREFIX`) so the stored prefix matches the `scope` value persisted in vector metadata and consumers can append `"/"` to rebuild the scope; a configured `"network/"` therefore becomes `"network"`, not `"network/"` (which would match nothing at the call site and silently disable foreign-scope reads). Internal slashes in multi-level prefixes (e.g. `"shared/org"`) are preserved.
-- WHEN `WRITE_PREFIX` is not set THE SYSTEM SHALL default to an empty string (root of the bucket).
-- WHEN `READ_PREFIXES` is not set THE SYSTEM SHALL default to an empty list (no additional read scopes).
-- WHEN `AWS_PROFILE` is not set THE SYSTEM SHALL store `None` (signal to use the default credential chain).
-- WHEN `BEDROCK_EMBEDDING_MODEL` is not set THE SYSTEM SHALL default to `"amazon.titan-embed-text-v2:0"`.
-
-## Boundaries
-
-**Always:**
-- `Settings` is a Pydantic `BaseSettings` model — use `pydantic-settings` for env var parsing. This gives automatic type coercion, default handling, and validation error messages for free.
-- The `Settings` object is instantiated once, in `__main__.py`, before `server.run()` is called.
-- `Settings` is passed into the server and client constructors by dependency injection — never re-instantiated or re-read from the environment mid-session.
-- `ConfigurationError` is defined in `errors.py` (alongside `CredentialError`).
-- All variable names, types, defaults, and descriptions must be documented in a reference table inside `config.py` as module-level docstring or comments — the code is the authoritative reference.
-
-**Ask First:**
-- Nothing — all variables and their constraints are defined in requirements.md and design decisions.
-
-**Never:**
-- Do not call `os.environ.get(...)` anywhere outside of `config.py` / the `Settings` class.
-- Do not silently coerce an out-of-range value to the nearest boundary — raise an error instead.
-- Do not default `AWS_REGION` to any fallback value — it is required and must be present.
-
-<!-- IMPLEMENTATION BLOCK -->
-
-## Files to Touch
-
-| File | Action | Notes |
-|------|--------|-------|
-| `src/arkeology/errors.py` | Modify | Add `ConfigurationError` |
-| `src/arkeology/config.py` | Create | `Settings` model and all env var definitions |
-| `src/arkeology/__main__.py` | Modify | Instantiate `Settings` before calling `server.run()` |
-| `tests/unit/test_config.py` | Create | All parsing, validation, and default tests |
-
----
-
-## `errors.py` — `ConfigurationError`
-
-Add to the existing `errors.py`:
-
-**`ConfigurationError`**: raised when a required environment variable is missing or a value fails
-validation.
-- `variable: str` — the environment variable name, e.g. `"AWS_REGION"`
-- `message: str` — human-readable description of the problem and how to fix it
-
----
-
-## `config.py` — `Settings` Model
-
-### Environment variable reference
+The server reads these environment variables. Optional variables have documented defaults.
 
 | Variable | Type | Required | Default | Constraint | Description |
 |----------|------|----------|---------|------------|-------------|
@@ -122,67 +62,171 @@ validation.
 | `SEARCH_DEFAULT_TOP_K` | `int` | ❌ | `5` | 1–100 inclusive | Default artifacts returned when caller does not specify |
 | `LOG_LEVEL` | `str` | ❌ | `"INFO"` | One of: `DEBUG`, `INFO`, `WARNING`, `ERROR` | Controls logging verbosity |
 
-### Parsed properties (derived from raw env vars)
+When an optional variable is not set, its default applies:
 
-`Settings` must expose these additional computed properties that downstream code uses directly:
+| Variable not set | Resulting value |
+|------------------|-----------------|
+| `WRITE_PREFIX` | an empty string (root of the bucket) |
+| `READ_PREFIXES` | an empty list (no additional read scopes) |
+| `AWS_PROFILE` | `None` (signal to use the default credential chain) |
+| `BEDROCK_EMBEDDING_MODEL` | `"amazon.titan-embed-text-v2:0"` |
+| `SEARCH_FETCH_TOP_K` | `search_fetch_top_k` is `25` |
 
-- `read_prefixes_list: list[str]` — `READ_PREFIXES` split on `,`, stripped, empty entries removed
-- `effective_read_scopes: list[str]` — `[write_prefix] + read_prefixes_list` (the full read scope the server operates over, including the write prefix which is always in scope)
+### R3 — `READ_PREFIXES` parsing
 
-### Pydantic `BaseSettings` usage
+When `READ_PREFIXES` is set to a comma-separated string, it is parsed into a `list[str]` with whitespace
+and surrounding slashes stripped from each entry and empty entries removed. Internal slashes in
+multi-level prefixes (e.g. `"shared/org"`) are preserved. Surrounding slashes are normalized away
+(mirroring `WRITE_PREFIX`) so the stored prefix matches the `scope` value persisted in vector metadata
+and consumers can append `"/"` to rebuild the scope; a configured `"network/"` therefore becomes
+`"network"`, not `"network/"` — which would match nothing at the call site and silently disable
+foreign-scope reads.
 
-Use `pydantic-settings` `BaseSettings`. Key configuration:
-- Set `model_config = SettingsConfigDict(env_prefix="", case_sensitive=True)` so variable names map exactly.
-- Use Pydantic `Field(default=..., description=...)` for each field — the description becomes the documentation.
+## 3. Rules — Configuration errors
+
+### R4 — A missing required variable is a clear error before startup
+
+When a required environment variable is absent, a `ConfigurationError` is raised with the variable
+name, its purpose, and a remediation hint, before any other processing occurs — the developer sees an
+error message identifying exactly which variable is missing and what it is used for, before any AWS
+calls are attempted. `AWS_REGION` is never defaulted to any fallback value — it is required and must be
+present. When all required variables are set, no configuration error is raised and execution proceeds
+to startup validation (T5).
+
+**Example**
+
+- Given `AWS_REGION` is not set in the environment, when the server starts, then it exits immediately
+  with a message: `"Missing required configuration: AWS_REGION — AWS region for all API calls"`.
+- Given `ARTIFACT_BUCKET` is not set, when the server starts, then it exits with a message identifying
+  `ARTIFACT_BUCKET` as missing.
+
+### R5 — An invalid value is an error, never a silent wrong value
+
+A misconfigured optional variable (e.g. a non-integer value where an integer is expected) produces a
+clear error, not a silent wrong value. An out-of-range value is never silently coerced to the nearest
+boundary — an error is raised instead. When `SEARCH_FETCH_TOP_K` is set to a value above 100, a
+`ConfigurationError` is raised identifying the ceiling constraint.
+
+**Example**
+
+- Given `SEARCH_FETCH_TOP_K=150` (above the ceiling of 100), when Settings is constructed, then a
+  validation error is raised: `"SEARCH_FETCH_TOP_K must be between 1 and 100 (got 150)"`.
+- Given `SEARCH_FETCH_TOP_K=abc`, when Settings is constructed, then a validation error is raised
+  indicating the value is not an integer.
+
+### R6 — Configuration failures exit cleanly with every error
+
+When constructing `Settings` fails validation, the server prints a human-readable `ConfigurationError`
+message to stderr (not stdout) and exits with code 1 — a raw Pydantic `ValidationError` never
+propagates, so the user sees a clean message, not a stack trace. When several variables fail at once,
+every field's message is surfaced, joined into the single `ConfigurationError` raised.
+
+**Why:** so one missing variable never hides another.
+
+## 4. Boundaries
+
+**Always:**
+- `Settings` is a Pydantic `BaseSettings` model — use `pydantic-settings` for env var parsing. This gives
+  automatic type coercion, default handling, and validation error messages for free.
+- The `Settings` object is instantiated once, in `__main__.py`, before `server.run()` is called.
+- `Settings` is passed into the server and client constructors by dependency injection — never
+  re-instantiated or re-read from the environment mid-session.
+- `ConfigurationError` is defined in `errors.py` (alongside `CredentialError`).
+- All variable names, types, defaults, and descriptions must be documented in a reference table inside
+  `config.py` as module-level docstring or comments — the code is the authoritative reference.
+
+**Ask First:**
+- Nothing — all variables and their constraints are defined in requirements.md and design decisions.
+
+**Never:**
+- Do not call `os.environ.get(...)` anywhere outside of `config.py` / the `Settings` class.
+- Do not silently coerce an out-of-range value to the nearest boundary — raise an error instead.
+- Do not default `AWS_REGION` to any fallback value — it is required and must be present.
+
+## 5. For the developer agent
+
+### Files to Touch
+
+| File | Action | Notes |
+|------|--------|-------|
+| `src/arkeology/errors.py` | Modify | Add `ConfigurationError` |
+| `src/arkeology/config.py` | Create | `Settings` model and all env var definitions |
+| `src/arkeology/__main__.py` | Modify | Instantiate `Settings` before calling `server.run()` |
+| `tests/unit/test_config.py` | Create | All parsing, validation, and default tests |
+
+#### `errors.py` — `ConfigurationError`
+
+Add to the existing `errors.py`:
+
+**`ConfigurationError`**: raised when a required environment variable is missing or a value fails
+validation.
+- `variable: str` — the environment variable name, e.g. `"AWS_REGION"`
+- `message: str` — human-readable description of the problem and how to fix it
+
+#### `config.py` — `Settings` Model
+
+The environment variable reference is the R2 table.
+
+**Parsed properties (derived from raw env vars).** `Settings` must expose these additional computed
+properties that downstream code uses directly:
+
+- `read_prefixes_list: list[str]` — `READ_PREFIXES` split on `,`, stripped, empty entries removed (R3)
+- `effective_read_scopes: list[str]` — `[write_prefix] + read_prefixes_list` (the full read scope the
+  server operates over, including the write prefix which is always in scope)
+
+**Pydantic `BaseSettings` usage.** Use `pydantic-settings` `BaseSettings`. Key configuration:
+- Set `model_config = SettingsConfigDict(env_prefix="", case_sensitive=True)` so variable names map
+  exactly.
+- Use Pydantic `Field(default=..., description=...)` for each field — the description becomes the
+  documentation.
 - Use a Pydantic `@field_validator` for:
   - `SEARCH_FETCH_TOP_K`: validate range 1–100.
   - `SEARCH_MAX_ITERATIONS`: validate ≥1.
   - `SEARCH_DEFAULT_TOP_K`: validate range 1–100.
   - `LOG_LEVEL`: validate it is one of the four valid values (case-insensitive, store uppercase).
-  - `READ_PREFIXES` (raw string): the validator converts the comma-separated string to `read_prefixes_list`.
+  - `READ_PREFIXES` (raw string): the validator converts the comma-separated string to
+    `read_prefixes_list`.
 
-### How `Settings` is used in `__main__.py`
+`config.py`'s `load_settings()` iterates `ValidationError.errors()` in full and joins every field's
+message into the single `ConfigurationError` raised (R6).
+
+#### How `Settings` is used in `__main__.py`
 
 In `main()`, after configuring logging, construct `Settings()`. If a Pydantic `ValidationError` is
-raised, catch it, format the first error (or all errors) as a human-readable `ConfigurationError`
-message, print it to stderr, and exit with code 1. Do not let a raw Pydantic `ValidationError`
-propagate — the user should see a clean message, not a stack trace.
+raised, catch it, format all of its errors (R6) as a human-readable `ConfigurationError` message, print it to stderr, and
+exit with code 1 (R6).
 
-Pass the constructed `Settings` instance to `server.run(settings)`. The server stores it and passes
-it to the startup validator (T5) and eventually to the client factory.
+Pass the constructed `Settings` instance to `server.run(settings)`. The server stores it and passes it
+to the startup validator (T5) and eventually to the client factory.
 
----
+### Contracts
 
-## TDD Workflow
+None.
 
-`config.py` has pure, side-effect-free validation logic — it is the ideal case for strict TDD.
-There is no AWS, no I/O, no concurrency. Every test is fast and deterministic.
+### Testing Approach
 
-**Step 1 — Write `tests/unit/test_config.py` in full (Red).**
-Write all test cases from the Test Cases section below. Use `pytest-monkeypatch` or
-`os.environ` patching to set/unset env vars per test. Run `uv run pytest tests/unit/test_config.py`
-— every test fails with `ImportError` because `config.py` does not exist yet. ✓
+`config.py` has pure, side-effect-free validation logic — it is the ideal case for strict TDD. There is
+no AWS, no I/O, no concurrency. Every test is fast and deterministic.
 
-**Step 2 — Write `config.py` (Green).**
-Implement the `Settings` model. Run `uv run pytest tests/unit/test_config.py` — all tests pass. ✓
+1. **Write `tests/unit/test_config.py` in full (Red).** Write all test cases from the table below. Use
+   `pytest-monkeypatch` or `os.environ` patching to set/unset env vars per test. Run
+   `uv run pytest tests/unit/test_config.py` — every test fails with `ImportError` because `config.py`
+   does not exist yet. ✓
+2. **Write `config.py` (Green).** Implement the `Settings` model. Run
+   `uv run pytest tests/unit/test_config.py` — all tests pass. ✓
 
-Do not write `config.py` in one shot and then check whether the tests pass.
-Write enough to make the first failing test pass, then the second, and so on.
-This forces you to think about each validation rule individually.
+   Do not write `config.py` in one shot and then check whether the tests pass. Write enough to make the
+   first failing test pass, then the second, and so on. This forces you to think about each validation
+   rule individually.
+3. **Refactor.** Review the Pydantic validators. Are error messages clear? Are all edge cases (empty
+   string, whitespace-only value) handled? Are the computed properties (`read_prefixes_list`,
+   `effective_read_scopes`) correct for all combinations? Tests stay green throughout. ✓
+4. **Add `ConfigurationError` wrapping in `__main__.py`.** Write a test that constructs `Settings` with a
+   missing required variable and asserts that `main()` exits with code 1 and prints to stderr (not
+   stdout). Implement the catch in `__main__.py`. This test can live in `test_config.py` or a new
+   `test_main.py`.
 
-**Step 3 — Refactor.**
-Review the Pydantic validators. Are error messages clear? Are all edge cases (empty string,
-whitespace-only value) handled? Are the computed properties (`read_prefixes_list`,
-`effective_read_scopes`) correct for all combinations? Tests stay green throughout. ✓
-
-**Step 4 — Add `ConfigurationError` wrapping in `__main__.py`.**
-Write a test that constructs `Settings` with a missing required variable and asserts that
-`main()` exits with code 1 and prints to stderr (not stdout). Implement the catch in `__main__.py`.
-This test can live in `test_config.py` or a new `test_main.py`.
-
----
-
-## Test Cases
+**Test cases:**
 
 | Scenario | Test |
 |----------|------|
@@ -204,7 +248,3 @@ This test can live in `test_config.py` or a new `test_main.py`.
 | `effective_read_scopes` with no prefix and no read prefixes | `[""]` |
 | `AWS_PROFILE` absent | `aws_profile is None` |
 | `BEDROCK_EMBEDDING_MODEL` absent | `bedrock_embedding_model == "amazon.titan-embed-text-v2:0"` |
-
-## Open Questions
-
-- [x] Pydantic `ValidationError` exposes errors as a structured list. Decide how many errors to surface in the human-readable output when multiple vars are missing simultaneously — first error only, or all errors at once. **Resolved as recommended** — `config.py`'s `load_settings()` iterates `ValidationError.errors()` in full and joins every field's message into the single `ConfigurationError` raised, so one missing variable never hides another.

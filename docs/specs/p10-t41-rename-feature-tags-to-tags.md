@@ -16,14 +16,15 @@ sources:
 generated:
   by: "axians-pm/claude-sonnet-4.6"
   at: 2026-06-18T00:00:00Z
+revised:
+  by: "axians-architect/claude-opus-5-5"
+  at: 2026-11-09T17:25:26Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
 ---
 
 # T41: Rename `feature_tags` → `tags`
-
-<!-- SCOPE BLOCK — frozen after approval -->
 
 ## TL;DR
 
@@ -33,7 +34,7 @@ tests, AGENTS.md, and skills. This is a pure identifier rename with no semantic 
 aligns Arkeology's one cleanly OKF-equivalent field with the OKF `tags` vocabulary (brainstorming
 D2, LOCKED). No live data migration is needed.
 
-## Problem Statement
+## 1. Problem Statement
 
 The Arkeology artifact model uses `feature_tags` while OKF uses `tags` for the identical concept.
 Brainstorming session D2 (LOCKED) identified this as the one field where OKF alignment is
@@ -42,71 +43,98 @@ lands the public API and internal keys diverge from OKF vocabulary for no good r
 the future export adapter (B-2) slightly more complex and adding minor friction for users
 already familiar with OKF.
 
-## User Stories
+All three user stories this spec covers — the MCP API uses `tags`, filtering on `tags` works
+end-to-end, and the dual encoding is preserved under the new key name — are P1.
 
-**P1 — MCP API uses `tags`**
-- Given a caller writing an artifact with `tags=["auth", "security"]`
-- When `write_artifact` is called
-- Then the artifact is stored with `tags` as the field name in both S3 object metadata
-  (comma-joined string `"auth,security"`) and vector metadata (list `["auth", "security"]`);
-  `tags` appears in `write_artifact`, `read_artifact`, `list_artifacts`, and
-  `search_artifacts` responses.
+## 2. Rules — The `tags` field in storage and the MCP API
 
-**P1 — Filter on `tags` works end-to-end**
-- Given artifacts stored with `tags=["payments"]`
-- When `list_artifacts(tags=["payments"])` or `search_artifacts(..., tags=["payments"])` is
-  called
-- Then only artifacts carrying `"payments"` in their `tags` list are returned.
+### R1 — `write_artifact` stores `tags` under the key `"tags"`, with the dual encoding unchanged
 
-**P1 — Dual encoding preserved under the new key name**
-- Given an artifact written with `tags=["auth", "security"]`
-- When S3 object metadata is inspected
-- Then the key `"tags"` holds the comma-joined string `"auth,security"`.
-- And when vector metadata is inspected
-- Then the key `"tags"` holds the list `["auth", "security"]`.
+When `write_artifact` is called with a `tags` parameter, the system stores the value under the
+key `"tags"` in S3 object metadata as a comma-joined string and under the key `"tags"` in vector
+metadata as a `list[str]`. Only the key name changes — the encoding semantics (S3: comma-joined
+string, vector: list[str]) are unchanged.
 
-## Requirements
+**Example**
 
-- WHEN `write_artifact` is called with a `tags` parameter, THE SYSTEM SHALL store the value
-  under the key `"tags"` in S3 object metadata as a comma-joined string and under the key
-  `"tags"` in vector metadata as a `list[str]`.
-- WHEN any read, search, list, or synthesise tool returns artifact metadata, THE SYSTEM SHALL
-  use the field name `"tags"` — not `"feature_tags"` — in the response dictionary.
-- WHEN a filter clause is built for `tags`, THE SYSTEM SHALL construct
-  `{"tags": {"$eq": tag}}` for each tag in the filter list.
-- WHEN `reconcile_index` re-indexes an S3 artifact, THE SYSTEM SHALL read the `"tags"` key
-  from S3 object metadata (comma-joined string) and write it as `"tags"` (list[str]) into
-  the vector index.
-- WHEN `write_artifacts` parses a bulk descriptor, THE SYSTEM SHALL read the `"tags"` key
-  from the descriptor dict.
-- WHEN AGENTS.md and SERVER-REFERENCE.md describe conventions, THE SYSTEM SHALL use `tags`
-  everywhere `feature_tags` was previously named.
-- WHEN the setting-up-arkeology and migrating-to-arkeology skills reference the field, THE SYSTEM
-  SHALL use `tags`.
+- Given a caller writing an artifact with `tags=["auth", "security"]`, when `write_artifact` is
+  called, then the artifact is stored with `tags` as the field name in both S3 object metadata
+  (comma-joined string `"auth,security"`) and vector metadata (list `["auth", "security"]`).
+- Given an artifact written with `tags=["auth", "security"]`, when S3 object metadata is
+  inspected, then the key `"tags"` holds the comma-joined string `"auth,security"`; and when
+  vector metadata is inspected, then the key `"tags"` holds the list `["auth", "security"]`.
 
-## Boundaries
+### R2 — Tool responses name the field `"tags"`, not `"feature_tags"`
 
-| Category | Entry |
-|---|---|
-| **Always** | Rename the key name only — encoding semantics (S3: comma-joined string, vector: list[str]) are unchanged |
-| **Always** | Rename the public MCP parameter in all four tools: `write_artifact`, `search_artifacts`, `list_artifacts`, `synthesise_artifacts` |
-| **Always** | Rename filter clause keys (`{"tags": {"$eq": tag}}`) |
-| **Always** | Rename in all unit and integration test fixtures, assertions, test names, and docstrings |
-| **Always** | Update AGENTS.md Conventions and High-Friction Areas sections |
-| **Always** | Update SERVER-REFERENCE.md, resources.py schema table and guidance text |
-| **Always** | Update setting-up-arkeology (`agents-snippet.md`) and migrating-to-arkeology (`SKILL.md`) |
-| **Never** | Change the dual-encoding scheme (S3 comma-joined string vs vector list[str]) |
-| **Never** | Add any data migration tooling — no live data exists |
-| **Never** | Modify historical spec files in `docs/specs/` (completed task artefacts) |
-| **Never** | Modify brainstorming docs in `docs/brainstorming/` |
-| **Never** | Modify `docs/learnings.md` |
-| **Never** | Modify `docs/architecture-decisions/` ADRs |
+When any read, search, list, or synthesise tool returns artifact metadata, the system uses the
+field name `"tags"` — not `"feature_tags"` — in the response dictionary. `tags` appears in
+`write_artifact`, `read_artifact`, `list_artifacts`, and `search_artifacts` responses.
 
----
+### R3 — The public MCP parameter is `tags` on all four tools
 
-<!-- IMPLEMENTATION BLOCK — agent-owned -->
+The public MCP parameter is renamed from `feature_tags` to `tags` in all four tools:
+`write_artifact`, `search_artifacts`, `list_artifacts`, `synthesise_artifacts`.
 
-## Files to Touch
+### R4 — A `tags` filter builds one `{"tags": {"$eq": tag}}` clause per tag
+
+When a filter clause is built for `tags`, the system constructs `{"tags": {"$eq": tag}}` for
+each tag in the filter list, so filtering on `tags` works end-to-end.
+
+**Example**
+
+- Given artifacts stored with `tags=["payments"]`, when `list_artifacts(tags=["payments"])` or
+  `search_artifacts(..., tags=["payments"])` is called, then only artifacts carrying
+  `"payments"` in their `tags` list are returned.
+
+### R5 — `reconcile_index` re-indexes the `"tags"` key
+
+When `reconcile_index` re-indexes an S3 artifact, the system reads the `"tags"` key from S3
+object metadata (comma-joined string) and writes it as `"tags"` (list[str]) into the vector
+index.
+
+### R6 — `write_artifacts` reads `"tags"` from a bulk descriptor
+
+When `write_artifacts` parses a bulk descriptor, the system reads the `"tags"` key from the
+descriptor dict.
+
+## 3. Rules — Documentation, resources and skills
+
+### R7 — Documentation and resource text name the field `tags`
+
+When AGENTS.md and SERVER-REFERENCE.md describe conventions, they use `tags` everywhere
+`feature_tags` was previously named — the AGENTS.md Conventions and High-Friction Areas
+sections, SERVER-REFERENCE.md, and the `resources.py` schema table and guidance text.
+
+### R8 — The setting-up-arkeology and migrating-to-arkeology skills name the field `tags`
+
+When the setting-up-arkeology and migrating-to-arkeology skills reference the field, they use
+`tags` — setting-up-arkeology (`agents-snippet.md`) and migrating-to-arkeology (`SKILL.md`).
+
+## 4. Boundaries
+
+**Always:**
+- Rename the key name only — encoding semantics (S3: comma-joined string, vector: list[str]) are unchanged
+- Rename the public MCP parameter in all four tools: `write_artifact`, `search_artifacts`, `list_artifacts`, `synthesise_artifacts`
+- Rename filter clause keys (`{"tags": {"$eq": tag}}`)
+- Rename in all unit and integration test fixtures, assertions, test names, and docstrings
+- Update AGENTS.md Conventions and High-Friction Areas sections
+- Update SERVER-REFERENCE.md, resources.py schema table and guidance text
+- Update setting-up-arkeology (`agents-snippet.md`) and migrating-to-arkeology (`SKILL.md`)
+
+**Ask First:**
+- None.
+
+**Never:**
+- Change the dual-encoding scheme (S3 comma-joined string vs vector list[str])
+- Add any data migration tooling — no live data exists
+- Modify historical spec files in `docs/specs/` (completed task artefacts)
+- Modify brainstorming docs in `docs/brainstorming/`
+- Modify `docs/learnings.md`
+- Modify `docs/architecture-decisions/` ADRs
+
+## 5. For the developer agent
+
+### Files to Touch
 
 | File | Action | Notes |
 |---|---|---|
@@ -141,7 +169,11 @@ already familiar with OKF.
 | `skills/setting-up-arkeology/references/agents-snippet.md` | Rename | Tool call example `feature_tags=` → `tags=` |
 | `skills/migrating-to-arkeology/SKILL.md` | Rename | Field mapping guidance references |
 
-## Testing Approach
+### Contracts
+
+None.
+
+### Testing Approach
 
 This project uses TDD. Because this is a pure rename refactor, the TDD sequence is a
 **red → green sweep**: update test files first so each test fails because the production
@@ -186,7 +218,3 @@ fully green. Then: `uv run ruff check src/ tests/`, `uv run ruff format --check 
 
 Update `AGENTS.md`, `SERVER-REFERENCE.md`,
 `skills/setting-up-arkeology/references/agents-snippet.md`, `skills/migrating-to-arkeology/SKILL.md`.
-
-## Open Questions
-
-None — scope is fully specified by brainstorming D2 (LOCKED) and confirmed by PM.

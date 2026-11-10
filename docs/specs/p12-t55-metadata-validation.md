@@ -25,13 +25,11 @@ generated:
   by: "axians-architect/claude-opus-4.8"
   at: 2026-07-03T00:00:00Z
 revised:
-  by: "axians-architect/claude-sonnet-5"
-  at: 2026-08-17T00:00:00Z
+  by: "axians-architect/claude-opus-5-5"
+  at: 2026-11-09T19:54:36Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
-phase: 12
-task: 55
 ---
 
 # T55 — Write-Path Metadata Size + Charset Validation
@@ -67,8 +65,6 @@ task: 55
 >    vector-metadata keys; as of T58 it is never present in that dict at all (not merely small), so it
 >    no longer counts against either budget in practice — see `docs/specs/p12-t58-commit-refs-cap-references-removal.md`.
 
-<!-- SCOPE BLOCK — frozen after approval -->
-
 ## TL;DR
 
 Before any S3 or vector write, the write path validates the artifact's
@@ -79,7 +75,7 @@ the `Artifact` model and stores non-ASCII titles losslessly so `read_artifact` a
 report the identical title. Serves every agent that writes artifacts; nothing durable can be trusted
 until oversize/malformed writes fail cleanly. (FR-59, AC-67.)
 
-## Problem Statement
+## 1. Problem Statement
 
 `write_artifact` assembles S3 user-defined object metadata (transmitted as HTTP headers) and vector
 metadata, then writes S3 **first** and vectors second. Three defects live in that path:
@@ -92,39 +88,59 @@ that escapes the tool; (3) a non-Latin title is NFKD-stripped to `""` in S3 meta
 `search_artifacts` return different titles for the same artifact. This lands before/with T46 (adds
 `references` to the filterable vector payload) and T47 (moves `commit_refs`/`references` off S3
 user-metadata to annotations) because those tasks enlarge exactly the payload this guard measures.
+All five user stories of the earlier format — oversize metadata rejected before any write, the
+budget re-check after the T47 overwrite read-forward merge, control characters neutralised, title
+length bounded, and non-ASCII title consistency — are P1.
 
-## User Stories
+## 2. Rules — Pre-write budget check
 
-### Story 1 — Oversize metadata rejected before any write (P1)
+### R1 — Oversize metadata is rejected before any write
 
-**Acceptance criteria:**
+When `write_artifact` has assembled the S3 user-metadata dict and the filterable-and-total vector
+metadata dict, and BEFORE it issues `head_object`/`put_object`/`put_vectors_batch` or appends any
+failure-log entry, it validates all three byte budgets (S3 user-metadata aggregate; vector
+filterable; vector total) against the **actual serialized representations about to be written**.
+On any breach it returns a structured `validation_error` naming the offending budget (via the
+standard `_inner` try/except) and issues no storage write and no failure-log append.
+
+**Example**
+
 - Given an artifact whose assembled S3 user-metadata exceeds the S3 aggregate budget, when
-  `write_artifact` is called then it returns a structured `validation_error` naming the offending
-  budget AND performs no `put_object`, no `put_vectors_batch`, and appends no failure-log entry. (AC-67)
+  `write_artifact` is called, then it returns a structured `validation_error` naming the offending
+  budget AND performs no `put_object`, no `put_vectors_batch`, and appends no failure-log entry.
 - Given an artifact whose filterable vector metadata exceeds the 2 KB filterable budget (e.g. many
-  long `references`/`commit_refs`/`tags`), when written then it is rejected before any write with a
+  long `references`/`commit_refs`/`tags`), when written, then it is rejected before any write with a
   `validation_error` — no partial write, no reconcile-replay loop is created.
-- Given an artifact whose total vector metadata exceeds the 40 KB total budget, when written then it
+- Given an artifact whose total vector metadata exceeds the 40 KB total budget, when written, then it
   is rejected before any write.
 - Given a rejected write, when `reconcile_index` later runs, then there is nothing to replay (no S3
   object and no failure-log entry were ever created).
 
-### Story 5 — Budget re-check after the T47 overwrite read-forward merge (P1)
+Source: AC-67 — the S3 user-metadata aggregate part
 
-**Added 2026-07-04 (tech-writer).** T47 (`write_artifact`) read-forwards a
-tier-3 overwrite's existing `commit_refs` / `references` (union of both durable stores) and
-merges them into `vector_metadata` **after** this task's pre-write budget check has already run
-against the values supplied to the current call. That merge can enlarge `vector_metadata` beyond
-what Story 1's check measured.
+### R2 — The budget check runs a second time after the T47 overwrite read-forward merge
 
-**Acceptance criteria:**
+T47 (`write_artifact`) read-forwards a tier-3 overwrite's existing `commit_refs` / `references`
+(union of both durable stores) and merges them into `vector_metadata` **after** the pre-write budget
+check has already run against the values supplied to the current call. That merge can enlarge
+`vector_metadata` beyond what the pre-write check measured. When a tier-3 overwriting write's T47
+read-forward merges the union-of-both-stores `commit_refs` (and, historically, `references`) into
+`vector_metadata`, enlarging it beyond what was measured, `write_artifact` calls
+`check_metadata_budgets` a **second time** against the enlarged `vector_metadata` — **after the merge
+and before** any `put_object` / `put_vectors_batch` — and rejects on breach with the same
+`validation_error` behaviour as the pre-write check: no write, no failure-log entry. A merge that
+stays within all three budgets passes the second check silently and the write proceeds normally.
+`references` no longer read-forwards or merges as of the 2026-07-06 replace-semantics decision, so
+only `commit_refs` can enlarge `vector_metadata` beyond the initial measurement; the re-check still
+runs against the full dict for both fields.
+
+**Example**
+
 - Given a tier-3 overwrite whose supplied `commit_refs`/`references` alone pass the pre-write budget
   check, but whose merge with the read-forwarded union pushes the vector filterable or total budget
-  over its limit, when `write_artifact` runs then `check_metadata_budgets` is called a **second
-  time** — after the merge, before any `put_object` / `put_vectors_batch` — and the write is rejected
-  with a `validation_error`, with no write and no failure-log entry, identical to a Story 1 rejection.
-- Given a merge that stays within all three budgets, then the second check passes silently and the
-  write proceeds normally.
+  over its limit, when `write_artifact` runs, then `check_metadata_budgets` is called a second time —
+  after the merge, before any `put_object` / `put_vectors_batch` — and the write is rejected with a
+  `validation_error`, with no write and no failure-log entry, identical to a pre-write rejection.
 
 > **Note (2026-07-06, shipped in `7a697dd`).** `references` now **replaces** rather than merges on
 > an overwriting write (see `docs/specs/p12-t46-references-field.md`'s forward-pointer note); only
@@ -136,80 +152,124 @@ what Story 1's check measured.
 > run — re-running it against the full `vector_metadata` (both fields) after the write path computes
 > the final value for each is simpler and no less correct than special-casing which field changed.
 
-### Story 2 — Control characters neutralised (P1)
+Source: (tech-writer, 2026-07-04); the `references` part: the 2026-07-06 replace-semantics decision (`7a697dd`)
 
-**Acceptance criteria:**
-- Given a `title`, `description`, `author_role`, or any `tags`/`source_artifacts`/`references`/
-  `commit_refs` element containing a control character (e.g. `\n`, `\t`, `\r`, `\x00`, DEL), when the
-  artifact is constructed or written then a structured `validation_error` is returned naming the
-  field — never a raw urllib3 `ValueError` or any uncaught exception. (AC-67)
+## 3. Rules — Byte Budgets and Classification
 
-### Story 3 — Title length bounded (P1)
+### R3 — The three byte budgets
 
-**Acceptance criteria:**
-- Given a `title` longer than the model bound, when the `Artifact` is constructed then a clear
-  validation error is raised stating the bound and the actual length. (AC-67)
-- Given a title at or below the bound, when constructed then no error is raised.
+The pre-write check measures each budget as follows and rejects the write when the measured size
+exceeds the budget's constant.
 
-### Story 4 — Non-ASCII title consistency (P1)
+| Constant | Value (nominal) | What is measured |
+|---|---|---|
+| `S3_USER_METADATA_MAX_BYTES` | 2048 | over the actual s3_metadata dict, the sum of the UTF-8 byte length of each key plus each (transport-encoded) value |
+| `VECTOR_FILTERABLE_METADATA_MAX_BYTES` | 2048 | only the vector-metadata keys NOT listed in `NON_FILTERABLE_METADATA_KEYS`: the UTF-8 byte length of their JSON serialization |
+| `VECTOR_TOTAL_METADATA_MAX_BYTES` | 40960 | the full vector-metadata dict (filterable + non-filterable): the UTF-8 byte length of its JSON serialization |
 
-**Acceptance criteria:**
+**Budget nominal units (KiB vs decimal)** (an Open Question in the original, deferred to integration — closed by the Amended 2026-08-17 note above). The nominal values above use KiB; if integration testing
+shows AWS rejects earlier, tighten the single-source constants (deferred to integration). The
+constants are the single tuning point if integration testing shows AWS's internal accounting differs
+from the JSON/byte approximation.
+
+Source: S3 user-defined object metadata 2 KB aggregate cap: ADR-011 (verified 2026-07-02), AWS S3 user-guide; S3 Vectors filterable ≤ 2 KB and total ≤ 40 KB per vector: https://docs.aws.amazon.com/AmazonS3/latest/userguide/s3-vectors-limitations.html (retrieved 2026-07-03)
+
+### R4 — Filterable and non-filterable vector-metadata keys
+
+`NON_FILTERABLE_METADATA_KEYS = ("description", "source_artifacts", "title", "author_role")` —
+matches the index declaration. All other vector-metadata keys (`artifact_id`, `scope`, `type`,
+`team`, `project`, `tier`, `date`, `status`, `visibility`, `last_edited_ulid`, `tags`, `references`,
+`commit_refs`) are filterable and count against the 2 KB filterable budget — so `references`/
+`commit_refs` are the fields that most threaten it, which is why T55 must precede T46/T47. `title`
+and `author_role` are listed only as non-filterable.
+
+> Verified 2026-08-12 (tech-writer) against the shipped `src/arkeology/artifact.py`
+> (`NON_FILTERABLE_METADATA_KEYS`) and the `vector_metadata` dict assembled in `_write_artifact_inner` in
+> `src/arkeology/tools/write.py`: the filterable enumeration above matches the shipped keys exactly.
+
+Source: the `title`/`author_role` part: correction (tech-writer, 2026-08-12)
+
+## 4. Rules — Field validation in the Artifact model
+
+### R5 — Title length is bounded
+
+When the `Artifact` model is constructed with a `title` longer than `TITLE_MAX_LENGTH` (256 chars),
+it raises a `ValueError` — a clear validation error stating the bound and the actual length. A title
+at or below the bound raises no error. `TITLE_MAX_LENGTH` is a coarse model-level sanity bound
+(headline-length; the byte budgets are the authoritative whole-payload guard).
+
+Source: AC-67 — the over-bound part
+
+### R6 — Control characters are rejected, not stripped
+
+When the `Artifact` model is constructed, any string value bound for metadata — `title`,
+`description`, `author_role`, and every element of `tags`, `source_artifacts`, `references`,
+`commit_refs` — that contains a control character (Unicode category `Cc`, i.e. code points
+U+0000–U+001F and U+007F–U+009F; e.g. `\n`, `\t`, `\r`, `\x00`, DEL) is rejected with a `ValueError`
+naming the field. When such an artifact is constructed or written, a structured `validation_error`
+is returned naming the field — never a raw urllib3 `ValueError` or any uncaught exception.
+
+**Why:** these are short human-authored identity fields where a control char is a mistake or
+injection; silent stripping would mutate the stored value and, for `title`, directly undermine the
+requirement that the title round-trip identically (a stripped title is a new divergence). Reject is
+consistent with fail-fast and gives the caller a clear, actionable signal.
+
+Source: AC-67 — the structured `validation_error` part
+
+## 5. Rules — Non-ASCII title consistency
+
+### R7 — The S3-metadata copy of a non-ASCII value is lossless
+
+When a metadata value contains non-ASCII characters, it is encoded losslessly and reversibly for the
+S3 user-metadata copy (replacing the lossy NFKD-ASCII-strip in `_ascii_safe_metadata`) and decoded
+symmetrically wherever the S3-metadata title is read back (the `read_artifact` fallback path and the
+`reconcile_index` rebuild), while vector metadata continues to hold the raw UTF-8 title and is the
+authoritative display source. The developer picks the concrete encoding (e.g. percent-encoding of
+the UTF-8 bytes — recommended over RFC 2047 for simplicity); it must be ASCII/header-safe and
+reversible. The encoded form inflates non-ASCII values (~3× worst case), which the S3 budget check
+correctly measures because it measures the encoded representation.
+
+**Example**
+
+- Given an artifact with a non-Latin title, when `reconcile_index` rebuilds its vector metadata from
+  the S3 object, then the restored title is still the identical original title (the S3-metadata copy
+  is lossless).
+
+**Why:** vector-only-authoritative alone is insufficient because `reconcile_index` rebuilds vector
+metadata *from* the S3 object — a lossy S3 copy would reintroduce the divergence after any
+reconcile.
+
+Source: None
+
+### R8 — `read_artifact` and `search_artifacts` report the identical title
+
+When `read_artifact` and `search_artifacts` return a title, they source it from the same
+charset-safe representation, so the two never disagree.
+
+**Example**
+
 - Given an artifact with a non-Latin title (e.g. Japanese, Cyrillic, Arabic), when it is read via
   `read_artifact` and found via `search_artifacts`, then both return the identical original title —
-  no silent ASCII-stripping to `""`. (AC-67)
-- Given the same artifact, when `reconcile_index` rebuilds its vector metadata from the S3 object,
-  then the restored title is still the identical original title (the S3-metadata copy is lossless).
-- Given the non-ASCII title, then the generated `artifact_id` is byte-for-byte unchanged from today
-  (ADR-005 hash/slug scheme untouched).
+  no silent ASCII-stripping to `""`.
 
-## Requirements
+Source: AC-67 — the non-Latin read/search part
 
-- WHEN the `Artifact` model is constructed THE SYSTEM SHALL reject a `title` longer than
-  `TITLE_MAX_LENGTH` with a `ValueError` stating the bound and the actual length.
-- WHEN the `Artifact` model is constructed THE SYSTEM SHALL reject any string value bound for metadata
-  (`title`, `description`, `author_role`, and every element of `tags`, `source_artifacts`,
-  `references`, `commit_refs`) that contains a control character (Unicode category `Cc`, i.e. code
-  points U+0000–U+001F and U+007F–U+009F) with a `ValueError` naming the field.
-- WHEN `write_artifact` has assembled the S3 user-metadata dict and the filterable-and-total vector
-  metadata dict, and BEFORE issuing `head_object`/`put_object`/`put_vectors_batch` or appending any
-  failure-log entry, THE SYSTEM SHALL validate all three budgets against the **actual serialized
-  representations about to be written** and, on any breach, return a structured `validation_error`
-  (via the standard `_inner` try/except) and issue no storage write and no failure-log append.
-- WHEN a tier-3 overwriting write's T47 read-forward merges the union-of-both-stores `commit_refs`
-  (and, historically, `references`) into `vector_metadata`, enlarging it beyond what was measured
-  above, THE SYSTEM SHALL re-run this same budget check against the enlarged `vector_metadata`
-  **after the merge and before** any `put_object` / `put_vectors_batch`, and reject on breach with
-  the same `validation_error` behaviour — no write, no failure-log entry. (`references` no longer
-  read-forwards or merges as of the 2026-07-06 replace-semantics decision — see the note under
-  Story 5 above — so only `commit_refs` can enlarge `vector_metadata` beyond the initial
-  measurement; the re-check still runs against the full dict for both fields.)
-- WHEN computing the S3 aggregate size THE SYSTEM SHALL sum, over the actual s3_metadata dict, the
-  UTF-8 byte length of each key plus each (transport-encoded) value, and reject if it exceeds
-  `S3_USER_METADATA_MAX_BYTES`.
-- WHEN computing the vector filterable size THE SYSTEM SHALL measure only the vector-metadata keys NOT
-  listed in `NON_FILTERABLE_METADATA_KEYS`, and reject if the UTF-8 byte length of their JSON
-  serialization exceeds `VECTOR_FILTERABLE_METADATA_MAX_BYTES`.
-- WHEN computing the vector total size THE SYSTEM SHALL measure the full vector-metadata dict
-  (filterable + non-filterable) and reject if its JSON serialization exceeds
-  `VECTOR_TOTAL_METADATA_MAX_BYTES`.
-- WHEN a metadata value contains non-ASCII characters THE SYSTEM SHALL encode it losslessly and
-  reversibly for the S3 user-metadata copy (replacing the lossy NFKD-ASCII-strip in
-  `_ascii_safe_metadata`) and SHALL decode it symmetrically wherever the S3-metadata title is read
-  back (the `read_artifact` fallback path and `reconcile_index` rebuild), while vector metadata
-  continues to hold the raw UTF-8 title.
-- WHEN `read_artifact` and `search_artifacts` return a title THE SYSTEM SHALL source it from the same
-  charset-safe representation so the two never disagree.
-- WHEN the metadata payload is validated THE SYSTEM SHALL NOT alter `generate_artifact_id` behaviour —
-  the id is derived from the raw title upstream of any encoding.
+### R9 — The artifact id is unaffected
 
-## Boundaries
+Validating the metadata payload does not alter `generate_artifact_id` behaviour — the id is derived
+from the raw title upstream of any encoding. Given a non-ASCII title, the generated `artifact_id` is
+byte-for-byte unchanged from today (ADR-005 hash/slug scheme untouched).
+
+Source: ADR-005
+
+## 6. Boundaries
 
 **Always:**
 - The size check runs **before** the collision `head_object`, the `put_object`, the vector write, AND
   any failure-log append — a rejected write touches neither S3, vectors, nor the failure log.
 - The check runs **twice** on a tier-3 overwrite: once against the values supplied to the current
-  call (Story 1, before `head_object`), and again against the enlarged `vector_metadata` after the
-  T47 read-forward union-merge (Story 5, before `put_object`/`put_vectors_batch`) — because the merge
+  call (R1, before `head_object`), and again against the enlarged `vector_metadata` after the
+  T47 read-forward union-merge (R2, before `put_object`/`put_vectors_batch`) — because the merge
   can independently push the vector budgets over their limit even when the supplied values alone did
   not.
 - The check is **representation-driven**, not field-list-driven: it measures the actual assembled
@@ -222,7 +282,7 @@ what Story 1's check measured.
   mirroring `ARTIFACT_TYPES`/`REFERENCE_FIELDS`); `NON_FILTERABLE_METADATA_KEYS` MUST equal the
   externally-created index's declared non-filterable slots (per the requirements.md Constraints table:
   `description`, `source_artifacts`, `title`, `author_role`).
-- Control-char policy is **reject, not strip** — see Open Questions rationale.
+- Control-char policy is **reject, not strip** — see the rationale under R6.
 - Non-ASCII title copy is **lossless-encoded**, not stripped, so reconcile round-trips it.
 
 **Ask First:**
@@ -237,40 +297,9 @@ what Story 1's check measured.
   land.
 - Do not let any raw exception escape to the MCP caller.
 
-<!-- IMPLEMENTATION BLOCK — agent-owned -->
+## 7. For the developer agent
 
-## Byte Budgets and Classification
-
-Sources: S3 user-defined object metadata 2 KB aggregate cap (ADR-011, verified 2026-07-02, and AWS S3
-user-guide); S3 Vectors filterable ≤ 2 KB and total ≤ 40 KB per vector
-(https://docs.aws.amazon.com/AmazonS3/latest/userguide/s3-vectors-limitations.html, retrieved
-2026-07-03).
-
-| Constant | Value (nominal) | Scope |
-|---|---|---|
-| `TITLE_MAX_LENGTH` | 256 chars | coarse model-level sanity bound (headline-length; the byte budgets are the authoritative whole-payload guard) |
-| `S3_USER_METADATA_MAX_BYTES` | 2048 | sum of UTF-8 bytes of each key + transport-encoded value in the s3_metadata dict |
-| `VECTOR_FILTERABLE_METADATA_MAX_BYTES` | 2048 | JSON UTF-8 bytes of vector-metadata keys NOT in `NON_FILTERABLE_METADATA_KEYS` |
-| `VECTOR_TOTAL_METADATA_MAX_BYTES` | 40960 | JSON UTF-8 bytes of the full vector-metadata dict |
-
-`NON_FILTERABLE_METADATA_KEYS = ("description", "source_artifacts", "title", "author_role")` — matches the index declaration.
-All other vector-metadata keys (`artifact_id`, `scope`, `type`, `team`, `project`, `tier`, `date`,
-`status`, `visibility`, `last_edited_ulid`, `tags`, `references`,
-`commit_refs`) are filterable and count against the 2 KB filterable budget — so `references`/
-`commit_refs` are the fields that most threaten it, which is why T55 must precede T46/T47. The
-constants are the single tuning point if integration testing shows AWS's internal accounting differs
-from the JSON/byte approximation.
-
-> **Corrected 2026-08-12 (tech-writer).** The "all other keys" sentence above previously also
-> listed `title` and `author_role`, which are non-filterable — it contradicted the
-> `NON_FILTERABLE_METADATA_KEYS` tuple immediately above it and would have led a reader to count
-> both keys against the wrong budget. Both are now listed only as non-filterable. Verified against
-> the shipped `src/arkeology/artifact.py` (`NON_FILTERABLE_METADATA_KEYS`) and the
-> `vector_metadata` dict assembled in `_write_artifact_inner` in
-> `src/arkeology/tools/write.py`: the
-> filterable enumeration above now matches the shipped keys exactly.
-
-## Files to Touch
+### Files to Touch
 
 | File | Action | Notes |
 |------|--------|-------|
@@ -286,7 +315,11 @@ from the JSON/byte approximation.
 | `src/arkeology/tools/reconcile.py` | Modify (flag) | Decode the S3-metadata title when rebuilding vector metadata so the round-trip stays lossless (verify reconcile reads title from S3 object metadata) |
 | `tests/integration/test_tools_write.py` | Modify (flag) | Real-AWS: oversize rejected pre-write; non-ASCII title round-trips through read + search |
 
-## Testing Approach
+### Contracts
+
+None.
+
+### Testing Approach
 
 **TDD cycle — test file before the implementation file it gates:**
 
@@ -300,28 +333,10 @@ from the JSON/byte approximation.
    rejected with `validation_error` and **zero** `put_object`/`put_vectors_batch`/failure-log calls
    (`mocker.spy`); control char → `validation_error` (no raw exception); a normal write still
    succeeds unchanged; a tier-3 overwrite whose read-forward union-merge (T47) pushes the vector
-   budget over its limit is rejected by the post-merge re-check (Story 5) with the same
+   budget over its limit is rejected by the post-merge re-check (R2) with the same
    zero-writes assertion.
 4. **`test_tools_read.py` → `read.py`** (and reconcile) — non-ASCII title returned identically by
    read and search; reconcile rebuild preserves it.
 5. **Integration** — real-AWS pre-write rejection and non-ASCII round-trip.
 
 Use `aws_mock`, `s3_client`, `vectors_client_*` fixtures; `FakeBedrockClient` for embeddings.
-
-## Open Questions
-
-- **Control chars: reject (chosen) vs strip.** Chosen **reject** with a structured `validation_error`.
-  Rationale: these are short human-authored identity fields where a control char is a mistake or
-  injection; silent stripping would mutate the stored value and, for `title`, directly undermine the
-  Story-4 requirement that the title round-trip identically (a stripped title is a new divergence).
-  Reject is consistent with fail-fast and gives the caller a clear, actionable signal. (Resolved.)
-- **Non-ASCII S3 copy: lossless encoding (chosen) vs vector-only authoritative title.** Chosen
-  **lossless reversible encoding** (e.g. percent-encoding of the UTF-8 bytes) of the S3-metadata copy,
-  with vector metadata as the authoritative display source. Vector-only-authoritative alone is
-  insufficient because `reconcile_index` rebuilds vector metadata *from* the S3 object — a lossy S3
-  copy would reintroduce the divergence after any reconcile. The developer picks the concrete encoding
-  (percent-encoding recommended over RFC 2047 for simplicity); it must be ASCII/header-safe and
-  reversible. Note the encoded form inflates non-ASCII values (~3× worst case), which the S3 budget
-  check correctly measures because it measures the encoded representation. (Resolved.)
-- **Budget nominal units (KiB vs decimal).** Nominal values above use KiB; if integration testing
-  shows AWS rejects earlier, tighten the single-source constants. (Deferred to integration.)

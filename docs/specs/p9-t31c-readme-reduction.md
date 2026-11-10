@@ -23,33 +23,26 @@ generated:
   by: "axians-architect/unknown"
   at: 2026-06-07T00:00:00Z
 revised:
-  by: "axians-tech-writer/unknown"
-  at: 2026-06-10T00:00:00Z
+  by: "axians-architect/claude-opus-5-5"
+  at: 2026-11-09T16:41:18Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
-phase: 9
-task: 31c
 ---
 
 # T31c — README Reduction
-
-<!-- SCOPE BLOCK — frozen after approval -->
 
 ## TL;DR
 
 Slim `README.md` further by removing the remaining operational sections that have moved
 into the `setting-up-arkeology` skill (`## Connecting to an MCP client` and
-`## Recommended AGENTS.md Snippet`), and update the `## Key Features` section to
-reflect the generalised exclusion model. The `## AWS Provisioning` section, the
-provisioning IAM policy, and the `.env` installation step have already been removed
-from the README as part of the scope-correction for T31. Replace each removed section
-with a one-sentence pointer to the skill. The target line count after all T31 changes
-is approximately 330 lines (higher than originally estimated because the promoted
-`## Minimum IAM Policy` section and the retained `## Using the Migration Skill`
-section together account for ~97 lines not included in the original projection).
+`## Recommended AGENTS.md Snippet`), replacing each removed section with a one-sentence pointer
+to the skill, and update the `## Key Features` section to reflect the generalised exclusion
+model. The `## AWS Provisioning` section, the provisioning IAM policy, and the `.env`
+installation step have already been removed from the README as part of the scope-correction for
+T31. The target line count after all T31 changes is approximately 330 lines.
 
-## Problem Statement
+## 1. Problem Statement
 
 The README still contains two large sections (`## Connecting to an MCP client` and
 `## Recommended AGENTS.md Snippet`) that belong in the `setting-up-arkeology` skill rather
@@ -57,61 +50,94 @@ than in the README. Keeping them risks drift as the skill evolves and adds conte
 is operationally redundant once the skill exists. Removing them and replacing with
 pointers completes the README's transformation into a focused discovery document.
 
-## User Stories
+The user stories behind R3 and R5 are P1; the one behind R2 is P2.
 
-### Story 1 — A new operator discovers Arkeology and understands what it is (P1)
+## 2. Rules — Removed operational sections
 
-**Acceptance criteria:**
-- Given a developer reading the README for the first time, when they reach the end,
-  then they understand what Arkeology does, whether it suits their project, and exactly
-  what to do next to get started (run the `setting-up-arkeology` skill).
-- Given a developer scanning for the configuration reference, when they find it in the
-  README, then every environment variable is documented with its default and a brief
-  description.
+### R1 — Two operational sections are removed, each replaced by a one-sentence pointer
 
-### Story 2 — The README stays current with the skill (P2)
+When the README is updated, `## Connecting to an MCP client` (including both IDE sub-sections)
+and `## Recommended AGENTS.md Snippet` (including `### Declare your ADR strategy first` and the
+full snippet body from `### arkeology — Persistent Artifact Memory` to end of snippet) are
+removed, each replaced with a one-sentence pointer: "See the `setting-up-arkeology` skill for
+interactive step-by-step guidance."
 
-**Acceptance criteria:**
-- Given the `setting-up-arkeology` skill evolves, when the README is reviewed, then the
-  README contains no duplicated operational steps that could drift — only concept
-  content and config reference that are stable.
+Source: none
 
-### Story 3 — Key Features reflects the generalised exclusion model (P1)
+### R2 — The README holds no operational steps that could drift from the skill
 
-The `## Key Features` bullet that previously described only the ADR strategy now
+The README stays current with the skill: it contains no duplicated operational steps that could
+drift — only concept content and config reference that are stable.
+
+**Example**
+
+- Given the `setting-up-arkeology` skill evolves, when the README is reviewed, then the README
+  contains no duplicated operational steps that could drift — only concept content and config
+  reference that are stable.
+
+Source: none
+
+## 3. Rules — Key Features
+
+### R3 — The ADR-strategy bullet becomes "Flexible ADR & document strategy"
+
+When the README is updated, the `## Key Features` bullet currently titled "Flexible ADR
+strategy" is updated to read "Flexible ADR & document strategy", with a description that
+conveys: teams can designate ADRs, specs, plans, or any folder as git-only during installation;
+the decision is recorded once in `AGENTS.md` and respected by every future agent session and the
+migration skill automatically. The bullet that previously described only the ADR strategy now
 describes the full permanent-exclusion capability.
 
-**Acceptance criteria:**
-- Given the updated README `## Key Features` section, when the "Flexible ADR &
-  document strategy" bullet is read, then it conveys that teams can keep ADRs, specs,
-  plans, or any folder in git and that the decision is recorded once in `AGENTS.md`.
-- Given the updated bullet, when it is compared to the old "Flexible ADR strategy"
-  text, then it no longer implies ADRs are the only type of document that can stay
-  in git.
+**Example**
 
-## Requirements
+- Given the updated README `## Key Features` section, when the "Flexible ADR & document
+  strategy" bullet is read, then it conveys that teams can keep ADRs, specs, plans, or any
+  folder in git and that the decision is recorded once in `AGENTS.md`.
+- Given the updated bullet, when it is compared to the old "Flexible ADR strategy" text, then
+  it no longer implies ADRs are the only type of document that can stay in git.
 
-- WHEN the README is updated THE SYSTEM SHALL remove `## Connecting to an MCP client`
-  (including both IDE sub-sections) and `## Recommended AGENTS.md Snippet` (including
-  `### Declare your ADR strategy first` and the full snippet body from
-  `### arkeology — Persistent Artifact Memory` to end of snippet), replacing each with
-  a one-sentence pointer: "See the `setting-up-arkeology` skill for interactive
-  step-by-step guidance."
-- WHEN the README is updated THE SYSTEM SHALL update the `## Key Features` bullet
-  currently titled "Flexible ADR strategy" to read "Flexible ADR & document strategy"
-  with a description that conveys: teams can designate ADRs, specs, plans, or any
-  folder as git-only during installation; the decision is recorded once in `AGENTS.md`
-  and respected by every future agent session and the migration skill automatically.
-- WHEN the README is updated THE SYSTEM SHALL retain without modification: all
-  marketing/concept sections (`## The pain point`, `## Key Features` except the one
-  updated bullet, `### arkeology vs. other approaches`, `## Who this is for`,
-  `## Why AWS`, `## How it works`, `## Status`), the `## Using the Migration Skill`
-  section, the `## Prerequisites` section, the `## Minimum IAM Policy` section,
-  the `## Installation` section, the `## Configuration` table, the
-  `## Running the server` section, and the `## Development` section.
-- WHEN complete THE SYSTEM SHALL produce a README of approximately 330 lines (±25). The higher-than-originally-estimated line count accounts for the `## Minimum IAM Policy` section (promoted to top-level, ~56 lines) and `## Using the Migration Skill` (~41 lines) both being retained in full.
+Source: none
 
-## Boundaries
+## 4. Rules — Retained content and size
+
+### R4 — The named sections are retained without modification
+
+When the README is updated, the following are retained without modification: all
+marketing/concept sections (`## The pain point`, `## Key Features` except the one updated
+bullet, `### arkeology vs. other approaches`, `## Who this is for`, `## Why AWS`,
+`## How it works`, `## Status`), the `## Using the Migration Skill` section, the
+`## Prerequisites` section, the `## Minimum IAM Policy` section, the `## Installation` section,
+the `## Configuration` table, the `## Running the server` section, and the `## Development`
+section. The `YOUR-*` placeholder values in `## Minimum IAM Policy` are intentional template
+values for operators to substitute and stay.
+
+Source: none
+
+### R5 — A first-time reader knows what Arkeology is and what to do next
+
+A new operator discovers Arkeology from the README and understands what it is.
+
+**Example**
+
+- Given a developer reading the README for the first time, when they reach the end, then they
+  understand what Arkeology does, whether it suits their project, and exactly what to do next to
+  get started (run the `setting-up-arkeology` skill).
+- Given a developer scanning for the configuration reference, when they find it in the README,
+  then every environment variable is documented with its default and a brief description.
+
+Source: none
+
+### R6 — The finished README is about 330 lines
+
+When complete, the README is approximately 330 lines (±25).
+
+**Why:** the line count is higher than originally estimated because the `## Minimum IAM Policy`
+section (promoted to top-level, ~56 lines) and `## Using the Migration Skill` (~41 lines) are
+both retained in full — together ~97 lines not included in the original projection.
+
+Source: none
+
+## 5. Boundaries
 
 **Always:**
 - The `## AWS Provisioning` section, the provisioning IAM policy block, the `.env`
@@ -131,15 +157,19 @@ describes the full permanent-exclusion capability.
 - Do not remove the Development section — needed by contributors.
 - Do not add new content beyond the Key Features bullet update and pointer sentences.
 
-<!-- IMPLEMENTATION BLOCK — agent-owned -->
+## 6. For the developer agent
 
-## Files to Touch
+### Files to Touch
 
 | File | Action | Notes |
 |------|--------|-------|
 | `README.md` | Modify | Remove ~345 lines of operational content; add pointer sentences |
 
-## Testing Approach
+### Contracts
+
+None.
+
+### Testing Approach
 
 Pure documentation update — no Python source files or unit tests. Verification by
 inspection against the checklist below.
@@ -194,7 +224,3 @@ inspection against the checklist below.
 - [ ] `## Minimum IAM Policy` is present and contains `YOUR-*` placeholder values —
   these are intentional template values for operators to substitute; do not remove them
 - [ ] README reads coherently top-to-bottom with no orphaned headings or broken prose
-
-## Open Questions
-
-*(none — all constraints are defined)*

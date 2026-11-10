@@ -22,11 +22,12 @@ sources:
 generated:
   by: "axians-architect/claude-opus-4.8"
   at: 2026-07-03T00:00:00Z
+revised:
+  by: "axians-architect/claude-opus-5-5"
+  at: 2026-11-09T18:53:26Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
-phase: 12
-task: 50
 ---
 
 # T50 — Unified Own-Scope `referenced_by` Warning on Delete + Archive
@@ -41,30 +42,25 @@ task: 50
 > the same class of drift T59 closes for `list_artifacts`'s `references=` filter. T60 closes it here
 > by narrowing `REFERENCE_FIELDS` to `("source_artifacts",)` — `find_referrers`'s mechanism (own-scope
 > gate, warn-but-don't-block, delete/archive phrasing, `REFERENCE_FIELDS` as single source of truth)
-> is otherwise unaffected, but the filterable branch described throughout Story 4, the two branching
-> Requirements bullets, and the corresponding Boundaries bullets no longer has a live member to act
-> on. See `docs/specs/p12-t58-commit-refs-cap-references-removal.md` and
+> is otherwise unaffected, but the filterable branch described throughout Story 4 (now R8 and R9,
+> under Filterability-aware reverse-lookup), the two branching Requirements bullets (folded into R8
+> and R9), and the corresponding Boundaries bullets no longer has a live member to act on. See
+> `docs/specs/p12-t58-commit-refs-cap-references-removal.md` and
 > `docs/specs/p12-t60-narrow-reverse-lookup-warning.md` for the current, authoritative contract.
-
-<!-- SCOPE BLOCK — frozen after approval -->
 
 ## TL;DR
 
 Generalize `delete_artifact`'s synthesis-only reference check into a single unified own-scope
-`referenced_by` check covering **both** `source_artifacts` (synthesis provenance) and the new
-`references` field. The lookup **branches by field filterability** (T55's
-`NON_FILTERABLE_METADATA_KEYS`): a **filterable** reference field (`references`) is resolved with a
-server-side `$eq` list-membership filter, while the **non-filterable** `source_artifacts` — which
-S3 Vectors cannot `$eq`-filter — is resolved with a filterable prefilter (`type = synthesis`,
-own-scope, active) plus an in-process membership check, exactly as `delete_artifact` does today.
-Referrers from both mechanisms are unioned and deduplicated. Apply it to both `delete_artifact`
-(permanent → stronger warning) and `archive_artifact` (reversible → informational). It is
-warn-but-don't-block and strictly own-scope: a foreign-scope referrer is never revealed. The
-reverse-lookup fields are centralised in one `REFERENCE_FIELDS` constant, and the filterable/
-non-filterable split is driven by `NON_FILTERABLE_METADATA_KEYS`, so a future *filterable*
-reference field is covered by a single addition. (FR-56, AC-61; generalizes FR-21.)
+`referenced_by` check covering both `source_artifacts` (synthesis provenance) and the new
+`references` field, applied to `delete_artifact` (permanent → stronger warning) and
+`archive_artifact` (reversible → informational). The lookup branches by field filterability (T55's
+`NON_FILTERABLE_METADATA_KEYS`) — a server-side `$eq` for the filterable `references`, a filterable
+prefilter (`type = synthesis`, own-scope, active) plus an in-process membership check for the
+non-filterable `source_artifacts` — with referrers unioned and deduplicated and the fields
+centralised in one `REFERENCE_FIELDS` constant. It is warn-but-don't-block and strictly own-scope: a
+foreign-scope referrer is never revealed. (FR-56, AC-61; generalizes FR-21.)
 
-## Problem Statement
+## 1. Problem Statement
 
 `delete_artifact` today only warns when the target is a `source_artifact` of an active synthesis;
 `archive_artifact` warns not at all. With `references` now a first-class field (T46), an artifact
@@ -78,91 +74,154 @@ server-side `$eq` over both fields (as an earlier draft assumed) therefore fails
 filterable and resolves server-side; `source_artifacts` must use the same filterable-prefilter +
 in-process membership check `delete_artifact` already performs.
 
-## User Stories
+All four behaviours are P1: delete warns on any own-scope referrer (P1), archive warns
+informationally (P1), strictly own-scope (P1), filterability-aware reverse-lookup (P1).
 
-### Story 1 — Delete warns on any own-scope referrer (P1)
+## 2. Rules — Reverse-lookup fields
 
-**Acceptance criteria:**
-- Given an own-scope artifact `T` that is listed in another own-scope artifact's `references`, when
-  `delete_artifact(T, confirm=True)` is called then `T` is deleted AND the response includes a
-  warning listing the referring identifier(s). (AC-61)
-- Given `T` is a `source_artifact` of an active own-scope synthesis, when deleted then the synthesis
-  identifier appears in the same unified warning (existing behaviour preserved).
+### R1 — One `REFERENCE_FIELDS` constant, classified by filterability, results unioned
+
+When `delete_artifact` or `archive_artifact` is about to act on an existing own-scope `artifact_id`,
+the system classifies each field of the single `REFERENCE_FIELDS` constant — the authoritative list
+of reverse-lookup-bearing metadata fields, `("source_artifacts", "references")` — by its membership
+in T55's `NON_FILTERABLE_METADATA_KEYS`, resolves referrers by the branch matching each field's
+filterability (below), then unions and deduplicates the results into one warning.
+
+- The reverse-lookup field set is defined once, in `REFERENCE_FIELDS` (single source of truth,
+  mirroring how `ARTIFACT_TYPES` centralises artifact types), and consumed by both tools; the
+  filterable/non-filterable branch is driven by T55's `NON_FILTERABLE_METADATA_KEYS` — the check is
+  classification-driven, not hardcoded per tool.
+- `NON_FILTERABLE_METADATA_KEYS` is T55's authoritative non-filterable-key set; T50 consumes this
+  constant by reference — it must not redefine, duplicate, or hard-code its value.
+- `source_artifacts` staying in user-defined metadata while `references`/`commit_refs` use
+  annotations does not affect this — the reverse-lookup reads **vector metadata**, where all
+  reference-like fields are `list[str]`.
+- `commit_refs` is not a member: `REFERENCE_FIELDS` stays `("source_artifacts", "references")`. The
+  metadata-filterability decision names `commit_refs` as a *filterable* field alongside
+  `references`, which would place it in the server-side `$eq` branch automatically if added to
+  `REFERENCE_FIELDS`; `commit_refs` therefore stands as the canonical *future filterable reference
+  field* the branch would cover automatically — a one-line addition and no code-path change — not a
+  current member.
+
+**Why:** (a) requirements.md FR-56 and ADR-012 D13 scope the `referenced_by` check to
+`source_artifacts` + `references` only, and (b) `commit_refs` holds git commit SHAs, not
+`artifact_id`s, so a `{"commit_refs": {"$eq": T}}` clause could never match an artifact-id target —
+including it would be inert noise. Closed 2026-08-17 (T60) as moot: T60 narrows `REFERENCE_FIELDS`
+to `("source_artifacts",)` and removes the filterable branch entirely — its one filterable member,
+`references`, no longer resolves anything once T58 removes `references` from vector metadata. There
+is no longer a filterable branch for `commit_refs` to join by addition. See
+`docs/specs/p12-t60-narrow-reverse-lookup-warning.md`.
+
+Source: FR-56, ADR-012 D13 — the field-scope part; ADR-011 — the annotations part
+
+## 3. Rules — The warning on delete and archive
+
+### R2 — Delete warns on any own-scope referrer, phrased as a stronger warning
+
+When `delete_artifact(T, confirm=True)` is called on an own-scope artifact `T` that another
+own-scope artifact references, `T` is deleted AND the response includes a warning listing the
+referring identifier(s), phrased as a **stronger** (permanent-action) warning. A referrer through
+`references` and an active own-scope synthesis listing `T` in its `source_artifacts` both appear in
+the same unified warning; the synthesis case is the existing behaviour, preserved.
+
+**Example**
+
+- Given an own-scope artifact `T` listed in another own-scope artifact's `references`, when
+  `delete_artifact(T, confirm=True)` is called, then `T` is deleted and the response includes a
+  warning listing the referring identifier(s).
+- Given `T` is a `source_artifact` of an active own-scope synthesis, when deleted, then the
+  synthesis identifier appears in the same unified warning.
 - Given `T` is referenced via both `source_artifacts` and `references` by different own-scope
   artifacts, then all referrers appear in the warning (deduplicated).
-- Given the delete warning, then it is phrased as a **stronger** (permanent-action) warning.
 
-### Story 2 — Archive warns informationally (P1)
+Source: AC-61 — the `references`-referrer part
 
-**Acceptance criteria:**
-- Given an own-scope artifact `T` referenced by another own-scope artifact, when
-  `archive_artifact(T)` is called then `T` is archived AND the response includes an
-  **informational** warning listing the referrers. (AC-61)
-- Given no referrers, when archive/delete runs then no warning field is added.
+### R3 — Archive warns informationally
 
-### Story 3 — Strictly own-scope (P1)
+When `archive_artifact(T)` is called on an own-scope artifact `T` referenced by another own-scope
+artifact, `T` is archived AND the response includes an **informational** (reversible) warning
+listing the referrers.
 
-**Acceptance criteria:**
-- Given a foreign-scope artifact that references `T`, when `T` is deleted or archived then that
-  foreign-scope referrer is NEVER listed in the warning. (AC-61)
+Source: AC-61
 
-### Story 4 — Filterability-aware reverse-lookup (P1)
+### R4 — Warning content: distinct referrers, never the target, omitted when there are none
 
-> **Superseded 2026-08-17 (T60).** This story's acceptance criteria describe the pre-T60 two-branch
-> contract, where `references` was `REFERENCE_FIELDS`'s one filterable member. As of T60,
+When referrers are found, the system collects their distinct `artifact_id`s — excluding the target
+itself — and includes them, deduplicated across both mechanisms and across sections of the same
+referrer, in a `warnings` (delete) / `warning` (archive) field in the response. When no referrers
+are found on archive or delete, the warning field is omitted entirely.
+
+### R5 — Warn but don't block
+
+When the operation proceeds, the system still performs the delete / archive — the warning never
+blocks. With no referrers, the delete still succeeds. `delete_artifact` keeps its existing
+vectors-first-then-S3 ordering and confirm gate; this feature only replaces/broadens its
+reference-check step.
+
+### R6 — Strictly own-scope
+
+When a referrer is outside the own scope, the system never includes it in the warning — guaranteed
+by the own-scope filter clause. The check is never extended across scopes, which would re-open the
+closed cross-scope leakage concern: foreign-scope identifiers are never revealed (the standing
+non-negotiable rule).
+
+**Example**
+
+- Given a foreign-scope artifact that references `T`, when `T` is deleted or archived, then that
+  foreign-scope referrer is NEVER listed in the warning.
+
+Source: AC-61
+
+### R7 — Credential error during the reverse-lookup
+
+When the reverse-lookup encounters a `CredentialError`, the system returns a structured credential
+error, as the existing synthesis check does.
+
+## 4. Rules — Filterability-aware reverse-lookup
+
+> **Superseded 2026-08-17 (T60).** These rules describe the pre-T60 two-branch contract, where
+> `references` was `REFERENCE_FIELDS`'s one filterable member. As of T60,
 > `REFERENCE_FIELDS = ("source_artifacts",)` — there is no filterable member left, so only the
-> `source_artifacts` bullet below still applies; the `references` server-side `$eq` bullet describes
+> `source_artifacts` rule (R9) still applies; the `references` server-side `$eq` rule (R8) describes
 > retired behaviour. See `docs/specs/p12-t60-narrow-reverse-lookup-warning.md`.
+>
+> The acceptance criteria folded into R8 and R9 are labelled pre-T60, superseded — retained for
+> decision history.
 
-**Acceptance criteria (pre-T60, superseded — retained for decision history):**
-- Given a **filterable** reference field (`references` — a `REFERENCE_FIELDS` member NOT in
-  `NON_FILTERABLE_METADATA_KEYS`), when the reverse-lookup runs then it is resolved with a
-  server-side `$eq` list-membership filter (`{"references": {"$eq": T}}`) ANDed with the own-scope +
-  active-status filter — a single query with an `$or` over the filterable reference fields — not a
-  fetch-all-then-filter scan.
-- Given the **non-filterable** reference field `source_artifacts` (a `REFERENCE_FIELDS` member that
-  IS in `NON_FILTERABLE_METADATA_KEYS`, which S3 Vectors cannot `$eq`-filter), when the
-  reverse-lookup runs then it is resolved by a field-appropriate filterable prefilter
-  (`type = synthesis`, own-scope, active) fetched server-side followed by an in-process
-  `source_artifacts` membership check — exactly as `delete_artifact` does today — and **no
-  server-side `$eq` is ever issued on `source_artifacts`** (which would raise `ValidationException`).
+### R8 — A filterable reference field is resolved by one server-side `$eq` query
+
+When a reference field is **filterable** — a `REFERENCE_FIELDS` member NOT in
+`NON_FILTERABLE_METADATA_KEYS`, currently `references` — the system resolves its referrers with a
+single `list_vectors_by_metadata` query ANDing the own-scope filter
+(`{"scope": {"$eq": settings.write_prefix}}`), the active-status filter, and an `$or` of one
+`{field: {"$eq": artifact_id}}` clause per filterable reference field (for `references`:
+`{"references": {"$eq": T}}`) — never a fetch-all-then-filter scan. Adding a future *filterable*
+reference field is a one-line addition to `REFERENCE_FIELDS`, never a query change in each tool.
+
+**Example**
+
 - Given both mechanisms return referrers, then they are unioned and deduplicated into the single
   warning.
 
-## Requirements
+Source: ADR-012 D13
 
-- WHEN `delete_artifact` or `archive_artifact` is about to act on an existing own-scope `artifact_id`
-  THE SYSTEM SHALL classify each field of the single `REFERENCE_FIELDS` constant — the authoritative
-  list of reverse-lookup-bearing metadata fields, `("source_artifacts", "references")` — by its
-  membership in T55's `NON_FILTERABLE_METADATA_KEYS`, resolve referrers by the branch matching each
-  field's filterability (below), then union and deduplicate the results into one warning.
-- WHEN a reference field is **filterable** (a `REFERENCE_FIELDS` member NOT in
-  `NON_FILTERABLE_METADATA_KEYS` — currently `references`) THE SYSTEM SHALL resolve its referrers with
-  a single `list_vectors_by_metadata` query ANDing the own-scope filter
-  (`{"scope": {"$eq": settings.write_prefix}}`), the active-status filter, and an `$or` of one
-  `{field: {"$eq": artifact_id}}` clause per filterable reference field. Adding a future *filterable*
-  reference field is a one-line addition to `REFERENCE_FIELDS`, never a query change in each tool.
-- WHEN a reference field is **non-filterable** (a `REFERENCE_FIELDS` member that IS in
-  `NON_FILTERABLE_METADATA_KEYS` — currently `source_artifacts`) THE SYSTEM SHALL resolve its
-  referrers with a field-appropriate **filterable prefilter fetched server-side** (for
-  `source_artifacts`: `{"type": {"$eq": "synthesis"}}` ANDed with own-scope and active status)
-  followed by an **in-process membership check** of `artifact_id` in each candidate's field value,
-  and SHALL NOT issue a server-side `$eq` on the non-filterable field. Adding a future *non-filterable*
-  reference field requires declaring its own field-appropriate prefilter (there is no generic one).
-- WHEN referrers are found THE SYSTEM SHALL collect their distinct `artifact_id`s (excluding the
-  target itself) and include them in a `warnings` (delete) / `warning` (archive) field in the
-  response, deduplicated.
-- WHEN no referrers are found THE SYSTEM SHALL omit the warning field entirely.
-- WHEN a referrer is outside the own scope THE SYSTEM SHALL never include it (guaranteed by the
-  own-scope filter clause).
-- WHEN the reverse-lookup encounters a `CredentialError` THE SYSTEM SHALL return a structured
-  credential error (as the existing synthesis check does).
-- WHEN the operation proceeds THE SYSTEM SHALL still perform the delete / archive — the warning never
-  blocks (warn-but-don't-block).
-- WHEN `delete_artifact` builds the warning THE SYSTEM SHALL phrase it as a stronger permanent-action
-  warning; `archive_artifact` SHALL phrase it as informational (reversible).
+### R9 — A non-filterable reference field is resolved by a bounded prefilter plus an in-process check, never by `$eq`
 
-## Boundaries
+When a reference field is **non-filterable** — a `REFERENCE_FIELDS` member that IS in
+`NON_FILTERABLE_METADATA_KEYS`, currently `source_artifacts`, which S3 Vectors cannot `$eq`-filter —
+the system resolves its referrers with a field-appropriate **filterable prefilter fetched
+server-side** (for `source_artifacts`: `{"type": {"$eq": "synthesis"}}` ANDed with own-scope and
+active status) followed by an **in-process membership check** of `artifact_id` in each candidate's
+field value — exactly as `delete_artifact` does today — and never issues a server-side `$eq` on the
+non-filterable field (S3 Vectors rejects one on `source_artifacts` with `ValidationException`).
+
+- The prefilter is mandatory: it bounds the fetched set server-side. For `source_artifacts` it is a
+  small set, since `source_artifacts` only ever appears on `synthesis` — this is NOT an unbounded
+  fetch-all-then-filter.
+- Adding a future *non-filterable* reference field requires declaring its own field-appropriate
+  prefilter (there is no generic one).
+
+## 5. Boundaries
 
 **Always:**
 - The reverse-lookup is **strictly own-scope** (non-negotiable rule — never reveal foreign-scope
@@ -205,9 +264,9 @@ in-process membership check `delete_artifact` already performs.
 - Do not fetch-all-then-filter without a filterable prefilter — for `source_artifacts` the prefilter
   (`type = synthesis`, own-scope, active) is mandatory and bounds the fetched set server-side.
 
-<!-- IMPLEMENTATION BLOCK — agent-owned -->
+## 6. For the developer agent
 
-## Files to Touch
+### Files to Touch
 
 | File | Action | Notes |
 |------|--------|-------|
@@ -218,7 +277,11 @@ in-process membership check `delete_artifact` already performs.
 | `src/arkeology/artifact.py` | Modify | Add the `REFERENCE_FIELDS` constant — single source of truth for reverse-lookup-bearing fields, next to `ARTIFACT_TYPES`; value `("source_artifacts", "references")`. **`NON_FILTERABLE_METADATA_KEYS` is added by T55 (dependency)** — do not duplicate it here; import/consume it |
 | `src/arkeology/tools/_search_helper.py` | Modify | Extract a shared `find_referrers(vectors, settings, artifact_id)` helper that **branches by filterability**: partition `REFERENCE_FIELDS` on membership in `NON_FILTERABLE_METADATA_KEYS`; for filterable members build one server-side query (own-scope + active + `$or` of `{field: {"$eq": artifact_id}}`); for `source_artifacts` (non-filterable) run the `type = synthesis` filterable prefilter then the in-process membership check; union + dedup. Reused by both `delete.py` and `archive.py`. Reuse `coerce_list_field` for the in-process membership check |
 
-## Testing Approach
+### Contracts
+
+None.
+
+### Testing Approach
 
 **TDD cycle — test file before implementation file in each pair:**
 
@@ -244,29 +307,10 @@ in-process membership check `delete_artifact` already performs.
 Use `aws_mock`, `s3_client`, `vectors_client_2` fixtures; pre-seed referrer vectors via
 `put_vectors_batch`.
 
-## Dependencies
+### Dependencies
 
 - **T46** — `references` must be in vector metadata as `list[str]` for the filterable `$eq` branch.
 - **T55** — provides `NON_FILTERABLE_METADATA_KEYS` (the authoritative non-filterable-key set), the
   single source of truth that drives the filterable/non-filterable branch. T50 consumes this
   constant by reference (it must not redefine, duplicate, or hard-code its value). Sequence T55
   before (or with) T50.
-
-## Open Questions
-
-- **Should `commit_refs` join `REFERENCE_FIELDS`?** The metadata-filterability decision names
-  `commit_refs` as a *filterable* field alongside `references`, which would place it in the
-  server-side `$eq` branch automatically if added to `REFERENCE_FIELDS`. This spec deliberately keeps
-  `REFERENCE_FIELDS = ("source_artifacts", "references")` because (a) requirements.md FR-56 and ADR-012 D13 scope
-  the `referenced_by` check to `source_artifacts` + `references` only, and (b) `commit_refs` holds git
-  commit SHAs, not `artifact_id`s, so a `{"commit_refs": {"$eq": T}}` clause could never match an
-  artifact-id target — including it would be inert noise. `commit_refs` therefore stands as the
-  canonical *future filterable reference field* the branch would cover automatically, not a current
-  member. Confirm with the operator whether `commit_refs` should nonetheless be added; if so it is a
-  one-line addition and no code-path change (it lands in the filterable branch).
-
-  > **Closed 2026-08-17 (T60).** Moot: T60 narrows `REFERENCE_FIELDS` to `("source_artifacts",)` and
-  > removes the filterable branch entirely — its one filterable member, `references`, no longer
-  > resolves anything once T58 removes `references` from vector metadata. There is no longer a
-  > filterable branch for `commit_refs` to join by addition. See
-  > `docs/specs/p12-t60-narrow-reverse-lookup-warning.md`.

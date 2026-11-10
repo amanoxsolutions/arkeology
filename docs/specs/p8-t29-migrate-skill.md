@@ -12,8 +12,6 @@ generated:
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
-phase: 8
-task: 29
 ---
 
 # Write Performance L1+L2 — Migration Skill Parallel Writes

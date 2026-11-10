@@ -28,8 +28,6 @@ generated:
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
-phase: 4
-task: 20
 ---
 
 # T20 — Migration Skill

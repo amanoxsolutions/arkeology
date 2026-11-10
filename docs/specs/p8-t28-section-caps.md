@@ -9,16 +9,15 @@ okf_version: "0.2"
 generated:
   by: "axians-architect/unknown"
   at: 2026-06-02T00:00:00Z
+revised:
+  by: "axians-architect/claude-opus-5-5"
+  at: 2026-11-09T13:29:44Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
-phase: 8
-task: 28
 ---
 
 # Write Performance P3 — Configurable Section Caps
-
-<!-- SCOPE BLOCK — frozen after approval -->
 
 ## TL;DR
 
@@ -29,7 +28,7 @@ This spec adds two configurable filters applied before embedding: a minimum sect
 cap (sections beyond the cap are silently dropped from the vector index). Full content remains
 in S3 and is always returned by `read_artifact`.
 
-## Problem Statement
+## 1. Problem Statement
 
 The brainstorming session (2026-06-01) identified two defensive bounds that limit
 worst-case embed work without degrading the typical case. A document with 80 sections (a
@@ -37,66 +36,104 @@ verbose brainstorming dump) generates 80 Bedrock calls even with P1 — still a 
 Very short sections ("TBD", "See above", a single link) add index noise without contributing
 search signal. These two one-line filters bound the worst case and clean the index simultaneously.
 
-## User Stories
+All three user stories this spec states are P1: short sections are skipped before embedding,
+section count is capped at `EMBED_MAX_SECTIONS`, and the defaults are safe and require no
+operator action.
 
-### Story 1 — Short sections are skipped before embedding (P1)
+## 2. Rules — Section filters
 
-An operator migrates a document with a section containing only "TBD". That placeholder section
-is not embedded and does not appear as a vector in the index. The full document content
-(including the TBD section) is still stored in S3 and returned by `read_artifact`.
+### R1 — Short sections are skipped before embedding
 
-**Acceptance criteria:**
+When `write_artifact` parses sections, it discards any section whose body (stripped of
+leading/trailing whitespace) has fewer characters than `settings.embed_min_section_length`
+before passing sections to the embedding step. Such a section is not embedded and does not
+appear as a vector in the index.
+
+**Example**
+
+- Given an operator migrates a document with a section containing only "TBD", when
+  `write_artifact` is called, then that placeholder section is not embedded and does not appear
+  as a vector in the index, and the full document content (including the TBD section) is still
+  stored in S3 and returned by `read_artifact`.
 - Given a document with three sections where one body is 30 characters and
-  `EMBED_MIN_SECTION_LENGTH=50`, when `write_artifact` is called, then `bedrock.embed` is
-  called twice (not three times) and `sections_indexed == 2`.
-- Given a document where all sections are below the threshold, when `write_artifact` is called,
-  then the document-level fallback is used (one embed from title + description), not zero embeds.
+  `EMBED_MIN_SECTION_LENGTH=50`, when `write_artifact` is called, then `bedrock.embed` is called
+  twice (not three times) and `sections_indexed == 2`.
 
-### Story 2 — Section count is capped at EMBED_MAX_SECTIONS (P1)
+Source: —
 
-An operator migrates a 40-section brainstorming document. Only the first `EMBED_MAX_SECTIONS`
-sections are indexed; the rest are silently dropped from the vector index.
+### R2 — The section count is capped at `EMBED_MAX_SECTIONS`
 
-**Acceptance criteria:**
+When the filtered section list exceeds `settings.embed_max_sections`, `write_artifact` retains
+only the first `settings.embed_max_sections` entries and discards the rest: only the first
+`EMBED_MAX_SECTIONS` sections are indexed, and the rest are silently dropped from the vector
+index.
+
+**Example**
+
 - Given a document with 25 sections and `EMBED_MAX_SECTIONS=20`, when `write_artifact` is
   called, then `bedrock.embed` is called 20 times and `sections_indexed == 20`.
 - Given a document with 10 sections and `EMBED_MAX_SECTIONS=20`, when `write_artifact` is
   called, then all 10 sections are indexed and `sections_indexed == 10` (cap not triggered).
 
-### Story 3 — Defaults are safe and require no operator action (P1)
+Source: —
+
+### R3 — No remaining sections falls back to the document-level embed
+
+When filtering and capping leave zero sections, `write_artifact` falls back to the
+document-level embed (title + description) — it does not return an error.
+
+**Example**
+
+- Given a document where all sections are below the threshold, when `write_artifact` is called,
+  then the document-level fallback is used (one embed from title + description), not zero
+  embeds.
+
+Source: —
+
+### R4 — Dropped sections are logged at DEBUG
+
+When sections are dropped by either filter, `write_artifact` logs a DEBUG message indicating the
+number of sections dropped and the reason (length filter or cap).
+
+Source: —
+
+### R5 — `sections_indexed` counts only indexed sections
+
+When `write_artifact` returns, `sections_indexed` includes only the sections actually embedded
+and indexed (dropped sections are not counted).
+
+Source: —
+
+## 3. Rules — Configuration
+
+### R6 — Defaults and validation of the two settings
+
+| Setting | Absent from the environment | Rejected at startup with a clear validation error when |
+|---|---|---|
+| `EMBED_MIN_SECTION_LENGTH` | defaults to 50 | set to a value less than 0 |
+| `EMBED_MAX_SECTIONS` | defaults to 20 | set to a value less than 1 |
+
+Source: —
+
+### R7 — The defaults leave typical structured artifacts untouched
 
 The defaults (`EMBED_MAX_SECTIONS=20`, `EMBED_MIN_SECTION_LENGTH=50`) do not affect typical
-structured artifacts (ADRs, specs, code reviews) which have 3–15 meaningful sections.
+structured artifacts (ADRs, specs, code reviews) which have 3–15 meaningful sections, and require
+no operator action.
 
-**Acceptance criteria:**
+**Example**
+
 - Given a document with 8 sections each with 200-character bodies and no env vars set, when
   `write_artifact` is called, then all 8 sections are indexed (defaults do not interfere).
-- Given a document with 15 sections of 100+ characters each, when defaults are in effect,
-  then all 15 are indexed.
+- Given a document with 15 sections of 100+ characters each, when defaults are in effect, then
+  all 15 are indexed.
 
-## Requirements
+Source: —
 
-- WHEN `EMBED_MIN_SECTION_LENGTH` is absent from the environment THE SYSTEM SHALL default to 50.
-- WHEN `EMBED_MAX_SECTIONS` is absent from the environment THE SYSTEM SHALL default to 20.
-- WHEN `EMBED_MIN_SECTION_LENGTH` is set to a value less than 0 THE SYSTEM SHALL reject it at
-  startup with a clear validation error.
-- WHEN `EMBED_MAX_SECTIONS` is set to a value less than 1 THE SYSTEM SHALL reject it at startup
-  with a clear validation error.
-- WHEN `write_artifact` parses sections THE SYSTEM SHALL discard any section whose body
-  (stripped of leading/trailing whitespace) has fewer characters than
-  `settings.embed_min_section_length` before passing sections to the embedding step.
-- WHEN the filtered section list exceeds `settings.embed_max_sections` THE SYSTEM SHALL retain
-  only the first `settings.embed_max_sections` entries and discard the rest.
-- WHEN filtering and capping leave zero sections THE SYSTEM SHALL fall back to the
-  document-level embed (title + description) — not return an error.
-- WHEN sections are dropped by either filter THE SYSTEM SHALL log a DEBUG message indicating
-  the number of sections dropped and the reason (length filter or cap).
-- WHEN `write_artifact` returns THE SYSTEM SHALL include in `sections_indexed` only the
-  sections actually embedded and indexed (dropped sections are not counted).
-
-## Boundaries
+## 4. Boundaries
 
 **Always:**
+
 - Filtering is applied to the parsed section list in `write.py` immediately after
   `parse_sections(content)` and before the embed step. The filter is not applied inside
   `parse_sections` — section parsing remains a pure function with no configuration dependency.
@@ -108,18 +145,20 @@ structured artifacts (ADRs, specs, code reviews) which have 3–15 meaningful se
   passed the minimum-length check, not to the raw parsed list.
 
 **Ask First:**
+
 - Whether the cap should apply to sections that pass the length filter (recommended, above) or
   to the raw parsed list before the length filter.
 
 **Never:**
+
 - Do not change `parse_sections` — it must remain a pure function with no settings dependency.
 - Do not raise an error when sections are dropped — silently drop and log at DEBUG level.
 - Do not store `EMBED_MAX_SECTIONS` or `EMBED_MIN_SECTION_LENGTH` in artifact metadata —
   these are server-side controls only.
 
-<!-- IMPLEMENTATION BLOCK — agent-owned -->
+## 5. For the developer agent
 
-## Files to Touch
+### Files to Touch
 
 | File | Action | Notes |
 |------|--------|-------|
@@ -128,7 +167,11 @@ structured artifacts (ADRs, specs, code reviews) which have 3–15 meaningful se
 | `src/arkeology/config.py` | Modify | Add `EMBED_MAX_SECTIONS` (int, default 20, ≥ 1) and `EMBED_MIN_SECTION_LENGTH` (int, default 50, ≥ 0) with validators; add `embed_max_sections` and `embed_min_section_length` properties |
 | `src/arkeology/tools/write.py` | Modify | After `sections = parse_sections(content)`, apply length filter then cap; log dropped sections at DEBUG; fall back to document-level embed if no sections remain after filtering |
 
-## Testing Approach
+### Contracts
+
+None.
+
+### Testing Approach
 
 **TDD cycle A (config):** update `test_config.py` first (Red) → add fields to `config.py`
 (Green).
@@ -171,7 +214,3 @@ Combined:
   (25 pass filter, then capped at 20).
 - `test_all_filtered_then_capped_falls_back` — `EMBED_MAX_SECTIONS=0` is invalid; use
   `EMBED_MIN_SECTION_LENGTH` that filters everything → document-level fallback.
-
-## Open Questions
-
-*(none — all decisions resolved per brainstorming session 2026-06-01)*

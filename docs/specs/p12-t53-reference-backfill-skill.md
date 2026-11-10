@@ -26,18 +26,14 @@ generated:
   by: "axians-architect/claude-opus-4.8"
   at: 2026-07-03T00:00:00Z
 revised:
-  by: "axians-architect/claude-sonnet-5"
-  at: 2026-08-13T00:00:00Z
+  by: "axians-architect/claude-opus-5-5"
+  at: 2026-11-09T19:05:14Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
-phase: 12
-task: 53
 ---
 
 # T53 — Reference-Backfill Cleanup Skill (optional, decoupled, dry-run-first)
-
-<!-- SCOPE BLOCK — frozen after approval -->
 
 ## TL;DR
 
@@ -49,7 +45,7 @@ against the migration path→identifier map, presents a **single dry-run batch r
 (T49). It never rewrites stored content and never mutates metadata without confirmation. (FR-58,
 AC-63; resolves OQ1-cleanup.)
 
-## Problem Statement
+## 1. Problem Statement
 
 The migration rewrite (T51) resolves references at first-write time, but a reference can only be
 backfilled once its target exists and is resolvable — targets absent from the original batch, or
@@ -59,51 +55,73 @@ when the operator chooses, resolves what is now resolvable, and applies it throu
 embedding-free `link_metadata` primitive without touching stored content or tier-2 append-only
 content rules (ADR-012 D8).
 
-## User Stories
+All three stories are P1: dry-run batch report before any write (P1); confirmed backfills route
+through link_metadata (P1); skippable by default, declining changes nothing (P1).
 
-### Story 1 — Dry-run batch report before any write (P1)
+## 2. Rules — Discovery
 
-**Acceptance criteria:**
-- Given the skill is run, when it completes discovery then it presents a single batch report listing,
-  per artifact, the proposed `references` additions (target path → resolved `artifact_id`) and makes
-  NO write until the operator confirms. (AC-63)
-- Given the operator reviews the report, then they may approve the whole batch, or edit/remove
-  individual proposed entries before applying.
+### R1 — Discovery scans own-scope active artifacts against the migration path→identifier map
 
-### Story 2 — Confirmed backfills route through link_metadata (P1)
+When the skill runs, it discovers candidates by enumerating own-scope active artifacts
+(`list_artifacts`), reading each artifact's content (`read_artifact`), and matching repo-relative
+path references — frontmatter `references:` first — against the migration path→identifier map (T51
+helpers). In-body links are advisory-only: surfaced for the operator, never auto-applied. The skill
+operates on the deployment's own artifacts only.
 
-**Acceptance criteria:**
-- Given the operator confirms, when the skill applies backfills then it calls `link_metadata` with
-  the resolved `references` per artifact — no stored content is rewritten. (AC-63)
-- Given `link_metadata` is idempotent, then re-running the skill does not duplicate references.
+Source: OQ1-cleanup — the discovery-scan part
 
-### Story 3 — Skippable by default; declining changes nothing (P1)
+### R2 — A resolved target not already referenced is proposed as a backfill candidate
 
-**Acceptance criteria:**
-- Given the operator skips or declines the skill, then no artifact is changed. (AC-63)
+When a matched target resolves to an `artifact_id` not already present in the artifact's
+`references`, the skill proposes it as a backfill candidate.
 
-## Requirements
+## 3. Rules — Review and apply
 
-- WHEN the skill runs THE SYSTEM SHALL discover candidates by enumerating own-scope active artifacts
-  (`list_artifacts`), reading each artifact's content (`read_artifact`), and matching repo-relative
-  path references (frontmatter `references:` first; in-body links are advisory-only, surfaced for
-  the operator, never auto-applied) against the migration path→identifier map (T51 helpers).
-- WHEN a matched target resolves to an `artifact_id` not already present in the artifact's
-  `references` THE SYSTEM SHALL propose it as a backfill candidate.
-- WHEN discovery completes THE SYSTEM SHALL present a single dry-run batch report and SHALL make no
-  metadata write until the operator confirms.
-- WHEN the operator confirms THE SYSTEM SHALL apply the backfills via `link_metadata(references=…)`
-  and SHALL NOT rewrite stored content.
-- WHEN the operator declines or skips THE SYSTEM SHALL leave every artifact unchanged.
-- WHEN the skill is distributed THE SYSTEM SHALL require no per-skill wiring: placing
-  `SKILL.md` in a new directory under `plugins/arkeology/skills/` is sufficient for all three
-  channels — the OpenCode JS plugin registers the whole `plugins/arkeology/skills` directory into
-  `config.skills.paths`, the Claude Code plugin is declared once in
-  `plugins/arkeology/.claude-plugin/plugin.json`, and `install.sh` loops
-  `plugins/arkeology/skills/*/` for `gh skill install`. *(Corrected 2026-08-12 — the original
-  wording described the retired top-level `skills/` + symlink layout.)*
+### R3 — A single dry-run batch report precedes any write
 
-## Boundaries
+When discovery completes, the skill presents a single dry-run batch report listing, per artifact,
+the proposed `references` additions (target path → resolved `artifact_id`), and makes NO metadata
+write until the operator confirms. Reviewing the report, the operator may approve the whole batch,
+or edit/remove individual proposed entries before applying.
+
+**Why:** Recommendation (adopted in this spec): *batch approval* — a single consolidated dry-run
+report of all proposed backfills, which the operator approves wholesale or edits/removes entries
+from before applying, rather than a per-artifact prompt loop (lower operator friction, matches the
+dry-run-first commit-refs backfill precedent in p10-t40). Confirm this UX with the operator before
+implementation if a per-artifact review is preferred.
+
+Source: AC-63; OQ1-cleanup
+
+### R4 — Confirmed backfills are applied only through `link_metadata`, never by rewriting content
+
+When the operator confirms, the skill applies the backfills via `link_metadata(references=…)`, with
+the resolved `references` per artifact — `link_metadata` being the embedding-free, dual-write
+primitive (T49) — and never rewrites stored content: content is fixed after first write.
+
+Source: AC-63; ADR-012 D8 — the content-is-fixed part
+
+### R5 — Re-running the skill does not duplicate references
+
+Given `link_metadata` is idempotent, re-running the skill does not duplicate references.
+
+### R6 — Skippable by default; declining or skipping changes nothing
+
+When the operator skips or declines the skill, every artifact is left unchanged.
+
+Source: AC-63
+
+## 4. Rules — Distribution
+
+### R7 — The skill needs no per-skill wiring
+
+When the skill is distributed, it requires no per-skill wiring: placing `SKILL.md` in a new
+directory under `plugins/arkeology/skills/` is sufficient for all three channels — the OpenCode JS
+plugin registers the whole `plugins/arkeology/skills` directory into `config.skills.paths`, the
+Claude Code plugin is declared once in `plugins/arkeology/.claude-plugin/plugin.json`, and
+`install.sh` loops `plugins/arkeology/skills/*/` for `gh skill install`. *(Corrected 2026-08-12 —
+the original wording described the retired top-level `skills/` + symlink layout.)*
+
+## 5. Boundaries
 
 **Always:**
 - Dry-run first; operator confirmation before any write (AC-63).
@@ -120,9 +138,9 @@ content rules (ADR-012 D8).
 - Do not auto-apply in-body-link matches — surface them for the operator only.
 - Do not add server code — this is a skill-only deliverable (ruff + mypy unaffected).
 
-<!-- IMPLEMENTATION BLOCK — agent-owned -->
+## 6. For the developer agent
 
-## Files to Touch
+### Files to Touch
 
 > **Layout correction 2026-08-12 (tech-writer).** The original table described the
 > pre-consolidation layout: a top-level `skills/backfilling-references/` directory plus a symlink
@@ -139,7 +157,11 @@ content rules (ADR-012 D8).
 | `install.sh` | Verify | No change — the Copilot branch already loops `plugins/arkeology/skills/*/` and runs `gh skill install` per directory; confirm the new skill appears in the run output |
 | `README.md` | Modify | Add the skill to the skills table / brief mention (optional cleanup step) |
 
-## Testing Approach
+### Contracts
+
+None.
+
+### Testing Approach
 
 Skill-only — no unit tests written as part of this task (ruff + mypy unaffected). Validate
 against the plan's done-condition manually: the skill presents a dry-run batch report before any
@@ -155,15 +177,3 @@ the skill is discoverable through each plugin channel.
 > `docs/specs/p12-t51-migration-reference-rewrite.md`, Story 5 and Story 6). No action is needed
 > here; noted so "no unit tests written as part of this task" isn't misread as "this skill has no
 > test coverage at all."
-
-## Open Questions
-
-- **OQ1-cleanup (resolved):** Per-artifact vs batch approval, and discovery-scan specifics.
-  **Recommendation (adopted in this spec):** *batch approval* — a single consolidated dry-run report
-  of all proposed backfills, which the operator approves wholesale or edits/removes entries from
-  before applying, rather than a per-artifact prompt loop (lower operator friction, matches the
-  dry-run-first commit-refs backfill precedent in p10-t40). Discovery scan = enumerate own-scope
-  active artifacts via `list_artifacts`, read each via `read_artifact`, match **frontmatter**
-  `references:` paths against the T51 path→id map to propose resolved additions; in-body links are
-  surfaced advisory-only, never auto-applied. Confirm this UX with the operator before implementation
-  if a per-artifact review is preferred.

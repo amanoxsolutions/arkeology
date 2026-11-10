@@ -17,18 +17,14 @@ generated:
   by: "axians-architect/unknown"
   at: 2026-06-09T00:00:00Z
 revised:
-  by: "axians-tech-writer/unknown"
-  at: 2026-06-10T00:00:00Z
+  by: "axians-architect/claude-opus-5-5"
+  at: 2026-11-09T16:51:08Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
-phase: 9
-task: 33b
 ---
 
 # T33b — Claude Code Plugin
-
-<!-- SCOPE BLOCK — frozen after approval -->
 
 ## TL;DR
 
@@ -38,16 +34,7 @@ two `claude plugin` commands. Skills become available as `arkeology:<name>` slas
 (`/arkeology:setting-up-arkeology`, `/arkeology:migrating-to-arkeology`), and the `arkeology:plugin-sync`
 skill handles future updates to the skill plugin clone without a full reinstall.
 
-Both SSH and HTTPS forms of `claude plugin marketplace add` are documented — the SSH form
-is primary; the HTTPS form is the fallback for environments where outbound SSH (port 22)
-is blocked by a corporate firewall.
-
-No global CLAUDE.md `@`-import is written — Arkeology's `AGENTS.md` contains server-setup
-documentation specific to the codebase, not conventions applicable in every session. The
-per-project AGENTS.md snippet written by `setting-up-arkeology` already provides the right
-context within each project.
-
-## Problem Statement
+## 1. Problem Statement
 
 Claude Code engineers currently have no namespaced, self-updating way to install Arkeology
 skills. Claude Code's private marketplace system allows a git repo to act as a
@@ -56,72 +43,95 @@ the `arkeology:` namespace and provide a `plugin-sync` skill so future updates a
 one-command operation. The `arkeology:` prefix prevents collision with any other installed
 plugin.
 
-## User Stories
+All four stories this spec was written from are P1: two-command install via SSH (R1),
+two-command install via HTTPS (R2), one-command skill update (R6), and permission-free sync (R7).
 
-### Story 1 — Two-command install via SSH (P1)
+## 2. Rules — Installation
 
-As an Arkeology Claude Code operator, I run two commands and both Arkeology skills are
-available in every subsequent Claude Code session as namespaced slash commands.
+### R1 — Two commands install both skills as namespaced slash commands
 
-**Acceptance criteria:**
+When the plugin is installed via `claude plugin install`, both skills in
+`plugins/arkeology/skills/` are available as `arkeology:<skill-name>` slash commands: an
+Arkeology Claude Code operator runs two commands and both Arkeology skills are available in every
+subsequent Claude Code session as namespaced slash commands.
+
+**Example**
+
 - Given the engineer has `claude` on PATH and SSH access to GitHub, when they run
   `claude plugin marketplace add git@github.com:amanoxsolutions/arkeology.git` then
   `claude plugin install arkeology@arkeology`, then `/arkeology:setting-up-arkeology` and
   `/arkeology:migrating-to-arkeology` appear as slash commands.
 
-### Story 4 — Two-command install via HTTPS (P1)
+### R2 — The HTTPS form of `claude plugin marketplace add` installs identically
 
-As an Arkeology Claude Code operator whose outbound SSH is blocked by a corporate firewall,
-I can use the HTTPS form of `claude plugin marketplace add` and the install works
-identically.
+An Arkeology Claude Code operator whose outbound SSH is blocked by a corporate firewall can use the
+HTTPS form of `claude plugin marketplace add` and the install works identically.
 
-**Acceptance criteria:**
+**Example**
+
 - Given the engineer has `claude` on PATH but cannot use SSH (port 22 blocked), when they
   run `claude plugin marketplace add https://github.com/amanoxsolutions/arkeology.git` then
   `claude plugin install arkeology@arkeology`, then `/arkeology:setting-up-arkeology` and
   `/arkeology:migrating-to-arkeology` appear as slash commands, identical to the SSH path.
 
-### Story 2 — One-command skill update (P1)
+### R3 — The install documentation shows both forms, SSH primary and HTTPS fallback
 
-As an Arkeology Claude Code operator, I run `/arkeology:plugin-sync` to pull updated skills
-into the Claude Code plugin clone without reinstalling.
+When the README and install.sh session-refresh section document the Claude Code install, they show
+both:
 
-**Acceptance criteria:**
+- SSH primary: `claude plugin marketplace add git@github.com:amanoxsolutions/arkeology.git`
+- HTTPS fallback: `claude plugin marketplace add https://github.com/amanoxsolutions/arkeology.git`
+
+The SSH form is primary; the HTTPS fallback is clearly labelled for environments where outbound
+SSH (port 22) is blocked by a corporate firewall.
+
+### R4 — Plugin skills are symlinks to the root `skills/`
+
+When `plugins/arkeology/skills/<name>` is resolved, it is a symlink to `../../../skills/<name>` so
+edits to the root `skills/` are immediately reflected.
+
+### R5 — No global CLAUDE.md `@`-import is written
+
+No global CLAUDE.md `@`-import is written — Arkeology's `AGENTS.md` contains server-setup
+documentation specific to the codebase, not conventions applicable in every session. The
+per-project AGENTS.md snippet written by `setting-up-arkeology` already provides the right
+context within each project.
+
+Source: brainstorming-2026-06-08-skill-distribution D1
+
+## 3. Rules — Updating
+
+### R6 — `/arkeology:plugin-sync` pulls the plugin clone and reloads plugins
+
+When the engineer runs `/arkeology:plugin-sync`, it performs `git pull` on
+`~/.claude/plugins/arkeology/` and then executes `/reload-plugins`, pulling updated skills into the
+Claude Code plugin clone without reinstalling. The skill's notes section states that the server
+clone requires a separate `git pull` + `uv sync` + restart — `plugin-sync` only updates the skill
+plugin clone.
+
+**Example**
+
 - Given the plugin is installed, when the engineer runs `/arkeology:plugin-sync`, then the skill
   performs `git pull` on `~/.claude/plugins/arkeology/` and calls `/reload-plugins`.
-- The skill's notes section states that the server clone requires a separate `git pull` +
-  `uv sync` + restart — `plugin-sync` only updates the skill plugin clone.
 
-### Story 3 — Permission-free sync (P1)
+### R7 — `/arkeology:plugin-sync` runs without permission prompts
 
-As an Arkeology Claude Code operator, running `/arkeology:plugin-sync` does not trigger
-permission prompts.
+Running `/arkeology:plugin-sync` does not trigger permission prompts.
 
-**Acceptance criteria:**
+**Example**
+
 - Given `install.sh` has run and written the pre-approval rule to `~/.claude/settings.json`,
   when the engineer invokes `/arkeology:plugin-sync`, then `git pull` executes without a
   per-call approval prompt.
 
-## Requirements
+### R8 — `install.sh` merges the pre-approval rule into `~/.claude/settings.json` once
 
-- WHEN the plugin is installed via `claude plugin install` THE SYSTEM SHALL make both skills
-  in `plugins/arkeology/skills/` available as `arkeology:<skill-name>` slash commands.
-- WHEN `plugins/arkeology/skills/<name>` is resolved THE SYSTEM SHALL be a symlink to
-  `../../../skills/<name>` so edits to the root `skills/` are immediately reflected.
-- WHEN the engineer runs `/arkeology:plugin-sync` THE SYSTEM SHALL perform `git pull` on
-  `~/.claude/plugins/arkeology/` and then execute `/reload-plugins`.
-- WHEN `install.sh` runs the Claude Code section THE SYSTEM SHALL merge the pre-approval
-  rule `"Bash(git -C * pull)"` into `~/.claude/settings.json`, creating the file if absent
-  and merging without overwriting unrelated entries if it exists.
-- WHEN the pre-approval rule is already present in `~/.claude/settings.json` THE SYSTEM
-  SHALL not duplicate it (idempotency).
-- WHEN the README and install.sh session-refresh section document the Claude Code install
-  THE SYSTEM SHALL show both:
-  - SSH primary: `claude plugin marketplace add git@github.com:amanoxsolutions/arkeology.git`
-  - HTTPS fallback: `claude plugin marketplace add https://github.com/amanoxsolutions/arkeology.git`
-  The HTTPS fallback is clearly labelled for environments where outbound SSH is blocked.
+When `install.sh` runs the Claude Code section, it merges the pre-approval rule
+`"Bash(git -C * pull)"` into `~/.claude/settings.json`, creating the file if absent and merging
+without overwriting unrelated entries if it exists. When the pre-approval rule is already present
+in `~/.claude/settings.json`, it is not duplicated (idempotency).
 
-## Boundaries
+## 4. Boundaries
 
 **Always:**
 - Skills inside `plugins/arkeology/skills/` are symlinks to `../../../skills/<name>` — no
@@ -155,17 +165,18 @@ permission prompts.
 - Pre-approval is scoped narrowly to `"Bash(git -C * pull)"` — no blanket bash access.
 - No global CLAUDE.md `@`-import is written or required (D1 — see brainstorming doc).
 
+**Ask First:**
+- None.
+
 **Never:**
 - No file copies inside `plugins/arkeology/skills/` — symlinks only.
 - No agents directory inside `plugins/arkeology/` — Arkeology has no agents.
 - No `version` field in `plugin.json`.
 - No `@`-import prepended to `~/.claude/CLAUDE.md`.
 
----
+## 5. For the developer agent
 
-<!-- IMPLEMENTATION BLOCK — agent-owned -->
-
-## Files to Touch
+### Files to Touch
 
 | File | Action | Notes |
 |------|--------|-------|
@@ -177,7 +188,11 @@ permission prompts.
 | `README.md` | Modify | Add the two `claude plugin` commands to the Quick Install section added by T33e |
 | `CONTRIBUTING.md` | Modify | Update Claude Code setup section to reference the two plugin commands |
 
-## Testing Approach
+### Contracts
+
+None.
+
+### Testing Approach
 
 Testing is manual smoke tests (no TDD for non-server files).
 
@@ -200,7 +215,3 @@ Testing is manual smoke tests (no TDD for non-server files).
    confirm `git pull` executes without a per-call permission prompt.
 7. **Idempotency:** Run `install.sh` twice; verify no duplicate entries in
    `~/.claude/settings.json`.
-
-## Open Questions
-
-None.

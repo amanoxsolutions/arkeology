@@ -72,13 +72,12 @@ relationships:
 generated:
   by: "axians-architect/claude-opus-5.5"
   at: 2026-10-13T16:38:44Z
-phase: 15
-task: 87
+revised:
+  by: "axians-architect/claude-opus-5-5"
+  at: 2026-11-09T22:44:57Z
 ---
 
 # T87 — Producer-Supplied `id` Becomes the Artifact Id
-
-<!-- SCOPE BLOCK — frozen after approval -->
 
 ## TL;DR
 
@@ -89,7 +88,7 @@ written by the producer `amanox-ai-agents` plugin then name the same document in
 Arkeology, with no translation step (D28). An id outside D33's form is rejected and never repaired.
 A caller that supplies no `id` gets exactly the id it got before.
 
-## Problem Statement
+## 1. Problem Statement
 
 Every id is generated today from type, date and title, then slugified and hash-suffixed. The producer
 `amanox-ai-agents` plugin now writes a frozen `id:` into every document and names other documents by
@@ -100,9 +99,94 @@ artifact ids ADR allow only the generated scheme. That ADR's accepted
 `## Revision — 2026-09-25 (accepted 2026-10-13)` amends this, and the code and AGENTS.md now have to
 follow (FR-73; D28).
 
-## User Stories
+**Out of scope, noted:** `file_extension` is only checked for a leading `.`, so it can contain `/`.
+That is a pre-existing nesting vector that applies equally to generated ids, and T87 does not widen
+it.
 
-### Story 1 — A supplied id is the artifact id (P1)
+The four user stories, kept below as labelled examples (Story 1 to Story 4), are all P1.
+
+ADR-017 `## Decision` "5. Identity", the deterministic artifact ids ADR's accepted revision, FR-08, FR-73,
+AC-76 and plan.md's T87 entry agree.
+
+## 2. Rules — Input
+
+### R1 — `create_artifact`, and each `create_artifacts` or `migrate_artifacts` descriptor, accepts an optional `id`, absent by default; there is no batch-level `id`
+
+When `create_artifact` is called the system must accept an optional `id` string, absent by default.
+When a `create_artifacts` or `migrate_artifacts` descriptor carries an `id` key the system must treat
+it the same way for that entry. There is no batch-level `id`.
+
+**Why:** the parameter is `id`. It is the OKF frontmatter key and the producer's field name, so a
+migration descriptor maps `id:` to `id` one-to-one. `artifact_id` was rejected: every other tool
+uses it for the *full* key, and the create response returns it as the full key. One name meaning
+two things is the problem ADR-017 `## Context`, "Forces", fixes for `status`. Shadowing the builtin
+follows the `type` precedent (`# noqa: A002`).
+
+Source: FR-01, FR-73, D28, D33
+
+### R2 — A supplied `id` is accepted only if it is a `str` that fully matches D33's pattern and contains no `..`
+
+When `id` is supplied the system must accept it only if it is a `str` that fully matches
+`[A-Za-z0-9]([A-Za-z0-9._-]{0,126}[A-Za-z0-9])?` and contains no `..`. That means 1 to 128
+characters, ASCII only, a letter or digit at both ends, and no `/`, because the character set
+excludes it.
+
+**Why:** ASCII and full-string matching. The match covers the whole string. A `$` anchor would
+accept a trailing newline. It uses no `IGNORECASE`, `\w`, `\d` or `str.isalnum()`, each of which
+admits non-ASCII characters (`IGNORECASE` admits the Kelvin sign U+212A for `[A-Za-z]`). `..` is
+rejected anywhere in the id, as D33 states. With no `/` allowed, it could never form a path segment
+anyway.
+
+Source: FR-01, FR-73, D28, D33
+
+### R3 — An invalid supplied `id` returns one fixed `validation_error` message, before any storage call, failure-log append or embedding; only an omitted `id` means "generate"
+
+When a supplied `id` is not accepted (it is not a `str` that fully matches
+`[A-Za-z0-9]([A-Za-z0-9._-]{0,126}[A-Za-z0-9])?`, or it contains `..`), the system must return
+`{"error": "validation_error", "message": "id must be 1-128 characters from A-Z, a-z, 0-9, '.', '_' and '-', must start and end with a letter or digit, and must not contain '..'"}`.
+The message is exactly that text and does not echo the value. The response comes before any storage
+call, failure-log append or embedding. An empty string or a non-string value counts as a supplied id
+that fails. Only an omitted `id` (`None`, or no descriptor key) means "generate".
+
+**Example (Story 2 — An invalid id is rejected, never repaired)**
+
+- Given an id that contains `/` or `..`, is longer than 128 characters, starts or ends with a
+  non-alphanumeric character, or contains any character outside `[A-Za-z0-9._-]`, when it is
+  created, then the call returns `validation_error` with the message above, and no storage call is
+  made (AC-76; D33).
+
+**Why:** one fixed message that does not echo the value. The rule is short enough to state whole. A
+caller-sized string is not reflected back, and one exact text gives one assertion. In bulk results
+the entry's position already identifies the descriptor.
+
+**Why:** empty or non-string is rejected, not treated as absent. Treating `""` as "generate", or `5`
+as `"5"`, would be a repair, and D33 says ids are never repaired. On the MCP surface, FastMCP's
+argument validation rejects a non-string before the tool runs. In a bulk descriptor, which is an
+untyped dict, the validator rejects it.
+
+Source: FR-01, FR-73, D28, D33
+
+### R4 — A supplied `id` is never slugified, lowercased, trimmed, suffixed or stripped of an extension
+
+The system must never slugify, lowercase, trim or suffix a supplied id, and must never strip an
+extension from it.
+
+Source: FR-01, FR-73, D28, D33
+
+## 3. Rules — Key
+
+### R5 — A supplied `id` is the bare id and the key is `{WRITE_PREFIX}/{id}{file_extension}`; an absent `id` is generated exactly as T77 and T79 leave it
+
+When `id` is supplied the system must use it as the bare id, giving the key
+`{WRITE_PREFIX}/{id}{file_extension}`. `generate_artifact_id` does not run, so there is no hash
+suffix and no date anchor. Tier, type, title and `generated` are stored as metadata as usual but
+play no part in the key. When `id` is absent the system must generate the id exactly as T77 and
+T79 leave it.
+
+The create response is unchanged: `artifact_id` is the full key.
+
+**Example (Story 1 — A supplied id is the artifact id)**
+
 - Given `id="ADR-005.okf-adoption"`, when `create_artifact` succeeds, then it returns `artifact_id`
   `{WRITE_PREFIX}/ADR-005.okf-adoption.md`. The S3 object, every vector key prefix and every vector's
   `artifact_id` metadata carry exactly that key, and `read_artifact` on it returns the content
@@ -110,16 +194,43 @@ follow (FR-73; D28).
 - Given the same `id` with `file_extension=".txt"`, then the key ends `ADR-005.okf-adoption.txt`.
 - Given no `id`, then the returned key is the one `generate_artifact_id` produces for the same inputs
   (FR-08).
-- Given an artifact created with a supplied id, when `update_artifact` retitles it by `artifact_id`,
-  then the key is unchanged (FR-15, FR-75).
 
-### Story 2 — An invalid id is rejected, never repaired (P1)
-- Given an id that contains `/` or `..`, is longer than 128 characters, starts or ends with a
-  non-alphanumeric character, or contains any character outside `[A-Za-z0-9._-]`, when it is
-  created, then the call returns `validation_error` with the message below, and no storage call is
-  made (AC-76; D33).
+**Why:** no new length exposure. After T77, a generated tier-2 id can reach 141 characters: a type
+slug of up to 60, a date of 10, a title slug of up to 60, a hash of 8 and 3 dashes. A 128-character
+supplied id is shorter, so the S3 key and S3 Vectors key limits (1024), the filterable
+`artifact_id` budget and the `$in` id chunking in `_search_helper.py` all face nothing longer than
+today. `check_metadata_budgets` still measures the assembled dicts.
 
-### Story 3 — Uniqueness is enforced at the storage layer (P1)
+Source: FR-08, FR-73, D28, D32
+
+### R6 — The bare id is resolved in one function in `artifact.py`, which the create path, the `create_artifacts` duplicate pre-flight and the `migrate_artifacts` existence probe all call
+
+The system must resolve the bare id in one function in `artifact.py`. The create path, the
+`create_artifacts` duplicate pre-flight and the `migrate_artifacts` existence probe must all call
+it, so the key that is probed or compared is always the key that is written. This extends T79's
+"same resolved value" rule (T79 `## Requirements`, "Identity").
+
+**Example (Story 4 — Bulk and migration honour it)**
+
+- Given `create_artifacts` descriptors that carry `id`, then each entry is keyed by its own id. When
+  two descriptors resolve to one key, whether supplied, generated or one of each, the later one fails
+  with `validation_error` naming the first index. An invalid id fails only its own entry.
+- Given `migrate_artifacts` re-run over descriptors that carry `id`, then an entry whose supplied key
+  already exists is reported under `skipped_existing` and never rewritten.
+
+Source: FR-08, FR-73, D28, D32
+
+## 4. Rules — Collision
+
+### R7 — Create's conditional write is the only uniqueness check; supplied and generated ids share one namespace per scope, and whichever lands first wins
+
+The system must rely on create's conditional write (`IfNoneMatch: "*"`, T78) as the only uniqueness
+check. Supplied and generated ids share one namespace per scope, and whichever lands first wins. The
+other create gets T78's `validation_error` naming `update_artifact`. There is no
+supplied-versus-generated lookup and no case-insensitive lookup.
+
+**Example (Story 3 — Uniqueness is enforced at the storage layer)**
+
 - Given an artifact stored under supplied id X, when another create supplies X with any title, tier
   or day, then the call returns `validation_error` naming `update_artifact`, and the original is
   unchanged (FR-08, FR-13, C-05).
@@ -128,93 +239,34 @@ follow (FR-73; D28).
 - Given `Spec-A` is stored, when `spec-a` is created, then it succeeds and two artifacts exist (D33;
   FR-08).
 
-### Story 4 — Bulk and migration honour it (P1)
-- Given `create_artifacts` descriptors that carry `id`, then each entry is keyed by its own id. When
-  two descriptors resolve to one key, whether supplied, generated or one of each, the later one fails
-  with `validation_error` naming the first index. An invalid id fails only its own entry.
-- Given `migrate_artifacts` re-run over descriptors that carry `id`, then an entry whose supplied key
-  already exists is reported under `skipped_existing` and never rewritten.
+Source: FR-08, FR-13, C-05, D28, D51
 
-## Requirements
+## 5. Rules — Update
 
-**Input** (FR-01, FR-73; D28, D33)
+### R8 — The update tools gain no `id` parameter and never move the key, supplied-id artifacts included
 
-- WHEN `create_artifact` is called THE SYSTEM SHALL accept an optional `id` string, absent by
-  default. WHEN a `create_artifacts` or `migrate_artifacts` descriptor carries an `id` key THE
-  SYSTEM SHALL treat it the same way for that entry. There is no batch-level `id`.
-- WHEN `id` is supplied THE SYSTEM SHALL accept it only if it is a `str` that fully matches
-  `[A-Za-z0-9]([A-Za-z0-9._-]{0,126}[A-Za-z0-9])?` and contains no `..`. That means 1 to 128
-  characters, ASCII only, a letter or digit at both ends, and no `/`, because the character set
-  excludes it.
-- WHEN it does not THE SYSTEM SHALL return `{"error": "validation_error", "message": "id must be
-  1-128 characters from A-Z, a-z, 0-9, '.', '_' and '-', must start and end with a letter or
-  digit, and must not contain '..'"}`. The message is exactly that text and does not echo the value.
-  The response comes before any storage call, failure-log append or embedding. An empty string or a
-  non-string value counts as a supplied id that fails. Only an omitted `id` (`None`, or no descriptor
-  key) means "generate".
-- THE SYSTEM SHALL never slugify, lowercase, trim or suffix a supplied id, and SHALL never strip an
-  extension from it.
+`update_artifact` and `update_artifacts` gain no `id` parameter. They address the artifact by
+`artifact_id` and never move the key (T78), and that holds for supplied-id artifacts too.
 
-**Key** (FR-08, FR-73; D28, D32)
+**Example (Story 1 — A supplied id is the artifact id: update)**
 
-- WHEN `id` is supplied THE SYSTEM SHALL use it as the bare id, giving the key
-  `{WRITE_PREFIX}/{id}{file_extension}`. `generate_artifact_id` does not run, so there is no hash
-  suffix and no date anchor. Tier, type, title and `generated` are stored as metadata as usual but
-  play no part in the key. WHEN `id` is absent THE SYSTEM SHALL generate the id exactly as T77 and
-  T79 leave it.
-- THE SYSTEM SHALL resolve the bare id in one function in `artifact.py`. The create path, the
-  `create_artifacts` duplicate pre-flight and the `migrate_artifacts` existence probe SHALL all call
-  it, so the key that is probed or compared is always the key that is written. This extends T79's
-  "same resolved value" rule (T79 `## Requirements`, "Identity").
-- The create response is unchanged: `artifact_id` is the full key.
+- Given an artifact created with a supplied id, when `update_artifact` retitles it by `artifact_id`,
+  then the key is unchanged (FR-15, FR-75).
 
-**Collision** (FR-08, FR-13, C-05; D28, D51)
+Source: FR-75, D51
 
-- THE SYSTEM SHALL rely on create's conditional write (`IfNoneMatch: "*"`, T78) as the only
-  uniqueness check. Supplied and generated ids share one namespace per scope, and whichever lands
-  first wins. The other create gets T78's `validation_error` naming `update_artifact`. There is no
-  supplied-versus-generated lookup and no case-insensitive lookup.
+## 6. Rules — Unchanged by construction
 
-**Update** (FR-75; D51)
+### R9 — `_scope.py`, every scope guard, `build_scope_filter`, and `reconcile.py`'s `_PROBE_KEY_MARKER` and vector-key `#` split stay unchanged
 
-- `update_artifact` and `update_artifacts` gain no `id` parameter. They address the artifact by
-  `artifact_id` and never move the key (T78), and that holds for supplied-id artifacts too.
+The system must leave unchanged `_scope.py`, every `is_own_scope` and `startswith(scope + "/")`
+guard, `build_scope_filter`, and in `reconcile.py` both `_PROBE_KEY_MARKER` and the vector-key `#`
+split.
 
-**Unchanged by construction** (AGENTS.md Non-Negotiable Rules; D33)
+**Why:** the gate and scope guards are unaffected — proof. The key is `W + "/" + id + ext`, where
+`W` is the server's own `WRITE_PREFIX`. The server concatenates it, and the caller never supplies
+`W`.
 
-- THE SYSTEM SHALL leave unchanged `_scope.py`, every `is_own_scope` and `startswith(scope + "/")`
-  guard, `build_scope_filter`, and in `reconcile.py` both `_PROBE_KEY_MARKER` and the vector-key `#`
-  split. The proof is under "Decisions taken in this spec".
-
-**Rule text** (plan.md `## Phase 15`, T87 done condition)
-
-- AGENTS.md's Working Conventions key-scheme bullet and its Non-Negotiable "Never generate random or
-  UUID artifact keys" SHALL carry the amendment. The wording is in Files to Touch.
-
-### Decisions taken in this spec
-
-**The parameter is `id`.** It is the OKF frontmatter key and the producer's field name, so a
-migration descriptor maps `id:` to `id` one-to-one. `artifact_id` was rejected: every other tool
-uses it for the *full* key, and the create response returns it as the full key. One name meaning
-two things is the problem ADR-017 `## Context`, "Forces", fixes for `status`. Shadowing the builtin
-follows the `type` precedent (`# noqa: A002`).
-
-**One fixed message that does not echo the value.** The rule is short enough to state whole. A
-caller-sized string is not reflected back, and one exact text gives one assertion. In bulk results
-the entry's position already identifies the descriptor.
-
-**Empty or non-string is rejected, not treated as absent.** Treating `""` as "generate", or `5` as
-`"5"`, would be a repair, and D33 says ids are never repaired. On the MCP surface, FastMCP's
-argument validation rejects a non-string before the tool runs. In a bulk descriptor, which is an
-untyped dict, the validator rejects it.
-
-**ASCII and full-string matching.** The match covers the whole string. A `$` anchor would accept a
-trailing newline. It uses no `IGNORECASE`, `\w`, `\d` or `str.isalnum()`, each of which admits
-non-ASCII characters (`IGNORECASE` admits the Kelvin sign U+212A for `[A-Za-z]`). `..` is rejected
-anywhere in the id, as D33 states. With no `/` allowed, it could never form a path segment anyway.
-
-**The gate and scope guards are unaffected — proof.** The key is `W + "/" + id + ext`, where `W` is
-the server's own `WRITE_PREFIX`. The server concatenates it, and the caller never supplies `W`.
 1. `is_own_scope(key, W)` is true for every id. Update, archive, delete and reconcile therefore
    admit exactly the keys this server wrote.
 2. The id contains no `/`, so it can only lengthen the final path segment and never add a segment.
@@ -224,6 +276,13 @@ the server's own `WRITE_PREFIX`. The server concatenates it, and the caller neve
    filters on the `scope` metadata (`W`). Neither inspects the id.
 
 No gate code changes, so the mutation Scope gains no code.
+
+**Why:** the probe marker cannot collide. `_PROBE_KEY_MARKER` is `_arkeology_`, and the orphan scan
+matches it as a prefix of the final segment, which is `{id}{ext}`. A supplied id's first character
+is alphanumeric (D33), so it never starts with `_`. T77 already rewords the marker comment to cover
+D33 ids.
+
+Source: AGENTS.md Non-Negotiable Rules, D33
 
 **Code that parses id structure, re-verified 2026-10-13.** The brainstorming notes named a `/`
 split and the probe marker in `reconcile.py`. The full list is longer, and every entry is safe
@@ -237,22 +296,16 @@ because D33 excludes `/`, `#`, `?` and `%`:
 
 Nothing parses a date, type or hash out of an id.
 
-**The probe marker cannot collide.** `_PROBE_KEY_MARKER` is `_arkeology_`, and the orphan scan
-matches it as a prefix of the final segment, which is `{id}{ext}`. A supplied id's first character
-is alphanumeric (D33), so it never starts with `_`. T77 already rewords the marker comment to cover
-D33 ids.
+## 7. Rules — Rule text
 
-**No new length exposure.** After T77, a generated tier-2 id can reach 141 characters: a type slug
-of up to 60, a date of 10, a title slug of up to 60, a hash of 8 and 3 dashes. A 128-character
-supplied id is shorter, so the S3 key and S3 Vectors key limits (1024), the filterable
-`artifact_id` budget and the `$in` id chunking in `_search_helper.py` all face nothing longer than
-today. `check_metadata_budgets` still measures the assembled dicts.
+### R10 — AGENTS.md's key-scheme bullet and its "Never generate random or UUID artifact keys" rule carry the amendment
 
-**Out of scope, noted:** `file_extension` is only checked for a leading `.`, so it can contain `/`.
-That is a pre-existing nesting vector that applies equally to generated ids, and T87 does not widen
-it.
+AGENTS.md's Working Conventions key-scheme bullet and its Non-Negotiable "Never generate random or
+UUID artifact keys" must carry the amendment. The wording is in Files to Touch.
 
-## Boundaries
+Source: plan.md `## Phase 15`, T87 done condition
+
+## 8. Boundaries
 
 **Always:**
 - Validate a supplied id before any storage call, failure-log append or embedding.
@@ -274,9 +327,9 @@ it.
   end, which is what T88 builds on.
 - Edit the schema resource (T89), or README, SERVER-REFERENCE or CHANGELOG (T91).
 
-<!-- IMPLEMENTATION BLOCK — agent-owned -->
+## 9. For the developer agent
 
-## Files to Touch
+### Files to Touch
 
 | File | Action | Notes |
 |------|--------|-------|
@@ -308,7 +361,9 @@ are fully deterministic from artifact attributes" with:
 
 > - Never generate random or UUID artifact keys — a key is either the writer-supplied `id`, used verbatim, or generated deterministically from artifact attributes; a supplied id is an attribute like any other, which amends this rule rather than breaking it (deterministic artifact ids ADR, `## Revision — 2026-09-25 (accepted 2026-10-13)`)
 
-## Contract Amendments
+### Contracts
+
+Contract amendments.
 
 Make these before the tests, on top of T77, T78 and T79's amendments:
 
@@ -333,7 +388,11 @@ Make these before the tests, on top of T77, T78 and T79's amendments:
 - **`docs/contracts/modules/arkeology.tools.migrate_artifacts.md`**: the existence probe uses the
   resolved key, including the descriptor `id`. Skip-never-overwrite is unchanged.
 
-## Testing Approach
+The `s3.artifact` Compatibility Guarantees forbid dropping the hash suffix, which conflicts with D28.
+That is a contract that is out of date against an accepted ADR, not a contradiction to rule on, and
+the amendment above resolves it.
+
+### Testing Approach
 
 **TDD order** (each test file is confirmed red before the implementation file it gates):
 
@@ -400,9 +459,6 @@ the behaviour moto only approximates.
 
 **Mutation testing.** T87 changes no file in `only_mutate`, so no run is required.
 
-## Open Questions
+### Hand-offs
 
-None. ADR-017 `## Decision` "5. Identity", the deterministic artifact ids ADR's accepted revision,
-FR-08, FR-73, AC-76 and plan.md's T87 entry agree. The `s3.artifact` Compatibility Guarantees
-forbid dropping the hash suffix, which conflicts with D28. That is a contract that is out of date
-against an accepted ADR, not a contradiction to rule on, and the amendment above resolves it.
+None.

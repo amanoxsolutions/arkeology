@@ -118,24 +118,23 @@ relationships:
 generated:
   by: "axians-architect/claude-opus-5.5"
   at: 2026-10-13T16:19:13Z
-phase: 15
-task: 81
+revised:
+  by: "axians-architect/claude-opus-5-5"
+  at: 2026-11-09T21:34:04Z
 ---
 
 # T81 — OKF Lifecycle `status` and the In-Force Default View
-
-<!-- SCOPE BLOCK — frozen after approval -->
 
 ## TL;DR
 
 Arkeology stores the OKF document `status` (`draft | stable | deprecated`) that a writer supplies on
 create or update, in S3 object metadata and filterable vector metadata (D22). Search, listing and
-synthesis preparation then default to the in-force view: not `deprecated` and not archived, where an
-artifact with no status is in force (D23). Callers can ask for full lineage, exclude drafts, or filter
-on an exact status. The decision keys only on the artifact's own `status` and `archived`, never on a
-`supersedes` edge (D24, D25).
+synthesis preparation then default to the in-force view — not `deprecated` and not archived, where
+an artifact with no status is in force (D23) — and callers can ask for full lineage, exclude drafts,
+or filter on an exact status. The decision keys only on the artifact's own `status` and `archived`,
+never on a `supersedes` edge (D24, D25).
 
-## Problem Statement
+## 1. Problem Statement
 
 Producer documents now carry an OKF lifecycle `status`, and Arkeology discards it. A deprecated spec
 therefore ranks beside its replacement in every search, and an agent cannot ask what is currently in
@@ -145,226 +144,363 @@ a *different* document, so letting it exclude anything is the threat described i
 `status: deprecated` on A is a write to A under A's own write authority (ADR-017 `## Decision`,
 "2. Lifecycle").
 
-## User Stories
+All six user stories are P1: in force by default; lineage and stricter readings on request; a
+supersedes claim never retires anything; the writer sets its document's status; humans see the same
+view; old archive values are rejected and name the replacement.
 
-### Story 1 — In force by default (P1)
-- Given own-scope artifacts A (`deprecated`), B (`draft`), C (archived) and D (no lifecycle status
-  key), when the caller searches or lists with default parameters, then B and D are returned, and A
-  and C are excluded (AC-69). Synthesis preparation returns the same set.
+## 2. Rules — Storage
 
-### Story 2 — Lineage and stricter readings on request (P1)
-- Given the same store, when the caller passes `archived="all"` and `status="all"`, then A, B, C and
-  D are returned (full lineage). When the caller passes `exclude_drafts=true`, then only D is
-  returned. A and C remain retrievable by id (AC-69).
-- Given the same store, when the caller passes `status="deprecated"`, then only A is returned (FR-04).
+### R1 — A create or update with `status` exactly `draft`, `stable` or `deprecated` stores it in both stores
 
-### Story 3 — A supersedes claim never retires anything (P1)
-- Given B declares it supersedes A, and A is `stable` and not archived, when the caller searches or
-  lists with default parameters, then A is returned (AC-70).
+When a create or update receives `status` equal to exactly `draft`, `stable` or `deprecated`, the
+system must store that string under `status` in S3 object metadata and in the filterable metadata of
+every vector of the artifact.
 
-### Story 4 — The writer sets its document's status (P1)
-- Given `create_artifact` with `status="draft"`, then both stores hold `draft`. Given a create with no
-  `status`, then neither store holds a `status` key, and the artifact is in force (D22).
+**Example**
+
+- Given `create_artifact` with `status="draft"`, then both stores hold `draft`.
+
+Source: FR-01, FR-09, FR-75; D22
+
+### R2 — A create with no `status` writes no `status` key to either store
+
+When a create receives no `status`, the system must write no `status` key to either store. It never
+writes an empty string or a default. "No lifecycle status" is a real state, and it is in force.
+
+**Example**
+
+- Given a create with no `status`, then neither store holds a `status` key, and the artifact is in
+  force (D22).
+
+Source: FR-01, FR-09, FR-75; D22
+
+### R3 — An update that omits `status` carries the stored `status` (or its absence) forward; an update with `status: null` removes the key from both stores
+
+When an update omits `status`, the system must carry the stored `status` (or its absence) forward
+unchanged, exactly as it carries `archived` forward. When an update receives `status: null`, the
+system must remove the key from both stores. On `update_artifact`, `status` is therefore optional
+and nullable; omitted and `null` differ.
+
+**Example**
+
 - Given a stored `deprecated` artifact, when it is updated with `status="stable"`, then both stores
   hold `stable`. When it is updated without `status`, then both stores still hold `deprecated`;
   when it is updated with `status=null`, then neither store holds a `status` key (operator decision
   2026-10-13).
 
-### Story 5 — Humans see the same view (P1)
-- Given a deprecated own-scope artifact, when a host reads `arkeology://artifacts`, then it is not
-  listed, and draft and status-less artifacts are listed (AC-52, FR-46).
-- Given Studio is open, when the operator picks a lifecycle facet value, then `list_artifacts` and
-  `search_artifacts` are called with the matching `status` argument (AC-54, lifecycle half).
+**Why:** *Rationale (operator decision 2026-10-13):* an update that merely omits the field must
+never silently return a deprecated artifact to the in-force view; clearing is always explicit —
+`status: null` here, or `set_artifact_status` (T82).
 
-### Story 6 — Old archive values are rejected and name the replacement (P1)
-- Given a caller still sending `status="active"` or `"inactive"`, when it calls a query tool, then
-  the result is `validation_error` naming `archived`. On a create or update tool, the error names
-  `archive_artifact` (AC-80; D42).
+Source: FR-01, FR-09, FR-75; D22; operator decision 2026-10-13
 
-## Requirements
+### R4 — Any other `status` value on a write is rejected with `validation_error` naming the three accepted values and `archive_artifact`, and nothing is written
 
-**Storage** (FR-01, FR-09, FR-75; D22)
+When `status` is any other value, including `active`, `inactive`, `""` or a different letter case,
+the system must return `validation_error` naming the three accepted values and `archive_artifact`,
+and must write nothing. In `create_artifacts` / `update_artifacts` only that entry fails.
+`migrate_artifacts` inherits this through its delegation.
 
-- WHEN a create or update receives `status` equal to exactly `draft`, `stable` or `deprecated` THE
-  SYSTEM SHALL store that string under `status` in S3 object metadata and in the filterable metadata
-  of every vector of the artifact.
-- WHEN a create receives no `status` THE SYSTEM SHALL write no `status` key to either store. It
-  never writes an empty string or a default. "No lifecycle status" is a real state, and it is in
-  force.
-- WHEN an update omits `status` THE SYSTEM SHALL carry the stored `status` (or its absence) forward
-  unchanged, exactly as it carries `archived` forward. WHEN an update receives `status: null` THE
-  SYSTEM SHALL remove the key from both stores. *Rationale (operator decision 2026-10-13):* an
-  update that merely omits the field must never silently return a deprecated artifact to the
-  in-force view; clearing is always explicit — `status: null` here, or `set_artifact_status` (T82).
-  On `update_artifact`, `status` is therefore optional and nullable; omitted and `null` differ.
-- WHEN `status` is any other value, including `active`, `inactive`, `""` or a different letter case,
-  THE SYSTEM SHALL return `validation_error` naming the three accepted values and `archive_artifact`,
-  and SHALL write nothing. In `create_artifacts` / `update_artifacts` only that entry fails.
-  `migrate_artifacts` inherits this through its delegation.
-- WHEN `update_artifact` runs THE SYSTEM SHALL replace `status` with exactly what the call supplies.
-  An omitted `status` removes the key from both stores. It is not carried forward the way the archive
-  marker is (see the decisions below).
-- `archive_artifact` and the link-backfill tool (`link_metadata`, renamed `add_artifact_links` by
-  T84) SHALL carry `status` forward unchanged in both stores. Their whole-dict copies already do this.
-- THE SYSTEM SHALL NOT derive `status` from the content's frontmatter. The parameter is the only
-  input (FR-01).
+**Example**
 
-**The view** (FR-04, FR-67; D23–D25; status-all sentinel ADR, `## Revision — 2026-09-25`)
+- Given a caller still sending `status="active"` or `"inactive"`, when it calls a create or update
+  tool, then the error names `archive_artifact` (AC-80; D42).
 
-- `list_artifacts`, `search_artifacts` and `synthesise_artifacts` SHALL accept three view inputs.
-  Each one controls exactly one clause:
-  - `archived` — T76's input, unchanged (`false` by default, `true`, or `"all"`).
-    `synthesise_artifacts` gains it.
-  - `status` — the lifecycle filter. When it is omitted or null, the in-force lifecycle clause is
-    added. `"all"` adds no lifecycle clause. `draft`, `stable` or `deprecated` adds an exact match.
-  - `exclude_drafts` — `false` by default. When `true`, `draft` is added to the excluded values.
-- THE SYSTEM SHALL compare `status` against `"all"` before validating it. WHEN the value is anything
-  else that is not one of the three THE SYSTEM SHALL return `validation_error` naming the accepted
-  values and `archived`.
-- WHEN `exclude_drafts` is true and `status` is `"draft"` THE SYSTEM SHALL return `validation_error`.
-  That combination could only match nothing, and the sentinel ADR forbids a silently empty result.
-  When `status` is `stable` or `deprecated`, `exclude_drafts` adds no clause.
-- The lifecycle clause SHALL be exactly:
+Source: FR-01, FR-09, FR-75; D22
 
-  | `status` | `exclude_drafts` | Lifecycle clause |
-  |---|---|---|
-  | omitted / null | false | `{"$or": [{"status": {"$exists": false}}, {"status": {"$nin": ["deprecated"]}}]}` |
-  | omitted / null | true | the same, with `$nin: ["deprecated", "draft"]` |
-  | `"all"` | false | none |
-  | `"all"` | true | the same, with `$nin: ["draft"]` |
-  | `draft` / `stable` / `deprecated` | false (or true, except `draft`) | `{"status": {"$eq": <value>}}` |
+### R5 — `update_artifact` replaces `status` with exactly what the call supplies; an omitted `status` removes the key from both stores
 
-- The default (in force) is `archived $eq false` AND the first row. Full lineage is
-  `archived="all"` with `status="all"`, which adds neither clause.
-- **Composition.** The final filter is
-  `{"$and": [user filters…, commit_refs clauses (list only), archived clause?, lifecycle clause?, build_scope_filter(…), artifact_id $nin? (search loop only)]}`,
-  and it is unwrapped when only one clause remains, as today. Each view clause is its own conjunct.
-  The scope filter is passed through unmodified and is never wrapped, merged or replaced, and `"all"`
-  removes only its own clause. `is_cross_scope_readable` still runs on every candidate. No view input
-  ever widens what the gate admits.
-- The view SHALL depend only on the candidate's own `status` and `archived` (D25). Building or
-  applying it SHALL NOT read link annotations, `relationships`, `references`, or any other artifact.
-- `read_artifact` and `arkeology://artifact/{id}` apply no view, so every artifact stays retrievable
-  by id (FR-67). `find_referrers`, `purge_archived`, `check_synthesis_freshness`, `reconcile_index`
-  and `propose_commit_links` gain no lifecycle clause.
+When `update_artifact` runs, the system must replace `status` with exactly what the call supplies.
+An omitted `status` removes the key from both stores. It is not carried forward the way the archive
+marker is.
 
-**Responses** (FR-09; malformed-data ADR D2–D4 and `## Revision — 2026-09-25`)
+**Why:** Update replaces `status`; it does not carry it forward. T78 rules out partial patches: an
+omitted optional field takes its create default, and for `status` that default is "none". ADR-017 §2
+names the document's writer as the owner of `status`, and the archive marker's owner as
+`archive_artifact`. That is why `archived` is carried forward and `status` is not. A status change
+without a content write is T82's job.
 
-- Every entry from list, search and synthesise SHALL carry `status`: the stored string, or `null`
-  when there is none.
-- WHEN a candidate's vector `status` is present but is not exactly one of the three strings THE
-  SYSTEM SHALL skip it and count it under `skipped_malformed_count`, under every view.
-- `read_artifact` SHALL return `status` from S3 object metadata (`null` when absent). WHEN it is
-  present but invalid THE SYSTEM SHALL return `corrupt_metadata` naming `status`. The raw value is
-  echoed only to an own-scope reader. The gate still runs first.
+Source: FR-01, FR-09, FR-75; D22
 
-**Reconcile** (FR-17; D50)
+### R6 — `archive_artifact` and the link-backfill tool carry `status` forward unchanged in both stores
 
-- WHEN `reconcile_index` rebuilds an artifact's vectors THE SYSTEM SHALL copy a valid S3 `status`
-  into each one, and SHALL write no `status` key when the S3 key is absent. WHEN the S3 `status` is
-  invalid THE SYSTEM SHALL write no vectors for that artifact and SHALL report it under `failed`,
-  with a reason naming `status`. There is no lifecycle repair pass: a missing `status` is legitimate,
-  and D50's repair applies only to `archived`.
+`archive_artifact` and the link-backfill tool (`link_metadata`, renamed `add_artifact_links` by T84)
+must carry `status` forward unchanged in both stores. Their whole-dict copies already do this.
 
-**Resources and Studio** (FR-18, FR-46, FR-48)
+Source: FR-01, FR-09, FR-75; D22
 
-- `arkeology://artifacts` SHALL keep delegating to `list_artifacts`' defaults, which is the in-force
-  view.
-- The schema resource SHALL gain a `status` row (optional; `draft`, `stable` or `deprecated`; absent
-  means no lifecycle status) and one line stating the in-force default and how to ask for full
-  lineage. T89 rewrites the rest.
-- Studio SHALL add a lifecycle facet next to T76's archived facet, with these options: All (the
-  default, sending `status: "all"`), Not deprecated (sending no `status`), Draft, Stable and
-  Deprecated. The same value goes to both `list_artifacts` and `search_artifacts`. The detail view
-  SHALL show a pill with the lifecycle status when there is one.
+### R7 — `status` is never derived from the content's frontmatter
 
-**Removed names** (AC-80; D42; T76 `## Open Questions` item 2)
+The system must not derive `status` from the content's frontmatter. The parameter is the only input
+(FR-01).
 
-- T81 SHALL delete T76's temporary rows from the removed-name table in `server.py`:
-  - (`list_artifacts`, `status`) and (`search_artifacts`, `status`);
-  - (`create_artifact`, `status`) and (`update_artifact`, `status`), or (`write_artifact`, `status`)
-    if T78 has not landed;
-  - T76's rejection of a `status` key in bulk descriptors.
+Source: FR-01, FR-09, FR-75; D22
 
-  The value checks above replace them.
-- `status` SHALL reach each tool's own validation through MCP. Its input schema therefore accepts any
-  string, and the accepted values are listed in the parameter description, so FastMCP does not
-  pre-empt the check.
+## 3. Rules — The view
 
-**Filterable budget** (ADR-017 `## Consequences`; budget ADR D2 and `## Revision — 2026-09-25`)
+### R8 — `list_artifacts`, `search_artifacts` and `synthesise_artifacts` accept three view inputs, each controlling exactly one clause
 
-- After T81, the filterable vector key set is final for Phase 15. The changes since 2026-08-13 are:
-  - out: `date` and the archive `status`;
-  - in: `archived` (T76), the four provenance keys `generated_by`, `generated_at`, `revised_by` and
-    `revised_at` (T79), and lifecycle `status` (T81).
-- THE SYSTEM's 20-entry `commit_refs` vector cap SHALL be confirmed by re-running the 2026-08-13
-  calibration method against real AWS with this key set:
-  - binary-search the `commit_refs` length at which `PutVectors` rejects;
-  - `put_vector` is called directly, bypassing the local guard;
-  - the payload is realistic but worst-plausible (see Testing Approach).
-- T81 is not done until AWS accepts at least 20 entries for that payload.
+`list_artifacts`, `search_artifacts` and `synthesise_artifacts` must accept three view inputs. Each
+one controls exactly one clause:
 
-**Invariant**: from T81 on, `status` in any store, parameter or response means the OKF lifecycle and
-nothing else.
+- `archived` — T76's input, unchanged (`false` by default, `true`, or `"all"`).
+  `synthesise_artifacts` gains it.
+- `status` — the lifecycle filter. When it is omitted or null, the in-force lifecycle clause is
+  added. `"all"` adds no lifecycle clause. `draft`, `stable` or `deprecated` adds an exact match.
+- `exclude_drafts` — `false` by default. When `true`, `draft` is added to the excluded values.
 
-### Decisions taken in this spec
-
-**Query surface: `status` + `exclude_drafts`, with full lineage as two `"all"`s.** ADR-017
+**Why:** Query surface — `status` + `exclude_drafts`, with full lineage as two `"all"`s. ADR-017
 `## Deferred to the Specs` leaves the parameter shapes to the spec. Each clause has exactly one
 controlling input, so no precedence rules are needed. A separate `full_lineage` switch was rejected
 because it would overlap both `archived` and `status`: `full_lineage=true, archived=false` has no
-obvious meaning. The recipe (`archived="all"`, `status="all"`) goes in the parameter descriptions and
-the schema resource. Exclude-drafts cannot be an exact `status` value, because AC-69 requires it to
-keep D, which has no status. The name `status` is reused for the filter because ADR-017 §2 binds the
+obvious meaning. Exclude-drafts cannot be an exact `status` value, because AC-69 requires it to keep
+D, which has no status. The name `status` is reused for the filter because ADR-017 §2 binds the
 `"all"` convention to it.
 
-**`status` is a plain string on the wire.** A `Literal` enum would let FastMCP reject `"inactive"`
-before dispatch, with a generic argument error that does not name `archived`, and that fails AC-80.
-T76 could accept FastMCP's generic error for a bad `archived` value because its middleware row met
-AC-80 for the old name. T81 deletes that row, so the tool's own check is what names the replacement. One check serves MCP and
-non-MCP callers (resources, Studio fallback, tests) alike.
+**Why:** `synthesise_artifacts` gains all three inputs. FR-67 requires synthesis preparation to
+offer full lineage, and full lineage needs the `archived` clause widened too. T76 handed this to T81
+(its Boundaries, "Never"). The same helper serves all three tools, so they cannot drift apart — the
+failure the sentinel ADR records.
 
-**The filter expression states the missing-key case explicitly.** The AWS S3 Vectors metadata
+Source: FR-04, FR-67; D23–D25; status-all sentinel ADR `## Revision — 2026-09-25`
+
+### R9 — A view's `status` is compared against `"all"` before it is validated; any other value outside the three is rejected with `validation_error` naming the accepted values and `archived`
+
+The system must compare `status` against `"all"` before validating it. When the value is anything
+else that is not one of the three, the system must return `validation_error` naming the accepted
+values and `archived`.
+
+**Example**
+
+- Given a caller still sending `status="active"` or `"inactive"`, when it calls a query tool, then
+  the result is `validation_error` naming `archived` (AC-80; D42).
+
+Source: FR-04, FR-67; D23–D25; status-all sentinel ADR `## Revision — 2026-09-25`
+
+### R10 — `exclude_drafts` with `status="draft"` is rejected with `validation_error`; with `stable` or `deprecated` it adds no clause
+
+When `exclude_drafts` is true and `status` is `"draft"`, the system must return `validation_error`.
+That combination could only match nothing, and the sentinel ADR forbids a silently empty result.
+When `status` is `stable` or `deprecated`, `exclude_drafts` adds no clause.
+
+Source: FR-04, FR-67; D23–D25; status-all sentinel ADR `## Revision — 2026-09-25`
+
+### R11 — The lifecycle clause is exactly as tabled; the default is in force, and full lineage is `archived="all"` with `status="all"`
+
+The lifecycle clause must be exactly:
+
+| `status` | `exclude_drafts` | Lifecycle clause |
+|---|---|---|
+| omitted / null | false | `{"$or": [{"status": {"$exists": false}}, {"status": {"$nin": ["deprecated"]}}]}` |
+| omitted / null | true | the same, with `$nin: ["deprecated", "draft"]` |
+| `"all"` | false | none |
+| `"all"` | true | the same, with `$nin: ["draft"]` |
+| `draft` / `stable` / `deprecated` | false (or true, except `draft`) | `{"status": {"$eq": <value>}}` |
+
+The default (in force) is `archived $eq false` AND the first row. Full lineage is `archived="all"`
+with `status="all"`, which adds neither clause. The recipe (`archived="all"`, `status="all"`) goes in
+the parameter descriptions and the schema resource.
+
+**Example**
+
+- Given own-scope artifacts A (`deprecated`), B (`draft`), C (archived) and D (no lifecycle status
+  key), when the caller searches or lists with default parameters, then B and D are returned, and A
+  and C are excluded (AC-69). Synthesis preparation returns the same set.
+- Given the same store, when the caller passes `archived="all"` and `status="all"`, then A, B, C and
+  D are returned (full lineage). When the caller passes `exclude_drafts=true`, then only D is
+  returned. A and C remain retrievable by id (AC-69).
+- Given the same store, when the caller passes `status="deprecated"`, then only A is returned (FR-04).
+
+**Why:** The filter expression states the missing-key case explicitly. The AWS S3 Vectors metadata
 filtering page defines `$ne` ("Not equal comparison"), `$nin` ("Match none of the values in array")
 and `$exists` ("Check if field exists"). It does not say whether a vector *without* the key matches
 `$ne` or `$nin`. So the clause does not depend on that answer: `$exists: false` admits the
 status-less artifact under either semantics, which leaves `$nin` to decide only for vectors that
-carry the key.
-This matters in production, not only in tests. `list_artifacts` filters client-side with
-`matches_filter` (`VectorsClientImpl.list_vectors_by_metadata`), while search and synthesise filter
-server-side in AWS, so if the two disagreed, list and search would disagree on the same view.
+carry the key. This matters in production, not only in tests. `list_artifacts` filters client-side
+with `matches_filter` (`VectorsClientImpl.list_vectors_by_metadata`), while search and synthesise
+filter server-side in AWS, so if the two disagreed, list and search would disagree on the same view.
 
-`$nin` is used for both exclusion sets rather than `$ne`, because `matches_filter` already supports
-it. `$ne` stays unsupported and keeps raising `FilterEvaluationError`.
+**Why:** `$nin` is used for both exclusion sets rather than `$ne`, because `matches_filter` already
+supports it. `$ne` stays unsupported and keeps raising `FilterEvaluationError`.
 
-A denylist was chosen over an allowlist (`$in: [draft, stable]`), as ADR-017's literal
+**Why:** A denylist was chosen over an allowlist (`$in: [draft, stable]`), as ADR-017's literal
 `status != deprecated` requires. It also means a malformed value reaches code and is counted, rather
 than being dropped inside the index uncounted (the failure D50 case 3 describes for `archived`).
 
-The cost is at most 3 filter constraints (an `ENHANCED` index counts each value, with a cap of 100
-per query) and about 90 bytes of filter JSON. That fits inside the headroom
+**Why:** The cost is at most 3 filter constraints (an `ENHANCED` index counts each value, with a cap
+of 100 per query) and about 90 bytes of filter JSON. That fits inside the headroom
 `_NIN_EXCLUSION_BYTE_BUDGET` reserves, which is unchanged.
 
-**Update replaces `status`; it does not carry it forward.** T78 rules out partial patches: an omitted
-optional field takes its create default, and for `status` that default is "none". ADR-017 §2 names
-the document's writer as the owner of `status`, and the archive marker's owner as `archive_artifact`.
-That is why `archived` is carried forward and `status` is not. A status change without a content
-write is T82's job.
+Source: FR-04, FR-67; D23–D25; status-all sentinel ADR `## Revision — 2026-09-25`
 
-**`synthesise_artifacts` gains all three inputs.** FR-67 requires synthesis preparation to offer full
-lineage, and full lineage needs the `archived` clause widened too. T76 handed this to T81 (its
-Boundaries, "Never"). The same helper serves all three tools, so they cannot drift apart — the
-failure the sentinel ADR records.
+### R12 — Each view clause is its own conjunct beside the unmodified scope filter, and no view input widens what the gate admits
 
-**Malformed values follow the malformed-data policy by the shape of the call.** A present but invalid
-`status` is read successfully but cannot be interpreted. A single read therefore returns
+**Composition.** The final filter is
+`{"$and": [user filters…, commit_refs clauses (list only), archived clause?, lifecycle clause?, build_scope_filter(…), artifact_id $nin? (search loop only)]}`,
+and it is unwrapped when only one clause remains, as today. Each view clause is its own conjunct.
+The scope filter is passed through unmodified and is never wrapped, merged or replaced, and `"all"`
+removes only its own clause. `is_cross_scope_readable` still runs on every candidate. No view input
+ever widens what the gate admits.
+
+Source: FR-04, FR-67; D23–D25; status-all sentinel ADR `## Revision — 2026-09-25`
+
+### R13 — The view depends only on the candidate's own `status` and `archived`, never on a `supersedes` edge or any other artifact
+
+The view must depend only on the candidate's own `status` and `archived` (D25). Building or applying
+it must not read link annotations, `relationships`, `references`, or any other artifact.
+
+**Example**
+
+- Given B declares it supersedes A, and A is `stable` and not archived, when the caller searches or
+  lists with default parameters, then A is returned (AC-70).
+
+Source: FR-04, FR-67; D23–D25; status-all sentinel ADR `## Revision — 2026-09-25`
+
+### R14 — Reads by id apply no view, and the named non-view tools gain no lifecycle clause
+
+`read_artifact` and `arkeology://artifact/{id}` apply no view, so every artifact stays retrievable by
+id (FR-67). `find_referrers`, `purge_archived`, `check_synthesis_freshness`, `reconcile_index` and
+`propose_commit_links` gain no lifecycle clause.
+
+Source: FR-04, FR-67; D23–D25; status-all sentinel ADR `## Revision — 2026-09-25`
+
+## 4. Rules — Responses
+
+### R15 — Every list, search and synthesise entry, and `read_artifact`, carries `status` (`null` when there is none)
+
+Every entry from list, search and synthesise must carry `status`: the stored string, or `null` when
+there is none. `read_artifact` must return `status` from S3 object metadata (`null` when absent).
+
+Source: FR-09; malformed-data ADR D2–D4 and `## Revision — 2026-09-25`
+
+### R16 — A present but invalid `status` is skipped and counted by listings under every view, and makes `read_artifact` return `corrupt_metadata` naming `status`
+
+When a candidate's vector `status` is present but is not exactly one of the three strings, the
+system must skip it and count it under `skipped_malformed_count`, under every view. When the
+`status` `read_artifact` reads from S3 object metadata is present but invalid, the system must
+return `corrupt_metadata` naming `status`. The raw value is echoed only to an own-scope reader. The
+gate still runs first.
+
+**Why:** Malformed values follow the malformed-data policy by the shape of the call. A present but
+invalid `status` is read successfully but cannot be interpreted. A single read therefore returns
 `corrupt_metadata`, and a listing skips and counts. Reconcile writes nothing over it (D50 case 1).
 
-**Studio's lifecycle facet defaults to All**, matching T76's archived facet, so Studio still opens on
-the whole store. "Not deprecated" sends no `status`. `exclude_drafts` gets no Studio control:
-AC-54 needs the facet, not the option.
+Source: FR-09; malformed-data ADR D2–D4 and `## Revision — 2026-09-25`
 
-## Boundaries
+## 5. Rules — Reconcile
+
+### R17 — A `reconcile_index` rebuild copies a valid S3 `status` into each vector, writes no key when it is absent, and fails an artifact whose S3 `status` is invalid; there is no lifecycle repair pass
+
+When `reconcile_index` rebuilds an artifact's vectors, the system must copy a valid S3 `status` into
+each one, and must write no `status` key when the S3 key is absent. When the S3 `status` is invalid,
+the system must write no vectors for that artifact and must report it under `failed`, with a reason
+naming `status`. There is no lifecycle repair pass: a missing `status` is legitimate, and D50's
+repair applies only to `archived`.
+
+Source: FR-17; D50
+
+## 6. Rules — Resources and Studio
+
+### R18 — `arkeology://artifacts` keeps delegating to `list_artifacts`' defaults, the in-force view
+
+`arkeology://artifacts` must keep delegating to `list_artifacts`' defaults, which is the in-force
+view.
+
+**Example**
+
+- Given a deprecated own-scope artifact, when a host reads `arkeology://artifacts`, then it is not
+  listed, and draft and status-less artifacts are listed (AC-52, FR-46).
+
+Source: FR-18, FR-46, FR-48
+
+### R19 — The schema resource gains a `status` row and one in-force line
+
+The schema resource must gain a `status` row (optional; `draft`, `stable` or `deprecated`; absent
+means no lifecycle status) and one line stating the in-force default and how to ask for full
+lineage. T89 rewrites the rest.
+
+Source: FR-18, FR-46, FR-48
+
+### R20 — Studio adds a lifecycle facet, defaulting to All, whose value goes to both `list_artifacts` and `search_artifacts`, and a lifecycle pill in the detail view when there is a lifecycle status
+
+Studio must add a lifecycle facet next to T76's archived facet, with these options: All (the
+default, sending `status: "all"`), Not deprecated (sending no `status`), Draft, Stable and
+Deprecated. The same value goes to both `list_artifacts` and `search_artifacts`. The detail view
+must show a pill with the lifecycle status when there is one. `exclude_drafts` gets no Studio
+control.
+
+**Example**
+
+- Given Studio is open, when the operator picks a lifecycle facet value, then `list_artifacts` and
+  `search_artifacts` are called with the matching `status` argument (AC-54, lifecycle half).
+
+**Why:** Studio's lifecycle facet defaults to All, matching T76's archived facet, so Studio still
+opens on the whole store. `exclude_drafts` gets no Studio control because AC-54 needs the facet, not
+the option.
+
+Source: FR-18, FR-46, FR-48
+
+## 7. Rules — Removed names
+
+### R21 — T81 deletes T76's temporary `status` rows from the removed-name table, and the `status` value checks replace them
+
+T81 must delete T76's temporary rows from the removed-name table in `server.py`:
+
+- (`list_artifacts`, `status`) and (`search_artifacts`, `status`);
+- (`create_artifact`, `status`) and (`update_artifact`, `status`), or (`write_artifact`, `status`)
+  if T78 has not landed;
+- T76's rejection of a `status` key in bulk descriptors.
+
+The `status` value checks on writes and on queries replace them.
+
+Source: AC-80; D42; T76 `## Open Questions` item 2
+
+### R22 — `status` is a plain string on the wire and reaches each tool's own validation through MCP
+
+`status` must reach each tool's own validation through MCP. Its input schema therefore accepts any
+string, and the accepted values are listed in the parameter description, so FastMCP does not
+pre-empt the check.
+
+**Why:** `status` is a plain string on the wire. A `Literal` enum would let FastMCP reject
+`"inactive"` before dispatch, with a generic argument error that does not name `archived`, and that
+fails AC-80. T76 could accept FastMCP's generic error for a bad `archived` value because its
+middleware row met AC-80 for the old name. T81 deletes that row, so the tool's own check is what
+names the replacement. One check serves MCP and non-MCP callers (resources, Studio fallback, tests)
+alike.
+
+Source: AC-80; D42; T76 `## Open Questions` item 2
+
+## 8. Rules — Filterable budget
+
+### R23 — The 20-entry `commit_refs` vector cap must be re-confirmed against real AWS with the final Phase 15 filterable key set
+
+After T81, the filterable vector key set is final for Phase 15. The changes since 2026-08-13 are:
+
+- out: `date` and the archive `status`;
+- in: `archived` (T76), the four provenance keys `generated_by`, `generated_at`, `revised_by` and
+  `revised_at` (T79), and lifecycle `status` (T81).
+
+The system's 20-entry `commit_refs` vector cap must be confirmed by re-running the 2026-08-13
+calibration method against real AWS with this key set:
+
+- binary-search the `commit_refs` length at which `PutVectors` rejects;
+- `put_vector` is called directly, bypassing the local guard;
+- the payload is realistic but worst-plausible (see Testing Approach).
+
+T81 is not done until AWS accepts at least 20 entries for that payload.
+
+Source: ADR-017 `## Consequences`; budget ADR D2 and `## Revision — 2026-09-25`
+
+## 9. Rules — Invariant
+
+### R24 — From T81 on, `status` means the OKF lifecycle and nothing else
+
+**Invariant**: from T81 on, `status` in any store, parameter or response means the OKF lifecycle and
+nothing else.
+
+Source: none attached — stated in this spec
+
+## 10. Boundaries
 
 **Always:**
 - Build both view clauses in one helper in `_search_helper.py`, by extending T76's archived-clause
@@ -392,9 +528,9 @@ AC-54 needs the facet, not the option.
 - Add a lifecycle repair pass to `reconcile_index`, or migrate any stored value (T90).
 - Edit README, SERVER-REFERENCE, CHANGELOG, AGENTS.md or the plugins' skills (T88, T91).
 
-<!-- IMPLEMENTATION BLOCK — agent-owned -->
+## 11. For the developer agent
 
-## Files to Touch
+### Files to Touch
 
 | File | Action | Notes |
 |------|--------|-------|
@@ -415,7 +551,7 @@ AC-54 needs the facet, not the option.
 | `docs/learnings.md` | Modify | Add the re-measured boundary, with its date and key set, beside the 2026-08-13 calibration result. The budget ADR's D2 points there for results |
 | Tests | Modify / Create | See Testing Approach |
 
-## Contract Amendments
+### Contracts
 
 Amend these before writing tests (plan.md `## Phase 15`, the TDD rule):
 
@@ -449,7 +585,7 @@ Amend these before writing tests (plan.md `## Phase 15`, the TDD rule):
 - **`arkeology.resources.md`** — `arkeology://artifacts` is the in-force view (`list_artifacts`'
   defaults).
 
-## Testing Approach
+### Testing Approach
 
 **TDD order** (each test file is red before the implementation file it gates):
 1. `tests/unit/clients/test_filter.py`, then `clients/filter.py`.
@@ -575,16 +711,17 @@ them once step 1 lands.
   - If the assertion fails, follow Boundaries, "Ask First".
 - Not broken: every other file. `status` is optional, and T76 has already removed the old kwargs.
 
-## Open Questions
+### Hand-offs
 
-None blocking. ADR-017, requirements.md and plan.md agree for this task. Hand-offs:
+None blocking. ADR-017, requirements.md and plan.md agree for this task. Hand-offs (numbered as the
+spec's Open Questions items):
 
-1. **`commit_refs` cap re-calibration** — T81 owns it, per plan.md's T81 entry (Testing Approach, last integration step).
-2. **`status="all"` from a pre-Phase-15 caller is accepted with a new meaning.** It used to mean
+1. **Open Questions item 1 — `commit_refs` cap re-calibration** — T81 owns it, per plan.md's T81 entry (Testing Approach, last integration step).
+2. **Open Questions item 2 — `status="all"` from a pre-Phase-15 caller is accepted with a new meaning.** It used to mean
    "every archive state". It now means "every lifecycle state, not archived". It cannot be rejected
    without breaking the lifecycle `"all"` that ADR-017 §2 requires. T91's **Breaking** CHANGELOG entry
    should say so.
-3. **AC-70 once T84 lands.** T84's spec should keep the AC-70 test, with B carrying a structured
+3. **Open Questions item 3 — AC-70 once T84 lands.** T84's spec should keep the AC-70 test, with B carrying a structured
    `relationships` `supersedes` edge.
-4. **Ordering with T78.** T81 is blocked only by T76. If T81 lands first, T78's `update_artifact`
+4. **Open Questions item 4 — Ordering with T78.** T81 is blocked only by T76. If T81 lands first, T78's `update_artifact`
    must take `status` with the carry-forward semantics above (omitted keeps, `null` clears).
