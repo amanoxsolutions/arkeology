@@ -6,15 +6,34 @@ description: Vision for Arkeology, a Python MCP server that gives AI agents pers
 tags: []
 status: stable
 okf_version: "0.2"
+sources:
+  - id: artifact-store
+    resource: docs/brainstorming/brainstorming-2026-05-27-artifact-store.md
+    title: Brainstorming — amanox-artifact-store-mcp
+    last_modified: 2026-05-27T00:00:00Z
+  - id: visibility-reframing
+    resource: docs/brainstorming/brainstorming-2026-05-31-visibility-reframing.md
+    title: "Visibility Reframing: `confidential` → `hidden`"
+    last_modified: 2026-05-31T00:00:00Z
+  - id: write-performance
+    resource: docs/brainstorming/brainstorming-2026-06-01-write-performance.md
+    title: Write Performance — Reducing `write_artifact` Latency
+    last_modified: 2026-06-01T00:00:00Z
+  - id: visual-reading-interface
+    resource: docs/brainstorming/brainstorming-2026-06-14-visual-reading-interface.md
+    title: Visual Reading / Browsing Interface for Arkeology Artifacts
+    last_modified: 2026-06-23T00:00:00Z
 generated:
   by: "axians-pm/claude-sonnet-5"
   at: 2026-08-21T00:00:00Z
 revised:
-  by: "axians-pm/claude-fable-5.1"
-  at: 2026-09-24T00:00:00Z
+  by: "axians-architect/claude-opus-5-5"
+  at: 2026-11-09T09:27:45Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
+  - by: "human:mlnrt"
+    at: 2026-11-09T09:31:10Z
 ---
 
 # Arkeology — Persistent Artifact Memory
@@ -78,6 +97,18 @@ The server is deployment-agnostic: it is given resource names and trusts the cre
 | **Developer agent** | An AI coding agent running interactively on a developer's machine — the primary user |
 | **CI/CD pipeline agent** | An automated AI agent (e.g. code reviewer) running in a pipeline — secondary user |
 | **Admin / DevOps** | The person who provisions AWS resources and configures the server |
+
+## Operating Context
+
+- **Users and workload:** From a single developer up to the target of dozens of teams, each of dozens of engineers, developing daily with several agents each. Each team's or project's area of the store holds hundreds to low thousands of artifacts, each a few hundred to a few thousand words. Peak concurrency and request rate: not documented.
+- **Growth horizon:** Adoption is meant to grow from individual users toward that corporate-wide target. Today the server and its visual reading interface run on each developer's own machine; a possible next step is hosting both centrally in the organisation's cloud environment.
+- **Exposure:** Today, not reachable over any network: each agent starts its own server on the developer's machine or pipeline runner, and the visual reading interface opens inside the agent's own host application. The shared store is reachable only with the organisation's own cloud credentials.
+- **Tenancy and trust:** One organisation per store, with many teams and projects inside a single trust boundary. Each team writes only to its own area. Hiding an artifact from other teams only keeps it out of their reads and searches; anyone holding the store's credentials can read everything.
+- **Plausible adversary:** Not documented.
+- **Data sensitivity:** Sensitive: artifacts record an organisation's internal project development — design decisions, code reviews, implementation notes, excerpts of source code, and sometimes security-sensitive design details. Whether personal or client data may appear is not documented; teams whose regulations require a compliance review before storing such material outside the repository are outside the product's boundaries.
+- **Availability and data-loss tolerance:** Low tolerance for downtime at corporate scale: an outage stops many developers and teams from working at once. The search index can be rebuilt from the stored artifacts, but Arkeology keeps no second copy of the artifacts or the links between them. Acceptable data loss: not documented.
+- **Cost and latency drivers:** Cost grows with use: every written section and every search costs a paid AI model call, and a bulk migration also generates a description for each document it imports. Writes must feel immediate in an interactive session, or agents stop writing; write time is mostly network round-trips spent indexing each section.
+- **Lifecycle and operator:** Not throwaway — Arkeology is the product and is meant to grow; expected lifetime: not documented. Each deployment is run by the organisation's own Admin / DevOps, who provisions the cloud resources and configures the server; who maintains the product itself is not documented.
 
 ## User Journeys
 
