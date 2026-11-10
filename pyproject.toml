@@ -42,8 +42,22 @@ line-length = 100
 src = ["src"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP"]
+# `T20` (print/pprint) and `TID251` (the `sys.stdout` ban below) enforce AGENTS.md's
+# "never print to stdout" rule: the server's stdout *is* the MCP stdio transport, so any
+# write to it corrupts the protocol stream. `T20` alone misses `sys.stdout.write`, hence both.
+select = ["E", "F", "I", "UP", "T20", "TID251"]
 ignore = []
+
+[tool.ruff.lint.per-file-ignores]
+# The rule guards the server only. `scripts/` and `plugins/` are standalone CLIs whose stdout
+# is their intended output, and tests never run over the stdio transport.
+"tests/**" = ["T20", "TID251"]
+"scripts/**" = ["T20", "TID251"]
+"plugins/**" = ["T20", "TID251"]
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"sys.stdout".msg = "stdout is the MCP stdio transport; log via logging.getLogger(__name__)"
+"sys.__stdout__".msg = "stdout is the MCP stdio transport; log via logging.getLogger(__name__)"
 
 [tool.mypy]
 strict = true

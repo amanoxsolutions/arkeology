@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- The ruff gate now enforces the "never print to stdout" rule in `src/`: `T20` rejects
+  `print`/`pprint`, and a `TID251` ban rejects any use of `sys.stdout` or `sys.__stdout__`,
+  which `T20` alone would miss. The server's stdout is the MCP stdio transport, so a stray
+  write corrupts the protocol stream. `tests/`, `scripts/` and `plugins/` are exempt — they
+  never run over the transport
+
 ### Security
 - Bumped the locked dev-only Werkzeug dependency (pulled in by `moto`) in `uv.lock`, with
   `pyproject.toml` unchanged, from `3.1.8` to `3.1.9`, addressing one moderate advisory in
