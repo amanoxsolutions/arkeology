@@ -350,8 +350,10 @@ meaning two things. Tasks marked *parallel* touch disjoint code and may run conc
 81. ⬜ **OKF lifecycle `status` + in-force default view** *(parallel with 80)* — ingest
     `draft | stable | deprecated` into S3 object metadata and filterable vector metadata; search,
     list and synthesis preparation default to in-force (`status != deprecated AND archived ==
-    false`), with options for full lineage and for excluding drafts; `supersedes` never excludes.
-    Done: AC-69, AC-70 pass. Blocked by 76. (FR-04, FR-46, FR-67; D22–D25)
+    false`), with options for full lineage and for excluding drafts; `supersedes` never excludes;
+    Studio gains a lifecycle-status facet; the `commit_refs` vector-copy cap is re-calibrated
+    against real AWS on this final filterable key set. Done: AC-54, AC-69, AC-70 pass. Blocked by 76.
+    (FR-04, FR-46, FR-48, FR-67; D22–D25)
 
 82. ⬜ **Change lifecycle status without re-embedding** — reuse `archive_artifact`'s re-PUT path
     (carrying metadata and all three annotations forward); the tool surface (own tool vs
@@ -402,8 +404,9 @@ meaning two things. Tasks marked *parallel* touch disjoint code and may run conc
     first-authorship time; resolve `sources[].resource` paths by reading the target file's own
     `id:`; carry `relationships` over unchanged; keep `sources[].id` as a label only; retarget
     `backfilling-references` to sources, recording `last_modified`; update
-    `test_skill_artifact_id_drift.py`. Done: AC-58, AC-63, AC-81 pass. Blocked by 84, 87.
-    (FR-23, FR-52, FR-58; D28, D40, D43)
+    `test_skill_artifact_id_drift.py`; route Studio's link click and the `arkeology://artifact/{id}`
+    resource through T84's resolver so bare-id links open. Done: AC-58, AC-63, AC-81 pass.
+    Blocked by 84, 87. (FR-23, FR-48, FR-52, FR-58; D28, D40, D43)
 
 89. ⬜ **Schema resource rewrite** — the schema MCP resource explains every field in OKF terms so an
     agent interprets it correctly: `archived`, `status`, the in-force view, `generated`,
@@ -417,8 +420,9 @@ meaning two things. Tasks marked *parallel* touch disjoint code and may run conc
     display names, `date`/`author_role`/`timestamp` → provenance, comma-joined link annotations →
     the structured annotation, `source_artifacts` removed from vectors; dry-run report first,
     changes only on operator confirmation, no re-embedding, idempotent. The `generated.at` it
-    writes for an existing artifact must fall on the UTC day of the old `date`, so a later
-    overwrite of a tier-2 artifact regenerates the key already stored. At the end of a run it
+    writes for an existing artifact must fall on the UTC day of the old `date`, so a tier-2 key's
+    date component still matches `generated.at` and a later create of the same type and title on
+    that day is still rejected against it (AC-04). At the end of a run it
     verifies that every vector carries a boolean `archived` and reports any it missed (D50).
     `reconcile_index` gains no migration code. Done: AC-79 passes against a moto store seeded in the pre-Phase-15 shape;
     a second run reports nothing to change. Blocked by 76–87. (FR-74; D42)

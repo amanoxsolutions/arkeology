@@ -103,7 +103,8 @@ Items that were promoted to a phase are **not** listed here — see the phase hi
   `verified` annotation and `revised` from object metadata. Showing it in `list_artifacts` and
   `search_artifacts` too is deferred here. *Approach chosen (PM session with operator,
   2026-09-24):* a **`last_verified: {by, at}`** key in **vector metadata only**, derived from the
-  last entry of the `verified` annotation — the `commit_refs` pattern: the annotation stays the
+  entry with the latest `at` in the `verified` annotation (entries may be backdated, so not
+  simply the last appended) — the `commit_refs` pattern: the annotation stays the
   sole source of truth (D44), the vector copy is a derived projection that `reconcile_index`
   rebuilds from it and that is never read back as truth. Recording a verification then becomes
   annotation append → vector metadata update, the same two-store path and failure-log repair
