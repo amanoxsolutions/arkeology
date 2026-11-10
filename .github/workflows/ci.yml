@@ -1,4 +1,4 @@
-# The quality gates from AGENTS.md `## Quality Gates`, enforced.
+# The quality gates from AGENTS.md `## CI and Quality Gates`, enforced.
 #
 # Every step runs the *exact* command AGENTS.md documents, through `uv run` / `npm`, so
 # there is one source of truth for tool versions (`pyproject.toml` / `package-lock.json`).

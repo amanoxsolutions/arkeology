@@ -3,7 +3,7 @@
 #
 # This file previously used `ruff-pre-commit` and `mirrors-mypy`, which pin their own
 # tool versions. Those pins drifted badly: the hooks ran ruff v0.11.11 and mypy v1.16.0
-# while `## Quality Gates` in AGENTS.md ran ruff 0.16.x and mypy 2.x — a major version
+# while `## CI and Quality Gates` in AGENTS.md ran ruff 0.16.x and mypy 2.x — a major version
 # apart for mypy. A passing hook therefore told you nothing about whether the gate would
 # pass. The mypy mirror also needed its own `additional_dependencies`, which had drifted
 # separately (missing the `s3vectors` extra the `dev` group carries, and listing both
@@ -16,7 +16,7 @@
 # Hooks are opt-in per clone — they do nothing until someone runs `pre-commit install`.
 # These are a fast local pre-filter, not enforcement: `pytest` (~4 min) and `npm test`
 # are deliberately absent, because a hook slow enough to invite `--no-verify` is worse
-# than no hook. Run the full list in `## Quality Gates` before pushing.
+# than no hook. Run the full list in `## CI and Quality Gates` before pushing.
 repos:
   - repo: local
     hooks:

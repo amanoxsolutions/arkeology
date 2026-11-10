@@ -33,6 +33,8 @@ browser UI handles rendering; Claude's role ends after the initial `arkeology_st
 - **Scratchpad:** .docs/
 
 ## Conventions
+- **Way of working:** gated <!-- gated when absent; one value for the whole project, never set in a component AGENTS.md -->
+- **Throwaway:** no <!-- no when absent; yes only for a demo, PoC or PoV that will be thrown away -->
 - **Testing approach:** tdd
 - **Mutation testing:** enabled, but **manual and local only** — run on demand, wired to no CI
   job, no pre-commit hook, and no schedule. A full run takes **40+ minutes**, because mutmut
@@ -290,7 +292,7 @@ one makes all persisted memory inaccessible:
   where `1.0` is most similar and `−1.0` is most dissimilar. Do not negate scores or treat
   them as distances; the conversion is already applied before results are returned to callers.
 
-## Quality Gates
+## CI and Quality Gates
 
 **CI runs most of these, but not all.** `.github/workflows/ci.yml` runs on every push to `main`
 and on every pull request, in two parallel jobs: `python` runs `ruff check`, `ruff format --check`,
