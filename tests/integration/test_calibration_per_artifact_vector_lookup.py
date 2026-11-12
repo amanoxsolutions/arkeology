@@ -2,7 +2,8 @@
 two S3 Vectors primitives the client already exposes.
 
 Context — the scan pages ``ListVectors`` over the whole index and filters client-side
-while ``query_vectors`` filters server-side; see backlog item B-12 for the analysis:
+while ``query_vectors`` filters server-side. T92 (numbered vector keys) replaces both with a
+read by key. In the code this file measured:
 ``VectorsClientImpl.list_vectors_by_metadata`` pages ``ListVectors`` over the *entire*
 index with ``returnMetadata=True`` and applies the filter in-process, because the
 ListVectors API has no server-side metadata filter — its own docstring says so. Every
