@@ -27,7 +27,7 @@ Do not mark T31 done until every item below is ticked.
 - [ ] Step 2 lists all five reachability checks explicitly and in order: (1) AWS
   credentials (`aws sts get-caller-identity`), (2) `uv` installed, (3) S3 bucket
   reachable (`s3api head-bucket`), (4) Vectors index reachable (`s3vectors
-  describe-index`), (5) Bedrock embedding model accessible (`bedrock invoke-model` with
+  get-index`), (5) Bedrock embedding model accessible (`bedrock invoke-model` with
   a minimal payload).
 - [ ] Step 2 states clearly that any single check failure is a hard stop — no subsequent
   steps are executed until the failure is resolved.

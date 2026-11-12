@@ -151,8 +151,8 @@ require_in_file "$SKILL_MD" 'get-caller-identity' \
 require_in_file "$SKILL_MD" 'head-bucket' \
     "T31a [step2]     SKILL.md Step 2 includes s3api head-bucket check"
 
-require_in_file "$SKILL_MD" 'describe-index' \
-    "T31a [step2]     SKILL.md Step 2 includes s3vectors describe-index check"
+require_in_file "$SKILL_MD" 'get-index' \
+    "T31a [step2]     SKILL.md Step 2 includes s3vectors get-index check"
 
 require_in_file "$SKILL_MD" 'invoke-model' \
     "T31a [step2]     SKILL.md Step 2 includes bedrock invoke-model check"
