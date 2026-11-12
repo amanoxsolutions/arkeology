@@ -79,6 +79,14 @@ sources:
     resource: docs/contracts/data/s3-annotations.artifact.md
     title: s3-annotations.artifact
     last_modified: 2026-09-14T00:00:00Z
+  - id: t15
+    resource: docs/specs/p3-t15-partial-write-failure-log.md
+    title: T15 — Partial Write Failure Log
+    last_modified: 2026-11-10T16:24:49Z
+  - id: review-2026-11-10
+    resource: .docs/reviews/architecture-review-2026-11-10-arkeology.md
+    title: Architecture review — Arkeology (whole design record)
+    last_modified: 2026-11-10T11:21:17Z
 relationships:
   - to: adr-2026-09-25-okf-v02-adoption
     type: implements
@@ -95,7 +103,7 @@ generated:
   at: 2026-10-13T17:40:25Z
 revised:
   by: "axians-architect/claude-opus-5-5"
-  at: 2026-11-09T21:54:43Z
+  at: 2026-11-10T16:24:49Z
 ---
 
 # T82 — Change Lifecycle `status` Without Re-Embedding
@@ -340,9 +348,11 @@ entry. The entry carries each carried annotation's value under the annotation's 
 empty) and the preserved `last_edited_ulid`. Its `failure_step` is one of `lifecycle_cas_reread`,
 `annotation_read`, `lifecycle_content_fetch`, `lifecycle_reput`, `annotation_write` or
 `lifecycle_vector_update`. THE SYSTEM SHALL then return `partial_write`, or `credential_error` /
-`annotation_unavailable` when that is the cause. Archive's step names are unchanged.
+`annotation_unavailable` when that is the cause. Archive's step names are unchanged. Every such
+response carries `failure_logged` (T15 R11): `true` when the entry was appended, `false` when the
+append itself failed.
 
-Source: FR-17; C-07
+Source: FR-17; C-07; T15 R11
 
 ### R14 — `reconcile_index` repairs a lifecycle failure-log entry exactly as it repairs a partial archive
 
@@ -413,7 +423,8 @@ Amend these before writing tests (plan.md `## Phase 15`, the TDD rule):
 - **`modules/arkeology.tools.lifecycle.md`** — New (`writing-contracts`). `set_artifact_status`:
   signature, the error list (`access_denied`, `validation_error`, `not_found`, `corrupt_metadata`,
   `conflict`, `partial_write`, `credential_error`, `annotation_unavailable`, `internal_error`),
-  invariants and postconditions from the rules above.
+  `failure_logged` on every response after the re-PUT landed (T15 R11), and the invariants and
+  postconditions from the rules above.
 - **`modules/arkeology.tools.archive.md`** — State the carry invariant over the carried set, not
   per field, and note that the cycle is shared with `set_artifact_status`. Archive's step names and
   behaviour are unchanged.
@@ -447,7 +458,8 @@ Amend these before writing tests (plan.md `## Phase 15`, the TDD rule):
    - every carried annotation, plus a stand-in added to the set with `monkeypatch`, is restored;
    - one injected `ArtifactConflictError` triggers a retry, which accumulates across the attempts;
    - when retries run out, the result is `conflict` before the re-PUT and `partial_write` after it;
-   - post-PUT failures write entries with the step names and the annotation copies.
+   - post-PUT failures write entries with the step names and the annotation copies, and return
+     `failure_logged: true`; with the append made to fail, they return `failure_logged: false`.
 
    The existing `tests/unit/test_tools_archive.py` must pass unchanged, which proves the extraction
    kept archive's behaviour. Add one test to it: the stand-in annotation survives an archive.

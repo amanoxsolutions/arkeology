@@ -18,12 +18,27 @@ sources:
   - resource: docs/architecture-decisions/adr-2026-07-03-annotation-backed-link-storage.md
     title: Annotation-Backed Durable Storage for Mutable Link Fields (commit_refs + references)
     last_modified: 2026-09-29T00:00:00Z
+  - resource: docs/specs/p3-t15-partial-write-failure-log.md
+    title: T15 — Partial Write Failure Log
+    last_modified: 2026-11-10T16:24:49Z
+  - resource: .docs/reviews/architecture-review-2026-11-10-arkeology.md
+    title: Architecture review — Arkeology (whole design record)
+    last_modified: 2026-11-10T11:21:17Z
+  - resource: docs/architecture-decisions/adr-2026-05-29-aws-backend-selection.md
+    title: AWS S3 + S3 Vectors + Bedrock as the Storage and Embedding Backend
+    last_modified: 2026-11-12T13:11:40Z
+  - resource: docs/specs/p15-t92-numbered-vector-keys.md
+    title: T92 — Numbered Vector Keys and Per-Artifact Vector Access by Key
+    last_modified: 2026-11-12T13:11:40Z
+  - resource: docs/specs/p1-t3-aws-client-layer.md
+    title: T3 — AWS Client Layer
+    last_modified: 2026-11-10T16:40:30Z
 generated:
   by: "axians-tech-writer/claude-opus-5"
   at: 2026-09-04T00:00:00Z
 revised:
-  by: "axians-architect/unknown"
-  at: 2026-09-06T00:00:00Z
+  by: "axians-architect/claude-opus-5-5"
+  at: 2026-11-12T21:20:24Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
@@ -97,6 +112,11 @@ delegation rule. It raises nothing.
   the two copies. Ordering alone would not — an artifact that still has vectors is invisible to
   the orphan scan.
 - Each `artifact_id` retries its compare-and-swap cycle independently of the others.
+- **Each `artifact_id`'s vectors are read by key.** One `GetVectors` over `{artifact_id}#0` to
+  `{artifact_id}#99` (`s3vectors.artifact`), with data and metadata, finds them, and exactly the keys
+  it returned are re-put, so a call's cost grows with the ids it is given, never with the size of
+  the index every team shares. An id whose read returns no key has no indexed vector. A scan or a
+  filtered query per id is the regression this forbids.
 - The compare-and-swap token is the *object's* ETag, so the cycle serialises this tool against
   object-body writes (an overwriting `write_artifact`, an `archive_artifact` status re-PUT) and
   **not** against other annotation-only writes, which leave the ETag unchanged. Two `link_metadata`
@@ -132,6 +152,11 @@ delegation rule. It raises nothing.
   failure-log entry recording the applied `commit_refs` / `references` is queued for
   `reconcile_index`. A single such failure never discards the results the rest of the batch
   achieved.
+- Whenever a response carries `vector_write_failed` it also carries `failure_logged: bool` —
+  `true` when every listed id's failure-log entry was appended, `false` when any append failed. No
+  other response carries it. On `false` at least one listed id has no entry, so `reconcile_index`
+  does not repair that id's vector copy from the log; the server's stderr ERROR record names the id
+  and the failed step but holds none of the entry.
 - That entry also records the artifact's `last_edited_ulid` — unchanged by this tool, so it is the
   one the artifact already carried. `reconcile_index` compares it against the artifact's current one
   on replay and restores the entry's `references` only while the two still match, so a later

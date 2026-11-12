@@ -46,6 +46,14 @@ sources:
   - id: aws-conditional-writes
     resource: https://docs.aws.amazon.com/AmazonS3/latest/userguide/conditional-writes.html
     title: How to prevent object overwrites with conditional writes
+  - id: t15
+    resource: docs/specs/p3-t15-partial-write-failure-log.md
+    title: T15 — Partial Write Failure Log
+    last_modified: 2026-11-10T16:24:49Z
+  - id: review-2026-11-10
+    resource: .docs/reviews/architecture-review-2026-11-10-arkeology.md
+    title: Architecture review — Arkeology (whole design record)
+    last_modified: 2026-11-10T11:21:17Z
 relationships:
   - to: adr-2026-09-25-okf-v02-adoption
     type: implements
@@ -54,7 +62,7 @@ generated:
   at: 2026-10-13T13:02:46Z
 revised:
   by: "axians-architect/claude-opus-5-5"
-  at: 2026-11-09T21:19:08Z
+  at: 2026-11-12T21:20:47Z
 ---
 
 # T78 — Split Writing into `create_artifact` / `update_artifact`; Drop `overwrite`
@@ -73,7 +81,7 @@ creates an artifact, and an overwrite of something the caller did not mean to re
 `overwrite` does not say what the caller intends. `overwrite=true` on a mistyped id creates a new
 artifact, and on a correct id replaces whatever is stored whether the caller meant to or not. The key
 is also re-derived from the title on every write, so retitling a tier-3 document produces a new id
-and leaves the old artifact orphaned. The producer `amanox-ai-agents` plugin now mints ids (D28),
+and leaves the old artifact orphaned. A producer can now mint the id itself (D28),
 so the server has to check what the caller says it is doing rather than trust the id: a create
 must not replace anything, and an update must not create anything (ADR-017 `## Decision`, "Identity" and "Tool surface"; FR-75, C-05).
 
@@ -117,9 +125,9 @@ Source: FR-01, FR-08, FR-13, FR-15, FR-25, C-05, D51, AC-04, AC-05
 ### R3 — A successful create returns what `write_artifact` returns today, and all other behaviour is unchanged
 
 When `create_artifact` succeeds, it returns what `write_artifact` returns today. All other
-behaviour (validation, metadata budgets, section pipeline, annotation write, failure log) is
-unchanged. Until T76 lands, `create_artifact` keeps today's `status` parameter; T76 removes the
-archive-marker parameter from `create_artifact`.
+behaviour (validation, metadata budgets, section pipeline, annotation write, failure log and
+its `failure_logged` flag) is unchanged. Until T76 lands, `create_artifact` keeps today's `status`
+parameter; T76 removes the archive-marker parameter from `create_artifact`.
 
 Source: FR-01, FR-08, FR-13, FR-15, FR-25, C-05, D51
 
@@ -248,9 +256,10 @@ When the ETag changes between read and write, the whole cycle (read, merge, cond
 conditional annotation write) is retried up to `CAS_MAX_ATTEMPTS` times, re-merging the caller's
 original values each time. On exhaustion the call returns `conflict` if nothing landed and
 `partial_write` if the final attempt's object write landed. This is today's overwrite cycle.
-Without `if_match`, racing updates are last-writer-wins.
+Without `if_match`, racing updates are last-writer-wins. Every response returned after an attempt's
+object write landed carries `failure_logged`, exactly as T15 R11 defines it.
 
-Source: C-05, FR-75, AC-86, D51
+Source: C-05, FR-75, AC-86, D51; T15 R11
 
 ### R15 — An `if_match` that differs from the stored `last_edited_ulid` returns `conflict`, checked until this call's own object write lands
 
@@ -443,9 +452,11 @@ Amend these before the tests (plan.md `## Phase 15`, TDD rule):
   - Add `### update_artifact`, with errors `access_denied`, `not_found` (missing at start, or gone
     mid-cycle), `validation_error` (immutables), `conflict` (`if_match` mismatch, or CAS exhausted
     while nothing landed) and `corrupt_metadata` (unreadable stored `tier`), plus the existing
-    `partial_write`, `annotation_unavailable`, `credential_error` and `internal_error`. Add these
-    invariants: the key never changes; immutables match; `date` and the archive marker are carried
-    forward; the `if_match` check window; `commit_refs` read forward and `references` replaced.
+    `partial_write`, `annotation_unavailable`, `credential_error` and `internal_error`, with
+    `failure_logged` on every response after the object write landed, as for `create_artifact`.
+    Add these invariants: the key never changes; immutables match; `date` and the archive marker
+    are carried forward; the `if_match` check window; `commit_refs` read forward and `references`
+    replaced.
   - Update the frontmatter `description`.
 - **`docs/contracts/modules/arkeology.tools.write_artifacts.md`**:
   - Rename `### write_artifacts` to `### create_artifacts` and drop `overwrite`, both batch and per

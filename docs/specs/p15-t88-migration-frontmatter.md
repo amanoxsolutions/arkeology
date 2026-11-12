@@ -2,7 +2,7 @@
 type: Spec
 id: p15-t88-migration-frontmatter
 title: T88 — Migration and Source-Backfill Skills for OKF v0.2 Frontmatter
-description: The migrating-to-arkeology skill imports documents written by the producer amanox-ai-agents plugin with their own id, generated, revised, status, type, sources and relationships. Before any write it stops on duplicate or invalid ids. It resolves sources[].resource paths through the target file's own id, and the server rewrites them in content. Verifications are recorded after the write. backfilling-references is retargeted to sources. references.py and the skills' drift test follow. Studio's link click and the arkeology://artifact/{id*} resource open bare-id links through T84's resolver.
+description: The migrating-to-arkeology skill imports documents written by an OKF producer, such as a spec-driven development framework, with their own id, generated, revised, status, type, sources and relationships. Before any write it stops on duplicate or invalid ids. It resolves sources[].resource paths through the target file's own id, and the server rewrites them in content. Verifications are recorded after the write. backfilling-references is retargeted to sources. references.py and the skills' drift test follow. Studio's link click and the arkeology://artifact/{id*} resource open bare-id links through T84's resolver.
 tags: []
 status: draft
 okf_version: "0.2"
@@ -91,9 +91,9 @@ sources:
     resource: docs/contracts/modules/arkeology.resources.md
     title: arkeology.resources
     last_modified: 2026-09-04T00:00:00Z
-  - id: producer-okf
-    resource: https://github.com/amanoxsolutions/amanox-ai-agents/blob/main/plugins/amanox/skills/authoring-skills/references/okf-frontmatter.md
-    title: OKF frontmatter reference of the producer amanox-ai-agents plugin
+  - id: okf-spec
+    resource: https://github.com/GoogleCloudPlatform/open-knowledge-format/blob/main/SPEC.md
+    title: Open Knowledge Format — Specification
 relationships:
   - to: adr-2026-09-25-okf-v02-adoption
     type: implements
@@ -110,20 +110,21 @@ generated:
   at: 2026-10-13T18:53:42Z
 revised:
   by: "axians-architect/claude-opus-5-5"
-  at: 2026-11-09T22:57:02Z
+  at: 2026-11-12T21:20:47Z
 ---
 
 # T88 — Migration and Source-Backfill Skills for OKF v0.2 Frontmatter
 
 ## TL;DR
 
-`migrating-to-arkeology` imports a document written by the producer `amanox-ai-agents` plugin
-with the identity, provenance, lifecycle, type and links its own frontmatter declares. Before any
-write, it stops on a duplicate or invalid `id`. It resolves each `sources[].resource` path through
-the `id:` the target file declares, and `migrate_artifacts` rewrites the path in the stored content.
-`backfilling-references` is retargeted to `sources`, so links that could not resolve at import are
-filled in later. Studio and the `arkeology://artifact/{id*}` resource open the bare-id links this
-writes, through T84's resolver (FR-23, FR-48, FR-52, FR-58; D28, D40, D43).
+`migrating-to-arkeology` imports a document written by an OKF producer — a spec-driven development
+framework, for example — with the identity, provenance, lifecycle, type and links its own
+frontmatter declares. Before any write, it stops on a duplicate or invalid `id`. It resolves each
+`sources[].resource` path through the `id:` the target file declares, and `migrate_artifacts`
+rewrites the path in the stored content. `backfilling-references` is retargeted to `sources`, so
+links that could not resolve at import are filled in later. Studio and the
+`arkeology://artifact/{id*}` resource open the bare-id links this writes, through T84's resolver
+(FR-23, FR-48, FR-52, FR-58; D28, D40, D43).
 
 ## 1. Problem Statement
 

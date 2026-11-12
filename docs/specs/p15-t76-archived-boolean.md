@@ -98,6 +98,14 @@ sources:
   - id: aws-s3vectors-filtering
     resource: https://docs.aws.amazon.com/AmazonS3/latest/userguide/s3-vectors-metadata-filtering.html
     title: S3 Vectors — Metadata filtering
+  - id: spec-t92
+    resource: docs/specs/p15-t92-numbered-vector-keys.md
+    title: T92 — Numbered Vector Keys and Per-Artifact Vector Access by Key
+    last_modified: 2026-11-12T14:38:17Z
+  - id: spec-t90
+    resource: docs/specs/p15-t90-store-migration.md
+    title: T90 — Store Migration Skill and Command
+    last_modified: 2026-11-12T14:38:17Z
 relationships:
   - to: adr-2026-09-25-okf-v02-adoption
     type: implements
@@ -110,7 +118,7 @@ generated:
   at: 2026-10-13T15:57:36Z
 revised:
   by: "axians-architect/claude-opus-5-5"
-  at: 2026-11-09T21:19:08Z
+  at: 2026-11-12T14:54:57Z
 ---
 
 # T76 — Archive Marker `status` → `archived` (bool)
@@ -144,8 +152,9 @@ rather than silent way:
   needs migrating.
 
 The remedy is T90's store-migration skill (ADR-017 §9: run the migration before or with the
-upgrade). The coordinator has asked the operator whether a startup check should refuse to start
-on an unmigrated store. If the answer is yes, it belongs to T90's scope, not T76's.
+upgrade). Whether a startup check should refuse to start on an unmigrated store was answered yes
+on 2026-10-13, in T90's scope: T90's startup check 9 refuses to start while the server's own scope
+still holds the earlier shape, and R19 below relies on it.
 
 ## 1. Problem Statement
 
@@ -412,10 +421,11 @@ When `reconcile_index` runs, after its existing three phases it examines every o
 whose `archived` is absent or not a boolean, using a strict type test (`0` and `1` are not
 booleans). For each affected artifact still in S3 and not reported as dangling:
 
-| The artifact's S3 `archived` | Outcome |
-|------------------------------|---------|
-| Interpretable | Each affected vector is rewritten with that value, keeping its embedding and every other metadata key, with no embedding call. The artifact is reported in `reconciled` with `source: "archived_repair"` and the count of vectors rewritten. |
-| Uninterpretable | Nothing is written. The artifact is reported under `failed` with a reason naming `archived`. |
+| The affected vectors' keys | The artifact's S3 `archived` | Outcome |
+|----------------------------|------------------------------|---------|
+| All numbered, `{artifact_id}#{n}` with `n` from 0 to 99 | Interpretable | Each affected vector is rewritten with that value, keeping its embedding and every other metadata key, with no embedding call. The artifact is reported in `reconciled` with `source: "archived_repair"` and the count of vectors rewritten. |
+| All numbered | Uninterpretable | Nothing is written. The artifact is reported under `failed` with a reason naming `archived`. |
+| Any at another key — a heading slug or the bare `artifact_id`, written by an earlier release | Either | Nothing is written for the artifact, and every such vector is left as it is. The artifact is reported under `failed` with a reason naming `arkeology-migrate-store`. |
 
 The report reuses the existing fields: a repair is a `reconciled` entry with a fifth `source`
 value, `archived_repair`, and an unrepairable artifact goes in `failed`; no new top-level key is
@@ -429,13 +439,24 @@ pass. A filter of `archived $nin [true, false]` is not used.
   metadata says `archived: "true"`, when `reconcile_index` runs, then the vector is rewritten
   with `archived: true` and keeps its embedding, the artifact is reported, and no embedding call
   is made (D50).
+- Given an own-scope vector at a heading-slug key with no `archived`, written by a server of the
+  earlier release after the store migration, when `reconcile_index` runs, then that vector is
+  unchanged, the artifact is reported under `failed` naming `arkeology-migrate-store`, and the next
+  server start still refuses at the store-shape check.
 
 **Why:** consumers already filter `reconciled` on `source`. The extra `get_vectors` pass is
 accepted because reconcile is an operator-triggered repair tool. The `$nin` filter was rejected
 because the in-process evaluator compares with Python `==`, where `1 == True`, so it would miss
 exactly the non-boolean values it exists to catch.
 
-Source: FR-17, D42, D50
+**Why (A vector at an earlier key is the store migration's to fix):** a vector this release reads by
+key sits at a numbered key (T92 R1). One at an earlier key was written by a server of the earlier
+release, and the store migration re-keys it while writing `archived` on the copy (T90 R22, R44).
+Stamping `archived` on it in place would stop the store-shape check from refusing to start (T90
+R34), the signal that sends the operator back to the migration, while leaving a vector no by-key
+path reads — an archive or a delete would never reach it.
+
+Source: FR-17, D42, D50; p15-t92-numbered-vector-keys R1; p15-t90-store-migration R22, R34, R44
 
 ### R20 — `reconcile_index` never translates a legacy `status` into `archived`
 
@@ -617,6 +638,9 @@ not the string `"false"` or a missing key.
     has one `reconciled` entry with `source: "archived_repair"`.
   - An S3 `archived` that is absent gives an entry in `failed` naming `archived`, and the vectors
     are unchanged.
+  - A vector with no `archived` at a heading-slug key, under an S3 `"true"`, is left unchanged, and
+    the artifact is in `failed` naming `arkeology-migrate-store`; one at `{id}#0` beside it is not
+    rewritten either. Apart from this case, unit fixtures for this rule seed numbered keys.
   - An orphan re-index with an unreadable S3 `archived` writes no vectors and lands in `failed`.
   - A legacy S3 `status: "inactive"` with no `archived` is never translated.
 - Resources: `arkeology://artifacts` omits an archived artifact (AC-52). The schema text contains

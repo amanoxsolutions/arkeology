@@ -11,7 +11,7 @@ generated:
   at: 2026-05-31T00:00:00Z
 revised:
   by: "axians-architect/claude-opus-5-5"
-  at: 2026-11-09T13:13:28Z
+  at: 2026-11-12T14:38:17Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
@@ -94,13 +94,13 @@ all and only the permissions required for the server to function:
 
 - S3: `s3:GetObject`, `s3:PutObject`, `s3:DeleteObject`, `s3:ListObjectsV2`, `s3:HeadBucket`;
 - S3 Vectors: `s3vectors:PutVectors`, `s3vectors:GetVectors`, `s3vectors:QueryVectors`,
-  `s3vectors:DeleteVectors`, `s3vectors:DescribeIndex`, `s3vectors:ListVectors`;
+  `s3vectors:DeleteVectors`, `s3vectors:GetIndex`, `s3vectors:ListVectors`;
 - Bedrock: `bedrock:InvokeModel` scoped to the embedding model ARN.
 
 Given an admin applies the minimum IAM policy from the README to a service account, all Arkeology
 tools operate correctly with no permission errors.
 
-Source: none
+Source: https://docs.aws.amazon.com/service-authorization/latest/reference/list_s3vectors.html
 
 ## 4. Rules — Recommended AGENTS.md snippet
 

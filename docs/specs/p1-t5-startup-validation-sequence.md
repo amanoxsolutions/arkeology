@@ -2,16 +2,37 @@
 type: Spec
 id: p1-t5-startup-validation-sequence
 title: T5 — Startup Validation Sequence
-description: Feature spec for a startup validation sequence that verifies credentials, S3 prefix access, vector index existence, and embedding dimension before accepting any MCP tool call. Originally five checks; the running sequence is now eight — see the Revision sections.
+description: Feature spec for a startup validation sequence that verifies credentials, S3 prefix access, vector index existence, the index's dimension and its ENHANCED mode, and the embedding model before accepting any MCP tool call. Originally five checks; the running sequence is now eight — see the Revision sections.
 tags: []
 status: stable
 okf_version: "0.2"
+sources:
+  - resource: docs/architecture-decisions/adr-2026-05-29-aws-backend-selection.md
+    title: AWS S3 + S3 Vectors + Bedrock as the Storage and Embedding Backend
+    last_modified: 2026-11-12T13:11:40Z
+  - resource: docs/specs/p1-t3-aws-client-layer.md
+    title: T3 — AWS Client Layer
+    last_modified: 2026-11-12T13:11:40Z
+  - resource: https://docs.aws.amazon.com/AmazonS3/latest/API/API_S3VectorBuckets_GetIndex.html
+    title: Amazon S3 API Reference — GetIndex
+  - resource: https://docs.aws.amazon.com/AmazonS3/latest/API/API_S3VectorBuckets_Index.html
+    title: Amazon S3 API Reference — Index (indexMode)
+  - resource: https://docs.aws.amazon.com/AmazonS3/latest/userguide/s3-vectors-index-mode.html
+    title: Amazon S3 User Guide — Changing a vector index's mode
+  - resource: .docs/reviews/architecture-review-2026-11-10-arkeology.md
+    title: "Architecture review — Arkeology (whole design record)"
+    last_modified: 2026-11-10T11:21:17Z
+  - resource: .docs/review-fixes/calibration-2026-11-12.md
+    title: "Calibration: is a filtered, paged QueryVectors (ENHANCED) an exhaustive per-artifact lookup?"
+  - resource: docs/specs/p15-t92-numbered-vector-keys.md
+    title: T92 — Numbered Vector Keys and Per-Artifact Vector Access by Key
+    last_modified: 2026-11-12T13:11:40Z
 generated:
   by: "axians-architect/unknown"
   at: 2026-05-29T00:00:00Z
 revised:
   by: "axians-architect/claude-opus-5-5"
-  at: 2026-11-10T05:48:47Z
+  at: 2026-11-12T13:11:40Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
@@ -28,8 +49,9 @@ verified:
 ## TL;DR
 
 Before accepting any MCP tool call, the server runs a fixed sequence of eight blocking checks —
-credentials, write prefix, read prefixes, vector index existence, index dimension, embedding-model
-probe, text-model accessibility and S3 object annotation availability — and refuses to start with a
+credentials, write prefix, read prefixes, vector index existence, index dimension and `ENHANCED`
+mode, embedding-model probe, text-model accessibility and S3 object annotation availability — and
+refuses to start with a
 precise, actionable message on the first failure. Developers learn about a missing resource or expired
 credentials at startup instead of mid-task.
 
@@ -59,7 +81,7 @@ gate later ones:
 | 2 | Write prefix access (read + write) |
 | 3 | Read prefix access (read-only, one check per prefix) |
 | 4 | Vector index existence |
-| 5 | Vector index dimension |
+| 5 | Vector index dimension and mode (R8, R12) |
 | 6 | Embedding-model probe |
 | 7 | Text-model accessibility |
 | 8 | S3 object annotation availability |
@@ -216,6 +238,44 @@ unsupported deployment rather than a degraded one.
 
 Source: FR-57, adr-2026-07-03-annotation-backed-link-storage (its `## Revision — 2026-09-05` section, which reverses its decision 5)
 
+### R12 — Check 5 also requires the vector index to run in `ENHANCED` mode
+
+Once check 5's dimension comparison has passed, it reads `indexMode` from the same index attributes
+check 4 read with `GetIndex`, making no further call. When the mode is anything but `ENHANCED` —
+`CLASSIC`, or absent from the response — the check fails with `StartupValidationError` whose `check`
+is `vector_index_mode` and whose message is:
+
+`"Vector index '{index_name}' runs in index mode '{mode}'; arkeology requires ENHANCED, which applies metadata filters before the vector search. Switch it in place, with no re-ingestion: aws s3vectors update-index-mode --vector-bucket-name {vectors_bucket} --index-name {index_name} --index-mode ENHANCED"`
+
+where `{mode}` is the reported mode, or `unknown` when none is reported.
+
+Success log (DEBUG): `"Check 5/8 passed: vector index '{index_name}' index mode is ENHANCED"`, after
+R8's dimension line.
+
+**Why (Scoped searches find what their filters match only on an `ENHANCED` index):** Every scoped
+search, synthesis preparation, and the store-shape check that follows check 8 is a `QueryVectors`
+call carrying a metadata filter over the index every team shares. On a `CLASSIC` index the filter is
+applied together with the similarity search, and measured on real AWS on 2026-11-12, filtered
+queries there lost vectors even for artifacts of 10 or fewer vectors — 16 of 21 came back
+incomplete, one with 1 of its 3 — where `ENHANCED` returned every one of them. A scoped search would
+then miss own-scope matches, and the store-shape check could pass an unmigrated scope. The server
+keeps no degraded path for a `CLASSIC` index: it requires the supported deployment and refuses to
+start otherwise (NFR-03). Finding one artifact's vectors does not depend on the mode — it reads them
+by key (`p15-t92-numbered-vector-keys.md`). A vector bucket created on or after 30 September 2026
+creates `ENHANCED` indexes; an older one is switched once by the Admin.
+
+**Example**
+
+- Given a vector index whose `GetIndex` reports `indexMode` `CLASSIC`, when the server starts, then it
+  exits before serving requests with the message above, naming the bucket and index, and checks 6–8
+  do not run.
+- Given a vector index whose `GetIndex` response carries no `indexMode`, when the server starts, then
+  it exits the same way with `'unknown'` as the mode.
+- Given an `ENHANCED` index of the configured dimension, when the server starts, then check 5 passes
+  and check 6 runs.
+
+Source: NFR-03; adr-2026-05-29-aws-backend-selection; the calibration of 2026-11-12 (`.docs/review-fixes/calibration-2026-11-12.md`)
+
 ## 4. Boundaries
 
 **Always:**
@@ -247,6 +307,8 @@ Source: FR-57, adr-2026-07-03-annotation-backed-link-storage (its `## Revision �
 | `src/arkeology/__main__.py` | Modify | Call `validate_startup(...)` between Settings construction and `server.run()` |
 | `src/arkeology/errors.py` | Modify | `StartupValidationError` already declared in T3; verify it has the needed fields |
 | `tests/unit/test_startup.py` | Create | All five failure paths + the all-pass path, using fakes |
+| `tests/unit/test_startup.py` | Modify (R12, written first) | The two index-mode rows in the test table; existing check-5 fixtures gain `indexMode="ENHANCED"` so they keep passing |
+| `src/arkeology/startup.py` | Modify (R12) | `_check_model_dimension` (check 5) adds the index-mode test after the dimension comparison, reusing check 4's `describe_index` result |
 
 #### `startup.py` — Validation Sequence
 
@@ -333,6 +395,10 @@ Implementation logic:
 2. Determine `model_dimension` via strategy A first, falling back to strategy B.
 3. If `index_dimension != model_dimension`: raise
    `StartupValidationError(check="vector_index_dimension", ...)`.
+4. If the same result's `indexMode` is not `"ENHANCED"` (including when the key is absent): raise
+   `StartupValidationError(check="vector_index_mode", ...)` with R12's message. The `indexMode` key
+   reaches the result only if the installed `botocore` model for `s3vectors` declares it — see
+   `p1-t3-aws-client-layer.md`'s Files to Touch.
 
 **Check 6 — embedding-model probe.** Implemented as `_check_embedding_probe` in
 `src/arkeology/startup.py`.
@@ -397,6 +463,8 @@ monkeypatch) and injects fake clients.
 | Check 5 fails (dimension mismatch) | `FakeVectorsClient(dimension=512)` + settings with Titan model (expected 1024) | `StartupValidationError(check="vector_index_dimension")` raised with both dimensions in message |
 | Check 5 passes (unknown model, probe) | Model ID not in registry; `fake_bedrock.embed` returns 1024-dim vector; index dim = 1024 | No exception; probe was used |
 | Check 5 passes (known model, registry) | Titan model; index dim = 1024 | No exception; no bedrock call made |
+| Check 5 fails (index mode `CLASSIC`) — R12 | `describe_index` result carries `indexMode="CLASSIC"`, dimension matching | `StartupValidationError(check="vector_index_mode")`; message names bucket, index and the `update-index-mode` command; checks 6–8 not reached |
+| Check 5 fails (index mode absent) — R12 | `describe_index` result carries no `indexMode` | `StartupValidationError(check="vector_index_mode")` with `'unknown'` as the mode |
 | Credential error mid-startup (check 3) | `fake_s3.set_credential_failure(True)` after check 2 passes | `CredentialError` propagates — startup terminates |
 
 **Verify via test that no check after the failing one is executed.** Track calls using a simple counter

@@ -15,12 +15,24 @@ sources:
   - resource: docs/architecture-decisions/adr-2026-09-14-malformed-persisted-data-policy.md
     title: How Arkeology Treats Malformed and Ambiguous Persisted Data
     last_modified: 2026-09-29T00:00:00Z
+  - resource: docs/architecture-decisions/adr-2026-05-29-aws-backend-selection.md
+    title: AWS S3 + S3 Vectors + Bedrock as the Storage and Embedding Backend
+    last_modified: 2026-11-12T13:11:40Z
+  - resource: docs/specs/p15-t92-numbered-vector-keys.md
+    title: T92 — Numbered Vector Keys and Per-Artifact Vector Access by Key
+    last_modified: 2026-11-12T13:11:40Z
+  - resource: docs/specs/p1-t3-aws-client-layer.md
+    title: T3 — AWS Client Layer
+    last_modified: 2026-11-10T16:40:30Z
+  - resource: .docs/reviews/architecture-review-2026-11-10-arkeology.md
+    title: "Architecture review — Arkeology (whole design record)"
+    last_modified: 2026-11-10T11:21:17Z
 generated:
   by: "axians-tech-writer/claude-opus-5"
   at: 2026-09-04T00:00:00Z
 revised:
-  by: "axians-architect/claude-sonnet-5"
-  at: 2026-09-14T00:00:00Z
+  by: "axians-architect/claude-opus-5-5"
+  at: 2026-11-12T13:11:40Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
@@ -83,6 +95,16 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
   invariant above — and an absent or unparseable `tier` or `visibility` on a foreign source denies
   rather than raising, so it too lands in `missing_sources` and nowhere else.
 - Own-scope only for the destructive path.
+- **Sources are resolved, and a malformed synthesis's vectors deleted, by key.** The batched source
+  lookup reads each source's `{artifact_id}#0` — every indexed artifact holds it, carrying the
+  artifact's metadata (`s3vectors.artifact`) — by `GetVectors`, up to 100 ids per call; a source
+  whose `#0` is not returned has no indexed vector and is reported in `missing_sources`. That
+  includes a foreign source whose team has not yet migrated to numbered keys, indistinguishable from
+  an absent one, as the gate invariant above requires. Each deleted synthesis's vectors are read
+  over `#0` to `#99`, and only the keys returned are deleted. The call's one whole-index scan is its
+  enumeration of the syntheses it audits, so the number of scans does not grow with how many
+  sources or syntheses there are. A scan or a filtered query per source batch or per deleted
+  synthesis is the regression this forbids.
 - The audit covers **active** syntheses only; an archived synthesis is not audited. Consistent with
   the active-only referrer detection in `delete_artifact` and `archive_artifact` — archiving marks an
   artifact as out of active use, and auditing it would report problems the operator has already set

@@ -24,12 +24,30 @@ sources:
   - resource: docs/architecture-decisions/adr-2026-07-03-annotation-backed-link-storage.md
     title: Annotation-Backed Durable Storage for Mutable Link Fields (commit_refs + references)
     last_modified: 2026-09-29T00:00:00Z
+  - resource: docs/specs/p3-t15-partial-write-failure-log.md
+    title: T15 — Partial Write Failure Log
+    last_modified: 2026-11-12T10:00:13Z
+  - resource: .docs/reviews/architecture-review-2026-11-10-arkeology.md
+    title: Architecture review — Arkeology (whole design record)
+    last_modified: 2026-11-10T11:21:17Z
+  - resource: docs/architecture-decisions/adr-2026-05-29-aws-backend-selection.md
+    title: AWS S3 + S3 Vectors + Bedrock as the Storage and Embedding Backend
+    last_modified: 2026-11-12T14:38:17Z
+  - resource: docs/specs/p15-t92-numbered-vector-keys.md
+    title: T92 — Numbered Vector Keys and Per-Artifact Vector Access by Key
+    last_modified: 2026-11-12T14:38:17Z
+  - resource: docs/specs/p1-t3-aws-client-layer.md
+    title: T3 — AWS Client Layer
+    last_modified: 2026-11-10T16:40:30Z
+  - resource: .docs/reviews/architecture-review-2026-11-10-arkeology-recheck.md
+    title: "Architecture review — Arkeology (whole design record), re-check of C-1 to C-3"
+    last_modified: 2026-11-10T16:49:29Z
 generated:
   by: "axians-tech-writer/claude-opus-5"
   at: 2026-09-04T00:00:00Z
 revised:
-  by: "axians-developer/claude-opus-5"
-  at: 2026-09-07T00:00:00Z
+  by: "axians-architect/claude-opus-5-5"
+  at: 2026-11-12T14:38:17Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
@@ -95,6 +113,14 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
   prune time, so it cannot race a concurrent write; and if the object reappears after the entry is
   pruned, the orphan scan re-indexes any S3 key carrying zero vectors on the following run. Weakening
   any one of the three invalidates this classification.
+- **Entries outside the own write prefix are left exactly as read.** One per-user failure log for
+  each artifact bucket holds the entries of every project and write prefix the user runs against
+  that bucket — its default path names the bucket,
+  `$XDG_STATE_HOME/arkeology/<ARTIFACT_BUCKET>/failures.jsonl`, so another bucket's entries are in
+  another file and never reach this run — and an entry whose `artifact_id` does not start with
+  `write_prefix + "/"` is therefore expected rather than a misconfiguration. It is never
+  re-indexed, pruned or stamped with a retry count, never appears in `reconciled`, `failed` or
+  `stuck_failures`, and is carried through the end-of-run rewrite unchanged.
 - **An entry's `failure_step` names the step that failed, and the set of values is open.** Nothing
   in this tool branches on it: an entry's kind is derived from whether it carries `orphan_keys`, and
   its identity for pruning is the whole entry as read back from disk. A producer may therefore split
@@ -192,29 +218,28 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
   partially different value than it recorded is still resolved, because the combined value is what
   the artifact should hold.
 - **A re-index replaces the artifact's vector set; it never merges into it.** After a re-index the
-  vectors keyed under the artifact — `{artifact_id}` and every `{artifact_id}#{slug}` — are exactly
-  the rebuilt set. The order is fixed: the rebuilt vectors are written first; **then** the
-  artifact's current vector keys are listed; and only the keys absent from the rebuilt set in
-  **that** listing are deleted. The difference is always computed from a listing taken after the
-  write, never before it — a listing taken before the write would prune a key a concurrent writer
-  re-created in the window, re-opening the defect the orphan-cleanup replay rule below closes. A
-  listed key whose vector's `last_edited_ulid` is **strictly newer** than the token this re-index
-  wrote belongs to a later write and is not deleted either; a key carrying the **same** token but
-  absent from the rebuilt set is deleted — it was written under the current version but is not one
-  of its slugs, which two runs under different section caps can produce under one ULID. This is
+  vectors keyed under the artifact — `{artifact_id}#0` to `{artifact_id}#99` (`s3vectors.artifact`)
+  — are exactly the rebuilt set, `#0` to `#{k-1}`. The order is fixed: the rebuilt vectors are
+  written first; **then** the keys above them, `#k` to `#99`, are read with one `GetVectors`; and
+  only keys **that** read returned are deleted. The read is always taken after the write, never
+  before it — a read taken before the write would prune a key a concurrent writer re-created in the
+  window, re-opening the defect the orphan-cleanup replay rule below closes. A returned key whose
+  vector's `last_edited_ulid` is **strictly newer** than the token this re-index wrote belongs to a
+  later write and is not deleted; a key carrying the **same** token is deleted — it was written under
+  the current version but is not one of its slots, which two runs under different section caps can
+  produce under one ULID. This is
   where the two prune paths part, and **not** over which token they compare against: both compare
   against the object's current one — this rebuild reads it from the same `head_object` metadata and
   writes it into the vectors it creates, so "the token it wrote itself" and "the object's current
   token" are one value. They part on the *other* side of the test. The re-index has just rebuilt the
-  artifact's entire key set, so a same-token key outside that set is provably not a slug of the
+  artifact's entire key set, so a same-token key outside that set is provably not a slot of the
   current content and is stale. The orphan-cleanup replay has only a key list some earlier write
-  recorded, and no knowledge of what the current content's slugs are, so a same-token key there must
-  be assumed live (see that rule); unifying the two breaks one of them.
+  recorded, and no knowledge of which slots the current content fills, so a same-token key there
+  must be assumed live (see that rule); unifying the two breaks one of them.
   When the object carries no token (`s3.artifact` states when) the rebuild has nothing to order
-  against, so the newer-token exemption does not apply and every listed key absent from the rebuilt
-  set is deleted — the same boundary decision the orphan-cleanup replay makes for a tokenless object.
-  So a section slug that
-  no longer exists in the current content does not survive as a
+  against, so the newer-token exemption does not apply and every returned key above the rebuilt set
+  is deleted — the same boundary decision the orphan-cleanup replay makes for a tokenless object.
+  So a slot the current content no longer fills does not survive as a
   searchable vector, while a repaired artifact is never left with zero vectors mid-run. Without the
   prune a repaired artifact is neither an orphan nor dangling, so no later pass would ever remove the
   stale sections and only a manual overwrite could. `write_artifact` already prunes in this order.
@@ -230,9 +255,9 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
   budget-consuming entry that can reach `stuck_failures` for a correctly indexed artifact and
   re-embed every section on each retry to redo work that already landed; resolving with only a log
   line would prune the record and leave the stale vectors permanently, since an artifact with vectors
-  is neither an orphan nor dangling. A failure of the *listing* itself still fails the re-index:
-  without the listing there are no keys to record, and the re-index retry is the only path that
-  re-derives them. **A `CredentialError` from the delete is not a failed prune and is not recorded**
+  is neither an orphan nor dangling. A failure of that *read* itself still fails the re-index:
+  without it there are no keys to record, and the re-index retry is the only path that re-derives
+  them. **A `CredentialError` from the delete is not a failed prune and is not recorded**
   — it propagates and abandons the whole run, as it does from every other phase of this tool.
   Recording it would report per-artifact success and append one spurious entry per artifact for the
   duration of a credential outage, of keys that were never proven stale. **A failure of the *append*
@@ -254,10 +279,10 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
   loud rather than silent: the group is reported in `stuck_failures` on every run with the union of
   every member's `orphan_keys`, which is exactly the state an operator is being asked to fix.
   Accepted cost: on every re-index, in both the failure-log replay and the orphan scan, one
-  per-artifact vector listing **plus** one `get_vectors` over the keys it returns — the same-token
-  test needs each leftover vector's metadata, where `write_artifact`'s own prune deletes every
-  listed key and so lists only; and, in the orphan-cleanup replay, one `head_object` plus the same
-  listing-and-fetch pair per entry, to learn the reference token and the vectors it decides over.
+  `GetVectors` over `#k` to `#99` with metadata — the same-token test needs each leftover vector's
+  metadata, where `write_artifact`'s own prune deletes every returned key without testing it;
+  and, in the orphan-cleanup replay, one `head_object` plus one `GetVectors` of the recorded keys
+  per entry, to learn the reference token and the vectors it decides over.
 - **An absent `visibility` rebuilds as `"hidden"`, never `"shared"`.** When the S3 object metadata
   carries no `visibility`, the rebuilt vector metadata gets `"hidden"`. `visibility` is one of the
   two fields the cross-scope gate keys on, and the in-process predicate
@@ -270,12 +295,13 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
 - **An orphan-cleanup replay re-checks each recorded key at prune time, as the dangling-vector
   prune re-checks existence at prune time.** A recorded `orphan_keys` list describes what was stale
   when the entry was written, not what is stale now: a later successful overwrite may have
-  re-created one of the slugs, and that vector is live. Before deleting, the replay reads the
-  object's current `last_edited_ulid` as its reference token and lists the artifact's current
-  vectors. Presence in the index alone cannot tell a stale key from a re-created one — both are
-  present — so the token decides: a recorded key is deleted only when its vector's
-  `last_edited_ulid` is **strictly older** than the reference token, or the key is absent from the
-  index; a key whose token is equal to or newer than the reference is spared. Equal means the
+  re-created one of the slots, and that vector is live. Before deleting, the replay reads the
+  object's current `last_edited_ulid` as its reference token and reads the recorded keys with
+  metadata by one `GetVectors`. A recorded key that read did not return is already gone and needs no
+  delete. Presence in the index alone cannot tell a stale key from a re-created one — both are
+  present — so the token decides: a returned key is deleted only when its vector's
+  `last_edited_ulid` is **strictly older** than the reference token; a key whose token is equal to
+  or newer than the reference is spared. Equal means the
   vector was written under the content version the artifact holds now. Newer means a write landed
   between the token read and the prune and re-created the key, and deleting on an equals-only test
   would destroy exactly the live vector this rule exists to protect. ULIDs sort lexicographically by
@@ -283,14 +309,25 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
   and both rules compare against the same value, the object's current token, so the equal case does
   not part on that. It parts on what each side knows about the key set. The re-index has just
   rebuilt the artifact's whole key set and can therefore prove an equal-token leftover is not one of
-  the current content's slugs. This replay knows only a key list an earlier write recorded as stale,
+  the current content's slots. This replay knows only a key list an earlier write recorded as stale,
   and cannot tell a key that is still stale from one a later successful overwrite re-created under
   the same token, so an equal token is read as live and the key is spared. An artifact whose object
-  no longer exists has no live vectors, so all its recorded keys are deleted, as before; an object
-  that carries no token (`s3.artifact` states when) offers nothing for a vector to match, so its
-  recorded keys are deleted as recorded. The `reconciled` entry's `orphan_keys_deleted` counts the
-  keys actually deleted, so a recorded key spared as live shows as the difference from the entry's
-  recorded list; no separate counter reports it.
+  no longer exists has no live vectors, so every recorded key the read returns is deleted, as
+  before; an object that carries no token (`s3.artifact` states when) offers nothing for a vector to
+  match, so every recorded key the read returns is deleted. A recorded key from before the numbered
+  keys — a heading-slug key — is gone once the store migration has re-keyed the artifact, so its
+  entry resolves with nothing deleted. The `reconciled` entry's `orphan_keys_deleted` counts the
+  keys actually deleted, so a recorded key spared as live, or already gone, shows as the difference
+  from the entry's recorded list; no separate counter reports it.
+- **Re-indexing an artifact reads its vectors by key.** The read of `#k` to `#99` taken after its
+  rebuilt vectors are written, and the prune-time re-check of an orphan-cleanup entry's recorded
+  keys, are each one `GetVectors` by key; neither is a scan or a filtered query. The run's
+  whole-index scan is its one own-scope sweep per run — the one its orphan scan and dangling-vector
+  prune work from — whose number does not grow with how many artifacts it re-indexes, so a run
+  re-indexing a thousand artifacts makes no more whole-index scans than a run re-indexing one. A
+  scan or a filtered enumeration per rebuilt artifact is the regression this forbids: a scan pages
+  an index that grows with the store once for each artifact the store holds, and a filtered query
+  silently returns only part of an artifact's vectors above 10.
 - The orphan scan indexes **artifacts only**. A candidate key is re-indexed only when its S3 object
   metadata carries a `type` that is a member of `ARTIFACT_TYPES`; anything else under the write
   prefix — a manual upload, a `.DS_Store`, a partial multipart artefact — is skipped and reported.
@@ -334,10 +371,14 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
   stray object would otherwise hold `orphans_found` at a non-zero floor on every future run, so an
   operator watching it trend to zero would never see it arrive. Strays are reported in
   `skipped_non_artifacts` instead, where their persistence is the point rather than a false signal.
-- A successfully reconciled entry is pruned from the failure log. `failure_log_entries_after`
-  counts what the log holds after the end-of-run rewrite, which re-reads it under the appender's
-  lock and removes only the entries this run resolved — so an entry another writer appended while
-  the run was in flight is retained and counted, and `failure_log_entries_after` is not guaranteed
-  to be lower than `failure_log_entries_before` when that happens.
+- A successfully reconciled entry is pruned from the failure log. `failure_log_entries_before` and
+  `failure_log_entries_after` count only the entries whose `artifact_id` starts with
+  `write_prefix + "/"`; an entry of another write prefix in the same log is counted in neither, so
+  a run that resolved every entry of its own reports a `failure_log_entries_after` of zero whatever
+  other prefixes' entries the log still holds. `failure_log_entries_after` counts the own-prefix
+  entries the log holds after the end-of-run rewrite, which re-reads it under the appender's lock
+  and removes only the entries this run resolved — so an own-prefix entry another writer appended
+  while the run was in flight is retained and counted, and `failure_log_entries_after` is not
+  guaranteed to be lower than `failure_log_entries_before` when that happens.
 - An artifact rejected by the budget check is not silently retried into the same failure; it lands
   in `failed` or `stuck_failures`.

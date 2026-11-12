@@ -18,12 +18,27 @@ sources:
   - resource: docs/architecture-decisions/adr-2026-07-03-annotation-backed-link-storage.md
     title: Annotation-Backed Durable Storage for Mutable Link Fields (commit_refs + references)
     last_modified: 2026-09-29T00:00:00Z
+  - resource: docs/specs/p3-t15-partial-write-failure-log.md
+    title: T15 — Partial Write Failure Log
+    last_modified: 2026-11-10T16:24:49Z
+  - resource: .docs/reviews/architecture-review-2026-11-10-arkeology.md
+    title: Architecture review — Arkeology (whole design record)
+    last_modified: 2026-11-10T11:21:17Z
+  - resource: docs/architecture-decisions/adr-2026-05-29-aws-backend-selection.md
+    title: AWS S3 + S3 Vectors + Bedrock as the Storage and Embedding Backend
+    last_modified: 2026-11-12T13:11:40Z
+  - resource: docs/specs/p15-t92-numbered-vector-keys.md
+    title: T92 — Numbered Vector Keys and Per-Artifact Vector Access by Key
+    last_modified: 2026-11-12T13:11:40Z
+  - resource: docs/specs/p1-t3-aws-client-layer.md
+    title: T3 — AWS Client Layer
+    last_modified: 2026-11-10T16:40:30Z
 generated:
   by: "axians-tech-writer/claude-opus-5"
   at: 2026-09-04T00:00:00Z
 revised:
-  by: "axians-developer/unknown"
-  at: 2026-09-06T00:00:00Z
+  by: "axians-architect/claude-opus-5-5"
+  at: 2026-11-12T21:20:24Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
@@ -66,8 +81,8 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
 - `partial_write` — the status re-PUT landed but a later step failed for a cause that is not
   separately diagnosable. The flip is durable in S3, the re-PUT has cleared the annotations, and
   the vectors are not (or not all) flipped: one repairable state, whichever step reached it. A
-  failure-log entry is appended so `reconcile_index` can complete the archive later, and its
-  `failure_step` names the step: `annotation_write` for an unknown failure of the annotation
+  failure-log entry is appended so `reconcile_index` can complete the archive later —
+  `failure_logged` says whether that append succeeded — and its `failure_step` names the step: `annotation_write` for an unknown failure of the annotation
   re-apply, or the compare-and-swap cycle exhausting on it after the final re-PUT had landed;
   `archive_vector_flip` for an unknown failure while fetching or re-putting the vectors;
   `archive_cas_reread`, `annotation_read`, `archive_content_fetch`, or `archive_status_reput` for an
@@ -87,6 +102,14 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
 - The status flip is applied to **both** S3 object metadata and **all** of the artifact's vector
   metadata entries. A partial flip that updates one store leaves the artifact inconsistent between
   browse and read paths.
+- **The artifact's vectors are read by key.** Both reads of its vector entries — the
+  already-archived check and the status flip — are one `GetVectors` over `{artifact_id}#0` to
+  `{artifact_id}#99` (`s3vectors.artifact`), with data and metadata, and the flip re-puts exactly
+  the keys that read returned, with their embeddings unchanged. Neither makes a `ListVectors` scan
+  or a filtered query, so their cost does not grow with the index every team shares. The referrer
+  check's enumeration of own-scope syntheses is a whole-scope enumeration, not a lookup of this
+  artifact, and this invariant does not cover it. A per-artifact scan or filtered enumeration here
+  is the regression this forbids.
 - The status flip is an in-place S3 re-PUT, which **clears the object's annotations**. This tool
   therefore reads the current link fields forward from the annotations, their sole source of truth,
   before the re-PUT and re-applies them afterwards. Removing that read-forward silently destroys
@@ -158,3 +181,9 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
   `"annotation_warning"` key: a failed link-field re-apply is an error, not a warning.
 - The artifact remains fully readable by `read_artifact` — archiving is not deletion.
 - Link fields are unchanged in value across the operation.
+- Every response returned after the status re-PUT landed — `partial_write`, or a
+  `credential_error` / `annotation_unavailable` from a later step or a later attempt — carries
+  `failure_logged: bool`: `true` when the failure-log entry was appended, `false` when the append
+  itself failed. No other response carries it. On `false` no entry exists, `message` does not
+  claim one was recorded, and `reconcile_index` cannot complete the archive from the log; the
+  server's stderr ERROR record names the artifact and the failed step but holds none of the entry.

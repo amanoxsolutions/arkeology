@@ -9,8 +9,8 @@ generated:
   by: "axians-pm/unknown"
   at: 2026-05-29T10:46:28Z
 revised:
-  by: "axians-developer/claude-opus-5.5"
-  at: 2026-10-07T13:29:34Z
+  by: "axians-architect/claude-opus-5-5"
+  at: 2026-11-12T13:11:40Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
@@ -18,7 +18,7 @@ verified:
 
 # Plan: Arkeology
 
-_Project: arkeology_ · _Generated: 2026-05-29_ · _Last updated: 2026-10-07_ · _Status: **Phases 1–14 complete · Phase 15 open · latest tag v0.7.1**_
+_Project: arkeology_ · _Generated: 2026-05-29_ · _Last updated: 2026-11-12_ · _Status: **Phases 1–14 complete · Phase 15 open · latest tag v0.7.1**_
 
 ## How we work
 
@@ -29,7 +29,7 @@ This project runs as a **single open phase**, not a pre-planned roadmap. Complet
 - **Status legend:** ⬜ pending · 🔄 in progress · 🔍 in review · ✅ done · 🔴 blocked
 - **Delivery model:** each **Phase** is a coherent slice of value delivered as a set of tasks. A phase ends when we judge it done.
 
-**Current state:** Phase 15 — OKF v0.2 Adoption is open (T76–T91). Phases 1–14 are complete, and the latest tag is v0.7.1.
+**Current state:** Phase 15 — OKF v0.2 Adoption is open (T76–T92). Phases 1–14 are complete, and the latest tag is v0.7.1.
 
 ---
 
@@ -415,6 +415,22 @@ meaning two things. Tasks marked *parallel* touch disjoint code and may run conc
     list. Done: the resource content is reviewed against the ADR field by field, and its tests
     pin each field's presence. Blocked by 76–88. (FR-18)
 
+92. ⬜ **Numbered vector keys; per-artifact vector access by key** — every vector is keyed
+    `{artifact_id}#{n}`, numbered in the document order of the embedded sections, with a document
+    vector at `#0`; heading-slug keys and their disambiguation are retired; `EMBED_MAX_SECTIONS`
+    gets a maximum of 100, the `GetVectors` per-call limit, checked at startup (default still 20).
+    All of one artifact's vectors are one `GetVectors` over `#0..#99`: delete, purge and the
+    freshness clean-up delete only the keys it returned; an update and a reconcile re-index put
+    `#0..#k-1`, then delete what a read of `#k..#99` finds; archive, the lifecycle change and
+    `add_artifact_links` re-put what it returned. Freshness's sources, the cross-scope link gate and
+    the `migrate_artifacts` candidate check read each id's `#0` by key, up to 100 ids per call. No
+    per-artifact path scans the index or enumerates by filtered query — measured on real AWS on
+    2026-11-12, a filtered query returns only part of an artifact's vectors above 10. Done: unit
+    spies show no `ListVectors` or `QueryVectors` call on any per-artifact path; the integration
+    tests pass that `GetVectors` omits missing keys and that an update from 30 to 10 sections
+    leaves exactly `#0..#9`. Blocked by 76–87. (FR-01, FR-07, FR-17, FR-20–FR-22, FR-26, FR-53,
+    FR-68, NFR-13, NFR-17; adr-2026-05-29-aws-backend-selection)
+
 90. ⬜ **Store-migration skill + scripts** — brings an existing deployment to the new shape in S3
     object metadata, vector metadata and annotations: `status` → `archived`, legacy types → OKF
     display names, `date`/`author_role`/`timestamp` → provenance, comma-joined link annotations →
@@ -423,20 +439,21 @@ meaning two things. Tasks marked *parallel* touch disjoint code and may run conc
     writes for an existing artifact must fall on the UTC day of the old `date`, so a tier-2 key's
     date component still matches `generated.at` and a later create of the same type and title on
     that day is still rejected against it (AC-04). At the end of a run it
-    verifies that every vector carries a boolean `archived` and reports any it missed (D50).
+    verifies that every vector carries a boolean `archived` and reports any it missed (D50). It
+    also re-keys every own-scope vector to its numbered key (92) by copy, with no embedding call.
     `reconcile_index` gains no migration code. Done: AC-79 passes against a moto store seeded in the pre-Phase-15 shape;
-    a second run reports nothing to change. Blocked by 76–87. (FR-74; D42)
+    a second run reports nothing to change. Blocked by 76–87, 92. (FR-74; D42)
 
 91. ⬜ **Documentation, CHANGELOG, release notes** *(Tech Writer)* — README, SERVER-REFERENCE, the
     setting-up and migration skills' agent snippets, AGENTS.md (Repository Structure, Working
     Conventions on `ARTIFACT_TYPES`, comma-joined lists, deterministic keys; mutation Scope if
     85 moved gate code), and a `[Unreleased]` **Breaking** CHANGELOG entry listing every removed
-    name with its replacement and pointing at the store-migration skill. Blocked by 89, 90 and
+    name with its replacement and pointing at the store-migration skill. Blocked by 89, 90, 92 and
     a full integration-suite run against real AWS passing.
 
 ## Risks and Open Questions
 
-- **Spec count.** Sixteen tasks means sixteen specs. Some tasks share most of their
+- **Spec count.** Seventeen tasks means seventeen specs. Some tasks share most of their
   surface (79 + 80, 84 + 85); merging their specs is an option the operator has not decided.
 - **OKF rulings pending (#16, #22, #28, #32).** Decided now and adapted later (D39). A ruling
   against the in-list `withheld` marker or the per-edge trust blocks changes response shapes

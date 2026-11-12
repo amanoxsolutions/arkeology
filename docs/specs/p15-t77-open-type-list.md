@@ -19,14 +19,14 @@ sources:
   - resource: docs/planning-artifacts/plan.md
     title: Plan Arkeology
     last_modified: 2026-10-07T13:29:34Z
-  - resource: https://github.com/amanoxsolutions/amanox-ai-agents/blob/main/plugins/amanox/skills/authoring-skills/references/okf-frontmatter.md
-    title: OKF frontmatter reference of the producer amanox-ai-agents plugin
+  - resource: https://github.com/GoogleCloudPlatform/open-knowledge-format/blob/main/SPEC.md
+    title: Open Knowledge Format — Specification
 generated:
   by: "axians-architect/claude-opus-5.5"
   at: 2026-10-13T13:04:34Z
 revised:
   by: "axians-architect/claude-opus-5-5"
-  at: 2026-11-09T21:19:08Z
+  at: 2026-11-12T21:20:47Z
 ---
 
 # T77 — Open Type List
@@ -44,11 +44,11 @@ checks, the generated-id slug, the reconcile orphan scan, Studio — moves to th
 OKF's `type` is a free-form display string and a conforming consumer must tolerate unknown values.
 Arkeology rejects any `type` outside `ARTIFACT_TYPES` at write, at every type filter, and in the
 reconcile orphan scan, so a producer document typed `Architecture Review` cannot be stored, and a
-stored one could never be re-indexed. The producer `amanox-ai-agents` plugin writes Title Case
-types (`Code Review`, `ADR`) where Arkeology's corpus holds snake_case (`code_review`, `adr`); under
-exact matching the two would split every type filter. D37 resolves both: open the list, keep the
-stored value verbatim, publish the known types as recommended OKF display names, and let the
-store migration (T90) rewrite legacy values once.
+stored one could never be re-indexed. A producer can write Title Case display types (`Code Review`,
+`ADR`) where Arkeology's corpus holds snake_case (`code_review`, `adr`); under exact matching the
+two would split every type filter. D37 resolves both: open the list, keep the stored value verbatim,
+publish the known types as recommended OKF display names, and let the store migration (T90) rewrite
+legacy values once.
 
 Four user stories frame this spec: an unknown type is stored and found verbatim (P1); existing
 generated ids are unchanged (P1); synthesis behaviour keys on `Synthesis` only (P1); agents and
@@ -112,9 +112,9 @@ for one; T90 uses the same table to rewrite stored values:
 | `implementation_note` | `Implementation Note` | `spec` | `Spec` |
 | `synthesis` | `Synthesis` | `vision` | `Vision` |
 
-**Why:** the ADR names `Code Review` but enumerates no table. Each value applies the producer's
-rule — Title Case words, upper case for abbreviations — so a migrated legacy artifact and a newly
-ingested producer document of the same kind land on one value.
+**Why:** the ADR names `Code Review` but enumerates no table. Each value follows one rule — Title
+Case words, upper case for abbreviations, the way producers write display types — so a migrated
+legacy artifact and a newly ingested producer document of the same kind land on one value.
 
 Source: D37
 

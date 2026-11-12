@@ -20,12 +20,35 @@ sources:
   - resource: https://opencode.ai/docs/mcp-servers/
   - resource: https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-mcp-servers
   - resource: https://learn.chatgpt.com/docs/extend/mcp?surface=cli
+  - resource: docs/specs/p3-t15-partial-write-failure-log.md
+    title: T15 — Partial Write Failure Log
+    last_modified: 2026-11-10T17:12:26Z
+  - resource: .docs/reviews/architecture-review-2026-11-10-arkeology.md
+    title: Architecture review — Arkeology (whole design record)
+    last_modified: 2026-11-10T11:21:17Z
+  - resource: docs/architecture-decisions/adr-2026-05-29-aws-backend-selection.md
+    title: AWS S3 + S3 Vectors + Bedrock as the Storage and Embedding Backend
+    last_modified: 2026-11-12T13:11:40Z
+  - resource: https://docs.aws.amazon.com/AmazonS3/latest/userguide/s3-vectors-index-mode.html
+    title: Amazon S3 User Guide — Changing a vector index's mode
+  - resource: https://docs.aws.amazon.com/AmazonS3/latest/API/API_S3VectorBuckets_GetIndex.html
+    title: Amazon S3 API Reference — GetIndex
+  - resource: docs/specs/p15-t90-store-migration.md
+    title: T90 — Store Migration Skill and Command
+    last_modified: 2026-11-12T10:00:13Z
+  - resource: docs/planning-artifacts/vision.md
+    title: "Arkeology — Persistent Artifact Memory"
+  - resource: .docs/reviews/architecture-review-2026-11-10-arkeology-recheck.md
+    title: "Architecture review — Arkeology (whole design record), re-check of C-1 to C-3"
+    last_modified: 2026-11-10T16:49:29Z
+  - resource: .docs/review-fixes/calibration-2026-11-12.md
+    title: "Calibration: is a filtered, paged QueryVectors (ENHANCED) an exhaustive per-artifact lookup?"
 generated:
   by: "axians-architect/unknown"
   at: 2026-06-07T00:00:00Z
 revised:
   by: "axians-architect/claude-opus-5-5"
-  at: 2026-11-09T16:41:18Z
+  at: 2026-11-12T21:20:24Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
@@ -36,13 +59,14 @@ verified:
 ## TL;DR
 
 Create `skills/setting-up-arkeology/SKILL.md` — a 6-step agent-driven workflow that assumes all
-required AWS resources are already provisioned externally, validates their reachability, writes a
+required AWS resources are already provisioned externally, validates their reachability and that the
+vector index runs in `ENHANCED` mode, writes a
 complete and project-scoped Arkeology server entry into the correct MCP configuration file for the
 chosen client (Claude Code, opencode, GitHub Copilot CLI, or OpenAI Codex), runs a health check,
 and writes a machine-readable `arkeology:config` block plus a narrative usage snippet to the
 project AGENTS.md. No Python code, no bundled scripts, no `.env` file, no AWS resource creation, no
 IAM policy generation. The spec also covers how the throwaway probe objects that the skill's Step 2
-connectivity check writes into the deployment's own `WRITE_PREFIX` are named and cleaned up, and
+connectivity check writes into the deployment's own `WRITE_PREFIX` are named, tagged and cleaned up, and
 the orphan-scan exclusion in `src/arkeology/tools/reconcile.py` that keeps one from being mistaken
 for an artifact.
 
@@ -123,7 +147,7 @@ Source: none
 The skill validates that every declared resource is reachable before writing any configuration
 file. When Step 2 runs, it validates five things: AWS credentials are active
 (`aws sts get-caller-identity`), `uv` is installed, the declared S3 bucket is reachable
-(`s3api head-bucket`), the declared Vectors index is reachable (`s3vectors describe-index`), and
+(`s3api head-bucket`), the declared Vectors index is reachable (`s3vectors get-index`), and
 the declared Bedrock embedding model is accessible (`bedrock invoke-model` with a minimal
 payload). When any Step 2 check fails, the skill stops immediately with a message identifying
 which resource is unreachable — no subsequent steps are executed. When all declared resources are
@@ -147,6 +171,64 @@ Source: none
 Step 3 is clone and `uv sync` only — no IAM policy step follows it.
 
 Source: none
+
+### R27 — Step 2 also confirms the vector index runs in `ENHANCED` mode, and stops with the switch command when it does not
+
+When Step 2 checks the declared Vectors index, it also reads the index's mode from the same response
+(`aws s3vectors get-index --vector-bucket-name <bucket> --index-name <index>`, field `indexMode`).
+When the mode is not `ENHANCED` — `CLASSIC`, or not reported — Step 2 fails like any other Step 2
+check: the skill stops before writing any configuration file and shows the Admin
+`aws s3vectors update-index-mode --vector-bucket-name <bucket> --index-name <index> --index-mode ENHANCED`,
+stating that the switch takes effect in place with no re-ingestion and no additional charge, that
+an index other teams share changes for their servers too, and that it must not be switched back
+while any server uses it. The skill does not run the command itself — Step 2 contains no command
+that changes an AWS resource — and the Admin re-runs Step 2 once the switch is made. When the
+operator is about to create a new index, the skill states that a vector bucket created on or after
+30 September 2026 creates `ENHANCED` indexes, and that an index created in an older bucket starts
+`CLASSIC` unless the bucket's default index mode has been set to `ENHANCED`.
+
+**Why (The server refuses a `CLASSIC` index):** The server's scoped searches and its store-shape
+check are filtered queries, which find what their filters match only on an `ENHANCED` index —
+measured on real AWS, filtered queries on `CLASSIC` lost vectors even for artifacts of 10 or fewer
+vectors — so the server refuses to start on any other (`p1-t5-startup-validation-sequence.md` R12).
+Catching the mode here gives the operator the fix before a config entry is written, rather than a
+server that will not start at Step 5.
+
+**Example**
+
+- Given a declared Vectors index in `CLASSIC` mode, when Step 2 runs, then the skill stops, names
+  the index and its mode, shows the `update-index-mode` command, and writes no config file.
+- Given a declared Vectors index in `ENHANCED` mode, when Step 2 runs, then the mode check passes
+  and the remaining Step 2 checks run.
+
+Source: NFR-03; adr-2026-05-29-aws-backend-selection; the calibration of 2026-11-12 (`.docs/review-fixes/calibration-2026-11-12.md`)
+
+### R30 — For a new deployment, Step 2 has the Admin apply the write-fence statement before the probe's first write
+
+WHEN Step 2 runs for a deployment set up on this release — a write prefix no server has written
+yet, as the operator confirms — THE SYSTEM SHALL, before the annotation probe writes, show the
+Admin the write-fence statement T90 R39 defines, built from the `ARTIFACT_BUCKET` and `WRITE_PREFIX`
+collected in Step 1, with T90 R39's instruction to add this prefix's resource to an existing
+statement with the same `Sid` rather than add a second one, and wait for the operator to say it is
+applied. The annotation probe (R29) then writes under the fence, and its tagged write landing shows
+that the statement admits this release's writes. A write prefix already in use gets no statement
+from this step: the store migration fences it (T90 R39), or an earlier setup on this release did.
+The skill never reads, writes or applies the bucket policy.
+
+**Why:** an install of an earlier release configured with a new deployment's write prefix would
+overwrite artifacts this release writes and wipe their annotations — the loss the fence prevents on
+a migrated store — and no migration runs on a new deployment to print the statement. Applied before
+the first write, the fence leaves no artifact under the prefix unprotected.
+
+**Example**
+
+- Given a new deployment's write prefix that no statement covers, when Step 2 runs, then the skill
+  shows the statement with the resource `arn:aws:s3:::<ARTIFACT_BUCKET>/<WRITE_PREFIX>/*`, and the
+  annotation probe runs only after the operator says it is applied.
+- Given a write prefix already in use, when Step 2 runs, then the skill shows no statement and the
+  annotation probe runs as before.
+
+Source: NFR-16; T90 R38, R39; a deployment set up on this release is fenced too (Operator, 2026-11-12)
 
 ## 5. Rules — Step 4: the MCP config entry
 
@@ -414,11 +496,83 @@ query strategy, synthesis guidance, and a pointer to MCP Resources.
 
 Source: none
 
+### R26 — The snippet tells an agent running in a pipeline to reconcile before its job ends
+
+WHEN Step 6 writes the narrative snippet THE SYSTEM SHALL include, in
+`references/agents-snippet.md` and outside both ADR variants, an instruction for an agent running
+in a CI/CD pipeline: whenever any Arkeology call in the job returned `failure_logged: true`, call
+`reconcile_index` before the job ends, and fail the job, quoting the response, if that call itself
+returns an error — `credential_error` or any other — or if any artifact those calls named is still
+listed in its `failed` or `stuck_failures`; whenever a call returned `failure_logged: false`, fail
+the job and quote the response, since no entry exists for `reconcile_index` to replay. Before a job
+fails for any of these reasons, the agent keeps the entries it could not resolve (R28).
+
+**Example**
+
+- Given a pipeline agent whose write returned `partial_write` with `failure_logged: true`, when it
+  reaches the end of its job, then it has called `reconcile_index` first, and the job fails if that
+  artifact is still listed in `failed` or `stuck_failures`.
+- Given the same agent whose end-of-job `reconcile_index` returns `credential_error`, when the job
+  ends, then it has failed, quoting that response.
+
+**Why:** the failure log sits in the per-user state directory of the host that ran the server
+(T15 R7). On a pipeline runner that host is discarded when the job ends, and with it the only copy
+of any annotations a failed restore left in the log; no later `reconcile_index` run can reach it.
+A `reconcile_index` call that returns an error has resolved nothing, so it fails the job exactly as
+an artifact still listed in `failed` does.
+
+Source: NFR-11; T15 R7, R11
+
+### R28 — A pipeline job that fails on an unresolved entry keeps that entry in a restricted job artifact, never in its log output
+
+WHEN the R26 instruction fails a job THE SYSTEM SHALL have the snippet instruct the agent, before
+the job ends, to write to `arkeology-recovery.jsonl` in the job's working directory — never printed
+to the job's log output, never staged or committed — every line of the server's failure log whose
+`artifact_id` is one the failing calls named. A call that returned `failure_logged: false` has no
+entry to keep: the server's ERROR line names only the artifact and the failed step (T15 R4), and the
+job's quoted response already names them (R26). The failure log is the file the server resolved at startup and logged at INFO (T15 R7,
+R9): `FAILURE_LOG_PATH` when set, otherwise the per-bucket default,
+`$XDG_STATE_HOME/arkeology/<ARTIFACT_BUCKET>/failures.jsonl` or
+`~/.local/state/arkeology/<ARTIFACT_BUCKET>/failures.jsonl`. The snippet tells the team that owns
+the pipeline that the job must keep `arkeology-recovery.jsonl` as a job artifact whenever it fails,
+with access limited, as far as the CI system allows, to the people allowed to read the store. It
+also states the recovery, which is the one-time procedure T15 R10 gives
+for an old log: with every Arkeology server that uses the target log stopped, append the kept
+entries to the failure log of a server configured with the same artifact bucket and write prefix,
+then run `reconcile_index` from that server.
+
+**Example**
+
+- Given a pipeline agent whose update returned `partial_write` with `failure_logged: true` and whose
+  end-of-job `reconcile_index` returned `credential_error`, when the job ends, then it has failed,
+  `arkeology-recovery.jsonl` holds that artifact's failure-log line, and the job's log output holds
+  the quoted response but not the line.
+- Given a call that returned `failure_logged: false`, when the job ends, then it has failed, quoting
+  the response, and `arkeology-recovery.jsonl` holds no line for that call, since no entry exists.
+- Given the kept entries, when an operator follows T15 R10's procedure with a server configured with
+  the same artifact bucket and write prefix, then that server's `reconcile_index` replays them as it
+  replays any other entry of its own.
+
+**Why:** a `reconcile_index` that failed on the runner has replayed nothing, so the artifact can
+only be restored by a run elsewhere, and that run needs the entries themselves — quoting the
+response saves only the artifact's id. The entries carry the artifact's links, revision history and
+verifications, and the vision rates the store's data as sensitive (`vision.md` § Operating Context,
+"Data sensitivity"). A job's log output is often readable more widely than the store and is kept by
+the CI system on its own terms, so the entries go into a job artifact whose access the team sets,
+never into the log. Some CI systems cannot restrict a job artifact below the repository's readers:
+on GitHub Actions anyone with read access to the repository can download a run's artifacts. That
+exposure is accepted. The kept entries hold artifact ids and titles, link targets, commit SHAs, and
+who revised or verified an artifact and when — never artifact content.
+
+Source: NFR-11; T15 R4, R7, R9, R10; vision.md § Operating Context; the job artifact's exposure to the repository's readers (Operator, 2026-11-10)
+
 ## 8. Rules — Connectivity probe objects
 
 The Step 2 annotation probe writes a real object into the deployment's own `WRITE_PREFIX`.
 Whether or not the probe succeeds, that object must be gone by the end of the step, and
-`reconcile_index` must never treat one that survives as an artifact.
+`reconcile_index` must never treat one that survives as an artifact. Because a migrated write
+prefix refuses every object write that lacks the store-schema tag, the probe's object write
+carries it (R29).
 
 ### R22 — A probe object is named with the reserved `_arkeology_` marker
 
@@ -483,6 +637,38 @@ or named in the reconcile response.
 
 Source: none
 
+### R29 — The probe's object write carries the store-schema tag on both probe paths
+
+WHEN Step 2's annotation probe writes `<WRITE_PREFIX>/_arkeology_annotation_probe` THE SYSTEM SHALL
+send the object tag `arkeology-store-schema` with the value `2` (T90 R38) on that write: the
+aws-cli path passes `--tagging 'arkeology-store-schema=2'` to `aws s3api put-object`, and the boto3
+path passes `Tagging="arkeology-store-schema=2"` to `put_object`. WHEN that object write is refused
+with `AccessDenied` THE SYSTEM SHALL stop Step 2 (R4) with a message that names `s3:PutObject` and
+`s3:PutObjectTagging` on the write prefix — S3 requires both to write an object with a tag — and
+states that a bucket-policy write fence requiring a newer store schema refuses the write as well,
+rather than the message for a missing annotation permission. The probe's cleanup (R23, R24) is
+unchanged.
+
+**Example**
+
+- Given a write prefix covered by T90 R39's write-fence statement and a role holding the core S3
+  actions, `s3:PutObjectTagging` and the four annotation actions, when Step 2's annotation probe
+  runs on either path, then the probe object lands, the probe prints `ANNOTATIONS_OK`, and the
+  cleanup deletes the object.
+- Given the same prefix and a role without `s3:PutObjectTagging`, when the probe runs, then Step 2
+  stops with the message naming `s3:PutObject` and `s3:PutObjectTagging`, the cleanup still runs,
+  and no config file is written.
+
+**Why:** the write-fence statement a migrated prefix keeps for good (T90 R39) refuses every
+`PutObject` under the prefix that does not send this tag. An untagged probe is therefore refused on
+every setup against a migrated prefix — each new team member, machine or pipeline runner — and R4
+stops setup with an `AccessDenied` that sends the Admin looking for an IAM grant that is not
+missing. The probe is the one object write this skill makes, and it is made outside the server, so
+the server's S3 client cannot tag it. On a prefix no fence covers, the tag changes nothing but the
+permission it needs, which the server's own startup write probe needs as well (T90 R41).
+
+Source: NFR-16; T90 R38, R39, R41; adr-2026-09-25-okf-v02-adoption § 9
+
 ## 9. Boundaries
 
 **Always:**
@@ -491,7 +677,8 @@ Source: none
   config file env block.
 - No AWS resource creation of any kind.
 - No IAM policy generation — the README provides a static reference policy with
-  `YOUR-*` placeholders; the skill never emits a policy document.
+  `YOUR-*` placeholders; the skill never emits a policy document, except R30's write-fence
+  bucket-policy statement.
 - All parameter collection happens in Step 1 before any validation or AWS calls. Step 1
   always starts with the project-root scan for existing config files before asking any
   other questions.
@@ -521,8 +708,9 @@ Source: none
   the preferred write targets for the three clients that support them; the user's global
   MCP client config is never written to or modified during a project installation.
 - Any object a check writes into `WRITE_PREFIX` is a throwaway probe named
-  `_arkeology_<purpose>_probe`, is deleted by an always-run cleanup step, and is excluded
-  from `reconcile_index`'s orphan scan by the `_arkeology_` marker.
+  `_arkeology_<purpose>_probe`, carries the store-schema tag `arkeology-store-schema=2` (R29), is
+  deleted by an always-run cleanup step, and is excluded from `reconcile_index`'s orphan scan by
+  the `_arkeology_` marker.
 
 **Ask First:**
 - Before writing to or modifying any MCP config file — show the entry to be added and
@@ -534,7 +722,8 @@ Source: none
 - Do not write a `.env` file.
 - Do not create any AWS resource.
 - Do not generate, emit, or substitute values into any IAM policy document — refer the
-  operator to the README's policy reference section.
+  operator to the README's policy reference section. R30's write-fence bucket-policy statement is
+  the one exception.
 - Do not proceed past Step 5 if `health_check` reports any component as errored.
 - Do not overwrite or delete existing MCP server entries in any config file — merge only.
 - Do not replace a config file wholesale with only the Arkeology entry — always insert
@@ -575,6 +764,19 @@ top-level `skills/` directory and no symlinks.
 | `src/arkeology/tools/reconcile.py` | Modify | Phase 2 orphan scan (the `own_keys` comprehension in `reconcile_index`): replace the two `"_arkeology_health_probe" not in k` / `"_arkeology_startup_probe" not in k` checks with one final-path-segment `_arkeology_` marker check |
 | `plugins/arkeology/skills/setting-up-arkeology/SKILL.md` | Modify | Step 2 annotation probe, aws-cli (`native`) branch of Check 8: make the annotation delete + object delete an explicit always-run cleanup step covering the `AccessDenied` path; report the key and delete command if cleanup itself fails. The boto3 (`fallback`) branch already cleans up in `finally:` — leave it |
 
+**Pipeline reconcile instruction (R26, R28):**
+
+| File | Action | Notes |
+|------|--------|-------|
+| `plugins/arkeology/skills/setting-up-arkeology/references/agents-snippet.md` | Modify | Add R26's and R28's instruction as a short pipeline subsection outside both ADR variants: fail the job on a `reconcile_index` error as well as on an artifact left in `failed`/`stuck_failures` or any `failure_logged: false`; before failing, write the named entries to `arkeology-recovery.jsonl`, never to the job's log output or a commit; the note to the pipeline's owners that the job keeps that file as a job artifact with access limited to those allowed to read the store; and the recovery by T15 R10's procedure. Lands with T15's `failure_logged` and per-bucket log path |
+
+**Store-schema tag on the probe write (R29) and the new deployment's write fence (R30) — lands with T90's tag:**
+
+| File | Action | Notes |
+|------|--------|-------|
+| `tests/unit/test_skill_store_schema_tag_drift.py` | Create | Red first: extracts the tag that Step 2's annotation probe sends from the shipped `SKILL.md` — the aws-cli `put-object`'s `--tagging` and the boto3 `put_object`'s `Tagging` — and asserts each equals the key and value T90 adds to `constants.py`; likewise the `Sid`, tag key and value in the write-fence statement Step 2 shows (R30) |
+| `plugins/arkeology/skills/setting-up-arkeology/SKILL.md` | Modify | Step 2 annotation probe, both branches of Check 8: the probe object's write sends `arkeology-store-schema=2`; a refused probe object write gets its own interpretation, naming `s3:PutObject`, `s3:PutObjectTagging` and the write fence, apart from the annotation `AccessDenied` one. T90's row for this file adds `s3:PutObjectTagging` to the IAM actions. Before Check 8, for a new deployment: the R30 statement built from `ARTIFACT_BUCKET` and `WRITE_PREFIX`, the merge into an existing `Sid`, and the wait for the operator's word that it is applied |
+
 ### Contracts
 
 None.
@@ -585,8 +787,8 @@ The skill body is markdown — verification is by inspection against the checkli
 Work through the checklist top-to-bottom after writing; do not mark done until every item
 passes.
 
-**The connectivity probe rules add one code change, and the project uses TDD — test file before
-the implementation file it gates:**
+**The connectivity probe rules add one code change and one drift test, and the project uses TDD —
+test file before the implementation file it gates:**
 
 1. **`tests/unit/test_tools_reconcile.py` → `src/arkeology/tools/reconcile.py`** — write the
    failing test for the `_arkeology_annotation_probe` exclusion (and for a nested-path probe
@@ -595,6 +797,9 @@ the implementation file it gates:**
    health/startup exclusion tests stay green unchanged.
 2. The skill-side cleanup change has no unit test — it is prose, covered by the checklist
    items below and by the manual run in `tests/skill_validation/`.
+3. **`tests/unit/test_skill_store_schema_tag_drift.py` → `SKILL.md`** (R29, R30) — write the drift
+   test first, red against the probe as it stands with no tag and no fence statement, then add the
+   tag on both branches and the statement before Check 8.
 
 **`SKILL.md` structure:**
 - [ ] Exactly 6 numbered steps, each as a `##` section
@@ -610,9 +815,12 @@ the implementation file it gates:**
 - [ ] Step 1 lists every remaining required parameter with its default where applicable;
   no IAM principal ARN collected (no provisioning or IAM steps)
 - [ ] Step 2 lists all five reachability checks explicitly: credentials, `uv`,
-  S3 bucket (`head-bucket`), Vectors index (`describe-index`), Bedrock embedding
+  S3 bucket (`head-bucket`), Vectors index (`get-index`), Bedrock embedding
   model (`invoke-model`); states that any failure is a hard stop
 - [ ] Step 2 does NOT contain any AWS resource creation commands
+- [ ] Step 2 reads the Vectors index's `indexMode`; on anything but `ENHANCED` it stops and shows
+  the `update-index-mode` command for the Admin to run, without running it, and says the index
+  must not be switched back while servers use it (R27)
 - [ ] Step 3 is clone and `uv sync` only — no IAM policy step follows it
 - [ ] Step 4 contains the client reference table with all 6 rows, a "Config scope"
   column distinguishing project vs global for each client, and an "Official docs URL"
@@ -660,7 +868,8 @@ the implementation file it gates:**
 - [ ] No `YOUR-*` placeholder remains in any emitted config or entry example
 - [ ] No `.env` file is written or mentioned as a step
 - [ ] No AWS resource creation command appears anywhere in the skill
-- [ ] No IAM policy generation or substitution appears anywhere in the skill
+- [ ] No IAM policy generation or substitution appears anywhere in the skill, R30's write-fence
+  statement excepted
 - [ ] Line count ≤ 500
 - [ ] Step 2's annotation probe writes only `<WRITE_PREFIX>/_arkeology_annotation_probe`
 - [ ] Step 2's aws-cli probe branch has an always-run cleanup step (annotation delete +
@@ -668,6 +877,13 @@ the implementation file it gates:**
   just as trailing commands
 - [ ] Step 2 tells the operator the leftover key and the delete command if cleanup itself
   fails
+- [ ] Step 2's probe object write sends `arkeology-store-schema=2` on both branches (`--tagging` /
+  `Tagging`), and a refused probe object write names `s3:PutObject`, `s3:PutObjectTagging` and the
+  write fence (R29)
+- [ ] For a new deployment, Step 2 shows T90 R39's write-fence statement built from
+  `ARTIFACT_BUCKET` and `WRITE_PREFIX`, says to merge into an existing statement with the same
+  `Sid`, and runs the annotation probe only after the operator says it is applied; for a write
+  prefix already in use it shows none (R30)
 
 **`references/agents-snippet.md` structure:**
 - [ ] Contains the standing never-write instruction referencing `local_only_types` and
@@ -677,3 +893,10 @@ the implementation file it gates:**
 - [ ] Contains when-to-write guidance, artifact type table, description quality
   guidance, tier 2 vs tier 3 selection, query strategy, synthesis guidance, and pointer
   to MCP Resources
+- [ ] Contains R26's pipeline instruction: `reconcile_index` before the job ends after any
+  `failure_logged: true`, and a failed job on `failure_logged: false`, an unresolved entry or a
+  `reconcile_index` error
+- [ ] Contains R28's instruction: the named entries go to `arkeology-recovery.jsonl`, never to the
+  job's log output or a commit; the pipeline keeps that file, and the server's stderr when the
+  agent cannot read it, as a job artifact with restricted access; recovery follows T15 R10's
+  procedure

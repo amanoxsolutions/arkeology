@@ -10,8 +10,8 @@ generated:
   by: "axians-architect/unknown"
   at: 2026-05-29T00:00:00Z
 revised:
-  by: "axians-developer/claude-opus-4.8"
-  at: 2026-07-05T00:00:00Z
+  by: "axians-architect/claude-opus-5-5"
+  at: 2026-11-12T17:36:17Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
@@ -119,3 +119,26 @@ Three configurable guards bound the embedding cost per artifact:
 > the bare `artifact_id`. The Decision text above is corrected to match. This is purely a
 > documentation fix — no behavioural change; the `artifact_id`-as-filterable-metadata mechanism
 > described in the same paragraph is unaffected and remains accurate.
+
+## Revision — 2026-11-12 (accepted 2026-11-12)
+
+> **Accepted.** Adopted by the numbered-key amendment of ADR-002 (accepted 2026-11-12). Where this
+> ADR's Decision and Consequences differ from the revision below, the revision governs.
+
+[The AWS backend selection ADR](adr-2026-05-29-aws-backend-selection.md) amends this ADR's Decision
+and Consequences:
+
+- **The section vector key is `{s3_key}#{n}`**, `n` from 0 to 99, the section's position among the
+  embedded sections in document order; the fallback document-level vector is keyed `{s3_key}#0`.
+  Heading slugs, and the disambiguation of colliding ones, no longer form keys. `artifact_id` stays
+  filterable metadata on every vector, for the re-fetch loop's grouping.
+- **`EMBED_MAX_SECTIONS` has a maximum of 100** — the `GetVectors` per-call limit, so one read by key
+  covers every vector an artifact can hold — checked at startup like its existing minimum; the
+  default stays 20. A server configured above 100 refuses to start.
+- **An update's orphaned section vectors are found by key.** The write path puts the new version's
+  `k` vectors at `#0` to `#{k-1}`, then reads `#k` to `#99` by key and deletes what that read
+  returns, instead of querying the index for every vector of the artifact. The `PutVectors` upsert
+  still replaces the slots the new version fills in place.
+
+The H2 boundaries, the three guards' purpose, the fallback path and the grouping by `artifact_id`
+stand.

@@ -98,9 +98,6 @@ sources:
   - id: okf-spec
     resource: https://github.com/GoogleCloudPlatform/open-knowledge-format/blob/main/SPEC.md
     title: Open Knowledge Format — Specification
-  - id: producer-okf-frontmatter
-    resource: https://github.com/amanoxsolutions/amanox-ai-agents/blob/main/plugins/amanox/skills/authoring-skills/references/okf-frontmatter.md
-    title: OKF frontmatter reference of the producer amanox-ai-agents plugin
 relationships:
   - to: adr-2026-09-25-okf-v02-adoption
     type: implements
@@ -115,7 +112,7 @@ generated:
   at: 2026-10-13T16:20:20Z
 revised:
   by: "axians-architect/claude-opus-5-5"
-  at: 2026-11-09T21:24:53Z
+  at: 2026-11-12T21:20:47Z
 ---
 
 # T79 — Provenance: `generated` / `revised`; Drop `date`, `author_role`, `timestamp`
@@ -232,15 +229,15 @@ The system must store an accepted `at` converted to UTC, truncated to whole seco
   `generated.at` is `"2026-03-01T12:30:00Z"`.
 
 **Why:** `at` is optional. A caller may supply it because migration must record a first-authorship
-time from the past (T88, T90). It also matters because the producer `amanox-ai-agents` plugin
-captures `sources[].last_modified` from its own `revised.at`. If the server stamped its own later
+time from the past (T88, T90). It also matters because a producer may capture a source's
+`sources[].last_modified` from that source's own `revised.at`. If the server stamped its own later
 time on an update, every document citing the source would report stale permanently. Without `at`,
 the server stamps its clock, so AC-72's "Y's write time" holds.
 
-**Why:** Seconds precision, truncated. The producer writes `date -u +%Y-%m-%dT%H:%M:%SZ`, so a
-producer-supplied value is stored byte-identical to the document's own frontmatter. Truncation
-never moves a time forward. Two updates of a source within one second are indistinguishable to
-freshness. This is accepted.
+**Why:** Seconds precision, truncated. A producer that stamps times with
+`date -u +%Y-%m-%dT%H:%M:%SZ` has its value stored byte-identical to the document's own frontmatter.
+Truncation never moves a time forward. Two updates of a source within one second are
+indistinguishable to freshness. This is accepted.
 
 Source: FR-01, FR-75; D9, D35
 

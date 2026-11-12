@@ -8,6 +8,9 @@ okf_version: "0.2"
 generated:
   by: "axians-architect/unknown"
   at: 2026-06-08T09:46:16Z
+revised:
+  by: "axians-architect/claude-opus-5-5"
+  at: 2026-11-12T14:38:17Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
@@ -57,7 +60,7 @@ graph TD
     subgraph Entry["Entry point — __main__.py"]
         CFG["① Parse Settings\npydantic-settings"]
         CLI["② Construct clients\nS3 · S3 Vectors · Bedrock"]
-        SV["③ Startup validation\n7 sequential checks"]
+        SV["③ Startup validation\n8 sequential checks"]
         REG["④ Register MCP tools"]
         RUN["⑤ server.run — stdio loop"]
         CFG --> CLI --> SV --> REG --> RUN
@@ -186,11 +189,11 @@ Key architectural choices are recorded as ADRs in this directory:
 | ADR | Decision |
 |---|---|
 | [ADR-001](adr-2026-05-29-fastmcp-framework.md) | FastMCP as the MCP server framework |
-| [ADR-002](adr-2026-05-29-aws-backend-selection.md) | AWS S3 + S3 Vectors + Bedrock as the backend |
+| [ADR-002](adr-2026-05-29-aws-backend-selection.md) | AWS S3 + S3 Vectors + Bedrock as the backend *(amended 2026-11-12 — an `ENHANCED` index and numbered vector keys read by key, accepted)* |
 | [ADR-003](adr-2026-05-29-hexagonal-architecture.md) | Layered architecture with Protocol-based client interfaces |
 | [ADR-004](adr-2026-05-29-stdio-transport.md) | stdio as the primary MCP transport |
-| [ADR-005](adr-2026-05-29-deterministic-artifact-ids.md) | Deterministic slug-based artifact identifiers *(amendment by ADR-017, accepted)* |
-| [ADR-006](adr-2026-05-29-section-level-embedding.md) | Section-level embedding at H2 boundaries |
+| [ADR-005](adr-2026-05-29-deterministic-artifact-ids.md) | Deterministic slug-based artifact identifiers *(amendment by ADR-017, accepted)* *(amendment by ADR-002, accepted)* |
+| [ADR-006](adr-2026-05-29-section-level-embedding.md) | Section-level embedding at H2 boundaries *(amendment by ADR-002, accepted)* |
 | [ADR-007](adr-2026-05-29-tier-based-access-control.md) | Tier-based cross-scope access control model *(amendment by ADR-017, accepted)* |
 | [ADR-008](adr-2026-06-02-async-concurrent-embedding.md) | Async semaphore-bounded concurrent embedding |
 | [ADR-009](adr-2026-06-16-artifact-commit-traceability.md) | Artifact commit traceability — ULID timestamps, vector-only commit links, agent-driven protocol *(vector-only commit-link storage superseded by ADR-011; ULID + AGENTS.md protocol still in force)* |
@@ -201,4 +204,4 @@ Key architectural choices are recorded as ADRs in this directory:
 | [ADR-014](adr-2026-08-12-status-all-sentinel-convention.md) | `status="all"` as a cross-tool convention — a pre-validation sentinel meaning "omit the status clause entirely" (never a literal match against a non-existent stored status), binding on every query-shaped tool exposing a `status` parameter; extended from `list_artifacts` to `search_artifacts` as a strict widening, with unrecognised values still failing validation and the active-only default unchanged *(amendment by ADR-017, accepted)* |
 | [ADR-015](adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal.md) | Vector metadata budget hardening — the budget guard runs at every vector-write chokepoint; `references` leaves vector metadata and `commit_refs`'s vector copy is capped at the most recent 20 (real-AWS calibrated); `migrate_artifacts` detects and retries unindexed partial writes; failure-log replay gives up loudly after a bounded number of attempts *(amendment by ADR-017, accepted)* |
 | [ADR-016](adr-2026-09-14-malformed-persisted-data-policy.md) | How malformed and ambiguous persisted data is treated, as one cross-cutting policy keyed on the shape of the call — the cross-scope gate is total and denies on an unparseable `tier`/`visibility`; an iterating tool skips a malformed candidate and reports `skipped_malformed_count` (present only when non-zero); `read_artifact` fails loudly with a typed `corrupt_metadata` naming the field rather than defaulting it; an ambiguous not-found from the durable link store raises rather than reporting "no links" *(amendment by ADR-017, accepted)* |
-| [ADR-017](adr-2026-09-25-okf-v02-adoption.md) | **Accepted (2026-10-13).** Full OKF v0.2 adoption as one breaking release — archive marker renamed `archived: bool` and OKF lifecycle `status` ingested, with an in-force default view keyed on each artifact's own lifecycle, never on `supersedes`; first-class `generated`/`revised` provenance, `verified` and revision history in their own annotations; `sources` + `relationships` in one structured annotation, gated across scopes with a counted `{withheld: n}` marker; supplied ids used verbatim as keys; open type list; store migration by a dedicated skill |
+| [ADR-017](adr-2026-09-25-okf-v02-adoption.md) | **Accepted (2026-10-13).** Full OKF v0.2 adoption as one breaking release — archive marker renamed `archived: bool` and OKF lifecycle `status` ingested, with an in-force default view keyed on each artifact's own lifecycle, never on `supersedes`; first-class `generated`/`revised` provenance, `verified` and revision history in their own annotations; `sources` + `relationships` in one structured annotation, gated across scopes with a counted `{withheld: n}` marker; supplied ids used verbatim as keys; open type list; store migration by a dedicated skill, each migrated write prefix fenced against earlier releases *(revised 2026-11-12, accepted)* |

@@ -98,6 +98,14 @@ sources:
   - id: okf-spec
     resource: https://github.com/GoogleCloudPlatform/open-knowledge-format/blob/main/SPEC.md
     title: Open Knowledge Format — Specification
+  - id: t15
+    resource: docs/specs/p3-t15-partial-write-failure-log.md
+    title: T15 — Partial Write Failure Log
+    last_modified: 2026-11-10T16:24:49Z
+  - id: review-2026-11-10
+    resource: .docs/reviews/architecture-review-2026-11-10-arkeology.md
+    title: Architecture review — Arkeology (whole design record)
+    last_modified: 2026-11-10T11:21:17Z
 relationships:
   - to: adr-2026-09-25-okf-v02-adoption
     type: implements
@@ -122,7 +130,7 @@ generated:
   at: 2026-10-13T17:23:06Z
 revised:
   by: "axians-architect/claude-opus-5-5"
-  at: 2026-11-09T22:03:18Z
+  at: 2026-11-10T16:24:49Z
 ---
 
 # T84 — `sources` + `relationships` in One Structured Annotation; `link_metadata` → `add_artifact_links`
@@ -473,7 +481,8 @@ Source: FR-53, C-06; D46; `### 10`, D50 case 1
 
 THE SYSTEM SHALL keep today's object-ETag compare-and-swap cycle, which reads and writes both
 annotations under one ETag. It SHALL rewrite vector metadata only when `commit_refs` was supplied.
-A failure-log entry from a failed vector write carries `commit_refs` only.
+A failure-log entry from a failed vector write carries `commit_refs` only, and every response
+carrying `vector_write_failed` carries `failure_logged` (T15 R11).
 
 **Why:** ADR-017 `### 8` says it builds on T80's shared append helper. That helper, as T80
 specifies it, appends one `{by, at}` entry to one log annotation. A links merge is a keyed set
@@ -494,7 +503,7 @@ this. *Recommended:* fold it into the PM pass that T80's blocking Open Question 
 for, and amend C-06 through `writing-requirements` to say "the same link annotation (sources and
 relationships share one)". This spec does not change either way.
 
-Source: FR-53, C-06; D46; `### 10`, D50 case 1; ADR-017 `### 8`; T80; D29
+Source: FR-53, C-06; D46; `### 10`, D50 case 1; ADR-017 `### 8`; T80; D29; T15 R11
 
 ## 8. Rules — Re-PUT carry-forward and repair
 

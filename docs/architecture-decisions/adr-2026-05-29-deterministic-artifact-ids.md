@@ -10,11 +10,13 @@ generated:
   by: "axians-architect/unknown"
   at: 2026-05-29T00:00:00Z
 revised:
-  by: "axians-architect/claude-opus-5.5"
-  at: 2026-09-29T00:00:00Z
+  by: "axians-architect/claude-opus-5-5"
+  at: 2026-11-12T17:36:17Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
+  - by: "human:mlnrt"
+    at: 2026-11-12T21:03:29Z
 ---
 
 # Deterministic Slug-Based Artifact Identifiers
@@ -168,3 +170,23 @@ case where the writer already has an identifier:
 Determinism, idempotency of the formula and the three collision classes all stand. The 2026-07-02
 revision's explicit `overwrite=true` opt-in is replaced by the separate `update_artifact` tool,
 which is the same explicit choice stated as a tool rather than a flag.
+
+## Revision — 2026-11-12 (accepted 2026-11-12)
+
+> **Accepted.** Adopted by the numbered-key amendment of ADR-002 (accepted 2026-11-12). The section
+> vector key in this ADR's Decision and Consequences is superseded by the revision below.
+
+[The AWS backend selection ADR](adr-2026-05-29-aws-backend-selection.md) amends this ADR's section
+vector key:
+
+- **Section vector keys are numbered, not slugged.** A vector key is `{s3_key}#{n}`: the full S3
+  key — which vector metadata stores as `artifact_id` — then `#` and `n`, from 0 to 99, the vector's
+  position among the artifact's embedded sections in document order. An artifact with nothing to
+  embed keeps one document vector, at `#0` rather than at the bare key. No key is derived from a
+  heading.
+- **An update's clean-up is by key, not by query.** An update puts the new version's vectors at `#0`
+  to `#{k-1}`, then reads the slots above them, `#k` to `#99`, by key and deletes what that read
+  returns. The Consequences' clean-up "by querying the index for all vectors with `artifact_id`
+  matching the new ID" becomes that read.
+
+The artifact key itself, its generation and the `#` separator are unchanged.

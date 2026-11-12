@@ -2,7 +2,7 @@
 type: Contract
 id: s3vectors.artifact
 title: s3vectors.artifact
-description: The per-artifact S3 Vectors metadata shape — the searchable, filterable projection of an artifact, its three byte budgets, and the deliberate ways it differs from the S3 object-metadata and annotation copies.
+description: The per-artifact S3 Vectors shape — the numbered vector key {artifact_id}#{n} under a 100-vector ceiling, the searchable, filterable metadata projection of an artifact, its three byte budgets, and the deliberate ways it differs from the S3 object-metadata and annotation copies.
 tags: []
 okf_version: "0.2"
 sources:
@@ -12,9 +12,18 @@ sources:
   - resource: docs/specs/p12-t58-commit-refs-cap-references-removal.md
     title: T58 — commit_refs Vector-Metadata Cap (20) + references Vector-Metadata Removal + propose_commit_links Multi-Section Fix
     last_modified: 2026-08-17T00:00:00Z
+  - resource: docs/specs/p15-t92-numbered-vector-keys.md
+    title: T92 — Numbered Vector Keys and Per-Artifact Vector Access by Key
+    last_modified: 2026-11-12T14:38:17Z
+  - resource: docs/architecture-decisions/adr-2026-05-29-aws-backend-selection.md
+    title: AWS S3 + S3 Vectors + Bedrock as the Storage and Embedding Backend
+    last_modified: 2026-11-12T14:38:17Z
 generated:
   by: "axians-tech-writer/claude-opus-5"
   at: 2026-09-04T00:00:00Z
+revised:
+  by: "axians-architect/claude-opus-5-5"
+  at: 2026-11-12T14:54:57Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
@@ -64,7 +73,16 @@ None. Total over its input type.
 
 ## Storage Shape
 
-Written as `VectorMetadata = dict[str, str | int | float | list[str]]`.
+Each vector of an artifact is keyed `{artifact_id}#{n}`, `n` in decimal without padding. An artifact
+holds at most 100 vectors, `#0` to `#99` — the maximum of `EMBED_MAX_SECTIONS` and the `GetVectors`
+per-call limit — and every indexed artifact holds `#0`. A write numbers the vectors from 0 in the
+document order of the artifact's embedded sections, and an artifact with nothing to embed has its
+one document vector at `#0`. The order carries no meaning: nothing reads a section from its key, so
+an artifact the store migration re-keyed keeps the migration's numbering until its next update or
+re-index. No key is derived from a section heading, and no vector is written at the bare
+`artifact_id`. Every vector of one artifact carries the same metadata dict below.
+
+The metadata is written as `VectorMetadata = dict[str, str | int | float | list[str]]`.
 
 Always present:
 
@@ -113,6 +131,18 @@ before any failure-log append:
 
 ## Compatibility Guarantees
 
+- The key shape `{artifact_id}#{n}`, `n` from 0 to 99, may not change without a store migration. A
+  consumer may rely on reading all of one artifact's vectors with one `GetVectors` over `#0` to
+  `#99`, and one artifact's metadata from `#0`. It must never derive the key range from the live
+  `EMBED_MAX_SECTIONS`: an artifact written under a higher setting keeps vectors above a lowered one.
+- No path writes a vector at an earlier key shape — `{artifact_id}#{heading slug}` or the bare
+  `{artifact_id}` — and no per-artifact path reads by one, with two exceptions: the store migration
+  reads them to re-key them, and reconcile's orphan-cleanup replay reads the keys an entry recorded,
+  which an entry from an old failure log may give in an earlier shape (the replay finds them gone and
+  deletes nothing). An enumeration of a scope may still meet
+  a vector at an earlier key, from a scope its team has not yet migrated; the store migration moves
+  the own scope's to numbered keys, and a repair that meets one at an earlier key leaves it to that
+  migration rather than rewriting it in place.
 - `artifact_id` may never be removed, renamed, or retyped. It is the join key between this store,
   S3, and the annotation store.
 - `tier` stays an `int` here. A consumer may rely on numeric comparison; it must not expect the

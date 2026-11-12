@@ -13,12 +13,27 @@ sources:
   - resource: docs/specs/p7-t25-moto-migration.md
     title: Migrate Unit Tests from Hand-Rolled Fakes to Moto
     last_modified: 2026-06-01T00:00:00Z
+  - resource: docs/architecture-decisions/adr-2026-05-29-aws-backend-selection.md
+    title: AWS S3 + S3 Vectors + Bedrock as the Storage and Embedding Backend
+    last_modified: 2026-11-12T13:11:40Z
+  - resource: docs/specs/p15-t92-numbered-vector-keys.md
+    title: T92 — Numbered Vector Keys and Per-Artifact Vector Access by Key
+    last_modified: 2026-11-12T13:11:40Z
+  - resource: https://docs.aws.amazon.com/AmazonS3/latest/API/API_S3VectorBuckets_ListVectors.html
+    title: Amazon S3 API Reference — ListVectors
+  - resource: https://docs.aws.amazon.com/AmazonS3/latest/API/API_S3VectorBuckets_GetIndex.html
+    title: Amazon S3 API Reference — GetIndex
+  - resource: .docs/reviews/architecture-review-2026-11-10-arkeology.md
+    title: "Architecture review — Arkeology (whole design record)"
+    last_modified: 2026-11-10T11:21:17Z
+  - resource: .docs/review-fixes/calibration-2026-11-12.md
+    title: "Calibration: is a filtered, paged QueryVectors (ENHANCED) an exhaustive per-artifact lookup?"
 generated:
   by: "axians-architect/unknown"
   at: 2026-05-29T00:00:00Z
 revised:
   by: "axians-architect/claude-opus-5-5"
-  at: 2026-11-10T06:51:53Z
+  at: 2026-11-12T13:11:40Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
@@ -172,6 +187,13 @@ When `AWS_PROFILE` is set in the environment, the boto3 session is created with
 | `tests/integration/clients/test_vectors_client.py` | Create | Real AWS calls (requires credentials + provisioned S3 Vectors index) |
 | `tests/integration/clients/test_bedrock_client.py` | Create | Real AWS calls (requires credentials + model access) |
 
+**Index mode (`p1-t5-startup-validation-sequence.md` R12):**
+
+| File | Action | Notes |
+|------|--------|-------|
+| `tests/unit/conftest.py` | Modify | The moto `get_index` response carries `indexMode` |
+| `pyproject.toml` / `uv.lock` | Modify | `boto3`/`botocore` at a release whose `s3vectors` model declares `indexMode` on `GetIndex` — the locked 1.43.67 does not, 1.44.1 does (`.docs/review-fixes/calibration-2026-11-12.md`), and an older model drops the response field silently |
+
 #### `errors.py` — Error Types
 
 Define the following error types. Keep them simple — they are data carriers, not logic.
@@ -220,8 +242,8 @@ the current full interface is `src/arkeology/clients/interfaces.py`.
 | `get_vectors` | `keys: list[str]` | `list[dict[str, Any]]` | Retrieve vectors (with metadata) by key list |
 | `query_vectors` | `vector: list[float], top_k: int, filter_expr: dict[str, Any] \| None` | `list[dict[str, Any]]` | Semantic search; each result has `key`, `score`, and `metadata` |
 | `delete_vectors` | `keys: list[str]` | `None` | Delete vectors by key list |
-| `describe_index` | None | `dict[str, Any]` | Return index metadata including `dimension` field |
-| `list_vectors_by_metadata` | `filter_expr: dict[str, Any]` | `list[str]` | Return all keys matching a metadata filter (used by list_artifacts and reconcile) |
+| `describe_index` | None | `dict[str, Any]` | Return index metadata including the `dimension` and `indexMode` fields |
+| `list_vectors_by_metadata` | `filter_expr: dict[str, Any]` | `list[str]` | Return all keys matching a metadata filter, by a whole-index scan — for whole-scope enumerations only; a path working on named artifacts reads their vectors by key (`p15-t92-numbered-vector-keys.md`) |
 
 The parameter is `filter_expr`, never the bare name `filter` — `filter` is a Python builtin and
 shadowing it was corrected in the same pass that migrated `ABC` to `Protocol`.
@@ -282,10 +304,10 @@ S3 Vectors API reference points:
 - `get_vectors` → `client.get_vectors(vectorBucketName=..., indexName=..., keys=[...])`
 - `query_vectors` → `client.query_vectors(vectorBucketName=..., indexName=..., queryVector={float32: vector}, topK=top_k, filter=filter, returnMetadata=True)`
 - `delete_vectors` → `client.delete_vectors(vectorBucketName=..., indexName=..., keys=[...])`
-- `describe_index` → `client.describe_vector_index(vectorBucketName=..., indexName=...)` — returns dict
-  including `dimension`
-- `list_vectors_by_metadata` → use `query_vectors` with a large `topK` and the given filter, or use a
-  dedicated list API if S3 Vectors provides one; document which approach is used
+- `describe_index` → `client.get_index(vectorBucketName=..., indexName=...)` — returns the `index`
+  dict, including `dimension` and `indexMode`
+- `list_vectors_by_metadata` → `client.list_vectors(..., maxResults=1000, returnMetadata=True,
+  nextToken=...)` paged to the end and filtered in memory with `clients/filter.py`'s evaluator
 
 The vectors bucket name and index name are provided to the constructor.
 

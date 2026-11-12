@@ -15,12 +15,24 @@ sources:
   - resource: docs/specs/p12-t60-narrow-reverse-lookup-warning.md
     title: T60 — Narrow the Delete/Archive Reverse-Lookup Warning to source_artifacts Only
     last_modified: 2026-08-17T00:00:00Z
+  - resource: docs/architecture-decisions/adr-2026-05-29-aws-backend-selection.md
+    title: AWS S3 + S3 Vectors + Bedrock as the Storage and Embedding Backend
+    last_modified: 2026-11-12T13:11:40Z
+  - resource: docs/specs/p15-t92-numbered-vector-keys.md
+    title: T92 — Numbered Vector Keys and Per-Artifact Vector Access by Key
+    last_modified: 2026-11-12T13:11:40Z
+  - resource: docs/specs/p1-t3-aws-client-layer.md
+    title: T3 — AWS Client Layer
+    last_modified: 2026-11-10T16:40:30Z
+  - resource: .docs/reviews/architecture-review-2026-11-10-arkeology.md
+    title: "Architecture review — Arkeology (whole design record)"
+    last_modified: 2026-11-10T11:21:17Z
 generated:
   by: "axians-tech-writer/claude-opus-5"
   at: 2026-09-04T00:00:00Z
 revised:
-  by: "axians-architect/claude-opus-5"
-  at: 2026-09-06T00:00:00Z
+  by: "axians-architect/claude-opus-5-5"
+  at: 2026-11-12T13:11:40Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
@@ -72,6 +84,13 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
   order is an S3 orphan — content still present, searchability lost, fully repairable by
   `reconcile_index`. The reverse order's worst case is orphaned vectors pointing at absent content,
   which is not repairable from the remaining state.
+- **The vectors to delete are read by key, and only what was read is deleted.** They are found by
+  one `GetVectors` over `{artifact_id}#0` to `{artifact_id}#99`, which returns exactly the keys
+  present (`s3vectors.artifact`), and exactly those keys are deleted, in one call; when it returns
+  none, no delete call is made. No `ListVectors` scan and no filtered query is made, so the cost
+  does not grow with the index every team shares. A failed read fails the call before anything is
+  deleted. The referrer check's enumeration of own-scope syntheses is a whole-scope enumeration, not
+  a lookup of this artifact, and this invariant does not cover it.
 - The own-scope `referenced_by` check is **warn-but-don't-block**, with permanent-action phrasing
   stronger than `archive_artifact`'s. It never prevents the deletion.
 - The check covers `source_artifacts` **only**; `references`-based referrers are not detected. An

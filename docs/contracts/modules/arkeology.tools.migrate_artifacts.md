@@ -21,12 +21,24 @@ sources:
   - resource: docs/specs/p10-t39-caller-controlled-artifact-concurrency.md
     title: T39 — Caller-Controlled artifact_concurrency on write_artifacts and migrate_artifacts
     last_modified: 2026-07-05T00:00:00Z
+  - resource: docs/architecture-decisions/adr-2026-05-29-aws-backend-selection.md
+    title: AWS S3 + S3 Vectors + Bedrock as the Storage and Embedding Backend
+    last_modified: 2026-11-12T13:11:40Z
+  - resource: docs/specs/p15-t92-numbered-vector-keys.md
+    title: T92 — Numbered Vector Keys and Per-Artifact Vector Access by Key
+    last_modified: 2026-11-12T13:11:40Z
+  - resource: docs/specs/p1-t3-aws-client-layer.md
+    title: T3 — AWS Client Layer
+    last_modified: 2026-11-10T16:40:30Z
+  - resource: .docs/reviews/architecture-review-2026-11-10-arkeology.md
+    title: "Architecture review — Arkeology (whole design record)"
+    last_modified: 2026-11-10T11:21:17Z
 generated:
   by: "axians-tech-writer/claude-opus-5"
   at: 2026-09-04T00:00:00Z
 revised:
-  by: "axians-developer/claude-sonnet-5"
-  at: 2026-09-15T00:00:00Z
+  by: "axians-architect/claude-opus-5-5"
+  at: 2026-11-12T13:11:40Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
@@ -97,6 +109,10 @@ failures are reported inside their own entries.
   `reconcile_index` as the repair — this tool never writes to, re-indexes, or otherwise repairs
   such an artifact, and running it does not trigger the repair path. The existence check is per
   candidate, not a bulk pre-scan.
+- **A candidate's check reads its `#0` by key.** Whether an existing candidate is indexed is
+  answered by reading `{key}#0` with `GetVectors` — every indexed artifact holds it
+  (`s3vectors.artifact`) — so a migration of N files makes reads by key, never N scans of the index
+  every team shares. A scan or a filtered query per candidate is the regression this forbids.
 
 **Preconditions**
 
@@ -124,7 +140,7 @@ failures are reported inside their own entries.
   `{"written": False, "skipped": True, "reason": "description_generation_failed", "message": ...}`,
   distinct from the `skipped_existing` reason.
 - `check_failed` is present only when at least one candidate's existence/indexing check
-  (`head_object` or `list_vectors_by_metadata`) raised a non-credential, non-`KeyError`
+  (`head_object` or the `#0` read) raised a non-credential, non-`KeyError`
   exception; one entry per such candidate carrying `index`, `artifact_id`, `title`, and
   `message`. Its `results` entry is `{"written": False, "skipped": True, "artifact_id": ...,
   "reason": "existence_check_failed", "message": ...}`. This does not abort the batch — every

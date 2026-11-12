@@ -12,9 +12,24 @@ sources:
   - resource: docs/specs/p3-t12-delete-artifact.md
     title: T12 — Delete Artifact Tool
     last_modified: 2026-05-30T00:00:00Z
+  - resource: docs/architecture-decisions/adr-2026-05-29-aws-backend-selection.md
+    title: AWS S3 + S3 Vectors + Bedrock as the Storage and Embedding Backend
+    last_modified: 2026-11-12T13:11:40Z
+  - resource: docs/specs/p15-t92-numbered-vector-keys.md
+    title: T92 — Numbered Vector Keys and Per-Artifact Vector Access by Key
+    last_modified: 2026-11-12T13:11:40Z
+  - resource: docs/specs/p1-t3-aws-client-layer.md
+    title: T3 — AWS Client Layer
+    last_modified: 2026-11-10T16:40:30Z
+  - resource: .docs/reviews/architecture-review-2026-11-10-arkeology.md
+    title: "Architecture review — Arkeology (whole design record)"
+    last_modified: 2026-11-10T11:21:17Z
 generated:
   by: "axians-tech-writer/claude-opus-5"
   at: 2026-09-04T00:00:00Z
+revised:
+  by: "axians-architect/claude-opus-5-5"
+  at: 2026-11-12T13:11:40Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
@@ -67,6 +82,12 @@ failures are reported in the `failed` list instead.
   left intact — partial-source syntheses are never destroyed.
 - Per-artifact deletion follows `delete_artifact`'s vectors-first, S3-second ordering, so a
   worst-case per-artifact failure leaves a recoverable S3 orphan.
+- **Each artifact's vectors are read by key.** Each purged or cascade-deleted artifact's vectors are
+  found by one `GetVectors` over `{artifact_id}#0` to `{artifact_id}#99` (`s3vectors.artifact`), and
+  only the keys it returned are deleted, as in `delete_artifact`. The call's whole-index scans are
+  its two scope-wide discovery steps — the inactive artifacts and the active syntheses for the
+  cascade — so their number does not grow with how many artifacts it purges. A scan or a filtered
+  query per purged artifact is the regression this forbids.
 - A single artifact's failure does not abort the run. The loop continues and reports.
 - `purged_count` and `purged_ids` reflect artifacts **actually fully deleted** — S3 object removed.
   An artifact that failed part-way is in `failed`, never counted as purged.

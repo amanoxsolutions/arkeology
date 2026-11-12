@@ -2,7 +2,7 @@
 type: ADR
 id: adr-2026-09-25-okf-v02-adoption
 title: OKF v0.2 Adoption
-description: "Proposes Arkeology's full adoption of Open Knowledge Format v0.2 as one breaking release: the archive marker becomes archived (bool) and OKF document status is ingested beside it, with an in-force default view keyed on each artifact's own lifecycle and never on a supersedes edge; first-class generated/revised provenance, with verifications and revision history in their own annotations; sources and relationships held in one structured annotation and gated across scopes with a counted withheld marker; producer-supplied ids used verbatim as artifact ids; writing split into create_artifact and update_artifact, with the overwrite flag removed; an open type list; and store migration by a dedicated skill rather than reconcile_index."
+description: "Proposes Arkeology's full adoption of Open Knowledge Format v0.2 as one breaking release: the archive marker becomes archived (bool) and OKF document status is ingested beside it, with an in-force default view keyed on each artifact's own lifecycle and never on a supersedes edge; first-class generated/revised provenance, with verifications and revision history in their own annotations; sources and relationships held in one structured annotation and gated across scopes with a counted withheld marker; producer-supplied ids used verbatim as artifact ids; writing split into create_artifact and update_artifact, with the overwrite flag removed; an open type list; and store migration by a dedicated skill rather than reconcile_index, with each migrated write prefix fenced by a store-schema object tag and a bucket-policy statement so an install still on an earlier release can neither overwrite a migrated artifact nor start."
 tags: []
 status: stable
 okf_version: "0.2"
@@ -19,6 +19,22 @@ sources:
   - resource: https://github.com/GoogleCloudPlatform/open-knowledge-format/issues/22
   - resource: https://github.com/GoogleCloudPlatform/open-knowledge-format/issues/28
   - resource: https://github.com/GoogleCloudPlatform/open-knowledge-format/issues/32
+  - resource: https://docs.aws.amazon.com/AmazonS3/latest/userguide/tagging-and-policies.html
+    title: Amazon S3 — Tagging and access control policies
+  - resource: https://docs.aws.amazon.com/AmazonS3/latest/API/API_PutObject.html
+    title: Amazon S3 API Reference — PutObject
+  - resource: https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_elements_condition_operators.html
+    title: IAM JSON policy elements — Condition operators
+  - resource: https://docs.aws.amazon.com/AmazonS3/latest/userguide/Welcome.html
+    title: What is Amazon S3? — Bucket policy
+  - resource: https://aws.amazon.com/s3/faqs/
+    title: Amazon S3 FAQs — How much do object tags cost?
+  - resource: .docs/reviews/architecture-review-2026-11-10-arkeology.md
+    title: "Architecture review — Arkeology (whole design record)"
+    last_modified: 2026-11-10T11:21:17Z
+  - resource: .docs/reviews/architecture-review-2026-11-10-arkeology-recheck.md
+    title: "Architecture review — Arkeology (whole design record), re-check of C-1 to C-3"
+    last_modified: 2026-11-10T16:49:29Z
 relationships:
   - to: adr-2026-05-29-deterministic-artifact-ids
     type: amends
@@ -40,13 +56,15 @@ generated:
   by: "axians-architect/claude-opus-5.5"
   at: 2026-09-25T00:00:00Z
 revised:
-  by: "axians-architect/claude-opus-5.5"
-  at: 2026-09-29T00:00:00Z
+  by: "axians-architect/claude-opus-5-5"
+  at: 2026-11-12T20:56:52Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
   - by: "human:mlnrt"
     at: 2026-10-13T11:55:44Z
+  - by: "human:mlnrt"
+    at: 2026-11-12T20:56:52Z
 ---
 
 # OKF v0.2 Adoption
@@ -75,12 +93,19 @@ data policy ADRs, and builds on the vector-metadata budget ADR — each of those
 accepted revision note pointing here. Implementation is Phase 15
 of `plan.md`.
 
+Revised after the architecture review of 2026-11-10: each migrated write prefix is fenced against
+writes from an earlier release by a store-schema object tag and a bucket-policy statement, and a
+deployment set up on this release is fenced too (decision 9). The operator accepted the revised ADR
+on 2026-11-12.
+
 ## Context
 
-### What the producer will send
+### What a producer will send
 
-The producer `amanox-ai-agents` plugin writes the documents Arkeology imports. Its brief of 2026-09-22 (see
-the brainstorm's `## The Producer Contract (inbound)`) commits it to emitting:
+Arkeology imports documents written by any OKF producer — a spec-driven development framework that
+keeps its specs, ADRs and reviews as OKF documents is one example, not the only one. The producer
+contract in the brainstorm (`## The Producer Contract (inbound)`, from a producer brief of
+2026-09-22) sets what Arkeology expects a producer to emit:
 
 - **`id:`** — seeded from the filename stem at creation and frozen thereafter, constrained to
   D33's validated charset (`[A-Za-z0-9._-]`, alphanumeric first and last character, no `..`, at
@@ -120,7 +145,7 @@ the brainstorm's `## The Producer Contract (inbound)`) commits it to emitting:
 
 ### The distinction that organises the design
 
-Working through the brief surfaced a distinction the rest of the design hangs on: **derivation
+Working through the producer contract surfaced a distinction the rest of the design hangs on: **derivation
 edges and association edges are different kinds** (D17). OKF §5.1 defines `sources` as the
 materials a concept derives from; #16's `relationships` are assertions about other concepts. Only
 derivation creates decay — if a source changes, the derived document may now be *wrong* — whereas
@@ -171,13 +196,13 @@ durable copy `reconcile_index` rebuilds from, filterable vector metadata as the 
 lifecycle key is an annotation — annotations hold only link fields, verifications and revision
 history.
 
-**In force means `status != deprecated AND archived == false`, and it is the default view** of
-search, listing and synthesis preparation (D23; FR-04, FR-67). An artifact with no lifecycle
-status, or in `draft`, is in force; a caller may exclude drafts (D24) — agents want in-progress
-specs, so the default follows them and the option covers the stricter reading. A caller may also
-ask for full lineage. Nothing is ever *hidden*: every artifact stays readable by id and listable on
-request, as a deleted file stays readable in Git history. In force is a view, not a visibility
-policy.
+**In force means the document still counts as current knowledge, and it is the default view** of
+search, listing and synthesis preparation (D23; FR-04, FR-67). In stored terms, an artifact is in
+force when `status != deprecated AND archived == false`. One with no lifecycle status, or in
+`draft`, is in force; a caller may exclude drafts (D24) — agents want in-progress specs, so the
+default follows them and the option covers the stricter reading. A caller may also ask for full
+lineage. Nothing is ever *hidden*: every artifact stays readable by id and listable on request, as
+a deleted file stays readable in Git history. In force is a view, not a visibility policy.
 
 **The `supersedes` edge never decides what is in force** (D25). The in-force decision keys on the
 retired artifact's own `status`. The reason is trust. A `supersedes` edge is cheap,
@@ -197,8 +222,8 @@ strongest rung without a `log.md`:
 | 3 — attributed resolution | an entry in the bundle-root `log.md` | `status: deprecated` on A, written under A's own write authority | A excluded |
 
 Cross-scope falls out for free: another team's B may declare it supersedes our A, but it cannot
-write our A, so A stays in force in our results and the claim is visible as lineage. The producer
-already writes both ends of a supersession, so nothing is lost. `supersedes` remains a fact used
+write our A, so A stays in force in our results and the claim is visible as lineage. A producer
+following the contract writes both ends of a supersession, so nothing is lost. `supersedes` remains a fact used
 for navigation ("what replaced this?") and for consistency audits, never a switch.
 
 **A lifecycle change on an existing artifact reuses `archive_artifact`'s path** (What Changes —
@@ -360,7 +385,7 @@ stays `{write_prefix}/{id}{ext}`, so cross-project uniqueness still comes from t
 none gets the id it would have got before. The question that decided it was *does the id need to be the key, or merely resolvable?*
 It needs to be the key: `arkeology://artifact/{id}` and the producer's `relationships[].to` then
 share one namespace, and an agent moves between the Git corpus and Arkeology with the same names
-and no translation step. Retitle churn disappears for supplied ids (the producer measured ten
+and no translation step. Retitle churn disappears for supplied ids (one producer's history showed ten
 retitles against four renames) — and, since an update addresses the artifact by id (below), for
 generated ids too.
 
@@ -368,7 +393,7 @@ This **amends the deterministic-keys rule; it does not violate it**. A frozen fi
 deterministic, and once supplied it is an attribute like any other; the rule's real target —
 randomness and UUIDs — is untouched. The 8-hex hash suffix is **not** appended to a supplied id:
 the suffix disambiguates collision classes of Arkeology's own slug formula, and the producer's
-uniqueness guarantee replaces it. Uniqueness follows the brief's division — the producer
+uniqueness guarantee replaces it. Uniqueness follows the producer contract's division — the producer
 guarantees, Arkeology verifies: the migration skill checks the whole manifest for duplicate ids
 before writing anything (AC-81), and `create_artifact` rejects an existing key atomically.
 
@@ -537,8 +562,52 @@ title on that day still hits the stored key and is rejected (AC-04). An update n
 this: it addresses the artifact by id and re-derives nothing. It reports what it will change, waits for the operator's confirmation,
 never re-embeds, and changes nothing when re-run.
 
-Document migration of the repository's own files is the plugin's job; Arkeology's is to make the
-server and its skills v0.2-compatible and to verify the migrated result fits (D10).
+**A migrated write prefix is fenced, at the storage layer, against installs that were not
+upgraded** (NFR-16). Every agent starts its own server from the copy installed on its machine or
+pipeline runner, so at dozens of teams of dozens of engineers an install that misses the upgrade
+is to be expected. An earlier release cannot be changed after the fact, and when it overwrites or
+archives a migrated artifact it re-PUTs the object: S3 wipes all of the object's annotations, the
+earlier code restores only `commit_refs` and `references`, and `links`, the revision history and
+`verified` are gone with no second copy. A guard in this release's code never reaches that
+install, so the guard sits in the store, which every release has to write through:
+
+- **Every S3 object write this release makes carries the object tag `arkeology-store-schema` =
+  `2`** — create, update, archive, lifecycle change, `migrate_artifacts`, the store migration's own
+  re-PUT, and the startup and health probe writes. They all go through the S3 client's one put
+  path; the server makes no `CopyObject` call. The setting-up skill's connectivity probe, which
+  writes into the write prefix from outside the server, sends the tag as well. The value is the
+  store-shape generation, not the OKF version: a pre-Phase-15 object is generation 1 and carries no
+  tag, and a later breaking store change repeats this fence with the next value whether or not OKF
+  moves. No read path looks at the tag; it exists for the fence.
+- **Before the migration writes anything, the Admin adds a bucket-policy statement** that denies
+  `s3:PutObject` on the migrated write prefix, to every principal, unless the request carries that
+  tag: `StringNotEquals` on `s3:RequestObjectTag/arkeology-store-schema`, which IAM evaluates as
+  true when the request carries no such tag, so an untagged write is refused as well as one tagged
+  with another value. The migration command prints the statement for its configured bucket and
+  prefix; Arkeology never applies or reads a policy itself (it provisions no AWS resource). A
+  deployment set up on this release is fenced the same way from the start: the setting-up skill
+  gives the Admin the same statement for the new write prefix before its first write.
+- **The migration command proves the fence before it writes.** After the startup checks it runs
+  — whose write probe is tagged and must land — it writes one untagged probe to the prefix, which
+  must be refused. If the probe lands, the command deletes it and stops without changing anything.
+
+An earlier release's object write to a fenced prefix is refused with access denied before it
+changes anything. Its startup write probe also writes under the write prefix, so an install that
+was not upgraded cannot even start against a migrated prefix. v0.7.1 classifies S3's access denied
+as a credential error, so it exits reporting expired or invalid credentials; the migration skill
+tells operators that this message, from an install whose credentials work elsewhere, means
+"upgrade this install".
+
+The fence tests the tag the writer sends because S3 cannot condition an overwrite on the tags of
+the object already stored — `s3:ExistingObjectTag` is not supported for `PutObject` — while
+`s3:RequestObjectTag/<key>` is evaluated on it. What the writer sends is exactly what tells the
+two releases apart.
+
+Migrating a repository's own documents to v0.2 is the job of the producer that wrote them;
+Arkeology's is to make the server and its skills v0.2-compatible and to verify the migrated result
+fits (D10).
+
+Source: brainstorming-2026-09-17-okf-v02-adoption D10, D42; FR-74, NFR-16, AC-04, AC-80; the write fence, accepted with this ADR (Operator, 2026-11-12); a deployment set up on this release is fenced too (Operator, 2026-11-12); https://docs.aws.amazon.com/AmazonS3/latest/userguide/tagging-and-policies.html; https://docs.aws.amazon.com/AmazonS3/latest/API/API_PutObject.html; https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_elements_condition_operators.html
 
 ### 10. Malformed values in the new fields
 
@@ -657,12 +726,42 @@ graph LR
 | Migrate existing stores inside `reconcile_index` | No new skill | Makes a drift-repair tool a key-migration tool |
 | Keep deprecated aliases for removed names | Smoother upgrade | A second code path per name — the fallback the non-negotiable rules forbid |
 
+### Writes from an install that was not upgraded
+
+| Option | Pros | Cons |
+|--------|------|------|
+| **Chosen** — a store-schema tag on every object write, and a bucket-policy statement per bucket that denies untagged writes to each migrated prefix, proven by the migration before it writes | Refuses the earlier release without changing it or reaching its operator; the same refusal stops it starting; one place covers every principal | The Admin edits the bucket policy once per migrated prefix; one more permission; every other writer of a fenced prefix must tag too |
+| Rely on the human step alone — stop every server, whatever its version, before migrating (minimal option) | No new mechanism | At dozens of teams of dozens of engineers and their pipeline runners, one install that was missed wipes links, revision history and verifications with no second copy; nothing tells anyone it happened |
+| Ship a last pre-Phase-15 patch whose startup refuses a migrated prefix | The refusal names the upgrade | An extra release, and it reaches only installs that took the patch — the same human step, moved one release earlier; an install that missed this upgrade can as easily have missed that one |
+| Migrate into a new write prefix, leaving the old one to stragglers | No policy change | Artifact ids carry the prefix, so every id and every link changes; stragglers keep writing the old prefix, unseen by everyone else |
+| Deny untagged writes in each server role's identity policy instead of the bucket policy | No bucket-policy edit | One change per role, and the Admin must find every role a laptop or pipeline uses; a role that was missed is the gap the fence exists to close |
+
 ## Consequences
 
 - **Breaking, and the changelog must say so.** Every removed name is rejected with a validation
   error naming its replacement; a deployment holding artifacts must run the store migration before
   or with the upgrade. The migration is the first tool that rewrites every artifact in place, so
   its dry run and idempotency are the safety net.
+
+- **The Admin keeps a write-fence statement in the bucket policy, and every server needs one more
+  permission.** One statement per bucket fences every migrated prefix: each migration adds its
+  prefix to the statement's resource list, and the statement stays after the migration. A server
+  of this release needs `s3:PutObjectTagging` beside `s3:PutObject`, because S3 requires it to set
+  a tag on a `PutObject`; its startup write probe carries the tag, so a missing grant fails startup,
+  and the write-prefix check names both permissions. The statement denies every principal, the
+  Admin's own included: a console upload, a restore or any other tool writing a fenced prefix must
+  send the tag or be refused. Object tags are billed per tag stored, one per artifact object.
+
+- **The fence refuses object writes only.** An earlier-release server already running when the
+  statement was applied keeps its annotation, vector and delete writes until it is stopped, so
+  stopping every server for the migration window stays required. Its overwrite — the write that
+  wipes annotations — is refused. A legacy-shaped annotation or vector such a server leaves is
+  migrated again by the next run; until then, a vector without `archived` makes that team's
+  upgraded servers fail their store-shape startup check.
+
+- **Known limit: the bucket policy's 20 KB.** The fence adds one statement per bucket and one
+  resource ARN — well under 100 bytes — per migrated prefix, so it fits a few hundred prefixes in
+  an otherwise small policy, above the dozens of teams the vision targets.
 
 - **No re-index.** The `source_artifacts` and `author_role` non-filterable slots stay declared on
   the index and simply go unwritten (C-01); an unused declared key costs nothing. The new keys —

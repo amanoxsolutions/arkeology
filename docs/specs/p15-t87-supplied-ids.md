@@ -58,6 +58,10 @@ sources:
   - id: aws-s3vectors-key
     resource: https://docs.aws.amazon.com/AmazonS3/latest/API/API_S3VectorBuckets_PutInputVector.html
     title: PutInputVector (S3 Vectors) — vector key length 1–1024
+  - id: spec-t92
+    resource: docs/specs/p15-t92-numbered-vector-keys.md
+    title: T92 — Numbered Vector Keys and Per-Artifact Vector Access by Key
+    last_modified: 2026-11-12T14:38:17Z
 relationships:
   - to: adr-2026-09-25-okf-v02-adoption
     type: implements
@@ -74,27 +78,27 @@ generated:
   at: 2026-10-13T16:38:44Z
 revised:
   by: "axians-architect/claude-opus-5-5"
-  at: 2026-11-09T22:44:57Z
+  at: 2026-11-12T21:20:47Z
 ---
 
 # T87 — Producer-Supplied `id` Becomes the Artifact Id
 
 ## TL;DR
 
-`create_artifact` gains an optional `id`, and so does each `create_artifacts` and `migrate_artifacts`
-descriptor. When a caller supplies it, the string is the artifact id byte for byte, and the key is
-`{WRITE_PREFIX}/{id}{file_extension}`. The frozen filename stems and `relationships[].to` values
-written by the producer `amanox-ai-agents` plugin then name the same document in Git and in
-Arkeology, with no translation step (D28). An id outside D33's form is rejected and never repaired.
-A caller that supplies no `id` gets exactly the id it got before.
+`create_artifact` gains an optional `id`, and so does each `create_artifacts` and
+`migrate_artifacts` descriptor. When a caller supplies it, the string is the artifact id byte for
+byte, and the key is `{WRITE_PREFIX}/{id}{file_extension}`. The frozen `id:` a producer seeds from a
+filename stem, and the `relationships[].to` values that name it, then name the same document in Git
+and in Arkeology, with no translation step (D28). An id outside D33's form is rejected and never
+repaired. A caller that supplies no `id` gets exactly the id it got before.
 
 ## 1. Problem Statement
 
-Every id is generated today from type, date and title, then slugified and hash-suffixed. The producer
-`amanox-ai-agents` plugin now writes a frozen `id:` into every document and names other documents by
-it in `relationships[].to`. A generated id never equals that name, so every move between the Git
-corpus and Arkeology needs a lookup. Upstream, path-derived links were measured wrong 43 times
-(ADR-017 `## Alternatives Considered`, "Identity and types"). AGENTS.md and the deterministic
+Every id is generated today from type, date and title, then slugified and hash-suffixed. A producer
+can now write a frozen `id:` into every document and name other documents by it in
+`relationships[].to`. A generated id never equals that name, so every move between the Git corpus
+and Arkeology needs a lookup. In one producer's corpus, path-derived links were measured wrong 43
+times (ADR-017 `## Alternatives Considered`, "Identity and types"). AGENTS.md and the deterministic
 artifact ids ADR allow only the generated scheme. That ADR's accepted
 `## Revision — 2026-09-25 (accepted 2026-10-13)` amends this, and the code and AGENTS.md now have to
 follow (FR-73; D28).
@@ -288,8 +292,10 @@ Source: AGENTS.md Non-Negotiable Rules, D33
 split and the probe marker in `reconcile.py`. The full list is longer, and every entry is safe
 because D33 excludes `/`, `#`, `?` and `%`:
 - `reconcile.py`, orphan scan: `rsplit("/", 1)[-1]`. The final segment is exactly `{id}{ext}`.
-- `reconcile.py`: `vk.split("#")[0]` on vector keys `{key}#{slug}`. Vector keys are built in
-  `write.py` `write_artifact_inner` and `reconcile.py`.
+- `reconcile.py`: `vk.split("#")[0]` on vector keys `{key}#{n}`, the numbered key
+  `p15-t92-numbered-vector-keys` R1 defines. Vector keys are built in `write.py`
+  `write_artifact_inner` and `reconcile.py`, and the split returns the key whatever follows the
+  `#`.
 - `arkeology-studio.html`, `artifactTarget`: splits on `#` and `?`, then `decodeURIComponent`.
 - `arkeology-studio.html`, the detail view's scope label: `split("/")`.
 - `references.py` `_rewrite_body_line`: `partition("#")`. This acts on link paths, not on ids.

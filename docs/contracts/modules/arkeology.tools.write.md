@@ -30,12 +30,27 @@ sources:
   - resource: docs/architecture-decisions/adr-2026-07-03-annotation-backed-link-storage.md
     title: Annotation-Backed Durable Storage for Mutable Link Fields (commit_refs + references)
     last_modified: 2026-09-29T00:00:00Z
+  - resource: docs/specs/p3-t15-partial-write-failure-log.md
+    title: T15 — Partial Write Failure Log
+    last_modified: 2026-11-10T16:24:49Z
+  - resource: .docs/reviews/architecture-review-2026-11-10-arkeology.md
+    title: Architecture review — Arkeology (whole design record)
+    last_modified: 2026-11-10T11:21:17Z
+  - resource: docs/architecture-decisions/adr-2026-05-29-aws-backend-selection.md
+    title: AWS S3 + S3 Vectors + Bedrock as the Storage and Embedding Backend
+    last_modified: 2026-11-12T13:11:40Z
+  - resource: docs/specs/p15-t92-numbered-vector-keys.md
+    title: T92 — Numbered Vector Keys and Per-Artifact Vector Access by Key
+    last_modified: 2026-11-12T13:11:40Z
+  - resource: docs/specs/p1-t3-aws-client-layer.md
+    title: T3 — AWS Client Layer
+    last_modified: 2026-11-10T16:40:30Z
 generated:
   by: "axians-tech-writer/claude-opus-5"
   at: 2026-09-04T00:00:00Z
 revised:
-  by: "axians-developer/unknown"
-  at: 2026-09-06T00:00:00Z
+  by: "axians-architect/claude-opus-5-5"
+  at: 2026-11-12T21:20:24Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
@@ -96,7 +111,8 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
 - `partial_write` — the S3 object was written but indexing, an annotation write whose cause is not
   separately diagnosable, a compare-and-swap retry's re-merged budget check, or the
   compare-and-swap cycle itself once the final attempt's content had landed, failed. A
-  failure-log entry is appended so `reconcile_index` can complete the write later.
+  failure-log entry is appended so `reconcile_index` can complete the write later, and
+  `failure_logged` says whether that append succeeded; see Postconditions.
 - `annotation_unavailable` — the durable link store is unavailable or access to it is denied.
   **Two calls can raise it, and the code alone does not say which**: the read-forward of the
   current `commit_refs` at the start of an overwriting write, and the annotation write that
@@ -177,6 +193,18 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
   a section truncated at write time is not re-submitted full-length on replay.
 - Concurrent embed calls per artifact are bounded by the configured section concurrency.
 - Overwriting an existing artifact cleans up orphaned section vectors from the previous write.
+- **Vectors sit at numbered keys, and an overwrite finds the previous version's by key.** A write
+  keys its `k` section vectors `{artifact_id}#0` to `{artifact_id}#{k-1}`, in the document order of
+  the embedded sections, and an artifact with nothing to embed has its one document vector at
+  `#0`; no key is derived from a heading (`s3vectors.artifact`). An overwriting write puts its `k`
+  vectors first, replacing the previous version's at the same keys, then reads `#k` to `#99` with
+  one `GetVectors` and deletes exactly the keys that read returned. A create makes no such read. No
+  write makes a `ListVectors` scan or a filtered query to find vectors, so its cost does not grow
+  with the index every team shares. Reintroducing either, at this step or at any step that looks an
+  artifact up by id, is the regression this forbids: a scan pages every team's area on every
+  overwrite — about a minute at the organisation-wide target, against a write meant to finish in
+  under 2 seconds — and a filtered query silently returns only part of an artifact's vectors
+  above 10.
 - An **overwriting** write is serialised by a bounded ETag compare-and-swap cycle, bounded by
   `CAS_MAX_ATTEMPTS`. Two conditional writes share one cycle: the `put_object` is conditional on
   the ETag read during the existence check, and the `apply_link_annotations` that follows is
@@ -219,11 +247,18 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
   persisted is what this forbids. Absence of an `"error"` key is therefore a sufficient check that
   the link fields are durable.
 - On `partial_write` — and equally on an `annotation_unavailable` or `credential_error` returned
-  after the object write had landed — the S3 object is durable and a failure-log entry exists; the
-  artifact is content-complete but unsearchable until reconciled. Neither `credential_error` nor
-  `annotation_unavailable` says on its own which of its two cases occurred — one raised before the
-  object write, one after — so a caller needing to know re-reads the artifact rather than
-  inferring durability from the code.
+  after the object write had landed — the S3 object is durable, and a failure-log entry exists
+  exactly when the response carries `"failure_logged": true`; the artifact is content-complete but
+  unsearchable until reconciled. Neither `credential_error` nor `annotation_unavailable` says by its
+  code alone which of its two cases occurred — one raised before the object write, one after — but
+  the presence of `failure_logged` does: only the after case carries it.
+- Every response returned after the object write landed carries `failure_logged: bool` — `true`
+  when the failure-log entry was appended, `false` when the append itself failed — and no other
+  response carries it: not a success, including one whose leftover-vector cleanup recorded an
+  entry, and no error returned while nothing was durable. On `false` no entry exists, `message`
+  does not claim one was recorded, and `reconcile_index` cannot complete the write from the log;
+  the server's stderr ERROR record names the artifact and the failed step but holds none of the
+  entry.
 - A failure-log entry written **once the object write has landed**, whichever step then failed, also
   records the `commit_refs` and `references` that write was applying, as two **optional** entry
   fields. The preceding `put_object` has already cleared the object's annotations, so the entry is

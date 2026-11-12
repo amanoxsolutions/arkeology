@@ -209,7 +209,7 @@ Attach the following policy to the IAM user or role that runs Arkeology. Replace
         "s3vectors:GetVectors",
         "s3vectors:QueryVectors",
         "s3vectors:DeleteVectors",
-        "s3vectors:DescribeIndex",
+        "s3vectors:GetIndex",
         "s3vectors:ListVectors"
       ],
       "Resource": "arn:aws:s3vectors:YOUR-REGION:YOUR-ACCOUNT-ID:bucket/YOUR-VECTORS-BUCKET/index/YOUR-INDEX-NAME"

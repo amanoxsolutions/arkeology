@@ -27,12 +27,18 @@ sources:
   - resource: docs/architecture-decisions/adr-2026-09-14-malformed-persisted-data-policy.md
     title: How Arkeology Treats Malformed and Ambiguous Persisted Data
     last_modified: 2026-09-29T00:00:00Z
+  - resource: docs/specs/p3-t15-partial-write-failure-log.md
+    title: T15 — Partial Write Failure Log
+    last_modified: 2026-11-10T16:24:49Z
+  - resource: .docs/reviews/architecture-review-2026-11-10-arkeology.md
+    title: Architecture review — Arkeology (whole design record)
+    last_modified: 2026-11-10T11:21:17Z
 generated:
   by: "axians-tech-writer/claude-opus-5"
   at: 2026-09-04T00:00:00Z
 revised:
-  by: "axians-architect/claude-sonnet-5"
-  at: 2026-09-14T00:00:00Z
+  by: "axians-architect/claude-opus-5-5"
+  at: 2026-11-10T16:24:49Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
@@ -149,7 +155,8 @@ def apply_link_annotations(
 - On `ArtifactConflictError` the caller must retry the whole read-merge-write cycle, bounded by
   `CAS_MAX_ATTEMPTS` (3), before surfacing a structured error: `conflict` if the caller has written
   nothing durable, `partial_write` with a failure-log entry if its own preceding object PUT already
-  landed (see `arkeology.tools.write` and `arkeology.tools.archive`).
+  landed, its `failure_logged` saying whether that entry was written (see `arkeology.tools.write`
+  and `arkeology.tools.archive`).
 - Success establishes that no object-body write intervened since the ETag was captured. It does not
   establish that the supplied values were merged over the latest annotation state — an
   annotation-only write by another caller in the same window is neither detected nor logged.
@@ -281,9 +288,9 @@ as having no links on the strength of a not-found it did not classify.
   split arose. `reconcile_index` is not on the list because an annotation failure there fails one
   artifact into its `failed` list rather than the run.
 - The code names the **cause**; it does not describe what was written. Where the condition is met
-  after a durable store write has already landed, the durability facts — the S3 object is durable, a
-  failure-log entry exists — hold exactly as they do under `partial_write`, and are stated as such
-  in `arkeology.tools.write`. `partial_write` is not a synonym for this condition and is not
+  after a durable store write has already landed, the durability facts — the S3 object is durable,
+  and a failure-log entry exists exactly when the response carries `"failure_logged": true` — hold
+  exactly as they do under `partial_write`, and are stated as such in `arkeology.tools.write`. `partial_write` is not a synonym for this condition and is not
   reserved against it: it names the residual state where no cause is separately diagnosable, on the
   same footing as the `credential_error` branch that has always pre-empted it.
 - `reconcile_index` reads both fields from here to rebuild vector metadata losslessly, and from
