@@ -2,7 +2,7 @@
 type: Spec
 id: p12-t45-s3-annotation-client
 title: T45 — S3 Object Annotation Client Support + moto Self-Mock Extension
-description: Add put/get/list/delete object-annotation operations to the S3 Protocol interface and boto3 implementation, plus a moto conftest self-mock extension mirroring the query_vectors cosine patch. Prerequisite for all durable link storage in Phase 12.
+description: Add put/get/delete object-annotation operations to the S3 Protocol interface and boto3 implementation, plus a moto conftest self-mock extension mirroring the query_vectors cosine patch. Prerequisite for all durable link storage in Phase 12.
 tags: []
 status: stable
 okf_version: "0.2"
@@ -19,22 +19,30 @@ sources:
   - resource: docs/planning-artifacts/requirements.md
     title: Arkeology — Requirements
     last_modified: 2026-09-24T00:00:00Z
+  - resource: docs/specs/p12-t52-annotation-availability-graceful.md
+    title: T52 — Annotation Availability + IAM Probe, Runtime Graceful Handling, README + AGENTS.md
+  - resource: docs/contracts/data/s3-annotations.artifact.md
+    title: s3-annotations.artifact
+  - resource: .docs/reviews/architecture-review-2026-11-15-arkeology-phases-9-10-12.md
+    title: "Architecture review — Arkeology, plan phases 9, 10 and 12"
 generated:
   by: "axians-architect/claude-opus-4.8"
   at: 2026-07-03T00:00:00Z
 revised:
   by: "axians-architect/claude-opus-5-5"
-  at: 2026-11-09T18:22:34Z
+  at: 2026-11-15T20:35:38Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
+  - by: "axians-architect/claude-fable-5-2"
+    at: 2026-11-15T20:45:07Z
 ---
 
 # T45 — S3 Object Annotation Client Support + moto Self-Mock Extension
 
 ## TL;DR
 
-Add four S3 object-annotation operations — put / get / list / delete — to the `S3ClientInterface`
+Add three S3 object-annotation operations — put / get / delete — to the `S3ClientInterface`
 `typing.Protocol` and the concrete `S3ClientImpl` boto3 client, and add a moto conftest extension
 that self-mocks the annotation APIs (moto 5.2.2 has zero native annotation support). This is the
 hard prerequisite for every durable-link-storage task in Phase 12 (T46–T54): annotations are the
@@ -45,14 +53,15 @@ durable store for `commit_refs` and `references` (ADR-011, FR-54). No tool chang
 ADR-011 (FR-54) moves the durable copy of the mutable link fields (`commit_refs`, `references`)
 from vector-metadata-only to **S3 object annotations** — a named payload, mutable in place via
 `PutObjectAnnotation`, ETag-stable, that does not disturb the object body or its write-time
-timestamp. `botocore` already exposes the four annotation operations, but the project's client
+timestamp. `botocore` already exposes the annotation operations, but the project's client
 layer does not surface them and moto (the mandated S3 test backend) does not implement them. Until
 the client layer and a moto self-mock exist, nothing downstream can be written, read, or unit-tested.
-With them, the write path and `link_metadata` can put, read back, list, and delete a named
-annotation on an S3 object via the injected `s3` client.
+With them, the write path and `link_metadata` can put, read back and delete a named annotation on an
+S3 object via the injected `s3` client. Every flow addresses the two link-field annotations by their
+fixed names, so the client offers no operation that lists the annotations an object carries.
 
-Priority: the annotation round-trip through the client (R1–R4), the overwrite-wipe fidelity of the
-self-mock (R9) and structured credential and access errors (R6) are all P1.
+Priority: the annotation round-trip through the client (R1, R2, R4), the overwrite-wipe fidelity of the
+self-mock (R9) and structured credential and access errors (R6, R10) are all P1.
 
 ## 2. Rules — Annotation operations on the S3 client
 
@@ -70,23 +79,16 @@ When `put_object_annotation(key, annotation_name, payload)` is called, the clien
 ### R2 — Get an annotation
 
 When `get_object_annotation(key, annotation_name)` is called, the client returns the payload
-decoded as a UTF-8 string, and raises `KeyError(key)` when the object or the named annotation does
-not exist (mirrors the `get_object` missing-key contract).
+decoded as a UTF-8 string. When the call finds nothing, the client raises the outcome
+`s3-annotations.artifact` § Not-Found Semantics assigns to the S3 error code received, keeping an
+absent annotation, a missing object and an unclassified not-found distinct.
 
-**Example**
+**Examples**
 
-- Given a key with no annotation named `"references"`, when `get_object_annotation` is called for
-  it, then `KeyError` is raised.
-
-### R3 — List annotations
-
-When `list_object_annotations(key)` is called, the client returns the list of annotation names
-present on the object, paginating via `ContinuationToken` if the response is truncated.
-
-**Example**
-
-- Given two annotations written to `K` (`"commit_refs"` and `"references"`), when
-  `s3.list_object_annotations(K)` is called, then it returns both annotation names.
+- Given an existing object with no annotation named `"references"`, when `get_object_annotation`
+  is called for it, then `AnnotationNotFoundError` is raised.
+- Given no object at key `K`, when `get_object_annotation(K, "commit_refs")` is called, then
+  `ObjectNotFoundError` is raised, not `AnnotationNotFoundError`.
 
 ### R4 — Delete an annotation
 
@@ -96,19 +98,19 @@ annotation and does not raise if it is already absent (mirrors `delete_object`).
 **Example**
 
 - Given an annotation on `K`, when `s3.delete_object_annotation(K, "commit_refs")` is called, then
-  a subsequent `get_object_annotation(K, "commit_refs")` raises `KeyError` (annotation absent).
+  a subsequent `get_object_annotation(K, "commit_refs")` raises `AnnotationNotFoundError`
+  (annotation absent).
 
 ### R5 — Optional `if_match` on put and delete (optimistic concurrency)
 
-Forward-pointer requirement (2026-07-06, shipped in `7a697dd`): `put_object_annotation` and
-`delete_object_annotation` take an optional `if_match` parameter that is sent as the boto3
-`ObjectIfMatch` parameter. When `ObjectIfMatch` is supplied and does not match the object's current
-ETag, the client translates the resulting HTTP 412 `PreconditionFailed` into `ArtifactConflictError`
-(never a raw exception). The caller (the write path, `link_metadata`, `archive_artifact`) is
-responsible for the bounded retry/re-merge cycle that consumes this signal; this client's contract
-is only to expose the parameter and translate the precondition failure. This required extending the
-moto self-mock annotation extension to honour `ObjectIfMatch`. See
-`docs/specs/p2-t7-write-artifact.md`'s equivalent forward-pointer note for how callers consume this.
+`put_object_annotation` and `delete_object_annotation` take an optional `if_match` parameter that
+is sent as the boto3 `ObjectIfMatch` parameter. When `ObjectIfMatch` is supplied and does not match
+the object's current ETag, the client translates the resulting HTTP 412 `PreconditionFailed` into
+`ArtifactConflictError` (never a raw exception). The caller (the write path, `link_metadata`,
+`archive_artifact`) owns the bounded retry/re-merge cycle that consumes this signal; this client
+only exposes the parameter and translates the precondition failure. The moto self-mock annotation
+extension honours `ObjectIfMatch`. How callers consume the signal: `s3-annotations.artifact` §
+apply_link_annotations.
 
 Source: ADR-011 decision 6
 
@@ -122,10 +124,25 @@ When any annotation call encounters a credential error, the client raises `Crede
 - Given a credential failure during any annotation call, when the client method runs, then it
   raises `CredentialError` (via the existing `wrap_credential_errors`).
 
-### R7 — The Protocol carries the four signatures
+### R7 — The Protocol carries the three signatures
 
-When the four methods are added to `S3ClientImpl`, their signatures are also added to the
+When the three methods are added to `S3ClientImpl`, their signatures are also added to the
 `S3ClientInterface` `typing.Protocol` — structural conformance only, no `ABC`.
+
+### R10 — Annotation unavailability and access denial are a typed error
+
+When an annotation call fails because annotations are unavailable for the bucket or its region
+(for example a `NotImplemented` rejection on a directory bucket) or because the caller lacks the
+annotation permission (`AccessDenied`), the client raises `AnnotationUnavailableError` — distinct
+from `CredentialError`, never a raw botocore exception. Every tool maps it to the one
+`annotation_unavailable` code (`s3-annotations.artifact` § Compatibility Guarantees).
+
+**Example**
+
+- Given a role without `s3:GetObjectAnnotation`, when `get_object_annotation` is called, then it
+  raises `AnnotationUnavailableError`, not `CredentialError` and not a `ClientError`.
+
+Source: FR-57
 
 ## 3. Rules — moto self-mock extension
 
@@ -143,8 +160,8 @@ depend on the self-mock modelling this faithfully.
 **Example**
 
 - Given an object at `K` with a `"commit_refs"` annotation, when `s3.put_object(K, ...)` is called
-  again (overwrite), then `get_object_annotation(K, "commit_refs")` raises `KeyError` (the
-  annotation was cleared by the object overwrite).
+  again (overwrite), then `get_object_annotation(K, "commit_refs")` raises
+  `AnnotationNotFoundError` (the annotation was cleared by the object overwrite).
 
 ## 4. Boundaries
 
@@ -157,18 +174,21 @@ depend on the self-mock modelling this faithfully.
 - The moto self-mock follows the exact precedent of the `query_vectors` cosine patch in
   `tests/unit/conftest.py`: patch at module load, active for all unit tests, never re-implemented
   per-test.
-- Credential errors are wrapped at the client layer via `wrap_credential_errors` (Phase 1 concern).
+- Credential errors are wrapped at the client layer via `wrap_credential_errors` (Phase 1 concern),
+  and annotation unavailability or access denial is raised there as `AnnotationUnavailableError`
+  (R10).
 
 **Ask First:**
 - Nothing — the boto3 operation shapes are confirmed from the installed botocore service model
   (`PutObjectAnnotation`: required `Bucket, Key, AnnotationName, AnnotationPayload`;
-  `GetObjectAnnotation`/`DeleteObjectAnnotation`: required `Bucket, Key, AnnotationName`;
-  `ListObjectAnnotations`: required `Bucket, Key`, output `Annotations` + `NextContinuationToken`).
+  `GetObjectAnnotation`/`DeleteObjectAnnotation`: required `Bucket, Key, AnnotationName`).
 
 **Never:**
+- No operation that lists an object's annotations, and so no `s3:ListObjectAnnotations` permission
+  for the deployment to grant: every flow reads, writes and deletes the two link-field annotations
+  by their fixed names. Revisit if a flow needs to discover which annotations an object carries.
 - Do not store artifact content in annotations here — this task is the transport only.
 - Do not add tool-layer logic (encoding, field names, dual-write ordering) — that is T47/T49.
-- Do not gate server startup on annotation availability (that is T52 / D15).
 - Do not re-implement the `query_vectors` patch or touch it — add a parallel annotation extension.
 
 ## 5. For the developer agent
@@ -177,16 +197,19 @@ depend on the self-mock modelling this faithfully.
 
 | File | Action | Notes |
 |------|--------|-------|
-| `tests/unit/conftest.py` | Modify | Add the moto S3-annotation self-mock extension (Red-enabling infra); model overwrite-wipe |
-| `tests/unit/clients/test_s3_annotations.py` | Create | Client-method + extension round-trip tests — written first (Red) |
-| `src/arkeology/clients/interfaces.py` | Modify | Add the four annotation methods to `S3ClientInterface` Protocol |
-| `src/arkeology/clients/s3.py` | Modify | Implement the four methods on `S3ClientImpl` using `wrap_credential_errors` |
-| `tests/integration/clients/test_s3_annotations.py` | Create | Real-AWS round-trip against a real bucket (written first for integration Red) |
+| `tests/unit/conftest.py` | Modify | Add the moto S3-annotation self-mock extension (Red-enabling infra); model overwrite-wipe. Dispatches put, get and delete only — remove the list dispatch (the `ListObjectAnnotations` action branch) |
+| `tests/unit/clients/test_s3_annotations.py` | Create | Client-method + extension round-trip tests — written first (Red). Remove every `list_object_annotations` test, and the `s3:ListObjectAnnotations` assertion on the unavailability message |
+| `src/arkeology/clients/interfaces.py` | Modify | Add the three annotation methods to `S3ClientInterface` Protocol; remove `list_object_annotations` |
+| `src/arkeology/clients/s3.py` | Modify | Implement the three methods on `S3ClientImpl` using `wrap_credential_errors`; raise `AnnotationUnavailableError` on an unavailable or access-denied annotation call (R10). Remove `list_object_annotations` |
+| `src/arkeology/clients/credentials.py` | Modify | The annotation-unavailability message names the three annotation actions, without `s3:ListObjectAnnotations` |
+| `src/arkeology/errors.py` | Modify | `AnnotationUnavailableError`, a subclass of `ArkeologyError` (R10); `AnnotationNotFoundError` and `ObjectNotFoundError`, the two `KeyError` subclasses of the not-found outcomes (R2) |
+| `src/arkeology/clients/credentials.py` | Modify | The annotation-unavailability error-code detection helper `s3.py` uses (R10) |
+| `tests/integration/clients/test_s3_annotations.py` | Create | Real-AWS round-trip against a real bucket (written first for integration Red). Remove the `list_object_annotations` assertions and the `s3:ListObjectAnnotations` line of its required-permissions docstring |
 | `AGENTS.md` | Modify | Add the annotation methods to the repo-structure / testing-conventions notes (self-mocked via conftest extension, precedent: `query_vectors`) |
 
 ### Contracts
 
-None.
+- `docs/contracts/data/s3-annotations.artifact.md` § Not-Found Semantics, § apply_link_annotations and § Compatibility Guarantees — the three not-found outcomes a get reports, how the callers consume the `if_match` conflict, the overwrite wipe the self-mock models, and the one `annotation_unavailable` code (R2, R4, R5, R9, R10).
 
 ### Testing Approach
 
@@ -199,28 +222,32 @@ None.
    - Register moto response handlers for the `?annotation` subresource on the S3 URL routes
      (`PUT`/`GET`/`DELETE` on `/{bucket}/{key}?annotation`) — the analog of the
      `url_paths["{0}/QueryVectors$"]` registration. Patch `moto.s3.responses.S3Response` to dispatch
-     the annotation subresource (list when no `AnnotationName`, get/put/delete otherwise).
+     the annotation subresource to get, put or delete by `AnnotationName`.
    - Hook moto's `put_object` (patch `S3Backend.put_object` or clear on the response path) so that
      writing a new object version at a key **clears** that key's annotation-store entry — this
      models the real overwrite-wipe and is required by T47's tests.
    - The exact moto integration seam may need empirical iteration; the store + overwrite-wipe
-     semantics and the four-op behaviour are the fixed contract.
+     semantics and the three-operation behaviour are the fixed contract.
 
 2. **`test_s3_annotations.py` unit cases (Red → Green against `s3.py`):**
    Use the `aws_mock` + `s3_client` fixtures. Pre-create an object via `s3.put_object`.
    - put→get: `put_object_annotation(K, "commit_refs", "abc,def")` then `get_object_annotation`
      returns `"abc,def"`.
-   - list: two annotations written → `list_object_annotations(K)` returns both names.
-   - delete: after `delete_object_annotation(K, "commit_refs")`, `get_object_annotation` raises `KeyError`.
-   - missing: `get_object_annotation(K, "references")` with none set raises `KeyError`.
-   - overwrite-wipe: annotate `K`, `put_object(K, ...)` again, assert `get_object_annotation` raises `KeyError`.
+   - delete: after `delete_object_annotation(K, "commit_refs")`, `get_object_annotation` raises `AnnotationNotFoundError`.
+   - missing annotation: `get_object_annotation(K, "references")` with none set raises `AnnotationNotFoundError`.
+   - missing object: `get_object_annotation` on a key with no object raises `ObjectNotFoundError`, not `AnnotationNotFoundError`.
+   - unclassified not-found: `mocker.patch.object` the underlying boto3 call to raise a `ClientError` with a bare `404` code → assert a plain `KeyError` that is neither subclass.
+   - overwrite-wipe: annotate `K`, `put_object(K, ...)` again, assert `get_object_annotation` raises `AnnotationNotFoundError`.
    - credential error: `mocker.patch.object` the underlying boto3 call to raise a credential error
      side effect → assert `CredentialError` propagates (never a raw exception).
+   - unavailable / access denied: `mocker.patch.object` the underlying boto3 call to raise a
+     `ClientError` with an `AccessDenied` or `NotImplemented` code → assert
+     `AnnotationUnavailableError` (R10).
 
 3. **`interfaces.py` → `s3.py` (Green):** add the Protocol signatures, then implement on
-   `S3ClientImpl` (each wrapped in `with wrap_credential_errors("s3")`, mapping missing
-   object/annotation to `KeyError`).
+   `S3ClientImpl` (each wrapped in `with wrap_credential_errors("s3")`, mapping each not-found
+   cause on a get to its outcome, R2).
 
 4. **Integration (`tests/integration/clients/test_s3_annotations.py`, Red for integration):**
-   put→get→list→delete round-trip against a real bucket; assert the moto extension's behaviour
+   put→get→delete round-trip against a real bucket; assert the moto extension's behaviour
    matches the real annotation API (per the plan's done-condition).

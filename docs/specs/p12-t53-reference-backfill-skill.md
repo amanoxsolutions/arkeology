@@ -4,7 +4,7 @@ id: p12-t53-reference-backfill-skill
 title: T53 — Reference-Backfill Cleanup Skill (optional, decoupled, dry-run-first)
 description: An optional, skippable-by-default skill that content-scans artifacts against the migration path→identifier map, presents a dry-run batch report of proposed references backfills for operator review, and applies confirmed backfills via link_metadata. Never rewrites stored content; never mutates metadata without confirmation. Resolves OQ1-cleanup with a batch-approval UX.
 tags: []
-status: stable
+status: deprecated
 okf_version: "0.2"
 sources:
   - resource: docs/architecture-decisions/adr-2026-07-03-artifact-cross-referencing.md
@@ -22,12 +22,14 @@ sources:
   - resource: docs/planning-artifacts/requirements.md
     title: Arkeology — Requirements
     last_modified: 2026-09-24T00:00:00Z
+  - resource: .docs/reviews/architecture-review-2026-11-15-arkeology-phases-9-10-12.md
+    title: "Architecture review — Arkeology, plan phases 9, 10 and 12"
 generated:
   by: "axians-architect/claude-opus-4.8"
   at: 2026-07-03T00:00:00Z
 revised:
   by: "axians-architect/claude-opus-5-5"
-  at: 2026-11-09T19:05:14Z
+  at: 2026-11-15T17:44:06Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
@@ -49,11 +51,12 @@ AC-63; resolves OQ1-cleanup.)
 
 The migration rewrite (T51) resolves references at first-write time, but a reference can only be
 backfilled once its target exists and is resolvable — targets absent from the original batch, or
-references discovered after a write, cannot be resolved inline (ADR-012 D10). Mirroring the existing
-commit-refs backfill pattern (p10-t40), a decoupled post-hoc skill is the right vehicle: it runs
-when the operator chooses, resolves what is now resolvable, and applies it through the safe,
-embedding-free `link_metadata` primitive without touching stored content or tier-2 append-only
-content rules (ADR-012 D8).
+references discovered after a write, cannot be resolved inline
+(adr-2026-07-03-artifact-cross-referencing D10). Mirroring the existing commit-refs backfill pattern
+(p10-t40), a decoupled post-hoc skill is the right vehicle: it runs when the operator chooses,
+resolves what is now resolvable, and applies it through the safe, embedding-free `link_metadata`
+primitive without touching stored content or tier-2 append-only content rules
+(adr-2026-07-03-artifact-cross-referencing D8).
 
 All three stories are P1: dry-run batch report before any write (P1); confirmed backfills route
 through link_metadata (P1); skippable by default, declining changes nothing (P1).
@@ -98,7 +101,7 @@ When the operator confirms, the skill applies the backfills via `link_metadata(r
 the resolved `references` per artifact — `link_metadata` being the embedding-free, dual-write
 primitive (T49) — and never rewrites stored content: content is fixed after first write.
 
-Source: AC-63; ADR-012 D8 — the content-is-fixed part
+Source: AC-63; adr-2026-07-03-artifact-cross-referencing D8 — the content-is-fixed part
 
 ### R5 — Re-running the skill does not duplicate references
 
@@ -118,8 +121,18 @@ When the skill is distributed, it requires no per-skill wiring: placing `SKILL.m
 directory under `plugins/arkeology/skills/` is sufficient for all three channels — the OpenCode JS
 plugin registers the whole `plugins/arkeology/skills` directory into `config.skills.paths`, the
 Claude Code plugin is declared once in `plugins/arkeology/.claude-plugin/plugin.json`, and
-`install.sh` loops `plugins/arkeology/skills/*/` for `gh skill install`. *(Corrected 2026-08-12 —
-the original wording described the retired top-level `skills/` + symlink layout.)*
+`install.sh` loops `plugins/arkeology/skills/*/` for `gh skill install`.
+
+### R8 — The skill's offline snippets are held to the server by T51's drift test
+
+The skill documents two offline `python3` snippets — the full-key computation and the frontmatter
+`references:` extraction — because it must compute both before the server is reachable. Each stays
+behaviourally identical to the server's `generate_artifact_id` (composed into the full key) and
+`extract_references_list`, and both are covered by the parameterised drift test T51 owns: a change
+to either snippet that diverges from the server, or a snippet the test can no longer locate, fails
+the unit suite.
+
+Source: p12-t51-migration-reference-rewrite R10, R11, R12
 
 ## 5. Boundaries
 
@@ -134,7 +147,8 @@ the original wording described the retired top-level `skills/` + symlink layout.
 - Any metadata mutation — never applied without explicit operator confirmation of the batch.
 
 **Never:**
-- Do not rewrite stored artifact content (ADR-012 D8 — content is fixed after first write).
+- Do not rewrite stored artifact content (adr-2026-07-03-artifact-cross-referencing D8 — content is
+  fixed after first write).
 - Do not auto-apply in-body-link matches — surface them for the operator only.
 - Do not add server code — this is a skill-only deliverable (ruff + mypy unaffected).
 
@@ -142,12 +156,8 @@ the original wording described the retired top-level `skills/` + symlink layout.
 
 ### Files to Touch
 
-> **Layout correction 2026-08-12 (tech-writer).** The original table described the
-> pre-consolidation layout: a top-level `skills/backfilling-references/` directory plus a symlink
-> at `plugins/arkeology/skills/backfilling-references` pointing into it. That layout no longer
-> exists. Skills live **directly** at `plugins/arkeology/skills/<name>/SKILL.md` — one canonical
-> copy, no top-level `skills/` directory, no symlinks anywhere. Verified against the working tree
-> on 2026-08-12.
+Skills live directly at `plugins/arkeology/skills/<name>/SKILL.md` — one canonical copy, no
+top-level `skills/` directory, no symlinks.
 
 | File | Action | Notes |
 |------|--------|-------|
@@ -169,11 +179,6 @@ write; confirmed backfills route through `link_metadata`; declining leaves all a
 unchanged; no stored content is rewritten; skill text is consistent with existing skill style;
 the skill is discoverable through each plugin channel.
 
-> **Note (2026-08-13, architect).** This skill's two offline snippets — ID computation and
-> frontmatter `references:` extraction — are covered, but by a drift-guard suite owned by T51,
-> not by this task: `tests/unit/test_skill_artifact_id_drift.py` executes both of
-> `backfilling-references/SKILL.md`'s documented snippets against the server's
-> `generate_artifact_id` and `extract_references_list` (see
-> `docs/specs/p12-t51-migration-reference-rewrite.md`, Story 5 and Story 6). No action is needed
-> here; noted so "no unit tests written as part of this task" isn't misread as "this skill has no
-> test coverage at all."
+The skill's two offline snippets (R8) are covered by T51's `tests/unit/test_skill_artifact_id_drift.py`,
+which runs both of `backfilling-references/SKILL.md`'s documented snippets against the server; a
+change to either snippet is checked there, not by a test of this task.

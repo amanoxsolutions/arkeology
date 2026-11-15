@@ -6,12 +6,21 @@ description: Adds actionable AWS provisioning steps, minimum IAM policy, index i
 tags: []
 status: stable
 okf_version: "0.2"
+sources:
+  - resource: docs/planning-artifacts/requirements.md
+    title: Arkeology — Requirements
+  - resource: docs/specs/p12-t52-annotation-availability-graceful.md
+    title: T52 — Annotation Availability + IAM Probe, Runtime Graceful Handling, README + AGENTS.md
+  - resource: docs/contracts/data/s3-annotations.artifact.md
+    title: s3-annotations.artifact
+  - resource: .docs/reviews/architecture-review-2026-11-15-arkeology-phases-9-10-12.md
+    title: "Architecture review — Arkeology, plan phases 9, 10 and 12"
 generated:
   by: "axians-architect/unknown"
   at: 2026-05-31T00:00:00Z
 revised:
   by: "axians-architect/claude-opus-5-5"
-  at: 2026-11-12T14:38:17Z
+  at: 2026-11-15T19:44:03Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
@@ -93,14 +102,22 @@ The README includes a "Minimum IAM Policy" subsection containing a JSON IAM poli
 all and only the permissions required for the server to function:
 
 - S3: `s3:GetObject`, `s3:PutObject`, `s3:DeleteObject`, `s3:ListObjectsV2`, `s3:HeadBucket`;
+- S3 object annotations: `s3:PutObjectAnnotation`, `s3:GetObjectAnnotation`,
+  `s3:DeleteObjectAnnotation` — and not `s3:ListObjectAnnotations`, which no Arkeology operation
+  uses;
 - S3 Vectors: `s3vectors:PutVectors`, `s3vectors:GetVectors`, `s3vectors:QueryVectors`,
   `s3vectors:DeleteVectors`, `s3vectors:GetIndex`, `s3vectors:ListVectors`;
 - Bedrock: `bedrock:InvokeModel` scoped to the embedding model ARN.
 
+Beside the policy, the README states where S3 object annotations are unavailable — the UAE and
+Bahrain regions, directory buckets (the bucket type the S3 Express One Zone storage class uses) and
+Outposts buckets — and that the server refuses to start on such a deployment, so an Admin can
+confirm a deployment is supported before creating anything.
+
 Given an admin applies the minimum IAM policy from the README to a service account, all Arkeology
 tools operate correctly with no permission errors.
 
-Source: https://docs.aws.amazon.com/service-authorization/latest/reference/list_s3vectors.html
+Source: https://docs.aws.amazon.com/service-authorization/latest/reference/list_s3vectors.html; FR-57 — the permissions and unsupported-deployment part
 
 ## 4. Rules — Recommended AGENTS.md snippet
 
@@ -164,7 +181,8 @@ Source: none
 
 | File | Action | Notes |
 |------|--------|-------|
-| `README.md` | Modify | Add "AWS Provisioning" section (with immutability warning), "Minimum IAM Policy" subsection, "Recommended AGENTS.md Snippet" section |
+| `README.md` | Modify | Add "AWS Provisioning" section (with immutability warning), "Minimum IAM Policy" subsection (including the three annotation actions, and the regions and bucket types without annotation support beside it), "Recommended AGENTS.md Snippet" section. The "S3 object annotations" prerequisite says the last startup check round-trips three annotation operations, not four |
+| `SERVER-REFERENCE.md` | Modify (flag — the policy the README links to lives here) | "Minimum IAM Policy": the `S3ObjectAnnotations` statement drops `s3:ListObjectAnnotations`, and the paragraph after the policy says the startup check round-trips three annotation actions |
 
 ### Contracts
 

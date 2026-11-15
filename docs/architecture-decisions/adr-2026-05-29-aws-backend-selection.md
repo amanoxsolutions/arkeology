@@ -44,6 +44,11 @@ sources:
   - resource: .docs/reviews/architecture-review-2026-11-10-arkeology.md
     title: "Architecture review — Arkeology (whole design record)"
     last_modified: 2026-11-10T11:21:17Z
+  - resource: .docs/reviews/architecture-review-2026-11-15-arkeology-phases-9-10-12.md
+    title: "Architecture review — Arkeology, plan phases 9, 10 and 12"
+    last_modified: 2026-11-15T16:30:41Z
+  - resource: docs/specs/p9-t30-write-artifacts.md
+    title: Write Performance Z1 — write_artifacts + migrate_artifacts + P4 Section Truncation
   - resource: .docs/review-fixes/calibration-2026-11-12.md
     title: "Calibration: is a filtered, paged QueryVectors (ENHANCED) an exhaustive per-artifact lookup?"
   - resource: tests/integration/test_calibration_enhanced_filtered_query.py
@@ -64,7 +69,7 @@ generated:
   at: 2026-05-29T00:00:00Z
 revised:
   by: "axians-architect/claude-opus-5-5"
-  at: 2026-11-12T17:36:17Z
+  at: 2026-11-15T19:56:23Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
@@ -372,3 +377,14 @@ Source: C-03, C-04, NFR-13, NFR-17; vision § Operating Context; the calibration
 | Until another team migrates its store, a cross-scope key lookup finds no `#0` for its artifacts; a synthesis migrated before its source's team keeps that source without a baseline until the synthesis is updated | No multi-team deployment exists yet; the missing and withheld effects end when that team runs the store migration, and the lost baseline is avoided by migrating citing teams with or after the teams they cite |
 | Every query on the index carries at most 100 filter constraints and at most 10,240 bytes of filter, as AWS's error message states; a search carries about eight fixed constraints, one per read prefix, one per tag, and an exclusion list capped at 1 KB of ids | A deployment reading a handful of prefixes stays well below 100. Accepted with no search cap (Operator, 2026-11-10); revisit when a deployment reads several dozen prefixes or searches with many tags |
 | An index holds at most 2 billion vectors | About 240,000 at the target |
+
+## Revision — 2026-11-15
+
+The Decision's "all services share a single AWS region" does not hold for description generation
+through a cross-region inference profile. With one, Bedrock may serve each description request —
+the descriptor's title and up to 8,000 characters of its content — in any region of the profile's
+geography: the document text is processed there, though nothing is stored there, and the server's
+role needs `bedrock:InvokeModel` on the model in each of those regions as well as on the profile.
+Content storage and the vector index stay in the deployment's region, so enabling description
+generation through a profile is a choice about where document text is processed. Owner:
+`p9-t30-write-artifacts` R15.

@@ -4,7 +4,7 @@ id: p12-t50-referenced-by-warning
 title: T50 — Unified Own-Scope referenced_by Warning on Delete + Archive
 description: Before deleting or archiving an artifact, reverse-lookup other own-scope artifacts referencing it across both source_artifacts and references, branching by field filterability — a server-side $eq list-membership filter for filterable reference fields (references) and a filterable prefilter (type=synthesis) plus in-process membership check for the non-filterable source_artifacts. Warn-but-don't-block — delete stronger (permanent), archive informational (reversible). Strictly own-scope; never reveal foreign-scope identifiers.
 tags: []
-status: stable
+status: deprecated
 okf_version: "0.2"
 sources:
   - resource: docs/architecture-decisions/adr-2026-07-03-artifact-cross-referencing.md
@@ -23,8 +23,8 @@ generated:
   by: "axians-architect/claude-opus-4.8"
   at: 2026-07-03T00:00:00Z
 revised:
-  by: "axians-architect/claude-opus-5-5"
-  at: 2026-11-09T18:53:26Z
+  by: "axians-architect/claude-sonnet-5-5"
+  at: 2026-11-15T16:04:49Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
@@ -103,7 +103,7 @@ filterability (below), then unions and deduplicates the results into one warning
   field* the branch would cover automatically — a one-line addition and no code-path change — not a
   current member.
 
-**Why:** (a) requirements.md FR-56 and ADR-012 D13 scope the `referenced_by` check to
+**Why:** (a) requirements.md FR-56 and adr-2026-07-03-artifact-cross-referencing D13 scope the `referenced_by` check to
 `source_artifacts` + `references` only, and (b) `commit_refs` holds git commit SHAs, not
 `artifact_id`s, so a `{"commit_refs": {"$eq": T}}` clause could never match an artifact-id target —
 including it would be inert noise. Closed 2026-08-17 (T60) as moot: T60 narrows `REFERENCE_FIELDS`
@@ -112,7 +112,7 @@ to `("source_artifacts",)` and removes the filterable branch entirely — its on
 is no longer a filterable branch for `commit_refs` to join by addition. See
 `docs/specs/p12-t60-narrow-reverse-lookup-warning.md`.
 
-Source: FR-56, ADR-012 D13 — the field-scope part; ADR-011 — the annotations part
+Source: FR-56, adr-2026-07-03-artifact-cross-referencing D13 — the field-scope part; ADR-011 — the annotations part
 
 ## 3. Rules — The warning on delete and archive
 
@@ -203,7 +203,7 @@ reference field is a one-line addition to `REFERENCE_FIELDS`, never a query chan
 - Given both mechanisms return referrers, then they are unioned and deduplicated into the single
   warning.
 
-Source: ADR-012 D13
+Source: adr-2026-07-03-artifact-cross-referencing D13
 
 ### R9 — A non-filterable reference field is resolved by a bounded prefilter plus an in-process check, never by `$eq`
 
@@ -236,7 +236,7 @@ non-filterable field (S3 Vectors rejects one on `source_artifacts` with `Validat
 > See `docs/specs/p12-t46-references-field.md`'s forward-pointer note and ADR-012's "Cross-scope
 > reference visibility" section.
 - **Filterable** reference fields (`references`) use a **server-side `$eq`** list-membership filter —
-  never fetch-all-then-filter (ADR-012 D13).
+  never fetch-all-then-filter (adr-2026-07-03-artifact-cross-referencing D13).
 - The **non-filterable** `source_artifacts` cannot be `$eq`-filtered by S3 Vectors, so it is resolved
   by a **bounded** filterable prefilter fetched server-side (`type = synthesis`, own-scope, active — a
   small set, since `source_artifacts` only ever appears on `synthesis`) followed by an in-process
@@ -253,7 +253,7 @@ non-filterable field (S3 Vectors rejects one on `source_artifacts` with `Validat
   reverse-lookup reads **vector metadata**, where all reference-like fields are `list[str]`.
 
 **Ask First:**
-- Nothing — behaviour fixed by ADR-012 D13.
+- Nothing — behaviour fixed by adr-2026-07-03-artifact-cross-referencing D13.
 
 **Never:**
 - Do not block the operation on a warning.

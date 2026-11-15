@@ -18,6 +18,12 @@ sources:
   - resource: docs/architecture-decisions/adr-2026-05-29-tier-based-access-control.md
     title: Tier-Based Cross-Scope Access Control Model
     last_modified: 2026-09-25T00:00:00Z
+  - resource: docs/specs/p12-t45-s3-annotation-client.md
+    title: T45 — S3 Object Annotation Client Support + moto Self-Mock Extension
+  - resource: docs/specs/p1-t5-startup-validation-sequence.md
+    title: T5 — Startup Validation Sequence
+  - resource: docs/contracts/data/s3-annotations.artifact.md
+    title: s3-annotations.artifact
 relationships:
   - to: adr-2026-06-16-artifact-commit-traceability
     type: supersedes
@@ -25,8 +31,8 @@ generated:
   by: "axians-architect/claude-opus-4.8"
   at: 2026-07-03T00:00:00Z
 revised:
-  by: "axians-architect/claude-opus-5.5"
-  at: 2026-09-29T00:00:00Z
+  by: "axians-architect/claude-opus-5-5"
+  at: 2026-11-15T19:56:23Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
@@ -147,8 +153,8 @@ unchanged.
 ### 3. `reconcile_index` rebuilds both fields from annotations (FR-17, FR-54 — resolves OQ2)
 
 When re-indexing an artifact, `reconcile_index` restores both `commit_refs` and `references` into
-rebuilt vector metadata by reading the object's **durable annotations**
-(`ListObjectAnnotations` / `GetObjectAnnotation`), not standard object metadata. Because these fields
+rebuilt vector metadata by reading the object's **durable annotations** by name
+(`GetObjectAnnotation`), not standard object metadata. Because these fields
 are durably present on the object, a reconcile run no longer drops them. This directly resolves the
 ADR-009 "reconcile drops commit links" limitation and OQ2.
 
@@ -197,12 +203,11 @@ levels instead of a startup gate:
   and the write path are handled gracefully (structured, actionable errors, never a raw exception) to
   cover post-setup drift (an IAM edit, a bucket or region change) that a one-time check cannot catch.
 
-The four IAM actions the deployment policy must grant (verified 2026-07-02 from the CLI operation
+The three IAM actions the deployment policy must grant (verified 2026-07-02 from the CLI operation
 help) are:
 
 - `s3:PutObjectAnnotation`
 - `s3:GetObjectAnnotation`
-- `s3:ListObjectAnnotations`
 - `s3:DeleteObjectAnnotation`
 
 Annotations are **unavailable** in the UAE and Bahrain regions and on **directory buckets** — the
@@ -287,7 +292,7 @@ graph TD
     end
 
     subgraph Recover["reconcile_index (self-heal)"]
-        R1["read annotations\nListObjectAnnotations / GetObjectAnnotation"]
+        R1["read annotations by name\nGetObjectAnnotation"]
         R2["rebuild vector metadata\ncommit_refs + references restored"]
         R1 --> R2
     end
@@ -407,7 +412,7 @@ The line is drawn by **mutability, not by whether a field is "a reference"**: an
   obligations, plus the compare-and-swap retry cycle (decision 6), are new invariants to uphold and
   test whenever the write path changes.
 
-- **New IAM surface for deployments.** The deployment policy must grant the four annotation actions.
+- **New IAM surface for deployments.** The deployment policy must grant the three annotation actions.
   Existing deployments that do not will see the feature degrade gracefully, not a boot failure.
 
 - **Testing cost.** A moto annotation extension must be built and maintained alongside the existing
@@ -601,3 +606,13 @@ hold:
 Annotations stay the sole source of truth, and a failed annotation read still raises rather than
 returning empty — a rule that now also governs the synthesis delete/archive warning, which decides
 on what the `sources` annotation says.
+
+## Revision — 2026-11-15
+
+The server uses three annotation operations — put, get and delete — and never lists an object's
+annotations: every flow reads, writes and deletes an annotation by its fixed name.
+`ListObjectAnnotations` and the IAM action `s3:ListObjectAnnotations` are removed, and the startup
+annotation check round-trips the three. Decision 3's read, decision 5's IAM list, the flow diagram's
+reconcile label and the "new IAM surface" consequence were changed in place to name three. Owners:
+`p12-t45-s3-annotation-client` R7, `p1-t5-startup-validation-sequence` R11 and the
+`s3-annotations.artifact` data contract.

@@ -21,15 +21,21 @@ sources:
     last_modified: 2026-07-05T00:00:00Z
   - resource: src/arkeology/references.py
   - resource: plugins/arkeology/skills/migrating-to-arkeology/SKILL.md
+  - resource: docs/contracts/modules/arkeology.tools.migrate_artifacts.md
+    title: arkeology.tools.migrate_artifacts
+  - resource: .docs/reviews/architecture-review-2026-11-15-arkeology-phases-9-10-12.md
+    title: "Architecture review — Arkeology, plan phases 9, 10 and 12"
 generated:
   by: "axians-architect/claude-opus-4.8"
   at: 2026-07-06T00:00:00Z
 revised:
   by: "axians-architect/claude-opus-5-5"
-  at: 2026-11-09T19:54:36Z
+  at: 2026-11-15T20:28:28Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
+  - by: "axians-architect/claude-fable-5-2"
+    at: 2026-11-15T20:45:07Z
 ---
 
 # T56 — Deterministic Server-Side Content Reference Rewrite (Frontmatter + Body)
@@ -45,7 +51,8 @@ inside `migrate_artifacts`, driven by a new transient descriptor key
 (`resolved_references_map`) the agent threads per file; remove the current agent-in-context
 hand-rewrite instructions from the `migrating-to-arkeology` skill. In-body link **discovery** —
 resolving a path that was never declared in a file's own frontmatter `references:` list — remains
-explicitly out of scope (ADR-012 D1, reaffirmed in the ADR-012 Revision, 2026-07-06).
+explicitly out of scope (adr-2026-07-03-artifact-cross-referencing D1, reaffirmed in the ADR-012
+Revision, 2026-07-06).
 
 ## 1. Problem Statement
 
@@ -92,7 +99,7 @@ use block style exclusively.
 **Example**
 
 - Given a file whose frontmatter `references:` list contains `- "../decisions/B.md"` and this
-  entry already resolved (per T51/D4) to B's artifact_id, when `migrate_artifacts` writes the
+  entry already resolved (per T51; adr-2026-07-03-artifact-cross-referencing D4) to B's artifact_id, when `migrate_artifacts` writes the
   file, then the stored content's frontmatter entry reads `- "arkeology://artifact/{B-id}"` — double
   quotes preserved, list position unchanged.
 - Given the same entry written unquoted (`- ../decisions/B.md`), then the rewritten entry is
@@ -210,9 +217,10 @@ Source: None
 ### R7 — An `http://` or `https://` target is never a rewrite candidate
 
 When a target begins with `http://` or `https://`, it is never treated as a rewrite candidate,
-matching ADR-012 D5, checked before any normalization or comparison.
+matching adr-2026-07-03-artifact-cross-referencing D5, checked before any normalization or
+comparison.
 
-Source: ADR-012 D5
+Source: adr-2026-07-03-artifact-cross-referencing D5
 
 ## 3. Rules — What is never rewritten
 
@@ -230,7 +238,7 @@ manifest.
   elsewhere in the manifest — when `migrate_artifacts` writes the file, then the link is left
   completely untouched: it is never discovered, resolved, or rewritten.
 
-Source: ADR-012 D1 (preserved; reaffirmed in the ADR-012 Revision, 2026-07-06)
+Source: adr-2026-07-03-artifact-cross-referencing D1 (preserved; reaffirmed in the ADR-012 Revision, 2026-07-06)
 
 ### R9 — A bare prose mention is never rewritten
 
@@ -321,9 +329,9 @@ returned or handed to `write_artifacts`.
   `migrate_artifacts(dry_run=False)` writes the artifact and the response, the S3 object metadata,
   and the vector metadata are inspected, then no `resolved_references_map` key appears anywhere.
   (no leakage)
-- Given `dry_run=True` with the same descriptor, when the enriched descriptor is returned, then
-  its `content` field already reflects the rewrite (the preview shows the true final content), and
-  `resolved_references_map` is absent from the returned descriptor.
+- Given `dry_run=True` with the same descriptor, when its dry-run entry is returned, then the
+  entry's `content` is the rewritten text (the preview shows the true final content), and no
+  `resolved_references_map` is returned.
 
 Source: None
 
@@ -345,7 +353,8 @@ Source: None
 **Always:**
 - Only paths already present as keys in the per-descriptor `resolved_references_map` — built
   exactly as T51 already builds frontmatter `references:` resolution — are ever rewritten; no new
-  discovery of undeclared body-only links is performed (ADR-012 D1 preserved).
+  discovery of undeclared body-only links is performed (adr-2026-07-03-artifact-cross-referencing D1
+  preserved).
 - The rewrite is applied once, server-side, before the artifact is embedded or stored, so S3
   content and the embedded section text are always byte-consistent (no re-embed).
 - `resolved_references_map` is transient: built in-context by the agent (reusing `references.py`'s
@@ -353,9 +362,9 @@ Source: None
   descriptor, consumed by the server, and never stored in S3 metadata, vector metadata, or the
   `Artifact` model.
 - Migration never overwrites an existing key (the skip-existing guard), so this rewrite is inherently
-  first-write-only — matches T51/D8's "content rewritten once, never retroactively patched."
+  first-write-only — matches adr-2026-07-03-artifact-cross-referencing D8 (via T51): "content rewritten once, never retroactively patched."
 - Every id in `resolved_references_map` values is resolved from this deployment's own migration
-  manifest / `write_prefix` (T51/D4) — inherently own-scope; no new cross-scope validation is
+  manifest / `write_prefix` (T51; adr-2026-07-03-artifact-cross-referencing D4) — inherently own-scope; no new cross-scope validation is
   introduced.
 - `rewrite_content_references` reuses `normalize_reference_path` from `references.py` for body-link
   comparison — do not duplicate that normalization logic.
@@ -384,7 +393,7 @@ Source: None
   `Artifact` model.
 - Do not discover or resolve a path that was never declared in a file's own frontmatter
   `references:` list, regardless of whether it would otherwise be resolvable against the manifest
-  (ADR-012 D1).
+  (adr-2026-07-03-artifact-cross-referencing D1).
 
 ## 7. For the developer agent
 
@@ -396,13 +405,13 @@ Source: None
 | `src/arkeology/references.py` | Modify | Add `rewrite_content_references(content: str, resolved_map: dict[str, str]) -> str` pure helper alongside the existing T51 helpers; reuse `normalize_reference_path`; no new module-level state |
 | `tests/unit/test_tools_migrate_artifacts.py` | Modify | Add tests: a descriptor's `resolved_references_map` rewrites `content` before the skip-existing check and before delegation to `write_artifacts`; the key never appears in the `dry_run=True` descriptor echo or the `dry_run=False` result; absent/empty map is a no-op; content stored in S3 matches content embedded (assert via the existing write-path spies) |
 | `src/arkeology/tools/migrate_artifacts.py` | Modify | New step between description clipping (current Step 3) and the `dry_run` branch (current Step 4): for each `enriched` descriptor carrying `resolved_references_map`, call `rewrite_content_references` on its `content` and pop the key before the descriptor is returned or written |
-| `plugins/arkeology/skills/migrating-to-arkeology/SKILL.md` | Modify | Replace the hand-rewrite instruction in "Resolving a `references:` entry against the map" (Step 3, "Match found" bullet) with: populate the descriptor's `references` field AND `resolved_references_map` ({original text: id}); remove the "rewrite that entry... to `arkeology://artifact/{id}`" instruction. Update 3.A1b and 3.B5 ("rewrite resolved entries in that file's content... to `arkeology://artifact/{id}`") to say the map is passed in the descriptor and the server performs the frontmatter+body rewrite. Update the "Only the frontmatter `references:` YAML list is touched" paragraph (end of Step 3) to state the server now also rewrites matching markdown link targets in the body, while in-body link *discovery* remains out of scope (ADR-012 D1) |
+| `plugins/arkeology/skills/migrating-to-arkeology/SKILL.md` | Modify | Replace the hand-rewrite instruction in "Resolving a `references:` entry against the map" (Step 3, "Match found" bullet) with: populate the descriptor's `references` field AND `resolved_references_map` ({original text: id}); remove the "rewrite that entry... to `arkeology://artifact/{id}`" instruction. Update 3.A1b and 3.B5 ("rewrite resolved entries in that file's content... to `arkeology://artifact/{id}`") to say the map is passed in the descriptor and the server performs the frontmatter+body rewrite. Update the "Only the frontmatter `references:` YAML list is touched" paragraph (end of Step 3) to state the server now also rewrites matching markdown link targets in the body, while in-body link *discovery* remains out of scope (adr-2026-07-03-artifact-cross-referencing D1) |
 | `docs/architecture-decisions/adr-2026-07-03-artifact-cross-referencing.md` | Already modified (architect) | Revision section (2026-07-06) reversing the no-server-side-rewrite call for this bounded case |
-| `docs/brainstorming/brainstorming-2026-07-01-artifact-cross-referencing.md` | Already modified (architect) | D16 addendum (Session 2026-07-06) recording the decision |
+| `docs/brainstorming/brainstorming-2026-07-01-artifact-cross-referencing.md` | Already modified (architect) | brainstorming-2026-07-01-artifact-cross-referencing D16 addendum (Session 2026-07-06) recording the decision |
 
 ### Contracts
 
-None.
+- `docs/contracts/modules/arkeology.tools.migrate_artifacts.md` § migrate_artifacts — the `resolved_references_map` descriptor key: when the rewrite runs, the rewritten `content` a dry run returns, and that the key reaches no store and no response (R13–R16).
 
 ### Testing Approach
 

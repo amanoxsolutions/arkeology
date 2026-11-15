@@ -33,12 +33,18 @@ sources:
   - resource: .docs/reviews/architecture-review-2026-11-10-arkeology.md
     title: Architecture review — Arkeology (whole design record)
     last_modified: 2026-11-10T11:21:17Z
+  - resource: docs/specs/p12-t55-metadata-validation.md
+    title: T55 — Write-Path Metadata Size + Charset Validation
+  - resource: docs/specs/p12-t46-references-field.md
+    title: T46 — references First-Class Field on Artifact + write/read/list Surfacing + Filter
+  - resource: .docs/reviews/architecture-review-2026-11-15-arkeology-phases-9-10-12.md
+    title: "Architecture review — Arkeology, plan phases 9, 10 and 12"
 generated:
   by: "axians-tech-writer/claude-opus-5"
   at: 2026-09-04T00:00:00Z
 revised:
   by: "axians-architect/claude-opus-5-5"
-  at: 2026-11-10T16:24:49Z
+  at: 2026-11-15T19:18:17Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
@@ -210,6 +216,17 @@ Two named annotations per object, both optional:
 | `commit_refs` | Comma-joined `list[str]` — full SHA, short SHA, PR URL, or tag; format is opaque | The list is empty |
 | `references` | Comma-joined `list[str]` of resolved `artifact_id` values — each the full operative key, scope prefix and file extension included, exactly as the write and read tools return it; never an `arkeology://` URI and never a repository path | The list is empty |
 
+A `references` element is useful only when it equals another artifact's key exactly, so its form is
+checked on the way in: every element contains the scope separator `/`, since a full key is the
+scope the named artifact was written under, `/`, then its identifier and file extension —
+`team-a/payments/adr-use-postgres-abc12345.md`,
+never the bare `adr-use-postgres-abc12345`. Every tool that writes the field from a caller-supplied
+value — `write_artifact`, the bulk tools that delegate to it, and `link_metadata` — rejects an
+element without one with `validation_error`, before anything is written. The check is of form only:
+it does not establish that the key names an existing artifact. It applies to supplied values, never
+to a value already stored or one `reconcile_index` restores from a failure-log entry, so a reader
+must tolerate an element without a separator.
+
 Annotations are mutable in place, do not require re-PUTting the object, leave the ETag stable, and
 carry a far larger ceiling than either object metadata (2 KB) or vector filterable metadata (2 KB).
 
@@ -286,7 +303,8 @@ as having no links on the strength of a not-found it did not classify.
   module `_errors.py`, which already owns the `CredentialError` mapping for exactly this reason —
   a mapping duplicated per tool is a mapping that drifts per tool, which is how the three-code
   split arose. `reconcile_index` is not on the list because an annotation failure there fails one
-  artifact into its `failed` list rather than the run.
+  artifact rather than the run; that artifact's `failed` entry carries the same code as its
+  `error` (`arkeology.tools.reconcile`).
 - The code names the **cause**; it does not describe what was written. Where the condition is met
   after a durable store write has already landed, the durability facts — the S3 object is durable,
   and a failure-log entry exists exactly when the response carries `"failure_logged": true` — hold

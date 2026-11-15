@@ -19,28 +19,41 @@ sources:
   - resource: docs/planning-artifacts/requirements.md
     title: Arkeology — Requirements
     last_modified: 2026-09-24T00:00:00Z
+  - resource: docs/contracts/modules/arkeology.tools.list.md
+    title: arkeology.tools.list
+  - resource: .docs/reviews/architecture-review-2026-11-15-arkeology-phases-9-10-12.md
+    title: "Architecture review — Arkeology, plan phases 9, 10 and 12"
+  - resource: docs/specs/p3-t10-list-artifacts.md
+    title: T10 — List Artifacts Tool
+  - resource: docs/contracts/data/s3vectors.artifact.md
+    title: s3vectors.artifact
 generated:
   by: "axians-architect/claude-sonnet-5"
   at: 2026-08-17T00:00:00Z
 revised:
   by: "axians-architect/claude-opus-5-5"
-  at: 2026-11-09T19:58:21Z
+  at: 2026-11-15T20:28:28Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
+  - by: "axians-architect/claude-fable-5-2"
+    at: 2026-11-15T20:45:07Z
 ---
 
 # T59 — Remove the `references=` Filter Parameter from `list_artifacts`
 
 ## TL;DR
 
-T58 removed `references` from S3 Vectors metadata, so `list_artifacts`'s existing `references=[...]` server-side `$eq` filter parameter can no longer match anything — it would silently degrade into a filter that always returns zero matching artifacts, which is worse than not offering it at all. This spec removes the `references=` parameter from `list_artifacts` outright (raising a clear signal to any caller still passing it) rather than leaving it present-but-inert, while `commit_refs=[...]` filtering is unaffected — `commit_refs` stays in vector metadata (capped, per T58) and its filter continues to work exactly as today. (ADR D2 / OQ6.)
-
-**Correction to source documents (found during spec-writing, flagged for the PM):** the ADR text and `plan.md`'s T59 line both describe this task as removing a `references=` filter from **both** `list_artifacts` *and* `search_artifacts`. A direct read of the current codebase (`src/arkeology/tools/search.py`, `src/arkeology/server.py`) shows `search_artifacts` has never accepted a `references` parameter — only `list_artifacts` (`src/arkeology/tools/list.py`) does. This spec is written against the actual code: it removes the parameter from `list_artifacts` only. There is nothing to remove from `search_artifacts`.
-
-## Open Questions
-
-- **requirements.md staleness (flagged, not resolved here).** AC-57 currently describes `list_artifacts`'s `references` filter as a supported capability. This spec does not edit `requirements.md` (out of scope per this spec-writing task's instructions — spec files only). Flagged to the PM as a documentation follow-up once T57–T62 are dispatched: AC-57 needs either removal or a superseded-note, consistent with how AC-38/AC-39/AC-50 were annotated `*Superseded — ...*` when `link_commit` was retired.
+T58 removed `references` from S3 Vectors metadata, so `list_artifacts`'s existing `references=[...]`
+server-side `$eq` filter parameter can no longer match anything — it would silently degrade into a
+filter that always returns zero matching artifacts, which is worse than not offering it at all. This
+spec removes the `references=` parameter from `list_artifacts` outright (raising a clear signal to
+any caller still passing it) rather than leaving it present-but-inert, while `commit_refs=[...]`
+filtering is unaffected — `commit_refs` stays in vector metadata (capped, per T58) and its filter
+continues to work exactly as today.
+(adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal D2 / OQ6.) `search_artifacts` has
+no `references` parameter, so there is nothing to remove there; AC-57 states that
+`list_artifacts` exposes no such filter.
 
 ## 1. Problem Statement
 
@@ -58,7 +71,7 @@ Source: adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal D2, OQ6
 
 ### R2 — No `references` filter clause is ever built
 
-When `list.py`'s Step 1 filter-building runs, no `{"references": {"$eq": ref}}` clause is built under any circumstance — the `if references: ...` block is removed entirely.
+When `list_artifacts` builds its vector filter, it never adds a `{"references": {"$eq": ref}}` clause under any circumstance.
 
 Source: adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal D2, OQ6
 
@@ -84,19 +97,20 @@ Source: adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal D2, OQ6; p
 
 ### R6 — The returned `references` field is unchanged
 
-When an artifact's returned `references` field is populated in each `list_artifacts` entry, it continues to be sourced from `read_current_link_fields` (the annotation-backed union helper) exactly as today — only the filter *parameter* is removed, never the returned field. (`list.py` already sources the per-entry `references` value this way, not from vector metadata directly — no change needed there.)
+When `list_artifacts` returns `references` — in each entry of a listing that asks for link fields (p3-t10-list-artifacts R11) — the value is read from the artifact's S3 annotation (`annotations.read_link_annotations`): only the filter *parameter* is removed, never the returned field.
 
-Source: None
+Source: p3-t10-list-artifacts R11
 
 ## 4. Boundaries
 
 **Always:**
 - This is a breaking API change, shipped and documented as such (see Consequences in the ADR) — not silently absorbed or degraded.
 - `commit_refs=[...]` filtering is completely unaffected — do not touch its filter-clause construction, its docstring, or its tests as part of this task.
-- The returned `references` field on each `list_artifacts` entry is unaffected — only the input filter parameter is removed.
+- The returned `references` field is unaffected — only the input filter parameter is removed.
 
 **Ask First:**
-- Nothing — the removal itself is locked (ADR D2/OQ6). The ADR/plan.md's mention of `search_artifacts` is addressed above as a documentation correction, not an open question requiring a decision — there is no `references` parameter on `search_artifacts` to remove.
+- Nothing — the removal itself is locked
+  (adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal D2/OQ6).
 
 **Never:**
 - Do not leave `references=` accepted-but-silently-ignored (e.g. accept the parameter, log a warning, return unfiltered results) — that reintroduces exactly the "looks like a legitimate query, isn't" problem this task exists to close. Remove the parameter outright.
@@ -109,13 +123,13 @@ Source: None
 | File | Action | Notes |
 |------|--------|-------|
 | `tests/unit/test_tools_list.py` | Modify | Remove/replace any test asserting `references=[...]` filtering behaviour with a test asserting the parameter is rejected (`TypeError` at the Python call level, or the FastMCP-level equivalent for the registered tool); add/keep a `commit_refs=[...]` regression test proving it is unaffected — Red first |
-| `src/arkeology/tools/list.py` | Modify | Remove the `references` parameter from `list_artifacts`/`_list_artifacts_inner` signatures and the Step 1 `{"references": {"$eq": ref}}` clause-building block; update docstrings |
+| `src/arkeology/tools/list.py` | Modify | Remove the `references` parameter from `list_artifacts`/`_list_artifacts_inner` signatures and the Step 1 `if references: ...` block that builds the `{"references": {"$eq": ref}}` clauses; update docstrings |
 | `src/arkeology/server.py` | Modify | Remove the `references` parameter from the `list_artifacts` tool-registration wrapper (signature, docstring, and the call into `_list_artifacts`) |
-| `docs/planning-artifacts/requirements.md` | Not touched by this task | AC-57 (`list_artifacts` `references` filter) becomes stale once this ships — flagged in this spec's parent task's PM report as a documentation follow-up, not fixed here (Requirements are out of scope for this spec-writing pass) |
 
 ### Contracts
 
-None.
+- `docs/contracts/modules/arkeology.tools.list.md` § list_artifacts — the signature with no `references` parameter, the `commit_refs` filter over the capped window, and `references` returned only under `include_links` (R1–R3, R5, R6).
+- `docs/contracts/data/s3vectors.artifact.md` § Storage Shape — no `references` key in vector metadata for a filter to match (R2).
 
 ### Testing Approach
 

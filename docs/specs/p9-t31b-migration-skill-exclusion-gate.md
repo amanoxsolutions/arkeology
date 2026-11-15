@@ -19,15 +19,19 @@ sources:
   - resource: docs/planning-artifacts/requirements.md
     title: Arkeology — Requirements
     last_modified: 2026-09-24T00:00:00Z
+  - resource: .docs/reviews/architecture-review-2026-11-15-arkeology-phases-9-10-12.md
+    title: "Architecture review — Arkeology, plan phases 9, 10 and 12"
 generated:
   by: "axians-architect/unknown"
   at: 2026-06-07T00:00:00Z
 revised:
   by: "axians-architect/claude-opus-5-5"
-  at: 2026-11-09T16:41:18Z
+  at: 2026-11-15T20:19:59Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
+  - by: "axians-architect/claude-fable-5-2"
+    at: 2026-11-15T20:45:07Z
 ---
 
 # T31b — Migration Skill: Exclusion Gate and ADR Gate Removal
@@ -40,7 +44,8 @@ if it is absent; (2) remove Step 2c (ADR strategy gate) entirely — exclusions 
 from the config block; (3) update Step 2d to source `local_only_paths` and
 `local_only_types` from the block; (4) update Step 5 to remove the ADR variant
 copy-paste and instead instruct the agent to confirm the AGENTS.md snippet is already
-in place from the installation skill.
+in place from the installation skill and carries the stamp of the snippet the installed skills
+ship, offering to refresh it when it does not.
 
 ## 1. Problem Statement
 
@@ -114,18 +119,38 @@ Source: none
 
 ## 4. Rules — Step 5
 
-### R4 — Step 5 verifies the config block and snippet instead of asking and writing
+### R4 — Step 5 verifies the config block and checks the snippet's stamp instead of asking and writing
 
 When Step 5 runs, the skill does not ask the operator for ADR strategy and does not write ADR
 variant text to AGENTS.md. Instead it verifies that the `arkeology:config` block and the
 narrative snippet are present in AGENTS.md; if either is absent, it instructs the operator to run
-`setting-up-arkeology` to write them. Step 5's AGENTS.md update section instructs the agent to
-verify (not write) the config block and snippet.
+`setting-up-arkeology` to write them. When both are present, it compares the stamp in the
+snippet's opening marker — the stamp of the shipped snippet it was copied from (T31a R36) — with
+the stamp of the snippet shipped with the skills it runs from, the setup skill's
+`references/agents-snippet.md`:
+
+| The project's snippet | Step 5 |
+|---|---|
+| Stamp equal to the shipped one | Goes on, saying nothing about the snippet |
+| Stamp different from the shipped one, or no markers at all | Offers the refresh: names both stamps, or says the project's has none; says replacing discards any edit made between the markers; replaces the snippet in place only on the operator's yes, and on no leaves `AGENTS.md` unchanged (T31a R37) |
+
+Either answer lets Step 5 go on. Step 5's AGENTS.md update section instructs the agent to verify
+(not write) the config block and to check the snippet's stamp.
+
+**Example**
+
+- Given a project set up before the snippet carried markers, when Step 5 runs, then the skill says
+  the project's snippet has no stamp and asks whether to replace it; when the operator answers no,
+  then `AGENTS.md` is byte for byte unchanged and Step 5 goes on.
+- Given a project whose snippet's stamp equals the shipped one, when Step 5 runs, then no question
+  about the snippet is asked.
 
 **Why:** both actions are now owned by the installation skill; asking again during migration
-re-opens a settled decision and risks inconsistency.
+re-opens a settled decision and risks inconsistency. Presence alone says nothing about which
+snippet a project holds: one copied before a change to the tool surface still instructs its agents
+with the tool names and parameters that change replaced.
 
-Source: none
+Source: p9-t31a-setting-up-arkeology-skill R36, R37
 
 ## 5. Boundaries
 
@@ -161,10 +186,11 @@ Source: none
 | File | Action | Notes |
 |------|--------|-------|
 | `skills/migrating-to-arkeology/SKILL.md` | Modify | Pre-flight check; remove Step 2c; update Step 2d → 2c; update Step 5 AGENTS.md section |
+| `plugins/arkeology/skills/migrating-to-arkeology/SKILL.md` | Modify | Step 5's "AGENTS.md update" section: after the presence check, read the stamp from the project snippet's opening marker and from `../setting-up-arkeology/references/agents-snippet.md` beside this skill, and apply R4's table, pointing to the setup skill's refresh section for the replacement (T31a R37). Lands with T31a R36's markers |
 
 ### Contracts
 
-None.
+None — the rules read `AGENTS.md` and filter repository files; they call no server tool.
 
 ### Testing Approach
 
@@ -189,6 +215,9 @@ inspection against the checklist below.
 - [ ] Variant A and Variant B markdown blocks are removed
 - [ ] The AGENTS.md update section instructs the agent to verify (not write) the
   config block and snippet and refers the operator to `setting-up-arkeology` if absent
+- [ ] With both present, it compares the project snippet's stamp with the stamp of the snippet
+  shipped beside the skill; a different stamp or no markers gets the refresh offer with both stamps
+  named and a replacement only on yes; an equal stamp gets no question (R4)
 - [ ] ADR row in the tier 2 file removal table references `adr_strategy` in the
   config block rather than "your strategy chosen in Step 2"
 

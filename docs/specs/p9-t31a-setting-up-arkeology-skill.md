@@ -43,26 +43,57 @@ sources:
     last_modified: 2026-11-10T16:49:29Z
   - resource: .docs/review-fixes/calibration-2026-11-12.md
     title: "Calibration: is a filtered, paged QueryVectors (ENHANCED) an exhaustive per-artifact lookup?"
+  - resource: docs/specs/p1-t5-startup-validation-sequence.md
+    title: T5 — Startup Validation Sequence
+  - resource: docs/specs/p12-t52-annotation-availability-graceful.md
+    title: T52 — Annotation Availability + IAM Probe, Runtime Graceful Handling, README + AGENTS.md
+  - resource: docs/architecture-decisions/adr-2026-07-03-artifact-cross-referencing.md
+    title: Artifact Cross-Referencing — First-Class references Field, Migration Rewrite, and referenced_by Warning
+  - resource: .docs/reviews/architecture-review-2026-11-15-arkeology-phases-9-10-12.md
+    title: "Architecture review — Arkeology, plan phases 9, 10 and 12"
+  - resource: docs/learnings.md
+    title: Learnings
+  - resource: docs/architecture-decisions/adr-2026-06-16-artifact-commit-traceability.md
+    title: Artifact Commit Traceability — ULID Timestamps, Vector-Only Commit Links, and Agent-Driven Protocol
+  - resource: docs/contracts/modules/arkeology.tools.link_metadata.md
+    title: arkeology.tools.link_metadata
+  - resource: docs/contracts/modules/arkeology.tools.propose_commit_links.md
+    title: arkeology.tools.propose_commit_links
+  - resource: docs/contracts/modules/arkeology.tools.write.md
+    title: arkeology.tools.write
+  - resource: docs/contracts/modules/arkeology.tools.write_artifacts.md
+    title: arkeology.tools.write_artifacts
+  - resource: plugins/arkeology/.claude-plugin/plugin.json
+    title: Arkeology Claude Code plugin manifest
+  - resource: pyproject.toml
+    title: Arkeology project metadata
+  - resource: docs/contracts/modules/arkeology.tools.health.md
+    title: arkeology.tools.health
+  - resource: docs/contracts/modules/arkeology.tools.reconcile.md
+    title: arkeology.tools.reconcile
 generated:
   by: "axians-architect/unknown"
   at: 2026-06-07T00:00:00Z
 revised:
   by: "axians-architect/claude-opus-5-5"
-  at: 2026-11-12T21:20:24Z
+  at: 2026-11-15T20:28:28Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
+  - by: "axians-architect/claude-fable-5-2"
+    at: 2026-11-15T20:45:07Z
 ---
 
 # T31a — Setting-Up-Arkeology Skill
 
 ## TL;DR
 
-Create `skills/setting-up-arkeology/SKILL.md` — a 6-step agent-driven workflow that assumes all
+Create `plugins/arkeology/skills/setting-up-arkeology/SKILL.md` — a 6-step agent-driven workflow that assumes all
 required AWS resources are already provisioned externally, validates their reachability and that the
 vector index runs in `ENHANCED` mode, writes a
 complete and project-scoped Arkeology server entry into the correct MCP configuration file for the
-chosen client (Claude Code, opencode, GitHub Copilot CLI, or OpenAI Codex), runs a health check,
+chosen client (Claude Code, opencode, GitHub Copilot CLI, or OpenAI Codex), has the operator
+restart the client from the project directory, runs a health check when the skill is invoked again,
 and writes a machine-readable `arkeology:config` block plus a narrative usage snippet to the
 project AGENTS.md. No Python code, no bundled scripts, no `.env` file, no AWS resource creation, no
 IAM policy generation. The spec also covers how the throwaway probe objects that the skill's Step 2
@@ -81,13 +112,18 @@ ends with two artefacts written to AGENTS.md: the `arkeology:config` block
 (machine-readable, consumed by the migration skill and future agent sessions) and the
 narrative usage snippet.
 
+The snippet is a copy, made from the one the installed skills ship and marked with that one's
+stamp (R36). This spec owns the snippet's format and its in-place replacement (R20, R37); the
+`sync-arkeology-plugin` skill (T34) and the migration skill's Step 5 (T31b) compare a project's
+stamp with the shipped one and offer that replacement.
+
 AWS resource creation, IAM policy generation, and IAM policy application are all
 **out of scope** — the operator handles these using their existing AWS tooling and the
 README's policy reference before running the skill. The skill's responsibility is
 connection and configuration, not provisioning or access management.
 
 Every user story behind these rules is P1, except re-running the skill to replace the
-`arkeology:config` block in place (R20), which is P2.
+`arkeology:config` block and the snippet in place (R20), which is P2.
 
 ## 2. Rules — Workflow
 
@@ -133,10 +169,19 @@ Source: none
 
 When the skill starts, it collects all remaining required parameters before any action is taken:
 AWS region, S3 artifact bucket name, S3 Vectors bucket name, S3 Vectors index name, embedding
-model (default `amazon.titan-embed-text-v2:0`), embedding dimension (default 1024), AWS profile,
-team name, project name, and optional `READ_PREFIXES`. Step 1 lists every remaining required
-parameter with its default where applicable; no IAM principal ARN is collected (no provisioning
-or IAM steps).
+model (default `amazon.titan-embed-text-v2:0`), embedding dimension (default 1024), Bedrock text
+model (`BEDROCK_TEXT_MODEL`, required, no default), AWS profile, team name, project name, and
+optional `READ_PREFIXES`. Step 1 lists every remaining required parameter with its default where
+applicable; no IAM principal ARN is collected (no provisioning or IAM steps). When it asks for the
+text model, the skill tells the operator that only the migration skill uses it, to write artifact
+descriptions; that without it a migration of more than ten documentation files cannot generate
+descriptions; and that outside `us-east-1` the model ID is a region-prefixed cross-region inference
+profile, such as `eu.amazon.nova-lite-v1:0`, not the bare `amazon.nova-lite-v1:0`.
+
+**Why:** a project set up without a text model fails at the next documented step: the migration
+skill's description preview cannot run, and an agent left without it improvised a migration that
+skipped the preview (`docs/learnings.md`, the T31 lesson on `BEDROCK_TEXT_MODEL`). Fixing it after
+setup means editing the client config by hand and restarting the client.
 
 Source: none
 
@@ -145,11 +190,12 @@ Source: none
 ### R4 — Step 2 confirms every declared resource is reachable, and any failure is a hard stop
 
 The skill validates that every declared resource is reachable before writing any configuration
-file. When Step 2 runs, it validates five things: AWS credentials are active
+file. When Step 2 runs, it validates six things: AWS credentials are active
 (`aws sts get-caller-identity`), `uv` is installed, the declared S3 bucket is reachable
-(`s3api head-bucket`), the declared Vectors index is reachable (`s3vectors get-index`), and
+(`s3api head-bucket`), the declared Vectors index is reachable (`s3vectors get-index`),
 the declared Bedrock embedding model is accessible (`bedrock invoke-model` with a minimal
-payload). When any Step 2 check fails, the skill stops immediately with a message identifying
+payload), and the declared Bedrock text model answers a one-token request in the Nova message
+format (`invoke-model`). When any Step 2 check fails, the skill stops immediately with a message identifying
 which resource is unreachable — no subsequent steps are executed. When all declared resources are
 reachable, Step 2 completes and the skill proceeds to Step 3. Step 2 contains no AWS resource
 creation commands.
@@ -163,6 +209,9 @@ creation commands.
 - Given an embedding model that is not enabled in the operator's region, when Step 2 runs, then
   the skill stops and instructs the operator to enable the model in the Bedrock console before
   proceeding.
+- Given a text model declared as `amazon.nova-lite-v1:0` in `eu-west-1`, when Step 2 runs, then the
+  skill stops, tells the operator to enable the model in the Bedrock console and to use the
+  region-prefixed inference profile ID (`eu.amazon.nova-lite-v1:0`), and writes no config file.
 
 Source: none
 
@@ -230,6 +279,39 @@ the first write, the fence leaves no artifact under the prefix unprotected.
 
 Source: NFR-16; T90 R38, R39; a deployment set up on this release is fenced too (Operator, 2026-11-12)
 
+### R31 — Step 2 probes annotation availability and IAM, and a failed probe is a hard stop
+
+When Step 2 runs, it also probes S3 object annotation availability and the
+annotation permissions by writing the probe object (R22, R29), then putting, getting and deleting a
+throwaway annotation on it, and reports the outcome together with the three annotation IAM actions
+the server needs on the artifact bucket: `s3:PutObjectAnnotation`, `s3:GetObjectAnnotation` and
+`s3:DeleteObjectAnnotation`. The probe makes no list call and names no `s3:ListObjectAnnotations`,
+which the server does not use. When the probe fails, Step 2 stops like
+any other Step 2 check (R4): the skill writes no configuration file, names the condition that failed
+— a missing annotation action, or a region or bucket type without annotation support (the UAE and
+Bahrain regions, directory buckets, Outposts buckets) — and states that the server refuses to start
+on such a deployment. The operator is not offered a way to continue. With `aws-cli` 2.35.14 or later
+the probe uses the CLI; with an older CLI it runs a boto3 snippet through `uv run`, since botocore
+supports the annotation operations whatever the CLI version.
+
+**Example**
+
+- Given a role holding every core action but not `s3:GetObjectAnnotation`, when Step 2's annotation
+  probe runs, then the skill stops, names `s3:GetObjectAnnotation`, runs the probe's cleanup (R23),
+  and writes no config file.
+- Given an artifact bucket that is a directory bucket, when the probe runs, then the skill stops and
+  says annotations are unavailable on that bucket type and the server will not start on it.
+- Given a deployment where annotations are available and the three actions are granted, when the
+  probe runs, then it reports `ANNOTATIONS_OK` and the remaining Step 2 checks run, whether or not
+  the role also holds `s3:ListObjectAnnotations`.
+
+**Why:** the server's startup sequence round-trips the same three annotation operations and refuses to
+start when any fails (`p1-t5-startup-validation-sequence` R11), so a setup that continued past a
+failed probe would write a config entry for a server that cannot launch, and the Admin would learn
+at Step 5 what Step 2 already knew.
+
+Source: FR-57; C-08; AC-62; p1-t5-startup-validation-sequence R11
+
 ## 5. Rules — Step 4: the MCP config entry
 
 ### R6 — The Step 4 reference table fixes each client's file, scope, keys and docs URL
@@ -274,7 +356,7 @@ Source: none
 
 When Step 4 runs, the skill writes the Arkeology server entry — including all required env vars
 (`AWS_REGION`, `ARTIFACT_BUCKET`, `VECTORS_BUCKET`, `VECTORS_INDEX`, `WRITE_PREFIX`,
-`BEDROCK_EMBEDDING_MODEL`, and any optional vars collected in Step 1) — into the correct config
+`BEDROCK_EMBEDDING_MODEL`, `BEDROCK_TEXT_MODEL`, and any optional vars collected in Step 1) — into the correct config
 file and at the correct key path for the chosen client, as the Step 4 reference table specifies.
 Step 4 shows the complete Arkeology entry format for each client, with all required env vars
 populated (no `YOUR-*` placeholders).
@@ -359,8 +441,8 @@ Source: none
 
 When Step 4 targets a Codex CLI project config, the skill informs the operator that
 project-scoped Codex config only loads for trusted projects. If the operator declines to trust the
-project, the skill displays the complete config entry for manual addition and proceeds to Step 5
-— it does not write to `~/.codex/config.toml` or any other home-directory path.
+project, the skill displays the complete config entry for manual addition and continues as R33
+states — it does not write to `~/.codex/config.toml` or any other home-directory path.
 
 Source: none
 
@@ -372,8 +454,8 @@ independently verify the format. When the target config file already exists, the
 operator the entry it plans to write and asks explicit permission before modifying the file. When
 the operator grants permission, the skill inserts the Arkeology entry into the existing config,
 preserving all other entries unchanged. When the operator declines permission, the skill displays
-the complete correctly-formatted config entry for the operator to add manually and proceeds to
-Step 5 without writing.
+the complete correctly-formatted config entry for the operator to add manually and continues as
+R33 states, without writing.
 
 **Example**
 
@@ -401,12 +483,93 @@ path — including `~/.config/opencode/`, `~/.codex/`, `~/.copilot/`, or any equ
 regardless of operator instruction. The sole exception is Claude Desktop (no per-project config
 exists): the skill writes to its platform config path only when the operator explicitly chose
 Claude Desktop as their client in Step 1. If an operator declines or is unable to use a
-project-scoped file, the skill displays the complete entry for manual addition and proceeds to
-Step 5 — it does not fall back to any global configuration file as a substitute write target.
+project-scoped file, the skill displays the complete entry for manual addition and continues as
+R33 states — it does not fall back to any global configuration file as a substitute write target.
+
+Source: none
+
+### R32 — Step 4 names the resolved absolute path of the target file before it reads or writes it
+
+Before Step 4 reads, creates or modifies the client's config file, the skill resolves the file's
+absolute path from the project root — the current working directory joined with the reference
+table's file name — and names that path to the operator together with the entry it plans to write,
+so the operator sees which file will change before granting permission (R14). The skill's
+instruction to the agent carries a concrete example of a resolved path, such as
+`/home/alice/myproject/opencode.json`, beside the reference table.
+
+**Example**
+
+- Given an operator in `/home/alice/myproject` who chose opencode, when Step 4 presents the entry,
+  then it names `/home/alice/myproject/opencode.json` as the file it will write — not
+  `~/.config/opencode/opencode.json`.
+
+**Why:** an agent not anchored to an exact path wrote the user's global client config instead of the
+project file, defaulting to the path it knew from training; the lesson found a reference table alone
+insufficient and requires the path to be resolved and named, with a concrete example, before any
+file is touched (`docs/learnings.md`, the T31 lesson on global config paths).
 
 Source: none
 
 ## 6. Rules — Step 5: health check
+
+### R33 — Between Step 4 and Step 5 the operator restarts the client from the project directory
+
+When Step 4 ends, the skill tells the operator that the MCP client must be restarted to load the
+Arkeology entry — the `health_check` tool Step 5 calls belongs to that entry's server and is not
+available in the session that wrote it — and gives the restart action for the chosen client, to be
+run from the project root:
+
+| Client | Restart action |
+|---|---|
+| Claude Code, Copilot CLI | Exit, and start the client again from the project root, so `.mcp.json` is in scope |
+| opencode | Exit, and run `opencode` again from the project root |
+| Codex CLI | Exit, and run `codex` again from the project root |
+| VS Code + Copilot Chat | Reload the VS Code window with the project root open as the workspace folder |
+| Claude Desktop | Quit and relaunch the application (global config, no directory requirement) |
+
+The skill states that a project-scoped client started from any other directory ignores the project
+config without an error, and that after the restart the operator invokes the skill again, which
+resumes at Step 5 (R34). When Step 4 wrote nothing — the operator declined permission (R14),
+declined Codex project trust (R13), or could not use a project-scoped file (R15) — the skill first
+waits for the operator to say the entry is in place in the file R32 named, and only then gives the
+restart action.
+
+**Example**
+
+- Given an operator who chose opencode and granted the write, when Step 4 ends, then the skill
+  tells them to exit and run `opencode` from the project root, and does not call `health_check` in
+  the same session.
+- Given an operator who declined permission, when Step 4 ends, then the skill waits for their word
+  that the entry is in place before it gives the restart action.
+
+**Why:** opencode reads a project-level `opencode.json` only when started from the directory that
+holds it, and silently loads only its global config otherwise (`docs/learnings.md`, the T31 lesson
+on starting opencode from the project directory); a health check run against a client started
+elsewhere finds no Arkeology server at all.
+
+Source: none
+
+### R34 — A skill invoked again with an `arkeology` entry already in place offers to resume at Step 5
+
+When Step 1's project-root scan (R2) finds the chosen client's config file already holding an
+`arkeology` entry, the skill shows that entry and asks the operator whether to resume at Step 5 —
+the run after R33's restart — or to start again at Step 1 to replace it. On resume, the skill skips
+Steps 1 to 4, collects no parameter again, and takes any value a later step needs from that entry.
+When the resumed session has no `health_check` tool, the skill tells the operator that the client
+was not started from the project root and repeats R33's restart action for the client. On start
+again, the run continues at Step 1 and Step 4 updates the existing entry as R14 states.
+
+**Example**
+
+- Given a project whose `.mcp.json` holds the `arkeology` entry Step 4 wrote, when the operator
+  invokes the skill after restarting Claude Code from the project root, then the skill offers to
+  resume, and on resume it calls `health_check` without asking for the region, buckets or models
+  again.
+- Given the same project and an operator who restarted Claude Code from their home directory, when
+  the resumed skill finds no `health_check` tool, then it tells them to restart from the project
+  root.
+
+Source: none
 
 ### R16 — Step 5 blocks until every component reports ok
 
@@ -468,16 +631,31 @@ block YAML structure with all four keys.
 
 Source: none
 
-### R20 — Re-running the skill replaces the config block in place
+### R20 — Re-running the skill replaces the config block and the snippet in place
 
 When a `<!-- arkeology:config` block already exists in AGENTS.md, the skill replaces it in place;
-no second block is appended.
+no second block is appended. When the narrative snippet already exists in AGENTS.md, the skill
+replaces it in place with the shipped snippet — everything from its opening marker to its closing
+marker, both included — and no second snippet is appended. A snippet written before the snippet
+carried markers also counts as existing: it runs from its
+`## arkeology — Persistent Artifact Memory` heading through its own second level-2 section,
+`## Post-Commit Protocol (arkeology)`, to the line before the next level-2 heading after that one,
+or to the end of the file, and the marked snippet takes its place. Nothing outside the block and
+the snippet changes.
 
 **Example**
 
 - Given AGENTS.md already contains a `arkeology:config` block, when the operator re-runs the
   skill and provides new exclusion answers, then the existing block is replaced and no second
   block appears in the file.
+- Given AGENTS.md holds a snippet between `<!-- arkeology:snippet … -->` and
+  `<!-- /arkeology:snippet -->`, followed by a project section `## Release process`, when the
+  operator re-runs the skill, then exactly one snippet remains, between the markers, carrying the
+  shipped stamp, and `## Release process` and everything after it are unchanged.
+- Given AGENTS.md holds an unmarked snippet — `## arkeology — Persistent Artifact Memory`, then
+  `## Post-Commit Protocol (arkeology)` — followed by `## Release process`, when the operator
+  re-runs the skill, then both unmarked sections are gone, the marked snippet stands in their
+  place, and `## Release process` is unchanged.
 
 Source: none
 
@@ -492,9 +670,13 @@ contains: the standing never-write instruction referencing `local_only_types` an
 `local_only_paths` from the `arkeology:config` block; Variant A (git-only ADR) and Variant B
 (arkeology-only ADR), clearly labelled so Step 6 can select the correct one; and when-to-write
 guidance, the artifact type table, description quality guidance, tier 2 vs tier 3 selection,
-query strategy, synthesis guidance, and a pointer to MCP Resources.
+query strategy, synthesis guidance, and a pointer to MCP Resources. Outside both ADR variants it
+also contains proactive referencing guidance — when an artifact mentions another artifact, link it
+as `arkeology://artifact/{id}` — and reference-healing guidance — when a reference no longer
+resolves, search for the intended target and propose the fix to the operator, never rewrite it
+silently — and the post-commit linking protocol R35 states.
 
-Source: none
+Source: adr-2026-07-03-artifact-cross-referencing D9 — the referencing and reference-healing guidance
 
 ### R26 — The snippet tells an agent running in a pipeline to reconcile before its job ends
 
@@ -566,6 +748,124 @@ who revised or verified an artifact and when — never artifact content.
 
 Source: NFR-11; T15 R4, R7, R9, R10; vision.md § Operating Context; the job artifact's exposure to the repository's readers (Operator, 2026-11-10)
 
+### R35 — The snippet's post-commit protocol links what the session itself wrote, and proposes only to find what was never linked
+
+⚠️ Hard to reverse: `link_metadata` only ever adds to `commit_refs`, so an artifact linked to the
+wrong commit stays linked to it, and drops out of every later proposal as already linked.
+
+WHEN Step 6 writes the narrative snippet THE SYSTEM SHALL include in
+`references/agents-snippet.md`, outside both ADR variants, a post-commit protocol that instructs
+the agent:
+
+1. **Through the session** — keep a list of the artifacts the session wrote and has not yet linked
+   to a commit: the `artifact_id` of every `write_artifact` success response and of every
+   `write_artifacts` result entry with `written: true`. A response or entry carrying an `error`
+   adds nothing.
+2. **After every `git commit`** — when the list is empty, make no Arkeology call and say nothing.
+   Otherwise take the commit's SHA (`git rev-parse HEAD`), show the operator the listed artifacts,
+   which they may confirm, trim or add to, and on their confirmation call
+   `link_metadata(artifact_ids=[<confirmed ids>], commit_refs=[<sha>])`. When the response carries
+   no `error`, the confirmed ids leave the list; an id the operator took off stays on it for the
+   next commit. When the response carries an `error`, the agent keeps the list and that SHA,
+   reports the error to the operator, and repeats the same call once its cause is resolved — the
+   merge de-duplicates, so a repeat adds nothing twice.
+3. **When the list is incomplete** — the session no longer holds it, or the operator asks which
+   artifacts in the scope were never linked — call
+   `propose_commit_links(commit_sha=<sha>, since_ulid=<bound>)`. The bound is the
+   `last_edited_ulid` of the session's first `write_artifact` success response, when the agent
+   still holds it; otherwise `since_ulid` is omitted and every unlinked artifact in the scope is
+   proposed. A proposal is keyed on scope and write time, not on who wrote an artifact, so it lists
+   teammates' unlinked work too: the agent shows each entry's `title`, `type` and `last_edited_at`,
+   and links, with step 2's call, only the ids the operator confirms as this commit's.
+
+The protocol has no session-start step: the agent never generates a ULID, never runs code outside
+the Arkeology server to obtain one, and never uses a link response's `next_since_ulid` as a bound.
+
+**Why:** a scope is one team's project area, written by several engineers with several agents
+each, and a proposal keyed on scope and write time cannot tell their work from this session's; each
+write response already names what the session wrote, so the ordinary step needs neither a timestamp
+nor a cursor. A ULID the agent made itself would need a ULID library in the project's own Python,
+which the project need not have, while the server's `last_edited_ulid` is already in the session's
+hands. A link response's `next_since_ulid` is minted after the link, so an artifact written between
+showing the list and that call falls below it and would never be proposed.
+
+**Example**
+
+- Given a session that wrote two artifacts with `write_artifact` and then commits `abc1234`, when
+  the operator confirms both, then the agent calls
+  `link_metadata(artifact_ids=[<both ids>], commit_refs=["abc1234"])` without calling
+  `propose_commit_links`, and its list is then empty.
+- Given a teammate's unlinked artifact written into the same scope during this session, when this
+  session commits, then that artifact is neither shown nor linked — it is not on the session's list.
+- Given a commit made while the session's list is empty, when the commit lands, then the agent
+  makes no Arkeology call and says nothing.
+- Given a session that no longer holds its list but still holds its first `write_artifact`
+  response's `last_edited_ulid`, when it commits, then it calls `propose_commit_links` with that
+  value as `since_ulid` and links only the entries the operator confirms.
+- Given a `link_metadata` call that returns `annotation_unavailable`, when the operator has resolved
+  the cause, then the agent repeats the call with the same ids and the same SHA.
+
+Source: FR-31; FR-53; adr-2026-06-16-artifact-commit-traceability; p10-t37-propose-commit-links R1, R2, R5; p12-t49-link-metadata R7; the session's own write responses replace the session-start ULID and the proposal in the per-commit step (Operator, 2026-11-15)
+
+### R36 — The snippet is copied between markers that carry the release version it shipped in
+
+⚠️ Hard to reverse: every project set up from then on carries the markers in its own `AGENTS.md`,
+outside this repository; a later change to their spelling, or to what the stamp means, leaves every
+skill that finds, compares or replaces the snippet having to recognise both the old and the new
+form.
+
+The shipped `references/agents-snippet.md` holds, inside its outer code fence, an opening marker
+`<!-- arkeology:snippet <release version> -->` as the snippet's first line and a closing marker
+`<!-- /arkeology:snippet -->` as its last, each on a line of its own. The release version is the
+snippet's stamp: the semantic version of the Arkeology release the snippet ships in, the one
+`pyproject.toml` carries. The snippet file is one of the files the release process updates: every
+release writes the version it releases into the opening marker, whether or not the snippet's text
+changed. When Step 6 writes the snippet to the project's `AGENTS.md`, it copies both markers
+unchanged, stamp included, so the copy says which release it came from; between them is the
+snippet with its one ADR variant. The `arkeology:config` block keeps its own markers and sits
+outside the snippet's.
+
+**Example**
+
+- Given the snippet shipped in release `0.8.0`, when Step 6 writes it to a project, then the
+  project's `AGENTS.md` holds `<!-- arkeology:snippet 0.8.0 -->` on the line before the
+  `## arkeology — Persistent Artifact Memory` heading, `<!-- /arkeology:snippet -->` on the line
+  after the snippet's last line, and the `arkeology:config` block outside both.
+- Given release `0.9.0` changes nothing in the snippet's text, when it is released, then the
+  shipped opening marker reads `<!-- arkeology:snippet 0.9.0 -->`.
+
+**Why:** the release version is the number the project already releases by, so the stamp names a
+release a person can look up in the changelog. The plugin carries no version of its own — its
+manifest omits one so that Claude Code tracks the commit — and neither do the skill directories
+Claude Code and Copilot install, so the version is written into the snippet itself. Two costs are
+accepted: a project is offered a refresh after a release that left the snippet's text unchanged,
+where the replacement changes only the stamp; and an install that tracks commits between releases
+can hold a changed snippet under the previous release's stamp until the next release.
+
+Source: FR-24; the stamp is the release version (Operator, 2026-11-15)
+
+### R37 — An out-of-date snippet is refreshed only on the operator's yes
+
+When a skill finds that the project's snippet is out of date — its stamp differs from the stamp of
+the shipped snippet it compares against, or it carries no markers — it tells the operator the
+project's stamp, or that it has none, and the shipped one; says that replacing it discards any edit
+made between the markers; and asks whether to replace it. On yes, it replaces the snippet in place
+as re-running the setup does (R20), with the ADR variant matching the `adr_strategy` in the
+project's `arkeology:config` block, and changes nothing else in `AGENTS.md`. On no, it leaves
+`AGENTS.md` unchanged. It never replaces the snippet without that yes, and makes no offer for a
+snippet whose stamp equals the shipped one.
+
+**Example**
+
+- Given a project whose snippet carries a stamp other than the shipped one and whose config block
+  says `adr_strategy: git-only`, when the operator answers yes, then the snippet between the markers
+  is the shipped one with Variant A, carrying the shipped stamp, and the rest of `AGENTS.md` is
+  unchanged.
+- Given the same project, when the operator answers no, then `AGENTS.md` is byte for byte
+  unchanged.
+
+Source: none
+
 ## 8. Rules — Connectivity probe objects
 
 The Step 2 annotation probe writes a real object into the deployment's own `WRITE_PREFIX`.
@@ -578,9 +878,11 @@ carries it (R29).
 
 When a Step 2 check writes a throwaway probe object into the deployment's own `WRITE_PREFIX`, the
 skill names it with the reserved non-artifact marker `_arkeology_<purpose>_probe` as the key's
-final path segment — the annotation probe's key is `<WRITE_PREFIX>/_arkeology_annotation_probe`,
-matching the existing `_arkeology_health_probe` (`tools/health.py`) and
-`_arkeology_startup_probe` (`startup.py`) keys. Step 2's annotation probe writes only
+final path segment — the annotation probe's key is `<WRITE_PREFIX>/_arkeology_annotation_probe`.
+The server's own probe keys begin their final path segment with the same marker and append a
+ULID per call: the health probe's key is `<WRITE_PREFIX>/_arkeology_health_probe_<ULID>`
+(`arkeology.tools.health` § health_check), and the startup probe's is
+`<WRITE_PREFIX>/_arkeology_startup_probe_<ULID>`. Step 2's annotation probe writes only
 `<WRITE_PREFIX>/_arkeology_annotation_probe`. No artifact identifier can collide with this
 marker: every generated identifier starts with a type slug drawn from `ARTIFACT_TYPES`.
 
@@ -632,7 +934,7 @@ or named in the reconcile response.
   re-indexed, and does not appear anywhere in the reconcile response.
 - Given that same probe object alongside a genuinely orphaned artifact, when `reconcile_index`
   runs, then the real orphan is still found and re-indexed — the exclusion filters the probe only.
-- Given the existing `_arkeology_health_probe` and `_arkeology_startup_probe` keys, when
+- Given a health probe key and a startup probe key, each its marker with a ULID appended (R22), when
   `reconcile_index` runs, then they remain excluded exactly as before.
 
 Source: none
@@ -652,7 +954,7 @@ unchanged.
 **Example**
 
 - Given a write prefix covered by T90 R39's write-fence statement and a role holding the core S3
-  actions, `s3:PutObjectTagging` and the four annotation actions, when Step 2's annotation probe
+  actions, `s3:PutObjectTagging` and the three annotation actions, when Step 2's annotation probe
   runs on either path, then the probe object lands, the probe prints `ANNOTATIONS_OK`, and the
   cleanup deletes the object.
 - Given the same prefix and a role without `s3:PutObjectTagging`, when the probe runs, then Step 2
@@ -770,6 +1072,19 @@ top-level `skills/` directory and no symlinks.
 |------|--------|-------|
 | `plugins/arkeology/skills/setting-up-arkeology/references/agents-snippet.md` | Modify | Add R26's and R28's instruction as a short pipeline subsection outside both ADR variants: fail the job on a `reconcile_index` error as well as on an artifact left in `failed`/`stuck_failures` or any `failure_logged: false`; before failing, write the named entries to `arkeology-recovery.jsonl`, never to the job's log output or a commit; the note to the pipeline's owners that the job keeps that file as a job artifact with access limited to those allowed to read the store; and the recovery by T15 R10's procedure. Lands with T15's `failure_logged` and per-bucket log path |
 
+**Annotation probe as a hard stop (R31) and the snippet's referencing guidance (R21):**
+
+| File | Action | Notes |
+|------|--------|-------|
+| `plugins/arkeology/skills/setting-up-arkeology/SKILL.md` | Modify | Step 2 annotation probe (Check 8), both branches: a failed probe stops the skill with no choice to continue and no config file written; the message names the failed annotation action, or the unsupported region or bucket type, and says the server refuses to start there. Lists the three annotation IAM actions on success and failure alike; remove `s3:ListObjectAnnotations` from the "four required IAM actions" list and any list call from both probe branches |
+| `plugins/arkeology/skills/setting-up-arkeology/references/agents-snippet.md` | Verify (flag) | Contains, outside both ADR variants, the `arkeology://artifact/{id}` referencing guidance and the reference-healing guidance; add whichever is missing |
+
+**Post-commit linking protocol (R35):**
+
+| File | Action | Notes |
+|------|--------|-------|
+| `plugins/arkeology/skills/setting-up-arkeology/references/agents-snippet.md` | Modify | Rewrite the `Post-Commit Protocol (arkeology)` section. Remove the "At session start" step and its `python -c "from ulid import ULID; print(ULID())"` one-liner, and the step that replaces `since_ulid` with `link_metadata`'s `next_since_ulid`. The per-commit step now links the session's own list of written ids with `link_metadata(artifact_ids=[...], commit_refs=[<sha>])` after the operator's confirmation, with no `propose_commit_links` call; `propose_commit_links` is kept for an incomplete list, bounded by the session's first `write_artifact` response's `last_edited_ulid` or unbounded, with each entry's title, type and write time shown because it lists teammates' work too. On a `link_metadata` error the list and SHA are kept and the call repeated once the cause is resolved |
+
 **Store-schema tag on the probe write (R29) and the new deployment's write fence (R30) — lands with T90's tag:**
 
 | File | Action | Notes |
@@ -777,9 +1092,31 @@ top-level `skills/` directory and no symlinks.
 | `tests/unit/test_skill_store_schema_tag_drift.py` | Create | Red first: extracts the tag that Step 2's annotation probe sends from the shipped `SKILL.md` — the aws-cli `put-object`'s `--tagging` and the boto3 `put_object`'s `Tagging` — and asserts each equals the key and value T90 adds to `constants.py`; likewise the `Sid`, tag key and value in the write-fence statement Step 2 shows (R30) |
 | `plugins/arkeology/skills/setting-up-arkeology/SKILL.md` | Modify | Step 2 annotation probe, both branches of Check 8: the probe object's write sends `arkeology-store-schema=2`; a refused probe object write gets its own interpretation, naming `s3:PutObject`, `s3:PutObjectTagging` and the write fence, apart from the annotation `AccessDenied` one. T90's row for this file adds `s3:PutObjectTagging` to the IAM actions. Before Check 8, for a new deployment: the R30 statement built from `ARTIFACT_BUCKET` and `WRITE_PREFIX`, the merge into an existing `Sid`, and the wait for the operator's word that it is applied |
 
+**Snippet markers, stamp and refresh (R20, R36, R37):**
+
+| File | Action | Notes |
+|------|--------|-------|
+| `tests/unit/test_snippet_stamp_drift.py` | Create | Red first: reads the version from the shipped snippet's `<!-- arkeology:snippet <release version> -->` marker and asserts it equals `[project].version` in `pyproject.toml`, so a release that bumped the version files but not the snippet fails CI (R36) |
+| `plugins/arkeology/skills/setting-up-arkeology/references/agents-snippet.md` | Modify | Inside the outer code fence: `<!-- arkeology:snippet <release version> -->` as the first line — the version `pyproject.toml` carries when the change lands — before `## arkeology — Persistent Artifact Memory`, and `<!-- /arkeology:snippet -->` as the last line, after the Post-Commit Protocol section. The preamble above the fence says the markers are copied unchanged |
+| `AGENTS.md` | Modify (flag) | Name the snippet file as one of the files the release updates, beside `pyproject.toml` and `package.json`: the release tooling detects version files by pattern and does not recognise a version inside an HTML comment marker (R36) |
+| `plugins/arkeology/skills/setting-up-arkeology/SKILL.md` | Modify | The AGENTS.md write (shipped as its Step 5 Part C): copy the snippet with its markers; replace an existing snippet between its markers, or an unmarked one from its `## arkeology — Persistent Artifact Memory` heading through its `## Post-Commit Protocol (arkeology)` section to the next level-2 heading, in place of the present "identifiable by its heading or the never-write instruction block" wording (R20). Add R37's refresh — show both stamps, warn that local edits between the markers are discarded, replace only on yes, variant from the config block's `adr_strategy` — as a short section the sync and migration skills can be pointed at |
+
+**Text model, target path, restart and resume (R3, R4, R7, R32, R33, R34):**
+
+| File | Action | Notes |
+|------|--------|-------|
+| `plugins/arkeology/skills/setting-up-arkeology/SKILL.md` | Verify | Step 1's `BEDROCK_TEXT_MODEL` row, Step 2's Check 7 and every Step 4 entry already carry the text model — check them against R3, R4 and R7 |
+| `plugins/arkeology/skills/setting-up-arkeology/SKILL.md` | Modify | Step 4: name the resolved absolute path to the operator together with the entry, and put a concrete example path beside the reference table (R32). Restart: give it at the end of Step 4, add the VS Code + Copilot Chat row, and after a declined or manual write wait for the operator's word that the entry is in place (R33). Phase 1A: when the detected file already holds an `arkeology` entry, offer to resume at Step 5 before collecting any parameter (R34) |
+| `plugins/arkeology/skills/setting-up-arkeology/SKILL.md` | Modify (flag) | The shipped skill writes `AGENTS.md` (its Step 5) before the restart and the health check (its Step 6); R1, R33 and the Boundaries put the health check at Step 5 and the `AGENTS.md` write at Step 6, after it passes. Reorder to match — confirm with the operator first, since the shipped order was chosen so one restart picks up both files |
+
 ### Contracts
 
-None.
+- `docs/contracts/modules/arkeology.tools.health.md` § health_check — the per-component `status` Step 5 blocks on (R16), and the per-call health probe key (R22).
+- `docs/contracts/modules/arkeology.tools.reconcile.md` § reconcile_index — the orphan scan's exclusion of `_arkeology_` probe keys (R25), and the `failed`, `stuck_failures` and error responses the pipeline instruction reads (R26).
+- `docs/contracts/modules/arkeology.tools.write.md` § write_artifact — the success response's `artifact_id` and `last_edited_ulid`, and the `failure_logged` flag, which the snippet's instructions read (R26, R35).
+- `docs/contracts/modules/arkeology.tools.write_artifacts.md` § write_artifacts — the `written` and `artifact_id` of each result entry the session's list collects (R35).
+- `docs/contracts/modules/arkeology.tools.link_metadata.md` § link_metadata — the post-commit link call and its error responses (R35).
+- `docs/contracts/modules/arkeology.tools.propose_commit_links.md` § propose_commit_links — the proposal call, its `since_ulid` bound and the entry fields shown to the operator (R35).
 
 ### Testing Approach
 
@@ -801,6 +1138,12 @@ test file before the implementation file it gates:**
    test first, red against the probe as it stands with no tag and no fence statement, then add the
    tag on both branches and the statement before Check 8.
 
+**The snippet's stamp adds one more drift test, before the snippet change it gates:**
+
+4. **`tests/unit/test_snippet_stamp_drift.py` → `references/agents-snippet.md`** (R36) — write the
+   drift test first, red against the snippet as it stands with no marker, then add both markers
+   with the version `pyproject.toml` carries.
+
 **`SKILL.md` structure:**
 - [ ] Exactly 6 numbered steps, each as a `##` section
 - [ ] Step 1 opens with a project-root scan for existing MCP client config files before
@@ -814,9 +1157,17 @@ test file before the implementation file it gates:**
   file is found in the project root
 - [ ] Step 1 lists every remaining required parameter with its default where applicable;
   no IAM principal ARN collected (no provisioning or IAM steps)
-- [ ] Step 2 lists all five reachability checks explicitly: credentials, `uv`,
+- [ ] Step 1 collects `BEDROCK_TEXT_MODEL` as required with no default, and says that only the
+  migration skill uses it, that a migration of more than ten files cannot generate descriptions
+  without it, and that outside `us-east-1` the ID is a region-prefixed inference profile (R3)
+- [ ] Step 2 lists all six reachability checks explicitly: credentials, `uv`,
   S3 bucket (`head-bucket`), Vectors index (`get-index`), Bedrock embedding
-  model (`invoke-model`); states that any failure is a hard stop
+  model (`invoke-model`), Bedrock text model (`invoke-model`, Nova message format); states that
+  any failure is a hard stop
+- [ ] Step 2's annotation probe reports the three annotation IAM actions — no
+  `s3:ListObjectAnnotations` — and a failed probe stops
+  the skill like any other Step 2 check, naming the failed action or the unsupported region or
+  bucket type, with no option to proceed (R31)
 - [ ] Step 2 does NOT contain any AWS resource creation commands
 - [ ] Step 2 reads the Vectors index's `indexMode`; on anything but `ENHANCED` it stops and shows
   the `update-index-mode` command for the Admin to run, without running it, and says the index
@@ -855,6 +1206,14 @@ test file before the implementation file it gates:**
   global config is written during project installation; when operator declines a
   project-scoped write (e.g. Codex trust), the skill shows the entry for manual
   addition and continues — it does not fall back to a global file
+- [ ] Step 4 names the resolved absolute path of the target file to the operator before reading
+  or writing it, and the skill shows a concrete example path beside the reference table (R32)
+- [ ] Step 4 ends with the restart action for each of the five client rows, run from the project
+  root, says a client started elsewhere ignores the project config silently, and after a declined
+  or manual write waits for the operator's word that the entry is in place (R33)
+- [ ] A skill invoked with an `arkeology` entry already in the detected file offers to resume at
+  Step 5, asks for no parameter again on resume, and repeats the restart action when no
+  `health_check` tool is available (R34)
 - [ ] Step 5 calls `health_check` and blocks on anything other than all-ok
 - [ ] Step 6 has two labelled parts (A: ADR strategy, B: additional exclusions) plus
   a final config-block write instruction
@@ -865,6 +1224,13 @@ test file before the implementation file it gates:**
   keys (`installed`, `adr_strategy`, `local_only_types`, `local_only_paths`)
 - [ ] Step 6 instructs the agent to replace an existing block in place (not append)
 - [ ] Step 6 instructs the agent to load and apply `references/agents-snippet.md`
+- [ ] Step 6 copies the snippet with both markers and the stamp unchanged; on a re-run it replaces
+  the snippet between its markers, or an unmarked snippet from its heading through its
+  `## Post-Commit Protocol (arkeology)` section to the next level-2 heading, and appends no second
+  copy (R20, R36)
+- [ ] The skill states the refresh: both stamps named, the warning that edits between the markers
+  are discarded, replacement only on the operator's yes with the variant from `adr_strategy`, and
+  `AGENTS.md` unchanged on no (R37)
 - [ ] No `YOUR-*` placeholder remains in any emitted config or entry example
 - [ ] No `.env` file is written or mentioned as a step
 - [ ] No AWS resource creation command appears anywhere in the skill
@@ -886,6 +1252,9 @@ test file before the implementation file it gates:**
   prefix already in use it shows none (R30)
 
 **`references/agents-snippet.md` structure:**
+- [ ] Inside the outer code fence, opens with `<!-- arkeology:snippet <release version> -->`, the
+  version in `pyproject.toml`, and closes with `<!-- /arkeology:snippet -->`, each on its own line
+  (R36)
 - [ ] Contains the standing never-write instruction referencing `local_only_types` and
   `local_only_paths` from the `arkeology:config` block
 - [ ] Contains Variant A (git-only ADR) and Variant B (arkeology-only ADR) clearly
@@ -893,6 +1262,15 @@ test file before the implementation file it gates:**
 - [ ] Contains when-to-write guidance, artifact type table, description quality
   guidance, tier 2 vs tier 3 selection, query strategy, synthesis guidance, and pointer
   to MCP Resources
+- [ ] Contains the `arkeology://artifact/{id}` referencing guidance and the reference-healing
+  guidance (search and propose a fix, never rewrite silently) (R21)
+- [ ] Contains R35's post-commit protocol: the session keeps the ids its `write_artifact` and
+  `write_artifacts` responses returned; after each commit it links them with
+  `link_metadata(artifact_ids=[...], commit_refs=[<sha>])` on the operator's confirmation and makes
+  no call when the list is empty; `propose_commit_links` only for an incomplete list, bounded by the
+  first `write_artifact` response's `last_edited_ulid` or unbounded, with title, type and write time
+  shown; no session-start step, no ULID the agent generates, no `python -c` one-liner, and no use of
+  `next_since_ulid`
 - [ ] Contains R26's pipeline instruction: `reconcile_index` before the job ends after any
   `failure_logged: true`, and a failed job on `failure_logged: false`, an unresolved entry or a
   `reconcile_index` error

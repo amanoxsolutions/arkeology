@@ -14,15 +14,25 @@ sources:
     last_modified: 2026-09-24T00:00:00Z
   - resource: docs/planning-artifacts/plan.md
     title: Plan Arkeology (Phase 12, T54)
+  - resource: docs/specs/p10-t42-mcp-data-resources.md
+    title: T42 — MCP Data Resources
+  - resource: .docs/reviews/architecture-review-2026-11-15-arkeology-phases-9-10-12.md
+    title: "Architecture review — Arkeology, plan phases 9, 10 and 12"
+  - resource: docs/contracts/modules/arkeology.tools.search.md
+    title: arkeology.tools.search
+  - resource: docs/contracts/data/s3vectors.artifact.md
+    title: s3vectors.artifact
 generated:
   by: "axians-pm/claude-opus-4.8"
   at: 2026-07-03T00:00:00Z
 revised:
   by: "axians-architect/claude-opus-5-5"
-  at: 2026-11-09T19:06:35Z
+  at: 2026-11-15T20:28:28Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
+  - by: "axians-architect/claude-fable-5-2"
+    at: 2026-11-15T20:45:07Z
 ---
 
 # Surface artifact last-edited age in search results (Option A)
@@ -73,12 +83,12 @@ pure semantic score; no recency weighting is applied. This feature is transparen
 ## 4. Boundaries
 
 **Always:**
-- Reuse the existing ULID→ISO 8601 derivation already used by `propose_commit_links` / `resources.py` — do not invent a new parsing scheme.
+- Derive `last_edited_at` with the shared `derive_last_edited_at` helper in `src/arkeology/tools/_search_helper.py`, which `propose_commit_links` and `synthesise_artifacts` also use — do not invent a new parsing scheme.
 - Keep result ordering identical to today (pure semantic score); this feature is transparency only.
 - Match the existing `read_artifact` / `list_artifacts` convention for the raw `last_edited_ulid` field (`meta.get(...) or None`).
 
 **Ask First:**
-- Whether to extract a shared ULID→ISO helper (would also touch `propose_commit_links.py` and `resources.py`) versus deriving inline in `search.py`. Confirm with the PM before touching files beyond `search.py` and its tests. This decision does not block starting from the inline approach.
+- Nothing — the ULID→ISO derivation is the shared `derive_last_edited_at` helper in `_search_helper.py` (named in `p10-t42-mcp-data-resources` R5).
 
 **Never:**
 - Never add recency-weighted ranking, decay, or age penalties — that is Option B (backlog B-6) and requires an ADR first.
@@ -95,11 +105,12 @@ pure semantic score; no recency weighting is applied. This feature is transparen
 | `tests/unit/test_tools_search.py` | Modify | Add unit tests for R1 and R2 (US-1 and US-2) (see Testing Approach). |
 | `src/arkeology/resources.py` | Modify (doc) | *Uncertain / defer to Tech Writer.* The `last_edited_ulid` system-generated field table (~L88) may warrant a note that `search_artifacts` now returns it plus a derived `last_edited_at`. Flag rather than assume. |
 
-Derivation reference (do not copy verbatim — reuse or extract): `propose_commit_links.py` converts a ULID to ISO via `ULID.from_str(ulid_str).datetime.isoformat()` and sets `None` on `ValueError`; `_derive_last_modified` in `resources.py` is the annotation-side equivalent.
+Derivation: call `derive_last_edited_at(last_edited_ulid)` from `src/arkeology/tools/_search_helper.py`; it returns the ISO 8601 string, or `None` for an absent or malformed ULID.
 
 ### Contracts
 
-None.
+- `docs/contracts/modules/arkeology.tools.search.md` § search_artifacts — the `last_edited_ulid` and `last_edited_at` every result carries, their absent and malformed cases, and ranking left unchanged (R1–R3).
+- `docs/contracts/data/s3vectors.artifact.md` § Storage Shape — the vector-metadata `last_edited_ulid` a result reads (R1, R2).
 
 ### Testing Approach
 

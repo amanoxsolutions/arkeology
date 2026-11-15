@@ -18,12 +18,19 @@ sources:
   - resource: docs/architecture-decisions/adr-2026-05-29-aws-backend-selection.md
     title: AWS S3 + S3 Vectors + Bedrock as the Storage and Embedding Backend
     last_modified: 2026-11-12T14:38:17Z
+  - resource: docs/specs/p10-t35-filter-range-operators.md
+    title: T35 — Filter Range Operators ($gte / $lte)
+  - resource: docs/learnings.md
+    title: Learnings
+  - resource: tests/integration/clients/test_vectors_filter_semantics.py
+  - resource: .docs/reviews/architecture-review-2026-11-15-arkeology-phases-9-10-12.md
+    title: "Architecture review — Arkeology, plan phases 9, 10 and 12"
 generated:
   by: "axians-tech-writer/claude-opus-5"
   at: 2026-09-04T00:00:00Z
 revised:
   by: "axians-architect/claude-opus-5-5"
-  at: 2026-11-12T14:54:57Z
+  at: 2026-11-15T19:18:17Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
@@ -155,6 +162,15 @@ before any failure-log append:
   retired; the annotation copy is the sole source of truth for both link fields.
 - A reader must tolerate `tags`, `source_artifacts`, and `commit_refs` being absent rather than
   empty.
+- **A range on a string value is evaluated in process, never by the index.** The index accepts the
+  range operators on numeric values only and rejects a range on a string value — `last_edited_ulid`,
+  `date`, or any other `str` key above — with a `ValidationException`, as the integration suite's
+  filter-semantics test pins against the real service. A string range is therefore applied by the
+  server after the vectors are fetched and is never placed in a filter expression sent to the
+  index; a time bound the index itself must apply needs a numeric field. That the in-process filter
+  evaluator accepts a string range proves nothing about the index: the unit suite's query double
+  evaluates filters with that same evaluator, so a string range sent to the index passes every unit
+  test and fails only against the real service.
 - `commit_refs` here is a bounded, most-recent-N **derived** view. A consumer may never treat its
   contents as the complete set, may never derive a count of an artifact's total commit references
   from it, and may never read it back as the current link-field state. Its one job is serving the

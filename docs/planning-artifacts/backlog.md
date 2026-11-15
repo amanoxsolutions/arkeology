@@ -12,12 +12,15 @@ sources:
   - resource: docs/specs/p3-t15-partial-write-failure-log.md
     title: T15 — Partial Write Failure Log
     last_modified: 2026-11-10T16:24:49Z
+  - resource: .docs/reviews/architecture-review-2026-11-15-arkeology-phases-9-10-12.md
+    title: Architecture review — Arkeology, plan phases 9, 10 and 12
+    last_modified: 2026-11-15T16:30:41Z
 generated:
   by: "axians-pm/claude-sonnet-4.6"
   at: 2026-06-13T18:25:19Z
 revised:
-  by: "axians-architect/claude-opus-5-5"
-  at: 2026-11-12T14:38:17Z
+  by: "axians-architect/claude-sonnet-5-5"
+  at: 2026-11-15T20:46:40Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
@@ -146,6 +149,23 @@ Items that were promoted to a phase are **not** listed here — see the phase hi
   unknown types). In scope per the first-class OKF commitment (D6).
   Source: [`brainstorming-2026-06-15-okf-alignment.md`](../brainstorming/brainstorming-2026-06-15-okf-alignment.md) (D6).
 
+- **B-16 — Match an artifact `type` regardless of case and punctuation.** Types are stored
+  verbatim and matched exactly (T77 R3), so `attested computation` does not find
+  `Attested Computation` — in Studio's "Other type…" box (T77 R6) or in any `type` filter of the
+  tools. brainstorming-2026-09-17-okf-v02-adoption D37 rejected case-insensitive matching because
+  S3 Vectors filters compare exactly, so it needs a second, normalised copy of `type`. *Idea to
+  evaluate first:* store beside `type` a normalised copy — letters and digits only, lower-cased —
+  in filterable vector metadata, and apply the same conversion to the `type` argument on the
+  server before filtering, so `Attested Computation`, `attested-computation` and
+  `attested_computation` all find it. The stored `type` stays verbatim and is what readers see.
+  *To settle before it can be specced:* the new key counts against the filterable metadata budget
+  on every section vector; existing vectors need it added (a store-migration step or a reconcile
+  pass); two types differing only in case or punctuation (`Spec` and `spec`) would share one
+  filter group, as T77 R7 already makes them share one id slug — intended? And whether a better
+  option exists, for example a Studio dropdown built from the types actually in use. Needs a
+  decision before it can be specced.
+  Source: brainstorming-2026-09-17-okf-v02-adoption D37; T77 R6 (Operator, 2026-11-15).
+
 ## Operational tuning
 
 - **B-11 — Repair a `link_metadata` vector-write failure without re-embedding the artifact.** When
@@ -169,13 +189,13 @@ Items that were promoted to a phase are **not** listed here — see the phase hi
   (`purge.py`, `freshness.py`, `link_metadata.py`, `reconcile.py`) but each hardcodes its own fixed
   bound (`5`, matching `SECTION_CONCURRENCY`'s default) with no caller or operator override —
   reviewed and accepted as non-blocking for T63 itself, but the inconsistency is worth resolving.
-  A sixth, pre-existing instance: `list.py`'s `_fetch_link_fields` fans out an **unbounded**
-  `asyncio.gather` (no semaphore at all) over every distinct candidate artifact_id, and T58's
-  `propose_commit_links.py` fix (`docs/specs/p12-t58-commit-refs-cap-references-removal.md`)
-  deliberately mirrored that exact pattern — so the same unbounded fan-out now exists in two tools,
-  predating T63 and out of its scope. Include both in the unification.
-  Propose a single, simple mechanism instead of five independent bounds — e.g. one shared setting/
-  constant, or extending `artifact_concurrency`-style per-call override to all five tools — design-first:
+  Two more instances hardcode the same bound of `5`: `list.py`'s `_fetch_link_fields` (the
+  per-artifact link-field read) and, mirroring it, `propose_commit_links.py` (T58). With
+  `include_links` off by default (T10 R11) the default listing makes none of those reads, so the
+  `list.py` instance only matters for a caller that asks for the link fields. Include both in the
+  unification.
+  Propose a single, simple mechanism instead of independent bounds — e.g. one shared setting/
+  constant, or extending `artifact_concurrency`-style per-call override to every tool that fans out — design-first:
   decide whether this should be a global server setting (env var, one source of truth, no per-call
   tuning) or a per-call parameter matching `write_artifacts.py`'s existing shape.
   Source: Phase 12 T63 review (2026-08-19).
@@ -192,6 +212,55 @@ Items that were promoted to a phase are **not** listed here — see the phase hi
   was only `search.py`/`propose_commit_links.py`. Low priority; fold into a future hygiene batch.
   Source: Phase 12 T68 review (2026-08-19).
 
+- **B-17 — Let a migration descriptor name a repository file instead of carrying its text
+  (design-first).** The migration skill reads every file and places its whole text in the
+  descriptor's `content`, twice per document: once in the dry run, once in the write. The 2026-11-15
+  specs trim the dry-run echo (T30 R16: the response returns the index and the description, not the
+  document), but the write call still has the model compose every document into the tool call, and
+  what is stored is whatever it emitted — no rule compares the submitted `content` with the file, so a
+  dropped paragraph or a "tidied" table becomes the migrated artifact silently. *Idea:* a descriptor
+  names a repository-relative file that the server reads, and keeps inline `content` for a caller with
+  no file; the path form holds only while the server runs beside the files (stdio, on the developer's
+  machine). *To settle before it can be specced:* **path confinement** — the server would read files
+  named by the caller, and a prompt-injected document could name any readable file, so decide the root
+  it may read under (the project directory, a configured root), how `..` and symlinks are handled, and
+  where the contract states it; how the T56 content rewrite and the path-to-id map apply to text the
+  server read; and whether the server returns a content hash so the skill can detect an edit between
+  dry run and write. Needs an operator answer on the security question.
+  **Resolve when Phase 15's tasks are planned** — build it, spec it, or drop it.
+  Source: architecture review of 2026-11-15 (`.docs/reviews/architecture-review-2026-11-15-arkeology-phases-9-10-12.md`).
+
+- **B-18 — Slim the agent-instruction snippet that setup copies into each project's `AGENTS.md`.**
+  The 2026-11-15 specs give the snippet opening and closing markers carrying the release version, a
+  replace-in-place rule, and a stamp check in the sync and migration skills (T31a R36–R37, T34 R8), so
+  a project's copy can be refreshed. What is not done: the copy still carries tool names and call
+  shapes that change with the server (the tool-call example's parameters, the post-commit linking
+  steps, the pipeline reconcile and recovery rules), so every server release that changes one leaves
+  every earlier project's copy wrong until someone refreshes it. *Idea:* leave in `AGENTS.md` only
+  what is the project's own (the never-write lists, the ADR variant) and what must be read before the
+  server answers, and point to the server's guidance resources (`arkeology://schema/*`) for tool
+  names and call shapes. *To settle:* whether an agent reliably reads a resource at session start in
+  every host, and whether, once the copy is small, the stamp and refresh machinery still pays for
+  itself. Phase 15 renames the tool surface and so changes every project's snippet, which is why this
+  has to be decided before that release.
+  **Resolve when Phase 15's tasks are planned** — before the renaming release.
+  Source: architecture review of 2026-11-15 (`.docs/reviews/architecture-review-2026-11-15-arkeology-phases-9-10-12.md`).
+
+- **B-19 — Make post-commit link discovery independent of the commit and free of gaps.** Two
+  defects in how an agent finds the artifacts a commit should link. (1) `propose_commit_links` takes a
+  `commit_sha` that it only echoes back (T37 R6, response shape): the agent must run `git rev-parse
+  HEAD` before it may ask "what is unlinked?", although discovery returns the same result for any
+  SHA. Make it optional or drop it and its echo; the caller passes the SHA to the link call. (2) The
+  cursor for the next proposal, `next_since_ulid`, is minted by the link call after its loop (T49), so
+  an artifact written between the proposal and the link — the same agent's session summary, or another
+  of the developer's agents — is later than the cursor and is never proposed again. Return the cursor
+  from `propose_commit_links`, minted before its scan, adopt it after a successful link, and have the
+  link tool return none. Both change the `propose_commit_links` and `link_metadata` contracts and the
+  post-commit protocol (T31a R35); the contracts are unchanged for now by ruling.
+  **Resolve when Phase 15's tasks are planned** — T84 rewrites the link tool, so decide there whether
+  the cursor and the parameter change with it.
+  Source: architecture review of 2026-11-15 (`.docs/reviews/architecture-review-2026-11-15-arkeology-phases-9-10-12.md`).
+
 ## Test isolation
 
 - **B-15 — Unit tests write into the real failure log.** `tests/unit/conftest.py`'s settings
@@ -205,3 +274,40 @@ Items that were promoted to a phase are **not** listed here — see the phase hi
   per-test temporary file — for example an autouse fixture in `tests/unit/conftest.py` — and a
   test that needs a specific path still overrides it.
   Source: architecture review of 2026-11-10 (`.docs/reviews/architecture-review-2026-11-10-arkeology.md`).
+
+## Design alignment
+
+- **B-20 — Bring the code, skills and installer in line with the specs the 2026-11-15 architecture
+  review changed.** The review's fixes edited specs, contracts, ADR revisions and requirements only;
+  shipped code, skills and scripts still do what the older text said. One group per area:
+  - *Server code:* `migrate_artifacts.py` — dry run returns `{index, description}` (the rewritten
+    content only when the reference map is non-empty), stop honouring a descriptor's `overwrite`, an
+    empty generated description is a generation failure; `link_metadata.py` — the stopping error
+    carries the failing `artifact_id` and `linked_ids`; `reconcile.py` — an `error` code on every failed
+    or stuck entry, the stuck-group check with `failure_log_superseded`, re-apply the link values to
+    the annotation before pruning; `artifact.py` — `validate_references` rejects an element without
+    `/`, remove `REFERENCE_FIELDS` (one single-field reverse lookup, with `_search_helper.py`);
+    `write.py` — delete `_delete_orphan_vectors_with_retry` and its constants; `resources.py` — remove
+    `_artifact_last_modified`; `list.py` and `server.py` — `include_links`, default off;
+    `propose_commit_links.py` — stop putting `$gte since_ulid` in the index filter.
+  - *Remove the fourth annotation operation:* `list_object_annotations` in `interfaces.py`, `s3.py`,
+    the `credentials.py` message, `startup.py` `_check_annotations`, `tests/unit/conftest.py`, the
+    tests and the integration test; `s3:ListObjectAnnotations` in the README and SERVER-REFERENCE.md
+    IAM lists and in the setup skill's "four required IAM actions"; the two `AGENTS.md` lines that
+    still say four.
+  - *Skills and scripts:* `migrating-to-arkeology` (no concurrency prompt, batches of 15, the status
+    mapping, no last completion step, no `unresolved_references`, the stamp check); `schema.yaml`
+    (`artifact_id`); delete `scripts/validate_manifest.py` and
+    `plugins/arkeology/skills/backfilling-references/` with its README row; the setup skill
+    (restart and resume steps, absolute path, text model); `agents-snippet.md` (markers, stamp,
+    rewritten post-commit protocol); the sync skill (Copilot pull before install, OpenCode check before
+    clearing the cache, final snippet check); `install.sh` (print the exact `git -C … pull`
+    pre-approval with `~` unexpanded — verify Claude Code matches it — remove the old wildcard
+    rule, the `claude plugin list` check, name `claude plugin marketplace update arkeology`);
+    `scripts/validate.py` (exit 1 on a missing skills folder).
+  - *Tests:* new `test_snippet_stamp_drift.py`; `test_skill_artifact_id_drift.py` drops the backfill
+    parameter; `test_tools_list`, `test_server`, `test_data_resources` for `include_links`.
+  - *Release process:* `agents-snippet.md` becomes a version file.
+  **Resolve when Phase 15's tasks are planned** — as tasks of Phase 15, each alongside the task whose
+  spec it implements (T30, T31a, T33c, T34, T39, T40, T49, T51), none left to the end.
+  Source: architecture review of 2026-11-15 (`.docs/reviews/architecture-review-2026-11-15-arkeology-phases-9-10-12.md`).

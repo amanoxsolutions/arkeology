@@ -87,6 +87,9 @@ sources:
     resource: .docs/reviews/architecture-review-2026-11-10-arkeology.md
     title: Architecture review — Arkeology (whole design record)
     last_modified: 2026-11-10T11:21:17Z
+  - id: review-2026-11-15
+    resource: .docs/reviews/architecture-review-2026-11-15-arkeology-phases-9-10-12.md
+    title: "Architecture review — Arkeology, plan phases 9, 10 and 12"
 relationships:
   - to: adr-2026-09-25-okf-v02-adoption
     type: implements
@@ -103,7 +106,7 @@ generated:
   at: 2026-10-13T17:40:25Z
 revised:
   by: "axians-architect/claude-opus-5-5"
-  at: 2026-11-10T16:24:49Z
+  at: 2026-11-15T20:05:47Z
 ---
 
 # T82 — Change Lifecycle `status` Without Re-Embedding
@@ -121,11 +124,12 @@ any change to either tool.
 
 After T81, the only way to change `status` is `update_artifact`, which is a content write. It
 re-embeds every section, appends a revision-history entry and moves `revised`. Because a citing
-synthesis treats a moved `revised` as a source change (D19), deprecating a document through an
-update makes every synthesis that cites it look stale. FR-68 needs a path that only touches the
-lifecycle key. ADR-017 `### 2. Lifecycle` names that path: an in-place object re-PUT that carries
-metadata and annotations forward, then a vector-metadata update, as `archive_artifact` already
-does. `link_metadata` cannot do it, because it writes annotations only.
+synthesis treats a moved `revised` as a source change
+(brainstorming-2026-09-17-okf-v02-adoption D19), deprecating a document through an update makes
+every synthesis that cites it look stale. FR-68 needs a path that only touches the lifecycle key.
+ADR-017 `### 2. Lifecycle` names that path: an in-place object re-PUT that carries metadata and
+annotations forward, then a vector-metadata update, as `archive_artifact` already does.
+`link_metadata` cannot do it, because it writes annotations only.
 
 All five of this spec's user stories are P1: deprecate without re-embedding (R7, R8), provenance is
 not moved (R8), change back or clear (R1, R6, R7), foreign scope and bad input are refused (R2, R3),
@@ -142,10 +146,11 @@ allowed, as an explicit null on the required parameter.
 
 **Why:** ADR-017 leaves the choice to the spec. ADR-017 `### 2` separates the archive marker from
 the lifecycle `status` and gives them different owners. One tool taking both would rejoin the two
-meanings that D21 split apart. The two operations also differ in shape: archiving is one-way, warns
-about referrers and reports `already_archived`; a lifecycle change goes in any direction and can
-clear the status. A merged signature would accept combinations that no requirement defines, such as
-un-archiving. The tool name states the caller's intent, as D51 argues for `create_artifact` /
+meanings that brainstorming-2026-09-17-okf-v02-adoption D21 split apart. The two operations also
+differ in shape: archiving is one-way, warns about referrers and reports `already_archived`; a
+lifecycle change goes in any direction and can clear the status. A merged signature would accept
+combinations that no requirement defines, such as un-archiving. The tool name states the caller's
+intent, as brainstorming-2026-09-17-okf-v02-adoption D51 argues for `create_artifact` /
 `update_artifact`. The name follows the existing pattern: `archive_artifact`, `add_artifact_links`,
 `add_artifact_verification`. Both tools call one shared cycle, so the path is reused, not copied.
 The cost is one more entry in the tool list.
@@ -155,7 +160,7 @@ reach it, the only way back would be an update, which re-embeds, appends history
 `revised`. FR-68 exists to avoid exactly that. A sentinel string was rejected because it would look
 like a fourth lifecycle value.
 
-Source: FR-14, FR-68; ADR-017 `### 2. Lifecycle`, `### 8. Tool surface`; D21, D51; T81
+Source: FR-14, FR-68; ADR-017 `### 2. Lifecycle`, `### 8. Tool surface`; brainstorming-2026-09-17-okf-v02-adoption D21, D51; T81
 
 *Dated probe, not a rule — probed on FastMCP 3.4.6 (2026-10-13):* `str | None` with no default is
 advertised as required. Omitting the argument is rejected before dispatch, and an explicit `null`
@@ -198,13 +203,14 @@ Source: FR-14, FR-68; ADR-017 `### 2. Lifecycle`, `### 8. Tool surface`
 ### R5 — A stored S3 `status` that is present but not one of the three values refuses the change with `corrupt_metadata`
 
 WHEN the stored S3 `status` is present but not one of the three values THE SYSTEM SHALL return
-`corrupt_metadata` naming `status` and write nothing (D50, case 1). A legacy `active` / `inactive`
-marker on an object that has not been migrated falls under this rule. T90 still needs that marker.
+`corrupt_metadata` naming `status` and write nothing (brainstorming-2026-09-17-okf-v02-adoption D50,
+case 1). A legacy `active` / `inactive` marker on an object that has not been migrated falls under
+this rule. T90 still needs that marker.
 
 **Why:** Overwriting it would destroy the only copy of an unmigrated object's archive marker. A
 corrupt value is still fixed by `update_artifact`, and a legacy one by T90.
 
-Source: FR-14, FR-68; ADR-017 `### 2. Lifecycle`, `### 8. Tool surface`; D50, case 1; T90
+Source: FR-14, FR-68; ADR-017 `### 2. Lifecycle`, `### 8. Tool surface`; brainstorming-2026-09-17-okf-v02-adoption D50, case 1; T90
 
 ## 3. Rules — No-op and completion
 
@@ -246,7 +252,7 @@ stored embedding and stored metadata, with `status` set or removed the same way.
 - Given an artifact in `stable`, when the caller sets `status` to null, then neither store holds a
   `status` key, and reads, lists and searches return `status: null` (T81).
 
-Source: FR-67, FR-68, FR-69, FR-72, AC-71; D19, D30; T81
+Source: FR-67, FR-68, FR-69, FR-72, AC-71; brainstorming-2026-09-17-okf-v02-adoption D19, D30; T81
 
 ### R8 — The change makes no Bedrock call, re-PUTs the content and every other object-metadata key but the `ETag` sentinel as read, and appends no revision
 
@@ -265,7 +271,7 @@ THE SYSTEM SHALL NOT append to the revision history.
   first authorship still names X and the latest revision still names Y at Y's time (FR-69, the
   lifecycle leg of AC-72).
 
-Source: FR-68, FR-69, FR-72, AC-71, AC-72; D19, D30; T80, "Everything else carries it unchanged"
+Source: FR-68, FR-69, FR-72, AC-71, AC-72; brainstorming-2026-09-17-okf-v02-adoption D19, D30; T80, "Everything else carries it unchanged"
 
 ### R9 — A lifecycle change preserves `last_edited_ulid`, as archive preserves it
 
@@ -303,8 +309,8 @@ Each annotation keeps its own carry rule, as T80 and T84 define them:
 An annotation that was absent before the change SHALL stay absent.
 
 The cycle, `archive_artifact` and `set_artifact_status` SHALL NOT name any annotation individually.
-Adding an annotation to the set changes none of them. The carried set is a fixed list in
-`annotations.py`, not discovered with `ListObjectAnnotations`.
+Adding an annotation to the set changes none of them. The carried set is fixed by name in
+`annotations.py` and never discovered.
 
 **Example**
 
@@ -326,7 +332,7 @@ write nothing. If this call's own re-PUT has already landed, the failure path fo
 the re-PUT applies instead: a failure-log entry, then `partial_write`, or `credential_error` /
 `annotation_unavailable` when that is the cause.
 
-Source: FR-54, C-06, C-07; ADR-017 `## Consequences`; T80, T84; D50 case 1
+Source: FR-54, C-06, C-07; ADR-017 `## Consequences`; T80, T84; brainstorming-2026-09-17-okf-v02-adoption D50 case 1
 
 ### R12 — The re-PUT is guarded by an ETag compare-and-swap retried up to `CAS_MAX_ATTEMPTS` times
 

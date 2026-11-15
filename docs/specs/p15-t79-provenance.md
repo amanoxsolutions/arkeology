@@ -112,7 +112,7 @@ generated:
   at: 2026-10-13T16:20:20Z
 revised:
   by: "axians-architect/claude-opus-5-5"
-  at: 2026-11-12T21:20:47Z
+  at: 2026-11-15T19:58:25Z
 ---
 
 # T79 — Provenance: `generated` / `revised`; Drop `date`, `author_role`, `timestamp`
@@ -124,7 +124,7 @@ last revised it and when (`revised`): both are OKF `{by, at}` blocks supplied by
 in both stores. `generated` is written once at create and carried forward by every update, and
 `revised` moves only on an update, never on a link backfill, archive or reconciliation. `date` and
 `author_role` are removed and rejected, and a generated tier-2 id now anchors on the UTC day of
-`generated.at` (D9, D19, D32, D35).
+`generated.at` (brainstorming-2026-09-17-okf-v02-adoption D9, D19, D32, D35).
 
 ## Open Questions
 
@@ -153,7 +153,8 @@ overwritten tier-3 artifact it is in practice the day of the last update. `autho
 role name, or an actor string that every write overwrites. Neither says who first wrote the
 artifact, or when it last changed. OKF v0.2 documents now carry exactly that as `generated` and
 `revised`, and T86's per-source freshness needs a revision time that only content writes move
-(ADR-017 `## Decision`, "3. Provenance"; FR-69). The house fields go, with no aliases (D42).
+(ADR-017 `## Decision`, "3. Provenance"; FR-69). The house fields go, with no aliases
+(brainstorming-2026-09-17-okf-v02-adoption D42).
 
 All six user stories are P1: create records first authorship; a tier-2 id anchors on the UTC day of
 `generated.at`; update records the latest revision and keeps first authorship; nothing else moves
@@ -169,10 +170,10 @@ and an optional `at`, and must reject any other key in the block. When `update_a
 the system must require a `revised` block of the same shape. Bulk descriptors carry the same block
 under the same key.
 
-**Why:** Each block is set by the writer (D35). FR-01 requires the writer's identity, so `by` is
-required.
+**Why:** Each block is set by the writer (brainstorming-2026-09-17-okf-v02-adoption D35). FR-01
+requires the writer's identity, so `by` is required.
 
-Source: FR-01, FR-75; D9, D35
+Source: FR-01, FR-75; brainstorming-2026-09-17-okf-v02-adoption D9, D35
 
 ### R2 — `by` is accepted only as an OKF §7 actor, stored verbatim
 
@@ -190,7 +191,7 @@ the system must return `validation_error` naming the field.
 **Why:** The actor-form check exists to reject role names left over from `author_role`, and because
 OKF §5.3 trust classification keys on the `human:` prefix.
 
-Source: FR-01, FR-75; D9, D35
+Source: FR-01, FR-75; brainstorming-2026-09-17-okf-v02-adoption D9, D35
 
 ### R3 — A supplied `at` must parse as ISO 8601 with a UTC offset, and gets no ordering or future-time check
 
@@ -213,7 +214,7 @@ instant, and could move the tier-2 anchor day.
 mistyped `generated.at` unable to accept any update. A backdated `revised.at` is the owner's own
 statement about its own document, under the write authority that could equally withhold the update.
 
-Source: FR-01, FR-75; D9, D35
+Source: FR-01, FR-75; brainstorming-2026-09-17-okf-v02-adoption D9, D35
 
 ### R4 — An accepted `at` is stored converted to UTC and truncated to whole seconds; an omitted `at` takes the system's own clock
 
@@ -239,21 +240,21 @@ the server stamps its clock, so AC-72's "Y's write time" holds.
 Truncation never moves a time forward. Two updates of a source within one second are
 indistinguishable to freshness. This is accepted.
 
-Source: FR-01, FR-75; D9, D35
+Source: FR-01, FR-75; brainstorming-2026-09-17-okf-v02-adoption D9, D35
 
 ### R5 — Each artifact write resolves its block once
 
 Each artifact write resolves its block once. The same value is used for the key, both stores and
 every compare-and-swap retry.
 
-Source: FR-01, FR-75; D9, D35
+Source: FR-01, FR-75; brainstorming-2026-09-17-okf-v02-adoption D9, D35
 
 ### R6 — The block, actor and `at` checks all run before any storage call; the metadata budget check covers the new keys
 
 The block, actor and `at` checks must all be made before any storage call. The metadata budget check
 (FR-59) covers the new keys, because it measures the assembled dicts.
 
-Source: FR-01, FR-75; D9, D35; FR-59
+Source: FR-01, FR-75; brainstorming-2026-09-17-okf-v02-adoption D9, D35; FR-59
 
 ## 3. Rules — Storage
 
@@ -269,7 +270,7 @@ and it is set here. Flat scalars match every other metadata key and stay individ
 JSON string per block was rejected: it would need a parse on every read, and it would be
 percent-encoded a second time as an S3 header.
 
-Source: FR-09, C-01; D35
+Source: FR-09, C-01; brainstorming-2026-09-17-okf-v02-adoption D35
 
 ### R8 — Create writes `generated_by` and `generated_at` to both stores, and no `revised_*`, `date` or `author_role` key
 
@@ -280,7 +281,7 @@ metadata and to every vector's metadata as strings, and must write no `revised_*
 **Why:** Create writes no `revised`. The plan entry is explicit: absent until the first update. See
 Open Questions, item 2, for the import consequence.
 
-Source: FR-09, C-01; D35
+Source: FR-09, C-01; brainstorming-2026-09-17-okf-v02-adoption D35
 
 ### R9 — Update writes `revised_by` and `revised_at`, and copies `generated_by` and `generated_at` byte-for-byte from the same compare-and-swap attempt
 
@@ -295,15 +296,15 @@ the same compare-and-swap attempt. This replaces T78's `date` carry-forward and 
   names X at the original time, and `revised` names Y at Y's write time (FR-69).
 - Given a second update by Z, then `revised` names Z only. It is a single block, not a list.
 
-Source: FR-09, C-01; D35
+Source: FR-09, C-01; brainstorming-2026-09-17-okf-v02-adoption D35
 
 ### R10 — An update whose stored `generated` is missing or unreadable returns `corrupt_metadata`; an unreadable stored `revised` does not block it
 
 When the compare-and-swap attempt's stored `generated` is missing or unreadable, the system must
-return `corrupt_metadata` and write nothing (D50, case 1). A stored `revised` that cannot be read
-does not block an update, because the update replaces it.
+return `corrupt_metadata` and write nothing (brainstorming-2026-09-17-okf-v02-adoption D50, case 1).
+A stored `revised` that cannot be read does not block an update, because the update replaces it.
 
-Source: FR-09, C-01; D35; D50 (case 1)
+Source: FR-09, C-01; brainstorming-2026-09-17-okf-v02-adoption D35; brainstorming-2026-09-17-okf-v02-adoption D50 (case 1)
 
 ## 4. Rules — Identity
 
@@ -325,17 +326,18 @@ must each use the same resolved value they then write.
   beyond the length cutoff, or in non-Latin script, then both get distinct ids (AC-64).
 
 **Why:** The tier-2 anchor is the UTC day; this confirms the ADR default. The same instant always
-yields the same key, whoever wrote it and in whatever time zone (D32 as amended). Anchoring on the
-producer's local day would give two keys for one instant, and the UTC normalisation of an accepted
-`at` already discards the offset.
+yields the same key, whoever wrote it and in whatever time zone
+(brainstorming-2026-09-17-okf-v02-adoption D32 as amended). Anchoring on the producer's local day
+would give two keys for one instant, and the UTC normalisation of an accepted `at` already discards
+the offset.
 
-Source: FR-08, AC-04, AC-64; D32
+Source: FR-08, AC-04, AC-64; brainstorming-2026-09-17-okf-v02-adoption D32
 
 ### R12 — Provenance never moves an id
 
 An update never re-derives a key (T78), so provenance never moves an id.
 
-Source: FR-08, AC-04, AC-64; D32
+Source: FR-08, AC-04, AC-64; brainstorming-2026-09-17-okf-v02-adoption D32
 
 ## 5. Rules — Never moved by non-content operations
 
@@ -349,7 +351,7 @@ They already copy metadata whole, and T79 proves this with tests.
 - Given an artifact updated by Y, when a link backfill, an archive and a reconciliation then touch
   it, then `generated` and `revised` are byte-identical in S3 and in every vector (AC-72).
 
-Source: FR-17, FR-69, AC-72; D19
+Source: FR-17, FR-69, AC-72; brainstorming-2026-09-17-okf-v02-adoption D19
 
 ### R14 — A `reconcile_index` rebuild copies the four keys verbatim from S3 without reading a clock, and fails an artifact whose stored provenance is unreadable
 
@@ -359,7 +361,7 @@ S3 `generated` is unreadable, or `revised` is present but unreadable, the system
 vectors for that artifact and report it under `failed` with a reason naming the field. This is the
 same treatment T76 gives `archived`.
 
-Source: FR-17, FR-69, AC-72; D19
+Source: FR-17, FR-69, AC-72; brainstorming-2026-09-17-okf-v02-adoption D19
 
 ### R15 — `last_edited_ulid` is unchanged, and neither it nor `revised.at` is derived from the other
 
@@ -368,7 +370,7 @@ the failure-log supersession check and `if_match`. `revised.at` is never derived
 from `revised.at`, so the two may differ when a caller supplies `at`. Search's ULID-derived
 `last_edited_at` stays as it is.
 
-Source: D19
+Source: brainstorming-2026-09-17-okf-v02-adoption D19
 
 ## 6. Rules — Read surfaces
 
@@ -387,7 +389,7 @@ artifact, the system must include `generated: {by, at}` and `revised: {by, at}`,
 **Why:** Absent `revised` is returned as `null` rather than omitted, matching the house rule that
 summary keys are always present (`author_role` was `null` when unset).
 
-Source: FR-09, FR-69; D50
+Source: FR-09, FR-69; brainstorming-2026-09-17-okf-v02-adoption D50
 
 ### R17 — When stored provenance is absent or unreadable
 
@@ -395,13 +397,14 @@ Source: FR-09, FR-69; D50
 offset-aware datetime. `revised` is absent when both keys are missing, and unreadable when only
 one is present or its `at` does not parse.
 
-Source: FR-09, FR-69; D50
+Source: FR-09, FR-69; brainstorming-2026-09-17-okf-v02-adoption D50
 
 ### R18 — An unreadable value makes `read_artifact` return `corrupt_metadata` and listings skip and count the artifact, after the cross-scope gate
 
 When a value is unreadable, `read_artifact` must return `corrupt_metadata` naming the field,
-echoing the raw value only to an own-scope reader (D50, case 5). Listings must skip the artifact
-and count it under `skipped_malformed_count`. The cross-scope gate still runs first.
+echoing the raw value only to an own-scope reader (brainstorming-2026-09-17-okf-v02-adoption D50,
+case 5). Listings must skip the artifact and count it under `skipped_malformed_count`. The
+cross-scope gate still runs first.
 
 **Example**
 
@@ -409,7 +412,7 @@ and count it under `skipped_malformed_count`. The cross-scope gate still runs fi
   `corrupt_metadata` naming `generated`, and a listing skips the artifact and counts it under
   `skipped_malformed_count` (ADR-017 `### 10. Malformed values in the new fields`).
 
-Source: FR-09, FR-69; D50 (case 5)
+Source: FR-09, FR-69; brainstorming-2026-09-17-okf-v02-adoption D50 (case 5)
 
 ## 7. Rules — Freshness and Studio
 
@@ -418,7 +421,7 @@ Source: FR-09, FR-69; D50 (case 5)
 `check_synthesis_freshness` must stop reading `date`. When either side of a staleness comparison
 lacks a `last_edited_ulid`, the source must not be reported stale. T86 replaces the comparison.
 
-Source: FR-20, FR-48; D19
+Source: FR-20, FR-48; brainstorming-2026-09-17-okf-v02-adoption D19
 
 ### R20 — Studio and the `arkeology_studio` text fallback order artifacts by parsed effective revision time, newest first
 
@@ -427,7 +430,7 @@ time, which is `revised.at` and otherwise `generated.at`, compared as parsed ins
 first. An unparseable value sorts last. A list row shows the UTC day of the effective time. The
 detail view shows a `generated` day pill, and a `revised` day pill when one exists.
 
-Source: FR-20, FR-48; D19
+Source: FR-20, FR-48; brainstorming-2026-09-17-okf-v02-adoption D19
 
 ## 8. Rules — Removed names
 
@@ -452,12 +455,12 @@ through its delegation to `create_artifacts`, as it does for T76's `status`.
 
 - Given a caller passing `date`, `author_role` or `timestamp` to a write tool, or `generated` to an
   update tool, as an argument or a bulk-descriptor key, then the call or entry returns
-  `validation_error` naming the replacement (AC-80; D42).
+  `validation_error` naming the replacement (AC-80; brainstorming-2026-09-17-okf-v02-adoption D42).
 
 **Why:** `timestamp` gets rows although it was never a parameter. AC-80 names it. The write tools
 are where a caller still holding OKF v0.1 frontmatter would send it, and a row costs nothing.
 
-Source: AC-80; D42
+Source: AC-80; brainstorming-2026-09-17-okf-v02-adoption D42
 
 ## 9. Rules — Hooks for later tasks
 
@@ -465,15 +468,17 @@ Source: AC-80; D42
 
 T80 appends the resolved block to the revision history: `generated` at create's annotation write,
 and `revised` inside update's compare-and-swap cycle after the object write lands. T79 makes the
-resolved block available at both points and writes no history. T84's D40 fill-in and T86's
-freshness read `revised.at`, falling back to `generated.at`, through T79's parser.
+resolved block available at both points and writes no history. T84's
+brainstorming-2026-09-17-okf-v02-adoption D40 fill-in and T86's freshness read `revised.at`, falling
+back to `generated.at`, through T79's parser.
 
 Source: none attached — decided in this spec
 
 ## 10. Boundaries
 
 **Always:**
-- Compare timestamps as parsed, offset-aware datetimes, never as strings (D19).
+- Compare timestamps as parsed, offset-aware datetimes, never as strings
+  (brainstorming-2026-09-17-okf-v02-adoption D19).
 - Use one parser, one formatter and one actor check, all in `artifact.py`, from every write path,
   read path, reconcile and the Studio fallback.
 - Keep provenance byte-identical across archive, link backfill and reconcile.
@@ -485,7 +490,7 @@ Source: none attached — decided in this spec
 
 **Never:**
 - Read `date` or `author_role` as a fallback for missing provenance, or translate them anywhere,
-  including reconcile (D42; T90 migrates).
+  including reconcile (brainstorming-2026-09-17-okf-v02-adoption D42; T90 migrates).
 - Write `revised` on create, or move it on any path other than an update.
 - Remove `author_role` from `NON_FILTERABLE_METADATA_KEYS`, or change the index.
 - Remove the failure-log entry's own `timestamp` key. It is the entry's time, not the artifact field.
@@ -518,7 +523,6 @@ T79 lands after T76 and T78 (plan: blocked by 76 and 78), so it edits their resu
 | `src/arkeology/resources.py` | Modify | Schema rows: `generated` and `revised` replace `date` and `author_role`. Tiers text: tier-2 key `{date}` is the UTC day of `generated.at` |
 | `src/arkeology/server.py` | Modify | `create_artifact` / `update_artifact` signatures and docstrings (blocks replace `date` and `author_role`), plus the removed-name rows |
 | `plugins/arkeology/skills/migrating-to-arkeology/SKILL.md` | Modify | *Uncertain location:* descriptors sent to `migrate_artifacts` carry `generated: {by: "process:migrating-to-arkeology", at: "<date>T00:00:00Z"}` instead of `date`. The manifest keeps `date`. Interim until T88 prefers the frontmatter `generated`. The day is unchanged, so ids are unchanged |
-| `plugins/arkeology/skills/backfilling-references/SKILL.md` | Modify | Step 3: compute a listed entry's bare id from the UTC day of its `generated.at` rather than `date`. T76 and T77 also edit this file |
 | Tests | Modify / Create | See Testing Approach |
 
 ### Contracts

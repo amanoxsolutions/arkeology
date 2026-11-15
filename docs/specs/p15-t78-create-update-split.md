@@ -61,8 +61,8 @@ generated:
   by: "axians-architect/claude-opus-5.5"
   at: 2026-10-13T13:02:46Z
 revised:
-  by: "axians-architect/claude-opus-5-5"
-  at: 2026-11-12T21:20:47Z
+  by: "axians-architect/claude-sonnet-5-5"
+  at: 2026-11-15T16:04:49Z
 ---
 
 # T78 — Split Writing into `create_artifact` / `update_artifact`; Drop `overwrite`
@@ -74,16 +74,18 @@ named for what the caller means. `create_artifact` / `create_artifacts` succeed 
 new. `update_artifact` / `update_artifacts` succeed only when the artifact exists, address it by id
 so the key never moves, and use S3 conditional writes so an update cannot recreate an artifact that
 was deleted while it ran. This removes the two silent failures of the flag: a mistyped id that
-creates an artifact, and an overwrite of something the caller did not mean to replace (D51).
+creates an artifact, and an overwrite of something the caller did not mean to replace
+(brainstorming-2026-09-17-okf-v02-adoption D51).
 
 ## 1. Problem Statement
 
 `overwrite` does not say what the caller intends. `overwrite=true` on a mistyped id creates a new
-artifact, and on a correct id replaces whatever is stored whether the caller meant to or not. The key
-is also re-derived from the title on every write, so retitling a tier-3 document produces a new id
-and leaves the old artifact orphaned. A producer can now mint the id itself (D28),
-so the server has to check what the caller says it is doing rather than trust the id: a create
-must not replace anything, and an update must not create anything (ADR-017 `## Decision`, "Identity" and "Tool surface"; FR-75, C-05).
+artifact, and on a correct id replaces whatever is stored whether the caller meant to or not. The
+key is also re-derived from the title on every write, so retitling a tier-3 document produces a new
+id and leaves the old artifact orphaned. A producer can now mint the id itself
+(brainstorming-2026-09-17-okf-v02-adoption D28), so the server has to check what the caller says it
+is doing rather than trust the id: a create must not replace anything, and an update must not create
+anything (ADR-017 `## Decision`, "Identity" and "Tool surface"; FR-75, C-05).
 
 Six user stories frame this spec, all P1: create never replaces; update replaces in place, by id;
 update cannot move an artifact across type, tier, team or project; opt-in optimistic concurrency;
@@ -101,7 +103,7 @@ beforehand. The conditional write is the existence check.
 branches. Without `overwrite` it saves nothing. The conditional put is already the authoritative
 check, and removing the read saves one round trip on every successful create.
 
-Source: FR-01, FR-08, FR-13, FR-15, FR-25, C-05, D51
+Source: FR-01, FR-08, FR-13, FR-15, FR-25, C-05, brainstorming-2026-09-17-okf-v02-adoption D51
 
 ### R2 — A create whose key already exists returns `validation_error` naming `update_artifact` and writes nothing
 
@@ -120,7 +122,7 @@ nothing to S3, annotations, vectors or the failure log.
 - Given two concurrent creates of the same key, when both run, then exactly one succeeds and the
   other returns `validation_error` (C-05).
 
-Source: FR-01, FR-08, FR-13, FR-15, FR-25, C-05, D51, AC-04, AC-05
+Source: FR-01, FR-08, FR-13, FR-15, FR-25, C-05, brainstorming-2026-09-17-okf-v02-adoption D51, AC-04, AC-05
 
 ### R3 — A successful create returns what `write_artifact` returns today, and all other behaviour is unchanged
 
@@ -129,7 +131,7 @@ behaviour (validation, metadata budgets, section pipeline, annotation write, fai
 its `failure_logged` flag) is unchanged. Until T76 lands, `create_artifact` keeps today's `status`
 parameter; T76 removes the archive-marker parameter from `create_artifact`.
 
-Source: FR-01, FR-08, FR-13, FR-15, FR-25, C-05, D51
+Source: FR-01, FR-08, FR-13, FR-15, FR-25, C-05, brainstorming-2026-09-17-okf-v02-adoption D51
 
 ## 3. Rules — Update: addressing and existence
 
@@ -138,7 +140,7 @@ Source: FR-01, FR-08, FR-13, FR-15, FR-25, C-05, D51
 When `update_artifact` receives an `artifact_id` that does not start with `write_prefix + "/"`,
 it returns `access_denied` before any read, as `archive_artifact` and `delete_artifact` do.
 
-Source: FR-75, AC-82, AC-83, D51
+Source: FR-75, AC-82, AC-83, brainstorming-2026-09-17-okf-v02-adoption D51
 
 ### R5 — An update of a missing id returns `not_found` and creates nothing
 
@@ -150,7 +152,7 @@ When no object exists at `artifact_id` (exact, case-sensitive match), the call r
 - Given no artifact with id X, when X is updated, then the call returns `not_found` and nothing
   is created (AC-82). The same holds when X differs from a stored id only in letter case.
 
-Source: FR-75, AC-82, AC-83, D51
+Source: FR-75, AC-82, AC-83, brainstorming-2026-09-17-okf-v02-adoption D51
 
 ### R6 — An update writes to the supplied id and never derives a key, so the id never changes
 
@@ -162,7 +164,7 @@ type, so the id never changes, including on a retitle.
 - Given a tier 3 artifact with a generated id, when it is updated with a new title, then its id is
   unchanged, reading it returns the new title, and no second artifact exists (AC-83).
 
-Source: FR-75, AC-82, AC-83, D51
+Source: FR-75, AC-82, AC-83, brainstorming-2026-09-17-okf-v02-adoption D51
 
 ### R7 — Every object write of an update is conditional, and an object gone mid-update returns `not_found`
 
@@ -170,7 +172,7 @@ Every object write of an update is conditional (`If-Match`) on the ETag read in 
 When S3 reports the object gone, whether on a re-read or as a 404 from the conditional write, the
 call returns `not_found` and never recreates the object.
 
-Source: FR-75, AC-82, AC-83, D51
+Source: FR-75, AC-82, AC-83, brainstorming-2026-09-17-okf-v02-adoption D51
 
 ## 4. Rules — Update: what is replaced, checked and carried forward
 
@@ -186,7 +188,7 @@ field takes its create default. There is no partial patch.
   `artifact_id` and new content, then the content is replaced in place, exactly one stored
   artifact remains, and stale section vectors are removed (AC-04, AC-05).
 
-Source: FR-55, FR-69, FR-75, AC-84, C-07, D50, AC-04, AC-05
+Source: FR-55, FR-69, FR-75, AC-84, C-07, brainstorming-2026-09-17-okf-v02-adoption D50, AC-04, AC-05
 
 ### R9 — `type`, `team`, `project` and `tier` are optional on update and must match what is stored
 
@@ -205,10 +207,11 @@ that *supplies* a different value to fail with `validation_error`. They are ther
 parameters that must match what is stored, not absent parameters. As absent parameters, an MCP
 call would get FastMCP's generic unknown-argument error, and a bulk descriptor would drop them
 silently. Optional-must-match also lets a caller send back the full descriptor it created with,
-and a mismatch tells the caller it has the wrong id, which is D51's principle that the server
-checks the caller's stated intent.
+and a mismatch tells the caller it has the wrong id, which is
+brainstorming-2026-09-17-okf-v02-adoption D51's principle that the server checks the caller's stated
+intent.
 
-Source: FR-55, FR-69, FR-75, AC-84, C-07, D50, D51
+Source: FR-55, FR-69, FR-75, AC-84, C-07, brainstorming-2026-09-17-okf-v02-adoption D50, D51
 
 ### R10 — `date` and the archive marker are carried forward and are not update parameters
 
@@ -224,14 +227,14 @@ same way, so this is the end-state behaviour. The archive marker belongs to `arc
 (ADR-017 `## Decision`, "Lifecycle"), and an update that silently un-archived would be a
 lifecycle change made through a content write (FR-14).
 
-Source: FR-55, FR-69, FR-75, AC-84, C-07, D50, FR-08, FR-14, operator decision 2026-10-13
+Source: FR-55, FR-69, FR-75, AC-84, C-07, brainstorming-2026-09-17-okf-v02-adoption D50, FR-08, FR-14, operator decision 2026-10-13
 
 ### R11 — An unreadable stored `tier` returns `corrupt_metadata` and writes nothing
 
 When the stored `tier` cannot be read, the call returns `corrupt_metadata` and writes nothing
-(D50: a write never proceeds over a value it cannot read).
+(brainstorming-2026-09-17-okf-v02-adoption D50: a write never proceeds over a value it cannot read).
 
-Source: FR-55, FR-69, FR-75, AC-84, C-07, D50
+Source: FR-55, FR-69, FR-75, AC-84, C-07, brainstorming-2026-09-17-okf-v02-adoption D50
 
 ### R12 — Today's overwrite link-field semantics are kept unchanged
 
@@ -239,14 +242,14 @@ Today's overwrite link-field semantics are kept unchanged. `commit_refs` is read
 annotation and union-merged with the supplied value. `references` is set to exactly the supplied
 list.
 
-Source: FR-55, FR-69, FR-75, AC-84, C-07, D50
+Source: FR-55, FR-69, FR-75, AC-84, C-07, brainstorming-2026-09-17-okf-v02-adoption D50
 
 ### R13 — An update regenerates `last_edited_ulid`, cleans up orphaned section vectors and returns three fields
 
 An update regenerates `last_edited_ulid`, cleans up orphaned section vectors, and returns
 `artifact_id`, `sections_indexed` and `last_edited_ulid`.
 
-Source: FR-55, FR-69, FR-75, AC-84, C-07, D50
+Source: FR-55, FR-69, FR-75, AC-84, C-07, brainstorming-2026-09-17-okf-v02-adoption D50
 
 ## 5. Rules — Update: concurrency
 
@@ -259,7 +262,7 @@ original values each time. On exhaustion the call returns `conflict` if nothing 
 Without `if_match`, racing updates are last-writer-wins. Every response returned after an attempt's
 object write landed carries `failure_logged`, exactly as T15 R11 defines it.
 
-Source: C-05, FR-75, AC-86, D51; T15 R11
+Source: C-05, FR-75, AC-86, brainstorming-2026-09-17-okf-v02-adoption D51; T15 R11
 
 ### R15 — An `if_match` that differs from the stored `last_edited_ulid` returns `conflict`, checked until this call's own object write lands
 
@@ -281,7 +284,7 @@ would leave this call's content durable while reporting that nothing changed. Ch
 object write lands, together with the `If-Match` on the ETag read in the same `head_object` as
 the ulid, makes the check atomic with the write.
 
-Source: C-05, FR-75, AC-86, D51
+Source: C-05, FR-75, AC-86, brainstorming-2026-09-17-okf-v02-adoption D51
 
 ## 6. Rules — Bulk
 
@@ -290,7 +293,7 @@ Source: C-05, FR-75, AC-86, D51
 `create_artifacts` is today's `write_artifacts` with `overwrite` removed from both the batch and
 the descriptors. Each entry runs the create logic.
 
-Source: FR-25, FR-76, AC-85, D51
+Source: FR-25, FR-76, AC-85, brainstorming-2026-09-17-okf-v02-adoption D51
 
 ### R17 — `update_artifacts` updates each descriptor independently, with positionally aligned results
 
@@ -305,7 +308,7 @@ shape as `create_artifacts`. A failure in one entry never aborts the others.
   runs, then the two existing artifacts are updated, the third entry reports `not_found`, and the
   batch is not aborted (AC-85).
 
-Source: FR-25, FR-76, AC-85, D51
+Source: FR-25, FR-76, AC-85, brainstorming-2026-09-17-okf-v02-adoption D51
 
 ### R18 — A repeated `artifact_id` in one `update_artifacts` call fails every later descriptor
 
@@ -313,14 +316,14 @@ When two descriptors in one `update_artifacts` call name the same `artifact_id`,
 fails with `validation_error` naming the first index, mirroring the duplicate pre-flight in
 `create_artifacts`.
 
-Source: FR-25, FR-76, AC-85, D51
+Source: FR-25, FR-76, AC-85, brainstorming-2026-09-17-okf-v02-adoption D51
 
 ### R19 — `migrate_artifacts` delegates to `create_artifacts` and never updates
 
 `migrate_artifacts` delegates to `create_artifacts`. Its skip-existing behaviour is unchanged and
 it never updates.
 
-Source: FR-25, FR-76, AC-85, D51
+Source: FR-25, FR-76, AC-85, brainstorming-2026-09-17-okf-v02-adoption D51
 
 ## 7. Rules — Removed names
 
@@ -334,9 +337,10 @@ in the tool list.
 **Example**
 
 - Given a caller using `write_artifact`, `write_artifacts` or `overwrite`, when it calls the
-  server, then the call returns `validation_error` naming the replacement (AC-80; D42).
+  server, then the call returns `validation_error` naming the replacement (AC-80;
+  brainstorming-2026-09-17-okf-v02-adoption D42).
 
-Source: AC-80, D42
+Source: AC-80, brainstorming-2026-09-17-okf-v02-adoption D42
 
 ### R21 — An `overwrite` argument or descriptor key returns `validation_error` naming `update_artifact` (`update_artifacts` for the bulk tools)
 
@@ -345,7 +349,7 @@ passes an `overwrite` argument, the call returns `validation_error` naming `upda
 (`update_artifacts` for the bulk tools). When a bulk descriptor carries an `overwrite` key, that
 entry fails the same way.
 
-Source: AC-80, D42
+Source: AC-80, brainstorming-2026-09-17-okf-v02-adoption D42
 
 ### R22 — How removed names are rejected: one per-tool table and one middleware in `server.py`
 
@@ -364,19 +368,19 @@ structured `validation_error` and name no replacement, so `server.py` maps the r
 itself. The table is per tool because T81 reintroduces
 `status` with a new meaning, so a global parameter table would break it. Alternatives rejected:
 - Stub tools that always error would stay in the tool list, cost context tokens in every session,
-  and read as the aliases D42 forbids.
+  and read as the aliases brainstorming-2026-09-17-okf-v02-adoption D42 forbids.
 - A kept `overwrite` parameter that errors would stay in the schema and invite its own use.
 
 Note (verified 2026-10-13, with the pinned FastMCP 3.4.6): an unregistered tool returns
 `Unknown tool: '<name>'` and an unknown argument returns a pydantic unexpected-argument error.
 
-Source: AC-80, D42
+Source: AC-80, brainstorming-2026-09-17-okf-v02-adoption D42
 
 ### R23 — No case-insensitive id check
 
 No case-insensitive id check is added. Ids that differ only in case are distinct keys.
 
-Source: AC-80, D42, D51, FR-08
+Source: AC-80, brainstorming-2026-09-17-okf-v02-adoption D42, D51, FR-08
 
 ## 8. Rules — Module layout
 

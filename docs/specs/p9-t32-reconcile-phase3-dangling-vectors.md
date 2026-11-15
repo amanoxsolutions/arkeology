@@ -6,15 +6,24 @@ description: Spec to add Scenario 3 to reconcile_index — detecting and deletin
 tags: []
 status: stable
 okf_version: "0.2"
+sources:
+  - resource: docs/contracts/modules/arkeology.tools.reconcile.md
+    title: arkeology.tools.reconcile
+  - resource: docs/contracts/data/s3vectors.artifact.md
+    title: s3vectors.artifact
+  - resource: .docs/reviews/architecture-review-2026-11-15-arkeology-phases-9-10-12.md
+    title: "Architecture review — Arkeology, plan phases 9, 10 and 12"
 generated:
   by: "axians-architect/unknown"
   at: 2026-06-03T00:00:00Z
 revised:
   by: "axians-architect/claude-opus-5-5"
-  at: 2026-11-09T16:47:14Z
+  at: 2026-11-15T20:19:59Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
+  - by: "axians-architect/claude-fable-5-2"
+    at: 2026-11-15T20:45:07Z
 ---
 
 # Reconcile Phase 3 — Dangling Vector Pruning
@@ -188,7 +197,8 @@ entries belonging to foreign scopes.
 
 ### Contracts
 
-None.
+- `docs/contracts/modules/arkeology.tools.reconcile.md` § reconcile_index — the dangling-vector prune, its response keys and its error paths (R1–R8).
+- `docs/contracts/data/s3vectors.artifact.md` § Storage Shape — the `{artifact_id}#{n}` vector key by which an artifact's vectors are grouped and deleted (R2, R4).
 
 ### Testing Approach
 

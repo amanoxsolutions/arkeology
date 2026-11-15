@@ -2,7 +2,7 @@
 type: ADR
 id: adr-2026-09-25-okf-v02-adoption
 title: OKF v0.2 Adoption
-description: "Proposes Arkeology's full adoption of Open Knowledge Format v0.2 as one breaking release: the archive marker becomes archived (bool) and OKF document status is ingested beside it, with an in-force default view keyed on each artifact's own lifecycle and never on a supersedes edge; first-class generated/revised provenance, with verifications and revision history in their own annotations; sources and relationships held in one structured annotation and gated across scopes with a counted withheld marker; producer-supplied ids used verbatim as artifact ids; writing split into create_artifact and update_artifact, with the overwrite flag removed; an open type list; and store migration by a dedicated skill rather than reconcile_index, with each migrated write prefix fenced by a store-schema object tag and a bucket-policy statement so an install still on an earlier release can neither overwrite a migrated artifact nor start."
+description: "Proposes Arkeology's full adoption of Open Knowledge Format v0.2 as one breaking release: the archive marker becomes archived (bool) and OKF document status is ingested beside it, with an in-force default view keyed on each artifact's own lifecycle and never on a supersedes edge; first-class generated/revised provenance, with verifications and revision history in their own annotations; sources and relationships held in one structured annotation and gated across scopes with a counted withheld marker; producer-supplied ids used verbatim as artifact ids; writing split into create_artifact and update_artifact, with the overwrite flag removed; an open type list; and store migration by a dedicated skill rather than reconcile_index, with each migrated write prefix fenced by a store-schema object tag and a bucket-policy statement so an install still on an earlier release can neither overwrite a migrated artifact nor start, while an upgraded server refuses to start until its own write prefix is migrated."
 tags: []
 status: stable
 okf_version: "0.2"
@@ -35,6 +35,11 @@ sources:
   - resource: .docs/reviews/architecture-review-2026-11-10-arkeology-recheck.md
     title: "Architecture review — Arkeology (whole design record), re-check of C-1 to C-3"
     last_modified: 2026-11-10T16:49:29Z
+  - resource: .docs/reviews/architecture-review-2026-11-15-arkeology-phases-9-10-12.md
+    title: "Architecture review — Arkeology, plan phases 9, 10 and 12"
+    last_modified: 2026-11-15T16:30:41Z
+  - resource: docs/specs/p12-t51-migration-reference-rewrite.md
+    title: T51 — Migration Frontmatter Reference Rewriting + arkeology:// Content Rewrite
 relationships:
   - to: adr-2026-05-29-deterministic-artifact-ids
     type: amends
@@ -57,7 +62,7 @@ generated:
   at: 2026-09-25T00:00:00Z
 revised:
   by: "axians-architect/claude-opus-5-5"
-  at: 2026-11-12T20:56:52Z
+  at: 2026-11-15T20:12:17Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
@@ -562,6 +567,14 @@ title on that day still hits the stored key and is rejected (AC-04). An update n
 this: it addresses the artifact by id and re-derives nothing. It reports what it will change, waits for the operator's confirmation,
 never re-embeds, and changes nothing when re-run.
 
+**An upgraded server refuses to start on a store not yet migrated** (FR-07). This release reads the
+new shape only — no path falls back to the earlier one — so a server whose own write prefix still
+holds an artifact in the earlier shape stops at startup with a message naming the migration to
+run, rather than serving empty listings, failed reads and a `reconcile_index` that fails every
+artifact. Only the server's own scope is checked: another team's area, read through its read
+prefixes, may migrate later, and until it does its artifacts are treated as malformed foreign data
+— skipped and counted in listings, and refused on read as corrupt metadata.
+
 **A migrated write prefix is fenced, at the storage layer, against installs that were not
 upgraded** (NFR-16). Every agent starts its own server from the copy installed on its machine or
 pipeline runner, so at dozens of teams of dozens of engineers an install that misses the upgrade
@@ -607,7 +620,7 @@ Migrating a repository's own documents to v0.2 is the job of the producer that w
 Arkeology's is to make the server and its skills v0.2-compatible and to verify the migrated result
 fits (D10).
 
-Source: brainstorming-2026-09-17-okf-v02-adoption D10, D42; FR-74, NFR-16, AC-04, AC-80; the write fence, accepted with this ADR (Operator, 2026-11-12); a deployment set up on this release is fenced too (Operator, 2026-11-12); https://docs.aws.amazon.com/AmazonS3/latest/userguide/tagging-and-policies.html; https://docs.aws.amazon.com/AmazonS3/latest/API/API_PutObject.html; https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_elements_condition_operators.html
+Source: brainstorming-2026-09-17-okf-v02-adoption D10, D42; FR-07, FR-74, NFR-16, AC-04, AC-80; refusing to start on a store not yet migrated (Operator, 2026-10-13; confirmed 2026-11-15); the write fence, accepted with this ADR (Operator, 2026-11-12); a deployment set up on this release is fenced too (Operator, 2026-11-12); https://docs.aws.amazon.com/AmazonS3/latest/userguide/tagging-and-policies.html; https://docs.aws.amazon.com/AmazonS3/latest/API/API_PutObject.html; https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_elements_condition_operators.html
 
 ### 10. Malformed values in the new fields
 
@@ -876,3 +889,13 @@ contracts. None of them reopens a decision.
 - **Lineage surfaces** — whether a read shows a proposed successor, and whether consistency audits
   (deprecated with no successor edge; superseded but still `stable`) become a tool, are not
   decided; `supersedes` stays lineage either way.
+
+## Revision — 2026-11-15
+
+The `backfilling-references` skill is retired with no replacement, rather than retargeted to
+`sources` (decision 5). A source the migration cannot resolve is left unchanged and reported once at
+migration time, and the operator adds it later by hand with `add_artifact_links`, which records the
+target's current revision time as `last_modified`. No later migration run completes it: that would
+rest on a later run adding the newly migrated file to an existing migration manifest, a step nothing
+specifies, for an event that rarely happens. Owners: `p12-t51-migration-reference-rewrite` R6,
+carried to `sources` by `p15-t88-migration-frontmatter` R13.

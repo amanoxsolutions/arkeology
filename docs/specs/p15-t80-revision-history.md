@@ -71,6 +71,9 @@ sources:
     resource: docs/contracts/modules/arkeology.tools.reconcile.md
     title: arkeology.tools.reconcile
     last_modified: 2026-09-07T00:00:00Z
+  - id: spec-t10
+    resource: docs/specs/p3-t10-list-artifacts.md
+    title: T10 — List Artifacts Tool
 relationships:
   - to: adr-2026-09-25-okf-v02-adoption
     type: implements
@@ -89,7 +92,7 @@ generated:
   at: 2026-10-13T16:40:30Z
 revised:
   by: "axians-architect/claude-opus-5-5"
-  at: 2026-11-09T21:49:10Z
+  at: 2026-11-15T19:58:25Z
 ---
 
 # T80 — Revision-History Annotation + Shared Compare-and-Swap Append Helper
@@ -100,7 +103,8 @@ Every create and every update adds one `{by, at}` entry to an artifact's `revisi
 annotation; nothing else adds to it, and every re-PUT carries it forward. `read_artifact` returns
 the history, and `list_artifacts` returns it only when the caller asks. The task also builds the
 annotation-append helper that T83 reuses for `verified`, and states plainly which races the
-object-ETag compare-and-swap underneath does not close (FR-72; D26, D30, D31, D34).
+object-ETag compare-and-swap underneath does not close (FR-72;
+brainstorming-2026-09-17-okf-v02-adoption D26, D30, D31, D34).
 
 ## Open Questions
 
@@ -115,13 +119,14 @@ object-ETag compare-and-swap underneath does not close (FR-72; D26, D30, D31, D3
 After T79, `revised` holds only the latest revision, so a reader cannot see how often a living
 document changed or who changed it. FR-72 asks for the full history, uncapped, surviving every
 update. Object metadata is capped at 2 KB, and vector metadata has a per-section filterable budget,
-so neither can hold it (D26). The link annotation is replaced whole whenever links change, so it
-cannot hold it either (D31). A separate annotation brings its own hazard: S3 wipes every annotation
-when the object is re-PUT, and an annotation write does not change the object's ETag. The history
-survives only because every re-PUT reads it first and restores it afterwards. The compare-and-swap
-that guards those cycles guards the object, not the annotation (ADR-017 `### 3. Provenance`;
-annotation-backed link storage ADR, decision 6). This spec says what that protects and what it does
-not.
+so neither can hold it (brainstorming-2026-09-17-okf-v02-adoption D26). The link annotation is
+replaced whole whenever links change, so it cannot hold it either
+(brainstorming-2026-09-17-okf-v02-adoption D31). A separate annotation brings its own hazard: S3
+wipes every annotation when the object is re-PUT, and an annotation write does not change the
+object's ETag. The history survives only because every re-PUT reads it first and restores it
+afterwards. The compare-and-swap that guards those cycles guards the object, not the annotation
+(ADR-017 `### 3. Provenance`; annotation-backed link storage ADR, decision 6). This spec says what
+that protects and what it does not.
 
 All six user stories are P1: history records every content write; only content writes add entries;
 listings omit history unless asked; unreadable history fails loudly and is never written over; a
@@ -143,20 +148,21 @@ contain commas. The ceiling of about 14,500 entries was measured with this JSON 
 (brainstorming, `## Measurement`). Escaping non-ASCII characters keeps an actor such as
 `human:Zürich` byte-stable.
 
-Source: FR-54, FR-72, C-07, C-08; D26, D30, D31, D34
+Source: FR-54, FR-72, C-07, C-08; brainstorming-2026-09-17-okf-v02-adoption D26, D30, D31, D34
 
 ### R2 — The append path never caps, truncates, compacts or deduplicates the history; an entry that would take the payload past the annotation payload limit is refused before anything is written
 
-The system must never cap, truncate, compact or deduplicate the history on the append path (D34).
-When an appended entry would take the payload past the annotation payload limit (1,048,576 bytes,
-measured 2026-09-23), the system must return `validation_error` before writing anything.
+The system must never cap, truncate, compact or deduplicate the history on the append path
+(brainstorming-2026-09-17-okf-v02-adoption D34). When an appended entry would take the payload past
+the annotation payload limit (1,048,576 bytes, measured 2026-09-23), the system must return
+`validation_error` before writing anything.
 
 **Why:** The limit refuses the write; it does not cap the history. If an update silently stopped
 appending, the history would no longer hold one entry per content write. If the size failure
 surfaced only at the restore, the PUT would already have wiped the history. Refusing before the PUT
 is the only order that loses nothing.
 
-Source: FR-54, FR-72, C-07, C-08; D26, D30, D31, D34
+Source: FR-54, FR-72, C-07, C-08; brainstorming-2026-09-17-okf-v02-adoption D26, D30, D31, D34
 
 ### R3 — Decoding accepts only a well-formed `{by, at}` array; an absent annotation is an empty history, and every other read failure raises
 
@@ -166,7 +172,7 @@ offset-aware timestamp. Anything else is unreadable. An absent annotation is an 
 Every other read failure raises, as `read_link_annotations` does (`s3-annotations.artifact`
 `## Not-Found Semantics`).
 
-Source: FR-54, FR-72, C-07, C-08; D26, D30, D31, D34
+Source: FR-54, FR-72, C-07, C-08; brainstorming-2026-09-17-okf-v02-adoption D26, D30, D31, D34
 
 ## 3. Rules — Content writes append
 
@@ -183,7 +189,7 @@ failure-log entry and `annotation_unavailable` (C-08).
 - Given a newly created artifact, when it is read, then `revision_history` holds exactly one entry,
   equal to `generated`.
 
-Source: FR-55, FR-69, FR-72; D30, D35
+Source: FR-55, FR-69, FR-72; brainstorming-2026-09-17-okf-v02-adoption D30, D35
 
 ### R5 — In every compare-and-swap attempt, `update_artifact` reads the history, appends the resolved `revised` block, and restores the result after the object write
 
@@ -199,11 +205,12 @@ When `update_artifact` runs, in every compare-and-swap attempt, the system must:
 
 - Given an artifact created by X, then updated by Y, then by Z, when it is read, then
   `revision_history` holds three `{by, at}` entries in write order: X, Y, Z. The first entry equals
-  `generated` and the last equals `revised`, field for field (AC-75; D30, D35).
+  `generated` and the last equals `revised`, field for field (AC-75;
+  brainstorming-2026-09-17-okf-v02-adoption D30, D35).
 - Given an artifact with history H, when it is updated, then its history is H plus one entry (FR-55;
   the history clause of AC-60).
 
-Source: FR-55, FR-69, FR-72; D30, D35
+Source: FR-55, FR-69, FR-72; brainstorming-2026-09-17-okf-v02-adoption D30, D35
 
 ### R6 — The history is carried from one compare-and-swap attempt to the next the way `commit_refs` is
 
@@ -214,14 +221,14 @@ in it. The new entry is then appended.
 **Why:** If another writer restores only what it read while this call's annotations were wiped, a
 retry that discarded the first read would lose all earlier history.
 
-Source: FR-55, FR-69, FR-72; D30, D35
+Source: FR-55, FR-69, FR-72; brainstorming-2026-09-17-okf-v02-adoption D30, D35
 
 ### R7 — `create_artifacts`, `update_artifacts` and `migrate_artifacts` get the same behaviour through delegation
 
 `create_artifacts`, `update_artifacts` and `migrate_artifacts` get the same behaviour through
 delegation.
 
-Source: FR-55, FR-69, FR-72; D30, D35
+Source: FR-55, FR-69, FR-72; brainstorming-2026-09-17-okf-v02-adoption D30, D35
 
 ## 4. Rules — Everything else carries it unchanged
 
@@ -234,37 +241,39 @@ Neither appends.
 **Example**
 
 - Given an artifact with history H, when it is archived, has links backfilled, or is re-indexed by
-  `reconcile_index`, then its history is still exactly H (FR-17, FR-54, FR-72; D30).
+  `reconcile_index`, then its history is still exactly H (FR-17, FR-54, FR-72;
+  brainstorming-2026-09-17-okf-v02-adoption D30).
 
-Source: FR-17, FR-54, FR-72; D30
+Source: FR-17, FR-54, FR-72; brainstorming-2026-09-17-okf-v02-adoption D30
 
 ### R9 — `link_metadata` neither reads nor writes the history
 
 `link_metadata` (renamed `add_artifact_links` by T84) never re-PUTs the object. It must neither read
 nor write the history.
 
-Source: FR-17, FR-54, FR-72; D30
+Source: FR-17, FR-54, FR-72; brainstorming-2026-09-17-okf-v02-adoption D30
 
 ### R10 — `reconcile_index` never adds an entry, and writes the history only to restore a failure-log copy
 
 `reconcile_index` must never add an entry. It writes the history only to restore a copy that a
 failure-log entry recorded.
 
-Source: FR-17, FR-54, FR-72; D30
+Source: FR-17, FR-54, FR-72; brainstorming-2026-09-17-okf-v02-adoption D30
 
 ### R11 — An update or archive whose read finds the history unreadable returns `corrupt_metadata` and writes nothing; once its own object write has landed, the durable-failure path applies instead
 
 When an update's or archive's read finds the history unreadable, the system must return
 `corrupt_metadata` naming `revision_history` and write nothing. Once this call's own object write
 has landed, the existing durable-failure path applies instead: a failure-log entry and a structured
-error (D50, case 1).
+error (brainstorming-2026-09-17-okf-v02-adoption D50, case 1).
 
 **Example**
 
 - Given a stored history payload that does not decode, then an update or archive of the artifact
-  returns `corrupt_metadata` and writes nothing (D50, case 1).
+  returns `corrupt_metadata` and writes nothing (brainstorming-2026-09-17-okf-v02-adoption D50, case
+  1).
 
-Source: FR-17, FR-54, FR-72; D30; D50 (case 1)
+Source: FR-17, FR-54, FR-72; brainstorming-2026-09-17-okf-v02-adoption D30; brainstorming-2026-09-17-okf-v02-adoption D50 (case 1)
 
 ## 5. Rules — Failure log and repair
 
@@ -301,7 +310,7 @@ When `read_artifact` succeeds, the system must return `revision_history` as a li
 `[]` when the annotation is absent. The history is read after the cross-scope gate, so a denied
 artifact's history is never fetched.
 
-Source: FR-72; D34, D50
+Source: FR-72; brainstorming-2026-09-17-okf-v02-adoption D34, D50
 
 ### R15 — An unreadable payload makes `read_artifact` return `corrupt_metadata` naming `revision_history` and the reason, never echoing the payload
 
@@ -313,21 +322,23 @@ When the payload is unreadable, `read_artifact` must return `corrupt_metadata` n
 - Given a stored history payload that does not decode, when the artifact is read, then
   `read_artifact` returns `corrupt_metadata` naming `revision_history`.
 
-**Why:** `corrupt_metadata` never carries the payload. A history can be a megabyte. D50 case 5
-forbids echoing a raw value to a foreign-scope reader. Naming the annotation and the reason serves
-every reader.
+**Why:** `corrupt_metadata` never carries the payload. A history can be a megabyte.
+brainstorming-2026-09-17-okf-v02-adoption D50 case 5 forbids echoing a raw value to a foreign-scope
+reader. Naming the annotation and the reason serves every reader.
 
-Source: FR-72; D34, D50
+Source: FR-72; brainstorming-2026-09-17-okf-v02-adoption D34, D50
 
 ### R16 — `list_artifacts` returns the history only when `include_revision_history` is true; search, synthesis and the `arkeology://artifacts` resource never return it
 
 `list_artifacts` must accept `include_revision_history`, default false:
 
 - False: no entry has the key, and no history annotation is read.
-- True: every entry carries `revision_history`, read next to the link fields under the same
-  concurrency bound.
+- True: every entry carries `revision_history`, read under the same per-page concurrency bound as
+  the link fields, whether or not the call also passes `include_links` (p3-t10-list-artifacts R11).
 - An unreadable payload skips the entry and counts it under `skipped_malformed_count`.
-- Any other read failure fails the listing, as a failed link-field read does today.
+- An artifact whose object turns out to be gone is omitted and counted under
+  `skipped_deleted_count`, as under `include_links`.
+- Any other read failure fails the listing, as a failed link-field read does under `include_links`.
 
 `search_artifacts`, `synthesise_artifacts` and the `arkeology://artifacts` resource must not return
 the history.
@@ -336,15 +347,15 @@ the history.
 
 - Given a page of artifacts, when `list_artifacts` is called without `include_revision_history`,
   then no entry carries `revision_history` and no history annotation is read. When the option is
-  true, every entry carries it (AC-75; D34).
+  true, every entry carries it (AC-75; brainstorming-2026-09-17-okf-v02-adoption D34).
 - Given a stored history payload that does not decode, then a listing that asked for history skips
   the artifact and counts it under `skipped_malformed_count`.
 
 **Why:** The option is on `list_artifacts` only. FR-72 and AC-75 name listings. No consumer needs
 the history in search results, and adding it there later would not break anything. The cost it
-avoids is one annotation GET per artifact per page (D34).
+avoids is one annotation GET per artifact per page (brainstorming-2026-09-17-okf-v02-adoption D34).
 
-Source: FR-72; D34, D50
+Source: FR-72; brainstorming-2026-09-17-okf-v02-adoption D34, D50
 
 ## 7. Rules — Shared append helper
 
@@ -372,9 +383,10 @@ The helper never re-PUTs the object, so it never moves `revised` or `last_edited
   annotation holds the earlier entries followed by the new one.
 - Given an object re-PUT that lands between the helper's ETag read and its write, when the helper
   runs, then it retries and appends to the list that re-PUT restored.
-- Given an unreadable payload, when the helper runs, then nothing is written (D46, D50).
+- Given an unreadable payload, when the helper runs, then nothing is written
+  (brainstorming-2026-09-17-okf-v02-adoption D46, D50).
 
-Source: D46; ADR-017 `### 8. Tool surface`
+Source: brainstorming-2026-09-17-okf-v02-adoption D46; ADR-017 `### 8. Tool surface`
 
 ### R18 — Every path that touches the history uses the helper's decode, encode and size check
 
@@ -382,7 +394,7 @@ The history's read and write go through the same decode, encode and size check t
 uses, in every path that touches it. T83 then adds `verified` by naming a second annotation, not by
 writing a second implementation.
 
-Source: D46; ADR-017 `### 8. Tool surface`
+Source: brainstorming-2026-09-17-okf-v02-adoption D46; ADR-017 `### 8. Tool surface`
 
 ## 8. Rules — What the object-ETag compare-and-swap guarantees, and what it does not
 
@@ -470,7 +482,8 @@ Source: C-06, C-07; annotation-backed link storage ADR decision 6; Open Question
 - Read the history before every re-PUT and restore it after, alongside the link fields, in the same
   compare-and-swap cycle.
 - Raise on every failed history read. Only an absent annotation is empty.
-- Keep each entry byte-identical to the resolved block (D30).
+- Keep each entry byte-identical to the resolved block
+  (brainstorming-2026-09-17-okf-v02-adoption D30).
 - Keep the public / `_inner` pattern with `try/except Exception`, and log to stderr only.
 - After changing `annotations.py`, which is in `only_mutate`, run mutmut alone and triage survivors
   as AGENTS.md describes.
@@ -481,12 +494,12 @@ Source: C-06, C-07; annotation-backed link storage ADR decision 6; Open Question
 - Changing `CAS_MAX_ATTEMPTS`.
 
 **Never:**
-- Derive `generated` or `revised` from the history, or rebuild a missing history from them (D35).
-  An absent history is returned as `[]`.
+- Derive `generated` or `revised` from the history, or rebuild a missing history from them
+  (brainstorming-2026-09-17-okf-v02-adoption D35). An absent history is returned as `[]`.
 - Keep any copy of the history in object or vector metadata, or read it from anywhere but its
-  annotation (D26).
-- Append on archive, lifecycle change, link backfill, verification or reconciliation (D30: one
-  entry per content write).
+  annotation (brainstorming-2026-09-17-okf-v02-adoption D26).
+- Append on archive, lifecycle change, link backfill, verification or reconciliation
+  (brainstorming-2026-09-17-okf-v02-adoption D30: one entry per content write).
 - Build the `verified` annotation or `add_artifact_verification` (T83). Restructure the link
   annotation (T84). Seed history in the store migration (T90). Rewrite the schema resource (T89).
   Edit README, SERVER-REFERENCE, CHANGELOG or AGENTS.md (T91).
@@ -507,7 +520,7 @@ T80 lands after T76, T78 and T79, so it edits their result.
 | `src/arkeology/tools/archive.py` | Modify | Read forward, carry, restore unchanged. Record the history in failure entries |
 | `src/arkeology/tools/reconcile.py` | Modify | `_restore_group_link_fields`, or a sibling helper, restores the history by union |
 | `src/arkeology/tools/read.py` | Modify | Read after the gate. Return `revision_history`. Map a corrupt payload to `corrupt_metadata` |
-| `src/arkeology/tools/list.py` | Modify | Add `include_revision_history`. Fetch inside `_fetch_link_fields`'s semaphore only when the option is true. Count a malformed payload as a skip |
+| `src/arkeology/tools/list.py` | Modify | Add `include_revision_history`. Fetch under the same semaphore as the link-field reads, only when the option is true and whether or not `include_links` is. Count a malformed payload as a skip, and a gone object under `skipped_deleted_count` |
 | `src/arkeology/server.py` | Modify | Forward `include_revision_history` and document it in the `list_artifacts` docstring |
 | Tests | Modify / Create | See Testing Approach |
 
@@ -538,7 +551,9 @@ Amend these before the tests (plan.md `## Phase 15`, TDD rule):
 - **`modules/arkeology.tools.read.md`** — The postcondition adds `revision_history`.
   `corrupt_metadata` now also covers the history, and its message never carries the payload.
 - **`modules/arkeology.tools.list.md`** — Add `include_revision_history`. The default reads nothing.
-  A malformed history is a skip. A failed read fails the listing.
+  A malformed history is a skip. A failed read fails the listing. A gone object found by the history
+  read is counted under `skipped_deleted_count`, so that key can appear with either option, not only
+  with `include_links=True`.
 
 ### Testing Approach
 
@@ -586,6 +601,9 @@ so no AC-80 test applies.
      returns the history.
    - A corrupt history increments `skipped_malformed_count`.
    - A failed read fails the listing.
+   - With `include_revision_history=True` and no `include_links`, entries carry the history and no
+     link field, and an artifact whose object is gone is omitted and counted under
+     `skipped_deleted_count`.
 8. `tests/unit/test_server.py`, then `server.py`: `include_revision_history` is forwarded.
 
 **Moto.** The self-mock in `tests/unit/conftest.py` already supports everything these tests need:

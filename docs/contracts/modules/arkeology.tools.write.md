@@ -45,12 +45,14 @@ sources:
   - resource: docs/specs/p1-t3-aws-client-layer.md
     title: T3 — AWS Client Layer
     last_modified: 2026-11-10T16:40:30Z
+  - resource: .docs/reviews/architecture-review-2026-11-15-arkeology-phases-9-10-12.md
+    title: "Architecture review — Arkeology, plan phases 9, 10 and 12"
 generated:
   by: "axians-tech-writer/claude-opus-5"
   at: 2026-09-04T00:00:00Z
 revised:
   by: "axians-architect/claude-opus-5-5"
-  at: 2026-11-12T21:20:24Z
+  at: 2026-11-15T19:18:17Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
@@ -100,7 +102,9 @@ async def write_artifact(
 Never raises. Every failure is a returned dict carrying an `"error"` key.
 
 - `validation_error` — an invalid field value, a `type` outside `ARTIFACT_TYPES`, an invalid or
-  wrong-typed `tier`, a title over length or containing a control character, a metadata budget
+  wrong-typed `tier`, a title over length or containing a control character, a `references`
+  element that is not a full key — one containing no scope separator `/`
+  (`s3-annotations.artifact` § Storage Shape) — a metadata budget
   breach **detected while nothing is yet durable**, or a generated key that already exists while
   `overwrite` is `False`. A budget breach detected once a compare-and-swap attempt's `put_object`
   has landed returns `partial_write` instead; see the retry-budget-breach invariant.
@@ -234,6 +238,10 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
 
 - `type` must be a member of `ARTIFACT_TYPES`; `tier` must be 2 or 3.
 - `title` must be within the length bound and free of control characters.
+- Every `references` element must be a full artifact key, scope included, as the write and read
+  tools return it — `team-a/payments/adr-use-postgres-abc12345.md`, never the bare
+  `adr-use-postgres-abc12345`. The write checks the form only (the scope separator is present); it
+  does not check that the key names an existing artifact.
 - A caller intending to replace an existing artifact must pass `overwrite=True` deliberately.
 
 **Postconditions**

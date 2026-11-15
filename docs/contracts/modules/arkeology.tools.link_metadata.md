@@ -33,12 +33,16 @@ sources:
   - resource: docs/specs/p1-t3-aws-client-layer.md
     title: T3 — AWS Client Layer
     last_modified: 2026-11-10T16:40:30Z
+  - resource: docs/specs/p12-t51-migration-reference-rewrite.md
+    title: "T51 — Migration Frontmatter Reference Rewriting + arkeology:// Content Rewrite"
+  - resource: .docs/reviews/architecture-review-2026-11-15-arkeology-phases-9-10-12.md
+    title: "Architecture review — Arkeology, plan phases 9, 10 and 12"
 generated:
   by: "axians-tech-writer/claude-opus-5"
   at: 2026-09-04T00:00:00Z
 revised:
   by: "axians-architect/claude-opus-5-5"
-  at: 2026-11-12T21:20:24Z
+  at: 2026-11-15T20:12:17Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
@@ -50,9 +54,10 @@ verified:
 
 The `link_metadata` MCP tool: the only supported way to add `commit_refs` or `references` to an
 artifact that already exists, without re-embedding it or mutating its stored content. It sits on
-the boundary between an agent (or the `backfilling-references` skill) and the two durable stores
-that hold an artifact's link fields — the S3 object annotation copy and the S3 Vectors metadata
-copy.
+the boundary between an agent — linking its session's artifacts to a commit, or adding by hand a
+reference that migration left unresolved — and the two
+durable stores that hold an artifact's link fields — the S3 object annotation copy and the S3
+Vectors metadata copy.
 
 ## Symbols
 
@@ -78,16 +83,19 @@ carrying an `"error"` key whose value is an `ErrorCode` member, per the project'
 delegation rule. It raises nothing.
 
 - `validation_error` — returned when neither `commit_refs` nor `references` is supplied non-empty,
-  when any supplied element is empty or whitespace-only, or when the merged values would breach a
-  metadata size budget (`MetadataTooLargeError`, rejected before either store is written).
+  when any supplied element is empty or whitespace-only, contains a control character or a comma,
+  or — for `references` — is not a full key, containing no scope separator `/`
+  (`s3-annotations.artifact` § Storage Shape), or when the merged values would breach a metadata
+  size budget (`MetadataTooLargeError`, rejected before either store is written). A malformed
+  element rejects the whole call before any `artifact_id` is touched.
 - `credential_error` — returned when any AWS call raises `CredentialError`.
 - `annotation_unavailable` — returned when the durable annotation write cannot be performed. This
   is never silently absorbed: the durable write *is* this tool's contract, so the affected
   `artifact_id` is never counted as linked.
 - `conflict` — returned when the bounded compare-and-swap retry cycle is exhausted without a
   successful conditional write, i.e. a concurrent object-body write changed the artifact on every
-  attempt. Carries the offending `artifact_id`. A concurrent annotation-only write never produces
-  this code (see the residual under Invariants).
+  attempt. A concurrent annotation-only write never produces this code (see the residual under
+  Invariants).
 - `internal_error` — returned for any otherwise unhandled exception.
 
 **Invariants**
@@ -143,9 +151,15 @@ delegation rule. It raises nothing.
   and left entirely untouched — foreign-scope artifacts can never be linked.
 - An `artifact_id` with no indexed vector is counted in `skipped`, not treated as an error.
 - Every `artifact_id` counted in `linked` has had its annotation copy durably written.
-- On an `annotation_unavailable`, `validation_error`-from-budget, or `conflict` return, partial
-  progress accumulated on other `artifact_ids` in the same call is preserved and reported via
-  `linked` / `skipped` keys, included only when non-zero.
+- One `artifact_id`'s `annotation_unavailable`, metadata-budget `validation_error` or `conflict`
+  stops the call: it returns that error instead of the success shape. The error response names that artifact in `artifact_id` and lists in `linked_ids` every
+  `artifact_id` the call did link, in `artifact_ids` order — the ids a caller need not send again.
+  Progress made on other `artifact_ids` is preserved, never rolled back. `linked_ids`, and the
+  `linked` / `skipped` counts beside it, are included only when non-empty and non-zero. A malformed
+  supplied element is not such a failure: it rejects the whole call before any `artifact_id` is
+  touched, and that response carries none of these keys. For example, a `conflict` on the second of
+  two ids after the first was linked returns `{"error": "conflict", "message": ..., "artifact_id":
+  <the second id>, "linked_ids": [<the first id>], "linked": 1}`.
 - An `artifact_id` whose annotation write succeeded but whose vector write failed is reported in a
   `vector_write_failed` list of ids, included only when non-empty. It is counted in neither
   `linked` (its vector copy is stale) nor `skipped` (its annotation copy was written), and a

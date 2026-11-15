@@ -2,7 +2,7 @@
 type: Spec
 id: p12-t58-commit-refs-cap-references-removal
 title: T58 — commit_refs Vector-Metadata Cap (20) + references Vector-Metadata Removal + propose_commit_links Multi-Section Fix
-description: "Stop writing references into S3 Vectors metadata entirely across write.py, link_metadata.py, and reconcile.py — the S3 object annotation copy becomes its sole durable store and sole read surface. commit_refs stays in S3 Vectors metadata, filterable, but capped to the most-recently-appended 20 entries (real-AWS-calibrated; AWS accepts up to 36 entries for this payload shape, rejects 37); the complete, uncapped list remains durable in annotations regardless of the cap. Also fixes a related gap: propose_commit_links.py sources commit_refs from a single, first-occurrence-wins vector per artifact instead of annotations.read_current_link_fields, which the new cap would otherwise silently worsen (older commit refs beyond 20 would drop out of its already-incomplete view too) — by routing it through the same union-of-both-stores helper read.py/list.py already use."
+description: "Stop writing references into S3 Vectors metadata entirely across write.py, link_metadata.py, and reconcile.py — the S3 object annotation copy becomes its sole durable store and sole read surface. commit_refs stays in S3 Vectors metadata, filterable, but capped to the most-recently-appended 20 entries (real-AWS-calibrated; AWS accepts up to 36 entries for this payload shape, rejects 37); the complete, uncapped list remains durable in annotations regardless of the cap. Also makes propose_commit_links.py decide eligibility from the artifact's commit_refs annotation, the sole source of truth read.py/list.py use, instead of a single vector's capped copy."
 tags: []
 status: stable
 okf_version: "0.2"
@@ -28,39 +28,71 @@ sources:
   - resource: docs/learnings.md
     title: Learnings
   - resource: tests/integration/test_calibration_vector_metadata_budget.py
+  - resource: docs/contracts/data/s3-annotations.artifact.md
+    title: s3-annotations.artifact
+  - resource: docs/contracts/modules/arkeology.tools.propose_commit_links.md
+    title: arkeology.tools.propose_commit_links
+  - resource: .docs/reviews/architecture-review-2026-11-15-arkeology-phases-9-10-12.md
+    title: "Architecture review — Arkeology, plan phases 9, 10 and 12"
+  - resource: docs/architecture-decisions/adr-2026-09-14-malformed-persisted-data-policy.md
+    title: How Arkeology Treats Malformed and Ambiguous Persisted Data
+  - resource: docs/specs/p3-t10-list-artifacts.md
+    title: T10 — List Artifacts Tool
+  - resource: docs/contracts/data/s3vectors.artifact.md
+    title: s3vectors.artifact
+  - resource: docs/contracts/modules/arkeology.tools.write.md
+    title: arkeology.tools.write
+  - resource: docs/contracts/modules/arkeology.tools.link_metadata.md
+    title: arkeology.tools.link_metadata
+  - resource: docs/contracts/modules/arkeology.tools.reconcile.md
+    title: arkeology.tools.reconcile
+  - resource: docs/contracts/modules/arkeology.tools.read.md
+    title: arkeology.tools.read
+  - resource: docs/contracts/modules/arkeology.tools.list.md
+    title: arkeology.tools.list
 generated:
   by: "axians-architect/claude-sonnet-5"
   at: 2026-08-17T00:00:00Z
 revised:
   by: "axians-architect/claude-opus-5-5"
-  at: 2026-11-09T19:54:36Z
+  at: 2026-11-15T20:28:28Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
+  - by: "axians-architect/claude-fable-5-2"
+    at: 2026-11-15T20:45:07Z
 ---
 
 # T58 — `commit_refs` Vector-Metadata Cap (20) + `references` Vector-Metadata Removal + `propose_commit_links` Multi-Section Fix
 
 ## TL;DR
 
-This is the operator's locked, structural fix (ADR D2), not a tuning fix: `references` is removed from S3 Vectors metadata entirely — the S3 object annotation copy (ADR-011) becomes its sole durable store and sole read surface. `commit_refs` keeps its load-bearing `$eq` filterability (`list.py`'s `commit_refs=[...]` filter) but its vector-metadata copy is capped to the most-recently-appended **20 entries** — real-AWS-calibrated (AWS accepts up to 36 entries for this payload shape, rejects 37; 20 leaves deliberate headroom, see `docs/learnings.md`, 2026-08-13). The complete, uncapped `commit_refs` list remains durable in annotations regardless of the vector-side cap — the cap is a representation change, never a data-loss or write-rejection event. (ADR D2.)
-It also makes `propose_commit_links.py` decide eligibility from `annotations.read_current_link_fields`
-(the union of both stores) instead of a single vector's now-capped `commit_refs` copy.
+This is the operator's locked, structural fix
+(adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal D2), not a tuning fix: `references`
+is removed from S3 Vectors metadata entirely — the S3 object annotation copy (ADR-011) becomes its
+sole durable store and sole read surface. `commit_refs` keeps its load-bearing `$eq` filterability
+(`list.py`'s `commit_refs=[...]` filter) but its vector-metadata copy is capped to the
+most-recently-appended **20 entries** — real-AWS-calibrated (AWS accepts up to 36 entries for this
+payload shape, rejects 37; 20 leaves deliberate headroom, see `docs/learnings.md`, 2026-08-13). The
+complete, uncapped `commit_refs` list remains durable in annotations regardless of the vector-side
+cap — the cap is a representation change, never a data-loss or write-rejection event.
+(adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal D2.) It also makes
+`propose_commit_links.py` decide eligibility from the artifact's `commit_refs` annotation — the sole
+source of truth, read with `annotations.read_link_annotations` — instead of a single vector's capped
+`commit_refs` copy.
 
 ## 1. Problem Statement
 
-`references` is a filterable list field in vector metadata today (T46), counted against the 2 KB filterable-metadata budget alongside `commit_refs`, `tags`, and every other filterable key. The operator judged `references`'s native `$eq`/`$in` filtering (`list_artifacts(references=[...])`, the `references`-half of the delete/archive reverse-lookup) a nice-to-have, not load-bearing, at the project's current stage — so rather than tuning the byte-budget threshold (which only narrows, not eliminates, the overflow failure mode for a genuinely large list), the operator chose to retire `references` from the vector store outright. `commit_refs` is different: `list_artifacts(commit_refs=[...])` is a shipped, load-bearing filter, so it must stay filterable — but its list is append-only and unbounded (backfilled repeatedly by `link_metadata` over an artifact's lifetime), and the 2026-08-13 real-AWS calibration proved the local byte-budget approximation under-measures AWS's real per-entry accounting for this exact field shape by enough to make an unbounded list a real, repeatable failure mode, not a hypothetical one. A hard, calibrated entry-count cap on the *vector-metadata copy only* closes this permanently, without touching the byte-budget guard itself (T55's constants are unchanged by this task — this is a structural fix, not a threshold tuning) and without losing any data, because the annotation copy stays uncapped.
+A link list held in vector metadata is a filterable field, counted against the 2 KB filterable-metadata budget alongside `tags` and every other filterable key. The operator judged `references`'s native `$eq`/`$in` filtering (`list_artifacts(references=[...])`, the `references`-half of the delete/archive reverse-lookup) a nice-to-have, not load-bearing, at the project's current stage — so rather than tuning the byte-budget threshold (which only narrows, not eliminates, the overflow failure mode for a genuinely large list), the operator chose to retire `references` from the vector store outright. `commit_refs` is different: `list_artifacts(commit_refs=[...])` is a shipped, load-bearing filter, so it must stay filterable — but its list is append-only and unbounded (backfilled repeatedly by `link_metadata` over an artifact's lifetime), and the 2026-08-13 real-AWS calibration proved the local byte-budget approximation under-measures AWS's real per-entry accounting for this exact field shape by enough to make an unbounded list a real, repeatable failure mode, not a hypothetical one. A hard, calibrated entry-count cap on the *vector-metadata copy only* closes this permanently, without touching the byte-budget guard itself (T55's constants are unchanged by this task — this is a structural fix, not a threshold tuning) and without losing any data, because the annotation copy stays uncapped.
 
-Three call sites currently write `references` into vector metadata and write an uncapped `commit_refs` into vector metadata: `write.py` (fresh-create Step 3b, and the overwrite CAS loop), `link_metadata.py` (its per-vector batch-write loop), and `reconcile.py` (`_reindex_artifact`'s rebuild). All three must change together, or the split-store contract is inconsistent depending on which path last touched an artifact.
+Three call sites assemble vector metadata carrying the link fields: `write.py` (fresh-create Step 3b, and the overwrite CAS loop), `link_metadata.py` (its per-vector batch-write loop), and `reconcile.py` (`_reindex_artifact`'s rebuild). All three apply the same two rules, or the split-store contract is inconsistent depending on which path last touched an artifact.
 
-A fourth site, `propose_commit_links.py`, only *reads* `commit_refs` (it makes no writes), but its read is the same "first-vector-only" mistake `read.py` and `list.py` were already fixed for: it dedups `items` by `artifact_id` with first-occurrence-wins, then reads `commit_refs` directly off that one vector's `meta` to decide eligibility, instead of calling `read_current_link_fields` to get the union across every section vector plus the annotation. A multi-section artifact whose `commit_refs` were set on a section vector other than the one that sorts first is silently re-proposed as "not yet linked," even though it already carries `commit_refs` everywhere else in the system. This task's cap makes the failure mode strictly wider — the vector-metadata copy `propose_commit_links.py` reads from is now also entry-capped — so the fix is folded in here rather than left open while this task ships a cap on top of it.
-
-Folded into the same spec: `propose_commit_links.py` currently decides whether an artifact is "not yet linked" by reading `commit_refs` off a single, first-occurrence-wins vector per artifact, instead of calling `annotations.read_current_link_fields` (the union-of-both-stores helper `read.py`/`list.py` were already fixed to use for the identical bug class). The 20-entry cap this task introduces makes that gap strictly worse: a `propose_commit_links` caller reading a single vector's now-additionally-capped `commit_refs` copy can miss both a value that lives on a different section vector (the pre-existing bug) and a value that has aged out of that vector's capped window (a new way to hit the same symptom). This task routes `propose_commit_links.py` through `read_current_link_fields` so both gaps close together, rather than shipping a cap that measurably worsens a known, already-flagged bug.
+A fourth site, `propose_commit_links.py`, only *reads* `commit_refs` (it makes no writes) to decide whether an artifact is "not yet linked". Reading it off one section vector per artifact misses both a value that lives on a different section vector and a value that has aged out of that vector's 20-entry window, so a linked artifact would be re-proposed after every commit. It therefore reads the artifact's `commit_refs` annotation — the sole, complete source of truth that `read.py` and `list.py` read — so the cap cannot change its answer.
 
 All four user stories of the earlier format — `references` never appears in vector metadata after
 any write path; `commit_refs` vector-metadata copy capped at 20, full list stays in annotations;
 existing dual-field, uncapped vector-metadata contract updated; `propose_commit_links` sources
-eligibility from the union of both stores, not one vector — are P1.
+eligibility from the annotation, not one vector — are P1.
 
 ## 2. Rules — `references` removed from vector metadata
 
@@ -83,28 +115,26 @@ annotation copy (ADR-011) becomes its sole durable store and sole read surface.
   rebuild completes, then no `references` key is present in the rebuilt vector metadata — the value
   remains readable only via the annotation.
 
-Source: ADR D2; the sole-store part: ADR-011
+Source: adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal D2; the sole-store part: ADR-011
 
 ### R2 — Readers still return the correct `references` value
 
-After any of the writes above, `read_artifact` and `list_artifacts` still return the artifact's
-correct `references` value — they already source it from `read_current_link_fields` (the union of
-both durable stores), so removing the vector-side copy has no effect on what a reader sees; the
-annotation side alone now supplies it. (No change required in `read.py` or `list.py`'s per-entry
-field sourcing.)
+After any of the writes above, `read_artifact`, and `list_artifacts` when the caller asks for link
+fields (p3-t10-list-artifacts R11), still return the artifact's correct `references` value — they
+read it from the S3 object annotation
+(`annotations.read_link_annotations`), the field's sole read surface, so the vector side carrying no
+copy has no effect on what a reader sees.
 
 Source: None
 
-### R3 — The rebuild reads both fields from the union but writes back only the capped `commit_refs`
+### R3 — The rebuild reads both fields from the annotation but writes back only the capped `commit_refs`
 
-When `reconcile.py`'s `_reindex_artifact` reads `read_current_link_fields`, it continues to read both
-`commit_refs` and `references` from it (the union-of-both-stores helper is unchanged — see
-`annotations.py`'s `_read_vector_link_fields`, which must keep reading a `references` key from vector
-metadata for backward-read compatibility with vectors written before this task ships, even though no
-path writes it going forward), but only places the capped `commit_refs` value into the rebuilt vector
-metadata.
+When `reconcile.py`'s `_reindex_artifact` rebuilds an artifact, it reads both `commit_refs` and
+`references` from the object's annotation with `annotations.read_link_annotations` — never from the
+vector metadata it is replacing — and places only the capped `commit_refs` value into the rebuilt
+vector metadata.
 
-Source: None
+Source: p12-t48-reconcile-from-annotations R1, R3
 
 ## 3. Rules — `commit_refs` vector-metadata cap
 
@@ -131,7 +161,7 @@ data-loss or write-rejection event.
 - Given `commit_refs` is empty after merge, when written, then the `commit_refs` key is omitted from
   vector metadata exactly as today (existing S3-Vectors empty-array rule, unaffected by this task).
 
-Source: ADR D2; the 20-entry number: OQ2 (closed by real-AWS calibration)
+Source: adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal D2; the 20-entry number: OQ2 (closed by real-AWS calibration)
 
 ### R5 — The annotation write always carries the full, uncapped lists
 
@@ -142,10 +172,10 @@ to the vector-metadata representation only, never to the annotation write.
 **Example**
 
 - Given an artifact whose full `commit_refs` list has 21 or more entries, when its S3 annotation is
-  read (directly, or via `read_current_link_fields`/`read_artifact`), then it carries the
+  read (directly, or via `read_link_annotations`/`read_artifact`), then it carries the
   **complete, uncapped** `commit_refs` list — nothing is ever dropped from the durable copy.
 
-Source: ADR D2
+Source: adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal D2
 
 ### R6 — A `commit_refs` filter does not match a SHA outside the most-recent 20
 
@@ -155,7 +185,7 @@ does **not** appear in the filtered results — this is the accepted, documented
 of this task (see Consequences below); `read_artifact`'s returned `commit_refs` list is unaffected
 (still complete, from annotations).
 
-Source: ADR D2
+Source: adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal D2
 
 ### R7 — One shared constant and one shared helper apply the cap
 
@@ -179,16 +209,16 @@ Source: None
 
 ## 4. Rules — `propose_commit_links` eligibility
 
-### R9 — `propose_commit_links` decides eligibility from the union of both stores
+### R9 — `propose_commit_links` decides eligibility from the annotation
 
 When `propose_commit_links.py` has deduplicated its fetched vector items down to one distinct
 `artifact_id` per candidate (existing `seen_ids` logic, unchanged), it determines each candidate's
-current `commit_refs` by calling `annotations.read_current_link_fields(s3, vectors, artifact_id)`
-(off the event loop, via `asyncio.to_thread`, mirroring `list.py`'s `_fetch_link_fields` pattern)
-rather than reading `meta.get("commit_refs")` off the single vector already in hand. When resolving
-`commit_refs` for multiple candidates, it issues the per-candidate `read_current_link_fields` calls
-concurrently via `asyncio.gather(..., return_exceptions=True)`, matching `list.py`'s existing pattern
-for the same helper, rather than one sequential call per candidate.
+current `commit_refs` by reading the candidate's annotation with
+`annotations.read_link_annotations(s3, artifact_id)` (off the event loop, via `asyncio.to_thread`,
+mirroring `list.py`'s pattern) rather than reading `meta.get("commit_refs")` off the single vector
+already in hand. When resolving `commit_refs` for multiple candidates, it issues the per-candidate
+reads concurrently via `asyncio.gather(..., return_exceptions=True)`, matching `list.py`'s existing
+pattern, rather than one sequential call per candidate.
 
 **Example**
 
@@ -199,24 +229,37 @@ for the same helper, rather than one sequential call per candidate.
   re-proposed.
 - Given an artifact whose full `commit_refs` list (from annotations) has more than 20 entries, so its
   vector-metadata copy is capped at 20, when `propose_commit_links` runs, then the artifact is still
-  correctly excluded from `proposed` — eligibility is decided from the annotation-backed, uncapped
-  union (`read_current_link_fields`), never from a vector's capped copy.
-- Given an artifact with genuinely no `commit_refs` in either store, when `propose_commit_links`
-  runs, then it still appears in `proposed` exactly as today — no passing-case behaviour changes.
+  correctly excluded from `proposed` — eligibility is decided from the uncapped annotation, never
+  from a vector's capped copy.
+- Given an artifact with no `commit_refs` annotation, when `propose_commit_links` runs, then it
+  still appears in `proposed` exactly as today — no passing-case behaviour changes.
 
 Source: None
 
-### R10 — A failed per-candidate read: `CredentialError` fails the call, anything else degrades one candidate
+### R10 — A failed per-candidate read fails the whole call; no candidate is degraded to "not yet linked"
 
-When a per-candidate `read_current_link_fields` call raises `CredentialError`, `propose_commit_links`
-returns the existing structured credential-error response for the whole call (matching how
-`propose_commit_links.py` already handles `CredentialError` from
-`list_vectors_by_metadata`/`get_vectors`). When it raises any other exception, that one candidate's
-`commit_refs` degrades to `[]` (treating it as not-yet-linked) rather than aborting the whole call —
-mirroring `list.py`'s existing degrade-on-error behaviour for the same helper, since a
-supplementary-field read failure for one candidate must not hide every other candidate's proposal.
+When a per-candidate `read_link_annotations` call fails, `propose_commit_links` proposes nothing and
+returns one structured error for the whole call, with the code `arkeology.tools.propose_commit_links`
+§ propose_commit_links lists under Errors: `credential_error` for a `CredentialError`,
+`annotation_unavailable` when the annotation store is unavailable or access to it is denied, and
+`internal_error` for any other failure, a throttled read and a not-found the client could not
+classify included. A candidate whose read failed is never treated as having empty `commit_refs`:
+`commit_refs` is an append-only trail with no removal operation, so a candidate proposed on the
+strength of a failed read and then linked would claim that commit permanently. The one outcome that
+does not fail the call is a read answering that the candidate's object is gone: that candidate is
+left out of `proposed`, silently and uncounted, since a deleted artifact cannot be linked.
 
-Source: None
+**Example**
+
+- Given two candidates, one already linked to an earlier commit and whose annotation read is
+  throttled on this call, when `propose_commit_links` runs, then it returns
+  `{"error": "internal_error", "message": ...}` and no `proposed` list.
+- Given a candidate whose annotation read raises `AnnotationUnavailableError`, when
+  `propose_commit_links` runs, then it returns `{"error": "annotation_unavailable", ...}`.
+- Given a candidate whose object was deleted after its vectors were listed, when
+  `propose_commit_links` runs, then the call succeeds and that candidate is not in `proposed`.
+
+Source: adr-2026-09-14-malformed-persisted-data-policy D5, D6
 
 ### R11 — `propose_commit_links`'s `s3` parameter becomes required
 
@@ -241,20 +284,29 @@ Source: None
 ## 6. Boundaries
 
 **Always:**
-- The byte-budget constants (`VECTOR_FILTERABLE_METADATA_MAX_BYTES`, `VECTOR_TOTAL_METADATA_MAX_BYTES`, `S3_USER_METADATA_MAX_BYTES`) are **unchanged** by this task — this is a structural representation fix (remove one field, cap another), not a threshold tuning (ADR D2, rejected Option A).
+- The byte-budget constants (`VECTOR_FILTERABLE_METADATA_MAX_BYTES`,
+  `VECTOR_TOTAL_METADATA_MAX_BYTES`, `S3_USER_METADATA_MAX_BYTES`) are **unchanged** by this task —
+  this is a structural representation fix (remove one field, cap another), not a threshold tuning
+  (adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal D2, rejected Option A).
 - The 20-entry cap and the 36/37-entry calibration boundary are **payload-shape-specific, not universal constants** — they were measured against today's specific filterable-metadata field mix and must be re-calibrated (a fresh run of `tests/integration/test_calibration_vector_metadata_budget.py`) if the set of filterable vector-metadata keys ever changes. Document this alongside the new constant, mirroring the existing warning in `docs/learnings.md`.
 - The cap is applied at the **last** step before each path's vector write, using the already-fully-merged/read-forwarded `commit_refs` value — never applied earlier, and never applied to the value passed to the annotation write.
 - T57's guard-coverage check (`check_metadata_budgets`) still runs in all three paths, unaffected by this task — it now simply measures a smaller payload (post-cap, post-removal) and continues to function as a defense-in-depth backstop for other filterable fields (e.g. `tags`), not as the mechanism that closes this specific overflow (ADR Consequences).
-- `annotations.py`'s `read_current_link_fields`/`_read_vector_link_fields` keep reading a `references` key out of vector metadata (never assume it is absent) — a vector written before this task ships may still carry a stale `references` value, and the union-read must not lose it until that artifact is next reconciled or rewritten.
-- `propose_commit_links.py`'s per-candidate `read_current_link_fields` calls are additional round trips beyond its existing single batched `list_vectors_by_metadata` + `get_vectors` fetch — the same accepted cost `list.py` and `read.py` already carry for the identical fix (a blocking S3 + vector round trip per distinct artifact_id, run off the event loop and in parallel via `asyncio.gather`, no new bounded-concurrency setting — the same proportionate-for-page-size reasoning `list.py`'s own comment already documents applies here).
+- No path reads either link field back from vector metadata: the S3 object annotation is the sole read surface for both (`s3-annotations.artifact` § read_link_annotations), and a failed annotation read raises rather than returning `[]`.
+- `propose_commit_links.py`'s per-candidate annotation reads are additional round trips beyond its existing single batched `list_vectors_by_metadata` + `get_vectors` fetch — the same accepted cost `read.py` carries, and `list.py` carries when the caller asks for link fields (one annotation read per distinct artifact_id, run off the event loop and in parallel via `asyncio.gather`, no new bounded-concurrency setting — the same proportionate-for-page-size reasoning `list.py`'s own comment already documents applies here).
 
 **Ask First:**
-- Nothing — the split-store decision, the 20-entry cap, and the "annotation is sole store for `references`" contract are all locked, operator-approved decisions (ADR D2, OQ2 closed by real-AWS calibration). The propose_commit_links fix shape (route through `read_current_link_fields`, mirroring `list.py`'s existing per-candidate fetch pattern) has no open design choice either — it is the same fix already applied twice elsewhere in this codebase for the identical bug class.
+- Nothing — the split-store decision, the 20-entry cap, and the "annotation is sole store for
+  `references`" contract are all locked, operator-approved decisions
+  (adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal D2, OQ2 closed by real-AWS
+  calibration). The propose_commit_links fix shape (read the annotation per candidate, mirroring
+  `list.py`'s existing per-candidate fetch pattern) has no open design choice either.
 
 **Never:**
-- Do not write `references` into vector metadata under any code path, including `reconcile.py`'s rebuild (a naive read of "restore both fields from the union" would re-introduce it — `read_current_link_fields` still *reads* the union for `references`, but the value must never be re-written to the vector side).
-- Do not cap `references` instead of removing it — the ADR's D2 table considered and rejected "cap both fields" (Option B) specifically because it produces silent false negatives on `references`'s `$eq` filtering, a completeness regression the operator explicitly rejected.
-- Do not tighten `VECTOR_FILTERABLE_METADATA_MAX_BYTES`/`VECTOR_TOTAL_METADATA_MAX_BYTES` as part of this task — that is a different, rejected alternative (ADR D2 Option A).
+- Do not write `references` into vector metadata under any code path, including `reconcile.py`'s rebuild — the rebuild reads `references` from the annotation, but the value is never written to the vector side.
+- Do not cap `references` instead of removing it — the adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal D2 table considered and rejected "cap both fields" (Option B) specifically because it produces silent false negatives on `references`'s `$eq` filtering, a completeness regression the operator explicitly rejected.
+- Do not tighten `VECTOR_FILTERABLE_METADATA_MAX_BYTES`/`VECTOR_TOTAL_METADATA_MAX_BYTES` as part of
+  this task — that is a different, rejected alternative
+  (adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal D2 Option A).
 - Do not cap the value written to the S3 annotation — the annotation copy of `commit_refs` must always be the full, uncapped list; only the vector-metadata copy is capped.
 - Do not duplicate the cap constant or slice expression in three files — use the single shared helper in `artifact.py`.
 - Do not leave `propose_commit_links.py` reading `commit_refs` off a single vector's `meta` — that is precisely the bug this story closes; the dedup-by-`artifact_id` step (`seen_ids`) stays (it is still needed to build one candidate entry per artifact), only the source of the `commit_refs` eligibility check changes.
@@ -275,12 +327,19 @@ Source: None
 | `src/arkeology/tools/reconcile.py` | Modify | Remove the `if references_list: vector_metadata["references"] = references_list` assignment; wrap the `commit_refs_list` assignment in `cap_commit_refs_for_vectors(...)`; import the new helper from `arkeology.artifact` |
 | `tests/unit/test_tools_list.py`, `tests/unit/test_tools_read.py` | Modify (flag) | Update any existing assertion that expected `references` in vector metadata or an uncapped `commit_refs` vector-metadata copy to the new contract; the *returned* `references`/`commit_refs` field values (annotation-sourced) are unaffected and need no assertion changes |
 | `tests/integration/test_tools_write.py`, `tests/integration/test_tools_link_metadata.py`, `tests/integration/test_tools_reconcile.py` | Modify (flag) | Real-AWS: confirm a >20-entry `commit_refs` write succeeds and is capped in the index; confirm `references` never reaches the index |
-| `tests/unit/test_tools_propose_commit_links.py` | Modify | Tests: multi-section artifact whose `commit_refs`-bearing vector is not the first-occurrence one → correctly excluded from `proposed`; artifact whose full `commit_refs` exceeds the 20-entry vector-metadata cap → correctly excluded from `proposed` (eligibility from annotation, not the capped vector copy); artifact with no `commit_refs` in either store → still included; `CredentialError` during resolution → structured credential-error response — Red first |
-| `src/arkeology/tools/propose_commit_links.py` | Modify | Import `read_current_link_fields` from `arkeology.annotations`; change `s3` parameter to required `S3ClientInterface` (drop `\| None = None` and the `_ = s3` no-op); replace the `raw_commit_refs = meta.get("commit_refs")` block with a per-`artifact_id` `asyncio.to_thread(read_current_link_fields, s3, vectors, artifact_id)` call, gathered concurrently via `asyncio.gather(..., return_exceptions=True)` across all deduplicated candidates, degrading a non-`CredentialError` failure to `commit_refs=[]` for that one candidate |
+| `tests/unit/test_tools_propose_commit_links.py` | Modify | Tests: multi-section artifact whose `commit_refs`-bearing vector is not the first-occurrence one → correctly excluded from `proposed`; artifact whose full `commit_refs` exceeds the 20-entry vector-metadata cap → correctly excluded from `proposed` (eligibility from annotation, not the capped vector copy); artifact with no `commit_refs` annotation → still included; `CredentialError` during resolution → `credential_error`; `AnnotationUnavailableError` → `annotation_unavailable`; any other read failure → `internal_error` and no `proposed` list; object gone → call succeeds without that candidate — Red first |
+| `src/arkeology/tools/propose_commit_links.py` | Modify | Import `read_link_annotations` from `arkeology.annotations`; change `s3` parameter to required `S3ClientInterface` (drop `\| None = None` and the `_ = s3` no-op); replace the `raw_commit_refs = meta.get("commit_refs")` block with a per-`artifact_id` `asyncio.to_thread(read_link_annotations, s3, artifact_id)` call, gathered concurrently via `asyncio.gather(..., return_exceptions=True)` across all deduplicated candidates; any failed read fails the call with its code (R10), and an object-gone candidate is dropped |
 
 ### Contracts
 
-None.
+- `docs/contracts/data/s3vectors.artifact.md` § cap_commit_refs_for_vectors, § Storage Shape and § Compatibility Guarantees — the shared 20-entry cap, `references` never present, and the capped copy as a derived index whose calibration a change of filterable keys invalidates (R1, R4, R6–R8).
+- `docs/contracts/data/s3-annotations.artifact.md` § apply_link_annotations, § read_link_annotations and § Compatibility Guarantees — the full uncapped annotation write, and the annotation as the sole read surface for both fields (R2, R3, R5, R9).
+- `docs/contracts/modules/arkeology.tools.write.md` § write_artifact — the write path's vector metadata: no `references`, at most 20 `commit_refs` (R1, R4, R5).
+- `docs/contracts/modules/arkeology.tools.link_metadata.md` § link_metadata — the backfill's vector metadata: no `references`, at most 20 `commit_refs` (R1, R4, R5).
+- `docs/contracts/modules/arkeology.tools.reconcile.md` § reconcile_index — the rebuild reading both fields from the annotation and writing back only the capped `commit_refs` (R1, R3, R4).
+- `docs/contracts/modules/arkeology.tools.read.md` § read_artifact — both link fields returned from the annotation, complete (R2, R5, R6).
+- `docs/contracts/modules/arkeology.tools.list.md` § list_artifacts — the `commit_refs` filter over the capped window, and the link fields returned from the annotation under `include_links` (R2, R6).
+- `docs/contracts/modules/arkeology.tools.propose_commit_links.md` § propose_commit_links — eligibility from the annotation, concurrent per-candidate reads, the error codes, the gone-object drop and the required `s3` (R9–R11).
 
 ### Testing Approach
 
@@ -291,6 +350,6 @@ None.
 3. **`test_tools_link_metadata.py` → `link_metadata.py`** — same two assertions via `link_metadata`'s batch-write path.
 4. **`test_tools_reconcile.py` → `reconcile.py`** — an artifact whose annotation carries >20 `commit_refs` entries and a non-empty `references` → after reconcile, rebuilt vector metadata has the capped `commit_refs` and no `references` key.
 5. **Regression pass** — run the full existing Phase 12 unit suite and update every assertion that encoded the old (uncapped, dual-field) vector-metadata shape.
-6. **`test_tools_propose_commit_links.py` → `propose_commit_links.py`** — seed a multi-section artifact whose `commit_refs` live on a section vector that does not sort first among its keys; call `propose_commit_links`; assert the artifact is excluded from `proposed`. Separately, seed an artifact whose annotation-backed `commit_refs` has more than 20 entries (so its vector-metadata copy is capped per R4); assert it is still excluded from `proposed`. Assert an artifact with no `commit_refs` in either store still appears in `proposed`, and that a `CredentialError` raised from the per-candidate fetch produces the existing structured credential-error response.
+6. **`test_tools_propose_commit_links.py` → `propose_commit_links.py`** — seed a multi-section artifact whose `commit_refs` live on a section vector that does not sort first among its keys; call `propose_commit_links`; assert the artifact is excluded from `proposed`. Separately, seed an artifact whose annotation-backed `commit_refs` has more than 20 entries (so its vector-metadata copy is capped per R4); assert it is still excluded from `proposed`. Assert an artifact with no `commit_refs` annotation still appears in `proposed`. For a per-candidate read on an already-linked candidate, assert a `CredentialError` returns `credential_error`, an `AnnotationUnavailableError` returns `annotation_unavailable`, and any other exception returns `internal_error` — each with no `proposed` list; and assert an `ObjectNotFoundError` leaves the call successful with that candidate absent from `proposed`.
 
-Use `aws_mock`, `s3_client`, `vectors_client_*` fixtures; `FakeBedrockClient` for embeddings. The 20-entry cap boundary itself needs no real-AWS call to unit-test (it is a local slice, not a byte measurement) — the calibration that justified the number is already captured in `tests/integration/test_calibration_vector_metadata_budget.py` (D2, OQ2 closed) and is not re-run by this task.
+Use `aws_mock`, `s3_client`, `vectors_client_*` fixtures; `FakeBedrockClient` for embeddings. The 20-entry cap boundary itself needs no real-AWS call to unit-test (it is a local slice, not a byte measurement) — the calibration that justified the number is already captured in `tests/integration/test_calibration_vector_metadata_budget.py` (adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal D2, OQ2 closed) and is not re-run by this task.

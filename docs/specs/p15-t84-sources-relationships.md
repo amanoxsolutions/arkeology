@@ -106,6 +106,13 @@ sources:
     resource: .docs/reviews/architecture-review-2026-11-10-arkeology.md
     title: Architecture review — Arkeology (whole design record)
     last_modified: 2026-11-10T11:21:17Z
+  - id: spec-t10
+    resource: docs/specs/p3-t10-list-artifacts.md
+    title: T10 — List Artifacts Tool
+  - id: review-2026-11-15
+    resource: .docs/reviews/architecture-review-2026-11-15-arkeology-phases-9-10-12.md
+    title: "Architecture review — Arkeology, plan phases 9, 10 and 12"
+    last_modified: 2026-11-15T16:30:41Z
 relationships:
   - to: adr-2026-09-25-okf-v02-adoption
     type: implements
@@ -130,7 +137,7 @@ generated:
   at: 2026-10-13T17:23:06Z
 revised:
   by: "axians-architect/claude-opus-5-5"
-  at: 2026-11-10T16:24:49Z
+  at: 2026-11-15T20:12:17Z
 ---
 
 # T84 — `sources` + `relationships` in One Structured Annotation; `link_metadata` → `add_artifact_links`
@@ -143,7 +150,7 @@ comma-joined `references` annotation and the `source_artifacts` field in both me
 A source that points into Arkeology without a `last_modified` gets the cited artifact's current
 revision time when it is written. The synthesis delete/archive warning becomes a `type` prefilter
 plus one annotation read per own-scope synthesis, and `link_metadata` becomes `add_artifact_links`
-(D17, D18, D29, D40, D46).
+(brainstorming-2026-09-17-okf-v02-adoption D17, D18, D29, D40, D46).
 
 ## Open Questions
 
@@ -167,10 +174,11 @@ and a revision-time baseline) and association edges (`relationships`, objects wi
 type). Today's link annotation is a comma-joined string with no escaping, so it cannot hold
 objects (ADR-017 `## Context`, "Forces"). `source_artifacts` sits in S3 object metadata, which is
 capped at 2 KB, and in a vector projection whose only remaining job is a zero-read delete warning.
-Freshness pays an annotation read anyway, because the per-source baseline lives only there (D29).
-The tool name `link_metadata` does not say what the tool does (D46). This task moves both fields
-into one structured annotation, deletes the projection, and renames the tool. No compatibility
-aliases are kept (D42).
+Freshness pays an annotation read anyway, because the per-source baseline lives only there
+(brainstorming-2026-09-17-okf-v02-adoption D29). The tool name `link_metadata` does not say what the
+tool does (brainstorming-2026-09-17-okf-v02-adoption D46). This task moves both fields into one
+structured annotation, deletes the projection, and renames the tool. No compatibility aliases are
+kept (brainstorming-2026-09-17-okf-v02-adoption D42).
 
 All seven of this spec's user stories are P1: both fields round-trip and are never filters (R17,
 R28), an update replaces both fields and carries `commit_refs` forward (R15), a missing baseline is
@@ -195,27 +203,28 @@ Its payload is a JSON object with exactly two keys, `sources` and `relationships
 array of objects. It is encoded the way T80 encodes `revision_history`: non-ASCII characters are
 escaped, so the bytes are stable. Entries keep the key order they were supplied in.
 
-**Why:** D29 fixes "one annotation", and ADR-017 `## Deferred to the Specs` leaves the name and
-serialisation to the data contract. A keyed object keeps the derivation/association split (D17)
-visible in the stored bytes and lets each list be replaced separately. JSON with escaped non-ASCII
-matches T80, so one encoder and one size check serve every structured annotation.
+**Why:** brainstorming-2026-09-17-okf-v02-adoption D29 fixes "one annotation", and ADR-017 `##
+Deferred to the Specs` leaves the name and serialisation to the data contract. A keyed object keeps
+the derivation/association split (brainstorming-2026-09-17-okf-v02-adoption D17) visible in the
+stored bytes and lets each list be replaced separately. JSON with escaped non-ASCII matches T80, so
+one encoder and one size check serve every structured annotation.
 
-Source: FR-51, FR-54, C-01, C-07, C-08; D29, D17; ADR-017 `## Deferred to the Specs`; T80
+Source: FR-51, FR-54, C-01, C-07, C-08; brainstorming-2026-09-17-okf-v02-adoption D29, D17; ADR-017 `## Deferred to the Specs`; T80
 
 ### R2 — Both lists empty deletes the `links` annotation; an absent annotation reads as two empty lists
 
 WHEN both lists are empty THE SYSTEM SHALL delete the `links` annotation, the way an empty
 `references` list deletes its annotation today. An absent annotation reads as two empty lists.
 
-Source: FR-51, FR-54, C-01, C-07, C-08; D29
+Source: FR-51, FR-54, C-01, C-07, C-08; brainstorming-2026-09-17-okf-v02-adoption D29
 
 ### R3 — `sources`, `relationships`, `source_artifacts` and `references` are never written to object or vector metadata, and the legacy `references` annotation and `source_artifacts` key are never read
 
 THE SYSTEM SHALL never write `sources`, `relationships`, `source_artifacts` or `references` to S3
 object metadata or vector metadata. It SHALL never read the legacy `references` annotation or
-`source_artifacts` metadata key: T90 migrates them (D42), and no dual-store read is kept.
-`source_artifacts` stays in `NON_FILTERABLE_METADATA_KEYS`, declared and unwritten, so the index
-needs no re-creation (C-01).
+`source_artifacts` metadata key: T90 migrates them (brainstorming-2026-09-17-okf-v02-adoption D42),
+and no dual-store read is kept. `source_artifacts` stays in `NON_FILTERABLE_METADATA_KEYS`, declared
+and unwritten, so the index needs no re-creation (C-01).
 
 **Metadata budgets.** Removing `source_artifacts` from S3 object metadata frees its key plus its
 comma-joined value. Today those keys share the 2 KB object budget with every other field, so a
@@ -225,14 +234,14 @@ are bounded only by the 1 MiB annotation, which covers FR-19's ceiling of 100. I
 never against the 2 KB filterable budget. Removing it therefore changes neither the filterable
 budget nor the `commit_refs` cap calibration that T81 re-runs.
 
-Source: FR-51, FR-54, C-01, C-07, C-08; D29; D42; FR-19; T81, T90
+Source: FR-51, FR-54, C-01, C-07, C-08; brainstorming-2026-09-17-okf-v02-adoption D29; brainstorming-2026-09-17-okf-v02-adoption D42; FR-19; T81, T90
 
 ### R4 — `commit_refs` keeps its own comma-joined annotation and its 20-entry vector copy
 
 `commit_refs` SHALL keep its own comma-joined annotation, and its 20-entry vector copy,
 unchanged (C-07).
 
-Source: FR-51, FR-54, C-01, C-07, C-08; D29
+Source: FR-51, FR-54, C-01, C-07, C-08; brainstorming-2026-09-17-okf-v02-adoption D29
 
 ## 3. Rules — Entry validation
 
@@ -250,27 +259,29 @@ Source: FR-51; OKF §4.1, §5.1
 At every write path, before any storage call, failure-log append or embedding: WHEN `resource`
 starts with `arkeology://artifact/` THE SYSTEM SHALL treat the remainder as an Arkeology target,
 and SHALL reject it unless it is non-empty and contains no `#`, `?`, whitespace or control
-character. A remainder with no `/` SHALL also pass T87's id rule (D33). Any other `resource` (a
-URL, an unresolved path, or an OKF scope descriptor) is stored as it is and never interpreted.
+character. A remainder with no `/` SHALL also pass T87's id rule
+(brainstorming-2026-09-17-okf-v02-adoption D33). Any other `resource` (a URL, an unresolved path, or
+an OKF scope descriptor) is stored as it is and never interpreted.
 
-Source: FR-51; OKF §4.1, §5.1; D33; T87
+Source: FR-51; OKF §4.1, §5.1; brainstorming-2026-09-17-okf-v02-adoption D33; T87
 
 ### R7 — A present `last_modified` must be an offset-aware ISO 8601 timestamp, and is stored as supplied
 
 At every write path, before any storage call, failure-log append or embedding: WHEN
 `last_modified` is present THE SYSTEM SHALL require a string that T79's parser reads as an
 offset-aware ISO 8601 timestamp, and SHALL otherwise return `validation_error` naming the entry.
-The accepted string is stored as supplied, not normalised (D19). The write rejects a bad
-`last_modified` rather than storing it.
+The accepted string is stored as supplied, not normalised
+(brainstorming-2026-09-17-okf-v02-adoption D19). The write rejects a bad `last_modified` rather than
+storing it.
 
 **Why:** This matches T79, which rejects offset-naive `at` because accepting it "stores exactly
-what the reader must refuse". The writer gets the error while it can still fix the input. D50 case
-4 stays as the reader's defence for values that arrived another way. The alternative was to store
-any string and let T86 mark it unchecked, which is closer to OKF §11's soft-guidance clause. It was
-rejected because the reader-side rule already covers that case, and this spec does not need to
-rely on it.
+what the reader must refuse". The writer gets the error while it can still fix the input.
+brainstorming-2026-09-17-okf-v02-adoption D50 case 4 stays as the reader's defence for values that
+arrived another way. The alternative was to store any string and let T86 mark it unchecked, which is
+closer to OKF §11's soft-guidance clause. It was rejected because the reader-side rule already
+covers that case, and this spec does not need to rely on it.
 
-Source: FR-51; OKF §4.1, §5.1; D19; D50 case 4; T79
+Source: FR-51; OKF §4.1, §5.1; brainstorming-2026-09-17-okf-v02-adoption D19; brainstorming-2026-09-17-okf-v02-adoption D50 case 4; T79
 
 ### R8 — A `relationships` entry needs non-empty string `to` and `type`; `to` is an id or a full key, and `type` is stored as given
 
@@ -334,22 +345,23 @@ artifact's bare `secret-a` must resolve to `P/secret-a.md` in its own scope P.
 
 **Why:** The ADR assumes a bare id (`## Deferred to the Specs`). AC-58 has migration write
 `arkeology://artifact/{id}` with the id the target file declares, and the producer writes bare ids
-in `relationships[].to` (D28). Every tool, though, returns `artifact_id` as the full key, and a
-synthesis can cite a foreign shared artifact. A bare id cannot name another scope, so both forms
-are needed. Ids cannot contain `/` (D33) and full keys always do, which keeps the two forms apart.
-Resolving a foreign artifact's bare id against the reader's prefix would make the target look like
-the reader's own and slip past the gate. That is why the resolver sits in `_scope.py`, inside the
-mutation scope. Storing the targets as written keeps `relationships` byte-identical to what the
+in `relationships[].to` (brainstorming-2026-09-17-okf-v02-adoption D28). Every tool, though, returns
+`artifact_id` as the full key, and a synthesis can cite a foreign shared artifact. A bare id cannot
+name another scope, so both forms are needed. Ids cannot contain `/`
+(brainstorming-2026-09-17-okf-v02-adoption D33) and full keys always do, which keeps the two forms
+apart. Resolving a foreign artifact's bare id against the reader's prefix would make the target look
+like the reader's own and slip past the gate. That is why the resolver sits in `_scope.py`, inside
+the mutation scope. Storing the targets as written keeps `relationships` byte-identical to what the
 producer wrote (ADR-017 `### 4`).
 
-Source: D28, D38; ADR-017 `## Deferred to the Specs`, "How a bare id resolves"; AC-58; D33; ADR-017 `### 4`
+Source: brainstorming-2026-09-17-okf-v02-adoption D28, D38; ADR-017 `## Deferred to the Specs`, "How a bare id resolves"; AC-58; brainstorming-2026-09-17-okf-v02-adoption D33; ADR-017 `### 4`
 
 ### R13 — Every consumer resolves link targets through this one function, never inline
 
 Every consumer SHALL use this function: the baseline fill below, the reverse lookup, purge,
 freshness, the relationships filter, and later T85 and T86. None SHALL resolve a target inline.
 
-Source: D28, D38; ADR-017 `## Deferred to the Specs`, "How a bare id resolves"
+Source: brainstorming-2026-09-17-okf-v02-adoption D28, D38; ADR-017 `## Deferred to the Specs`, "How a bare id resolves"
 
 ## 5. Rules — Create, update and bulk
 
@@ -359,7 +371,7 @@ Source: D28, D38; ADR-017 `## Deferred to the Specs`, "How a bare id resolves"
 `source_artifacts` and `references`. `create_artifacts` and `update_artifacts` descriptors carry
 the same keys, and `migrate_artifacts` inherits them through delegation.
 
-Source: FR-01, FR-51, FR-55, FR-75, FR-76, C-07; D51
+Source: FR-01, FR-51, FR-55, FR-75, FR-76, C-07; brainstorming-2026-09-17-okf-v02-adoption D51
 
 ### R15 — A create or update sets each field to exactly the supplied list; an omitted field clears it, and an unreadable stored payload does not block an update
 
@@ -375,14 +387,14 @@ the update replaces it.
   C ∪ C2, exactly S2, and `relationships: []`. `generated` and the revision history are carried
   forward (AC-60; FR-55, C-07).
 
-Source: FR-01, FR-51, FR-55, FR-75, FR-76, C-07; D51; AC-60
+Source: FR-01, FR-51, FR-55, FR-75, FR-76, C-07; brainstorming-2026-09-17-okf-v02-adoption D51; AC-60
 
 ### R16 — `links` is written in the same post-PUT annotation step as `commit_refs` and `revision_history`, and every re-PUT restores it
 
 THE SYSTEM SHALL write `links` in the same post-PUT annotation step as `commit_refs` and
 `revision_history` (T78, T80). Every re-PUT restores it under the same compare-and-swap cycle.
 
-Source: FR-01, FR-51, FR-55, FR-75, FR-76, C-07; D51; T78, T80
+Source: FR-01, FR-51, FR-55, FR-75, FR-76, C-07; brainstorming-2026-09-17-okf-v02-adoption D51; T78, T80
 
 ### R17 — A successful create or update returns `sources` and `relationships` as stored; bulk result entries are unchanged
 
@@ -393,10 +405,10 @@ WHEN a create or update succeeds THE SYSTEM SHALL return `sources` and `relation
 
 - Given `create_artifact` with one source `arkeology://artifact/<id of A>` and one relationship
   `{to: <id of A>, type: builds_on}`, when it succeeds, then the response carries both, and
-  `read_artifact` and `list_artifacts` return them unchanged. Given neither, all three return
-  `sources: []` and `relationships: []` without error (AC-56).
+  `read_artifact`, and `list_artifacts` called with `include_links=True`, return them unchanged.
+  Given neither, all three return `sources: []` and `relationships: []` without error (AC-56).
 
-Source: FR-01, FR-51, FR-55, FR-75, FR-76, C-07; D51; AC-56
+Source: FR-01, FR-51, FR-55, FR-75, FR-76, C-07; brainstorming-2026-09-17-okf-v02-adoption D51; AC-56
 
 ## 6. Rules — Baseline fill
 
@@ -415,9 +427,9 @@ copied verbatim. When sections disagree, the newest write wins, as freshness alr
   `{resource: arkeology://artifact/<A>}` with no `last_modified`, then the stored entry carries
   `last_modified: T`. A never revised gives its `generated.at`. A URL source, or one pointing at
   an artifact that does not exist or that the writer cannot read, is stored without it (FR-51;
-  D40).
+  brainstorming-2026-09-17-okf-v02-adoption D40).
 
-Source: FR-51, FR-58; D19, D40
+Source: FR-51; brainstorming-2026-09-17-okf-v02-adoption D19, D40
 
 ### R19 — A target with no vectors, that is not readable, or with unreadable provenance leaves `last_modified` absent and reports nothing
 
@@ -425,7 +437,7 @@ WHEN the target has no vectors, is not readable, or has unreadable provenance TH
 leave `last_modified` absent and report nothing. A different outcome for each case would reveal
 whether a foreign artifact exists.
 
-Source: FR-51, FR-58; D19, D40
+Source: FR-51; brainstorming-2026-09-17-okf-v02-adoption D19, D40
 
 ### R20 — The fill runs once per call before any write, retries reuse it, and it applies to create, update, both bulk tools, migration and entries `add_artifact_links` adds
 
@@ -433,7 +445,7 @@ The fill runs once per call before any write, and retries reuse it (T79's resolv
 applies to create, update, both bulk tools, migration, and to entries that `add_artifact_links`
 adds. It changes only the structured field, never the stored content.
 
-Source: FR-51, FR-58; D19, D40; T79
+Source: FR-51, FR-53; brainstorming-2026-09-17-okf-v02-adoption D19, D40; T79
 
 ## 7. Rules — `add_artifact_links`
 
@@ -459,7 +471,7 @@ T91 updates AGENTS.md's Repository Structure row.
 **Why:** Following T78, which kept `write.py` for `create_artifact`, the module and the contract
 keep their names. Renaming them would break the frozen contract id for no change in behaviour.
 
-Source: FR-53, C-06; D46; `### 10`, D50 case 1; AC-59; T78, T91
+Source: FR-53, C-06; brainstorming-2026-09-17-okf-v02-adoption D46; `### 10`, brainstorming-2026-09-17-okf-v02-adoption D50 case 1; AC-59; T78, T91
 
 ### R22 — Each supplied field is merged into the stored value by key, existing entries first; nothing stored is changed or removed
 
@@ -468,14 +480,14 @@ entries first, keeping the first entry seen for each key. The keys are: a `commi
 source's `resource`; a relationship's (`to`, `type`) pair. Existing entries are never changed or
 removed. A field the call does not supply is written back as it was read (FR-53).
 
-Source: FR-53, C-06; D46; `### 10`, D50 case 1
+Source: FR-53, C-06; brainstorming-2026-09-17-okf-v02-adoption D46; `### 10`, brainstorming-2026-09-17-okf-v02-adoption D50 case 1
 
 ### R23 — An unreadable stored `links` or `commit_refs` payload fails that artifact with `corrupt_metadata` and writes nothing
 
 WHEN the stored `links` or `commit_refs` payload is unreadable THE SYSTEM SHALL fail that artifact
-with `corrupt_metadata` and write nothing (D50, case 1).
+with `corrupt_metadata` and write nothing (brainstorming-2026-09-17-okf-v02-adoption D50, case 1).
 
-Source: FR-53, C-06; D46; `### 10`, D50 case 1
+Source: FR-53, C-06; brainstorming-2026-09-17-okf-v02-adoption D46; `### 10`, brainstorming-2026-09-17-okf-v02-adoption D50 case 1
 
 ### R24 — `add_artifact_links` keeps its own object-ETag compare-and-swap cycle over both annotations, and rewrites vector metadata only when `commit_refs` is supplied
 
@@ -495,15 +507,16 @@ the residuals are the same.
 two annotation-only writes to the *same annotation* racing, which covers a source-only and a
 relationship-only add on the shared `links` annotation. *Original question:* C-06 accepts that two
 `add_artifact_links` calls changing the *same* field of one artifact at the same instant can lose
-one addition, which implies that calls changing different fields cannot. D29 puts `sources` and
-`relationships` in one annotation. S3 offers no annotation-level precondition (verified
-2026-09-06), so a call that only adds a source and a concurrent call that only adds a relationship
-can now lose one another's additions. Neither one is detected. No mechanism inside D29 closes
-this. *Recommended:* fold it into the PM pass that T80's blocking Open Question 1 already asks
-for, and amend C-06 through `writing-requirements` to say "the same link annotation (sources and
+one addition, which implies that calls changing different fields cannot.
+brainstorming-2026-09-17-okf-v02-adoption D29 puts `sources` and `relationships` in one annotation.
+S3 offers no annotation-level precondition (verified 2026-09-06), so a call that only adds a source
+and a concurrent call that only adds a relationship can now lose one another's additions. Neither
+one is detected. No mechanism inside brainstorming-2026-09-17-okf-v02-adoption D29 closes this.
+*Recommended:* fold it into the PM pass that T80's blocking Open Question 1 already asks for, and
+amend C-06 through `writing-requirements` to say "the same link annotation (sources and
 relationships share one)". This spec does not change either way.
 
-Source: FR-53, C-06; D46; `### 10`, D50 case 1; ADR-017 `### 8`; T80; D29; T15 R11
+Source: FR-53, C-06; brainstorming-2026-09-17-okf-v02-adoption D46; `### 10`, brainstorming-2026-09-17-okf-v02-adoption D50 case 1; ADR-017 `### 8`; T80; brainstorming-2026-09-17-okf-v02-adoption D29; T15 R11
 
 ## 8. Rules — Re-PUT carry-forward and repair
 
@@ -513,9 +526,9 @@ Source: FR-53, C-06; D46; `### 10`, D50 case 1; ADR-017 `### 8`; T80; D29; T15 R
 across compare-and-swap attempts by the rule `references` follows today, and restore it after the
 re-PUT. That rule accumulates while `last_edited_ulid` is unchanged and resets to the fresh read
 when it moves. WHEN `links` is unreadable they SHALL return `corrupt_metadata` and write nothing
-(D50, case 1).
+(brainstorming-2026-09-17-okf-v02-adoption D50, case 1).
 
-Source: FR-17, FR-54, AC-68; D50; T82
+Source: FR-17, FR-54, AC-68; brainstorming-2026-09-17-okf-v02-adoption D50; T82
 
 ### R26 — A failure-log entry carries `links` in place of `references`, and `reconcile_index` restores it under the `references` token rule, ignoring a legacy `references` key
 
@@ -532,38 +545,43 @@ a relationship's (`to`, `type`) pair). An entry's legacy `references` key is ign
   when a later successful update sets links L2 and `reconcile_index` then replays the entry, then
   the artifact keeps L2. The entry's `commit_refs` is still restored by union (AC-68).
 
-Source: FR-17, FR-54, AC-68; D50
+Source: FR-17, FR-54, AC-68; brainstorming-2026-09-17-okf-v02-adoption D50
 
 ### R27 — The reconcile rebuild reads only `commit_refs` and never reads or writes `source_artifacts`
 
 The reconcile rebuild SHALL read only `commit_refs`. It no longer reads or writes
 `source_artifacts`.
 
-Source: FR-17, FR-54, AC-68; D50
+Source: FR-17, FR-54, AC-68; brainstorming-2026-09-17-okf-v02-adoption D50
 
 ## 9. Rules — Reading
 
-### R28 — Read and list return `commit_refs`, `sources` and `relationships` from their annotations after the gate; search and synthesis return neither `sources` nor `relationships`; list has no parameter for either
+### R28 — Read returns `commit_refs`, `sources` and `relationships` from their annotations after the gate, and list returns them only when asked; search and synthesis return neither `sources` nor `relationships`; list has no filter on either
 
-`read_artifact` and `list_artifacts` SHALL return `commit_refs`, `sources` and `relationships`,
-read from their annotations after the cross-scope gate. They no longer return `references` or
-`source_artifacts`. `search_artifacts` and `synthesise_artifacts` drop `source_artifacts` and
-return neither field (ADR-017 `### 7`).
+`read_artifact` SHALL return `commit_refs`, `sources` and `relationships` on every successful read,
+read from their annotations after the cross-scope gate. `list_artifacts` SHALL return the three
+only when called with `include_links=True`, read the same way; without it no entry carries any of
+the three keys and no link annotation is read (p3-t10-list-artifacts R11, which `sources` and
+`relationships` join in place of `references`). Neither tool returns `references` or
+`source_artifacts` any more. `search_artifacts` and `synthesise_artifacts` drop `source_artifacts`
+and return neither field (ADR-017 `### 7`).
 
-`list_artifacts` has no parameter for either field, and the `commit_refs` filter still applies AND
-semantics (AC-57).
+`list_artifacts` has no filter parameter for `sources` or `relationships`, and the `commit_refs`
+filter still applies AND semantics, with or without `include_links` (AC-57).
 
-Source: FR-51, FR-10, AC-56, AC-57; malformed-data ADR D2–D6; ADR-017 `### 7`
+Source: FR-51, FR-10, AC-56, AC-57; adr-2026-09-14-malformed-persisted-data-policy D2–D6; ADR-017 `### 7`; p3-t10-list-artifacts R11
 
 ### R29 — A malformed `links` payload makes `read_artifact` return `corrupt_metadata` without echoing it, and makes `list_artifacts` skip and count the artifact
 
 WHEN the `links` payload is not a JSON object with exactly the two list keys, or an entry lacks its
 required string keys, the read is unreadable. `read_artifact` SHALL then return `corrupt_metadata`
-naming `links`, never echoing the payload. `list_artifacts` SHALL skip the artifact and count it
-under `skipped_malformed_count`. Decoding checks shape and types only. It never parses
-`last_modified`, so one bad timestamp marks only its own source (D50, case 4).
+naming `links`, never echoing the payload. `list_artifacts` called with `include_links=True` SHALL
+skip the artifact and count it under `skipped_malformed_count`; without it the annotation is not
+read, so nothing is skipped on its account. Decoding checks shape and types only. It never parses
+`last_modified`, so one bad timestamp marks only its own source
+(brainstorming-2026-09-17-okf-v02-adoption D50, case 4).
 
-Source: FR-51, FR-10, AC-56, AC-57; malformed-data ADR D2–D6; D50, case 4
+Source: FR-51, FR-10, AC-56, AC-57; adr-2026-09-14-malformed-persisted-data-policy D2–D6; brainstorming-2026-09-17-okf-v02-adoption D50, case 4
 
 ### R30 — For a foreign-scope reader, `relationships` keep today's `references` filter retargeted to resolved targets; `sources` are returned unfiltered
 
@@ -571,14 +589,14 @@ For a foreign-scope reader, `relationships` SHALL keep today's `references` filt
 each `to` is resolved and an entry whose target the reader cannot read is dropped. `sources` are
 returned unfiltered, as `source_artifacts` is today. T85 replaces both with redaction.
 
-Source: FR-51, FR-10, AC-56, AC-57; malformed-data ADR D2–D6; T85
+Source: FR-51, FR-10, AC-56, AC-57; adr-2026-09-14-malformed-persisted-data-policy D2–D6; T85
 
 ### R31 — Callers that need only `commit_refs` read only that annotation
 
 Callers that need only `commit_refs` (`reconcile_index`, `propose_commit_links`) SHALL read only
 that annotation, so a corrupt `links` payload never breaks them.
 
-Source: FR-51, FR-10, AC-56, AC-57; malformed-data ADR D2–D6
+Source: FR-51, FR-10, AC-56, AC-57; adr-2026-09-14-malformed-persisted-data-policy D2–D6
 
 ## 10. Rules — Reverse lookup, purge, freshness
 
@@ -604,9 +622,10 @@ referrers" (ADR-017 `### 4`, on the annotations contract's raise-never-degrade r
 **Example**
 
 - Given an own-scope synthesis whose `links` payload cannot be decoded, then the operation still
-  completes, and that synthesis is listed as not checked (D50, case 2).
+  completes, and that synthesis is listed as not checked
+  (brainstorming-2026-09-17-okf-v02-adoption D50, case 2).
 
-Source: FR-20, FR-21, FR-22, FR-56; D13, D20, D29; D50 case 2; T76, T77; ADR-017 `### 4`
+Source: FR-20, FR-21, FR-22, FR-56; brainstorming-2026-09-17-okf-v02-adoption D13, D20, D29; brainstorming-2026-09-17-okf-v02-adoption D50 case 2; T76, T77; ADR-017 `### 4`
 
 ### R33 — Delete and archive add `unchecked_referrers` when non-empty, and every response that ran the check carries `referrer_check_scope`
 
@@ -623,7 +642,7 @@ relationships and non-synthesis sources were not (FR-56).
   that lists A as a source, produces no warning, and every such response states that gap. No
   foreign-scope identifier ever appears (AC-61; FR-21, FR-56).
 
-Source: FR-20, FR-21, FR-22, FR-56; D13, D20, D29; D50 case 2; AC-61
+Source: FR-20, FR-21, FR-22, FR-56; brainstorming-2026-09-17-okf-v02-adoption D13, D20, D29; brainstorming-2026-09-17-okf-v02-adoption D50 case 2; AC-61
 
 ### R34 — The `purge_archived` cascade reads each candidate synthesis's `links`, and cascades only a synthesis with at least one Arkeology source and every one in the purge set
 
@@ -636,7 +655,7 @@ skipped. Any other failure fails the call before anything is deleted.
 synthesis look like it has no sources, and purge would cascade none. Both must read `links` in the
 same task.
 
-Source: FR-20, FR-21, FR-22, FR-56; D13, D20, D29; D50 case 2
+Source: FR-20, FR-21, FR-22, FR-56; brainstorming-2026-09-17-okf-v02-adoption D13, D20, D29; brainstorming-2026-09-17-okf-v02-adoption D50 case 2
 
 ### R35 — `check_synthesis_freshness` reads each synthesis's source list from `links`; "malformed" means no `sources` entries
 
@@ -652,7 +671,7 @@ with `confirm=True` it would delete them all. Both must read `links` in the same
 owns the per-source comparison. `skipped_deleted_count` is the name the malformed-data ADR revision
 leaves to "the spec", and it follows `list_artifacts`' precedent.
 
-Source: FR-20, FR-21, FR-22, FR-56; D13, D20, D29; D50 case 2; T79, T86
+Source: FR-20, FR-21, FR-22, FR-56; brainstorming-2026-09-17-okf-v02-adoption D13, D20, D29; brainstorming-2026-09-17-okf-v02-adoption D50 case 2; T79, T86
 
 ## 11. Rules — Removed names
 
@@ -674,9 +693,10 @@ WHEN a `create_artifacts` or `update_artifacts` descriptor carries `source_artif
 
 - Given a caller using `link_metadata`, a `references` argument, or a `source_artifacts` argument
   or descriptor key, when it calls the server, then it gets `validation_error` naming
-  `add_artifact_links`, `relationships` or `sources` (AC-80; D42).
+  `add_artifact_links`, `relationships` or `sources` (AC-80;
+  brainstorming-2026-09-17-okf-v02-adoption D42).
 
-Source: AC-80; D42, D46; T78
+Source: AC-80; brainstorming-2026-09-17-okf-v02-adoption D42, D46; T78
 
 ## 12. Boundaries
 
@@ -698,15 +718,16 @@ Source: AC-80; D42, D46; T78
 
 **Never:**
 - Keep `source_artifacts`, `references` or `link_metadata` as aliases, or read the legacy
-  `references` annotation or `source_artifacts` key as a fallback (D42).
+  `references` annotation or `source_artifacts` key as a fallback
+  (brainstorming-2026-09-17-okf-v02-adoption D42).
 - Copy `sources` or `relationships` into vector or object metadata, or add a filter on them
-  (AC-57; D29).
+  (AC-57; brainstorming-2026-09-17-okf-v02-adoption D29).
 - Mint per-edge `generated`/`verified`, or normalise `type`, `to` or `resource`.
 - Redact, add the `withheld` marker, gate `sources`, or rewrite returned frontmatter (T85). Change
-  the freshness comparison (T86). Touch `references.py`, the `migrating-to-arkeology` or
-  `backfilling-references` skills (T88), the schema resource beyond renaming fields (T89), or
-  README, SERVER-REFERENCE, CHANGELOG, AGENTS.md and agent snippets (T91). Until T88 lands, both
-  skills get `validation_error` naming the replacement, and never write wrong data.
+  the freshness comparison (T86). Touch `references.py` or the `migrating-to-arkeology` skill
+  (T88), the schema resource beyond renaming fields (T89), or README, SERVER-REFERENCE, CHANGELOG,
+  AGENTS.md and agent snippets (T91). Until T88 lands, the migration skill gets `validation_error`
+  naming the replacement, and never writes wrong data.
 
 ## 13. For the developer agent
 
@@ -728,7 +749,7 @@ T84 lands after T79 and T80, and edits the code as T76–T81 and T87 leave it.
 | `src/arkeology/tools/archive.py` | Modify | Carry `links` under the `references` rule. Add `corrupt_metadata`, `unchecked_referrers` and `referrer_check_scope` |
 | `src/arkeology/tools/delete.py` | Modify | Add `unchecked_referrers` and `referrer_check_scope`. Update the docstring gap text |
 | `src/arkeology/tools/_search_helper.py` | Modify | Rewrite `find_referrers`. `build_artifact_summary` loses `source_artifacts` |
-| `src/arkeology/tools/read.py`, `list.py` | Modify | Return the three fields, retarget the filter, add the corrupt handling |
+| `src/arkeology/tools/read.py`, `list.py` | Modify | Return the three fields — from `list.py` only under `include_links=True` (R28) — retarget the filter, add the corrupt handling |
 | `src/arkeology/tools/search.py`, `synthesise.py` | Modify | Drop `source_artifacts` |
 | `src/arkeology/tools/purge.py`, `freshness.py` | Modify | Read the source list from `links` as specified |
 | `src/arkeology/tools/reconcile.py` | Modify | Restore `links` by the token rule. Read only `commit_refs` in the rebuild. Drop `source_artifacts` |
@@ -787,7 +808,8 @@ Make these before the tests, on top of the T76–T81 and T87 amendments:
    A full key is unchanged. A URL or a path gives nothing. A foreign carrier never resolves into
    the reader's prefix.
 3. `tests/unit/test_artifact.py` → `artifact.py`. Each validation rule, including `withheld`,
-   `://` in `to`, a naive `last_modified`, a bare remainder outside D33, and unknown keys kept.
+   `://` in `to`, a naive `last_modified`, a bare remainder outside
+   brainstorming-2026-09-17-okf-v02-adoption D33, and unknown keys kept.
 4. `tests/unit/test_failure_log.py` → `failure_log.py`. `links` is carried and omitted when empty.
 5. `tests/unit/test_tools_write.py` → `write.py`.
    - **AC-56** create and read.
@@ -810,7 +832,9 @@ Make these before the tests, on top of the T76–T81 and T87 amendments:
 8. `tests/unit/test_tools__reference_filter.py`, `test_tools_read.py`, `test_tools_list.py` →
    `_reference_filter.py`, `read.py`, `list.py`.
    - **AC-56** and **AC-57**, including `list_artifacts`' schema with no `sources`/`relationships`
-     parameter.
+     filter parameter.
+   - `list_artifacts` without `include_links`: no entry carries `commit_refs`, `sources` or
+     `relationships`, and no link annotation is read (spy); with it, every entry carries all three.
    - A foreign reader loses an unreadable bare-id relationship.
    - Corrupt → `corrupt_metadata` without the payload, or skip and count.
    - **AC-70** (T81 hand-off): B carries `relationships: [{to: A, type: supersedes}]`, and A is

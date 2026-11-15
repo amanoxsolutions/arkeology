@@ -2,7 +2,7 @@
 type: Spec
 id: p15-t85-link-gate-withheld
 title: "T85 — Cross-Scope Gate on sources and relationships, with the {withheld: n} Marker"
-description: Every capability that returns a foreign-scope artifact's link fields or content removes the sources and relationships entries pointing at artifacts the reader cannot read, and appends one {withheld: n} entry to each list it shortened, both in the returned field and in the returned content's frontmatter, without modifying the stored object. Own-scope readers receive both lists and the content exactly as stored. All redaction code sits in files already in the mutation-testing Scope.
+description: "Every capability that returns a foreign-scope artifact's link fields or content removes the sources and relationships entries pointing at artifacts the reader cannot read, and appends one {withheld: n} entry to each list it shortened, both in the returned field and in the returned content's frontmatter, without modifying the stored object. Own-scope readers receive both lists and the content exactly as stored. All redaction code sits in files already in the mutation-testing Scope."
 tags: []
 status: draft
 okf_version: "0.2"
@@ -57,6 +57,9 @@ sources:
     last_modified: 2026-09-04T00:00:00Z
   - id: okf-issue-32
     resource: https://github.com/GoogleCloudPlatform/open-knowledge-format/issues/32
+  - id: review-2026-11-15
+    resource: .docs/reviews/architecture-review-2026-11-15-arkeology-phases-9-10-12.md
+    title: "Architecture review — Arkeology, plan phases 9, 10 and 12"
 relationships:
   - to: adr-2026-09-25-okf-v02-adoption
     type: implements
@@ -67,7 +70,7 @@ generated:
   at: 2026-10-13T18:07:52Z
 revised:
   by: "axians-architect/claude-opus-5-5"
-  at: 2026-11-09T22:23:38Z
+  at: 2026-11-15T20:05:47Z
 ---
 
 # T85 — Cross-Scope Gate on `sources` and `relationships`, with the `{withheld: n}` Marker
@@ -88,12 +91,13 @@ FR-10 promises that an artifact never exposes a pointer to an artifact the reade
 independently. After T84 that promise fails in three places:
 
 - `sources` entries that name a tier-2 artifact reach foreign readers unfiltered. This was always a
-  gap, not a choice (D38).
+  gap, not a choice (brainstorming-2026-09-17-okf-v02-adoption D38).
 - `relationships` entries are dropped silently. A list that looks complete when it is not leads the
-  reader to judge a document on provenance it does not actually rest on (D47).
+  reader to judge a document on provenance it does not actually rest on
+  (brainstorming-2026-09-17-okf-v02-adoption D47).
 - The content's frontmatter carries the same entries, written there by migration as
   `arkeology://artifact/{id}` (FR-52). Redacting only the field would therefore be decorative
-  (D49).
+  (brainstorming-2026-09-17-okf-v02-adoption D49).
 
 Not taken: bare-id links on read surfaces. T84's Open Question 2 is about following links, not
 redaction, and plan entry 85 does not include it.
@@ -125,7 +129,7 @@ Its content frontmatter lists the same three entries.
 - **Stored and own-scope views unchanged.** The stored object is byte-identical afterwards. A reader
   whose own scope is `P` sees all three entries, in the field and in the content, exactly as stored.
 
-Source: AC-78, FR-10, D47–D49
+Source: AC-78, FR-10, brainstorming-2026-09-17-okf-v02-adoption D47–D49
 
 ## 3. Rules — Who gets redacted
 
@@ -162,7 +166,7 @@ never the reader's.
   - when R reads it, R gets the `R/mine.md` entry and the `shr` entry in that order, then
     `{withheld: 1}`.
 
-Source: D38, D47, AC-78
+Source: brainstorming-2026-09-17-okf-v02-adoption D38, D47, AC-78
 
 ### R4 — A `sources` entry is Arkeology-pointing when its `resource`, ignoring surrounding whitespace and letter case, begins with `arkeology:`
 
@@ -173,7 +177,7 @@ That covers URLs, unresolved paths, and OKF scope descriptors.
 **Why:** lenient scheme match. URI schemes are case-insensitive (RFC 3986). Over-withholding an odd
 `arkeology:` source fails closed; under-withholding would leak.
 
-Source: D38, D47
+Source: brainstorming-2026-09-17-okf-v02-adoption D38, D47
 
 ### R5 — An Arkeology-pointing entry is kept only when its resolved key is readable under the existing gate
 
@@ -189,7 +193,7 @@ The system must withhold the entry in every other case, including when:
 - the target has no vector;
 - the target does not exist.
 
-Source: D38, D47
+Source: brainstorming-2026-09-17-okf-v02-adoption D38, D47
 
 ### R6 — A malformed frontmatter entry is withheld, not fatal
 
@@ -202,7 +206,7 @@ relationships) is absent or not a string, the system must withhold it.
 **Why:** the marker stays honest — something is hidden. One sloppy entry does not cost the whole
 document.
 
-Source: D38, D47
+Source: brainstorming-2026-09-17-okf-v02-adoption D38, D47
 
 ### R7 — With no vector client, a foreign read withholds every target outside the reader's own scope
 
@@ -210,7 +214,7 @@ When no vector client is available on a foreign read, the system must withhold e
 the reader's own scope. Today's read skips the `references` filter when `vectors` is `None`. That
 fails open, and this rule closes it.
 
-Source: D38, D47
+Source: brainstorming-2026-09-17-okf-v02-adoption D38, D47
 
 ## 5. Rules — The marker
 
@@ -235,7 +239,7 @@ No path, option or output format may omit the marker. Every surface goes through
   when R reads it, then both fields are as stored, the content is byte-identical, and no marker
   appears.
 
-Source: D47, D48, OKF GitHub issue #32, FR-10
+Source: brainstorming-2026-09-17-okf-v02-adoption D47, D48, OKF GitHub issue #32, FR-10
 
 ### R9 — `n` counts entries, not distinct targets, separately per list and per place
 
@@ -252,7 +256,7 @@ disagree, the counts can differ, and neither reveals a withheld entry.
   that does not exist — when R reads the artifact, then the marker is `{withheld: 3}`. A foreign
   key that does not exist is withheld and counted exactly like one that exists but is unreadable.
 
-Source: D47, D48, OKF GitHub issue #32, AC-78
+Source: brainstorming-2026-09-17-okf-v02-adoption D47, D48, OKF GitHub issue #32, AC-78
 
 ## 6. Rules — Frontmatter rewrite
 
@@ -262,9 +266,9 @@ Content has frontmatter only when it opens with a `---` line and has a closing `
 rule is `references.py`'s `_frontmatter_end_index`.
 
 When there is no frontmatter, the system must return the content unchanged. Everything is then body,
-and the body is out of scope (D47's stated limit).
+and the body is out of scope (brainstorming-2026-09-17-okf-v02-adoption D47's stated limit).
 
-Source: D49, ADR-017 `## Deferred to the Specs` "How the returned frontmatter is rewritten", D47
+Source: brainstorming-2026-09-17-okf-v02-adoption D49, ADR-017 `## Deferred to the Specs` "How the returned frontmatter is rewritten", brainstorming-2026-09-17-okf-v02-adoption D47
 
 ### R11 — A link block is a top-level `sources` or `relationships` key line plus its following lines; every such block is processed
 
@@ -277,7 +281,7 @@ A link block is a top-level `sources` or `relationships` key line plus its follo
 The system must process every such block, including a duplicated key. A key nested under another key
 is not a link field.
 
-Source: D49, ADR-017 `## Deferred to the Specs` "How the returned frontmatter is rewritten"
+Source: brainstorming-2026-09-17-okf-v02-adoption D49, ADR-017 `## Deferred to the Specs` "How the returned frontmatter is rewritten"
 
 ### R12 — Each link block is parsed on its own; it stays byte-identical unless it loses entries, and a block-style block that loses entries is rewritten line by line
 
@@ -300,7 +304,7 @@ back as a datetime). Parsing the whole frontmatter would deny content over unrel
 unquoted colon in a title breaks PyYAML, and that would cost a foreign reader an artifact AC-07
 makes readable. So each block is parsed alone, and the parse is only the authority on entries.
 
-Source: D49, ADR-017 `## Deferred to the Specs` "How the returned frontmatter is rewritten"
+Source: brainstorming-2026-09-17-okf-v02-adoption D49, ADR-017 `## Deferred to the Specs` "How the returned frontmatter is rewritten"
 
 ### R13 — Content whose link block cannot be redacted is not returned
 
@@ -308,7 +312,8 @@ When the block does not parse, is not a list, or must lose entries but is not bl
 system must not return the content:
 
 - `read_artifact`, and so the artifact resource, returns `corrupt_metadata` naming
-  `frontmatter sources` or `frontmatter relationships`, never echoing the block (D50, case 5);
+  `frontmatter sources` or `frontmatter relationships`, never echoing the block
+  (brainstorming-2026-09-17-okf-v02-adoption D50, case 5);
 - `synthesise_artifacts` skips the result and counts it under `skipped_malformed_count`.
 
 **Example (Story 4 — Frontmatter that cannot be redacted is not served to a foreign reader)**
@@ -326,14 +331,14 @@ malformed-data policy's single-read and iterating rules, and the read contract a
 `corrupt_metadata` on an admitted foreign artifact. Only foreign readers of the rare
 non-block-style or broken block pay.
 
-Source: D49, ADR-017 `## Deferred to the Specs` "How the returned frontmatter is rewritten", D50, malformed-data policy ADR
+Source: brainstorming-2026-09-17-okf-v02-adoption D49, ADR-017 `## Deferred to the Specs` "How the returned frontmatter is rewritten", brainstorming-2026-09-17-okf-v02-adoption D50, malformed-data policy ADR
 
 ### R14 — Every byte outside the rewritten blocks stays equal to the stored content, and the stored object is never written
 
 The system must keep every byte outside the rewritten blocks equal to the stored content, and must
 never write the stored object or its annotations.
 
-Source: D49, ADR-017 `## Deferred to the Specs` "How the returned frontmatter is rewritten"
+Source: brainstorming-2026-09-17-okf-v02-adoption D49, ADR-017 `## Deferred to the Specs` "How the returned frontmatter is rewritten"
 
 ## 7. Rules — Surfaces
 
@@ -342,16 +347,16 @@ Source: D49, ADR-017 `## Deferred to the Specs` "How the returned frontmatter is
 | Capability | Returns to a foreign reader | Redaction | Gate lookups |
 |---|---|---|---|
 | `read_artifact` | Both fields and the content | Both fields and the frontmatter | One batched lookup per call, covering the targets of the field and the frontmatter |
-| `list_artifacts` | Both fields | The fields | One batched lookup per page (today's pattern) |
+| `list_artifacts` | Both fields, only with `include_links`; without it, neither | The fields, only with `include_links` | One batched lookup per page, only with `include_links`; none without it |
 | `synthesise_artifacts` | Content (no link fields, per T84) | The frontmatter, before the response-byte budget measures it | At most one per foreign result that names a foreign target |
 | `arkeology://artifact/{id*}` | Content | Inherited from `read_artifact`; an error renders as error markdown | None of its own |
 | `arkeology://artifacts` | A table of id, title, type and description | Inherited from `list_artifacts`; it renders nothing link-shaped | None of its own |
 | `arkeology_studio` | The fallback listing, and the UI's `read_artifact` content | Inherited. The UI renders content, frontmatter included, exactly as received, so the marker is shown. No Studio change | None |
 | `search_artifacts` | Neither (T84) | None — not a surface | None |
 | `create_*`, `update_*`, `add_artifact_links`, `migrate_artifacts` | Own scope only | Never | None |
-| Freshness check, delete and archive warnings, purge, reconcile, `propose_commit_links` | Own-scope carriers only (D48) | Never. They act on stored entries | None |
+| Freshness check, delete and archive warnings, purge, reconcile, `propose_commit_links` | Own-scope carriers only (brainstorming-2026-09-17-okf-v02-adoption D48) | Never. They act on stored entries | None |
 
-Source: ADR-017 `### 7.`, final paragraph; D48, D49
+Source: ADR-017 `### 7.`, final paragraph; brainstorming-2026-09-17-okf-v02-adoption D48, D49
 
 ## 8. Rules — Disclosure
 
@@ -457,7 +462,8 @@ Contract amendments. These go on top of T84's amendments, before any tests are w
 - **`modules/arkeology.resources.md`**:
   - `### register_data_resources`: "the same gate as `read_artifact`" now includes its redaction.
   - `### register_ui_resource`: the app renders returned content, frontmatter included, as
-    received, and never strips it. This is D48's "Studio must render the marker".
+    received, and never strips it. This is brainstorming-2026-09-17-okf-v02-adoption D48's "Studio
+    must render the marker".
 - **`data/s3-annotations.artifact.md`**: none. T84 already reserves `withheld`.
 
 ### Testing Approach
@@ -492,7 +498,8 @@ Contract amendments. These go on top of T84's amendments, before any tests are w
      in full.
    - Story 4 (R13).
    - `caplog` holds no withheld token.
-   - A body citation is left intact. This documents D47's limit.
+   - A body citation is left intact. This documents brainstorming-2026-09-17-okf-v02-adoption D47's
+     limit.
 4. `tests/unit/test_tools_list.py` → `list.py`
    - **AC-78** on list: one batched lookup across the page.
 5. `tests/unit/test_tools_synthesise.py` → `synthesise.py`

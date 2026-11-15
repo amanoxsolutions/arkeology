@@ -4,7 +4,7 @@ id: p12-t52-annotation-availability-graceful
 title: T52 — Annotation Availability + IAM Probe, Runtime Graceful Handling, README + AGENTS.md
 description: Add a one-time annotation availability + IAM-permission probe to the setting-up-arkeology skill (aws-cli ≥ 2.35.14 guard or boto3 uv run fallback); document the four required IAM actions and the unavailable regions/bucket types in the README; handle annotation-unavailable / AccessDenied gracefully at runtime in link_metadata and the write path; add arkeology:// referencing + reference-healing guidance to the AGENTS.md snippet. SUPERSEDED 2026-09-06 — annotation availability is now a hard startup gate; see the Revision section.
 tags: []
-status: stable
+status: deprecated
 okf_version: "0.2"
 sources:
   - resource: docs/architecture-decisions/adr-2026-07-03-annotation-backed-link-storage.md
@@ -13,6 +13,9 @@ sources:
   - resource: docs/architecture-decisions/adr-2026-07-03-artifact-cross-referencing.md
     title: Artifact Cross-Referencing — First-Class references Field, Migration Rewrite, and referenced_by Warning
     last_modified: 2026-09-29T00:00:00Z
+  - resource: docs/brainstorming/brainstorming-2026-07-01-artifact-cross-referencing.md
+    title: Artifact Cross-Referencing (Migration and Ongoing Writes)
+    last_modified: 2026-07-02T00:00:00Z
   - resource: docs/specs/p12-t45-s3-annotation-client.md
     title: T45 — S3 Object Annotation Client Support + moto Self-Mock Extension
     last_modified: 2026-07-03T00:00:00Z
@@ -29,8 +32,8 @@ generated:
   by: "axians-architect/claude-opus-4.8"
   at: 2026-07-03T00:00:00Z
 revised:
-  by: "axians-architect/claude-opus-5-5"
-  at: 2026-11-09T19:21:34Z
+  by: "axians-architect/claude-sonnet-5-5"
+  at: 2026-11-15T16:04:49Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
@@ -70,8 +73,9 @@ startup gate (ADR-011 decision 5). Add a one-time availability + IAM-permission 
 `setting-up-arkeology` skill; document the four required IAM actions and the unavailable regions /
 bucket types in the README; handle annotation-unavailable / access-denied errors gracefully at
 runtime in `link_metadata` and the write path (structured, actionable, never a raw exception — the
-core content / vector / embedding store keeps working); and add the D9 `arkeology://` referencing and
-reference-healing guidance to the AGENTS.md snippet. (FR-57, NFR-12, AC-62.)
+core content / vector / embedding store keeps working); and add the
+adr-2026-07-03-artifact-cross-referencing D9 `arkeology://` referencing and reference-healing
+guidance to the AGENTS.md snippet. (FR-57, NFR-12, AC-62.)
 
 ## 1. Problem Statement
 
@@ -129,7 +133,7 @@ unchanged. Annotation availability is a feature-level concern — never a hard s
 Because annotations back only the `commit_refs` / `references` feature — not the core store —
 refusing to boot over an annotation problem would be disproportionate.
 
-Source: ADR-011 decision 5; D15
+Source: ADR-011 decision 5; brainstorming-2026-07-01-artifact-cross-referencing D15
 
 ## 4. Rules — Setup probe
 
@@ -154,18 +158,19 @@ When the README reference policy is updated, it lists `s3:PutObjectAnnotation`,
 documents the unavailable regions (UAE, Bahrain) and bucket types (directory buckets, which use the
 S3 Express One Zone storage class, and Outposts buckets).
 
-### R7 — The AGENTS.md snippet carries the D9 guidance and the `link_metadata` post-commit protocol
+### R7 — The AGENTS.md snippet carries the referencing guidance and the `link_metadata` post-commit protocol
 
 When the AGENTS.md snippet is updated, it includes (1) proactive `arkeology://artifact/{id}`
 referencing guidance and (2) reference-healing guidance (search + propose a fix, never silently
 rewrite), and its post-commit protocol references `link_metadata` (not the retired `link_commit`).
 
-Source: D9 — the two guidance clauses part
+Source: adr-2026-07-03-artifact-cross-referencing D9 — the two guidance clauses part
 
 ## 6. Boundaries
 
 **Always:**
-- Annotation availability is a feature-level concern — never a hard startup gate (D15).
+- Annotation availability is a feature-level concern — never a hard startup gate
+  (brainstorming-2026-07-01-artifact-cross-referencing D15).
 - Detection of the unavailable / access-denied condition happens at the S3 client layer and is
   surfaced as a typed error, consistent with the Phase-1 credential-wrapping pattern.
 - The write path preserves the artifact (content + vectors) even when annotations fail — degraded,
@@ -195,7 +200,7 @@ Source: D9 — the two guidance clauses part
 | `src/arkeology/constants.py` | Modify | Add `ANNOTATION_UNAVAILABLE` to `ErrorCode` |
 | `skills/setting-up-arkeology/SKILL.md` | Modify | Add the annotation availability + IAM probe as a pre-flight check (CLI ≥ 2.35.14 guard / boto3 `uv run` fallback) |
 | `README.md` | Modify | Add the four IAM actions to the reference policy; document unavailable regions / bucket types |
-| `skills/setting-up-arkeology/references/agents-snippet.md` | Modify | Add D9 `arkeology://` referencing + reference-healing clauses; switch post-commit protocol to `link_metadata` |
+| `skills/setting-up-arkeology/references/agents-snippet.md` | Modify | Add adr-2026-07-03-artifact-cross-referencing D9 `arkeology://` referencing + reference-healing clauses; switch post-commit protocol to `link_metadata` |
 
 ### Contracts
 

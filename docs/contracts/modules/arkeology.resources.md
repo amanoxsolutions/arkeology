@@ -15,12 +15,14 @@ sources:
   - resource: docs/specs/p11-t43-mcp-app-infrastructure.md
     title: T43 — MCP App Infrastructure and arkeology_studio Tool
     last_modified: 2026-06-24T00:00:00Z
+  - resource: .docs/reviews/architecture-review-2026-11-15-arkeology-phases-9-10-12.md
+    title: "Architecture review — Arkeology, plan phases 9, 10 and 12"
 generated:
   by: "axians-tech-writer/claude-opus-5"
   at: 2026-09-04T00:00:00Z
 revised:
-  by: "axians-architect/claude-opus-5"
-  at: 2026-09-04T00:00:00Z
+  by: "axians-architect/claude-opus-5-5"
+  at: 2026-11-15T19:39:39Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
@@ -107,13 +109,19 @@ result does.
   also narrowing `list_artifacts` — the resource exists to mirror the tool, and a reader who can
   reach a shared artifact through `list_artifacts` or `search_artifacts` would otherwise find it
   absent from the human-facing index.
+- `arkeology://artifacts` **never** passes `include_links=True` to `list_artifacts`. The index
+  renders identifier, title, type and description only, so a read of it costs `list_artifacts`'
+  single vector-index query and reads no S3 object annotation, however many artifacts it lists.
+  Mirroring the tool's scope does not mean mirroring its opt-in fields: an index that asked for
+  link fields would pay two annotation reads per listed artifact for columns it never shows, and
+  could fail whole on one failed read.
 - A handler failure returns a Markdown error body, never an empty document — an empty listing and a
   failed listing must stay distinguishable to a reader.
 - The per-artifact `lastModified` annotation is **deliberately waived** on the template resource: a
   resource template declares its annotations once at registration and cannot vary them per id, and
-  the pinned SDK's per-read content channel has no annotations field. The derivation helper is
-  retained and unit-tested against the day the protocol supports it. The static
-  `audience: ["user"]` annotation is emitted because it is identical for every read.
+  the pinned SDK's per-read content channel has no annotations field. No last-modified value is
+  derived for a read, since nothing could emit it. The static `audience: ["user"]` annotation is
+  emitted because it is identical for every read.
 
 **Preconditions**
 

@@ -154,8 +154,8 @@ generated:
   by: "axians-architect/claude-opus-5.5"
   at: 2026-10-13T21:13:59Z
 revised:
-  by: "axians-architect/claude-opus-5-5"
-  at: 2026-11-12T21:15:39Z
+  by: "axians-architect/claude-sonnet-5-5"
+  at: 2026-11-15T16:04:49Z
 ---
 
 # T90 — Store Migration Skill and Command
@@ -170,20 +170,22 @@ can neither overwrite a migrated artifact nor start. Nothing changes until the o
 the Admin has applied the fence, and `--apply` has proved it; the command then rewrites the own
 scope's object metadata, annotations and vector metadata to the Phase 15 shape, moves every
 vector to its numbered key (T92), never re-embeds, survives a crash at any point, and a second run reports nothing to change (FR-74, NFR-16, AC-79;
-D42).
+brainstorming-2026-09-17-okf-v02-adoption D42).
 
 ## 1. Problem Statement
 
-Tasks T76–T87 change what every stored artifact looks like and ship no compatibility aliases (D42).
-A store written before them keeps the old shape: the archive marker in `status`, snake_case types,
-`date` and `author_role`, `source_artifacts` in both metadata stores, and a comma-joined
-`references` annotation. The new server reads none of these (T76 Open Questions item 3 lists the
-effects): default views return nothing, `read_artifact` returns `corrupt_metadata`, and freshness
-reports `all_fresh: true` while checking nothing. `reconcile_index` repairs index drift from S3 and
-gains no migration code (D42), so a separate tool must convert the store once. That tool is the
-first one that rewrites every artifact in place (plan.md `## Risks and Open Questions`). Every
-rewrite wipes the object's annotations until they are restored, and a crash in between loses them
-(C-07). The migration must be recoverable from its own record.
+Tasks T76–T87 change what every stored artifact looks like and ship no compatibility aliases
+(brainstorming-2026-09-17-okf-v02-adoption D42). A store written before them keeps the old shape:
+the archive marker in `status`, snake_case types, `date` and `author_role`, `source_artifacts` in
+both metadata stores, and a comma-joined `references` annotation. The new server reads none of
+these. Served anyway, its default views would return nothing, `read_artifact` would return
+`corrupt_metadata`, and freshness would report `all_fresh: true` while checking nothing, so it
+refuses to start on such a store instead (R34–R36; T76 R23). `reconcile_index` repairs index drift
+from S3 and gains no migration code (brainstorming-2026-09-17-okf-v02-adoption D42), so a separate
+tool must convert the store once. That tool is the first one that rewrites every artifact in place
+(plan.md `## Risks and Open Questions`). Every rewrite wipes the object's annotations until they are
+restored, and a crash in between loses them (C-07). The migration must be recoverable from its own
+record.
 
 A rewrite the migration completes can still be undone by a write it never sees. Every agent starts
 its own server from the copy installed on its machine or pipeline runner, and the target is dozens
@@ -215,12 +217,12 @@ validation, keyed merge and encoder, T80's history encoder, `check_metadata_budg
 A standalone script would copy them and drift. As a console script it runs from the same clone and
 configuration as the server, and it runs while the server refuses to start.
 
-Source: FR-74; D42
+Source: FR-74; brainstorming-2026-09-17-okf-v02-adoption D42
 
 ### R2 — The command runs outside the MCP server, on the package's own clients and settings, calls no MCP tool, and acts on the configured write prefix only
 
 The command runs outside the MCP server. The old server has no migration capability, and the
-upgraded server cannot read the old shape (T76 Open Questions item 3). It uses the package's S3 and
+upgraded server cannot read the old shape and refuses to start on it (R34–R36; T76 R23). It uses the package's S3 and
 S3 Vectors clients and the `annotations.py` helpers directly. It loads settings exactly as the
 server does (`.env` plus environment), and calls no MCP tool. It acts on the configured write
 prefix only (see "Shared stores" below).
@@ -228,7 +230,7 @@ prefix only (see "Shared stores" below).
 **Why (A package command, not a script in the skill directory, continued):** It is not an MCP tool:
 ADR-017 §9 chose "a skill plus scripts", and with check 9 the server cannot serve it.
 
-Source: FR-74; D42
+Source: FR-74; brainstorming-2026-09-17-okf-v02-adoption D42
 
 ### R3 — The `migrating-arkeology-store` skill walks the operator through eight steps and never passes `--apply` before the operator's confirmation
 
@@ -276,13 +278,13 @@ writes nothing for it (R24), so its earlier vectors would keep check 9 refusing 
 fence is applied, the earlier release — the only one that could rewrite or delete it through a
 tool — cannot write the prefix either. The fix therefore happens before the fence.
 
-Source: FR-74; D42; the refusal of an artifact over 100 vectors (Operator, 2026-11-12); stale vectors re-keyed, not deleted (Operator, 2026-11-12)
+Source: FR-74; brainstorming-2026-09-17-okf-v02-adoption D42; the refusal of an artifact over 100 vectors (Operator, 2026-11-12); stale vectors re-keyed, not deleted (Operator, 2026-11-12)
 
 ### R4 — `reconcile_index` does not change in this task
 
 `reconcile_index` does not change in this task.
 
-Source: FR-74; D42
+Source: FR-74; brainstorming-2026-09-17-okf-v02-adoption D42
 
 ### R43 — Before the servers start, the skill has the vector index switched to `ENHANCED` when it is not
 
@@ -354,7 +356,7 @@ What the operators of a shared store coordinate:
   `READ_PREFIXES` hold (check 9 probes the own scope only). Another team's unmigrated artifacts
   follow the malformed-data policy for foreign data: they are skipped and counted under
   `skipped_malformed_count` in listings, and `read_artifact` returns `corrupt_metadata` for them
-  (T76 Open Questions item 3). A team still on the old version does not see migrated teams'
+  (T76 R23). A team still on the old version does not see migrated teams'
   artifacts correctly until it upgrades. Old code reads the archive marker from `status`, and
   this release cannot change old code. An install of the old version configured with a migrated
   prefix cannot start (R40).
@@ -540,7 +542,7 @@ An artifact needs an object migration when its S3 object metadata has no `archiv
 `source_artifacts` or `commit_refs`, OR its `status` is `active` or `inactive`, OR its `type` is a
 legacy value in T77's display-name table, OR the object carries a `references` annotation.
 
-Source: AC-79; D21, D29, D35, D37
+Source: AC-79; brainstorming-2026-09-17-okf-v02-adoption D21, D29, D35, D37
 
 ### R13 — A vector needs migration when any one of the listed legacy conditions holds
 
@@ -549,14 +551,14 @@ A vector needs migration when its `archived` is not a native boolean, OR it has 
 `status` is `active` or `inactive`, OR its `type` is a legacy value, OR its key is not
 `{artifact_id}#{n}` with `n` a whole number from 0 to 99 written without padding (T92 R1).
 
-Source: AC-79; D21, D29, D35, D37; T92 R1
+Source: AC-79; brainstorming-2026-09-17-okf-v02-adoption D21, D29, D35, D37; T92 R1
 
 ### R14 — Every other key is left as it is; content bytes, `last_edited_ulid`, embeddings and content frontmatter are never changed
 
 Every other key is left as it is. Content bytes, `last_edited_ulid` and each vector's embedding are
-never changed. Content frontmatter is not touched (D10).
+never changed. Content frontmatter is not touched (brainstorming-2026-09-17-okf-v02-adoption D10).
 
-Source: AC-79; D10, D21, D29, D35, D37
+Source: AC-79; brainstorming-2026-09-17-okf-v02-adoption D10, D21, D29, D35, D37
 
 ## 7. Rules — Target shape per field
 
@@ -573,15 +575,16 @@ Source: AC-69; T76, T81
 
 ### R16 — A legacy `type` becomes its display name from T77's table, in both stores, and ids do not change
 
-`type` (T77, D37): a legacy value becomes its display name from T77's table, in both stores. Ids do
-not change, because the slug of each display name equals its legacy slug.
+`type` (T77, brainstorming-2026-09-17-okf-v02-adoption D37): a legacy value becomes its display name
+from T77's table, in both stores. Ids do not change, because the slug of each display name equals
+its legacy slug.
 
-Source: D37; T77
+Source: brainstorming-2026-09-17-okf-v02-adoption D37; T77
 
 ### R17 — Provenance is derived from the stored `date` (D) and the `last_edited_ulid` instant (U); `by` is the stored `author_role` only when it passes T79's actor-form check; `date` and `author_role` are removed
 
-Provenance (T79; D9, D32, D35) — given D, the stored `date`, and U, the instant of the stored
-`last_edited_ulid` truncated to whole seconds:
+Provenance (T79; brainstorming-2026-09-17-okf-v02-adoption D9, D32, D35) — given D, the stored
+`date`, and U, the instant of the stored `last_edited_ulid` truncated to whole seconds:
 
 - When U exists and falls on UTC day D, the system sets `generated_at` to U and writes no
   `revised`.
@@ -611,29 +614,30 @@ than `date`, so per-source freshness reproduces today's ULID comparison (Story 4
 entry).
 
 **Why (`by` never claims more than was recorded):** `author_role` was rewritten on every write, so it
-names the last writer (D35: it "duplicated `revised.by`"). It becomes `revised.by`, or
-`generated.by` when nothing was revised, only when it is already an OKF §7 actor the writer
-supplied. A bare role name such as `developer` is not an actor. OKF §7 has no form for an unknown
-author, and `generated` is required by T79. `process:arkeology-store-migration` names the actual
-origin of the record. It never triggers §5.3's `human:` trust, and since the key is filterable, a
-reader can find every reconstructed record.
+names the last writer (brainstorming-2026-09-17-okf-v02-adoption D35: it "duplicated `revised.by`").
+It becomes `revised.by`, or `generated.by` when nothing was revised, only when it is already an OKF
+§7 actor the writer supplied. A bare role name such as `developer` is not an actor. OKF §7 has no
+form for an unknown author, and `generated` is required by T79. `process:arkeology-store-migration`
+names the actual origin of the record. It never triggers §5.3's `human:` trust, and since the key is
+filterable, a reader can find every reconstructed record.
 
-Source: AC-04; D9, D32, D35; T79
+Source: AC-04; brainstorming-2026-09-17-okf-v02-adoption D9, D32, D35; T79
 
 ### R18 — An absent `revision_history` is seeded with `[generated]`, followed by `revised` when one is written; a present, readable history is kept
 
-`revision_history` (T80; D26, D30): when the annotation is absent, the system seeds it with
-`[generated]`, followed by `revised` when one is written. A present, readable history is kept.
+`revision_history` (T80; brainstorming-2026-09-17-okf-v02-adoption D26, D30): when the annotation is
+absent, the system seeds it with `[generated]`, followed by `revised` when one is written. A
+present, readable history is kept.
 
 **Why (History seeded):** This resolves T80 Open Questions item 2. ADR-017 states that the history's
 first and last entries coincide with `generated` and `revised`. Seeding keeps that true for
 migrated artifacts.
 
-Source: D26, D30; T80
+Source: brainstorming-2026-09-17-okf-v02-adoption D26, D30; T80
 
 ### R19 — `source_artifacts` and legacy `references` become `links` entries in stored order, merged into an existing `links`, each validated and encoded by T84
 
-`links` (T84; D17, D18, D29):
+`links` (T84; brainstorming-2026-09-17-okf-v02-adoption D17, D18, D29):
 
 - each `source_artifacts` entry becomes `{resource: "arkeology://artifact/<entry>"}`, in stored
   order. A full key stays a full key;
@@ -647,36 +651,37 @@ Source: D26, D30; T80
 type such as `builds_on` would invent a claim. OKF GitHub issue #16 leaves `type` producer-defined,
 and `references` already appears there as an edge type.
 
-Source: D17, D18, D29; T84
+Source: brainstorming-2026-09-17-okf-v02-adoption D17, D18, D29; T84
 
 ### R20 — A converted source that resolves to a readable Arkeology key gets as `last_modified` the earlier of its own and the citing artifact's effective time; one that is missing, unreadable or has no derivable time gets none
 
-Source baselines (D19, D40; T86 Open Questions item 1): for each converted source that resolves to
-an Arkeology key the migrating server may read, the system sets `last_modified` to the earlier of
-the source's effective time and the citing artifact's own effective time. Effective time is
-`revised_at`, else `generated_at`, as migrated by this run for own-scope artifacts. A foreign
-tier-3 `shared` source uses the same derivation applied to its vector metadata, read from its `#0`
-by key (T92 R9) through the existing cross-scope gate in `_scope.py`. Parsed datetimes are
-compared, never strings. A source that is missing, unreadable, or has no derivable time gets no
-`last_modified` — as does a foreign source whose team has not yet migrated its store, since it has
-no `#0` (T92 R10).
+Source baselines (brainstorming-2026-09-17-okf-v02-adoption D19, D40; T86 Open Questions item 1):
+for each converted source that resolves to an Arkeology key the migrating server may read, the
+system sets `last_modified` to the earlier of the source's effective time and the citing artifact's
+own effective time. Effective time is `revised_at`, else `generated_at`, as migrated by this run for
+own-scope artifacts. A foreign tier-3 `shared` source uses the same derivation applied to its vector
+metadata, read from its `#0` by key (T92 R9) through the existing cross-scope gate in `_scope.py`.
+Parsed datetimes are compared, never strings. A source that is missing, unreadable, or has no
+derivable time gets no `last_modified` — as does a foreign source whose team has not yet migrated
+its store, since it has no `#0` (T92 R10).
 
 Example (Story 4, freshness verdicts survive the migration):
 
 - Given a synthesis S written after source A and before a revision of source B, when the store is
   migrated and `check_synthesis_freshness` runs, then B is reported stale and A is not, as the
-  pre-migration check reported (FR-20, D19).
+  pre-migration check reported (FR-20, brainstorming-2026-09-17-okf-v02-adoption D19).
 
 **Why (Baseline = earlier of source and citer):** This resolves T86 Open Questions item 1, refining its
 second option. When the source has not changed since the synthesis was written, its current
 effective time is exactly the revision the synthesis observed, which is OKF §5.1's literal meaning.
 When the source changed later, the revision observed is unrecorded. The synthesis's own time is
 then earlier than the source's, so the source reports stale, as today's ULID check reports it.
-Using the source's current time (D40's import rule) would declare every migrated synthesis fresh
-and hide real staleness. D40 is sound at import because resolving the source confirms the version.
-At store migration that confirmation does not exist.
+Using the source's current time (brainstorming-2026-09-17-okf-v02-adoption D40's import rule) would
+declare every migrated synthesis fresh and hide real staleness.
+brainstorming-2026-09-17-okf-v02-adoption D40 is sound at import because resolving the source
+confirms the version. At store migration that confirmation does not exist.
 
-Source: FR-20; D19, D40; T86 Open Questions item 1
+Source: FR-20; brainstorming-2026-09-17-okf-v02-adoption D19, D40; T86 Open Questions item 1
 
 ### R21 — `commit_refs` is carried across the re-PUT, a legacy object-metadata copy is merged in and removed, and the vector copy is capped
 
@@ -716,14 +721,14 @@ needing a numbered key are counted after R45 has set aside those an interrupted 
 so an interrupted re-key is never counted twice. More than 100 is possible only where
 `EMBED_MAX_SECTIONS` was set above 100; the skill gives the way out before the write fence (R3).
 
-Source: malformed-data ADR; D50 case 1; the refusal of an artifact over 100 vectors (Operator, 2026-11-12)
+Source: malformed-data ADR; brainstorming-2026-09-17-okf-v02-adoption D50 case 1; the refusal of an artifact over 100 vectors (Operator, 2026-11-12)
 
 ### R25 — An annotation read treats only `NoSuchAnnotation` as empty; every other failure fails the artifact
 
 Any annotation read treats only `NoSuchAnnotation` as empty. Every other failure fails the artifact
 (`s3-annotations.artifact` `## Not-Found Semantics`).
 
-Source: malformed-data ADR; D50 case 1
+Source: malformed-data ADR; brainstorming-2026-09-17-okf-v02-adoption D50 case 1
 
 ## 9. Rules — Apply — order of operations and the journal
 
@@ -843,12 +848,12 @@ Source: FR-74, C-07
 
 ### R33 — After `--apply`, a verification scan reports what is still unmigrated, and the exit code is non-zero when either verification list, the cannot-migrate list or the failed list is non-empty
 
-Verification (D50 case 3): when `--apply` finishes, the system scans the own scope again and
-reports every vector without a native boolean `archived` or not at a numbered key (T92 R1), and
-every artifact still needing a change. It exits non-zero when either list, the cannot-migrate list or the failed list is
-non-empty.
+Verification (brainstorming-2026-09-17-okf-v02-adoption D50 case 3): when `--apply` finishes, the
+system scans the own scope again and reports every vector without a native boolean `archived` or not
+at a numbered key (T92 R1), and every artifact still needing a change. It exits non-zero when either
+list, the cannot-migrate list or the failed list is non-empty.
 
-Source: FR-74, C-07; D50 case 3
+Source: FR-74, C-07; brainstorming-2026-09-17-okf-v02-adoption D50 case 3
 
 ### R44 — Every own-scope vector is re-keyed to its numbered key by copy, with its embedding unchanged and no embedding call
 
@@ -918,14 +923,6 @@ Source: FR-74; T92 R11; calibration of 2026-11-12
 
 ## 10. Rules — Startup check 9 — store shape, own scope only
 
-**Open Questions item 1 — Resolved 2026-10-13 — startup check 9 accepted, own scope only.** The
-operator accepted the check, and FR-07 now requires "that the deployment's own stored artifacts are
-in the current storage shape, so a deployment upgraded without migrating its store refuses to start
-and names the migration to run". Foreign read prefixes are not probed. Another team's unmigrated
-artifacts follow the existing malformed-data policy for foreign data. *Original question:* should
-the server refuse to start while its own scope holds vectors in the pre-upgrade shape, and also
-while a `READ_PREFIXES` entry holds readable pre-upgrade artifacts?
-
 ### R34 — The server runs a ninth startup check, after check 8: one top-k-1 `query_vectors` call for an own-scope vector without `archived`
 
 When the server starts, the system runs a ninth check, after check 8. It makes one
@@ -943,7 +940,7 @@ A `CLASSIC` index may return fewer than top-k when few vectors match (AWS S3 Vec
 filtering documentation). A store that was never migrated matches on every vector, and a
 partially migrated one is caught by the command's own verification.
 
-Source: FR-07; D42, D50
+Source: FR-07; brainstorming-2026-09-17-okf-v02-adoption D42, D50
 
 ### R35 — A returned vector fails startup with `StartupValidationError` check `store_shape`, naming the artifact and the command
 
@@ -957,9 +954,9 @@ Example (Story 6, the new server refuses an unmigrated store):
 
 - Given an own scope holding a vector without `archived`, when the server starts, then it exits
   before serving requests with a message that names the migration command. The command itself
-  still runs (FR-07; D42).
+  still runs (FR-07; brainstorming-2026-09-17-okf-v02-adoption D42).
 
-Source: FR-07; D42, D50
+Source: FR-07; brainstorming-2026-09-17-okf-v02-adoption D42, D50; refusing to start on an own scope not yet migrated (Operator, 2026-10-13; confirmed 2026-11-15)
 
 ### R36 — An empty result passes the check; a fresh or empty store passes, and foreign read prefixes are not probed
 
@@ -972,13 +969,13 @@ Example (Story 6, continued):
   server starts, then it starts. Those foreign artifacts follow the malformed-data policy: skipped
   and counted in listings, `corrupt_metadata` on read.
 
-Source: FR-07; D42, D50
+Source: FR-07; brainstorming-2026-09-17-okf-v02-adoption D42, D50; foreign read prefixes not probed (Operator, 2026-10-13)
 
 ### R37 — `arkeology-migrate-store` does not run check 9 and never calls the full startup sequence
 
 `arkeology-migrate-store` does not run check 9. It never calls the full startup sequence.
 
-Source: FR-07; D42, D50
+Source: FR-07; brainstorming-2026-09-17-okf-v02-adoption D42, D50
 
 ### R42 — Check 9's empty result is trusted only because check 5 has already required an `ENHANCED` index
 
@@ -1000,7 +997,7 @@ and check 9 needs only one.
 - Given a `CLASSIC` index and an own scope with three pre-upgrade vectors among 50,000, when the
   server starts, then it stops at check 5 with the index-mode message, and check 9 never runs.
 
-Source: FR-07; adr-2026-05-29-aws-backend-selection; D50; calibration of 2026-11-12
+Source: FR-07; adr-2026-05-29-aws-backend-selection; brainstorming-2026-09-17-okf-v02-adoption D50; calibration of 2026-11-12
 
 ## 11. Boundaries
 
@@ -1028,7 +1025,8 @@ Source: FR-07; adr-2026-05-29-aws-backend-selection; D50; calibration of 2026-11
 - Call Bedrock, construct a Bedrock client, call an MCP tool, or change an embedding or the content
   bytes.
 - Write under any prefix other than the configured write prefix.
-- Add migration code to `reconcile_index`, or translate a legacy key anywhere in the server (D42).
+- Add migration code to `reconcile_index`, or translate a legacy key anywhere in the server
+  (brainstorming-2026-09-17-okf-v02-adoption D42).
 - Write when the run is a dry run, or pass `--apply` in the skill without the operator's
   confirmation.
 - Read, write or apply a bucket policy — the Admin applies the R39 statement — or go on with
@@ -1160,8 +1158,8 @@ seeding helper in the test file writes it directly through the moto clients.
      not; a journaled artifact resumed after its re-PUT has its annotations restored before the
      sweep and its vectors re-keyed from the sweep; a spy shows one own-scope sweep per run plus the
      verification's, and no `query_vectors` call.
-   - Verification (D50): a vector left without a boolean `archived` makes the exit code 1 and is
-     listed.
+   - Verification (brainstorming-2026-09-17-okf-v02-adoption D50): a vector left without a boolean
+     `archived` makes the exit code 1 and is listed.
    - Skill drift: every flag in `migrating-arkeology-store/SKILL.md` is accepted by the parser.
 5. Integration (real AWS, run-scoped prefix), new. Both store-migration tests need the R39
    statement covering the run-scoped prefix. The suite's fence (Operator, 2026-11-12): the Admin
@@ -1199,7 +1197,9 @@ credentials' policy, or check 2 fails (R41).
 ### Hand-offs
 
 T91 hand-offs: AGENTS.md Repository Structure rows for `store_migration.py` and the new skill; the
-startup line ("nine checks"); the stdout rule scoped to the MCP server process; and the CHANGELOG
+startup line ("nine checks"), and every place that calls the annotation round-trip "the last
+startup check" (AGENTS.md § Component Dependencies, README, SERVER-REFERENCE) names it check 8
+instead, since check 9 now follows it; the stdout rule scoped to the MCP server process; and the CHANGELOG
 **Breaking** entry giving the upgrade order from Requirements, "Delivery", the write-fence step
 among it, and the v0.7.1 startup message that marks an install not upgraded (R40). AGENTS.md
 § Component Dependencies and SERVER-REFERENCE's IAM permissions name `s3:PutObjectTagging` as

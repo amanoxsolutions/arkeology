@@ -15,9 +15,14 @@ sources:
   - resource: docs/specs/p10-t39-caller-controlled-artifact-concurrency.md
     title: T39 — Caller-Controlled artifact_concurrency on write_artifacts and migrate_artifacts
     last_modified: 2026-07-05T00:00:00Z
+  - resource: .docs/reviews/architecture-review-2026-11-15-arkeology-phases-9-10-12.md
+    title: "Architecture review — Arkeology, plan phases 9, 10 and 12"
 generated:
   by: "axians-tech-writer/claude-opus-5"
   at: 2026-09-04T00:00:00Z
+revised:
+  by: "axians-architect/claude-opus-5-5"
+  at: 2026-11-15T20:28:28Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
@@ -72,8 +77,11 @@ failure is reported inside that entry's own result.
   that exceeds service limits.
 - An out-of-range `artifact_concurrency` is clamped rather than rejected, and the response carries a
   top-level `concurrency_warning`.
-- `overwrite` applies as a batch default; the same reject-by-default collision semantics as
-  `write_artifact` apply per entry.
+- `overwrite` is the batch default. A descriptor may carry its own `overwrite` key, which takes
+  precedence over the call-level value for that entry alone — `False` included, so a descriptor
+  carrying `overwrite: False` keeps its entry under the collision guard in a call made with
+  `overwrite=True`. Each entry then gets the same reject-by-default collision semantics as
+  `write_artifact`.
 
 **Preconditions**
 

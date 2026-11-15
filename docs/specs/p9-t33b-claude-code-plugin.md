@@ -13,15 +13,25 @@ sources:
   - resource: docs/planning-artifacts/requirements.md
     title: Arkeology — Requirements
     last_modified: 2026-09-24T00:00:00Z
+  - resource: .docs/reviews/architecture-review-2026-11-15-arkeology-phases-9-10-12.md
+    title: "Architecture review — Arkeology, plan phases 9, 10 and 12"
+  - resource: docs/specs/p9-t34-sync-arkeology-plugin.md
+    title: T34 — sync-arkeology-plugin
+    last_modified: 2026-11-15T19:07:16Z
+  - resource: docs/specs/p9-t33c-install-script.md
+    title: T33c — Install Script
+    last_modified: 2026-11-15T19:07:16Z
 generated:
   by: "axians-architect/unknown"
   at: 2026-06-09T00:00:00Z
 revised:
   by: "axians-architect/claude-opus-5-5"
-  at: 2026-11-09T16:51:08Z
+  at: 2026-11-15T20:19:59Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
+  - by: "axians-architect/claude-fable-5-2"
+    at: 2026-11-15T20:45:07Z
 ---
 
 # T33b — Claude Code Plugin
@@ -31,20 +41,24 @@ verified:
 Add a `.claude-plugin/marketplace.json` marketplace manifest and a `plugins/arkeology/`
 plugin directory to the repo so Claude Code engineers install both Arkeology skills via
 two `claude plugin` commands. Skills become available as `arkeology:<name>` slash commands
-(`/arkeology:setting-up-arkeology`, `/arkeology:migrating-to-arkeology`), and the `arkeology:plugin-sync`
-skill handles future updates to the skill plugin clone without a full reinstall.
+(`/arkeology:setting-up-arkeology`, `/arkeology:migrating-to-arkeology`); later updates come from
+the `sync-arkeology-plugin` skill, without a full reinstall.
 
 ## 1. Problem Statement
 
 Claude Code engineers currently have no namespaced, self-updating way to install Arkeology
 skills. Claude Code's private marketplace system allows a git repo to act as a
 self-installing plugin: two `claude plugin` commands give the engineer both skills under
-the `arkeology:` namespace and provide a `plugin-sync` skill so future updates are a
-one-command operation. The `arkeology:` prefix prevents collision with any other installed
+the `arkeology:` namespace. The `arkeology:` prefix prevents collision with any other installed
 plugin.
 
-All four stories this spec was written from are P1: two-command install via SSH (R1),
-two-command install via HTTPS (R2), one-command skill update (R6), and permission-free sync (R7).
+This spec covers the Claude Code plugin's packaging and installation. Updating the installed
+skills is the `sync-arkeology-plugin` skill's, specified in T34 for every supported tool; the one
+pre-approval rule that lets its Claude Code pull run without a permission prompt is written by
+`install.sh` and specified in T33c R5. This spec states neither.
+
+The stories this spec was written from are P1: two-command install via SSH (R1) and two-command
+install via HTTPS (R2).
 
 ## 2. Rules — Installation
 
@@ -76,19 +90,20 @@ HTTPS form of `claude plugin marketplace add` and the install works identically.
 
 ### R3 — The install documentation shows both forms, SSH primary and HTTPS fallback
 
-When the README and install.sh session-refresh section document the Claude Code install, they show
-both:
+When the README documents the Claude Code install, it shows both:
 
 - SSH primary: `claude plugin marketplace add git@github.com:amanoxsolutions/arkeology.git`
 - HTTPS fallback: `claude plugin marketplace add https://github.com/amanoxsolutions/arkeology.git`
 
 The SSH form is primary; the HTTPS fallback is clearly labelled for environments where outbound
-SSH (port 22) is blocked by a corporate firewall.
+SSH (port 22) is blocked by a corporate firewall. `install.sh` prints the HTTPS form only when its
+Claude Code install did not take (T33c R4, R9).
 
-### R4 — Plugin skills are symlinks to the root `skills/`
+### R4 — Each skill is a real directory under `plugins/arkeology/skills/`, its only copy
 
-When `plugins/arkeology/skills/<name>` is resolved, it is a symlink to `../../../skills/<name>` so
-edits to the root `skills/` are immediately reflected.
+Each skill lives in `plugins/arkeology/skills/<name>/` as a real directory holding its
+`SKILL.md` — the only copy of the skill, from which the Claude Code plugin and `install.sh`'s
+Copilot loop (T33d R3) both install. There is no top-level `skills/` directory and no symlink.
 
 ### R5 — No global CLAUDE.md `@`-import is written
 
@@ -99,43 +114,11 @@ context within each project.
 
 Source: brainstorming-2026-06-08-skill-distribution D1
 
-## 3. Rules — Updating
-
-### R6 — `/arkeology:plugin-sync` pulls the plugin clone and reloads plugins
-
-When the engineer runs `/arkeology:plugin-sync`, it performs `git pull` on
-`~/.claude/plugins/arkeology/` and then executes `/reload-plugins`, pulling updated skills into the
-Claude Code plugin clone without reinstalling. The skill's notes section states that the server
-clone requires a separate `git pull` + `uv sync` + restart — `plugin-sync` only updates the skill
-plugin clone.
-
-**Example**
-
-- Given the plugin is installed, when the engineer runs `/arkeology:plugin-sync`, then the skill
-  performs `git pull` on `~/.claude/plugins/arkeology/` and calls `/reload-plugins`.
-
-### R7 — `/arkeology:plugin-sync` runs without permission prompts
-
-Running `/arkeology:plugin-sync` does not trigger permission prompts.
-
-**Example**
-
-- Given `install.sh` has run and written the pre-approval rule to `~/.claude/settings.json`,
-  when the engineer invokes `/arkeology:plugin-sync`, then `git pull` executes without a
-  per-call approval prompt.
-
-### R8 — `install.sh` merges the pre-approval rule into `~/.claude/settings.json` once
-
-When `install.sh` runs the Claude Code section, it merges the pre-approval rule
-`"Bash(git -C * pull)"` into `~/.claude/settings.json`, creating the file if absent and merging
-without overwriting unrelated entries if it exists. When the pre-approval rule is already present
-in `~/.claude/settings.json`, it is not duplicated (idempotency).
-
-## 4. Boundaries
+## 3. Boundaries
 
 **Always:**
-- Skills inside `plugins/arkeology/skills/` are symlinks to `../../../skills/<name>` — no
-  file copies.
+- Skills live only in `plugins/arkeology/skills/<name>/` — no top-level `skills/` directory,
+  no symlinks, no second copy.
 - `plugins/arkeology/` contains only a `.claude-plugin/` directory and a `skills/`
   directory — no `agents/` directory (Arkeology has no agents).
 - The marketplace manifest `source` field uses the relative path `"./plugins/arkeology"` —
@@ -159,22 +142,21 @@ in `~/.claude/settings.json`, it is not duplicated (idempotency).
 - `plugin.json` must **omit the `version` field** — a pinned static version prevents
   `claude plugin update` from picking up new pushes; Claude Code uses the commit SHA
   automatically when `version` is absent.
-- `arkeology:plugin-sync` lives exclusively in `plugins/arkeology/skills/plugin-sync/SKILL.md`;
-  it must **not** appear in the root `skills/` directory (it is Claude Code-specific and
-  irrelevant to other tools).
-- Pre-approval is scoped narrowly to `"Bash(git -C * pull)"` — no blanket bash access.
-- No global CLAUDE.md `@`-import is written or required (D1 — see brainstorming doc).
+- The plugin needs no pre-approval of its own: the only one the install writes is T33c R5's single
+  rule for the update skill's exact pull command — no wildcard, no other git command, no blanket
+  bash access.
+- No global CLAUDE.md `@`-import is written or required (brainstorming-2026-06-08-skill-distribution D1).
 
 **Ask First:**
 - None.
 
 **Never:**
-- No file copies inside `plugins/arkeology/skills/` — symlinks only.
+- No second copy of a skill outside `plugins/arkeology/skills/`, and no symlink into it.
 - No agents directory inside `plugins/arkeology/` — Arkeology has no agents.
 - No `version` field in `plugin.json`.
 - No `@`-import prepended to `~/.claude/CLAUDE.md`.
 
-## 5. For the developer agent
+## 4. For the developer agent
 
 ### Files to Touch
 
@@ -182,15 +164,14 @@ in `~/.claude/settings.json`, it is not duplicated (idempotency).
 |------|--------|-------|
 | `.claude-plugin/marketplace.json` | Create | Top-level `name: arkeology` (marketplace ID); `owner: {name: Amanox}`; `$schema`; `plugins[0].name: arkeology` (plugin lookup key — **must match the `arkeology@` identifier in the install command, not the marketplace name**); `plugins[0].source: "./plugins/arkeology"`; see Boundaries for required fields |
 | `plugins/arkeology/.claude-plugin/plugin.json` | Create | `name: arkeology`, `description` only — **no `version` field** |
-| `plugins/arkeology/skills/setting-up-arkeology` | Create | Symlink → `../../../skills/setting-up-arkeology` |
-| `plugins/arkeology/skills/migrating-to-arkeology` | Create | Symlink → `../../../skills/migrating-to-arkeology` |
-| `plugins/arkeology/skills/plugin-sync/SKILL.md` | Create | `arkeology:plugin-sync` skill; runs `git -C ~/.claude/plugins/arkeology pull` + `/reload-plugins`; notes section warns that the server clone requires a separate update |
+| `plugins/arkeology/skills/setting-up-arkeology/` | Create | The skill's only copy, a real directory (R4) |
+| `plugins/arkeology/skills/migrating-to-arkeology/` | Create | The skill's only copy, a real directory (R4) |
 | `README.md` | Modify | Add the two `claude plugin` commands to the Quick Install section added by T33e |
 | `CONTRIBUTING.md` | Modify | Update Claude Code setup section to reference the two plugin commands |
 
 ### Contracts
 
-None.
+None — plugin packaging and install commands only; no server interface.
 
 ### Testing Approach
 
@@ -202,16 +183,10 @@ Testing is manual smoke tests (no TDD for non-server files).
 2. **Plugin install — HTTPS:** Substitute the HTTPS URL in `claude plugin marketplace add`;
    run `claude plugin install arkeology@arkeology`; verify the same two slash commands appear —
    confirms the HTTPS path works for SSH-blocked environments.
-2. **Symlink integrity:** Edit `skills/setting-up-arkeology/SKILL.md` (add a comment); run
-   `/reload-plugins`; confirm the change is reflected — proving symlinks are live, not
-   copies.
-3. **No agents directory:** Confirm `plugins/arkeology/agents/` does not exist.
-4. **plugin-sync not in root skills:** Confirm `skills/plugin-sync/` does not exist at
-   the repo root.
+3. **Skill layout:** Confirm every entry under `plugins/arkeology/skills/` is a real
+   directory holding a `SKILL.md`, none is a symlink, and the repository has no top-level
+   `skills/` directory.
+4. **No agents directory:** Confirm `plugins/arkeology/agents/` does not exist.
 5. **`plugin.json` has no version:** Confirm the file contains only `name` and
    `description`; run `claude plugin update arkeology` after pushing a change; confirm the
    update is detected.
-6. **Permission-free sync:** After `install.sh` has run, invoke `/arkeology:plugin-sync`;
-   confirm `git pull` executes without a per-call permission prompt.
-7. **Idempotency:** Run `install.sh` twice; verify no duplicate entries in
-   `~/.claude/settings.json`.

@@ -18,12 +18,14 @@ sources:
   - resource: docs/architecture-decisions/adr-2026-09-14-malformed-persisted-data-policy.md
     title: How Arkeology Treats Malformed and Ambiguous Persisted Data
     last_modified: 2026-09-29T00:00:00Z
+  - resource: .docs/reviews/architecture-review-2026-11-15-arkeology-phases-9-10-12.md
+    title: "Architecture review — Arkeology, plan phases 9, 10 and 12"
 generated:
   by: "axians-tech-writer/claude-opus-5"
   at: 2026-09-04T00:00:00Z
 revised:
-  by: "axians-architect/claude-sonnet-5"
-  at: 2026-09-14T00:00:00Z
+  by: "axians-architect/claude-opus-5-5"
+  at: 2026-11-15T19:18:17Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
@@ -103,6 +105,12 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
 **Postconditions**
 
 - Returns `{"artifacts": [...]}`, each entry carrying at least `artifact_id` and `score`.
+- Every entry also carries the artifact's age: `last_edited_ulid`, the raw value from its vector
+  metadata, `null` when absent; and `last_edited_at`, the ISO 8601 time that ULID encodes, `null`
+  when the ULID is absent or will not parse. A malformed ULID is logged and returned raw, never an
+  error and never a reason to drop the result. Both fields are transparency only — they never
+  change ranking or which results are returned — and they are how a caller tells a stale hit from a
+  fresh one: `date` is the artifact's nominal date, not its last write.
 - Zero matches returns `{"artifacts": [], "zero_results": True}` — an explicit signal, not an
   ambiguous empty list. `skipped_malformed_count` accompanies it when it applies, alongside
   `index_corruption_detected`: a zero result reached because every candidate was unreadable is

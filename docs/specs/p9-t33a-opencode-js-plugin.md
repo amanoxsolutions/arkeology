@@ -13,15 +13,19 @@ sources:
   - resource: docs/planning-artifacts/requirements.md
     title: Arkeology — Requirements
     last_modified: 2026-09-24T00:00:00Z
+  - resource: .docs/reviews/architecture-review-2026-11-15-arkeology-phases-9-10-12.md
+    title: "Architecture review — Arkeology, plan phases 9, 10 and 12"
 generated:
   by: "axians-architect/unknown"
   at: 2026-06-09T00:00:00Z
 revised:
   by: "axians-architect/claude-opus-5-5"
-  at: 2026-11-09T16:49:20Z
+  at: 2026-11-15T20:19:59Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
+  - by: "axians-architect/claude-fable-5-2"
+    at: 2026-11-15T20:45:07Z
 ---
 
 # T33a — OpenCode JS Plugin
@@ -141,7 +145,7 @@ and returns without throwing — a hook error must never crash the OpenCode sess
 
 ### Contracts
 
-None.
+None — the plugin registers skill files with OpenCode; it touches no server interface.
 
 ### Testing Approach
 

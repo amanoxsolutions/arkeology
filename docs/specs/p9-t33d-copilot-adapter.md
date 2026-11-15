@@ -13,15 +13,21 @@ sources:
   - resource: docs/planning-artifacts/requirements.md
     title: Arkeology — Requirements
     last_modified: 2026-09-24T00:00:00Z
+  - resource: docs/learnings.md
+    title: Learnings
+  - resource: .docs/reviews/architecture-review-2026-11-15-arkeology-phases-9-10-12.md
+    title: "Architecture review — Arkeology, plan phases 9, 10 and 12"
 generated:
   by: "axians-architect/unknown"
   at: 2026-06-09T00:00:00Z
 revised:
   by: "axians-architect/claude-opus-5-5"
-  at: 2026-11-09T16:55:05Z
+  at: 2026-11-15T20:19:59Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
+  - by: "axians-architect/claude-fable-5-2"
+    at: 2026-11-15T20:45:07Z
 ---
 
 # T33d — Copilot Adapter
@@ -29,7 +35,7 @@ verified:
 ## TL;DR
 
 When `copilot` is detected on PATH by `install.sh`, run `gh skill install` for each
-directory under `skills/`, installing from the local clone at user scope for GitHub
+directory under `plugins/arkeology/skills/`, installing from the local clone at user scope for GitHub
 Copilot, with all four mandatory flags always passed; if any install call fails the script stops
 immediately and prints the error and the documentation link. A pre-commit `scripts/validate.py`
 script ensures that no SKILL.md with an unquoted `: ` in its `description` can reach the main
@@ -84,7 +90,7 @@ telling them what to install.
 ### R3 — Each skill is installed with `gh skill install` and all four flags, without prompts
 
 When `copilot` and `gh skill` are both available, the script iterates over each subdirectory of
-`skills/` and calls
+`plugins/arkeology/skills/` — the only directory the skills live in — and calls
 `gh skill install "$REPO_DIR" <skill-name> --from-local --agent github-copilot --scope user --force`.
 Every `gh skill install` call always passes all four flags:
 
@@ -95,13 +101,13 @@ Every `gh skill install` call always passes all four flags:
 | `--from-local` | Installs from the local clone already on disk, no per-skill GitHub API calls. |
 | `--force` | Overwrites on re-run without prompting. |
 
-An Arkeology Copilot operator runs `./install.sh` and both skills are installed via
+An Arkeology Copilot operator runs `./install.sh` and every skill is installed via
 `gh skill install` without any interactive prompts.
 
 **Example**
 
 - Given `copilot` is on PATH and `gh` with `gh skill` is available, when the operator runs
-  `./install.sh`, then each directory in `skills/` is processed by
+  `./install.sh`, then each directory in `plugins/arkeology/skills/` is processed by
   `gh skill install "$REPO_DIR" <skill-name> --from-local --agent github-copilot --scope user --force`,
   and the script prints a confirmation on success.
 - The operator is never prompted to select an agent or scope.
@@ -134,11 +140,24 @@ operator.
 
 ### R6 — `scripts/validate.py` rejects an unquoted `: ` in a SKILL.md `description`
 
-When `scripts/validate.py` is run, it checks every `skills/*/SKILL.md` frontmatter and reports an
+When `scripts/validate.py` is run, it checks the frontmatter of every `SKILL.md` under
+`plugins/arkeology/skills/` — the directory `install.sh` installs from (R3) — and reports an
 error for any `description` value that contains `: ` but is not wrapped in double quotes. When a
-`description` value containing `: ` is properly double-quoted, it passes the check. When
-`scripts/validate.py` finds no errors it exits 0; when it finds any error it exits 1 and prints
-actionable messages.
+`description` value containing `: ` is properly double-quoted, it passes the check. When it finds
+no `SKILL.md` at all — the directory is missing or holds no skill file — it exits 1 with a message
+naming the directory it searched. When it checked at least one file and found no errors it exits 0;
+when it finds any error it exits 1 and prints actionable messages.
+
+**Example**
+
+- Given the skills directory is moved or renamed, when the pre-commit hook runs
+  `scripts/validate.py`, then it exits 1 saying no `SKILL.md` was found under
+  `plugins/arkeology/skills/`, and the commit is blocked rather than passing a check of nothing.
+
+**Why:** an unquoted `: ` in any one skill's description makes `gh skill install` reject that skill,
+and since the install stops at the first failure (R4), every Copilot engineer's install fails. A
+check that scans a directory with no skill files finds no errors and passes every commit, so the
+gate would be in place and check nothing.
 
 ### R7 — A pre-commit hook runs `scripts/validate.py` on every commit
 
@@ -163,8 +182,8 @@ value is caught at commit time, not at install time.
   always passed — never omit any of them.
 - Fail hard on any `gh skill install` error — stop immediately, print error, print docs
   URL.
-- All `description` values in `skills/*/SKILL.md` that contain `: ` must be double-quoted;
-  `scripts/validate.py` enforces this at commit time.
+- All `description` values in `plugins/arkeology/skills/*/SKILL.md` that contain `: ` must be
+  double-quoted; `scripts/validate.py` enforces this at commit time.
 - `scripts/validate.py` checks SKILL.md files only (Arkeology has no agents directory).
 
 **Ask First:**
@@ -183,14 +202,14 @@ value is caught at commit time, not at install time.
 | File | Action | Notes |
 |------|--------|-------|
 | `install.sh` | Modify | Detection: `command -v copilot`; section: check `gh` + `gh skill` prerequisites; loop with all four mandatory flags; error path stops and prints docs URL |
-| `scripts/validate.py` | Create | Checks every `skills/*/SKILL.md` `description` value for unquoted `: `; exits 0 on pass, 1 on fail; actionable error messages naming the file and the problem |
+| `scripts/validate.py` | Create | Checks every `plugins/arkeology/skills/*/SKILL.md` `description` value for unquoted `: `; exits 0 on pass, 1 on fail; actionable error messages naming the file and the problem |
+| `scripts/validate.py` | Modify | `main()` returns 0 today when `plugins/arkeology/skills/` is missing and when it holds no `SKILL.md`; make both exit 1 with a message naming the directory (R6) |
 | `.pre-commit-config.yaml` | Modify | Add a `local` repo hook that runs `python3 scripts/validate.py` on every commit; stage-type `manual` or `commit` as appropriate |
-| `skills/setting-up-arkeology/SKILL.md` | Verify/fix | Confirm `description` value is double-quoted if it contains `: `; fix if not |
-| `skills/migrating-to-arkeology/SKILL.md` | Verify/fix | Same |
+| `plugins/arkeology/skills/*/SKILL.md` | Verify/fix | Confirm each `description` value is double-quoted if it contains `: `; fix if not |
 
 ### Contracts
 
-None.
+None — Copilot skill wiring and the SKILL.md validator only; no server interface.
 
 ### Testing Approach
 
@@ -198,7 +217,7 @@ Testing is manual smoke tests (no TDD for non-server files), plus the automated
 `scripts/validate.py` which is verifiable via direct invocation.
 
 1. **Successful loop:** Run `./install.sh` with `copilot` and `gh` on PATH; verify each
-   skill in `skills/` is installed at user scope for GitHub Copilot; verify Copilot
+   skill in `plugins/arkeology/skills/` is installed at user scope for GitHub Copilot; verify Copilot
    discovers the skills in a new VS Code session.
 2. **Failure path:** Temporarily corrupt a skill dir (empty `SKILL.md`); verify the script
    stops after the first failure, prints the error output, and prints the docs URL; verify
@@ -217,3 +236,6 @@ Testing is manual smoke tests (no TDD for non-server files), plus the automated
 9. **validate.py — no colon:** Run on a description with no `: `; confirm exit code 0.
 10. **Pre-commit hook fires:** Stage a SKILL.md change with an unquoted `: ` in description;
     run `git commit`; verify the commit is blocked.
+11. **validate.py — no skill file:** Run with `plugins/arkeology/skills/` absent, and again with
+    it present but holding no `SKILL.md`; confirm exit code 1 and a message naming the
+    directory both times.

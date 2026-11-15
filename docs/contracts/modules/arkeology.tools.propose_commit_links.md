@@ -2,7 +2,7 @@
 type: Contract
 id: arkeology.tools.propose_commit_links
 title: arkeology.tools.propose_commit_links
-description: The propose_commit_links MCP tool — read-only discovery of own-scope artifacts carrying no commit_refs, optionally bounded to those written since a session-start ULID, deciding eligibility from each artifact's durable S3 object annotations.
+description: The propose_commit_links MCP tool — read-only discovery of own-scope artifacts carrying no commit_refs, optionally bounded to those written at or after a given last_edited_ulid, deciding eligibility from each artifact's durable S3 object annotations.
 tags: []
 okf_version: "0.2"
 sources:
@@ -18,12 +18,17 @@ sources:
   - resource: docs/architecture-decisions/adr-2026-07-03-annotation-backed-link-storage.md
     title: Annotation-Backed Durable Storage for Mutable Link Fields (commit_refs + references)
     last_modified: 2026-09-29T00:00:00Z
+  - resource: docs/architecture-decisions/adr-2026-09-14-malformed-persisted-data-policy.md
+    title: How Arkeology Treats Malformed and Ambiguous Persisted Data
+    last_modified: 2026-09-29T00:00:00Z
+  - resource: .docs/reviews/architecture-review-2026-11-15-arkeology-phases-9-10-12.md
+    title: "Architecture review — Arkeology, plan phases 9, 10 and 12"
 generated:
   by: "axians-tech-writer/claude-opus-5"
   at: 2026-09-04T00:00:00Z
 revised:
-  by: "axians-architect/unknown"
-  at: 2026-09-06T00:00:00Z
+  by: "axians-architect/claude-opus-5-5"
+  at: 2026-11-15T19:18:17Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
@@ -65,7 +70,8 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
   condition instead of collapsing it into `internal_error`. It is the same code every other tool
   returns for this condition — see `s3-annotations.artifact` for the single-code rule and where the
   mapping lives.
-- `internal_error` — any otherwise unhandled exception.
+- `internal_error` — any otherwise unhandled exception, a throttled per-candidate read and a
+  not-found the client could not classify included.
 
 **Invariants**
 
@@ -82,6 +88,14 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
   to "not yet linked". Annotations are the sole source of truth, so a degraded candidate would be
   indistinguishable from a genuinely unlinked one and would be proposed for linking on the strength
   of a transient error.
+- **A candidate whose object is gone is dropped silently.** A read answering that the candidate's
+  S3 object no longer exists (`ObjectNotFoundError`) is not a failed read but a definitive answer:
+  the candidate is left out of `proposed`, the call still succeeds, and nothing counts or names the
+  drop. A deleted artifact cannot be linked to a commit, and a count would name no action the
+  caller of a read-only proposal could take — unlike `list_artifacts`, whose page a caller
+  paginates and which therefore counts the same case. Only `ObjectNotFoundError` is treated so; a
+  not-found the client could not classify fails the call (`s3-annotations.artifact` § Not-Found
+  Semantics).
 - `since_ulid` is optional. When absent, all unlinked own-scope artifacts are returned regardless of
   age — absence means "no lower bound", never "none".
 - `s3` is required, not optional. The server injects a real client into every tool call, so this

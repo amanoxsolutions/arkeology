@@ -19,6 +19,18 @@ sources:
   - resource: docs/planning-artifacts/requirements.md
     title: Arkeology — Requirements
     last_modified: 2026-09-24T00:00:00Z
+  - resource: docs/contracts/modules/arkeology.tools.link_metadata.md
+    title: arkeology.tools.link_metadata
+  - resource: docs/contracts/data/s3-annotations.artifact.md
+    title: s3-annotations.artifact
+  - resource: .docs/reviews/architecture-review-2026-11-15-arkeology-phases-9-10-12.md
+    title: "Architecture review — Arkeology, plan phases 9, 10 and 12"
+  - resource: docs/specs/p12-t57-guard-coverage.md
+    title: T57 — Guard Coverage in link_metadata.py and reconcile.py + Control-Character Validation Fix
+  - resource: docs/contracts/data/s3vectors.artifact.md
+    title: s3vectors.artifact
+  - resource: docs/contracts/data/s3.artifact.md
+    title: s3.artifact
 relationships:
   - to: p10-t38-link-commit
     type: supersedes
@@ -27,10 +39,12 @@ generated:
   at: 2026-07-03T00:00:00Z
 revised:
   by: "axians-architect/claude-opus-5-5"
-  at: 2026-11-09T18:33:42Z
+  at: 2026-11-15T20:28:28Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
+  - by: "axians-architect/claude-fable-5-2"
+    at: 2026-11-15T20:45:07Z
 ---
 
 # T49 — `link_metadata` Tool (generalizes and supersedes `link_commit`)
@@ -65,12 +79,16 @@ cursor + errors.
 
 When `link_metadata` is called, it accepts `artifact_ids: list[str]`, optional
 `commit_refs: list[str] | None`, and optional `references: list[str] | None`; at least one of the
-two lists must be non-empty or a `validation_error` is returned.
+two lists must be non-empty or a `validation_error` is returned. Each supplied element is validated
+as `p12-t57-guard-coverage` R7 states, so a `references` element must be a full key, scope
+included.
 
 **Example**
 
 - Given neither `commit_refs` nor `references` supplied (or both empty), then a `validation_error`
   is returned.
+- Given `references=["adr-use-postgres-abc12345"]`, which has no scope, then a `validation_error`
+  is returned and nothing is written.
 
 ### R2 — Foreign-scope artifacts are skipped and counted
 
@@ -98,60 +116,52 @@ and counts, not error.
 ### R4 — Fetch, read existing state, merge, dual-write
 
 When keys are found, the tool calls `get_vectors(keys)`, reads the existing `commit_refs` /
-`references` as the union of both durable stores (`annotations.read_current_link_fields(s3,
-vectors, artifact_id)` — never vector metadata alone), merges the supplied values into that union
-per field (`list(dict.fromkeys(existing + supplied))`), and dual-writes: first
+`references` from the object's annotation (R8), merges the supplied values into it per field
+(`list(dict.fromkeys(existing + supplied))`), and dual-writes: first
 `apply_link_annotations(s3, artifact_id, ...)` with the merged values for BOTH fields (a field with
-no supplied values re-writes its existing unioned value unchanged, never `[]`), then
-`put_vectors_batch` reusing each vector's `data["float32"]` with updated metadata. A field the
-caller did **not** supply in this call is therefore re-written with its existing (unioned) value,
-unchanged, rather than being wiped to `[]` because the read missed a value that lived only in the
-annotation.
+no supplied values re-writes its existing value unchanged, never `[]`), then `put_vectors_batch`
+reusing each vector's `data["float32"]` with updated metadata.
 
 ### R5 — Metadata budget guard before either store is written
 
-Amended 2026-08-17 (T57): before the `apply_link_annotations` call, the tool calls
-`check_metadata_budgets` on the merged values and, on failure, rejects with a structured error
-before writing either store. The call sits inside this tool's per-`artifact_id` CAS retry loop,
-before the annotation write — so an oversize merge is rejected before either store is touched, not
-just before `put_vectors_batch`. See `docs/specs/p12-t57-guard-coverage.md`.
+Before the `apply_link_annotations` call, the tool calls `check_metadata_budgets` on the merged
+values and, on failure, rejects with `validation_error` before writing either store. The call sits
+inside this tool's per-`artifact_id` CAS retry loop, before the annotation write — so an oversize
+merge is rejected before either store is touched, not just before `put_vectors_batch`.
 
-Source: adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal.md D1/D2
+Source: adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal.md D1/D2; p12-t57-guard-coverage
 
 ### R6 — What each store carries after the dual-write
 
-Amended 2026-08-17 (T58): the metadata passed to `put_vectors_batch` does not include a
-`references` key and caps `commit_refs` to its most-recently-appended 20 entries via
-`cap_commit_refs_for_vectors`; the metadata passed to `apply_link_annotations` is unaffected — the
-annotation copy stays the full, uncapped merged list regardless of length. `references` is no
-longer written to vector metadata by any path, so only the annotation carries it after this tool
-runs; the vector metadata this tool writes for a `references`-only call carries no `references` key
-at all. See `docs/specs/p12-t58-commit-refs-cap-references-removal.md`.
+The metadata passed to `put_vectors_batch` does not include a `references` key and caps
+`commit_refs` to its most-recently-appended 20 entries via `cap_commit_refs_for_vectors`; the
+metadata passed to `apply_link_annotations` is the full, uncapped merged list regardless of length.
+Only the annotation carries `references` after this tool runs; the vector metadata this tool writes
+for a `references`-only call carries no `references` key at all.
 
 **Example**
 
 - Given an own-scope artifact, when `link_metadata(artifact_ids=[id], commit_refs=["abc1234"])` is
   called, then the `commit_refs` annotation on its S3 object AND its vector metadata both become
   `["abc1234"]`, and `linked=1` (this holds for lists at or below 20 entries).
-- Given the same, when `link_metadata(artifact_ids=[id], references=["a-1"])` is called, then only
-  the `references` annotation carries `["a-1"]`; vector metadata carries no `references`.
+- Given the same, when
+  `link_metadata(artifact_ids=[id], references=["team-a/payments/adr-use-postgres-abc12345.md"])` is
+  called, then only the `references` annotation carries that full key; vector metadata carries no
+  `references`.
 - Given both `commit_refs` and `references` supplied in one call, then both fields are backfilled:
   the annotation carries both fields (uncapped); vector metadata carries only `commit_refs` (capped
   at 20 entries), never `references`.
 
-Source: AC-59, adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal.md D1/D2
+Source: AC-59, adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal.md D1/D2; p12-t58-commit-refs-cap-references-removal R1, R4
 
 ### R7 — Accretive, idempotent merge for both fields
 
 The merge appends, deduplicates and preserves order: `merge_link_field` combines the existing value
 with the values supplied to this call, deduplicating and preserving order. `link_metadata` is the
-post-hoc, accretive backfill primitive for *both* `commit_refs` and `references` — this merge
-mechanic is unaffected by the write path's ordinary overwriting write replacing `references`
-outright instead of merging it (since 2026-07-06, shipped in `7a697dd`; full semantics:
-`docs/specs/p12-t46-references-field.md`'s forward-pointer note). Because an ordinary overwriting
-write replaces `references` from the frontmatter, a `references` value backfilled here can later be
-superseded by a subsequent overwriting write whose supplied `references` does not also carry it —
-this is expected, not a defect in either tool.
+post-hoc, accretive backfill primitive for *both* `commit_refs` and `references`, while an ordinary
+overwriting write replaces `references` outright (`p12-t46-references-field` R9). A `references`
+value backfilled here can therefore later be superseded by a subsequent overwriting write whose
+supplied `references` does not also carry it — this is expected, not a defect in either tool.
 
 **Example**
 
@@ -163,26 +173,23 @@ Source: AC-59
 
 ### R8 — The existing-state read goes to the annotation alone
 
-Revision 2026-09-06: the existing state read before the merge comes from the S3 object annotation
-alone — the annotation is the **sole** source of truth. The read goes through
-`annotations.read_link_annotations`, which consults the annotation and nothing else. The helpers
-this spec names — `read_current_link_fields` and its `_read_vector_link_fields` half — no longer
-exist anywhere in the codebase. That read **raises** on failure rather than returning empty.
-Absence of an annotation still returns a true empty; a failed read never masquerades as one,
-because an empty value on a read-modify-write path would be written straight back over good link
-data. Only the *source* of the existing value changed: the merge, the fetch-merge-reput shape, the
-absence of any Bedrock call, the untouched `last_edited_ulid`, the own-scope-only rule, and the
-durable-annotation-first write ordering are all as this spec states.
+The existing state read before the merge comes from the S3 object annotation alone — the
+annotation is the **sole** source of truth, and the vector-metadata copy is never read back. The
+read goes through `annotations.read_link_annotations`, which consults the annotation and nothing
+else. That read **raises** on failure rather than returning empty. Absence of an annotation returns
+a true empty; a failed read never masquerades as one, because an empty value on a read-modify-write
+path would be written straight back over good link data.
 
 Source: adr-2026-07-03-annotation-backed-link-storage "Revision — 2026-09-05"
 
 ### R9 — Compare-and-swap guard, per `artifact_id`
 
-Since 2026-07-06 (shipped in `7a697dd`), this tool's fetch-merge-reput cycle is guarded by an
-optimistic-concurrency compare-and-swap (ETag `IfMatch` on the object, `ObjectIfMatch` on the
-annotation writes; ~3 bounded retry attempts → structured `conflict` error on exhaustion), each
-`artifact_id` in the loop retrying independently. See `docs/specs/p2-t7-write-artifact.md`'s
-equivalent forward-pointer note for the same mechanism.
+This tool's fetch-merge-reput cycle is guarded by an optimistic-concurrency compare-and-swap (the
+object's ETag, sent as `ObjectIfMatch` on the annotation writes), retried up to `CAS_MAX_ATTEMPTS`
+(3) and returning `conflict` on exhaustion (R13); each `artifact_id` in the loop retries
+independently. What the guard does not serialise — two
+annotation-only writers to the same field — is stated in `arkeology.tools.link_metadata` §
+link_metadata.
 
 Source: ADR-011 decision 6
 
@@ -196,12 +203,25 @@ The dual-write orders annotations first (durable), vectors second (recoverable-s
 
 Source: ADR-011
 
-### R11 — A failed vector write after a successful annotation write is logged for replay
+### R11 — A failed vector write after a successful annotation write is reported and logged for replay
 
 When the vector write fails after the annotation write has succeeded, the tool appends a
-failure-log entry recording the values it applied. That entry is what makes the artifact a
-`reconcile_index` replay candidate; annotation-first ordering alone never triggered the self-heal
-this spec assumes.
+failure-log entry recording the `commit_refs` and `references` it applied and the artifact's
+unchanged `last_edited_ulid`, and reports the artifact in a `vector_write_failed` list of ids,
+counted in neither `linked` (its vector copy is stale) nor `skipped` (its annotation was written).
+Whenever the response carries `vector_write_failed` it also carries `failure_logged`: `true` when
+every listed id's entry was appended, `false` when any append failed. One such failure never
+discards what the rest of the batch achieved. The entry is what makes the artifact a
+`reconcile_index` replay candidate; annotation-first ordering alone does not, because an artifact
+that still has vectors is invisible to the orphan scan.
+
+**Example**
+
+- Given twelve own-scope artifacts where the vector write of one fails, when `link_metadata` runs,
+  then the response reports `linked: 11` and `vector_write_failed: [<that id>]` with
+  `failure_logged: true`, and that artifact's annotation already carries the new values.
+
+Source: arkeology.tools.link_metadata
 
 ### R12 — No re-embed, no timestamp shift
 
@@ -217,24 +237,39 @@ Source: AC-59
 
 ## 4. Rules — Response and errors
 
-### R13 — Response shape and cursor
+### R13 — Response shape and cursor, and the call stopped by one artifact's failure
 
 When all artifacts are processed, the tool generates `next_since_ulid` once, after the loop (as
-`link_commit` did), and returns `{"linked", "skipped", "next_since_ulid"}`.
+`link_commit` did), and returns `{"linked", "skipped", "next_since_ulid"}`, plus R11's
+`vector_write_failed` and `failure_logged` when a vector write failed.
+
+One artifact's failure that is not a skip — R5's budget `validation_error`, R9's `conflict` or
+R15's `annotation_unavailable` — stops the call with that error. The error response names the
+failing artifact and lists every artifact the call did link, so the caller knows which identifiers
+to send again; its shape is `arkeology.tools.link_metadata` § link_metadata's.
 
 **Example**
 
 - Given a successful call, the response is `{"linked": int, "skipped": int, "next_since_ulid": str}`.
+- Given twelve own-scope artifacts where the fifth's merge breaches a metadata budget, when
+  `link_metadata` runs, then it returns `validation_error` naming the fifth artifact's identifier
+  and listing the identifiers it linked, the first four among them.
+
+Source: arkeology.tools.link_metadata
 
 ### R14 — Credential errors are structured
 
 When a `CredentialError` occurs during any AWS call, the tool returns
 `{"error": "credential_error", "message"}` — a structured error, not a raw exception.
 
-### R15 — Annotation-unavailable and access-denied errors
+### R15 — Annotation-unavailable and access-denied errors return `annotation_unavailable`
 
-When an annotation-unavailable / access-denied error occurs, the tool surfaces a structured error
-per T52 (durable side failed → do not treat as linked).
+When the annotation read or write raises `AnnotationUnavailableError` (annotations unavailable, or
+access denied), the tool returns `annotation_unavailable` — the one code every tool returns for that
+condition (`s3-annotations.artifact` § Compatibility Guarantees) — and never counts that artifact as
+linked: the durable write is this tool's contract.
+
+Source: FR-57; arkeology.tools.link_metadata
 
 ## 5. Rules — Registration
 
@@ -250,9 +285,8 @@ When the tool is registered, the `link_commit` registration is replaced with `li
   (AGENTS.md non-negotiable).
 - Scope gate uses `startswith(settings.write_prefix + "/")` — never bare `startswith`.
 - Dual-write ordering: annotations first (durable), vectors second (recoverable-state, ADR-011).
-- Reuse the shared `annotations.py` helpers (T47) — `read_current_link_fields` for the existing-state
-  read (union of both stores) and `apply_link_annotations` for the write; do not re-implement
-  either.
+- Reuse the shared `annotations.py` helpers (T47) — `read_link_annotations` for the existing-state
+  read (annotation only) and `apply_link_annotations` for the write; do not re-implement either.
 - `next_since_ulid` generated once after the loop (as `link_commit` did).
 
 **Ask First:**
@@ -263,9 +297,9 @@ When the tool is registered, the `link_commit` registration is replaced with `li
 - Do not mutate content or `last_edited_ulid`.
 - Do not include foreign-scope artifacts in `linked`.
 - Do not abort the whole batch when one artifact has no vectors — skip and continue.
-- Do not read the existing `commit_refs` / `references` state from vector metadata alone —
-  always via `read_current_link_fields`, or a field the caller did not supply in this
-  call can be wiped instead of preserved.
+- Do not read the existing `commit_refs` / `references` state from vector metadata, and do not
+  degrade a failed annotation read to `[]` — either would let a field the caller did not supply in
+  this call be wiped instead of preserved.
 
 ## 7. For the developer agent
 
@@ -283,7 +317,10 @@ When the tool is registered, the `link_commit` registration is replaced with `li
 
 ### Contracts
 
-None.
+- `docs/contracts/modules/arkeology.tools.link_metadata.md` § link_metadata — the parameters and element validation, the read-merge-dual-write cycle and its compare-and-swap residual, the response, `vector_write_failed` and `failure_logged`, and the error that stops the call (R1–R15).
+- `docs/contracts/data/s3-annotations.artifact.md` § read_link_annotations, § apply_link_annotations and § Storage Shape — the raise-never-degrade existing-state read, the `if_match` guard, the full uncapped annotation write, and the full-key form of a `references` element (R1, R4, R8, R9).
+- `docs/contracts/data/s3vectors.artifact.md` § cap_commit_refs_for_vectors and § Storage Shape — the capped `commit_refs` copy, no `references`, and the numbered keys an artifact's vectors are read by (R3, R6).
+- `docs/contracts/data/s3.artifact.md` § check_metadata_budgets — the budget guard run before either store is written (R5).
 
 ### Testing Approach
 
@@ -299,8 +336,8 @@ Seed data mirrors p10-t38: `artifact-own-A` (own, two section vectors, no link f
 
 Cases:
 - `commit_refs` backfill → annotation + vector metadata both `["abc1234"]`; `linked=1`.
-- `references` backfill → annotation only carries `["a-1"]`; vector metadata never carries
-  `references` (T58).
+- `references` backfill with a full key (`team-a/payments/adr-use-postgres-abc12345.md`) →
+  annotation only carries it; vector metadata never carries `references` (T58).
 - Both fields in one call → both backfilled (annotation carries both, uncapped; vector metadata
   carries only the capped `commit_refs`, per T58).
 - Append + dedup on `artifact-own-B`; duplicate value not appended twice (idempotent).
@@ -311,6 +348,16 @@ Cases:
 - Validation: neither field supplied → `validation_error`.
 - `CredentialError` from `list_vectors_by_metadata` / `get_vectors` / `put_object_annotation` /
   `put_vectors_batch` → structured error.
+- `AnnotationUnavailableError` from the annotation read or write → `annotation_unavailable`; that
+  artifact is not counted in `linked` (R15).
+- A per-artifact failure after other artifacts were linked (an injected `ArtifactConflictError` on
+  every attempt for the second of three ids) → `conflict` with `artifact_id` naming that id and
+  `linked_ids` holding every id the call linked (R13).
+- Annotation read fails with a transient error → no annotation write for that artifact; its
+  existing values are never merged into `[]` and written back (R8).
+- `put_vectors_batch` fails for one of several artifacts → that id in `vector_write_failed`, counted
+  in neither `linked` nor `skipped`, `failure_logged: true`, failure-log entry carrying the applied
+  values and `last_edited_ulid`; the other artifacts linked (R11).
 - `next_since_ulid` present; two successive calls → monotonically non-decreasing.
 
 **Integration:** backfill `commit_refs` + `references` via `link_metadata`; run `reconcile_index`
@@ -319,6 +366,5 @@ path end-to-end).
 
 ### Hand-offs
 
-- The AGENTS.md post-commit protocol snippet update from `link_commit` → `link_metadata` is owned
-  by T52.
-- The p10-t38 spec supersede-pointer is Architect B's edit, not this task's.
+- The AGENTS.md snippet's post-commit protocol, which calls `link_metadata`, is owned by
+  `p9-t31a-setting-up-arkeology-skill` R35.

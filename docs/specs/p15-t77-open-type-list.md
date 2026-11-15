@@ -4,7 +4,7 @@ id: p15-t77-open-type-list
 title: T77 — Open Type List
 description: Opens the artifact type list — any non-empty type is accepted, stored verbatim and matched exactly, the known types become a recommended list of OKF display names, and every synthesis comparison, the generated-id type slug, the reconcile orphan scan and Studio follow.
 tags: []
-status: draft
+status: stable
 okf_version: "0.2"
 sources:
   - resource: docs/architecture-decisions/adr-2026-09-25-okf-v02-adoption.md
@@ -26,7 +26,10 @@ generated:
   at: 2026-10-13T13:04:34Z
 revised:
   by: "axians-architect/claude-opus-5-5"
-  at: 2026-11-12T21:20:47Z
+  at: 2026-11-15T19:58:25Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-11-15T16:27:39Z
 ---
 
 # T77 — Open Type List
@@ -35,9 +38,10 @@ revised:
 
 Arkeology stops rejecting artifact types outside its sixteen-value list: any non-empty `type` is
 stored exactly as written and matched exactly, including case, so OKF documents typed
-`Attested Computation` or `Code Review` import unchanged (D37). The known types survive as a
-recommended list of OKF display names, and everything that compares against a type — the synthesis
-checks, the generated-id slug, the reconcile orphan scan, Studio — moves to those names.
+`Attested Computation` or `Code Review` import unchanged
+(brainstorming-2026-09-17-okf-v02-adoption D37). The known types survive as a recommended list of
+OKF display names, and everything that compares against a type — the synthesis checks, the
+generated-id slug, the reconcile orphan scan, Studio — moves to those names.
 
 ## 1. Problem Statement
 
@@ -46,9 +50,9 @@ Arkeology rejects any `type` outside `ARTIFACT_TYPES` at write, at every type fi
 reconcile orphan scan, so a producer document typed `Architecture Review` cannot be stored, and a
 stored one could never be re-indexed. A producer can write Title Case display types (`Code Review`,
 `ADR`) where Arkeology's corpus holds snake_case (`code_review`, `adr`); under exact matching the
-two would split every type filter. D37 resolves both: open the list, keep the stored value verbatim,
-publish the known types as recommended OKF display names, and let the store migration (T90) rewrite
-legacy values once.
+two would split every type filter. brainstorming-2026-09-17-okf-v02-adoption D37 resolves both: open
+the list, keep the stored value verbatim, publish the known types as recommended OKF display names,
+and let the store migration (T90) rewrite legacy values once.
 
 Four user stories frame this spec: an unknown type is stored and found verbatim (P1); existing
 generated ids are unchanged (P1); synthesis behaviour keys on `Synthesis` only (P1); agents and
@@ -62,7 +66,7 @@ Any `type` that is non-empty after trimming and free of control characters is ac
 stored in S3 object metadata and vector metadata exactly as supplied — no case folding, trimming
 or character replacement.
 
-Source: FR-09, D37
+Source: FR-09, brainstorming-2026-09-17-okf-v02-adoption D37
 
 ### R2 — An empty, whitespace-only or control-character `type` is rejected before any storage call
 
@@ -116,7 +120,7 @@ for one; T90 uses the same table to rewrite stored values:
 Case words, upper case for abbreviations, the way producers write display types — so a migrated
 legacy artifact and a newly ingested producer document of the same kind land on one value.
 
-Source: D37
+Source: brainstorming-2026-09-17-okf-v02-adoption D37
 
 ### R5 — The schema resources describe `type` as free-form and publish the recommended list
 
@@ -128,18 +132,33 @@ schema is T89's.
 
 Source: FR-18
 
-### R6 — Studio keys type styles and filter options on the display names and shows any type verbatim
+### R6 — Studio keys type styles and the type dropdown on the display names, shows any type verbatim, and filters on any other type typed into an "Other type…" box
 
-Studio keys its type styles and type-filter options on the recommended display names, shows any
-type verbatim as its badge label, and renders a type outside the list with the default style.
-Filter options are the recommended list only.
+Studio keys its type styles and the type dropdown's options on the recommended display names, shows
+any type verbatim as its badge label, and renders a type outside the list with the default style.
+The dropdown ends with an "Other type…" entry. Choosing it shows a text field. When the reader
+enters a value (Enter), Studio filters the listing, and any search, by that value sent unchanged
+as the `type` argument: no trimming, no case folding. An empty field means no type filter.
+Choosing another dropdown entry hides the field and drops its filter.
 
 **Example**
 
 - Given Studio showing an artifact of a type not on the list, then its badge shows the type
   verbatim in the default style.
+- Given the reader chooses "Other type…" and enters `Attested Computation`, then Studio lists only
+  artifacts whose type is exactly `Attested Computation`.
+- Given the reader enters `attested computation`, then the list is empty and shows no error.
+- Given the reader clears the field, or chooses another dropdown entry, then the "Other type…"
+  filter no longer applies.
 
-Source: FR-48
+**Why:** the dropdown is a fixed list in the HTML and no server call lists the types in use, so
+without the box a type outside the recommended list could never be filtered. The box reaches any
+type through the `type` argument every caller already has, and the server matches it exactly as it
+does for every other caller (R3). Exact spelling is the cost of exact matching: the badge shows the
+stored spelling, which the reader can copy. B-16 looks at a more forgiving match.
+
+Source: FR-48; brainstorming-2026-09-17-okf-v02-adoption D37; the "Other type…" box (Operator,
+2026-11-15)
 
 ## 5. Rules — Generated ids
 
@@ -158,7 +177,7 @@ so existing ids are unchanged. Supplied ids (T87) are out of scope.
 - Given type `Attested Computation`, when an id is generated, then it begins
   `attested-computation-`.
 
-Source: D37
+Source: brainstorming-2026-09-17-okf-v02-adoption D37
 
 ## 6. Rules — Synthesis selection and the orphan scan
 
@@ -175,13 +194,14 @@ stored `type` is matched exactly against `Synthesis` and nothing else.
   synthesis.
 
 **Why (before the store migration has run):** the ADR rewrites legacy values once in the store
-migration and has code follow (§6); it ships no compatibility aliases (§9, D42); and a deployment
-holding artifacts must migrate before or with the upgrade (Consequences). Matching `synthesis`
-too would be exactly the alias and dual path those rule out. Every miss on an unmigrated store is
-non-destructive: freshness audits none and deletes no malformed synthesis, purge cascades none,
-and the delete/archive warning — a convenience — omits them.
+migration and has code follow (§6); it ships no compatibility aliases (§9,
+brainstorming-2026-09-17-okf-v02-adoption D42); and a deployment holding artifacts must migrate
+before or with the upgrade (Consequences). Matching `synthesis` too would be exactly the alias and
+dual path those rule out. Every miss on an unmigrated store is non-destructive: freshness audits
+none and deletes no malformed synthesis, purge cascades none, and the delete/archive warning — a
+convenience — omits them.
 
-Source: D37
+Source: brainstorming-2026-09-17-okf-v02-adoption D37
 
 ### R9 — The reconcile orphan scan treats any object with a non-empty `type` as an artifact
 
@@ -189,11 +209,12 @@ When the reconcile orphan scan classifies an own-scope object, any object whose 
 metadata carries a non-empty `type` is treated as an artifact, and one whose `type` is missing or
 empty is skipped and reported.
 
-**Why:** D36 — the bucket is dedicated, so Arkeology's own metadata identifies an artifact;
-`artifact_id` is a vector-metadata key, absent from object metadata, so `type` alone is the test.
-Under the open list a type-membership test would leave any newly typed orphan unindexable forever.
+**Why:** brainstorming-2026-09-17-okf-v02-adoption D36 — the bucket is dedicated, so Arkeology's own
+metadata identifies an artifact; `artifact_id` is a vector-metadata key, absent from object
+metadata, so `type` alone is the test. Under the open list a type-membership test would leave any
+newly typed orphan unindexable forever.
 
-Source: D36
+Source: brainstorming-2026-09-17-okf-v02-adoption D36
 
 ## 7. Boundaries
 
@@ -204,13 +225,16 @@ constant; keep the recommended list the single source the schema resource reads 
 — T90 depends on it.
 
 **Never:**
-- Normalise, case-fold or trim a stored or filtered `type`, or match case-insensitively (D37).
+- Normalise, case-fold or trim a stored or filtered `type`, or match case-insensitively
+  (brainstorming-2026-09-17-okf-v02-adoption D37).
 - Treat a legacy value as an alias of its display name anywhere (`$in` of both, a lookup table at
-  read time) — D42 and the no-fallback rule.
-- Reject a type for not being recommended; the typo guard is an accepted loss (D37).
+  read time) — brainstorming-2026-09-17-okf-v02-adoption D42 and the no-fallback rule.
+- Reject a type for not being recommended; the typo guard is an accepted loss
+  (brainstorming-2026-09-17-okf-v02-adoption D37).
 - Rewrite stored artifacts (T90), rewrite the whole schema resource (T89), or edit README,
   SERVER-REFERENCE, agent snippets or AGENTS.md (T91).
-- Add Studio filter options for types outside the recommended list.
+- Fill Studio's type dropdown from the server or from the loaded listing; it offers the
+  recommended list and the "Other type…" entry only (R6).
 
 AC-80 does not apply: T77 removes no parameter, field or tool name. A legacy type value is still
 accepted — as an ordinary free-form type, not as an alias.
@@ -226,13 +250,12 @@ accepted — as an ordinary free-form type, not as an alias.
 | `src/arkeology/tools/_search_helper.py` | Modify | `build_user_filters`: drop the type check, keep the tier check. `find_referrers`: both synthesis comparisons use the constant. T76 edits the adjacent `status` clause; T84 later rewrites this function and must keep the constant |
 | `src/arkeology/tools/freshness.py` | Modify | Synthesis filter in `_check_synthesis_freshness_inner` uses the constant |
 | `src/arkeology/tools/purge.py` | Modify | Cascade filter uses the constant (not named in plan.md's entry; same comparison) |
-| `src/arkeology/tools/reconcile.py` | Modify | Orphan-scan discriminator in `_process_orphan`; reword the `_PROBE_KEY_MARKER` comment (a slug or a D33 id never starts with `_`, so the invariant holds) and docstrings |
+| `src/arkeology/tools/reconcile.py` | Modify | Orphan-scan discriminator in `_process_orphan`; reword the `_PROBE_KEY_MARKER` comment (a slug or a brainstorming-2026-09-17-okf-v02-adoption D33 id never starts with `_`, so the invariant holds) and docstrings |
 | `src/arkeology/resources.py` | Modify | Schema type row and heading, type catalogue keyed on display names, tiers "Use for" lists, query-strategy examples (`type="ADR"`, `type="Synthesis"`) |
 | `src/arkeology/tools/write.py`, `src/arkeology/references.py` | Modify | Docstrings only |
-| `src/arkeology/static/arkeology-studio.html` | Modify | Re-key `TYPE_VARS`; delete `TYPE_LABELS` (`typeLabel` returns the type); `sel-type` options become display names. Tokens unchanged |
+| `src/arkeology/static/arkeology-studio.html` | Modify | Re-key `TYPE_VARS`; delete `TYPE_LABELS` (`typeLabel` returns the type); `sel-type` options become display names, plus an "Other type…" entry that shows a text field whose value is sent as `type`. Tokens unchanged |
 | `plugins/arkeology/skills/migrating-to-arkeology/SKILL.md` | Modify | Offline id snippet: `type_slug = slugify(type_, "artifact")` and its prose step; classification tables and examples use display names |
 | `plugins/arkeology/skills/migrating-to-arkeology/schema.yaml` | Modify | `type` comment: recommended display names, any value accepted |
-| `plugins/arkeology/skills/backfilling-references/SKILL.md` | Modify | Same one-line snippet change |
 
 T76 and T78 run in parallel and touch the same filter dicts, `write.py` and the write contract; the
 later-landing task applies its edit to the other's result.
@@ -245,8 +268,8 @@ later-landing task applies its edit to the other's result.
   second create is rejected, never overwritten. `## Storage Shape` `type` row and
   `## Compatibility Guarantees`: free-form, verbatim; the key scheme's outputs are unchanged.
 - `data/s3vectors.artifact.md` — `## Storage Shape` `type` row: verbatim, exact `$eq`.
-- `modules/arkeology.tools.write.md` — `### write_artifact` Errors and Preconditions: `type` is
-  rejected only when empty, whitespace-only or carrying a control character.
+- `modules/arkeology.tools.write.md` — `### create_artifact` and `### update_artifact` Errors and
+  Preconditions: `type` is rejected only when empty, whitespace-only or carrying a control character.
 - `modules/arkeology.tools.list.md`, `.search.md`, `.synthesise.md` — `type` filter is exact,
   case-sensitive and never a `validation_error`.
 - `modules/arkeology.resources.md` — `### register_resources`: types content derives from
@@ -291,8 +314,10 @@ file in the mutation `only_mutate` scope is touched, so no mutation run is requi
 8. `tests/static/studio-type-style.test.js` (new, sliced from the shipped HTML like the existing
    static test) and one drift test in `tests/unit/test_tools_studio.py` → `arkeology-studio.html`.
    Each display name maps to its own token; `Attested Computation`, `code_review` and `constructor`
-   get the `--t3` default; labels are verbatim; `TYPE_VARS` keys and `sel-type` options equal
-   `RECOMMENDED_ARTIFACT_TYPES` (FR-48, AC-54).
+   get the `--t3` default; labels are verbatim; `TYPE_VARS` keys and the `sel-type` options other
+   than "Other type…" equal `RECOMMENDED_ARTIFACT_TYPES`. Choosing "Other type…" shows the field,
+   an entered value reaches `filterArgs` unchanged as `type` (`Attested Computation`, then
+   `attested computation`), and an empty field sends none (R6; FR-48, AC-54).
 
 **Integration tests (real AWS), updated in this task:**
 - `tests/integration/test_tools_list.py` — new AC-77 test: real S3 Vectors `$eq` is case-sensitive

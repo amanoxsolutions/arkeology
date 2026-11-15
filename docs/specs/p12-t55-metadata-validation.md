@@ -2,7 +2,7 @@
 type: Spec
 id: p12-t55-metadata-validation
 title: T55 — Write-Path Metadata Size + Charset Validation
-description: Validate metadata size budgets (S3 user-metadata aggregate, vector filterable, vector total) and neutralise control characters BEFORE any storage write, so an oversize or malformed write fails fast with a structured error and never produces a partial write that reconcile replays. Bound title length in the model and preserve non-ASCII titles losslessly so read_artifact and search_artifacts always agree.
+description: Validate metadata size budgets (S3 user-metadata aggregate, vector filterable, vector total) and neutralise control characters BEFORE any storage write, so an oversize or malformed write fails fast with a structured error before anything is durable rather than producing a partial write that reconcile replays. Bound title length in the model and preserve non-ASCII titles losslessly so read_artifact and search_artifacts always agree.
 tags: []
 status: stable
 okf_version: "0.2"
@@ -21,56 +21,50 @@ sources:
   - resource: docs/specs/p12-t47-annotation-dual-write.md
     title: T47 — Annotation Dual-Write in the Write Path + Tier-3 Overwrite Preservation
     last_modified: 2026-09-06T00:00:00Z
+  - resource: docs/architecture-decisions/adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal.md
+    title: Vector Metadata Budget Hardening, Guard Coverage, and Migration Self-Heal
+  - resource: docs/specs/p12-t58-commit-refs-cap-references-removal.md
+    title: T58 — commit_refs Vector-Metadata Cap (20) + references Vector-Metadata Removal + propose_commit_links Multi-Section Fix
+  - resource: .docs/reviews/architecture-review-2026-11-15-arkeology-phases-9-10-12.md
+    title: "Architecture review — Arkeology, plan phases 9, 10 and 12"
+  - resource: docs/architecture-decisions/adr-2026-07-03-artifact-cross-referencing.md
+    title: Artifact Cross-Referencing — First-Class references Field, Migration Rewrite, and referenced_by Warning
+  - resource: docs/contracts/data/s3-annotations.artifact.md
+    title: s3-annotations.artifact
+  - resource: docs/contracts/data/s3.artifact.md
+    title: s3.artifact
+  - resource: docs/contracts/data/s3vectors.artifact.md
+    title: s3vectors.artifact
+  - resource: docs/contracts/modules/arkeology.tools.write.md
+    title: arkeology.tools.write
+  - resource: docs/contracts/modules/arkeology.tools.write_artifacts.md
+    title: arkeology.tools.write_artifacts
+  - resource: docs/contracts/modules/arkeology.tools.read.md
+    title: arkeology.tools.read
 generated:
   by: "axians-architect/claude-opus-4.8"
   at: 2026-07-03T00:00:00Z
 revised:
   by: "axians-architect/claude-opus-5-5"
-  at: 2026-11-09T19:54:36Z
+  at: 2026-11-15T20:35:38Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
+  - by: "axians-architect/claude-fable-5-2"
+    at: 2026-11-15T20:45:07Z
 ---
 
 # T55 — Write-Path Metadata Size + Charset Validation
-
-> **Amended 2026-08-17 (architect, `adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal.md`
-> D1/D2, implemented in T57/T58).** Two amendments, neither of which changes `check_metadata_budgets`
-> itself or its byte-budget constants:
->
-> 1. **Guard coverage closed (T57).** This spec's check was originally called from only two places
->    (`write.py`'s fresh-create and overwrite-CAS paths). A real 57-file migration incident surfaced
->    that `link_metadata.py` and `reconcile.py` independently assemble and write vector metadata with
->    no call to this check at all — exactly the "self-perpetuating
->    failure-log replay" this spec's own TL;DR states must never happen. T57 adds the missing calls at
->    both sites, immediately before their respective vector writes. See `docs/specs/p12-t57-guard-coverage.md`.
-> 2. **Real-AWS calibration closed the deferred Open Question below, and led to a structural fix
->    rather than a threshold change (T58).** The "Budget nominal units (KiB vs decimal)" Open Question
->    at the end of this spec deferred to integration testing whether AWS's real accounting matches the
->    local `json.dumps`-based approximation. It does not: the 2026-08-13 calibration
->    (`tests/integration/test_calibration_vector_metadata_budget.py`) found AWS rejects a `commit_refs`
->    payload the local approximation measures at 2,037 bytes — still under the local 2,048-byte
->    `VECTOR_FILTERABLE_METADATA_MAX_BYTES` threshold — reproducing the original incident exactly. The
->    operator's chosen fix (T58) is structural, not a threshold tightening: `references` is removed
->    from vector metadata entirely, and `commit_refs`'s vector-metadata copy is capped to the
->    most-recently-appended 20 entries (annotations stay complete/uncapped for both fields). This
->    spec's byte-budget constants (`S3_USER_METADATA_MAX_BYTES`, `VECTOR_FILTERABLE_METADATA_MAX_BYTES`,
->    `VECTOR_TOTAL_METADATA_MAX_BYTES`) are **unchanged** by T58 — see ADR Consequences, "The local
->    `VECTOR_FILTERABLE_METADATA_MAX_BYTES = 2048` threshold itself is not changed by this decision."
->    Because this spec's own check is representation-driven, not field-list-driven (see the existing
->    "Always" boundary below), it required **zero code changes** for T58 to take effect correctly —
->    it automatically measures whatever ends up in the assembled `vector_metadata` dict, so once T58
->    stops writing `references` and caps `commit_refs`, the check simply measures a smaller payload.
->    The "Byte Budgets and Classification" table below still lists `references` among the filterable
->    vector-metadata keys; as of T58 it is never present in that dict at all (not merely small), so it
->    no longer counts against either budget in practice — see `docs/specs/p12-t58-commit-refs-cap-references-removal.md`.
 
 ## TL;DR
 
 Before any S3 or vector write, the write path validates the artifact's
 metadata against three byte budgets (S3 user-metadata aggregate; vector filterable; vector total)
-and rejects control characters, failing fast with a structured `validation_error` so no partial
-write and no self-perpetuating failure-log replay is ever created. It also bounds `title` length in
+and rejects control characters and any `references` element that is not a full artifact key,
+failing fast with a structured `validation_error` before anything is written, so an oversize or
+malformed value leaves no partial write and no self-perpetuating failure-log replay — save a breach
+on a compare-and-swap retry after an earlier attempt's object write landed, which the write path
+reports as a partial write (R2). It also bounds `title` length in
 the `Artifact` model and stores non-ASCII titles losslessly so `read_artifact` and `search_artifacts`
 report the identical title. Serves every agent that writes artifacts; nothing durable can be trusted
 until oversize/malformed writes fail cleanly. (FR-59, AC-67.)
@@ -85,9 +79,11 @@ deterministic partial write that `reconcile_index` and the failure log replay in
 forever; (2) a control character (e.g. a `\n` in the title) reaches urllib3 as a raw `ValueError`
 that escapes the tool; (3) a non-Latin title is NFKD-stripped to `""` in S3 metadata
 (by `s3.py`'s metadata sanitiser) while vector metadata keeps the real UTF-8 title, so `read_artifact` and
-`search_artifacts` return different titles for the same artifact. This lands before/with T46 (adds
-`references` to the filterable vector payload) and T47 (moves `commit_refs`/`references` off S3
-user-metadata to annotations) because those tasks enlarge exactly the payload this guard measures.
+`search_artifacts` return different titles for the same artifact. This lands before/with T46 and
+T47 (which move `commit_refs`/`references` off S3 user-metadata to annotations, leaving a capped
+`commit_refs` copy in vector metadata) because those tasks change exactly the payload this guard
+measures. The same check also runs in `link_metadata` and `reconcile_index` before their vector
+writes (`p12-t57-guard-coverage`).
 All five user stories of the earlier format — oversize metadata rejected before any write, the
 budget re-check after the T47 overwrite read-forward merge, control characters neutralised, title
 length bounded, and non-ASCII title consistency — are P1.
@@ -109,7 +105,7 @@ standard `_inner` try/except) and issues no storage write and no failure-log app
   `write_artifact` is called, then it returns a structured `validation_error` naming the offending
   budget AND performs no `put_object`, no `put_vectors_batch`, and appends no failure-log entry.
 - Given an artifact whose filterable vector metadata exceeds the 2 KB filterable budget (e.g. many
-  long `references`/`commit_refs`/`tags`), when written, then it is rejected before any write with a
+  long `tags`), when written, then it is rejected before any write with a
   `validation_error` — no partial write, no reconcile-replay loop is created.
 - Given an artifact whose total vector metadata exceeds the 40 KB total budget, when written, then it
   is rejected before any write.
@@ -120,39 +116,33 @@ Source: AC-67 — the S3 user-metadata aggregate part
 
 ### R2 — The budget check runs a second time after the T47 overwrite read-forward merge
 
-T47 (`write_artifact`) read-forwards a tier-3 overwrite's existing `commit_refs` / `references`
-(union of both durable stores) and merges them into `vector_metadata` **after** the pre-write budget
-check has already run against the values supplied to the current call. That merge can enlarge
-`vector_metadata` beyond what the pre-write check measured. When a tier-3 overwriting write's T47
-read-forward merges the union-of-both-stores `commit_refs` (and, historically, `references`) into
-`vector_metadata`, enlarging it beyond what was measured, `write_artifact` calls
-`check_metadata_budgets` a **second time** against the enlarged `vector_metadata` — **after the merge
-and before** any `put_object` / `put_vectors_batch` — and rejects on breach with the same
-`validation_error` behaviour as the pre-write check: no write, no failure-log entry. A merge that
-stays within all three budgets passes the second check silently and the write proceeds normally.
-`references` no longer read-forwards or merges as of the 2026-07-06 replace-semantics decision, so
-only `commit_refs` can enlarge `vector_metadata` beyond the initial measurement; the re-check still
-runs against the full dict for both fields.
+T47 (`write_artifact`) reads an overwriting write's existing `commit_refs` forward from the
+object's annotation and merges it into `vector_metadata` **after** the pre-write budget check has
+already run against the values supplied to the current call; `references` is replaced, not read
+forward, so `commit_refs` is the only field the merge can enlarge. When that merge enlarges
+`vector_metadata` beyond what was measured, `write_artifact` calls `check_metadata_budgets` a
+**second time** against the enlarged `vector_metadata` — **after the merge and before** that
+compare-and-swap attempt's `put_object` / `put_vectors_batch`. A breach there has one of the two
+outcomes `arkeology.tools.write` § write_artifact gives it, keyed on durability: while no attempt's
+`put_object` has landed, the same `validation_error` as the pre-write check, with no write and no
+failure-log entry; on a retry after an earlier attempt's `put_object` landed, `partial_write` with a
+failure-log entry. A merge that stays within all three budgets passes the second check silently and
+the write proceeds normally. The re-check runs against the full assembled dict, not only the field
+that changed.
 
-**Example**
+**Examples**
 
-- Given a tier-3 overwrite whose supplied `commit_refs`/`references` alone pass the pre-write budget
-  check, but whose merge with the read-forwarded union pushes the vector filterable or total budget
-  over its limit, when `write_artifact` runs, then `check_metadata_budgets` is called a second time —
-  after the merge, before any `put_object` / `put_vectors_batch` — and the write is rejected with a
-  `validation_error`, with no write and no failure-log entry, identical to a pre-write rejection.
+- Given an overwrite whose supplied `commit_refs` alone pass the pre-write budget check, but whose
+  merge with the read-forwarded `commit_refs` pushes the vector filterable or total budget over its
+  limit on the first attempt, when `write_artifact` runs, then `check_metadata_budgets` is called a
+  second time — after the merge, before any `put_object` / `put_vectors_batch` — and the write is
+  rejected with a `validation_error`, with no write and no failure-log entry, identical to a
+  pre-write rejection.
+- Given an overwrite whose first attempt's `put_object` landed and whose annotation write then
+  conflicted, when the retry's re-merged check breaches a budget, then the write returns
+  `partial_write` with a failure-log entry, not `validation_error`.
 
-> **Note (2026-07-06, shipped in `7a697dd`).** `references` now **replaces** rather than merges on
-> an overwriting write (see `docs/specs/p12-t46-references-field.md`'s forward-pointer note); only
-> `commit_refs` still read-forwards and unions. This narrows, but does not remove, the reason for
-> the second check above: `references`'s contribution to `vector_metadata` after the write-path's
-> "merge" step is now exactly the value already measured by Story 1's check (a replace cannot grow
-> it further), so `commit_refs`'s union-growth is the only remaining way the enlarged
-> `vector_metadata` can newly breach a budget between the two checks. The second check must still
-> run — re-running it against the full `vector_metadata` (both fields) after the write path computes
-> the final value for each is simpler and no less correct than special-casing which field changed.
-
-Source: (tech-writer, 2026-07-04); the `references` part: the 2026-07-06 replace-semantics decision (`7a697dd`)
+Source: (tech-writer, 2026-07-04); the `references` part: ADR-011 decision 4
 
 ## 3. Rules — Byte Budgets and Classification
 
@@ -167,25 +157,23 @@ exceeds the budget's constant.
 | `VECTOR_FILTERABLE_METADATA_MAX_BYTES` | 2048 | only the vector-metadata keys NOT listed in `NON_FILTERABLE_METADATA_KEYS`: the UTF-8 byte length of their JSON serialization |
 | `VECTOR_TOTAL_METADATA_MAX_BYTES` | 40960 | the full vector-metadata dict (filterable + non-filterable): the UTF-8 byte length of its JSON serialization |
 
-**Budget nominal units (KiB vs decimal)** (an Open Question in the original, deferred to integration — closed by the Amended 2026-08-17 note above). The nominal values above use KiB; if integration testing
-shows AWS rejects earlier, tighten the single-source constants (deferred to integration). The
-constants are the single tuning point if integration testing shows AWS's internal accounting differs
-from the JSON/byte approximation.
+The nominal values above use KiB. The local JSON/byte measure under-counts AWS's real accounting
+for some payload shapes — AWS rejected a `commit_refs` payload this measure put at 2,037 bytes — and
+the constants are not tightened to compensate: the vector payload is kept well inside the limit
+structurally instead, `references` never being in vector metadata and the `commit_refs` copy being
+capped at 20 entries (`p12-t58-commit-refs-cap-references-removal` R1, R4). These constants are the
+backstop that rejects whatever still overflows.
 
-Source: S3 user-defined object metadata 2 KB aggregate cap: ADR-011 (verified 2026-07-02), AWS S3 user-guide; S3 Vectors filterable ≤ 2 KB and total ≤ 40 KB per vector: https://docs.aws.amazon.com/AmazonS3/latest/userguide/s3-vectors-limitations.html (retrieved 2026-07-03)
+Source: S3 user-defined object metadata 2 KB aggregate cap: ADR-011 (verified 2026-07-02), AWS S3 user-guide; S3 Vectors filterable ≤ 2 KB and total ≤ 40 KB per vector: https://docs.aws.amazon.com/AmazonS3/latest/userguide/s3-vectors-limitations.html (retrieved 2026-07-03); the under-count and the structural answer: adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal D2
 
 ### R4 — Filterable and non-filterable vector-metadata keys
 
 `NON_FILTERABLE_METADATA_KEYS = ("description", "source_artifacts", "title", "author_role")` —
 matches the index declaration. All other vector-metadata keys (`artifact_id`, `scope`, `type`,
-`team`, `project`, `tier`, `date`, `status`, `visibility`, `last_edited_ulid`, `tags`, `references`,
-`commit_refs`) are filterable and count against the 2 KB filterable budget — so `references`/
-`commit_refs` are the fields that most threaten it, which is why T55 must precede T46/T47. `title`
-and `author_role` are listed only as non-filterable.
-
-> Verified 2026-08-12 (tech-writer) against the shipped `src/arkeology/artifact.py`
-> (`NON_FILTERABLE_METADATA_KEYS`) and the `vector_metadata` dict assembled in `_write_artifact_inner` in
-> `src/arkeology/tools/write.py`: the filterable enumeration above matches the shipped keys exactly.
+`team`, `project`, `tier`, `date`, `status`, `visibility`, `last_edited_ulid`, `tags`,
+`commit_refs`) are filterable and count against the 2 KB filterable budget — so the list fields
+`tags` and `commit_refs` are the ones that most threaten it. `references` is not a vector-metadata
+key at all. `title` and `author_role` are listed only as non-filterable.
 
 Source: the `title`/`author_role` part: correction (tech-writer, 2026-08-12)
 
@@ -215,6 +203,32 @@ requirement that the title round-trip identically (a stripped title is a new div
 consistent with fail-fast and gives the caller a clear, actionable signal.
 
 Source: AC-67 — the structured `validation_error` part
+
+### R10 — A `references` element that is not a full key is rejected
+
+When the `Artifact` model is constructed, every element of `references` must contain the scope
+separator `/`, as every full artifact key does (`s3-annotations.artifact` § Storage Shape states the
+form). An element without one is rejected with a `ValueError` naming the field and the element, and
+the write returns a structured `validation_error` with nothing written — no `put_object`, no
+annotation write, no vector write, no failure-log entry. The check is of form only: it does not look
+the key up, so a well-formed key naming no artifact is accepted.
+
+**Example**
+
+- Given `write_artifact(..., references=["adr-use-postgres-abc12345"])`, when the write runs, then
+  it returns `validation_error` naming `references` and that element, and nothing is written.
+- Given `write_artifact(..., references=["team-a/payments/adr-use-postgres-abc12345.md"])`, when the
+  write runs, then it proceeds as any other write.
+- Given a `write_artifacts` or `migrate_artifacts` descriptor carrying the bare element, then that
+  descriptor's own result carries the `validation_error` and every other descriptor is written.
+
+**Why:** a stored reference is useful only when it equals another artifact's key exactly. Without
+the check, a bare identifier is stored silently as a link that matches nothing — a link built from
+it leads to "not found", and a reader of the artifact in another scope has it dropped as
+unresolvable — and the write gives no sign. The scope separator is the cheapest check that catches
+it: it needs no lookup.
+
+Source: adr-2026-07-03-artifact-cross-referencing D2
 
 ## 5. Rules — Non-ASCII title consistency
 
@@ -266,20 +280,22 @@ Source: ADR-005
 
 **Always:**
 - The size check runs **before** the collision `head_object`, the `put_object`, the vector write, AND
-  any failure-log append — a rejected write touches neither S3, vectors, nor the failure log.
-- The check runs **twice** on a tier-3 overwrite: once against the values supplied to the current
+  any failure-log append — a write rejected while nothing is durable touches neither S3, vectors,
+  nor the failure log. The one breach that follows a landed `put_object` — the re-check on a
+  compare-and-swap retry — returns the `partial_write` of `arkeology.tools.write` § write_artifact
+  (R2).
+- The check runs **twice** on an overwriting write: once against the values supplied to the current
   call (R1, before `head_object`), and again against the enlarged `vector_metadata` after the
-  T47 read-forward union-merge (R2, before `put_object`/`put_vectors_batch`) — because the merge
-  can independently push the vector budgets over their limit even when the supplied values alone did
-  not.
+  T47 `commit_refs` read-forward merge (R2, before that attempt's `put_object`/`put_vectors_batch`)
+  — because the merge can independently push the vector budgets over their limit even when the
+  supplied values alone did not.
 - The check is **representation-driven**, not field-list-driven: it measures the actual assembled
-  s3_metadata and vector_metadata dicts. This makes it automatically correct across T46/T47 landing in
-  any order — once T47 removes `commit_refs`/`references` from s3_metadata (ADR-011), they simply stop
-  counting against the S3 budget; because they remain filterable list fields in vector metadata (T46),
-  they keep counting against the 2 KB filterable budget. The S3 budget therefore *excludes*
-  `commit_refs`/`references` post-T47; the vector filterable budget *includes* them.
+  s3_metadata and vector_metadata dicts, so it counts whatever each store holds. `commit_refs` and
+  `references` are in s3_metadata nowhere (ADR-011) and count against no S3 budget; the capped
+  `commit_refs` copy counts against the 2 KB filterable budget; `references`, in vector metadata
+  nowhere, counts against neither vector budget.
 - Budget constants and `NON_FILTERABLE_METADATA_KEYS` live in one place (single source of truth,
-  mirroring `ARTIFACT_TYPES`/`REFERENCE_FIELDS`); `NON_FILTERABLE_METADATA_KEYS` MUST equal the
+  mirroring `ARTIFACT_TYPES`); `NON_FILTERABLE_METADATA_KEYS` MUST equal the
   externally-created index's declared non-filterable slots (per the requirements.md Constraints table:
   `description`, `source_artifacts`, `title`, `author_role`).
 - Control-char policy is **reject, not strip** — see the rationale under R6.
@@ -303,11 +319,11 @@ Source: ADR-005
 
 | File | Action | Notes |
 |------|--------|-------|
-| `tests/unit/test_artifact.py` | Modify | Title over `TITLE_MAX_LENGTH` rejected; control char in each metadata-bound field rejected; non-Latin title accepted and preserved — Red first |
-| `src/arkeology/artifact.py` | Modify | Add `TITLE_MAX_LENGTH`, the three byte-budget constants, `NON_FILTERABLE_METADATA_KEYS` (single source of truth); add title max-length + control-char field validators; add a pure `check_metadata_budgets(s3_metadata, vector_metadata) -> None` helper raising a typed error |
+| `tests/unit/test_artifact.py` | Modify | Title over `TITLE_MAX_LENGTH` rejected; control char in each metadata-bound field rejected; a `references` element without `/` rejected naming the element, a full key accepted (R10); non-Latin title accepted and preserved — Red first |
+| `src/arkeology/artifact.py` | Modify | Add `TITLE_MAX_LENGTH`, the three byte-budget constants, `NON_FILTERABLE_METADATA_KEYS` (single source of truth); add title max-length + control-char field validators; add the scope-separator check to `validate_references` (R10), which `link_metadata` reaches through its delegated validation (`p12-t57-guard-coverage` R7); add a pure `check_metadata_budgets(s3_metadata, vector_metadata) -> None` helper raising a typed error |
 | `src/arkeology/errors.py` | Modify | Add `MetadataTooLargeError(ArkeologyError)` (and reuse for charset if desired) so `write._inner` maps it to `validation_error` |
 | `tests/unit/test_tools_write.py` | Modify | Oversize S3 / oversize filterable / oversize total each rejected before any `put_object`/`put_vectors_batch`/failure-log append (spy asserts zero calls); control char → `validation_error` not raw exception — Red first |
-| `src/arkeology/tools/write.py` | Modify | Build the filterable+total vector_metadata dict *before* the collision/put step; call `check_metadata_budgets` before `head_object`; ensure the branch returns `validation_error` and skips all writes and the failure-log append; call `check_metadata_budgets` a second time after the T47 overwrite read-forward union-merge enlarges `vector_metadata`, before `put_object`/`put_vectors_batch` |
+| `src/arkeology/tools/write.py` | Modify | Build the filterable+total vector_metadata dict *before* the collision/put step; call `check_metadata_budgets` before `head_object`; ensure the branch returns `validation_error` and skips all writes and the failure-log append; call `check_metadata_budgets` a second time after the T47 overwrite read-forward union-merge enlarges `vector_metadata`, before `put_object`/`put_vectors_batch`, returning `validation_error` while nothing is durable and `partial_write` with a failure-log entry on a retry after a landed `put_object` (R2) |
 | `tests/unit/test_clients_s3.py` | Modify | Lossless round-trip of a non-ASCII value through encode→decode; header-safe output — Red first |
 | `src/arkeology/clients/s3.py` | Modify | Replace NFKD-ASCII-strip in `_ascii_safe_metadata` with lossless reversible transport encoding; add the symmetric decoder |
 | `tests/unit/test_tools_read.py` | Modify | `read_artifact` returns the true non-ASCII title (decoded / vector-sourced) — Red first |
@@ -317,14 +333,20 @@ Source: ADR-005
 
 ### Contracts
 
-None.
+- `docs/contracts/data/s3.artifact.md` § check_metadata_budgets, § encode_metadata_value, § decode_metadata_value and § generate_artifact_id — the three-budget guard and when it runs, the lossless transport encoding of metadata values, and the id derived upstream of it (R1–R3, R7, R9).
+- `docs/contracts/data/s3vectors.artifact.md` § Storage Shape — the non-filterable keys and the two vector budgets (R3, R4).
+- `docs/contracts/data/s3-annotations.artifact.md` § Storage Shape — the full-key form a `references` element must have (R10).
+- `docs/contracts/modules/arkeology.tools.write.md` § write_artifact — `validation_error` for a budget breach, a control character or a `references` element without a scope separator, and the budget re-run after the overwrite merge with its two outcomes, keyed on whether a `put_object` has landed (R1, R2, R6, R10).
+- `docs/contracts/modules/arkeology.tools.write_artifacts.md` § write_artifacts — a rejected descriptor isolated in its own result (R10).
+- `docs/contracts/modules/arkeology.tools.read.md` § read_artifact — the decoded title that cannot disagree with `search_artifacts` (R8).
 
 ### Testing Approach
 
 **TDD cycle — test file before the implementation file it gates:**
 
 1. **`test_artifact.py` → `artifact.py`** — over-long title rejected with the bound in the message;
-   control char in `title`/`description`/`author_role`/list elements rejected; non-Latin title
+   control char in `title`/`description`/`author_role`/list elements rejected; a `references`
+   element without `/` rejected with the element named, a full key accepted; non-Latin title
    accepted; `check_metadata_budgets` raises `MetadataTooLargeError` at each of the three budgets and
    passes just under each.
 2. **`test_clients_s3.py` → `s3.py`** — `encode(decode(x)) == x` for non-ASCII; encoded output is
@@ -332,9 +354,12 @@ None.
 3. **`test_tools_write.py` → `write.py`** — oversize-S3, oversize-filterable, oversize-total each
    rejected with `validation_error` and **zero** `put_object`/`put_vectors_batch`/failure-log calls
    (`mocker.spy`); control char → `validation_error` (no raw exception); a normal write still
-   succeeds unchanged; a tier-3 overwrite whose read-forward union-merge (T47) pushes the vector
+   succeeds unchanged; `references=["adr-use-postgres-abc12345"]` → `validation_error` with the
+   same zero-writes assertion (R10); a tier-3 overwrite whose read-forward union-merge (T47) pushes the vector
    budget over its limit is rejected by the post-merge re-check (R2) with the same
-   zero-writes assertion.
+   zero-writes assertion; the same breach on a compare-and-swap retry after the first attempt's
+   `put_object` landed (inject an `ArtifactConflictError` on the first annotation write) returns
+   `partial_write` with one failure-log entry (R2).
 4. **`test_tools_read.py` → `read.py`** (and reconcile) — non-ASCII title returned identically by
    read and search; reconcile rebuild preserves it.
 5. **Integration** — real-AWS pre-write rejection and non-ASCII round-trip.

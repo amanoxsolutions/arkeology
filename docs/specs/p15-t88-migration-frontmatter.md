@@ -1,8 +1,8 @@
 ---
 type: Spec
 id: p15-t88-migration-frontmatter
-title: T88 — Migration and Source-Backfill Skills for OKF v0.2 Frontmatter
-description: The migrating-to-arkeology skill imports documents written by an OKF producer, such as a spec-driven development framework, with their own id, generated, revised, status, type, sources and relationships. Before any write it stops on duplicate or invalid ids. It resolves sources[].resource paths through the target file's own id, and the server rewrites them in content. Verifications are recorded after the write. backfilling-references is retargeted to sources. references.py and the skills' drift test follow. Studio's link click and the arkeology://artifact/{id*} resource open bare-id links through T84's resolver.
+title: T88 — Migration Skill for OKF v0.2 Frontmatter
+description: The migrating-to-arkeology skill imports documents written by an OKF producer, such as a spec-driven development framework, with their own id, generated, revised, status, type, sources and relationships. Before any write it stops on duplicate or invalid ids. It resolves sources[].resource paths through the target file's own id, and the server rewrites them in content. Verifications are recorded after the write. A source that does not resolve is left unchanged and reported once, to be added later by hand with add_artifact_links. references.py and the skill's drift test follow. Studio's link click and the arkeology://artifact/{id*} resource open bare-id links through T84's resolver.
 tags: []
 status: draft
 okf_version: "0.2"
@@ -94,6 +94,15 @@ sources:
   - id: okf-spec
     resource: https://github.com/GoogleCloudPlatform/open-knowledge-format/blob/main/SPEC.md
     title: Open Knowledge Format — Specification
+  - id: spec-t51
+    resource: docs/specs/p12-t51-migration-reference-rewrite.md
+    title: T51 — Migration Frontmatter Reference Rewriting + arkeology:// Content Rewrite
+  - id: spec-t30
+    resource: docs/specs/p9-t30-write-artifacts.md
+    title: Write Performance Z1 — write_artifacts + migrate_artifacts + P4 Section Truncation
+  - id: review-2026-11-15
+    resource: .docs/reviews/architecture-review-2026-11-15-arkeology-phases-9-10-12.md
+    title: "Architecture review — Arkeology, plan phases 9, 10 and 12"
 relationships:
   - to: adr-2026-09-25-okf-v02-adoption
     type: implements
@@ -110,10 +119,10 @@ generated:
   at: 2026-10-13T18:53:42Z
 revised:
   by: "axians-architect/claude-opus-5-5"
-  at: 2026-11-12T21:20:47Z
+  at: 2026-11-15T20:35:38Z
 ---
 
-# T88 — Migration and Source-Backfill Skills for OKF v0.2 Frontmatter
+# T88 — Migration Skill for OKF v0.2 Frontmatter
 
 ## TL;DR
 
@@ -121,10 +130,10 @@ revised:
 framework, for example — with the identity, provenance, lifecycle, type and links its own
 frontmatter declares. Before any write, it stops on a duplicate or invalid `id`. It resolves each
 `sources[].resource` path through the `id:` the target file declares, and `migrate_artifacts`
-rewrites the path in the stored content. `backfilling-references` is retargeted to `sources`, so
-links that could not resolve at import are filled in later. Studio and the
+rewrites the path in the stored content. A source that does not resolve at import is left unchanged
+and reported once; the operator adds it later by hand with `add_artifact_links`. Studio and the
 `arkeology://artifact/{id*}` resource open the bare-id links this writes, through T84's resolver
-(FR-23, FR-48, FR-52, FR-58; D28, D40, D43).
+(FR-23, FR-48, FR-52; brainstorming-2026-09-17-okf-v02-adoption D28, D40, D43).
 
 ## 1. Problem Statement
 
@@ -132,22 +141,21 @@ Today the migration skill reads a house `references:` list, derives every id fro
 date, and recovers a `date`. After T76–T87 the server accepts `id`, `generated`, `status`,
 `sources` and `relationships`, and producer documents carry exactly those keys. They no longer
 carry `references:`. Run against a producer corpus, the skill therefore throws away each frozen
-`id`, records the wrong first-authorship time and resolves no links. `backfilling-references`
-still calls the removed `link_metadata` with the removed `references` field. T79 and T83 also left
+`id`, records the wrong first-authorship time and resolves no links. T79 and T83 also left
 two import questions to this task: what happens to a document's `revised`, and to its `verified`
 list. Migration is also the first writer of bare-id links into content. Neither Studio nor the
 `arkeology://artifact/{id*}` resource can open them, because both expect a full key.
 
-The seven user stories of this spec are kept as labelled examples under the rules they illustrate
-(Story 1 to Story 7); all seven are P1. The ten decisions taken in this spec keep their numbers
-(Decision 1 to Decision 10) as labelled **Why** lines on the rules they settle, and the two
+The six user stories of this spec are kept as labelled examples under the rules they illustrate
+(Stories 1 to 4, 6 and 7); all six are P1. The nine decisions taken in this spec keep their
+numbers (Decisions 1 to 7, 9 and 10) as labelled **Why** lines on the rules they settle, and the two
 answered questions keep theirs (Open Questions item 2, Resolved Questions item 1).
 
 ## 2. Rules — Reading frontmatter
 
-### R1 — The skills read frontmatter only through one documented offline snippet, as literal text
+### R1 — The migration skill reads frontmatter only through one documented offline snippet, as literal text
 
-The skills read a file's frontmatter only through one documented offline snippet. Its
+The migration skill reads a file's frontmatter only through one documented offline snippet. Its
 authoritative, unit-tested implementation is in `references.py`.
 
 - Frontmatter is the block from an opening `---` first line to the next `---` line. This is the
@@ -162,17 +170,18 @@ already runs `uv run` with PyYAML for manifest validation, so the snippet runs u
 `uv run --with pyyaml`. Parsing with no implicit typing keeps ids such as `001` and `1.0` exact, and
 keeps timestamps as written.
 
-Source: FR-23; D10, D28
+Source: FR-23; brainstorming-2026-09-17-okf-v02-adoption D10, D28
 
-### R2 — The skills read only OKF v0.2 keys
+### R2 — The migration skill reads only OKF v0.2 keys
 
-The skills read only OKF v0.2 keys. They never read the house `references:`, `timestamp:` or
+The migration skill reads only OKF v0.2 keys. It never reads the house `references:`, `timestamp:` or
 `authored:` keys.
 
-**Why (Decision 7 — House keys are not read):** D42 ships no aliases, and D10 makes converting the
-documents the producer's job. First authorship falls back to Git history, which FR-23 permits.
+**Why (Decision 7 — House keys are not read):** brainstorming-2026-09-17-okf-v02-adoption D42 ships
+no aliases, and brainstorming-2026-09-17-okf-v02-adoption D10 makes converting the documents the
+producer's job. First authorship falls back to Git history, which FR-23 permits.
 
-Source: FR-23; D10, D28
+Source: FR-23; brainstorming-2026-09-17-okf-v02-adoption D10, D28
 
 ## 3. Rules — Pre-write checks
 
@@ -197,7 +206,7 @@ here rather than per entry: every file whose `sources` or `relationships` names 
 fail T84's id check, so one bad file would fail many. An unreadable block would silently drop the
 file's declared `id`.
 
-Source: FR-23, FR-73, AC-81; D28, D33; ADR-017 `### 5`, "Case-only duplicate ids"
+Source: FR-23, FR-73, AC-81; brainstorming-2026-09-17-okf-v02-adoption D28, D33; ADR-017 `### 5`, "Case-only duplicate ids"
 
 ### R4 — Ids that differ only in letter case continue only on the operator's explicit confirmation
 
@@ -212,7 +221,7 @@ Example (Story 3, continued):
 **Why (Decision 4, continued):** Case-only ids are legal (FR-08), but ADR-017 names this check as
 the guard against them. That is why they need confirmation rather than causing a stop.
 
-Source: FR-23, FR-73, AC-81; D28, D33; ADR-017 `### 5`, "Case-only duplicate ids"
+Source: FR-23, FR-73, AC-81; brainstorming-2026-09-17-okf-v02-adoption D28, D33; ADR-017 `### 5`, "Case-only duplicate ids"
 
 ## 4. Rules — Descriptor fields
 
@@ -234,9 +243,10 @@ Example (Story 1, a producer document keeps its identity and provenance):
   `generated: {by: "axians-architect/x", at: 2026-03-01T10:00:00Z}` and
   `revised: {by: "human:ana", at: 2026-04-02T08:00:00Z}`. When it is migrated, then it is stored at
   `{WRITE_PREFIX}/ADR-005.okf-adoption.md`. `read_artifact` returns that type, status, `generated`
-  and `revised`, and `revision_history` is those two entries in that order (FR-73; D28, D35, D37).
+  and `revised`, and `revision_history` is those two entries in that order (FR-73;
+  brainstorming-2026-09-17-okf-v02-adoption D28, D35, D37).
 
-Source: FR-23, FR-26, FR-73; D9, D22, D28, D35, D37
+Source: FR-23, FR-26, FR-73; brainstorming-2026-09-17-okf-v02-adoption D9, D22, D28, D35, D37
 
 ### R6 — `generated_at` is the first available of the declared time, a filename date, the first commit or today, unless the operator edits it
 
@@ -255,18 +265,20 @@ Example (Story 1, continued):
 
 - Given a file with no frontmatter and no date in its name, when it is migrated, then its id is
   generated (T87). Its `generated.at` is the file's first-commit day at `T00:00:00Z` and
-  `generated.by` is `process:migrating-to-arkeology` (FR-23; D9).
+  `generated.by` is `process:migrating-to-arkeology` (FR-23;
+  brainstorming-2026-09-17-okf-v02-adoption D9).
 
 **Why (Decision 7, continued):** The first commit replaces the tier-3 last-commit rule, because
-`generated` means first authorship (D9). Tier-3 ids are date-independent, so no id changes.
+`generated` means first authorship (brainstorming-2026-09-17-okf-v02-adoption D9). Tier-3 ids are
+date-independent, so no id changes.
 
-Source: FR-23, FR-26, FR-73; D9, D22, D28, D35, D37
+Source: FR-23, FR-26, FR-73; brainstorming-2026-09-17-okf-v02-adoption D9, D22, D28, D35, D37
 
 ### R7 — The skill never puts `verified` in a descriptor
 
 The skill never puts `verified` in a descriptor, because T83 redirects it.
 
-Source: FR-23, FR-26, FR-73; D9, D22, D28, D35, D37
+Source: FR-23, FR-26, FR-73; brainstorming-2026-09-17-okf-v02-adoption D9, D22, D28, D35, D37
 
 ## 5. Rules — Imported `revised`
 
@@ -296,7 +308,7 @@ with the document's existing revision". If the operator prefers the literal read
 "Imported `revised`" and its tests. Imported citations then lose all pre-import staleness, as
 Decision 1 describes.
 
-Source: FR-20, FR-69, FR-72; D19, D35
+Source: FR-20, FR-69, FR-72; brainstorming-2026-09-17-okf-v02-adoption D19, D35
 
 ### R9 — `revised` on `create_artifact` or a `create_artifacts` descriptor is rejected, naming `update_artifact`
 
@@ -304,13 +316,13 @@ When `create_artifact`, or a `create_artifacts` descriptor, carries `revised`, t
 `validation_error` naming `update_artifact`, for the call or for that entry. `revised` reaches a
 create only through `migrate_artifacts`.
 
-Source: FR-20, FR-69, FR-72; D19, D35
+Source: FR-20, FR-69, FR-72; brainstorming-2026-09-17-okf-v02-adoption D19, D35
 
 ### R10 — A `skipped_existing` artifact's stored `revised` is never touched
 
 A `skipped_existing` artifact is never re-imported, so its stored `revised` is never touched.
 
-Source: FR-20, FR-69, FR-72; D19, D35
+Source: FR-20, FR-69, FR-72; brainstorming-2026-09-17-okf-v02-adoption D19, D35
 
 ## 6. Rules — Source resolution
 
@@ -319,7 +331,7 @@ Source: FR-20, FR-69, FR-72; D19, D35
 For each frontmatter `sources` entry, the skill leaves an `http(s)://` or `arkeology://`
 `resource` unchanged.
 
-Source: FR-52, AC-58; D40, D43
+Source: FR-52, AC-58; brainstorming-2026-09-17-okf-v02-adoption D40, D43
 
 ### R12 — A path that names a manifest entry declaring an `id` resolves to `arkeology://artifact/<id>`
 
@@ -342,28 +354,28 @@ Example (Story 2, sources resolve through the target's own `id:`):
   - the URL and excluded-path entries are byte-identical;
   - A's `relationships` equal its frontmatter list (AC-58).
 
-Source: FR-52, AC-58; D40, D43
+Source: FR-52, AC-58; brainstorming-2026-09-17-okf-v02-adoption D40, D43
 
-### R13 — A target that is not a manifest entry, or declares no `id`, leaves the entry unchanged and reported
+### R13 — A target that is not a manifest entry, or declares no `id`, leaves the entry unchanged and reported once
 
 When the result names no manifest entry (an excluded, never-migrated or missing target) or a target
-that declares no `id`, the skill leaves the entry unchanged and lists it in the migration report
-with that reason.
+that declares no `id`, the skill leaves the entry unchanged and lists it once in the migration
+report with that reason. A source left unresolved is added later by hand with
+`add_artifact_links`.
 
-**Why (Decision 3 — A target without `id:` does not resolve):** FR-52 and FR-58 resolve a source by
-the id the target declares. Under D10 the producer's OKF migration gives every document an `id:`
-before import. Falling back to a generated id would bring back the title-derived map that ADR-017
-rejects as "wrong across file renames". It would also be a second resolution path that
-`backfilling-references` could never reproduce, because FR-58 matches on declared ids only.
+**Why (Decision 3 — A target without `id:` does not resolve):** FR-52 resolves a source by the id
+the target declares. Under brainstorming-2026-09-17-okf-v02-adoption D10 the producer's OKF
+migration gives every document an `id:` before import. Falling back to a generated id would bring
+back the title-derived map that ADR-017 rejects as "wrong across file renames".
 
-Source: FR-52, AC-58; D40, D43
+Source: FR-52, AC-58; brainstorming-2026-09-17-okf-v02-adoption D40, D43; p12-t51-migration-reference-rewrite R6
 
 ### R14 — Resolution never reads an excluded path or uses `sources[].id`, and keeps every other key and the entry order
 
 The skill never reads an excluded path and never uses `sources[].id` to resolve. It keeps every
 other key and the order of entries.
 
-Source: FR-52, AC-58; D40, D43
+Source: FR-52, AC-58; brainstorming-2026-09-17-okf-v02-adoption D40, D43
 
 ### R15 — A resolved entry with no `last_modified` gets the target descriptor's effective time
 
@@ -373,16 +385,16 @@ target's own descriptor: `revised.at`, otherwise `generated.at`.
 **Why (Decision 5 — The skill fills `last_modified`):** In one batch, writes run concurrently.
 T84's server-side fill would therefore depend on whether the target already existed, and FR-52
 requires the result not to depend on order. The target's own descriptor holds the value it is
-imported with, which is D40's "current revision time".
+imported with, which is brainstorming-2026-09-17-okf-v02-adoption D40's "current revision time".
 
-Source: FR-52, AC-58; D40, D43
+Source: FR-52, AC-58; brainstorming-2026-09-17-okf-v02-adoption D40, D43
 
 ### R16 — Resolution depends only on the manifest and the declared ids
 
 Resolution depends only on the manifest and the ids the files declare, so write order and session
 never change its result.
 
-Source: FR-52, AC-58; D40, D43
+Source: FR-52, AC-58; brainstorming-2026-09-17-okf-v02-adoption D40, D43
 
 ## 7. Rules — Content rewrite in `migrate_artifacts`
 
@@ -439,7 +451,7 @@ every entry goes through `add_artifact_verification`. The tool appends rather th
 skill makes the pass idempotent by checking first against `read_artifact`. No extra manifest state
 is needed, and a run that fails partway is resumed by running the pass again.
 
-Source: FR-70; D41, D44, D46
+Source: FR-70; brainstorming-2026-09-17-okf-v02-adoption D41, D44, D46
 
 ### R21 — A `validation_error` is reported and the pass continues; any other error stops the pass with a per-file report
 
@@ -447,68 +459,15 @@ When the tool returns `validation_error`, the skill reports the file and the ent
 On any other error it stops the pass and reports, per file, which entries were and were not
 recorded. A re-run records only the missing ones.
 
-Source: FR-70; D41, D44, D46
+Source: FR-70; brainstorming-2026-09-17-okf-v02-adoption D41, D44, D46
 
 ### R22 — Each manifest entry gains the `artifact_id` from its result, whether written or skipped
 
 Each manifest entry gains the `artifact_id` from its result, whether written or skipped.
 
-Source: FR-70; D41, D44, D46
+Source: FR-70; brainstorming-2026-09-17-okf-v02-adoption D41, D44, D46
 
-## 9. Rules — `backfilling-references`
-
-### R23 — `backfilling-references` reads the structured `sources` of every non-archived own-scope artifact, never its content
-
-The skill reads the structured `sources` of every non-archived own-scope artifact
-(`list_artifacts(..., status="all")`) and never its content.
-
-Source: FR-58, AC-63; D40, D43
-
-### R24 — An entry is proposed only when all five conditions hold
-
-An entry is proposed only when all of these hold:
-
-- its `resource` is neither a URL nor an `arkeology://` value;
-- its path, joined against the artifact's manifest `path` when one is known and then normalised,
-  names a repository file outside `local_only_paths`;
-- that file declares a valid `id`;
-- `{write prefix}/{id}.md` is an own-scope artifact;
-- the artifact's `sources` do not already hold `arkeology://artifact/<id>`.
-
-The write prefix is any own-scope `artifact_id` up to its last `/`, or the operator's answer when
-no such artifact exists.
-
-Source: FR-58, AC-63; D40, D43
-
-### R25 — One dry-run batch report; only on confirmation, one `add_artifact_links` call per artifact with no `last_modified`
-
-The skill presents one dry-run batch report. Only after the operator confirms does it call
-`add_artifact_links(artifact_ids=[<artifact>], sources=[{resource:
-"arkeology://artifact/<id>", title: <copied when present>}])` once per artifact, with no
-`last_modified`. The server then fills in the source's current revision time (T84). Declining
-writes nothing.
-
-Example (Story 5, unresolved sources are backfilled later):
-
-- Given A was migrated while B was excluded, so A kept `resource: docs/b.md`, and B has since been
-  migrated. When `backfilling-references` runs, then it presents a dry-run report proposing
-  `arkeology://artifact/<B's id>` for A before any write. On confirmation it calls
-  `add_artifact_links`, and A gains that entry with B's current revision time as `last_modified`.
-  A's content and `revised` are unchanged. Declining changes nothing (AC-63).
-
-**Why (Decision 8 — A backfilled entry sits beside the unresolved one):** `add_artifact_links` only
-adds (FR-53), and FR-58 forbids rewriting content. Copying the label `id` would give two entries
-one footnote label, so the label stays on the entry the body cites.
-
-Source: FR-58, AC-63; D40, D43
-
-### R26 — Relationships are never proposed
-
-Relationships are never proposed.
-
-Source: FR-58, AC-63; D40, D43
-
-## 10. Rules — Removed name
+## 9. Rules — Removed name
 
 ### R27 — A `migrate_artifacts` descriptor carrying `resolved_references_map` fails that entry, naming `resolved_sources_map`
 
@@ -518,11 +477,12 @@ entry with `validation_error` naming `resolved_sources_map`.
 Example (Story 6, the renamed descriptor key is rejected):
 
 - Given a `migrate_artifacts` descriptor carrying `resolved_references_map`, then that entry fails
-  with `validation_error` naming `resolved_sources_map` (AC-80; D42).
+  with `validation_error` naming `resolved_sources_map` (AC-80;
+  brainstorming-2026-09-17-okf-v02-adoption D42).
 
-Source: AC-80; D42
+Source: AC-80; brainstorming-2026-09-17-okf-v02-adoption D42
 
-## 11. Rules — Following bare-id links
+## 10. Rules — Following bare-id links
 
 **Resolved Questions item 1 — Bare-id links on read surfaces.** *Original question:* T88 is the
 first writer of `arkeology://artifact/<bare id>` into stored content (AC-58). The
@@ -544,33 +504,33 @@ A full-key `artifact_id` resolves to itself.
 
 **Why (Decision 10 — Studio sends the carrier, and the resource uses the reader's own scope):**
 Studio knows the carrier, because it is the artifact open in the view. Sending it and letting the
-server resolve keeps two rules intact: the Studio link-resolution ADR's D1 (Studio derives nothing)
-and T84's single resolver. A parameter on `read_artifact` is the smallest server path: no new tool,
-and the gate already sits there. It is named `linked_from` because it states where the link was
-found.
+server resolve keeps two rules intact: the Studio link-resolution ADR's
+brainstorming-2026-09-17-okf-v02-adoption D1 (Studio derives nothing) and T84's single resolver. A
+parameter on `read_artifact` is the smallest server path: no new tool, and the gate already sits
+there. It is named `linked_from` because it states where the link was found.
 
-Source: FR-10, FR-46, FR-48, AC-51; D28; Studio link-resolution ADR, D1 and D4
+Source: FR-10, FR-46, FR-48, AC-51; brainstorming-2026-09-17-okf-v02-adoption D28; adr-2026-08-12-studio-link-resolution D1 and D4
 
 ### R29 — A `linked_from` with no `/` returns `validation_error` before any storage call
 
 When `linked_from` contains no `/`, the system returns `validation_error` naming `linked_from`,
 before any storage call.
 
-Source: FR-10, FR-46, FR-48, AC-51; D28; Studio link-resolution ADR, D1 and D4
+Source: FR-10, FR-46, FR-48, AC-51; brainstorming-2026-09-17-okf-v02-adoption D28; adr-2026-08-12-studio-link-resolution D1 and D4
 
 ### R30 — Without `linked_from`, behaviour is unchanged: a bare `artifact_id` returns `access_denied`
 
 When `linked_from` is omitted, behaviour is unchanged: a bare `artifact_id` lies in no accessible
 scope and returns `access_denied`.
 
-Source: FR-10, FR-46, FR-48, AC-51; D28; Studio link-resolution ADR, D1 and D4
+Source: FR-10, FR-46, FR-48, AC-51; brainstorming-2026-09-17-okf-v02-adoption D28; adr-2026-08-12-studio-link-resolution D1 and D4
 
 ### R31 — `linked_from` grants no access
 
 `linked_from` grants no access. A caller could pass the resolved key directly, and either way the
 gate decides on that key.
 
-Source: FR-10, FR-46, FR-48, AC-51; D28; Studio link-resolution ADR, D1 and D4
+Source: FR-10, FR-46, FR-48, AC-51; brainstorming-2026-09-17-okf-v02-adoption D28; adr-2026-08-12-studio-link-resolution D1 and D4
 
 ### R32 — Studio sends the decoded id unchanged with the open artifact's key as `linked_from`, adopts the returned key, and decides nothing itself
 
@@ -582,18 +542,20 @@ Once the response arrives, the view uses the returned `artifact_id` for its scop
 highlight and its next followed link.
 
 Studio derives nothing from the id and checks nothing before the call, and shows a server error
-verbatim (ADR D1, D4). Link classification and sanitisation are unchanged.
+verbatim (ADR brainstorming-2026-09-17-okf-v02-adoption D1, D4). Link classification and
+sanitisation are unchanged.
 
 Examples (Story 7, bare-id links open where readers follow them):
 
 - Given a migrated A whose content links to `arkeology://artifact/old-name` (B's declared id). When
   a reader activates that link in Studio's view of A, then B opens, resolved against A's scope. A
-  link inside B then resolves against B (FR-48; D28).
+  link inside B then resolves against B (FR-48; brainstorming-2026-09-17-okf-v02-adoption D28).
 - Given a foreign shared artifact `P/a.md` whose content links to bare `t2`, a tier-2 artifact in P.
   When a reader follows that link in Studio, then the view shows `read_artifact`'s `access_denied`
-  message verbatim. Nothing is decided in Studio itself (FR-10; Studio link-resolution ADR, D4).
+  message verbatim. Nothing is decided in Studio itself (FR-10;
+  adr-2026-08-12-studio-link-resolution D4).
 
-Source: FR-10, FR-46, FR-48, AC-51; D28; Studio link-resolution ADR, D1 and D4
+Source: FR-10, FR-46, FR-48, AC-51; brainstorming-2026-09-17-okf-v02-adoption D28; adr-2026-08-12-studio-link-resolution D1 and D4
 
 ### R33 — The `arkeology://artifact/{id*}` resource resolves a bare id against the server's own scope
 
@@ -614,25 +576,25 @@ never extra access, because the gate runs on the resolved key. T84 warns against
 the reader's prefix, but that concerns list redaction, where a foreign entry would pass
 unredacted. A resource read returns only what the reader may already read.
 
-Source: FR-10, FR-46, FR-48, AC-51; D28; Studio link-resolution ADR, D1 and D4
+Source: FR-10, FR-46, FR-48, AC-51; brainstorming-2026-09-17-okf-v02-adoption D28; adr-2026-08-12-studio-link-resolution D1 and D4
 
-## 12. Rules — Skill surface
+## 11. Rules — Skill surface
 
-### R34 — Both skills use only Phase 15 names
+### R34 — The migration skill uses only Phase 15 names
 
-Both skills use only Phase 15 names: `add_artifact_links` (including the migration skill's
-commit-refs Step 5), `create_artifact`, and no `status="active"` or `references`.
+The migration skill uses only Phase 15 names: `add_artifact_links` (in its commit-refs Step 5),
+`create_artifact`, and no `status="active"` or `references`.
 
-Source: D42, D46, D51
+Source: brainstorming-2026-09-17-okf-v02-adoption D42, D46, D51
 
-### R35 — The skills do not compute generated ids
+### R35 — The migration skill does not compute generated ids
 
-The skills do not compute generated ids. The migration skill's offline id snippet and its
+The migration skill does not compute generated ids. Its offline id snippet and its
 "Determining `write_prefix`" step are deleted.
 
-Source: D42, D46, D51
+Source: brainstorming-2026-09-17-okf-v02-adoption D42, D46, D51
 
-## 13. Boundaries
+## 12. Boundaries
 
 **Always:**
 - Run the pre-write checks over the whole migration before the first `migrate_artifacts` call.
@@ -644,12 +606,12 @@ Source: D42, D46, D51
 **Ask First:**
 - Resolving a target without `id:` by its generated id.
 - Accepting `revised` on `create_artifact` or `create_artifacts`.
-- Rewriting flow-style `sources:` in content, or removing an unresolved entry during backfill.
+- Rewriting flow-style `sources:` in content.
 - Resolving bare ids in `read_artifact` without `linked_from`, or in any other tool.
 
 **Never:**
 - In Studio, derive a key from a link, or check scope, tier or existence (Studio link-resolution
-  ADR, D1 and D4).
+  ADR, brainstorming-2026-09-17-okf-v02-adoption D1 and D4).
 - Read an excluded path, or use `sources[].id` to resolve or rewrite anything.
 - Resolve, normalise or rewrite `relationships`.
 - Map a lifecycle `status`, or read `references:`, `timestamp:` or `authored:`.
@@ -657,7 +619,7 @@ Source: D42, D46, D51
   Rewrite the schema resource (T89). Edit README, SERVER-REFERENCE, CHANGELOG, AGENTS.md or the
   setting-up skill's snippet (T91).
 
-## 14. For the developer agent
+## 13. For the developer agent
 
 ### Files to Touch
 
@@ -669,10 +631,8 @@ T88 lands after T84 and T87 and edits the code that T76–T87 leave.
 | `src/arkeology/references.py` | Modify | Delete `extract_references_list`, its manual fallback and regexes, and `ManifestEntry`. Delete the `generate_artifact_id` use in `build_path_to_id_map`, which now maps each normalised path to its declared id (duplicate paths still raise `DuplicateManifestPathError`). Add the reader (`yaml.BaseLoader`), the pre-write check (calls T87's validator in `artifact.py`) and a sources resolver. Rename `rewrite_content_references` to `rewrite_content_sources`, retargeted to `resource:` lines in `sources:`. Update the module docstring |
 | `tests/unit/test_references_content_rewrite.py` | Modify | Retarget to `sources:` |
 | `tests/unit/test_skill_artifact_id_drift.py` | Modify | Keep the file name, because `pyproject.toml`'s `also_copy` comment names it |
-| `plugins/arkeology/skills/migrating-to-arkeology/SKILL.md` | Modify | Frontmatter snippet; pre-write check step; descriptor table; source resolution; Step 3.C verification pass; `generated_at` chain; delete the id snippet, `write_prefix` step and `references:` sections; Step 5 → `add_artifact_links` |
+| `plugins/arkeology/skills/migrating-to-arkeology/SKILL.md` | Modify | Frontmatter snippet; pre-write check step; descriptor table; source resolution, reporting each unresolved source once (R13); Step 3.C verification pass; `generated_at` chain; delete the id snippet, `write_prefix` step and `references:` sections; Step 5 → `add_artifact_links` |
 | `plugins/arkeology/skills/migrating-to-arkeology/schema.yaml` | Modify | `date` → `generated_at`; add `artifact_id`; tier-3 comment no longer says "overwrites in place" (T78) |
-| `plugins/arkeology/skills/migrating-to-arkeology/scripts/validate_manifest.py` | Modify | `REQUIRED_ENTRY`: `date` → `generated_at` |
-| `plugins/arkeology/skills/backfilling-references/SKILL.md` | Rewrite | Per "`backfilling-references`" above, with the same frontmatter snippet. Drop the content scan and the in-body advisory section |
 | `tests/unit/test_tools_migrate_artifacts.py` | Modify | Replace the T56 `resolved_references_map` tests |
 | `src/arkeology/tools/migrate_artifacts.py` | Modify | `resolved_sources_map` step; old-key rejection; validate and forward `revised` |
 | `tests/unit/test_tools_write_artifacts.py`, `test_tools_write.py` | Modify | `revised` redirect; import create |
@@ -717,9 +677,10 @@ Make these on top of the T78–T87 amendments, and before writing the tests:
 - No Studio or design contract changes. Neither `arkeology.tools.studio.md` nor
   `design/arkeology-studio-tokens.html` specifies link-click behaviour.
   `### register_ui_resource` names only the `npm test` sanitisation guard, which still applies.
-- The Studio link-resolution ADR's revision asks for D1's "full S3 key" wording to be revisited once
-  links carry bare ids. T88 makes that happen, so update the wording alongside these amendments. No
-  decision changes: D1's "Studio derives nothing" still holds.
+- The Studio link-resolution ADR's revision asks for brainstorming-2026-09-17-okf-v02-adoption D1's
+  "full S3 key" wording to be revisited once links carry bare ids. T88 makes that happen, so update
+  the wording alongside these amendments. No decision changes:
+  brainstorming-2026-09-17-okf-v02-adoption D1's "Studio derives nothing" still holds.
 - `references.py` has no contract and gets none. As today, its docstrings and unit tests are the
   authority.
 
@@ -750,10 +711,10 @@ Make these on top of the T78–T87 amendments, and before writing the tests:
      whose `to:` equals a map key, and a top-level `resource:`.
    - URLs, fenced code and flow style are untouched. A body link is rewritten, with its anchor note.
    - A second run changes nothing.
-3. `tests/unit/test_skill_artifact_id_drift.py` → both SKILL.md files.
+3. `tests/unit/test_skill_artifact_id_drift.py` → the migration skill's SKILL.md.
    - Delete the id and `references:` cases and `test_punctuation_collapse_cases_share_a_slug`, since
-     neither skill computes ids any more.
-   - Run each skill's frontmatter snippet over temporary files built from one case table: producer
+     the skill no longer computes ids.
+   - Run the skill's frontmatter snippet over temporary files built from one case table: producer
      block, literal scalars, invalid ids, unreadable block, missing file, duplicate, case-only
      group.
    - Assert the output equals the `references.py` helper's output.
@@ -793,8 +754,7 @@ Make these on top of the T78–T87 amendments, and before writing the tests:
    - `create_artifact` called with `revised` returns `validation_error` naming `update_artifact`,
      and the inner function is not awaited.
    - The `read_artifact` schema lists an optional string `linked_from`, and the tool forwards it.
-10. Skills, `schema.yaml` and `validate_manifest.py` are covered by step 3 and by the manual checks
-    below.
+10. The skill and `schema.yaml` are covered by step 3 and by the manual checks below.
 
 **Manual checks** (each on a fixture repository, against a deployment holding no artifacts under its
 write prefix):
@@ -803,12 +763,6 @@ write prefix):
   call, and `list_artifacts` is still empty.
 - **Story 4**: a file with two `verified` entries. After migration `read_artifact` shows both, and
   after a second run still exactly two.
-- **AC-63**: migrate A while B is excluded, then migrate B. Run `backfilling-references`:
-  1. The dry-run report lists A → B before any write.
-  2. Declining leaves A's `sources` unchanged.
-  3. Confirming adds the resolved entry with B's effective time, leaves A's content, `revised` and
-     `revision_history` unchanged, and keeps the path entry.
-  4. A second run proposes nothing.
 - **Story 7**: on the AC-58 fixture, open A in Studio inside a supporting host, click B's link, and
   B opens. Reading `arkeology://artifact/<B's id>` from the host returns B.
 

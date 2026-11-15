@@ -2,7 +2,7 @@
 type: Spec
 id: p12-t47-annotation-dual-write
 title: T47 — Annotation Dual-Write in the Write Path + Tier-3 Overwrite Preservation
-description: Write commit_refs and references to S3 object annotations (durable-first, before vectors) in the write path, and on an overwriting tier-3 write read-forward the prior commit_refs/references and re-apply them to both stores because PutObject clears annotations. No re-embed. last_edited_ulid stays in user-defined metadata.
+description: Write commit_refs and references to S3 object annotations (durable-first, before vectors) in the write path; on an overwriting write read-forward the prior commit_refs from the annotation and re-apply it because PutObject clears annotations, while references is replaced by the supplied value. A failure after the object write is an error whose failure-log entry holds the link values. No re-embed. last_edited_ulid stays in user-defined metadata.
 tags: []
 status: stable
 okf_version: "0.2"
@@ -22,15 +22,27 @@ sources:
   - resource: docs/planning-artifacts/requirements.md
     title: Arkeology — Requirements
     last_modified: 2026-09-24T00:00:00Z
+  - resource: docs/contracts/modules/arkeology.tools.write.md
+    title: arkeology.tools.write
+  - resource: docs/contracts/data/s3-annotations.artifact.md
+    title: s3-annotations.artifact
+  - resource: .docs/reviews/architecture-review-2026-11-15-arkeology-phases-9-10-12.md
+    title: "Architecture review — Arkeology, plan phases 9, 10 and 12"
+  - resource: docs/contracts/data/s3vectors.artifact.md
+    title: s3vectors.artifact
+  - resource: docs/contracts/data/s3.artifact.md
+    title: s3.artifact
 generated:
   by: "axians-architect/claude-opus-4.8"
   at: 2026-07-03T00:00:00Z
 revised:
   by: "axians-architect/claude-opus-5-5"
-  at: 2026-11-09T18:46:42Z
+  at: 2026-11-15T20:35:38Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
+  - by: "axians-architect/claude-fable-5-2"
+    at: 2026-11-15T20:45:07Z
 ---
 
 # T47 — Annotation Dual-Write in the Write Path + Tier-3 Overwrite Preservation
@@ -39,8 +51,8 @@ verified:
 
 Make the write path persist `commit_refs` and `references` to **S3 object annotations** (the durable
 copy, ADR-011), written after `PutObject` and before `put_vectors_batch` (durable-first,
-recoverable-state ordering). On an overwriting tier-3 write, read-forward the artifact's existing
-`commit_refs` and re-apply it to both annotations and vector metadata — required because `PutObject`
+recoverable-state ordering). On any overwriting write — a tier-3 living-document update and an
+explicit tier-2 replacement alike — read-forward the artifact's existing `commit_refs` and re-apply it to both annotations and vector metadata — required because `PutObject`
 clears annotations — while `references` is replaced outright with exactly the value supplied to that
 call. No content re-embed is triggered by the annotation write. `last_edited_ulid` stays in
 user-defined metadata, set atomically at `PutObject`. (FR-54, FR-55, AC-60.)
@@ -50,21 +62,24 @@ user-defined metadata, set atomically at `PutObject`. (FR-54, FR-55, AC-60.)
 ADR-011 moves the durable copy of the mutable link fields to S3 object annotations so
 `reconcile_index` no longer drops them. Two consequences land on the write path: (1) the write must
 now write those annotations (they cannot be set during `PutObject`, only after upload); and (2)
-overwriting an object **wipes its annotations**, so a tier-3 living-document update would silently
-lose the accumulated `commit_refs` / `references` trail unless the write reads them forward and
-re-applies them. Silent loss of an append-only link trail is exactly what Arkeology exists to prevent.
-For example, an artifact was written, then had `commit_refs` backfilled; a later tier-3 content
-update (same type + title, `overwrite=True`) must not lose those links.
+overwriting an object **wipes its annotations**, so any overwriting write — a tier-3
+living-document update and an explicit tier-2 replacement alike — would silently lose the
+accumulated `commit_refs` trail unless the write reads it forward and re-applies it. Silent loss of
+an append-only link trail is exactly what Arkeology exists to prevent. `references` is not read
+forward: an overwrite replaces it with exactly the value supplied to that call. For example, an
+artifact was written, then had `commit_refs` backfilled; a later tier-3 content update (same type +
+title, `overwrite=True`) must not lose those links.
 
-All three stories this spec states are P1: the write persists link fields to annotations; a tier-3
-overwrite preserves prior link fields; durable-first ordering enables self-heal.
+All three stories this spec states are P1: the write persists link fields to annotations; an
+overwrite preserves prior `commit_refs`; durable-first ordering enables self-heal.
 
 **Dependency note (T55):** moving `commit_refs`/`references` off S3 user-defined metadata to
-annotations *shrinks* the S3 user-metadata size budget consumption, but both fields remain
-*filterable* list fields in vector metadata and so still count against the S3 Vectors 2 KB
-filterable-metadata budget. The pre-write budget check that measures both (representation-driven, so
-it stays correct whichever order T46/T47/T55 land in) is specced in
-`docs/specs/p12-t55-metadata-validation.md` (T55), which must land before/with this task.
+annotations *shrinks* the S3 user-metadata size budget consumption. `commit_refs` stays a
+*filterable* list field in vector metadata, capped at 20 entries (T58), and so still counts against
+the S3 Vectors 2 KB filterable-metadata budget; `references` is in vector metadata nowhere. The
+pre-write budget check (representation-driven, so it measures whatever the assembled metadata
+holds) is specced in `docs/specs/p12-t55-metadata-validation.md` (T55), which must land before/with
+this task.
 
 ## 2. Rules — Writing the link annotations
 
@@ -87,14 +102,14 @@ Source: ADR-011 decision 1/2
 
 ### R3 — Compare-and-swap guard on `PutObject` and the annotation writes
 
-Forward-pointer (2026-07-06, shipped in `7a697dd`): the `PutObject` is a conditional write guarded
-by an ETag compare-and-swap (`IfMatch`); the annotation writes that follow it use the object's new
-ETag as `ObjectIfMatch`. A detected concurrent change (HTTP 412) triggers a bounded retry (~3
-attempts: re-read, re-merge, re-write) before returning a structured `conflict` error, rather than
-silently letting a stale read-forward clobber a newer merge. `put_vectors_batch` stays unconditional
-(no S3 Vectors CAS surface exists) — it is the recoverable, derived copy, healed by
-`reconcile_index` if needed. See `docs/specs/p2-t7-write-artifact.md`'s equivalent forward-pointer
-note.
+On an overwriting write the `PutObject` is a conditional write guarded by an ETag compare-and-swap
+(`IfMatch`); the annotation writes that follow it use the object's new ETag as `ObjectIfMatch`. A
+detected concurrent change (HTTP 412) from either call retries the whole cycle — re-read, re-merge,
+re-write — up to `CAS_MAX_ATTEMPTS` (3), rather than letting a stale read-forward clobber a newer
+merge. Exhausting the cycle returns `conflict` when nothing is durable and `partial_write` when the
+final attempt's `PutObject` landed, as `arkeology.tools.write` § write_artifact states.
+`put_vectors_batch` stays unconditional (no S3 Vectors CAS surface exists) — it is the recoverable,
+derived copy, healed by `reconcile_index` if needed.
 
 Source: ADR-011 decision 6
 
@@ -113,11 +128,8 @@ annotation.
 
 A write persists `commit_refs` and `references` to S3 object annotations. Vector metadata carries
 `commit_refs` only, capped to the most-recently-appended 20 entries, and never carries `references`.
-The annotation write behaviour
-described throughout this spec (durable-first ordering, CAS-guarded overwrite,
-`apply_link_annotations` always receiving the full, uncapped value) is completely unaffected and
-remains authoritative: the annotation copy of both fields stays complete and uncapped. See
-`docs/specs/p12-t58-commit-refs-cap-references-removal.md`.
+`apply_link_annotations` always receives the full, uncapped value of both fields, so the annotation
+copy stays complete.
 
 **Example**
 
@@ -125,7 +137,7 @@ remains authoritative: the annotation copy of both fields stays complete and unc
   S3 object carries a `commit_refs` annotation decoding to `["abc1234"]` and a `references`
   annotation decoding to `["a-1"]`; vector metadata carries `commit_refs` only and no `references`.
 
-Source: adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal.md D2
+Source: adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal.md D2; p12-t58-commit-refs-cap-references-removal R1, R4
 
 ### R6 — Merged link values go to both stores
 
@@ -150,16 +162,14 @@ metadata-only and never re-embed.
 When an artifact is being overwritten (`is_existing and overwrite`), the system reads forward the
 existing `commit_refs` and merges it with the values supplied to this write: union, dedup,
 order-preserving — `list(dict.fromkeys(read_forward + supplied))`, same as the `commit_refs` merge in
-`link_commit`.
+`link_metadata`.
 
 The read goes through `annotations.read_link_annotations`, which consults the annotation and nothing
 else: the S3 object annotation is the **sole** source of truth for both link fields, and the vector
-`commit_refs` copy is a derived filter index — still written, never read back. The read-forward does
-not source its prior value from a union of both stores, and the vector-metadata copy carries no
-authority. The helpers `read_current_link_fields` and its `_read_vector_link_fields` half no longer
-exist anywhere in the codebase.
+`commit_refs` copy is a derived filter index — still written, never read back and never an
+authority.
 
-That read **raises** on failure rather than returning empty. Absence of an annotation still returns
+That read **raises** on failure rather than returning empty (R12). Absence of an annotation returns
 a true empty; a failed read never masquerades as one, because an empty value on a read-modify-write
 path would be written straight back over good link data.
 
@@ -170,10 +180,13 @@ what the earlier attempt had already read forward.
 
 **Example**
 
-- Given a tier-3 artifact whose vector metadata carries `commit_refs=["abc1234"]` and
-  `references=["a-1"]`, when `write_artifact` overwrites it (same type + title), then after the write
-  both the S3 annotations and the vector metadata carry `["abc1234"]` and `["a-1"]` respectively —
-  even though the underlying `PutObject` cleared the annotations.
+- Given a tier-3 artifact whose `commit_refs` annotation carries `["abc1234"]`, when
+  `write_artifact` overwrites it (same type + title) without supplying `commit_refs`, then after the
+  write both the `commit_refs` annotation and the vector metadata carry `["abc1234"]` — even though
+  the underlying `PutObject` cleared the annotations.
+- Given the same artifact whose annotation read fails with `AnnotationUnavailableError`, when
+  `write_artifact` overwrites it, then the write returns `annotation_unavailable` before any
+  `PutObject` and writes nothing.
 - Given the overwriting write, then no error is returned and the object body reflects the new
   content.
 
@@ -181,11 +194,9 @@ Source: AC-60, adr-2026-07-03-annotation-backed-link-storage "Revision — 2026-
 
 ### R9 — `references` is replaced, not read forward, on overwrite
 
-Revised 2026-07-06 (shipped in `7a697dd`): the read-forward-and-union behaviour described throughout
-this spec applies to **`commit_refs` only**. `references` is not read forward and not merged on an
-overwriting write — it is **replaced** outright with exactly the value supplied to that call (which
-may be empty, clearing the field). Full semantics: `docs/specs/p12-t46-references-field.md`'s
-forward-pointer note.
+The read-forward and merge of R8 apply to **`commit_refs` only**. `references` is not read forward
+and not merged on an overwriting write — it is **replaced** outright with exactly the value supplied
+to that call (which may be empty, clearing the field), as `p12-t46-references-field` R9 states.
 
 **Example**
 
@@ -209,17 +220,40 @@ even when the values originally supplied to this write did not.
 When an annotation call raises `CredentialError`, the system returns a structured
 `credential_error` including `artifact_id` — never a raw exception.
 
-### R12 — Annotation-unavailable and access-denied errors defer to T52
+### R12 — Annotation-unavailable and access-denied errors return `annotation_unavailable`
 
-When an annotation call raises an annotation-unavailable / access-denied error, the system defers
-to the graceful-handling behaviour specified in T52 (structured error / degraded warning; the core
-content + vector store still functions). This spec adds the annotation write and the error hook;
-the full annotation-unavailable / AccessDenied degrade taxonomy is owned by T52.
+When an annotation call raises `AnnotationUnavailableError` (annotations unavailable, or access
+denied), `write_artifact` returns `annotation_unavailable` — the one code every tool returns for
+that condition (`s3-annotations.artifact` § Compatibility Guarantees) — never a success and never a
+warning. Raised by the read-forward of an overwriting write (R8), it returns before anything is
+written and appends no failure-log entry; raised by the annotation write after `PutObject`, it
+carries the durability facts of R13.
 
-### R13 — A failed durable link write is not a success
+Source: FR-57
 
-A failed durable link write is not reported as a success: `write_artifact` returns `partial_write`
-and records a failure-log entry.
+### R13 — Every failure after the object write is an error, and its failure-log entry holds the links
+
+When any step after `PutObject` has landed fails — the annotation write, a compare-and-swap retry's
+budget re-check, the vector write — `write_artifact` returns an error code, never success:
+`credential_error` or `annotation_unavailable` where the cause is diagnosable, `partial_write`
+otherwise (`arkeology.tools.write` § write_artifact gives each code's terms). It appends a
+failure-log entry, and the response carries `failure_logged`, `true` when that append succeeded and
+`false` when it failed. The entry records the full, uncapped `commit_refs` and `references` the
+write was applying — each omitted when empty, where absence means "nothing to restore", never
+"clear the field" — and the `last_edited_ulid` this write generated, because `PutObject` has
+already cleared the object's annotations and the entry is the only place left to restore them from
+(`p12-t48-reconcile-from-annotations` R8).
+
+**Example**
+
+- Given an overwrite of a tier-3 artifact whose annotations hold fifteen `commit_refs`, when
+  `PutObject` lands and the annotation write then fails with `AnnotationUnavailableError`, then the
+  response is `annotation_unavailable` with `failure_logged: true`, and the appended entry's
+  `commit_refs` holds all fifteen plus any supplied on this call.
+- Given the same failure where the failure-log append itself also fails, then the response carries
+  `failure_logged: false` and its message does not claim an entry was recorded.
+
+Source: FR-57; arkeology.tools.write
 
 ## 5. Boundaries
 
@@ -237,8 +271,8 @@ and records a failure-log entry.
 - Do not write `commit_refs` / `references` into S3 user-defined metadata (they are annotations now).
 - Do not re-embed on the annotation write or on read-forward.
 - Do not shift `last_edited_ulid` — it is set once per write at `PutObject`.
-- Do not invert a durably-written object + successfully-indexed vectors into a hard failure over a
-  best-effort annotation problem beyond the CredentialError / T52-taxonomy cases.
+- Do not report a write whose durable link write failed as a success, with or without a warning,
+  and do not fall back to any other store for the link fields (R12, R13).
 
 ## 6. For the developer agent
 
@@ -254,7 +288,10 @@ and records a failure-log entry.
 
 ### Contracts
 
-None.
+- `docs/contracts/modules/arkeology.tools.write.md` § write_artifact — the store ordering, the overwrite read-forward and compare-and-swap cycle, the accrete/replace split, and every error code with its failure-log terms (R2, R3, R8–R13).
+- `docs/contracts/data/s3-annotations.artifact.md` § apply_link_annotations, § read_link_annotations and § Compatibility Guarantees — the payload encoding with an empty list deleting the annotation, the `if_match` guard, the raise-never-degrade read, and the overwrite wipe the read-forward answers (R2–R6, R8, R12).
+- `docs/contracts/data/s3vectors.artifact.md` § cap_commit_refs_for_vectors and § Storage Shape — the capped `commit_refs` copy and no `references` in vector metadata (R5, R6).
+- `docs/contracts/data/s3.artifact.md` § Storage Shape and § check_metadata_budgets — `last_edited_ulid` kept in object metadata with no link field there, and the budget re-run after the merge (R1, R10).
 
 ### Testing Approach
 
@@ -268,16 +305,24 @@ None.
 
 2. **`test_tools_write.py` → `write.py`** (moto self-mock from T45 must model overwrite-wipe):
    - Fresh write with `commit_refs=["abc1234"], references=["a-1"]` → both annotations present and
-     decode correctly; vector metadata carries both as lists.
+     decode correctly; vector metadata carries `commit_refs` as a list and no `references` key.
    - Call-order assertion: `put_object` is called before the annotation writes, which are called
      before `put_vectors_batch` (use `mocker.spy` + a recorded call sequence).
    - Empty lists → no annotation written for that field.
-   - Overwrite: seed an existing tier-3 artifact whose vectors carry `commit_refs=["abc1234"]` and
-     `references=["a-1"]`; overwrite it (same type+title, `overwrite=True`, supplying
-     `references=["b-2"]`); assert post-write annotations + vector metadata carry `["abc1234"]` and
-     `["a-1","b-2"]`. This is the core AC-60 test and depends on the T45 moto overwrite-wipe model.
+   - Overwrite: seed an existing tier-3 artifact whose annotations carry `commit_refs=["abc1234"]`
+     and `references=["a-1"]`; overwrite it (same type+title, `overwrite=True`, supplying
+     `references=["b-2"]`); assert the post-write `commit_refs` annotation and vector metadata carry
+     `["abc1234"]` and the `references` annotation carries exactly `["b-2"]` (R9). This is the core
+     AC-60 test and depends on the T45 moto overwrite-wipe model.
    - Bedrock `embed` call count is unchanged by the annotation write (spy).
    - `CredentialError` from `put_object_annotation` → structured `credential_error` with `artifact_id`.
+   - `AnnotationUnavailableError` from the read-forward → `annotation_unavailable`, no `put_object`
+     call and no failure-log entry (R12).
+   - `AnnotationUnavailableError` from the annotation write after `put_object` →
+     `annotation_unavailable` with `failure_logged: true`, and the failure-log entry carries the full
+     `commit_refs`, `references` and `last_edited_ulid` the write was applying (R13); with the append
+     patched to fail → `failure_logged: false`.
 
 3. **Integration** — write → backfill via `link_metadata` (or direct annotation) → overwrite the
-   tier-3 artifact → assert link fields survive in both stores against real AWS.
+   tier-3 artifact → assert, against real AWS, that `commit_refs` survives in both the annotation
+   and the vector metadata, and that `references` holds exactly the value the overwrite supplied.

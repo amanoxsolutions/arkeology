@@ -74,8 +74,8 @@ generated:
   by: "axians-architect/claude-opus-5.5"
   at: 2026-10-13T18:19:14Z
 revised:
-  by: "axians-architect/claude-opus-5-5"
-  at: 2026-11-09T22:44:57Z
+  by: "axians-architect/claude-sonnet-5-5"
+  at: 2026-11-15T16:04:49Z
 ---
 
 # T86 — Per-Source Freshness
@@ -88,7 +88,7 @@ source against its own baseline. A source is stale when its current `revised.at`
 `sources` entry, with both parsed as offset-aware datetimes. A synthesis's own revision no longer
 affects the verdict. A source whose baseline is absent, or whose timestamp cannot be read, goes in
 a new `unchecked_sources` list with a reason. Every other source of that synthesis is still checked
-(FR-20, AC-18; D19, D20, D50).
+(FR-20, AC-18; brainstorming-2026-09-17-okf-v02-adoption D19, D20, D50).
 
 ## Open Questions
 
@@ -112,10 +112,11 @@ sources").
 
 T84 already stores a per-entry baseline, `sources[].last_modified`, and moves freshness onto the
 `links` annotation. T79 leaves the old ULID comparison in place until this task replaces it. Under
-D19, `last_modified` is a snapshot taken at write time, so the right comparison is the source's
-current revision time against that snapshot, made per entry and as parsed instants. D50 case 4,
-and ADR-017 `### 10. Malformed values in the new fields`, add one rule: a timestamp that cannot be
-read affects only its own source.
+brainstorming-2026-09-17-okf-v02-adoption D19, `last_modified` is a snapshot taken at write time, so
+the right comparison is the source's current revision time against that snapshot, made per entry and
+as parsed instants. brainstorming-2026-09-17-okf-v02-adoption D50 case 4, and ADR-017 `### 10.
+Malformed values in the new fields`, add one rule: a timestamp that cannot be read affects only its
+own source.
 
 **What this supersedes in T22** (`docs/specs/p5-t22-synthesis-freshness-check.md`). T22 is left
 as written. These statements in it no longer hold:
@@ -127,7 +128,7 @@ as written. These statements in it no longer hold:
 - `## Requirements`: the date-comparison bullet. The response-keys bullet and the `all_fresh`
   bullet are extended by `unchecked_sources`.
 - `## Boundaries`: "ISO-8601 date comparison is a string comparison". Timestamps are now always
-  parsed (D19).
+  parsed (brainstorming-2026-09-17-okf-v02-adoption D19).
 - `## Testing Approach`: the "Stale detection" cases, the "both older" all-fresh case, the
   seven-field response case, and the integration test that sets up staleness with an older
   synthesis date.
@@ -135,11 +136,11 @@ as written. These statements in it no longer hold:
 T22's `source_artifacts`, `status` and lower-case `synthesis` statements were already superseded
 by T84, T76 and T77. T86 does not repeat those changes.
 
-**Read-time freshness for non-synthesis documents is not added.** D20 makes freshness a
-reader-side check that applies to any document. Arkeology meets that duty by returning `sources`
-with `last_modified`, and each source's `revised`, on read. ADR-017 `## Deferred to the Specs`
-calls widening the scheduled audit "optional", and the plan entry scopes T86 to
-`check_synthesis_freshness`.
+**Read-time freshness for non-synthesis documents is not added.**
+brainstorming-2026-09-17-okf-v02-adoption D20 makes freshness a reader-side check that applies to
+any document. Arkeology meets that duty by returning `sources` with `last_modified`, and each
+source's `revised`, on read. ADR-017 `## Deferred to the Specs` calls widening the scheduled audit
+"optional", and the plan entry scopes T86 to `check_synthesis_freshness`.
 
 The seven user stories, kept below as labelled examples (Story 1 to Story 7), are all P1.
 
@@ -158,7 +159,7 @@ against `all_fresh`.
   or reported for them, the synthesis is counted in `total_checked`, and it is neither malformed
   nor a reason for `all_fresh` to be `false` (FR-20, AC-18).
 
-Source: FR-20, AC-18, D20, D38
+Source: FR-20, AC-18, brainstorming-2026-09-17-okf-v02-adoption D20, D38
 
 ### R2 — One batched lookup covers every source, and no S3 object or annotation is read for a source
 
@@ -166,7 +167,7 @@ The system must keep today's single batched lookup for all distinct resolved key
 audited synthesis (`fetch_vectors_by_artifact_ids`), and must read no S3 object or annotation for a
 source.
 
-Source: FR-20, AC-18, D20, D38
+Source: FR-20, AC-18, brainstorming-2026-09-17-okf-v02-adoption D20, D38
 
 ### R3 — The gate is applied first; a source with no vectors or denied by the gate is missing, and nothing else is decided for it
 
@@ -184,7 +185,7 @@ first. This includes `unchecked`, even when its cause lies in the synthesis's ow
 **Why:** `missing` is decided first, and only after the gate. A gate-denied foreign source must
 look exactly like an absent one (`arkeology.tools.freshness` contract, gate invariant).
 
-Source: FR-20, AC-18, D20, D38
+Source: FR-20, AC-18, brainstorming-2026-09-17-okf-v02-adoption D20, D38
 
 ### R4 — A foreign source the gate admits is judged like an own-scope source
 
@@ -212,7 +213,7 @@ vector by the same newest-write rule. Reading S3 object metadata would cost one 
 source, and it could disagree with the value the fill copied. The vector copy lags S3 only after a
 failed vector write, which the failure log and `reconcile_index` already repair.
 
-Source: D19, D40, ADR-017 `### 3. Provenance`
+Source: brainstorming-2026-09-17-okf-v02-adoption D19, D40, ADR-017 `### 3. Provenance`
 
 ### R6 — `last_edited_ulid` only chooses which of a source's vectors is current, and syntheses are deduplicated by `artifact_id` alone
 
@@ -221,10 +222,10 @@ vectors is current. It is never compared between two artifacts. The synthesis-si
 `_is_newer_write` pass is removed: no synthesis metadata reaches a verdict any more, so the
 syntheses are deduplicated by `artifact_id` alone.
 
-**Why:** D19 keeps the ULID for internal ordering, and a back-dated `revised.at` must not outrank a
-newer write.
+**Why:** brainstorming-2026-09-17-okf-v02-adoption D19 keeps the ULID for internal ordering, and a
+back-dated `revised.at` must not outrank a newer write.
 
-Source: D19
+Source: brainstorming-2026-09-17-okf-v02-adoption D19
 
 ### R7 — A source whose provenance T79's reader finds unreadable has an unreadable time, with no fallback from `revised` to `generated`
 
@@ -240,10 +241,10 @@ time as unreadable. It must not fall back from an unreadable `revised` to `gener
 unreadable provenance. Because the check uses the same test, it never compares a value the fill
 would have refused. The reason names what the audit could not use, and the fault behind a
 half-present block is corrupt provenance either way. There is no fallback from `revised` to
-`generated`, because that would compare an older time and could hide a stale source. D50 fails
-toward reporting.
+`generated`, because that would compare an older time and could hide a stale source.
+brainstorming-2026-09-17-okf-v02-adoption D50 fails toward reporting.
 
-Source: D19, D40, ADR-017 `### 3. Provenance`
+Source: brainstorming-2026-09-17-okf-v02-adoption D19, D40, ADR-017 `### 3. Provenance`
 
 ## 4. Rules — The verdict for each entry that resolves to a readable source
 
@@ -256,7 +257,7 @@ The system must report the source in `archived_sources` when its vector `archive
 
 - Given an archived source, then it is in `archived_sources` and its timestamp is judged as well.
 
-Source: FR-20, AC-18, D19, D50 case 4
+Source: FR-20, AC-18, brainstorming-2026-09-17-okf-v02-adoption D19, D50 case 4
 
 ### R9 — Each readable entry gets exactly one time verdict, checked in a fixed order; stale only when the effective time is strictly later than `last_modified`
 
@@ -291,7 +292,7 @@ The system must then give the entry exactly one time verdict, checking in this o
 
 - Given `last_modified: 2026-10-13T10:00:00+02:00` (08:00 UTC) and a source `revised.at` of
   `2026-10-13T09:00:00Z`, then the source is stale, although the second string sorts first as
-  text (D19).
+  text (brainstorming-2026-09-17-okf-v02-adoption D19).
 
 **Example (Story 5 — No baseline is unchecked, not fresh)**
 
@@ -303,7 +304,8 @@ The system must then give the entry exactly one time verdict, checking in this o
 time. Only a strict comparison lets that entry read as fresh. T79 stores whole seconds, so two
 revisions of a source within one second cannot be told apart. T79 accepts that limit. A baseline
 later than the source's time (a producer clock ahead, or a back-dated `revised.at`) reads as fresh.
-Nothing in D19 makes that a defect, and reporting it would only add noise.
+Nothing in brainstorming-2026-09-17-okf-v02-adoption D19 makes that a defect, and reporting it would
+only add noise.
 
 **Why:** `no_baseline` is a second unchecked reason, not a silent pass. T84 leaves `last_modified`
 absent when the target is missing, unreadable, or has unreadable provenance at write time. The
@@ -314,13 +316,14 @@ nobody observed. A distinct reason tells the operator what to do: update the syn
 re-supply the entry without `last_modified`. `add_artifact_links` cannot refresh a baseline,
 because its merge keeps the first entry for each `resource` (T84).
 
-Source: FR-20, AC-18, D19, D50 case 4
+Source: FR-20, AC-18, brainstorming-2026-09-17-okf-v02-adoption D19, D50 case 4
 
 ### R10 — The synthesis's own `generated`, `revised` or `last_edited_ulid` is read for no verdict, and the source's lifecycle `status` and any `relationships` are never read
 
 The system must not read the synthesis's own `generated`, `revised` or `last_edited_ulid` for any
-verdict. It must not read the source's lifecycle `status` or any `relationships` (D25).
-`supersedes` edges are lineage only and are never read here (D25).
+verdict. It must not read the source's lifecycle `status` or any `relationships`
+(brainstorming-2026-09-17-okf-v02-adoption D25). `supersedes` edges are lineage only and are never
+read here (brainstorming-2026-09-17-okf-v02-adoption D25).
 
 **Example (Story 2 — Revising the synthesis never hides it)**
 
@@ -331,14 +334,15 @@ verdict. It must not read the source's lifecycle `status` or any `relationships`
   records the source's current time and the source is no longer stale. This is how a baseline is
   refreshed.
 
-**Why:** deprecated sources are not reported. FR-20, AC-18 and D20 list exactly three states:
-stale, archived and missing. A source's lifecycle `status` is its owner's view of whether it is
-still in force. It does not mean that a document built from it is now wrong. The source's content
-at the baseline is unchanged, and a lifecycle change never moves `revised` (FR-69). T81 also gives
-this tool no lifecycle clause. Reporting deprecation would add a fourth category to a `final`
-requirement, so it is out of scope (see Boundaries, Ask First).
+**Why:** deprecated sources are not reported. FR-20, AC-18 and
+brainstorming-2026-09-17-okf-v02-adoption D20 list exactly three states: stale, archived and
+missing. A source's lifecycle `status` is its owner's view of whether it is still in force. It does
+not mean that a document built from it is now wrong. The source's content at the baseline is
+unchanged, and a lifecycle change never moves `revised` (FR-69). T81 also gives this tool no
+lifecycle clause. Reporting deprecation would add a fourth category to a `final` requirement, so it
+is out of scope (see Boundaries, Ask First).
 
-Source: FR-20, AC-18, D19, D50 case 4
+Source: FR-20, AC-18, brainstorming-2026-09-17-okf-v02-adoption D19, D50 case 4
 
 ### R11 — An unchecked or stale verdict affects only its own entry
 
@@ -349,12 +353,12 @@ judged, and the synthesis is still counted in `total_checked`.
 
 - Given a synthesis with two sources, one whose `last_modified` does not parse or has no UTC
   offset, and one revised after its baseline, then the first is in `unchecked_sources` with reason
-  `unreadable_timestamp`, the second is in `stale_sources`, and `all_fresh` is `false` (D50 case 4,
-  ADR-017 `### 10`).
+  `unreadable_timestamp`, the second is in `stale_sources`, and `all_fresh` is `false`
+  (brainstorming-2026-09-17-okf-v02-adoption D50 case 4, ADR-017 `### 10`).
 - Given a source whose stored provenance is unreadable, then it is `unreadable_timestamp`. The
   check never falls back to a time it can read on that source.
 
-Source: FR-20, AC-18, D19, D50 case 4
+Source: FR-20, AC-18, brainstorming-2026-09-17-okf-v02-adoption D19, D50 case 4
 
 ## 5. Rules — Response
 
@@ -368,7 +372,7 @@ synthesis with at least one unchecked source. The always-present keys become nin
 `delete_failed`, `total_checked`, `all_fresh`. The conditional `skipped_malformed_count` and
 T84's `skipped_deleted_count` are unchanged.
 
-Source: FR-20, malformed-data ADR D3
+Source: FR-20, adr-2026-09-14-malformed-persisted-data-policy D3
 
 ### R13 — `stale`, `archived_sources` and `missing_sources` keep their shapes; each source is identified by its resolved key and listed once per synthesis, in stored order
 
@@ -387,14 +391,14 @@ in `arkeology://artifact/{id}` cannot be passed there (T84 Open Question 2). The
 full-key forms of one target collapse to one key, which is why the lists deduplicate. Timestamps
 are not echoed: a caller who wants them reads the source or the synthesis.
 
-Source: FR-20, malformed-data ADR D3
+Source: FR-20, adr-2026-09-14-malformed-persisted-data-policy D3
 
 ### R14 — `all_fresh` is `false` when `unchecked_sources` is non-empty
 
 `all_fresh` must be `false` when `unchecked_sources` is non-empty, on the same footing as the other
 categories. A run that could not judge a source has not shown that everything is fresh.
 
-Source: FR-20, malformed-data ADR D3
+Source: FR-20, adr-2026-09-14-malformed-persisted-data-policy D3
 
 ## 6. Rules — Deletion
 
@@ -420,7 +424,8 @@ Source: T76, T77
 
 **Always:**
 - Parse both timestamps with T79's strict parser, and compare them as offset-aware datetimes. Never
-  compare them as strings, and never assume UTC for a naive value (D19, ADR-017 `### 10`).
+  compare them as strings, and never assume UTC for a naive value
+  (brainstorming-2026-09-17-okf-v02-adoption D19, ADR-017 `### 10`).
 - Resolve every entry through T84's resolver. Never resolve an `arkeology://artifact/` value
   inline.
 - Gate every source vector with `is_cross_scope_readable` before reading its `archived` or its
@@ -430,7 +435,7 @@ Source: T76, T77
 
 **Ask First:**
 - Reporting deprecated sources, or any other new source category. That changes FR-20.
-- Widening the audit beyond `Synthesis` (D20, optional).
+- Widening the audit beyond `Synthesis` (brainstorming-2026-09-17-okf-v02-adoption D20, optional).
 
 **Never:**
 - Compare `last_edited_ulid`, `generated` or `revised` between a synthesis and its source.
@@ -513,12 +518,12 @@ several vectors is audited once".
   synthesis-versus-source comparison remains.
 - **Effective time.** With no `revised`, `generated_at` decides. With `generated_at` ≤ baseline <
   `revised_at`, the source is stale, which proves that `revised` wins.
-- **D19, parsed.** `last_modified: 2026-10-13T10:00:00+02:00` against `revised_at:
-  2026-10-13T09:00:00Z` → stale. Also a fractional-second `last_modified` against a whole-second
-  `revised_at`.
-- **D50 case 4.** In one synthesis, an unparseable `last_modified` gives `unreadable_timestamp`
-  while a second, stale source is still in `stale_sources`. A naive `last_modified` and a bare
-  date each give `unreadable_timestamp`.
+- **brainstorming-2026-09-17-okf-v02-adoption D19, parsed.** `last_modified:
+  2026-10-13T10:00:00+02:00` against `revised_at: 2026-10-13T09:00:00Z` → stale. Also a
+  fractional-second `last_modified` against a whole-second `revised_at`.
+- **brainstorming-2026-09-17-okf-v02-adoption D50 case 4.** In one synthesis, an unparseable
+  `last_modified` gives `unreadable_timestamp` while a second, stale source is still in
+  `stale_sources`. A naive `last_modified` and a bare date each give `unreadable_timestamp`.
 - **Source side.** An unparseable, naive or half-present `revised` gives `unreadable_timestamp`.
   When `generated_at` alone would have made the source stale, it is not in `stale_sources`, which
   proves there is no fallback.
@@ -541,7 +546,8 @@ several vectors is audited once".
 - **Batching.** Two syntheses citing one source cause one lookup that contains that key once, as
   today.
 
-No AC-80 test. T86 removes no tool, parameter or response key, so D42 has nothing to reject here.
+No AC-80 test. T86 removes no tool, parameter or response key, so
+brainstorming-2026-09-17-okf-v02-adoption D42 has nothing to reject here.
 
 **Integration tests this change breaks** (update in this task, per plan.md). By T86 the file
 already uses `create_artifact`/`update_artifact`, `generated`/`revised` and `sources` fixtures

@@ -10,15 +10,26 @@ sources:
   - resource: docs/brainstorming/brainstorming-2026-06-06-artifact-commit-refs.md
     title: Artifact Commit References
     last_modified: 2026-07-03T00:00:00Z
+  - resource: docs/learnings.md
+    title: Learnings
+  - resource: tests/integration/clients/test_vectors_filter_semantics.py
+  - resource: .docs/reviews/architecture-review-2026-11-15-arkeology-phases-9-10-12.md
+    title: "Architecture review — Arkeology, plan phases 9, 10 and 12"
+  - resource: docs/contracts/data/s3vectors.artifact.md
+    title: s3vectors.artifact
+  - resource: docs/specs/p10-t37-propose-commit-links.md
+    title: T37 — propose_commit_links Tool
 generated:
   by: "axians-analyst/unknown"
   at: 2026-06-06T00:00:00Z
 revised:
   by: "axians-architect/claude-opus-5-5"
-  at: 2026-11-09T17:13:45Z
+  at: 2026-11-15T20:19:59Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
+  - by: "axians-architect/claude-fable-5-2"
+    at: 2026-11-15T20:45:07Z
 ---
 
 # T35 — Filter Range Operators ($gte / $lte)
@@ -35,12 +46,14 @@ client interface changes are required — only `filter.py` and its tests.
 `filter.py` currently supports `$eq`, `$in`, `$nin`, `$and`, and `$or`. There is no way to
 express "field value is at least X" or "field value is at most Y", which is required to
 filter artifacts by write-time ULID range. Without `$gte`/`$lte`, the `propose_commit_links`
-tool cannot constrain its vector scan to artifacts written after a given session-start
-timestamp — it would be forced to scan all artifacts in scope on every call.
+tool cannot keep, from the own-scope vectors it lists, only the artifacts written at or after the
+`last_edited_ulid` its caller passes as `since_ulid` — a value the server returned on an earlier
+write.
 
 ULIDs are lexicographically sortable strings, so Python string comparison (`>=`, `<=`) is
-the correct operator implementation for both ULID range queries and any other string-valued
-range fields added in the future (e.g., ISO-8601 date ranges).
+the correct way to evaluate a ULID range in process. This spec covers that in-process evaluation
+only; where a string range may be evaluated at all is `s3vectors.artifact` § Compatibility
+Guarantees.
 
 All four user stories this spec covers — a lower bound, an upper bound, a combined interval, and
 an unsupported operator still raising — are P1.
@@ -114,6 +127,9 @@ behaviour.
 **Always:**
 - `$gte`/`$lte` use Python `>=`/`<=` string comparison — no type coercion, no numeric
   parsing. ULIDs and ISO-8601 dates are both lexicographically correct with this approach.
+- Range operators on string values are evaluated in process only, never in a filter sent to the
+  vector index (`s3vectors.artifact` § Compatibility Guarantees states the rule and why a passing
+  unit test proves nothing about it).
 - The implementation goes only in `filter.py` — no changes to client interfaces, vector
   client, or any tool.
 - The docstring in `filter.py` must be updated to list `$gte` and `$lte` among supported
@@ -140,7 +156,7 @@ behaviour.
 
 ### Contracts
 
-None.
+- `docs/contracts/data/s3vectors.artifact.md` § Storage Shape and § Compatibility Guarantees — `last_edited_ulid` as the string field the range operators compare (R1–R4), and a string range evaluated in process, never sent to the index (Boundaries).
 
 ### Testing Approach
 

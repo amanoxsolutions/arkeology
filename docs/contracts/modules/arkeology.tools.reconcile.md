@@ -19,7 +19,7 @@ sources:
     title: T62 — Bounded reconcile_index Failure-Log Retry + Fetch-and-Reindex Dedup
     last_modified: 2026-08-17T00:00:00Z
   - resource: docs/specs/p12-t67-orphan-vector-retry-and-selfheal.md
-    title: T67 — Orphan-Vector Inline Retry + reconcile_index Self-Heal Repair
+    title: T67 — Orphan-Vector Failure Logging + reconcile_index Self-Heal Repair
     last_modified: 2026-08-19T00:00:00Z
   - resource: docs/architecture-decisions/adr-2026-07-03-annotation-backed-link-storage.md
     title: Annotation-Backed Durable Storage for Mutable Link Fields (commit_refs + references)
@@ -42,12 +42,16 @@ sources:
   - resource: .docs/reviews/architecture-review-2026-11-10-arkeology-recheck.md
     title: "Architecture review — Arkeology (whole design record), re-check of C-1 to C-3"
     last_modified: 2026-11-10T16:49:29Z
+  - resource: .docs/reviews/architecture-review-2026-11-15-arkeology-phases-9-10-12.md
+    title: "Architecture review — Arkeology, plan phases 9, 10 and 12"
+  - resource: docs/specs/p12-t57-guard-coverage.md
+    title: T57 — Guard Coverage in link_metadata.py and reconcile.py + Control-Character Validation Fix
 generated:
   by: "axians-tech-writer/claude-opus-5"
   at: 2026-09-04T00:00:00Z
 revised:
-  by: "axians-architect/claude-opus-5-5"
-  at: 2026-11-12T14:38:17Z
+  by: "axians-architect/claude-sonnet-5-5"
+  at: 2026-11-15T20:36:28Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
@@ -87,19 +91,83 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
 - S3 is the rebuild source of record. The entire vector index can be reconstructed from S3 objects
   plus their annotations; the reverse is not possible, and no reconcile path may assume otherwise.
 - The rebuild is **lossless for link fields**: `commit_refs` and `references` are read from the
-  durable annotation store and re-applied to rebuilt vector metadata. A rebuild that read only
-  vector metadata would erase the annotation-only `references` copy entirely.
-- Only the **capped** `commit_refs` value is placed into rebuilt vector metadata; the annotation
-  copy is left complete and uncapped.
+  durable annotation store and the annotation copy is left complete and uncapped. A rebuild that
+  read only vector metadata would erase the annotation-only `references` copy entirely.
+- Only the **capped** `commit_refs` value is placed into rebuilt vector metadata; `references` is
+  never placed there (`s3vectors.artifact` § Storage Shape).
 - Re-embedding uses the same shared `_section_pipeline` as `write_artifact` — same minimum-length
   filter, same maximum-sections cap, same per-section truncation. Bypassing it would re-submit a
   section that was truncated at write time at full length, failing the embedding input limit
   forever on every replay.
 - Metadata budgets are checked before the vector write, exactly as on the write path. Without it
   the repair tool can recreate the very oversize write it exists to fix.
-- The automatic retry loop is **bounded**. An entry reaching the maximum attempt count is no longer
-  auto-retried and is surfaced in `stuck_failures`, so a genuinely unfixable entry fails loudly
-  once rather than retrying forever.
+- The automatic retry loop is **bounded for failures no retry can cure**. A failure-log replay that
+  fails with a counting code (next invariant) advances the group's `reconcile_attempts`; once that
+  count reaches `CAS_MAX_ATTEMPTS` the group is no longer auto-retried and, unless the check of a
+  group at its bound below resolves it, is surfaced in `stuck_failures`, so a genuinely unfixable
+  entry fails loudly once rather than retrying forever.
+- **Every per-artifact failure is classified by an error code, and only a code no retry can cure
+  counts toward the bound.** Each `failed` and `stuck_failures` entry carries the code in `error`,
+  from the vocabulary the tools' top-level errors use; `reason` beside it is human-readable text,
+  and no caller or test branches on its wording. `credential_error` never appears here: it
+  abandons the whole run.
+
+  | `error` | The failure | Counts toward `stuck_failures` |
+  |---|---|---|
+  | `validation_error` | The payload the re-index derives can never be accepted: a metadata budget breach (`MetadataTooLargeError`), or a request an AWS service rejected as malformed (a `ValidationException`) | Yes |
+  | `annotation_unavailable` | The annotation store is unavailable or access to it is denied — post-setup IAM drift; the one code every tool gives this condition (`s3-annotations.artifact`) | No |
+  | `internal_error` | Any other failure: a throttle or timeout that outlasted the client's own retry, a transient network failure, a not-found the client could not classify | No |
+
+  A counting failure increments the group's `reconcile_attempts` and records its code on the
+  group's entries beside the counter, as `reconcile_error`; a non-counting failure changes neither,
+  and the group is reported in `failed` and replayed on the next run. A `stuck_failures` entry for a
+  group not attempted on this run reports the recorded `reconcile_error`, or `internal_error` when
+  the log records none — a count reached before codes were recorded — except a superseded group
+  whose saved link values failed to re-apply on this run, as the check below states. Orphan-scan and
+  dangling-vector-prune failures carry `error` from the same table and count toward nothing, since
+  neither keeps a counter. **Why the split:** a replay can succeed only if something changes between
+  runs. Re-indexing an unchanged artifact derives the identical payload every time, so a validation
+  failure recurs exactly, while a throttle passes and IAM drift is fixed by an operator — counting
+  either would mark stuck, and stop retrying, an entry the next run could resolve. Accepted cost: a
+  deterministic failure no code above names surfaces as `internal_error` and is never bounded; it is
+  reported in `failed` on every run and re-attempted each time — loud, never silent, at the cost of
+  one re-attempt per run.
+- **A group at its bound is never attempted, but its artifact is checked before the group is
+  reported stuck.** For a group whose `reconcile_attempts` has reached `CAS_MAX_ATTEMPTS`, of either
+  kind, the run reads the object's metadata (`head_object`) and `{artifact_id}#0` with metadata by
+  one `GetVectors`, and nothing else, to decide the outcome:
+
+  | What the check finds | Outcome |
+  |---|---|
+  | The object no longer exists | Resolved and pruned by the obsolete-entry rule below, reported in `reconciled` with the `failure_log_obsolete` source |
+  | A write made after the group's newest entry has indexed the artifact: the object carries a `last_edited_ulid`, `#0` carries the same one, and that ULID's time is later than the newest member's recorded `timestamp` | Its saved link values re-applied to the annotations (below), then resolved and pruned, nothing re-indexed or deleted, reported in `reconciled` with the `failure_log_superseded` source |
+  | Anything else | Reported in `stuck_failures` (Postconditions) |
+
+  The superseding write rebuilt every vector of the artifact and pruned the keys above its own set
+  (`arkeology.tools.write`), which is the repair either kind of group was waiting for. Vectors
+  merely being present is not the test: an artifact whose `link_metadata` or `archive_artifact` vector write failed, or
+  whose overwrite failed after its object was stored, keeps its earlier vectors throughout, and
+  resolving on their presence would prune the only record that those vectors are stale. An object
+  carrying no token never passes the second row. A group resolved this way leaves the log with all
+  its members, its counter and its recorded `reconcile_error` included.
+  **A superseded group's saved link values are re-applied before it is pruned.** A failed
+  overwrite's re-PUT cleared the object's annotations and the later write that superseded the group
+  carried that empty value forward, so the group's entries hold the only copy of the links they
+  recorded. Before pruning, the run restores them to the object's annotations by the replay's own
+  restore rule: the union of every member's `commit_refs`, and of every tokenless member's
+  `references`, with the field's current annotation value — never clearing a field, and leaving a
+  field no member records exactly as it is. Every tokened member's `references` copy is discarded,
+  as the supersession rule below discards it: its token predates the write that superseded the
+  group. A group whose members record neither field writes nothing. When that annotation read or
+  write fails, the group is not resolved: it stays in the log with its members, its counter and its
+  recorded `reconcile_error` unchanged — the check is not a replay, so nothing is counted — and is
+  reported in `stuck_failures` with that failure's code, from the table above, as `error`; the next
+  run checks it again. A `CredentialError` abandons the run, as from every other phase. Accepted
+  cost: one `head_object` and one `GetVectors` by key per group at its bound, on every run, and one
+  annotation read and write per superseded group that records a link field. A second accepted cost:
+  re-applying a superseded group's `commit_refs` updates the annotation but not the capped
+  `commit_refs` copy in vector metadata, so a `commit_refs` filter misses the restored refs until
+  the artifact's next write. The event is rare, and the gap is accepted.
 - A failure-log entry whose S3 object **no longer exists** is **resolved, not retried** — it is pruned
   from the log and reported in `reconciled` with the `failure_log_obsolete` source. There is nothing
   left to reconcile: the artifact is gone, and Phase 3 already prunes any vectors it left behind. This
@@ -203,7 +271,8 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
   them all; `references` is replaced outright by every write (ADR-011 decision 4), so a tokened entry
   the current token no longer matches has been superseded, and unioning it in would resurrect links
   the artifact had already dropped. The group's other properties fold the same
-  way: its retry budget is the **highest** `reconcile_attempts` any member carries, so whether an
+  way: its retry budget is the **highest** `reconcile_attempts` any member carries, and the code it
+  reports when stuck is the `reconcile_error` recorded with that count, so whether an
   artifact reaches `stuck_failures` does not depend on which line an appender happened to write
   first; an orphan-cleanup group's recorded keys are the **union** of every member's
   `orphan_keys`, because two failed cleanups may have recorded different stale sets and pruning the
@@ -248,10 +317,8 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
   therefore resolves as normal and the keys that could not be deleted are recorded in a new
   failure-log entry carrying `orphan_keys` with `failure_step` `orphan_vector_cleanup` — the
   orphan-cleanup kind, whose replay on the next run is the cheap delete, no re-embedding — as
-  `write_artifact` records on the same failure. The two are not identical: `write_artifact` retries
-  the delete before recording, and this records on the first transient failure. Deliberately so —
-  reconcile is itself the retry, so the next run's cheap delete is the retry a write path has to
-  perform inline because it has no later run to defer to. Failing the re-index instead would keep a
+  `write_artifact` records on the same failure. Neither retries the delete beyond the SDK client's
+  own retries: the next run's cheap delete is the retry. Failing the re-index instead would keep a
   budget-consuming entry that can reach `stuck_failures` for a correctly indexed artifact and
   re-embed every section on each retry to redo work that already landed; resolving with only a log
   line would prune the record and leave the stale vectors permanently, since an artifact with vectors
@@ -274,8 +341,9 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
   is bounded by its own entry's retry budget. One case does accumulate, bounded by events rather
   than by runs: once an orphan-cleanup group has reached `CAS_MAX_ATTEMPTS`, a freshly appended
   entry joins that group, inherits the group's exhausted budget under the highest-counter rule
-  above, and goes straight to `stuck_already` without ever being attempted — so every later
-  re-index whose prune fails adds one more never-attempted entry. That is contract-compliant and
+  above, and — unless the check of a group at its bound resolves the group — goes straight to
+  `stuck_already` without ever being attempted, so every later re-index whose prune fails adds one
+  more never-attempted entry. That is contract-compliant and
   loud rather than silent: the group is reported in `stuck_failures` on every run with the union of
   every member's `orphan_keys`, which is exactly the state an operator is being asked to fix.
   Accepted cost: on every re-index, in both the failure-log replay and the orphan scan, one
@@ -352,16 +420,22 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
 - Every `reconciled` entry carries a `source` discriminator naming which mechanism dealt with it:
   `failure_log` (replayed from the failure log and re-indexed), `orphan_scan` (an S3 key found with no
   vectors and re-indexed), `orphan_vector_cleanup` (leftover orphan vector keys deleted, nothing
-  re-indexed), or `failure_log_obsolete` (entry dropped because its artifact no longer exists, nothing
-  re-indexed). `reconciled` therefore means "this entry was dealt with", not "this artifact was
-  re-indexed" — two of the four sources index nothing, and a consumer counting re-index work must
-  filter on `source` rather than on the list's length.
+  re-indexed), `failure_log_obsolete` (entry dropped because its artifact no longer exists, nothing
+  re-indexed), or `failure_log_superseded` (a group at its bound dropped, once its saved link values
+  are re-applied, because a later write has indexed its artifact, nothing re-indexed). `reconciled` therefore means "this entry was dealt
+  with", not "this artifact was re-indexed" — three of the five sources index nothing, and a
+  consumer counting re-index work must filter on `source` rather than on the list's length.
 
 - Returns `reconciled`, `failed`, `failure_log_entries_before`, `failure_log_entries_after`,
   `orphans_found`, `total_reconciled`, `dangling_artifacts_found`, `dangling_vectors_pruned`, and
   `dangling_artifacts`.
 - `stuck_failures` is present **only when non-empty**, so its presence is itself the signal that
   manual intervention is required.
+- Each `failed` entry carries `artifact_id`, `error` and `reason`; each `stuck_failures` entry
+  carries those and `reconcile_attempts`; an orphan-cleanup entry's report in either list also
+  carries `orphan_keys`. `error` is the code the classification invariant above assigns. A
+  `stuck_failures` entry's `reason` ends with the path of the failure log this run read, so an
+  operator can find the group's entries without knowing where the log lives.
 - `skipped_non_artifacts` — the own-scope keys the orphan scan found without vectors and declined to
   index, per the artifacts-only invariant above — is present **only when non-empty**, on the same
   terms as `stuck_failures`. Probe keys are excluded from the scan entirely and never appear in it.
@@ -381,4 +455,5 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
   while the run was in flight is retained and counted, and `failure_log_entries_after` is not
   guaranteed to be lower than `failure_log_entries_before` when that happens.
 - An artifact rejected by the budget check is not silently retried into the same failure; it lands
-  in `failed` or `stuck_failures`.
+  in `failed` or `stuck_failures` with `error` `validation_error`, and each such run counts toward
+  its bound.

@@ -59,7 +59,7 @@ sources:
     title: T87 — Producer-Supplied id Becomes the Artifact Id
     last_modified: 2026-10-13T16:38:44Z
   - resource: docs/specs/p15-t88-migration-frontmatter.md
-    title: T88 — Migration and Source-Backfill Skills for OKF v0.2 Frontmatter
+    title: T88 — Migration Skill for OKF v0.2 Frontmatter
     last_modified: 2026-10-13T18:53:42Z
   - resource: https://github.com/GoogleCloudPlatform/open-knowledge-format/blob/main/SPEC.md
     title: Open Knowledge Format (OKF) v0.2 specification
@@ -71,7 +71,7 @@ generated:
   at: 2026-10-13T19:23:58Z
 revised:
   by: "axians-architect/claude-opus-5-5"
-  at: 2026-11-09T23:21:06Z
+  at: 2026-11-15T19:58:25Z
 ---
 
 # T89 — Schema Resource Rewrite
@@ -179,7 +179,7 @@ The resource's conventions section states:
 - Metadata comes only from tool parameters. The server never parses the content's frontmatter to
   fill a field.
 
-Source: D19, D35; OKF §7
+Source: brainstorming-2026-09-17-okf-v02-adoption D19, D35; OKF §7
 
 ## 4. Rules — Field entries
 
@@ -190,28 +190,28 @@ makes clear.
 
 | Field | The entry SHALL make clear | OKF mapping | Traces to |
 |---|---|---|---|
-| `artifact_id` | The full key `<scope>/<id><extension>` that every tool takes and returns. It never changes, including on update and retitle. A bare id inside a link is relative to the artifact that holds the link. To follow one, call `read_artifact` with the bare id and set `linked_from` to the holder's `artifact_id`. `arkeology://artifact/{id*}` resolves a bare id against the reader's own scope | None (store key) | D28, FR-75, AC-83; T78, T84, T88 |
-| `id` | Optional, and only on create (the single, bulk and migrate tools). It is used verbatim as the bare id, with no suffix, case kept, and never repaired. Form: 1–128 characters from `A-Z a-z 0-9 . _ -`, letter or digit first and last, no `..`. When omitted, the id is generated as the tiers resource describes. Ids that differ only in case are different artifacts. Unrelated to `sources[].id` | Not an OKF v0.2 key; an extension key under §4.1 | D28, D33, FR-73, AC-76; T87 |
-| `type` | Required and free-form. Stored and matched exactly, including case. Unknown values are accepted. The entry lists the recommended display names and points to `arkeology://schema/types`. Cannot change on update | §4.1 `type`, which consumers must tolerate when unknown | D37, FR-09, AC-77, AC-84; T77 |
+| `artifact_id` | The full key `<scope>/<id><extension>` that every tool takes and returns. It never changes, including on update and retitle. A bare id inside a link is relative to the artifact that holds the link. To follow one, call `read_artifact` with the bare id and set `linked_from` to the holder's `artifact_id`. `arkeology://artifact/{id*}` resolves a bare id against the reader's own scope | None (store key) | brainstorming-2026-09-17-okf-v02-adoption D28, FR-75, AC-83; T78, T84, T88 |
+| `id` | Optional, and only on create (the single, bulk and migrate tools). It is used verbatim as the bare id, with no suffix, case kept, and never repaired. Form: 1–128 characters from `A-Z a-z 0-9 . _ -`, letter or digit first and last, no `..`. When omitted, the id is generated as the tiers resource describes. Ids that differ only in case are different artifacts. Unrelated to `sources[].id` | Not an OKF v0.2 key; an extension key under §4.1 | brainstorming-2026-09-17-okf-v02-adoption D28, D33, FR-73, AC-76; T87 |
+| `type` | Required and free-form. Stored and matched exactly, including case. Unknown values are accepted. The entry lists the recommended display names and points to `arkeology://schema/types`. Cannot change on update | §4.1 `type`, which consumers must tolerate when unknown | brainstorming-2026-09-17-okf-v02-adoption D37, FR-09, AC-77, AC-84; T77 |
 | `team`, `project` (two entries) | Required free text naming the owner. Filterable. Cannot change on update | None | FR-09, AC-84 |
-| `tier` | `2` means project-local and never readable from another scope. `3` means permanent and shareable. Cannot change on update. This is Arkeology's access tier, not OKF's trust tier: a reader derives the trust tier from `verified`, and Arkeology never computes or changes it | None; distinct from the §5.3 trust tiers | FR-09, FR-10, D41 |
+| `tier` | `2` means project-local and never readable from another scope. `3` means permanent and shareable. Cannot change on update. This is Arkeology's access tier, not OKF's trust tier: a reader derives the trust tier from `verified`, and Arkeology never computes or changes it | None; distinct from the §5.3 trust tiers | FR-09, FR-10, brainstorming-2026-09-17-okf-v02-adoption D41 |
 | `visibility` | `shared` or `hidden`. Only a tier-3 `shared` artifact is readable from another scope | None | FR-10 |
 | `title` | Required. May change on update; `artifact_id` stays the same | §4.1 `title` (recommended in OKF, required here) | FR-09, AC-83 |
 | `description` | Required, at most 280 characters | §4.1 `description` | FR-09 |
 | `tags` | Optional list of strings. Filterable | §4.1 `tags` | FR-09 |
-| `archived` | Boolean, always present. Only `archive_artifact` sets it, and an update carries it forward. No tool unsets it, and `purge_archived` deletes archived artifacts. It is the store's archive marker, not a lifecycle state. Filter values: `false` (the default), `true`, `"all"` | None; kept apart from §5.4 | D21, FR-05, FR-14; T76 |
-| `status` | `draft`, `stable`, `deprecated`, or `null` when none was given. The writer sets it on create or update; an update replaces it when it passes `status`, keeps it when it omits `status`, and removes it when it passes `status: null`. `set_artifact_status` changes it alone, and `null` there clears it; this neither re-embeds nor moves `revised`. OKF reads `null` as `stable`, and a `null` artifact is in force, but the filter `status="stable"` matches only a stored `stable`. Never taken from the content's frontmatter | §5.4 `status` | D22–D24, FR-67, FR-68, AC-69, AC-71; T81, T82 |
-| `generated` | `{by, at}`, always present: who first wrote the artifact and when. Required on create, with `by` required and `at` optional (the server clock when omitted). Written once and never rewritten. A generated tier-2 id anchors on the UTC day of `generated.at`. Read `generated.at` as first authorship, not as last change. OKF v0.2 words it differently in §5.1 and §5.2, and Arkeology follows §5.1 (OKF GitHub issue #28) | §5.2 `generated`, read as §5.1 describes it | D9, D32, D35, FR-69, AC-72; T79 |
-| `revised` | `{by, at}` of the latest content revision, or `null` before the first update. Required on `update_artifact`. Moves only on content writes: never on link backfill, archive, lifecycle change, verification or reconciliation. A document imported by `migrate_artifacts` may arrive with its existing `revised`. Content recency is `revised.at`, or `generated.at` when `revised` is `null` | Not an OKF v0.2 key; the latest-revision block that the OKF GitHub issue #28 thread converged on | D19, D35, FR-69, AC-72; T79, T88 |
-| `revision_history` | `{by, at}` list, oldest first, with one entry per create or update and no length cap. `read_artifact` always returns it. `list_artifacts` returns it only when called with `include_revision_history=true` | None; entries use §7 actors | D26, D30, D34, FR-72, AC-75; T80 |
-| `verified` | `{by, at}` list in the order recorded, or `[]`. Added only by `add_artifact_verification`, never on create or update; this neither re-embeds nor moves `revised`. Returned by `read_artifact` only. The latest verification is the one with the greatest `at`, which is not necessarily the last entry. A reader derives OKF's trust tier from this list: no entries means unverified, only non-`human:` actors means machine-confirmed, and any `human:` actor means human-reviewed | §5.2 `verified`, §5.3 | D41, D44, D45, FR-70, AC-73; T83 |
-| `unverified_since_revised` | Boolean, returned by `read_artifact` only. True only when `verified` is non-empty, `revised` is present, and the latest `verified.at` is earlier than `revised.at`. Advisory: it changes no tier and no other field | None; leaves the §5.3 tier alone | D41, D45, FR-71, AC-74; T83 |
-| `sources` | What the artifact was built from (derivation). Each entry is `{resource, last_modified?, id?, title?}`, and any `author`, `usage_count` or `usage_window` is kept as supplied. Sub-keys: `resource` is `arkeology://artifact/` followed by a bare id or a full key. A bare id is relative to this artifact's scope and implies `.md`, so another extension must be cited by full key. Otherwise `resource` is a URL, an unresolved path or a scope descriptor, stored as given and never followed. `last_modified` is a snapshot of the source's revision time when this artifact was written, not a live copy. When it is omitted for a readable Arkeology source, it is filled from that source's current `revised.at`, or `generated.at` if never revised. A source is stale when its current time is later than its `last_modified`. `check_synthesis_freshness` reports stale sources, and reports a source it cannot judge under `unchecked_sources` with reason `no_baseline` or `unreadable_timestamp`. `id` is a footnote label that joins body citations (`[^label]`) to the entry. It is never an artifact id, so do not resolve it. `title` is a display label. An update replaces the whole list, and omitting it clears the list. `add_artifact_links` adds entries keyed by `resource` and keeps the first one. Returned by `read_artifact`, `list_artifacts` and the create and update responses. Never a filter. A foreign reader gets entries pointing at artifacts it cannot read removed, with one `{withheld: n}` entry appended that carries the count. That entry has no `resource` and is not a source | §5.1 `sources`; the marker follows the OKF GitHub issue #32 proposal | D17–D19, D40, D43, D47, D48, FR-20, FR-51, FR-53, AC-18, AC-56, AC-57, AC-78; T84–T86 |
-| `relationships` | Typed claims about other artifacts (association, not derivation). Each entry is `{to, type}`, and any per-edge `generated` or `verified`, or unknown key, is kept as supplied. `to` is a bare id (relative to this artifact's scope) or a full key, never a URI or a path. `type` is a case-sensitive string, for example `supersedes`, `builds_on` or `amends`. Edges are outbound only. A missing target is not an error. `supersedes` records lineage only: it never removes its target from the in-force view, and only the target's own `status: deprecated` does that. The update, return, filter and `{withheld: n}` rules are the same as for `sources`, except that `add_artifact_links` keys entries on `to` and `type` together | Not an OKF v0.2 key; an extension key shaped by the OKF GitHub issue #16 proposal | D13, D17, D25, D47, FR-51, AC-70, AC-78; T84, T85 |
-| `commit_refs` | Git commit SHAs. They accumulate and are never removed: an update and `add_artifact_links` both merge. `read_artifact` and `list_artifacts` return the full list. The `commit_refs` filter applies AND semantics and sees only each artifact's 20 most recent | Outside OKF's scope | FR-09, AC-57, C-07; T84 |
-| `content` | The markdown body as written, frontmatter included, stored verbatim. Returned by `read_artifact`, `synthesise_artifacts` and `arkeology://artifact/{id*}`. Where frontmatter and a field disagree, the field is the store's record. A foreign reader gets the `sources:` and `relationships:` frontmatter blocks redacted with the same marker. An own-scope reader gets the bytes as stored | §4 concept document | D49, FR-10, AC-78; T81, T83, T85 |
-| `last_edited_ulid` | Opaque server token that changes only on create and update. Pass it as `if_match` to `update_artifact`, which then fails with `conflict` if the artifact has changed since. Pass it as `since_ulid` to `propose_commit_links`. It is not provenance and is not comparable with `revised.at` | None | D19, FR-75, AC-86; T78, T79 |
-| `last_edited_at` | On search, synthesise and `propose_commit_links` results: when Arkeology stored the latest create or update, derived from `last_edited_ulid` (`null` if it cannot be parsed). This is storage time, so for an imported document it is the import time. Judge recency by `revised.at` or `generated.at` instead | None | D19; T79 |
+| `archived` | Boolean, always present. Only `archive_artifact` sets it, and an update carries it forward. No tool unsets it, and `purge_archived` deletes archived artifacts. It is the store's archive marker, not a lifecycle state. Filter values: `false` (the default), `true`, `"all"` | None; kept apart from §5.4 | brainstorming-2026-09-17-okf-v02-adoption D21, FR-05, FR-14; T76 |
+| `status` | `draft`, `stable`, `deprecated`, or `null` when none was given. The writer sets it on create or update; an update replaces it when it passes `status`, keeps it when it omits `status`, and removes it when it passes `status: null`. `set_artifact_status` changes it alone, and `null` there clears it; this neither re-embeds nor moves `revised`. OKF reads `null` as `stable`, and a `null` artifact is in force, but the filter `status="stable"` matches only a stored `stable`. Never taken from the content's frontmatter | §5.4 `status` | brainstorming-2026-09-17-okf-v02-adoption D22–D24, FR-67, FR-68, AC-69, AC-71; T81, T82 |
+| `generated` | `{by, at}`, always present: who first wrote the artifact and when. Required on create, with `by` required and `at` optional (the server clock when omitted). Written once and never rewritten. A generated tier-2 id anchors on the UTC day of `generated.at`. Read `generated.at` as first authorship, not as last change. OKF v0.2 words it differently in §5.1 and §5.2, and Arkeology follows §5.1 (OKF GitHub issue #28) | §5.2 `generated`, read as §5.1 describes it | brainstorming-2026-09-17-okf-v02-adoption D9, D32, D35, FR-69, AC-72; T79 |
+| `revised` | `{by, at}` of the latest content revision, or `null` before the first update. Required on `update_artifact`. Moves only on content writes: never on link backfill, archive, lifecycle change, verification or reconciliation. A document imported by `migrate_artifacts` may arrive with its existing `revised`. Content recency is `revised.at`, or `generated.at` when `revised` is `null` | Not an OKF v0.2 key; the latest-revision block that the OKF GitHub issue #28 thread converged on | brainstorming-2026-09-17-okf-v02-adoption D19, D35, FR-69, AC-72; T79, T88 |
+| `revision_history` | `{by, at}` list, oldest first, with one entry per create or update and no length cap. `read_artifact` always returns it. `list_artifacts` returns it only when called with `include_revision_history=true` | None; entries use §7 actors | brainstorming-2026-09-17-okf-v02-adoption D26, D30, D34, FR-72, AC-75; T80 |
+| `verified` | `{by, at}` list in the order recorded, or `[]`. Added only by `add_artifact_verification`, never on create or update; this neither re-embeds nor moves `revised`. Returned by `read_artifact` only. The latest verification is the one with the greatest `at`, which is not necessarily the last entry. A reader derives OKF's trust tier from this list: no entries means unverified, only non-`human:` actors means machine-confirmed, and any `human:` actor means human-reviewed | §5.2 `verified`, §5.3 | brainstorming-2026-09-17-okf-v02-adoption D41, D44, D45, FR-70, AC-73; T83 |
+| `unverified_since_revised` | Boolean, returned by `read_artifact` only. True only when `verified` is non-empty, `revised` is present, and the latest `verified.at` is earlier than `revised.at`. Advisory: it changes no tier and no other field | None; leaves the §5.3 tier alone | brainstorming-2026-09-17-okf-v02-adoption D41, D45, FR-71, AC-74; T83 |
+| `sources` | What the artifact was built from (derivation). Each entry is `{resource, last_modified?, id?, title?}`, and any `author`, `usage_count` or `usage_window` is kept as supplied. Sub-keys: `resource` is `arkeology://artifact/` followed by a bare id or a full key. A bare id is relative to this artifact's scope and implies `.md`, so another extension must be cited by full key. Otherwise `resource` is a URL, an unresolved path or a scope descriptor, stored as given and never followed. `last_modified` is a snapshot of the source's revision time when this artifact was written, not a live copy. When it is omitted for a readable Arkeology source, it is filled from that source's current `revised.at`, or `generated.at` if never revised. A source is stale when its current time is later than its `last_modified`. `check_synthesis_freshness` reports stale sources, and reports a source it cannot judge under `unchecked_sources` with reason `no_baseline` or `unreadable_timestamp`. `id` is a footnote label that joins body citations (`[^label]`) to the entry. It is never an artifact id, so do not resolve it. `title` is a display label. An update replaces the whole list, and omitting it clears the list. `add_artifact_links` adds entries keyed by `resource` and keeps the first one. Returned by `read_artifact` and the create and update responses, and by `list_artifacts` only when called with `include_links=true`. Never a filter. A foreign reader gets entries pointing at artifacts it cannot read removed, with one `{withheld: n}` entry appended that carries the count. That entry has no `resource` and is not a source | §5.1 `sources`; the marker follows the OKF GitHub issue #32 proposal | brainstorming-2026-09-17-okf-v02-adoption D17–D19, D40, D43, D47, D48, FR-20, FR-51, FR-53, AC-18, AC-56, AC-57, AC-78; T84–T86 |
+| `relationships` | Typed claims about other artifacts (association, not derivation). Each entry is `{to, type}`, and any per-edge `generated` or `verified`, or unknown key, is kept as supplied. `to` is a bare id (relative to this artifact's scope) or a full key, never a URI or a path. `type` is a case-sensitive string, for example `supersedes`, `builds_on` or `amends`. Edges are outbound only. A missing target is not an error. `supersedes` records lineage only: it never removes its target from the in-force view, and only the target's own `status: deprecated` does that. The update, return, filter and `{withheld: n}` rules are the same as for `sources`, except that `add_artifact_links` keys entries on `to` and `type` together | Not an OKF v0.2 key; an extension key shaped by the OKF GitHub issue #16 proposal | brainstorming-2026-09-17-okf-v02-adoption D13, D17, D25, D47, FR-51, AC-70, AC-78; T84, T85 |
+| `commit_refs` | Git commit SHAs. They accumulate and are never removed: an update and `add_artifact_links` both merge. `read_artifact` always returns the full list; `list_artifacts` returns it only when called with `include_links=true`. The `commit_refs` filter applies AND semantics, with or without `include_links`, and sees only each artifact's 20 most recent | Outside OKF's scope | FR-09, AC-57, C-07; T84; p3-t10-list-artifacts R11 |
+| `content` | The markdown body as written, frontmatter included, stored verbatim. Returned by `read_artifact`, `synthesise_artifacts` and `arkeology://artifact/{id*}`. Where frontmatter and a field disagree, the field is the store's record. A foreign reader gets the `sources:` and `relationships:` frontmatter blocks redacted with the same marker. An own-scope reader gets the bytes as stored | §4 concept document | brainstorming-2026-09-17-okf-v02-adoption D49, FR-10, AC-78; T81, T83, T85 |
+| `last_edited_ulid` | Opaque server token that changes only on create and update. Pass it as `if_match` to `update_artifact`, which then fails with `conflict` if the artifact has changed since. Pass it as `since_ulid` to `propose_commit_links`. It is not provenance and is not comparable with `revised.at` | None | brainstorming-2026-09-17-okf-v02-adoption D19, FR-75, AC-86; T78, T79 |
+| `last_edited_at` | On search, synthesise and `propose_commit_links` results: when Arkeology stored the latest create or update, derived from `last_edited_ulid` (`null` if it cannot be parsed). This is storage time, so for an imported document it is the import time. Judge recency by `revised.at` or `generated.at` instead | None | brainstorming-2026-09-17-okf-v02-adoption D19; T79 |
 
 Examples (Story 2, overloaded names are disambiguated):
 
@@ -283,7 +283,7 @@ Example (Story 3, an agent asks for the view it means):
   (`archived="all"` with `status="all"`) and the exclude-drafts call, and knows that `supersedes`
   never removes an artifact from the default view.
 
-Source: FR-04, FR-67; D23–D25
+Source: FR-04, FR-67; brainstorming-2026-09-17-okf-v02-adoption D23–D25
 
 ## 6. Rules — The other schema resources
 
@@ -292,7 +292,7 @@ Source: FR-04, FR-67; D23–D25
 `tiers_schema_content` states that a supplied `id` replaces both generated formats. The key is then
 `<WRITE_PREFIX>/<id><extension>`, verbatim, with no hash and no date anchor.
 
-Source: FR-18; D28, D32; T87
+Source: FR-18; brainstorming-2026-09-17-okf-v02-adoption D28, D32; T87
 
 ### R11 — `visibility_schema_content` states that the gate also applies inside link fields
 
@@ -301,7 +301,7 @@ reader, entries in `sources` and `relationships`, and in the matching frontmatte
 returned content, that point at artifacts the reader cannot read are removed, and one
 `{withheld: n}` entry is added per list.
 
-Source: FR-18; D47–D49; T85
+Source: FR-18; brainstorming-2026-09-17-okf-v02-adoption D47–D49; T85
 
 ### R12 — `query_strategy_content` tells agents to judge recency by `revised.at`, or `generated.at` when `revised` is `null`, rather than `last_edited_at`
 
@@ -327,8 +327,8 @@ Source: FR-18
 ### R14 — None of the five resources names, as a code span, a name AC-80 lists as removed
 
 None of the five resources names, as a code span, any name that AC-80 lists as removed:
-`references`, `source_artifacts`, `author_role`, `date`, `timestamp`, `link_metadata`,
-`write_artifact`, `write_artifacts`, `overwrite`, `active` or `inactive`.
+`references`, `source_artifacts`, `author_role`, `date`, `timestamp`, `link_metadata`, the names of
+the two write tools T78 replaces, `overwrite`, `active` or `inactive`.
 
 Example (Story 5, no removed name is taught):
 

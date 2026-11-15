@@ -28,15 +28,19 @@ sources:
     last_modified: 2026-11-10T11:21:17Z
   - resource: .docs/review-fixes/calibration-2026-11-12.md
     title: "Calibration: is a filtered, paged QueryVectors (ENHANCED) an exhaustive per-artifact lookup?"
+  - resource: .docs/reviews/architecture-review-2026-11-15-arkeology-phases-9-10-12.md
+    title: "Architecture review — Arkeology, plan phases 9, 10 and 12"
 generated:
   by: "axians-architect/unknown"
   at: 2026-05-29T00:00:00Z
 revised:
   by: "axians-architect/claude-opus-5-5"
-  at: 2026-11-12T13:11:40Z
+  at: 2026-11-15T19:44:03Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
+  - by: "human:mlnrt"
+    at: 2026-11-15T11:12:39Z
 ---
 
 # T3 — AWS Client Layer
@@ -229,9 +233,8 @@ never used here.
 | `delete_object` | `key: str` | `None` | Delete object by key; silently ignores missing keys |
 
 This table reflects only what this task establishes. `put_object`'s `if_none_match`/`if_match`
-conditional-write keyword arguments and its ETag return value, and the four annotation methods
-(`put_object_annotation`, `get_object_annotation`, `list_object_annotations`,
-`delete_object_annotation`), belong to ADR-011 / `p12-t45-s3-annotation-client.md`, not to this spec;
+conditional-write keyword arguments and its ETag return value, and the three annotation methods
+(`put_object_annotation`, `get_object_annotation`, `delete_object_annotation`), belong to ADR-011 / `p12-t45-s3-annotation-client.md`, not to this spec;
 the current full interface is `src/arkeology/clients/interfaces.py`.
 
 **`VectorsClientInterface`** — methods this task establishes:

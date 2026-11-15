@@ -92,8 +92,8 @@ generated:
   by: "axians-architect/claude-opus-5.5"
   at: 2026-10-13T17:50:06Z
 revised:
-  by: "axians-architect/claude-opus-5-5"
-  at: 2026-11-09T21:57:10Z
+  by: "axians-architect/claude-sonnet-5-5"
+  at: 2026-11-15T16:04:49Z
 ---
 
 # T83 — `verified` Annotation, `add_artifact_verification`, and the "Unverified Since Revised" Flag
@@ -105,7 +105,7 @@ content by appending one `{by, at}` entry to the artifact's own `verified` annot
 append helper. It never re-PUTs the object, re-embeds, or moves `revised`, the revision history or
 `last_edited_ulid`. `read_artifact` returns the list plus an advisory `unverified_since_revised`
 boolean, true only when the newest verification predates the latest revision; the tier never changes
-(FR-70, FR-71; D41, D44, D45, D46).
+(FR-70, FR-71; brainstorming-2026-09-17-okf-v02-adoption D41, D44, D45, D46).
 
 ## Open Questions
 
@@ -122,13 +122,15 @@ boolean, true only when the newest verification predates the latest revision; th
 ## 1. Problem Statement
 
 After T79 an artifact carries first authorship and its latest revision, but nothing records that
-anyone confirmed the content still holds. OKF v0.2 carries that as a `verified` list (D6). It cannot
-live in object or vector metadata: it grows with every review and would eventually trip the 2 KB
-budgets and block ordinary content writes (D44). It cannot share the link or history annotation,
-because reviewers append on their own schedule (D31, D44). Recording one must not touch content or
-`revised`, or every synthesis citing the artifact would look stale (D19). Once a document has been
-revised after its last verification, a reader should be told so — as a warning, not a demotion
-(D41).
+anyone confirmed the content still holds. OKF v0.2 carries that as a `verified` list
+(brainstorming-2026-09-17-okf-v02-adoption D6). It cannot live in object or vector metadata: it
+grows with every review and would eventually trip the 2 KB budgets and block ordinary content writes
+(brainstorming-2026-09-17-okf-v02-adoption D44). It cannot share the link or history annotation,
+because reviewers append on their own schedule (brainstorming-2026-09-17-okf-v02-adoption D31, D44).
+Recording one must not touch content or `revised`, or every synthesis citing the artifact would look
+stale (brainstorming-2026-09-17-okf-v02-adoption D19). Once a document has been revised after its
+last verification, a reader should be told so — as a warning, not a demotion
+(brainstorming-2026-09-17-okf-v02-adoption D41).
 
 All four of this spec's user stories are P1: record a verification without disturbing the artifact
 (R11), the advisory flag on read (R15), verifications survive every re-PUT (R3), and refusals (R4,
@@ -146,13 +148,13 @@ No copy is kept in object or vector metadata, and nothing filters on it.
 The content's own frontmatter is not read. A producer document may carry a `verified:` block in its
 stored content. The annotation is the store's record; content is never parsed for it.
 
-Source: FR-54, FR-70, C-06, C-07, C-08; D44; T80
+Source: FR-54, FR-70, C-06, C-07, C-08; brainstorming-2026-09-17-okf-v02-adoption D44; T80
 
 ### R2 — `create_artifact` writes no `verified` annotation
 
 `create_artifact` SHALL write no `verified` annotation.
 
-Source: FR-54, FR-70, C-06, C-07, C-08; D44
+Source: FR-54, FR-70, C-06, C-07, C-08; brainstorming-2026-09-17-okf-v02-adoption D44
 
 ### R3 — `verified` joins the carried set, so every re-PUT path carries it forward and none appends to it
 
@@ -167,36 +169,36 @@ and record it in any failure-log entry they write. None of them appends to it.
   its `verified` list reads back unchanged (ADR-017 `## Consequences`, "Every re-PUT must carry three
   annotations forward").
 
-Source: FR-54, FR-70, C-06, C-07, C-08; D44; T82; ADR-017 `## Consequences`
+Source: FR-54, FR-70, C-06, C-07, C-08; brainstorming-2026-09-17-okf-v02-adoption D44; T82; ADR-017 `## Consequences`
 
 ### R4 — An unreadable `verified` payload on a re-PUT path returns `corrupt_metadata` and writes nothing, until that call's own re-PUT has landed
 
 WHEN any of those paths — `update_artifact`, `archive_artifact` and `set_artifact_status` — reads an
 unreadable `verified` payload THE SYSTEM SHALL return `corrupt_metadata` naming `verified` and write
-nothing; once that call's own re-PUT has landed, the existing failure-log path applies instead (D50,
-case 1; T80, T82).
+nothing; once that call's own re-PUT has landed, the existing failure-log path applies instead
+(brainstorming-2026-09-17-okf-v02-adoption D50, case 1; T80, T82).
 
 **Example**
 
 - Given a `verified` payload that does not decode, when the artifact is read, verified, updated,
   archived or has its status changed, then `corrupt_metadata` names `verified` and nothing is written
-  (D50, case 1).
+  (brainstorming-2026-09-17-okf-v02-adoption D50, case 1).
 
-Source: FR-54, FR-70, C-06, C-07, C-08; D44; D50, case 1; T80, T82
+Source: FR-54, FR-70, C-06, C-07, C-08; brainstorming-2026-09-17-okf-v02-adoption D44; brainstorming-2026-09-17-okf-v02-adoption D50, case 1; T80, T82
 
 ### R5 — `reconcile_index` restores a failure-log entry's `verified` by ordered union and never adds a verification
 
 WHEN `reconcile_index` replays failure-log entries carrying `verified` THE SYSTEM SHALL restore it
 by T80's ordered-union rule. Reconcile never adds a verification.
 
-Source: FR-54, FR-70, C-06, C-07, C-08; D44; T80
+Source: FR-54, FR-70, C-06, C-07, C-08; brainstorming-2026-09-17-okf-v02-adoption D44; T80
 
 ### R6 — The C-06 and C-07 residuals apply unchanged
 
 The C-06 and C-07 residuals apply unchanged. In particular, a verification appended between a
 re-PUT's read and its object write is lost when that re-PUT restores what it read.
 
-Source: FR-54, FR-70, C-06, C-07, C-08; D44
+Source: FR-54, FR-70, C-06, C-07, C-08; brainstorming-2026-09-17-okf-v02-adoption D44
 
 ## 3. Rules — `add_artifact_verification`
 
@@ -206,14 +208,15 @@ THE SYSTEM SHALL provide `add_artifact_verification`, taking `artifact_id` (the 
 and `verification`, a `{by, at}` block with `by` required and `at` optional. One call records one
 entry on one artifact: there is no list of entries and no `artifact_ids` batch.
 
-**Why:** AC-73 and D46 treat a verification as one event on one artifact, so there is no list of
-entries and no `artifact_ids` batch (unlike `add_artifact_links`, which merges sets). The block reuses
-T79's resolver unchanged, so actor and timestamp rules cannot drift between `generated`, `revised`
-and verifications. It is named `verification`, not `verified`, because OKF's `verified` is the list
-and a single object under that name would misstate the shape. The response echoes the resolved block
-so a caller that omitted `at` learns the stamped time; the full list is `read_artifact`'s job.
+**Why:** AC-73 and brainstorming-2026-09-17-okf-v02-adoption D46 treat a verification as one event
+on one artifact, so there is no list of entries and no `artifact_ids` batch (unlike
+`add_artifact_links`, which merges sets). The block reuses T79's resolver unchanged, so actor and
+timestamp rules cannot drift between `generated`, `revised` and verifications. It is named
+`verification`, not `verified`, because OKF's `verified` is the list and a single object under that
+name would misstate the shape. The response echoes the resolved block so a caller that omitted `at`
+learns the stamped time; the full list is `read_artifact`'s job.
 
-Source: FR-14, FR-70, AC-72, AC-73; D46; ADR-017 `### 8. Tool surface`; T79
+Source: FR-14, FR-70, AC-72, AC-73; brainstorming-2026-09-17-okf-v02-adoption D46; ADR-017 `### 8. Tool surface`; T79
 
 ### R8 — A foreign-scope `artifact_id` is refused with `access_denied` before any storage call
 
@@ -231,7 +234,7 @@ consumer derives a trust tier from, and it would need annotation write access to
 prefix. `access_denied` rather than a silent skip matches T82's single-artifact tool; cross-team
 review is recorded by the owning team.
 
-Source: FR-14, FR-70, AC-72, AC-73; D46; ADR-017 `### 8. Tool surface`; T82
+Source: FR-14, FR-70, AC-72, AC-73; brainstorming-2026-09-17-okf-v02-adoption D46; ADR-017 `### 8. Tool surface`; T82
 
 ### R9 — `verification` is validated and resolved by T79's provenance-block resolver before any storage call; `at` is optional and unordered
 
@@ -249,7 +252,7 @@ resolved once per call so every retry appends the same entry.
 its own statement under the same write authority that could withhold it. A future-dated entry
 therefore suppresses the flag until a later revision — accepted, as the flag is advisory.
 
-Source: FR-14, FR-70, AC-72, AC-73; D46; ADR-017 `### 8. Tool surface`; T79
+Source: FR-14, FR-70, AC-72, AC-73; brainstorming-2026-09-17-okf-v02-adoption D46; ADR-017 `### 8. Tool surface`; T79
 
 ### R10 — The entry is appended with T80's append helper, and each outcome maps to one response
 
@@ -264,7 +267,7 @@ THE SYSTEM SHALL append the resolved entry with T80's append helper and map its 
 | `CredentialError` | `credential_error` |
 | `AnnotationUnavailableError` | `annotation_unavailable` |
 
-Source: FR-14, FR-70, AC-72, AC-73; D46; ADR-017 `### 8. Tool surface`; T80
+Source: FR-14, FR-70, AC-72, AC-73; brainstorming-2026-09-17-okf-v02-adoption D46; ADR-017 `### 8. Tool surface`; T80
 
 ### R11 — Recording a verification makes no Bedrock call, object PUT or vector write, and leaves the object and every other annotation as they were
 
@@ -281,13 +284,13 @@ is the annotation, which either lands or does not.
 - Given an artifact created by X and updated by Y, when a verification is recorded, then
   `generated` still names X and `revised` still names Y at Y's time (the verification leg of AC-72).
 
-Source: FR-14, FR-69, FR-70, FR-72, AC-72, AC-73; D46; ADR-017 `### 8. Tool surface`
+Source: FR-14, FR-69, FR-70, FR-72, AC-72, AC-73; brainstorming-2026-09-17-okf-v02-adoption D46; ADR-017 `### 8. Tool surface`
 
 ### R12 — Archived, deprecated and draft artifacts may be verified
 
 Archived, deprecated and draft artifacts MAY be verified; no archive or lifecycle check runs.
 
-Source: FR-14, FR-70, AC-72, AC-73; D46; ADR-017 `### 8. Tool surface`
+Source: FR-14, FR-70, AC-72, AC-73; brainstorming-2026-09-17-okf-v02-adoption D46; ADR-017 `### 8. Tool surface`
 
 ### R13 — Success returns the artifact id and the resolved block; an escaping exception returns `internal_error`
 
@@ -295,7 +298,7 @@ On success THE SYSTEM SHALL return `{"artifact_id": …, "verification": {"by": 
 the resolved values. The public function delegates to `_inner` inside `try/except Exception`; an
 escaping exception returns `internal_error`.
 
-Source: FR-14, FR-70, AC-72, AC-73; D46; ADR-017 `### 8. Tool surface`
+Source: FR-14, FR-70, AC-72, AC-73; brainstorming-2026-09-17-okf-v02-adoption D46; ADR-017 `### 8. Tool surface`
 
 ## 4. Rules — Reading and the flag
 
@@ -309,14 +312,15 @@ the gate admits receives both.
 **Why:** Absent signal is `false`, never an omitted key, matching T79's house rule that response keys
 are always present (`revised: null`). The name states the condition in FR-71's own words.
 
-Source: FR-70, FR-71, AC-73, AC-74; D19, D41, D45; ADR-017 `### 10`; T79
+Source: FR-70, FR-71, AC-73, AC-74; brainstorming-2026-09-17-okf-v02-adoption D19, D41, D45; ADR-017 `### 10`; T79
 
 ### R15 — `unverified_since_revised` is true only when the latest `verified.at` is strictly earlier than `revised.at`
 
 THE SYSTEM SHALL set `unverified_since_revised` to true only WHEN `verified` is non-empty AND
 `revised` is present AND the latest `verified.at` — the maximum over all entries, not the last
 entry — is strictly earlier than `revised.at`, both compared as parsed, offset-aware datetimes
-(D19). Otherwise it is false. `generated.at` is never used as a fallback.
+(brainstorming-2026-09-17-okf-v02-adoption D19). Otherwise it is false. `generated.at` is never used
+as a fallback.
 
 **Example**
 
@@ -332,14 +336,14 @@ verification; an artifact never revised was not, whatever its `generated.at`. FR
 "never revised" is false outright. Falling back to `generated.at` would flag a verification
 backdated before first authorship, which is a data-entry oddity, not a revision.
 
-Source: FR-70, FR-71, AC-73, AC-74; D19, D41, D45; ADR-017 `### 10`
+Source: FR-70, FR-71, AC-73, AC-74; brainstorming-2026-09-17-okf-v02-adoption D19, D41, D45; ADR-017 `### 10`
 
 ### R16 — An unreadable `verified` payload fails the read with `corrupt_metadata`, never echoing the payload
 
 WHEN the `verified` payload is unreadable `read_artifact` SHALL return `corrupt_metadata` naming
-`verified` and never echo the payload, to any reader (D50, case 5). An unreadable `revised` already
-returns `corrupt_metadata` (T79), so the flag is never computed from an unreadable timestamp.
-Unreadable timestamps fail the read, not just the flag.
+`verified` and never echo the payload, to any reader (brainstorming-2026-09-17-okf-v02-adoption D50,
+case 5). An unreadable `revised` already returns `corrupt_metadata` (T79), so the flag is never
+computed from an unreadable timestamp. Unreadable timestamps fail the read, not just the flag.
 
 **Why:** ADR-017 `### 10`'s "marks only its own source" rule is about freshness sources. A
 `verified` entry's `at` is validated when decoded, so an unreadable one makes the whole annotation
@@ -347,21 +351,22 @@ payload uninterpretable, which the same section makes `corrupt_metadata` on a si
 the artifact with the flag silently false would be the degraded path AGENTS.md forbids, and would
 under-warn.
 
-Source: FR-70, FR-71, AC-73, AC-74; D19, D41, D45; ADR-017 `### 10`; D50, case 5; T79
+Source: FR-70, FR-71, AC-73, AC-74; brainstorming-2026-09-17-okf-v02-adoption D19, D41, D45; ADR-017 `### 10`; brainstorming-2026-09-17-okf-v02-adoption D50, case 5; T79
 
 ### R17 — Computing the flag writes nothing and alters no returned field
 
 Computing the flag SHALL write nothing and SHALL NOT alter `tier`, `visibility` or any other
-returned field (D41).
+returned field (brainstorming-2026-09-17-okf-v02-adoption D41).
 
-Source: FR-70, FR-71, AC-73, AC-74; D19, D41, D45; ADR-017 `### 10`
+Source: FR-70, FR-71, AC-73, AC-74; brainstorming-2026-09-17-okf-v02-adoption D19, D41, D45; ADR-017 `### 10`
 
 ### R18 — Listings, search, synthesis, Studio and the `arkeology://` resources do not return `verified` or the flag
 
 `list_artifacts`, `search_artifacts`, `synthesise_artifacts`, Studio and the `arkeology://`
-resources SHALL NOT return `verified` or the flag (D45; backlog B-14).
+resources SHALL NOT return `verified` or the flag (brainstorming-2026-09-17-okf-v02-adoption D45;
+backlog B-14).
 
-Source: FR-70, FR-71, AC-73, AC-74; D19, D41, D45; ADR-017 `### 10`; B-14
+Source: FR-70, FR-71, AC-73, AC-74; brainstorming-2026-09-17-okf-v02-adoption D19, D41, D45; ADR-017 `### 10`; B-14
 
 ## 5. Rules — Redirect for a write-time `verified`
 
@@ -389,7 +394,7 @@ error; the redirect rows turn that into a `validation_error` naming the tool. `v
 parameter, so this is not an AC-80 removed name; the row reuses T78's mechanism as T79 did for
 `timestamp`.
 
-Source: FR-70; D42; T78, T79
+Source: FR-70; brainstorming-2026-09-17-okf-v02-adoption D42; T78, T79
 
 ## 6. Boundaries
 
@@ -409,7 +414,8 @@ Source: FR-70; D42; T78, T79
 **Never:**
 - Re-PUT the object, call Bedrock, write vectors, or move `revised`, `revision_history` or
   `last_edited_ulid` when recording a verification.
-- Change `tier` or any trust classification from the flag (D41).
+- Change `tier` or any trust classification from the flag
+  (brainstorming-2026-09-17-okf-v02-adoption D41).
 - Store any copy of `verified` in object or vector metadata, or read it from content.
 - Let the flag affect freshness, the in-force view or any filter.
 - Build a second append implementation, or add a fallback when the annotation is unavailable.
@@ -488,7 +494,8 @@ so no AC-80 test applies; the redirect rows are tested in step 6 through the sam
      verified → false; verified after the latest revision → false.
    - Never revised with a verification backdated before `generated.at` → false; `verified.at` equal to
      `revised.at` → false; a newer entry followed by an older backdated one → the maximum decides; a
-     stored `+02:00` entry compared against a `Z` `revised.at` as instants (D19).
+     stored `+02:00` entry compared against a `Z` `revised.at` as instants
+     (brainstorming-2026-09-17-okf-v02-adoption D19).
    - Absent annotation → `verified: []`, flag false; corrupt payload → `corrupt_metadata` naming
      `verified`, message without the payload; a gate-denied foreign artifact issues no `verified` GET
      (spy); an admitted foreign reader receives both keys; the read issues no put (spy).

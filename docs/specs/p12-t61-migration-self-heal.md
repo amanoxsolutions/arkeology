@@ -19,28 +19,49 @@ sources:
   - resource: docs/specs/p9-t30-write-artifacts.md
     title: Write Performance Z1 — write_artifacts + migrate_artifacts + P4 Section Truncation
     last_modified: 2026-07-05T00:00:00Z
+  - resource: docs/contracts/modules/arkeology.tools.migrate_artifacts.md
+    title: arkeology.tools.migrate_artifacts
+  - resource: .docs/reviews/architecture-review-2026-11-15-arkeology-phases-9-10-12.md
+    title: "Architecture review — Arkeology, plan phases 9, 10 and 12"
+  - resource: docs/contracts/data/s3vectors.artifact.md
+    title: s3vectors.artifact
 generated:
   by: "axians-architect/claude-sonnet-5"
   at: 2026-08-17T00:00:00Z
 revised:
   by: "axians-architect/claude-opus-5-5"
-  at: 2026-11-09T20:05:33Z
+  at: 2026-11-15T20:28:28Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
+  - by: "axians-architect/claude-fable-5-2"
+    at: 2026-11-15T20:45:07Z
 ---
 
 # T61 — Migration Self-Heal — `skipped_unindexed` Classification
 
 ## TL;DR
 
-`migrate_artifacts`' Step 5 skip-existing filter decides "already migrated" solely from `s3.head_object(candidate_key)` — it never checks whether the artifact is actually indexed. A candidate whose S3 object exists but whose vectors were never successfully written (the incident's exact permanent-partial-write shape) is silently folded into the same `skipped_existing` bucket as a genuinely fully-migrated artifact, making it un-retryable through the normal migration path forever. This spec adds one bounded, per-candidate vector-existence check to Step 5: when the S3 object exists but no vectors are indexed for it, the candidate is reported under a new, distinct `skipped_unindexed` classification that points the caller at `reconcile_index` — which, once T57's guard is in place, either self-heals it or reports a clear, structured failure instead of silently doing nothing. (ADR D3.)
+`migrate_artifacts`' Step 5 skip-existing filter decides "already migrated" solely from
+`s3.head_object(candidate_key)` — it never checks whether the artifact is actually indexed. A
+candidate whose S3 object exists but whose vectors were never successfully written (the incident's
+exact permanent-partial-write shape) is silently folded into the same `skipped_existing` bucket as a
+genuinely fully-migrated artifact, making it un-retryable through the normal migration path forever.
+This spec adds one bounded, per-candidate vector-existence check to Step 5: when the S3 object
+exists but no vectors are indexed for it, the candidate is reported under a new, distinct
+`skipped_unindexed` classification that points the caller at `reconcile_index` — which, once T57's
+guard is in place, either self-heals it or reports a clear, structured failure instead of silently
+doing nothing. (adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal D3.)
 
 ## 1. Problem Statement
 
 Bulk migration is commonly re-run over the same corpus (resuming an interrupted import, or re-importing an updated corpus), and must never overwrite an already-migrated artifact — this is why Step 5 exists. But "the S3 object exists" and "the artifact is fully migrated" are not the same fact: a prior migration attempt can have written the S3 object successfully and then failed on the vector write (exactly the incident's mechanism, closed going forward by T57/T58, but not retroactively for anything already stuck). Today, re-running migration over such a corpus reports that candidate as `skipped_existing` — identical wording to a genuinely complete artifact — giving the operator no signal that anything needs attention, and no path back to a healthy state through `migrate_artifacts` itself.
 
-This spec deliberately does **not** re-implement re-indexing logic inside `migrate_artifacts` — `reconcile_index` already owns that (`_reindex_artifact`, shared by both its failure-log-replay and orphan-scan phases). `migrate_artifacts`' job is only to *detect* the distinction and report it; remediation is `reconcile_index`'s job, reused rather than duplicated (ADR D3, "detect, don't reinvent").
+This spec deliberately does **not** re-implement re-indexing logic inside `migrate_artifacts` —
+`reconcile_index` already owns that (`_reindex_artifact`, shared by both its failure-log-replay and
+orphan-scan phases). `migrate_artifacts`' job is only to *detect* the distinction and report it;
+remediation is `reconcile_index`'s job, reused rather than duplicated
+(adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal D3, "detect, don't reinvent").
 
 This spec also resolves the T56 content-rewrite-parity concern the ADR documents: because Step 3.5 (T56's content rewrite) runs *before* Step 5 in both `dry_run` modes, any candidate whose S3 object already exists from a first migration attempt already carries the correct T56 `arkeology://` rewrite — self-healing via `reconcile_index` (which never touches content, only re-derives and re-embeds metadata already durably stored) cannot re-introduce a rewrite-parity gap. No extra code is needed for this; it falls out of the existing step ordering.
 
@@ -88,34 +109,46 @@ When the response is assembled, it carries a new top-level `skipped_unindexed` l
 
 Source: adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal D3, Open Questions resolution
 
-### R7 — An unindexed candidate's `combined_results` entry carries `"reason": "unindexed"`
+### R7 — An unindexed candidate's `results` entry carries `"reason": "unindexed"`
 
-When `combined_results[idx]` is set for an unindexed candidate, it includes a `"reason": "unindexed"` key, distinguishing it from the plain `skipped_existing` entry shape (which carries no `reason` key today) and from `"description_generation_failed"`.
+An unindexed candidate's entry in the response's positional `results` list includes a `"reason": "unindexed"` key, distinguishing it from the plain `skipped_existing` entry shape (which carries no `reason` key) and from `"description_generation_failed"`; the entry's full shape is stated in `arkeology.tools.migrate_artifacts` § migrate_artifacts. The migration skill tells every kind of skip apart by this `results` entry alone, never by the top-level lists, as `p9-t30-write-artifacts` R16 states.
 
-Source: None
+Source: arkeology.tools.migrate_artifacts; p9-t30-write-artifacts R16
 
 ## 5. Rules — Errors
 
-### R8 — A `CredentialError` from the vector-existence query returns the existing credential-error response
+### R8 — A failed existence check: a `CredentialError` fails the call, any other failure is that candidate's `check_failed` entry
 
-When the vector-existence query raises `CredentialError`, `migrate_artifacts` returns the same structured credential-error response Step 5 already returns for a `head_object` credential failure — no new error-handling shape is introduced.
+When the vector-existence query raises `CredentialError`, `migrate_artifacts` returns `credential_error` for the whole call — the same response Step 5 returns for a `head_object` credential failure. When the existence check — `head_object` or the vector-existence query — raises any other exception that is not a not-found, the batch is not aborted: that candidate is reported in a top-level `check_failed` list and its `results` entry carries `"reason": "existence_check_failed"`, nothing is written for it, and every other candidate is still checked and, if eligible, written normally. The list's and the entry's shapes, and that `check_failed` is present only when non-empty, are stated in `arkeology.tools.migrate_artifacts` § migrate_artifacts.
 
-Source: None
+**Example**
+
+- Given three candidates whose S3 objects exist, the second of which has a vector-existence query that is throttled, when `migrate_artifacts` runs, then the response lists the second under `check_failed` with `"reason": "existence_check_failed"` in its `results` entry, and the first and third are classified as R3 and R4 state.
+
+Source: arkeology.tools.migrate_artifacts
 
 ## 6. Boundaries
 
 **Always:**
-- The existence check is per-candidate, bounded, issued only for candidates whose S3 object already exists — never a bulk pre-scan (D3's chosen option; the bulk pre-scan alternative was considered and explicitly deferred to a future performance refinement only if measured necessary, per the ADR's Open Questions resolution).
-- Remediation is `reconcile_index`, reused as-is — this task adds **no** re-indexing logic inside `migrate_artifacts` itself (ADR D3, "detect, don't reinvent" — the rejected alternative was teaching `migrate_artifacts` to re-index inline, which would duplicate `_reindex_artifact`).
+- The existence check is per-candidate, bounded, issued only for candidates whose S3 object already exists — never a bulk pre-scan (adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal D3's chosen option; the bulk pre-scan alternative was considered and explicitly deferred to a future performance refinement only if measured necessary, per the ADR's Open Questions resolution).
+- Remediation is `reconcile_index`, reused as-is — this task adds **no** re-indexing logic inside
+  `migrate_artifacts` itself (adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal D3,
+  "detect, don't reinvent" — the rejected alternative was teaching `migrate_artifacts` to re-index
+  inline, which would duplicate `_reindex_artifact`).
 - `migrate_artifacts` never writes to or overwrites an unindexed candidate itself — it only detects and reports; the operator (or an automated follow-up) calls `reconcile_index` separately.
 - Step ordering (Step 3.5 content rewrite before Step 5 skip-existing) is unchanged — this is what makes the self-heal path safe for T56 rewrite parity; do not reorder these steps.
 
 **Ask First:**
-- Nothing — the per-candidate (not bulk) detection mechanism and the "detect, don't reinvent" remediation approach are both locked, operator-approved decisions (ADR D3, Open Questions resolution 3).
+- Nothing — the per-candidate (not bulk) detection mechanism and the "detect, don't reinvent"
+  remediation approach are both locked, operator-approved decisions
+  (adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal D3, Open Questions resolution 3).
 
 **Never:**
 - Do not bypass the skip-existing guard for an unindexed candidate — even though its vectors are missing, `migrate_artifacts` must never implicitly overwrite it; that remains `reconcile_index`'s job.
-- Do not add a bulk vector-listing pre-scan as part of this task — the per-candidate query was explicitly approved as-is; only revisit if a measured performance problem emerges at implementation/operation time (see ADR D3 Alternatives Considered).
+- Do not add a bulk vector-listing pre-scan as part of this task — the per-candidate query was
+  explicitly approved as-is; only revisit if a measured performance problem emerges at
+  implementation/operation time (see
+  adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal D3 Alternatives Considered).
 - Do not fold `skipped_unindexed` candidates into the existing `skipped_existing` list — they must be reported distinctly so the operator has an actionable signal.
 
 ## 7. For the developer agent
@@ -124,18 +157,19 @@ Source: None
 
 | File | Action | Notes |
 |------|--------|-------|
-| `tests/unit/test_tools_migrate_artifacts.py` | Modify | Add: S3-exists + vectors-indexed → `skipped_existing` unchanged; S3-exists + vectors-absent → `skipped_unindexed`, no write, `reconcile_index`-pointing message; S3-absent → unaffected `to_write_indices` path, no vector-existence query issued (`mocker.spy` asserting zero extra `list_vectors_by_metadata` calls for new candidates); `CredentialError` from the existence query → structured credential-error response; mixed corpus (all three cases in one call) — Red first |
+| `tests/unit/test_tools_migrate_artifacts.py` | Modify | Add: S3-exists + vectors-indexed → `skipped_existing` unchanged; S3-exists + vectors-absent → `skipped_unindexed`, no write, `reconcile_index`-pointing message; S3-absent → unaffected `to_write_indices` path, no vector-existence query issued (`mocker.spy` asserting zero extra `list_vectors_by_metadata` calls for new candidates); `CredentialError` from the existence query → `credential_error`; any other exception from the existence query → that candidate in `check_failed` with `"reason": "existence_check_failed"`, the rest of the batch unaffected; mixed corpus (all three cases in one call) — Red first |
 | `src/arkeology/tools/migrate_artifacts.py` | Modify | In Step 5, after `s3.head_object(candidate_key)` succeeds, add the `vectors.list_vectors_by_metadata` existence check; branch into `skipped_existing` vs. new `skipped_unindexed` list + `combined_results[idx]["reason"] = "unindexed"`; assemble the new `skipped_unindexed` response field alongside the existing `skipped_existing`/`generation_failed` fields |
 | `tests/integration/test_tools_migrate_artifacts.py` | Modify (flag) | Real-AWS: write an artifact, delete only its vectors (simulating the incident's partial-write state), re-run migration over the same descriptor, assert `skipped_unindexed` — Red for integration, if a suitable fixture pattern exists |
 
 ### Contracts
 
-None.
+- `docs/contracts/modules/arkeology.tools.migrate_artifacts.md` § migrate_artifacts — the per-candidate existence and indexing check, the never-overwrites guard, and the `skipped_existing`, `skipped_unindexed` and `check_failed` entries with their `results` shapes and codes (R1–R8).
+- `docs/contracts/data/s3vectors.artifact.md` § Storage Shape — the `#0` vector every indexed artifact holds, which the indexing check reads (R1, R3, R4).
 
 ### Testing Approach
 
 **TDD cycle — test file before the implementation file it gates:**
 
-1. **`test_tools_migrate_artifacts.py` → `migrate_artifacts.py`** — seed three candidates via moto: (a) S3 object + indexed vectors (expect `skipped_existing`), (b) S3 object only, no vectors (expect `skipped_unindexed`, zero writes, message references `reconcile_index`), (c) neither (expect normal write via `to_write_indices`). Run all three in one `migrate_artifacts` call and assert each response section is populated correctly and independently. Add a `mocker.spy` on `vectors.list_vectors_by_metadata` asserting it is called exactly once per already-existing candidate and never for case (c). Add a `CredentialError`-from-existence-query test asserting the existing structured credential-error response shape.
+1. **`test_tools_migrate_artifacts.py` → `migrate_artifacts.py`** — seed three candidates via moto: (a) S3 object + indexed vectors (expect `skipped_existing`), (b) S3 object only, no vectors (expect `skipped_unindexed`, zero writes, message references `reconcile_index`), (c) neither (expect normal write via `to_write_indices`). Run all three in one `migrate_artifacts` call and assert each response section is populated correctly and independently. Add a `mocker.spy` on `vectors.list_vectors_by_metadata` asserting it is called exactly once per already-existing candidate and never for case (c). Add a `CredentialError`-from-existence-query test asserting `credential_error`, and a test where the existence query for one of several candidates raises a non-credential exception, asserting that candidate is listed in `check_failed` with `"reason": "existence_check_failed"` and the other candidates are classified and written as if it were absent.
 
 Use `aws_mock`, `s3_client`, `vectors_client_*` fixtures; `FakeBedrockClient` for embeddings.

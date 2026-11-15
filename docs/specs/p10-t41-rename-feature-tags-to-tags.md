@@ -13,15 +13,39 @@ sources:
   - resource: docs/brainstorming/brainstorming-2026-06-15-okf-alignment.md
     title: OKF (Open Knowledge Format) Alignment for Arkeology
     last_modified: 2026-06-15T00:00:00Z
+  - resource: docs/contracts/modules/arkeology.tools.write.md
+    title: arkeology.tools.write
+  - resource: docs/contracts/modules/arkeology.tools.write_artifacts.md
+    title: arkeology.tools.write_artifacts
+  - resource: docs/contracts/modules/arkeology.tools.read.md
+    title: arkeology.tools.read
+  - resource: docs/contracts/modules/arkeology.tools.list.md
+    title: arkeology.tools.list
+  - resource: docs/contracts/modules/arkeology.tools.search.md
+    title: arkeology.tools.search
+  - resource: docs/contracts/modules/arkeology.tools.synthesise.md
+    title: arkeology.tools.synthesise
+  - resource: docs/contracts/modules/arkeology.tools.reconcile.md
+    title: arkeology.tools.reconcile
+  - resource: docs/contracts/modules/arkeology.resources.md
+    title: arkeology.resources
+  - resource: docs/contracts/data/s3.artifact.md
+    title: s3.artifact
+  - resource: docs/contracts/data/s3vectors.artifact.md
+    title: s3vectors.artifact
+  - resource: .docs/reviews/architecture-review-2026-11-15-arkeology-phases-9-10-12.md
+    title: "Architecture review — Arkeology, plan phases 9, 10 and 12"
 generated:
   by: "axians-pm/claude-sonnet-4.6"
   at: 2026-06-18T00:00:00Z
 revised:
   by: "axians-architect/claude-opus-5-5"
-  at: 2026-11-09T17:25:26Z
+  at: 2026-11-15T20:28:28Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
+  - by: "axians-architect/claude-fable-5-2"
+    at: 2026-11-15T20:45:07Z
 ---
 
 # T41: Rename `feature_tags` → `tags`
@@ -31,13 +55,13 @@ verified:
 Rename the `feature_tags` metadata field to `tags` across the entire Arkeology codebase —
 model, tool parameters (public MCP API), S3 and vector metadata keys, filter clause keys,
 tests, AGENTS.md, and skills. This is a pure identifier rename with no semantic change; it
-aligns Arkeology's one cleanly OKF-equivalent field with the OKF `tags` vocabulary (brainstorming
-D2, LOCKED). No live data migration is needed.
+aligns Arkeology's one cleanly OKF-equivalent field with the OKF `tags` vocabulary
+(brainstorming-2026-06-15-okf-alignment D2, LOCKED). No live data migration is needed.
 
 ## 1. Problem Statement
 
 The Arkeology artifact model uses `feature_tags` while OKF uses `tags` for the identical concept.
-Brainstorming session D2 (LOCKED) identified this as the one field where OKF alignment is
+brainstorming-2026-06-15-okf-alignment D2 (LOCKED) identified this as the one field where OKF alignment is
 clean — same concept, no semantic loss — and decided to rename internally. Until this rename
 lands the public API and internal keys diverge from OKF vocabulary for no good reason, making
 the future export adapter (B-2) slightly more complex and adding minor friction for users
@@ -68,7 +92,9 @@ string, vector: list[str]) are unchanged.
 
 When any read, search, list, or synthesise tool returns artifact metadata, the system uses the
 field name `"tags"` — not `"feature_tags"` — in the response dictionary. `tags` appears in
-`write_artifact`, `read_artifact`, `list_artifacts`, and `search_artifacts` responses.
+`read_artifact`, `list_artifacts`, and `search_artifacts` responses. A `write_artifact` success
+response returns no artifact metadata, so it carries no `tags` (`arkeology.tools.write` §
+write_artifact).
 
 ### R3 — The public MCP parameter is `tags` on all four tools
 
@@ -171,7 +197,16 @@ When the setting-up-arkeology and migrating-to-arkeology skills reference the fi
 
 ### Contracts
 
-None.
+- `docs/contracts/modules/arkeology.tools.write.md` § write_artifact — the `tags` parameter, its storage under the key `tags`, and the success response that carries no metadata (R1–R3).
+- `docs/contracts/modules/arkeology.tools.write_artifacts.md` § write_artifacts — the `tags` descriptor key (R6).
+- `docs/contracts/modules/arkeology.tools.read.md` § read_artifact — the `tags` response field (R2).
+- `docs/contracts/modules/arkeology.tools.list.md` § list_artifacts — the `tags` parameter, filter and response field (R2–R4).
+- `docs/contracts/modules/arkeology.tools.search.md` § search_artifacts — the `tags` parameter, filter and response field (R2–R4).
+- `docs/contracts/modules/arkeology.tools.synthesise.md` § synthesise_artifacts — the `tags` parameter (R2, R3).
+- `docs/contracts/modules/arkeology.tools.reconcile.md` § reconcile_index — the re-index that carries `tags` from the object to the vectors (R5).
+- `docs/contracts/modules/arkeology.resources.md` § register_resources — the schema resources' text naming the field (R7).
+- `docs/contracts/data/s3.artifact.md` § Storage Shape — `tags` as a comma-joined string in object metadata (R1, R5).
+- `docs/contracts/data/s3vectors.artifact.md` § Storage Shape and § Compatibility Guarantees — `tags` as a `list[str]` matched element by element by `$eq` (R1, R4, R5).
 
 ### Testing Approach
 

@@ -2,7 +2,7 @@
 type: Contract
 id: arkeology.tools.list
 title: arkeology.tools.list
-description: The list_artifacts MCP tool — metadata-only listings from the vector index with metadata filtering and cross-scope gate enforcement, with link fields resolved from each artifact's durable S3 object annotations.
+description: The list_artifacts MCP tool — metadata-only listings from the vector index with metadata filtering and cross-scope gate enforcement, plus, only when the caller asks, link fields resolved from each artifact's durable S3 object annotations.
 tags: []
 okf_version: "0.2"
 sources:
@@ -24,12 +24,20 @@ sources:
   - resource: docs/architecture-decisions/adr-2026-09-14-malformed-persisted-data-policy.md
     title: How Arkeology Treats Malformed and Ambiguous Persisted Data
     last_modified: 2026-09-29T00:00:00Z
+  - resource: docs/specs/p10-t36-commit-refs-metadata-fields.md
+    title: T36 — commit_refs and last_edited_ulid Metadata Fields
+  - resource: docs/specs/p12-t46-references-field.md
+    title: T46 — references First-Class Field on Artifact + write/read/list Surfacing + Filter
+  - resource: docs/planning-artifacts/requirements.md
+    title: Arkeology — Requirements
+  - resource: .docs/reviews/architecture-review-2026-11-15-arkeology-phases-9-10-12.md
+    title: "Architecture review — Arkeology, plan phases 9, 10 and 12"
 generated:
   by: "axians-tech-writer/claude-opus-5"
   at: 2026-09-04T00:00:00Z
 revised:
-  by: "axians-architect/claude-sonnet-5"
-  at: 2026-09-14T00:00:00Z
+  by: "axians-architect/claude-opus-5-5"
+  at: 2026-11-15T18:33:31Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
@@ -60,6 +68,7 @@ async def list_artifacts(
     project: str | None = None,
     tier: int | None = None,
     status: str = "active",
+    include_links: bool = False,
 ) -> dict[str, Any]: ...
 ```
 
@@ -69,10 +78,11 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
 
 - `validation_error` — an invalid filter value, e.g. a `type` outside `ARTIFACT_TYPES`.
 - `credential_error` — an AWS call raised `CredentialError`, including during the concurrent
-  link-field resolution.
+  link-field resolution `include_links=True` asks for.
 - `annotation_unavailable` — the durable link-field annotation read failed because the annotation
-  store is unavailable or access to it is denied. Startup check 8 proves availability before the
-  server accepts a request, so at runtime this means post-setup IAM drift; the code names that
+  store is unavailable or access to it is denied. Only a call with `include_links=True` reads an
+  annotation, so only such a call can return this code. Startup check 8 proves availability before
+  the server accepts a request, so at runtime this means post-setup IAM drift; the code names that
   condition instead of collapsing it into `internal_error`. It is the same code every other tool
   returns for this condition — see `s3-annotations.artifact` for the single-code rule and where the
   mapping lives.
@@ -81,6 +91,12 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
 **Invariants**
 
 - Metadata-only. No Bedrock embedding call, and no S3 object body is fetched.
+- **`commit_refs` and `references` are returned only on request.** With `include_links=False`, the
+  default, no entry carries either key — the keys are absent, never `[]`, so a field the caller did
+  not ask for can never be mistaken for one that is empty — and the call makes no S3 request of any
+  kind: its one vector-index query is the whole cost, however many artifacts the page holds. With
+  `include_links=True`, every entry carries both, `[]` when the artifact has none. `read_artifact`
+  returns both on every successful read, without being asked.
 - The cross-scope gate applies to every candidate: own-scope always listable; foreign-scope listable
   only at `tier == 3` and `visibility == "shared"`. An absent or unparseable `tier` or `visibility`
   denies; the gate never raises over a stored value.
@@ -89,21 +105,27 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
   and the page continues. One unreadable record must not withhold every readable one on the page.
   The skip is counted and reported, never silent. A candidate the gate denied is not a skip and is
   never counted: counting it would disclose that a foreign artifact exists.
-- **An artifact whose object is gone is omitted from the page and counted; a failed link-field read
-  is not.** The distinction is what the read established. An `ObjectNotFoundError` from the durable
-  link store is not a read that failed — it answered definitively that the artifact no longer
+- **With `include_links=True`, an artifact whose object is gone is omitted from the page and
+  counted; a failed link-field read is not.** The distinction is what the read established. An
+  `ObjectNotFoundError` from the durable link store is not a read that failed — it answered definitively that the artifact no longer
   exists, so omitting it from a listing is the correct result rather than a lossy one, and failing a
   read-only call over a benign concurrent delete would be disproportionate when a retry can meet the
   same race. Nothing can be written over empty here: this tool only reads.
-- **A failed or ambiguous link-field read still fails the whole listing.** A transient failure, a
+- **With `include_links=False`, a gone object is not detected.** The call reads nothing per
+  artifact, so an artifact whose object was deleted while its section vectors remain is listed, from
+  its vector metadata, until `reconcile_index` prunes those vectors as a dangling artifact; a
+  `read_artifact` of it returns `not_found`.
+- **With `include_links=True`, a failed or ambiguous link-field read fails the whole listing.** A
+  transient failure, a
   permission denial, and an unclassified not-found establish nothing about absence, so none may
   become an artifact listed with empty `commit_refs`/`references` — indistinguishable from one that
   genuinely has none, with no second copy of those fields to recover from. The page is recoverable
   by asking again. See `s3-annotations.artifact` under **Not-Found Semantics** for which error means
   which.
 - `status` defaults to `"active"`, so archived artifacts are excluded unless explicitly requested.
-- `commit_refs` and `references` are resolved from each artifact's S3 object annotations, their sole
-  source of truth, **not** read off whichever single section vector happened to be returned. A
+- When requested, `commit_refs` and `references` are resolved from each artifact's S3 object
+  annotations, their sole source of truth, **not** read off whichever single section vector
+  happened to be returned. A
   multi-section artifact can otherwise surface an arbitrary section's stale, capped copy.
 - The whole call issues **exactly one** vector-index scan — its own page query — regardless of page
   size. The retired union read model cost one additional full index scan per artifact in the page,
@@ -116,14 +138,17 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
 - The `commit_refs` **filter** is a server-side `$eq` against the vector-metadata copy, which
   `s3vectors.artifact` caps to the most-recent 20 entries. Filtering therefore searches that bounded
   window, **not** an artifact's full commit history: an artifact linked to 25 commits is not returned
-  for any of its five oldest SHAs, even though `read_artifact` and this tool's own returned
-  `commit_refs` field (annotation-sourced) do show them. The asymmetry is inherent to the
+  for any of its five oldest SHAs, even though `read_artifact`, and this tool's returned
+  `commit_refs` field under `include_links=True` (annotation-sourced), do show them. The filter
+  behaves identically with either value of `include_links`: it reads the index copy, never the
+  annotation. The asymmetry is inherent to the
   vector cap and cannot be closed inside the filter — a caller needing an exhaustive commit lookup
   must read candidates and match `commit_refs` itself.
 - There is **no** `references` filter parameter. It was removed outright when `references` stopped
   being written to vector metadata; this is a deliberate breaking change, not an omission.
-- `references` returned to a foreign-scope reader is filtered to independently-readable targets,
-  which costs one additional batched query page.
+- `references` returned to a foreign-scope reader under `include_links=True` is filtered to
+  independently-readable targets, which costs one additional batched query page. A call with
+  `include_links=False` returns no `references` and issues no such query.
 
 **Preconditions**
 
@@ -132,7 +157,8 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
 
 **Postconditions**
 
-- Returns `{"artifacts": [...]}` — metadata per artifact, never `content`.
+- Returns `{"artifacts": [...]}` — metadata per artifact, never `content`. An entry carries
+  `commit_refs: list[str]` and `references: list[str]` if and only if `include_links=True`.
 - One entry per artifact, not per section vector, regardless of how many section vectors an
   artifact has.
 - `skipped_malformed_count` is included **only when non-zero**, so its presence is itself the signal
@@ -145,8 +171,10 @@ Never raises. Every failure is a returned dict carrying an `"error"` key.
   non-zero and self-healing — reconcile prunes the leftover vectors as a dangling artifact — while a
   non-zero malformed count means corrupt stored data that wants investigation. One shared number
   would sit at a floor set by the benign cause, and the serious one would never surface. A single
-  occurrence needs no action; persistence across runs does.
+  occurrence needs no action; persistence across runs does. Only a call with `include_links=True`
+  can carry it, since only that call reads anything that could find an object gone.
 - These two are the only conditional keys in the response; `artifacts` is unconditional.
-- A failed or ambiguous link-field read for one artifact surfaces as an error for the whole call —
+- With `include_links=True`, a failed or ambiguous link-field read for one artifact surfaces as an
+  error for the whole call —
   never as a successful listing in which that artifact reports empty `commit_refs`/`references`.
   This is the same rule as the corresponding invariant above, stated from the caller's side.

@@ -6,12 +6,19 @@ description: Feature spec for the list_artifacts MCP tool that provides metadata
 tags: []
 status: stable
 okf_version: "0.2"
+sources:
+  - resource: docs/planning-artifacts/requirements.md
+    title: Arkeology — Requirements
+  - resource: docs/architecture-decisions/adr-2026-09-14-malformed-persisted-data-policy.md
+    title: How Arkeology Treats Malformed and Ambiguous Persisted Data
+  - resource: .docs/reviews/architecture-review-2026-11-15-arkeology-phases-9-10-12.md
+    title: "Architecture review — Arkeology, plan phases 9, 10 and 12"
 generated:
   by: "axians-architect/unknown"
   at: 2026-05-30T00:00:00Z
 revised:
   by: "axians-architect/claude-opus-5-5"
-  at: 2026-11-09T12:01:40Z
+  at: 2026-11-15T18:56:17Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
@@ -25,7 +32,8 @@ verified:
 semantic ranking, for browsing what exists when they do not yet know what to ask for. It returns one
 record per artifact from vector metadata alone, defaults to active artifacts, and applies the same
 cross-scope gate as search and read: own-scope artifacts unrestricted, foreign-scope artifacts limited
-to tier 3 shared.
+to tier 3 shared. An artifact's link fields, `commit_refs` and `references`, come only when the caller
+asks for them, because they are the one part of an entry that costs a read per artifact.
 
 ## 1. Problem Statement
 
@@ -62,12 +70,14 @@ stored in the vector index. When no artifact matches, an empty list is returned 
 
 Source: none
 
-### R2 — The list operation reads vector metadata only
+### R2 — A listing that does not ask for link fields reads vector metadata only
 
-All metadata required for the list response is available in vector metadata, so no S3 reads are
-required for the list operation itself — neither S3 object content nor S3 object metadata.
+When `list_artifacts` is called without asking for link fields, everything its response carries
+comes from vector metadata: the call makes its one vector-index query and no S3 request of any kind
+— no object content, no object metadata, no object annotation. Asking for link fields adds the reads
+R11 states.
 
-Source: none
+Source: R11
 
 ### R3 — `status` defaults to `"active"`
 
@@ -127,8 +137,8 @@ Source: none
 
 ### R7 — A foreign-scope entry's `references` drop what the reader could not read
 
-Each `list_artifacts` entry returns the `references` field. A foreign-scope entry's `references` list
-drops any entry the requesting reader could not independently read (i.e. not itself tier 3 shared) —
+When link fields are requested (R11), each `list_artifacts` entry carries the `references` field, and
+a foreign-scope entry's `references` list drops any entry the requesting reader could not independently read (i.e. not itself tier 3 shared) —
 batched into a single additional query across the whole result page rather than one lookup per
 artifact per reference, to avoid an N×M cost. Own-scope entries are never filtered. Full semantics:
 `docs/specs/p12-t46-references-field.md`'s forward-pointer note; rationale: ADR-012's "Cross-scope
@@ -153,6 +163,51 @@ When `list_artifacts` returns successfully, each artifact's record carries `arti
 
 Source: NFR-02
 
+### R11 — `list_artifacts` returns `commit_refs` and `references` only when the caller asks for them
+
+⚠️ Hard to reverse: every caller of `list_artifacts` is written against the default entry shape, and
+the meaning of an absent key — "not fetched", never "none" — is what a caller branches on.
+
+`list_artifacts` takes `include_links`, default false (its type and place in the signature:
+`arkeology.tools.list` § list_artifacts).
+
+- **False:** no entry carries `commit_refs` or `references` — the keys are absent, never `[]` — and
+  the call reads no S3 object annotation and makes no reference-readability lookup.
+- **True:** every entry carries both, read from the artifact's S3 object annotations, `[]` when the
+  artifact has none. A failed or
+  ambiguous annotation read fails the whole call with a structured error — never an entry reporting
+  `[]`. An artifact whose object turns out to be gone is omitted from the page and counted under
+  `skipped_deleted_count`.
+- **False, gone object:** with nothing read per artifact, the call cannot see that an object is gone.
+  An artifact whose object was deleted while its section vectors remain is listed until
+  `reconcile_index` prunes those vectors; `read_artifact` on it returns `not_found`.
+- The `commit_refs` filter works identically either way, and `read_artifact` returns both fields on
+  every successful read without being asked.
+
+**Example**
+
+- Given an own-scope artifact written with `commit_refs=["abc1234"]` and
+  `references=["team-a/payments/adr-use-postgres-abc12345.md"]`, when `list_artifacts` is called
+  with no arguments, then its entry has neither a `commit_refs` nor a `references` key, and no
+  annotation is read for any artifact on the page. When it is called with `include_links=True`,
+  then its entry carries `commit_refs: ["abc1234"]` and the same `references`.
+- Given an artifact written with no link fields, when `list_artifacts` is called with
+  `include_links=True`, then its entry carries `commit_refs: []` and `references: []`.
+- Given a page of three artifacts where the annotation read of one raises
+  `AnnotationUnavailableError`, when `list_artifacts` is called with `include_links=True`, then the
+  call returns `annotation_unavailable`; called without it, the same page lists all three.
+- Given an artifact whose object was deleted while its vectors remain, when `list_artifacts` is
+  called without `include_links`, then the artifact is listed; with `include_links=True`, it is
+  omitted and `skipped_deleted_count` is 1.
+
+**Why:** The two fields live only in S3 object annotations, so carrying them costs two annotation
+reads per listed artifact, and no consumer of an ordinary listing uses them: the
+`arkeology://artifacts` index shows identifier, title, type and description, and the Studio browser
+gets an artifact's links through `read_artifact`. An absent key rather than `[]` keeps "not fetched" distinguishable from "has
+none", the distinction the rule against degrading a failed link read to empty exists to protect.
+
+Source: FR-28, AC-34, FR-51, AC-56; adr-2026-09-14-malformed-persisted-data-policy D6
+
 ## 5. Rules — Errors
 
 ### R10 — Credential errors return a structured error
@@ -165,17 +220,19 @@ Source: none
 ## 6. Boundaries
 
 **Always:**
-- The tool receives `settings`, `s3` (unused), `vectors`, and `bedrock` (unused) as injected
-  dependencies.
+- The tool receives `settings`, `s3` (used only for the annotation reads of R11), `vectors`, and
+  `bedrock` (unused) as injected dependencies.
 
 **Ask First:**
 - Nothing — all constraints are defined.
 
 **Never:**
 - Do not fetch S3 object content or S3 object metadata for the list response — all needed data is in
-  vector metadata.
+  vector metadata — and read object annotations only when link fields are requested (R11).
 - Do not return more than one record per `artifact_id` even if multiple section vectors match the
   filter.
+- Link fields on every listing by default — revisit if a consumer of ordinary listings comes to need
+  them on every entry.
 
 ## 7. For the developer agent
 
@@ -187,10 +244,17 @@ Source: none
 | `src/arkeology/tools/list.py` | Create | Written after unit tests (Green) |
 | `tests/integration/test_tools_list.py` | Create | Written before integration wiring |
 | `src/arkeology/server.py` | Modify | Register `list_artifacts` tool on `_app` |
+| `tests/unit/test_tools_list.py` | Modify | R11 tests — Red first. Existing assertions that every entry carries `commit_refs` / `references`, or that a gone object is counted, move under `include_links=True` |
+| `src/arkeology/tools/list.py` | Modify | Add `include_links: bool = False`; when false, skip the per-artifact annotation reads and the reference-readability lookup and leave both keys off every entry |
+| `tests/unit/test_server.py` | Modify | The `list_artifacts` wrapper forwards `include_links` — Red first |
+| `src/arkeology/server.py` | Modify | Add `include_links: bool = False` to the `list_artifacts` wrapper, its docstring, and the call it forwards |
+| `src/arkeology/resources.py` | Modify | The `arkeology://schema/artifact` text says the `commit_refs` field `list_artifacts` returns shows the complete list; qualify it with `include_links=True` |
+| `SERVER-REFERENCE.md` | Modify | `list_artifacts` row: document `include_links`, and that the returned `commit_refs` comes only with it |
 
 ### Contracts
 
-None.
+- `modules/arkeology.tools.list.md` § list_artifacts — `include_links`, the entry shape with and
+  without it, and which errors only the opted-in call can return.
 
 ### Testing Approach
 
@@ -234,6 +298,23 @@ Cross-scope gate:
 Credential failure:
 - `list_vectors_by_metadata` raises `CredentialError` → structured error response.
 - `get_vectors` raises `CredentialError` → structured error response.
+
+**TDD cycle C (R11) — each test file before the implementation file it gates:**
+
+1. `tests/unit/test_tools_list.py` → `src/arkeology/tools/list.py`:
+   - No `include_links` → no entry has `commit_refs` or `references`; a spy on the S3 client's
+     annotation read records zero calls; no reference-readability query is issued.
+   - `include_links=True` → every entry carries both, `[]` for an artifact with none; foreign-scope
+     `references` filtered as R7.
+   - `include_links=True` and one annotation read raising `AnnotationUnavailableError` →
+     `annotation_unavailable`; the same page without `include_links` lists every artifact.
+   - `include_links=True` and one read raising `CredentialError` → `credential_error`.
+   - An artifact whose object is deleted but whose vectors remain → listed without `include_links`;
+     omitted with `skipped_deleted_count: 1` under `include_links=True`.
+   - `commit_refs=["abc1234"]` filter → same matches with and without `include_links`.
+2. `tests/unit/test_server.py` → `src/arkeology/server.py`: the wrapper forwards `include_links`,
+   default false.
+3. `src/arkeology/resources.py` schema text and `SERVER-REFERENCE.md`, after both cycles are green.
 
 **`tests/integration/test_tools_list.py` — integration tests (`@pytest.mark.integration`):**
 

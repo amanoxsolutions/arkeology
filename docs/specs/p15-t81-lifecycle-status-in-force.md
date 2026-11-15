@@ -119,8 +119,8 @@ generated:
   by: "axians-architect/claude-opus-5.5"
   at: 2026-10-13T16:19:13Z
 revised:
-  by: "axians-architect/claude-opus-5-5"
-  at: 2026-11-09T21:34:04Z
+  by: "axians-architect/claude-sonnet-5-5"
+  at: 2026-11-15T16:04:49Z
 ---
 
 # T81 — OKF Lifecycle `status` and the In-Force Default View
@@ -128,11 +128,12 @@ revised:
 ## TL;DR
 
 Arkeology stores the OKF document `status` (`draft | stable | deprecated`) that a writer supplies on
-create or update, in S3 object metadata and filterable vector metadata (D22). Search, listing and
-synthesis preparation then default to the in-force view — not `deprecated` and not archived, where
-an artifact with no status is in force (D23) — and callers can ask for full lineage, exclude drafts,
-or filter on an exact status. The decision keys only on the artifact's own `status` and `archived`,
-never on a `supersedes` edge (D24, D25).
+create or update, in S3 object metadata and filterable vector metadata
+(brainstorming-2026-09-17-okf-v02-adoption D22). Search, listing and synthesis preparation then
+default to the in-force view — not `deprecated` and not archived, where an artifact with no status
+is in force (brainstorming-2026-09-17-okf-v02-adoption D23) — and callers can ask for full lineage,
+exclude drafts, or filter on an exact status. The decision keys only on the artifact's own `status`
+and `archived`, never on a `supersedes` edge (brainstorming-2026-09-17-okf-v02-adoption D24, D25).
 
 ## 1. Problem Statement
 
@@ -160,7 +161,7 @@ every vector of the artifact.
 
 - Given `create_artifact` with `status="draft"`, then both stores hold `draft`.
 
-Source: FR-01, FR-09, FR-75; D22
+Source: FR-01, FR-09, FR-75; brainstorming-2026-09-17-okf-v02-adoption D22
 
 ### R2 — A create with no `status` writes no `status` key to either store
 
@@ -170,9 +171,9 @@ writes an empty string or a default. "No lifecycle status" is a real state, and 
 **Example**
 
 - Given a create with no `status`, then neither store holds a `status` key, and the artifact is in
-  force (D22).
+  force (brainstorming-2026-09-17-okf-v02-adoption D22).
 
-Source: FR-01, FR-09, FR-75; D22
+Source: FR-01, FR-09, FR-75; brainstorming-2026-09-17-okf-v02-adoption D22
 
 ### R3 — An update that omits `status` carries the stored `status` (or its absence) forward; an update with `status: null` removes the key from both stores
 
@@ -192,7 +193,7 @@ and nullable; omitted and `null` differ.
 never silently return a deprecated artifact to the in-force view; clearing is always explicit —
 `status: null` here, or `set_artifact_status` (T82).
 
-Source: FR-01, FR-09, FR-75; D22; operator decision 2026-10-13
+Source: FR-01, FR-09, FR-75; brainstorming-2026-09-17-okf-v02-adoption D22; operator decision 2026-10-13
 
 ### R4 — Any other `status` value on a write is rejected with `validation_error` naming the three accepted values and `archive_artifact`, and nothing is written
 
@@ -204,9 +205,10 @@ and must write nothing. In `create_artifacts` / `update_artifacts` only that ent
 **Example**
 
 - Given a caller still sending `status="active"` or `"inactive"`, when it calls a create or update
-  tool, then the error names `archive_artifact` (AC-80; D42).
+  tool, then the error names `archive_artifact` (AC-80;
+  brainstorming-2026-09-17-okf-v02-adoption D42).
 
-Source: FR-01, FR-09, FR-75; D22
+Source: FR-01, FR-09, FR-75; brainstorming-2026-09-17-okf-v02-adoption D22
 
 ### R5 — `update_artifact` replaces `status` with exactly what the call supplies; an omitted `status` removes the key from both stores
 
@@ -220,21 +222,21 @@ names the document's writer as the owner of `status`, and the archive marker's o
 `archive_artifact`. That is why `archived` is carried forward and `status` is not. A status change
 without a content write is T82's job.
 
-Source: FR-01, FR-09, FR-75; D22
+Source: FR-01, FR-09, FR-75; brainstorming-2026-09-17-okf-v02-adoption D22
 
 ### R6 — `archive_artifact` and the link-backfill tool carry `status` forward unchanged in both stores
 
 `archive_artifact` and the link-backfill tool (`link_metadata`, renamed `add_artifact_links` by T84)
 must carry `status` forward unchanged in both stores. Their whole-dict copies already do this.
 
-Source: FR-01, FR-09, FR-75; D22
+Source: FR-01, FR-09, FR-75; brainstorming-2026-09-17-okf-v02-adoption D22
 
 ### R7 — `status` is never derived from the content's frontmatter
 
 The system must not derive `status` from the content's frontmatter. The parameter is the only input
 (FR-01).
 
-Source: FR-01, FR-09, FR-75; D22
+Source: FR-01, FR-09, FR-75; brainstorming-2026-09-17-okf-v02-adoption D22
 
 ## 3. Rules — The view
 
@@ -262,7 +264,7 @@ offer full lineage, and full lineage needs the `archived` clause widened too. T7
 (its Boundaries, "Never"). The same helper serves all three tools, so they cannot drift apart — the
 failure the sentinel ADR records.
 
-Source: FR-04, FR-67; D23–D25; status-all sentinel ADR `## Revision — 2026-09-25`
+Source: FR-04, FR-67; brainstorming-2026-09-17-okf-v02-adoption D23–D25; status-all sentinel ADR `## Revision — 2026-09-25`
 
 ### R9 — A view's `status` is compared against `"all"` before it is validated; any other value outside the three is rejected with `validation_error` naming the accepted values and `archived`
 
@@ -273,9 +275,10 @@ values and `archived`.
 **Example**
 
 - Given a caller still sending `status="active"` or `"inactive"`, when it calls a query tool, then
-  the result is `validation_error` naming `archived` (AC-80; D42).
+  the result is `validation_error` naming `archived` (AC-80;
+  brainstorming-2026-09-17-okf-v02-adoption D42).
 
-Source: FR-04, FR-67; D23–D25; status-all sentinel ADR `## Revision — 2026-09-25`
+Source: FR-04, FR-67; brainstorming-2026-09-17-okf-v02-adoption D23–D25; status-all sentinel ADR `## Revision — 2026-09-25`
 
 ### R10 — `exclude_drafts` with `status="draft"` is rejected with `validation_error`; with `stable` or `deprecated` it adds no clause
 
@@ -283,7 +286,7 @@ When `exclude_drafts` is true and `status` is `"draft"`, the system must return 
 That combination could only match nothing, and the sentinel ADR forbids a silently empty result.
 When `status` is `stable` or `deprecated`, `exclude_drafts` adds no clause.
 
-Source: FR-04, FR-67; D23–D25; status-all sentinel ADR `## Revision — 2026-09-25`
+Source: FR-04, FR-67; brainstorming-2026-09-17-okf-v02-adoption D23–D25; status-all sentinel ADR `## Revision — 2026-09-25`
 
 ### R11 — The lifecycle clause is exactly as tabled; the default is in force, and full lineage is `archived="all"` with `status="all"`
 
@@ -325,13 +328,14 @@ supports it. `$ne` stays unsupported and keeps raising `FilterEvaluationError`.
 
 **Why:** A denylist was chosen over an allowlist (`$in: [draft, stable]`), as ADR-017's literal
 `status != deprecated` requires. It also means a malformed value reaches code and is counted, rather
-than being dropped inside the index uncounted (the failure D50 case 3 describes for `archived`).
+than being dropped inside the index uncounted (the failure
+brainstorming-2026-09-17-okf-v02-adoption D50 case 3 describes for `archived`).
 
 **Why:** The cost is at most 3 filter constraints (an `ENHANCED` index counts each value, with a cap
 of 100 per query) and about 90 bytes of filter JSON. That fits inside the headroom
 `_NIN_EXCLUSION_BYTE_BUDGET` reserves, which is unchanged.
 
-Source: FR-04, FR-67; D23–D25; status-all sentinel ADR `## Revision — 2026-09-25`
+Source: FR-04, FR-67; brainstorming-2026-09-17-okf-v02-adoption D23–D25; status-all sentinel ADR `## Revision — 2026-09-25`
 
 ### R12 — Each view clause is its own conjunct beside the unmodified scope filter, and no view input widens what the gate admits
 
@@ -342,19 +346,20 @@ The scope filter is passed through unmodified and is never wrapped, merged or re
 removes only its own clause. `is_cross_scope_readable` still runs on every candidate. No view input
 ever widens what the gate admits.
 
-Source: FR-04, FR-67; D23–D25; status-all sentinel ADR `## Revision — 2026-09-25`
+Source: FR-04, FR-67; brainstorming-2026-09-17-okf-v02-adoption D23–D25; status-all sentinel ADR `## Revision — 2026-09-25`
 
 ### R13 — The view depends only on the candidate's own `status` and `archived`, never on a `supersedes` edge or any other artifact
 
-The view must depend only on the candidate's own `status` and `archived` (D25). Building or applying
-it must not read link annotations, `relationships`, `references`, or any other artifact.
+The view must depend only on the candidate's own `status` and `archived`
+(brainstorming-2026-09-17-okf-v02-adoption D25). Building or applying it must not read link
+annotations, `relationships`, `references`, or any other artifact.
 
 **Example**
 
 - Given B declares it supersedes A, and A is `stable` and not archived, when the caller searches or
   lists with default parameters, then A is returned (AC-70).
 
-Source: FR-04, FR-67; D23–D25; status-all sentinel ADR `## Revision — 2026-09-25`
+Source: FR-04, FR-67; brainstorming-2026-09-17-okf-v02-adoption D23–D25; status-all sentinel ADR `## Revision — 2026-09-25`
 
 ### R14 — Reads by id apply no view, and the named non-view tools gain no lifecycle clause
 
@@ -362,7 +367,7 @@ Source: FR-04, FR-67; D23–D25; status-all sentinel ADR `## Revision — 2026-0
 id (FR-67). `find_referrers`, `purge_archived`, `check_synthesis_freshness`, `reconcile_index` and
 `propose_commit_links` gain no lifecycle clause.
 
-Source: FR-04, FR-67; D23–D25; status-all sentinel ADR `## Revision — 2026-09-25`
+Source: FR-04, FR-67; brainstorming-2026-09-17-okf-v02-adoption D23–D25; status-all sentinel ADR `## Revision — 2026-09-25`
 
 ## 4. Rules — Responses
 
@@ -371,7 +376,7 @@ Source: FR-04, FR-67; D23–D25; status-all sentinel ADR `## Revision — 2026-0
 Every entry from list, search and synthesise must carry `status`: the stored string, or `null` when
 there is none. `read_artifact` must return `status` from S3 object metadata (`null` when absent).
 
-Source: FR-09; malformed-data ADR D2–D4 and `## Revision — 2026-09-25`
+Source: FR-09; adr-2026-09-14-malformed-persisted-data-policy D2–D4 and `## Revision — 2026-09-25`
 
 ### R16 — A present but invalid `status` is skipped and counted by listings under every view, and makes `read_artifact` return `corrupt_metadata` naming `status`
 
@@ -383,9 +388,10 @@ gate still runs first.
 
 **Why:** Malformed values follow the malformed-data policy by the shape of the call. A present but
 invalid `status` is read successfully but cannot be interpreted. A single read therefore returns
-`corrupt_metadata`, and a listing skips and counts. Reconcile writes nothing over it (D50 case 1).
+`corrupt_metadata`, and a listing skips and counts. Reconcile writes nothing over it
+(brainstorming-2026-09-17-okf-v02-adoption D50 case 1).
 
-Source: FR-09; malformed-data ADR D2–D4 and `## Revision — 2026-09-25`
+Source: FR-09; adr-2026-09-14-malformed-persisted-data-policy D2–D4 and `## Revision — 2026-09-25`
 
 ## 5. Rules — Reconcile
 
@@ -394,10 +400,10 @@ Source: FR-09; malformed-data ADR D2–D4 and `## Revision — 2026-09-25`
 When `reconcile_index` rebuilds an artifact's vectors, the system must copy a valid S3 `status` into
 each one, and must write no `status` key when the S3 key is absent. When the S3 `status` is invalid,
 the system must write no vectors for that artifact and must report it under `failed`, with a reason
-naming `status`. There is no lifecycle repair pass: a missing `status` is legitimate, and D50's
-repair applies only to `archived`.
+naming `status`. There is no lifecycle repair pass: a missing `status` is legitimate, and
+brainstorming-2026-09-17-okf-v02-adoption D50's repair applies only to `archived`.
 
-Source: FR-17; D50
+Source: FR-17; brainstorming-2026-09-17-okf-v02-adoption D50
 
 ## 6. Rules — Resources and Studio
 
@@ -447,13 +453,13 @@ Source: FR-18, FR-46, FR-48
 T81 must delete T76's temporary rows from the removed-name table in `server.py`:
 
 - (`list_artifacts`, `status`) and (`search_artifacts`, `status`);
-- (`create_artifact`, `status`) and (`update_artifact`, `status`), or (`write_artifact`, `status`)
+- (`create_artifact`, `status`) and (`update_artifact`, `status`), or the earlier write tool's row
   if T78 has not landed;
 - T76's rejection of a `status` key in bulk descriptors.
 
 The `status` value checks on writes and on queries replace them.
 
-Source: AC-80; D42; T76 `## Open Questions` item 2
+Source: AC-80; brainstorming-2026-09-17-okf-v02-adoption D42; T76 `### Hand-offs`
 
 ### R22 — `status` is a plain string on the wire and reaches each tool's own validation through MCP
 
@@ -468,7 +474,7 @@ middleware row met AC-80 for the old name. T81 deletes that row, so the tool's o
 names the replacement. One check serves MCP and non-MCP callers (resources, Studio fallback, tests)
 alike.
 
-Source: AC-80; D42; T76 `## Open Questions` item 2
+Source: AC-80; brainstorming-2026-09-17-okf-v02-adoption D42; T76 `### Hand-offs`
 
 ## 8. Rules — Filterable budget
 
@@ -489,7 +495,7 @@ calibration method against real AWS with this key set:
 
 T81 is not done until AWS accepts at least 20 entries for that payload.
 
-Source: ADR-017 `## Consequences`; budget ADR D2 and `## Revision — 2026-09-25`
+Source: ADR-017 `## Consequences`; adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal D2 and `## Revision — 2026-09-25`
 
 ## 9. Rules — Invariant
 
@@ -515,12 +521,12 @@ Source: none attached — stated in this spec
 - Adding a `full_lineage` switch, a Studio `exclude_drafts` control, or a lifecycle clause to any tool
   not named above.
 - Any change to `COMMIT_REFS_VECTOR_METADATA_MAX_ENTRIES`. The cap is an operator-approved decision
-  (budget ADR D2). If the re-calibration shows that AWS rejects 20 entries, stop and report the
-  measured boundary rather than lowering the cap.
+  (adr-2026-08-13-vector-metadata-budget-hardening-and-self-heal D2). If the re-calibration shows
+  that AWS rejects 20 entries, stop and report the measured boundary rather than lowering the cap.
 
 **Never:**
 - Read a `supersedes` edge, `relationships`, `references` or any annotation to decide what is in force
-  (D25).
+  (brainstorming-2026-09-17-okf-v02-adoption D25).
 - Default a missing `status` to `stable` or any other value, in any store or response.
 - Use `$ne`, or rely on what `$nin` does for a missing key, in any filter.
 - Change lifecycle status without a content write (T82), or touch provenance (T79), link storage
@@ -537,7 +543,7 @@ Source: none attached — stated in this spec
 | `src/arkeology/clients/filter.py` | Modify | Add `$exists`: the operand must be a bool, and the result is `(field in metadata) == operand`. A non-bool operand raises `FilterEvaluationError`. Update the docstring: AWS does not document missing-key behaviour for `$nin`/`$ne`, nothing relies on it, and `$ne` stays unsupported |
 | `src/arkeology/constants.py` | Modify | Add the three lifecycle values (a `StrEnum` in the style of the deleted `ArtifactStatus`), and update the module docstring |
 | `src/arkeology/artifact.py` | Modify | `Artifact` gains an optional lifecycle `status`, validated against the three values |
-| `src/arkeology/tools/write.py` | Modify | Add `status` to create and update. Both metadata dicts get the key only when it is set. Update builds them without the stored `status`. If T78 has not landed, add it to `write_artifact`, whose `overwrite` path replaces it |
+| `src/arkeology/tools/write.py` | Modify | Add `status` to create and update. Both metadata dicts get the key only when it is set. Update builds them without the stored `status`. If T78 has not landed, add it to the earlier write tool T78 splits, whose `overwrite` path replaces it |
 | `src/arkeology/tools/write_artifacts.py` | Modify | Forward the descriptor's `status`. Remove T76's descriptor rejection |
 | `src/arkeology/tools/_search_helper.py` | Modify | Add the view-clause helper (raising `InvalidFilterValueError`, which every caller already maps to `validation_error`). `build_artifact_summary` adds `status` and returns `None` for a malformed one. `run_search_loop` takes a list of view clauses in place of its single status/archived clause argument |
 | `src/arkeology/tools/list.py`, `search.py`, `synthesise.py` | Modify | Add `status` and `exclude_drafts`; synthesise also gains `archived`. All go through the helper |
@@ -548,7 +554,7 @@ Source: none attached — stated in this spec
 | `src/arkeology/static/arkeology-studio.html` | Modify | Add `sel-lifecycle`, `filterLifecycle` (default `"all"`; `""` sends no `status`), the `filterArgs` change and the lifecycle detail pill |
 | `src/arkeology/tools/archive.py`, `tools/link_metadata.py` | None expected | Their whole-dict copies already carry `status`; tests pin this. *Uncertain:* confirm that T84's rename keeps the copy |
 | `tests/integration/test_calibration_vector_metadata_budget.py` | Modify | Model the final key set, and assert that the cap holds (see Testing Approach) |
-| `docs/learnings.md` | Modify | Add the re-measured boundary, with its date and key set, beside the 2026-08-13 calibration result. The budget ADR's D2 points there for results |
+| `docs/learnings.md` | Modify | Add the re-measured boundary, with its date and key set, beside the 2026-08-13 calibration result. The budget ADR's brainstorming-2026-09-17-okf-v02-adoption D2 points there for results |
 | Tests | Modify / Create | See Testing Approach |
 
 ### Contracts
@@ -617,7 +623,7 @@ them once step 1 lands.
   - `$ne` still raises.
 - Artifact: the three exact values and `None` are accepted. `Stable`, `""`, `active` and `inactive`
   are rejected.
-- Write (D22, FR-75):
+- Write (brainstorming-2026-09-17-okf-v02-adoption D22, FR-75):
   - A create with `deprecated` stores it in S3 and in every vector.
   - A create without `status` leaves no key in either store.
   - An update of a `deprecated` artifact with `stable` replaces it. An update without `status`

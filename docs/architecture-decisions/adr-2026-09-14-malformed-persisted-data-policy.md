@@ -31,12 +31,14 @@ sources:
   - resource: docs/contracts/modules/arkeology.tools.freshness.md
     title: arkeology.tools.freshness
     last_modified: 2026-09-14T00:00:00Z
+  - resource: docs/specs/p3-t10-list-artifacts.md
+    title: T10 — List Artifacts Tool
 generated:
   by: "axians-architect/claude-sonnet-5"
   at: 2026-09-14T00:00:00Z
 revised:
-  by: "axians-architect/claude-opus-5.5"
-  at: 2026-09-29T00:00:00Z
+  by: "axians-architect/claude-opus-5-5"
+  at: 2026-11-15T19:56:23Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
@@ -438,3 +440,13 @@ shape of the call.
 5. **Redaction wins over error detail.** A `corrupt_metadata` error returned to a foreign-scope
    reader names the field but never echoes its raw value. D4's "names the offending value" holds
    for own-scope reads only.
+
+## Revision — 2026-11-15
+
+`list_artifacts` no longer meets D6's middle row on every call. It reads an artifact's annotations
+only when the caller asks for the link fields (`include_links`), so only such a listing can find an
+object gone, omit the artifact and count it under `skipped_deleted_count`. A listing that does not
+ask reads nothing per artifact, cannot see the absence, and lists the artifact until
+`reconcile_index` prunes its vectors; `read_artifact` on it still returns `not_found`. D6's three
+rows, and the failure of an opted-in listing on a failed or ambiguous read, are unchanged. Owners:
+`p3-t10-list-artifacts` R11 and the `arkeology.tools.list` contract.

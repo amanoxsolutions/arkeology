@@ -9,8 +9,8 @@ generated:
   by: "axians-pm/unknown"
   at: 2026-05-29T10:46:28Z
 revised:
-  by: "axians-architect/claude-opus-5-5"
-  at: 2026-11-12T13:11:40Z
+  by: "axians-architect/claude-sonnet-5-5"
+  at: 2026-11-15T20:47:06Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
@@ -197,11 +197,11 @@ Goal: an interactive artifact browser, `arkeology_studio`, rendered inline in MC
 
 ## Phase 12 — Artifact Cross-Referencing + Annotation-Backed Link Storage
 
-Goal: a first-class `references` field, S3 object annotations as the durable store of `commit_refs`/`references` so they survive `reconcile_index`, `link_commit` generalised into `link_metadata`, and an own-scope `referenced_by` warning on delete and archive (FR-51–FR-58, revising FR-32, FR-17, FR-28, FR-09; design decisions D1–D15 in `docs/brainstorming/brainstorming-2026-07-01-artifact-cross-referencing.md`).
+Goal: a first-class `references` field, S3 object annotations as the durable store of `commit_refs`/`references` so they survive `reconcile_index`, `link_commit` generalised into `link_metadata`, and an own-scope `referenced_by` warning on delete and archive (FR-51–FR-57, revising FR-32, FR-17, FR-28, FR-09; FR-58 was retired on 2026-11-15; design decisions D1–D15 in `docs/brainstorming/brainstorming-2026-07-01-artifact-cross-referencing.md`).
 
 This phase superseded Phase 10's vector-only `commit_refs` storage with annotation-backed storage, revising specs `p10-t36`, `p10-t38`, `p10-t40`, `p2-t9`, and `p5-t21` (ADR-011).
 
-45. ✅ **S3 object annotation client support + moto self-mock extension** — annotation put/get/list/delete on the S3 client interface and implementation, with a moto self-mock for tests (FR-54).
+45. ✅ **S3 object annotation client support + moto self-mock extension** — annotation put/get/delete on the S3 client interface and implementation, with a moto self-mock for tests (FR-54); a fourth operation, list, was dropped from the design on 2026-11-15 and its code removed under backlog B-20.
 
 46. ✅ **`references` first-class field on the `Artifact` model + write / read / list surfacing** — a `references` field accepted at write and returned by write, read, and list, with a `list_artifacts` filter; its vector-metadata copy and that filter were later removed by T58 and T59 (FR-51).
 
@@ -217,7 +217,7 @@ This phase superseded Phase 10's vector-only `commit_refs` storage with annotati
 
 52. ✅ **`setting-up-arkeology` annotation availability + IAM check; runtime graceful handling; README + AGENTS.md** — an annotation availability and IAM probe in the setup skill, the required IAM actions documented, runtime graceful handling of unavailable annotations, and `arkeology://` referencing guidance in the AGENTS.md snippet; the no-startup-gate stance (D15) was later reversed by T73 (FR-57, NFR-12; D9, D15).
 
-53. ✅ **Reference-backfill cleanup skill** — an optional skill that proposes `references` backfills from a content scan in a dry-run report and applies only confirmed ones via `link_metadata` (FR-58; OQ1-cleanup).
+53. ✅ **Reference-backfill cleanup skill** — an optional skill that proposed `references` backfills from a content scan in a dry-run report and applied only confirmed ones via `link_metadata` (FR-58; OQ1-cleanup). Retired on 2026-11-15: later-run reference completion was removed (FR-58 and AC-63 retired, the spec deprecated); migration reports an unresolved `references` path once and the reference is added later by hand with `link_metadata`. The skill's files are deleted under backlog B-20.
 
 54. ✅ **Search age transparency** — every `search_artifacts` result carries `last_edited_ulid` and a derived ISO 8601 `last_edited_at`, with no ranking change (recency-weighted ranking deferred to backlog B-6).
 
@@ -284,7 +284,7 @@ skill for deployments that already hold artifacts. Decisions:
 [`adr-2026-09-25-okf-v02-adoption.md`](../architecture-decisions/adr-2026-09-25-okf-v02-adoption.md),
 from [`brainstorming-2026-09-17-okf-v02-adoption.md`](../brainstorming/brainstorming-2026-09-17-okf-v02-adoption.md).
 Requirements: FR-01, FR-04, FR-05, FR-08–FR-10, FR-14, FR-15, FR-17–FR-23, FR-46, FR-48,
-FR-51–FR-56, FR-58, FR-59, FR-67–FR-74, C-01, C-06, C-07, C-08.
+FR-51–FR-56, FR-59, FR-67–FR-74, C-01, C-06, C-07, C-08.
 
 **How each task runs (TDD).** Every task below changes behaviour, so each gets its own spec in
 `docs/specs/p15-t<n>-<slug>.md` before any code. Per task: spec → contract amendments in
@@ -292,6 +292,15 @@ FR-51–FR-56, FR-58, FR-59, FR-67–FR-74, C-01, C-06, C-07, C-08.
 suite, ruff, mypy and `npm test` are green. A task is ✅ only when all of that holds. No aliases
 for removed names (D42): each rename task also proves the old name is rejected with a
 `validation_error` naming its replacement (AC-80).
+
+**Planning gate (architecture review of 2026-11-15).** Four backlog rows are settled when
+Phase 15's tasks are planned, before the first task starts: each is pulled into a task, specced, or
+dropped by the operator. B-17 (a migration descriptor naming a repository file; design-first, needs
+an operator answer on path confinement); B-18 (slim the project snippet; before the renaming
+release, since that release rewrites every project's snippet); B-19 (post-commit link discovery;
+decide with T84, which rewrites the link tool); B-20 (the code, skill and installer changes that the
+reviewed Phase 9, 10 and 12 specs now expect, each placed alongside the task whose spec it
+implements, with the removal of the fourth annotation operation first).
 
 **Integration tests move with the code.** CI does not run `tests/integration/`, so a task that
 changes a tool's signature or behaviour also updates, in the same task, every integration test
@@ -399,14 +408,14 @@ meaning two things. Tasks marked *parallel* touch disjoint code and may run conc
     AGENTS.md's deterministic-keys rule and Working Conventions carry the ADR amendment.
     Blocked by 79. (FR-08, FR-15, FR-73; D28, D32, D33)
 
-88. ⬜ **Migration skill + `references.py` + source-backfill skill for the new frontmatter** — honour
+88. ⬜ **Migration skill + `references.py` for the new frontmatter** — honour
     `id:`; check id uniqueness across the manifest before any write; prefer `generated.at` as the
     first-authorship time; resolve `sources[].resource` paths by reading the target file's own
-    `id:`; carry `relationships` over unchanged; keep `sources[].id` as a label only; retarget
-    `backfilling-references` to sources, recording `last_modified`; update
-    `test_skill_artifact_id_drift.py`; route Studio's link click and the `arkeology://artifact/{id}`
-    resource through T84's resolver so bare-id links open. Done: AC-58, AC-63, AC-81 pass.
-    Blocked by 84, 87. (FR-23, FR-48, FR-52, FR-58; D28, D40, D43)
+    `id:`, reporting each source that does not resolve once, to be added by hand with
+    `link_metadata`; carry `relationships` over unchanged; keep `sources[].id` as a label only;
+    update `test_skill_artifact_id_drift.py`; route Studio's link click and the `arkeology://artifact/{id}`
+    resource through T84's resolver so bare-id links open. Done: AC-58 and AC-81 pass.
+    Blocked by 84, 87. (FR-23, FR-48, FR-52; D28, D40, D43)
 
 89. ⬜ **Schema resource rewrite** — the schema MCP resource explains every field in OKF terms so an
     agent interprets it correctly: `archived`, `status`, the in-force view, `generated`,

@@ -22,12 +22,16 @@ sources:
   - resource: docs/architecture-decisions/adr-2026-07-03-annotation-backed-link-storage.md
     title: Annotation-Backed Durable Storage for Mutable Link Fields (commit_refs + references)
     last_modified: 2026-09-29T00:00:00Z
+  - resource: docs/specs/p9-t31a-setting-up-arkeology-skill.md
+    title: T31a — Setting-Up-Arkeology Skill
+  - resource: docs/specs/p3-t10-list-artifacts.md
+    title: T10 — List Artifacts Tool
 generated:
   by: "axians-architect/claude-sonnet-4.6"
   at: 2026-06-16T00:00:00Z
 revised:
-  by: "axians-architect/claude-opus-4.8"
-  at: 2026-07-03T00:00:00Z
+  by: "axians-architect/claude-opus-5-5"
+  at: 2026-11-15T19:56:23Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
@@ -192,3 +196,16 @@ decision.
   design decision. Path 1 (Claude Code hook) is unblocked once the installation skill is updated
   to write the hook configuration. Path 3 (git hook + CLI) requires a `.arkeology/config.sh` written
   by the installation skill as a tool-agnostic config source.
+
+## Revision — 2026-11-15
+
+The post-commit protocol of the third decision no longer starts from a session ULID. Through the
+session the agent keeps the `artifact_id`s its own writes returned; after each commit, once the
+operator confirms the list, it links them directly with `link_metadata`. `propose_commit_links` is
+kept only for a list the session no longer holds or for finding what was never linked, bounded by the
+`last_edited_ulid` of the session's first write when the agent still has it. There is no
+session-start step: the agent generates no ULID and never uses `next_since_ulid` as a cursor, so the
+"`next_since_ulid` as a session cursor" consequence no longer describes the protocol. Path 2 stays the
+trigger and the `last_edited_ulid` decision is unchanged; `list_artifacts` returns `commit_refs` only
+when the caller asks for the link fields. Owners: `p9-t31a-setting-up-arkeology-skill` R35 and
+`p3-t10-list-artifacts` R11.

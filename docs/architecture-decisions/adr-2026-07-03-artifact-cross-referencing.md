@@ -24,12 +24,18 @@ sources:
   - resource: docs/architecture-decisions/adr-2026-05-29-tier-based-access-control.md
     title: Tier-Based Cross-Scope Access Control Model
     last_modified: 2026-09-25T00:00:00Z
+  - resource: docs/specs/p12-t51-migration-reference-rewrite.md
+    title: T51 — Migration Frontmatter Reference Rewriting + arkeology:// Content Rewrite
+  - resource: docs/specs/p3-t10-list-artifacts.md
+    title: T10 — List Artifacts Tool
+  - resource: docs/contracts/modules/arkeology.tools.list.md
+    title: arkeology.tools.list
 generated:
   by: "axians-architect/claude-opus-4.8"
   at: 2026-07-03T00:00:00Z
 revised:
-  by: "axians-architect/claude-opus-5.5"
-  at: 2026-09-29T00:00:00Z
+  by: "axians-architect/claude-opus-5-5"
+  at: 2026-11-15T20:12:17Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
@@ -557,3 +563,18 @@ ADR designed and changing four of its decisions:
 D8's reason for never patching content retroactively still holds, on a different field: freshness
 now compares each source's captured `last_modified` against the source's current `revised.at`, and
 a content rewrite would move `revised.at` just as it moved `last_edited_ulid`.
+
+## Revision — 2026-11-15
+
+- **D10's separate backfill skill is retired with no replacement**, and with it the 2026-09-25
+  revision's "kept, scoped to `sources`". A reference the migration cannot resolve is left untouched
+  and reported once at migration time; the operator adds it later by hand with `link_metadata`
+  (`add_artifact_links`, with `sources`, after OKF adoption). No later migration run completes it:
+  that would rest on a later run adding the newly migrated file to an existing migration manifest,
+  a step nothing specifies, for an event that rarely happens. Owner:
+  `p12-t51-migration-reference-rewrite` R6.
+- **`list_artifacts` returns the link fields only when asked.** D2's "returned in …
+  `list_artifacts`" and the cross-scope filtering of a listing hold only for a call that asks for
+  them (`include_links`); without it a listing returns neither field and makes no readability
+  lookup. `read_artifact` returns them on every read. Owners: `p3-t10-list-artifacts` R11 and the
+  `arkeology.tools.list` contract.

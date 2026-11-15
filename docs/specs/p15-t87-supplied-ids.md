@@ -2,7 +2,7 @@
 type: Spec
 id: p15-t87-supplied-ids
 title: T87 — Producer-Supplied id Becomes the Artifact Id
-description: create_artifact, and each create_artifacts or migrate_artifacts descriptor, accepts an optional writer-supplied id that becomes the bare artifact id verbatim under the key {WRITE_PREFIX}/{id}{file_extension}. It is case-preserved, never slugified and gets no hash suffix. An id outside D33's form is rejected and never repaired, and generated ids are unchanged when no id is supplied. The cross-scope gate, every scope guard and reconcile's probe marker are unaffected by construction. AGENTS.md's deterministic-keys rules carry the amendment.
+description: create_artifact, and each create_artifacts or migrate_artifacts descriptor, accepts an optional writer-supplied id that becomes the bare artifact id verbatim under the key {WRITE_PREFIX}/{id}{file_extension}. It is case-preserved, never slugified and gets no hash suffix. An id outside brainstorming-2026-09-17-okf-v02-adoption D33's form is rejected and never repaired, and generated ids are unchanged when no id is supplied. The cross-scope gate, every scope guard and reconcile's probe marker are unaffected by construction. AGENTS.md's deterministic-keys rules carry the amendment.
 tags: []
 status: draft
 okf_version: "0.2"
@@ -78,7 +78,7 @@ generated:
   at: 2026-10-13T16:38:44Z
 revised:
   by: "axians-architect/claude-opus-5-5"
-  at: 2026-11-12T21:20:47Z
+  at: 2026-11-15T19:58:25Z
 ---
 
 # T87 — Producer-Supplied `id` Becomes the Artifact Id
@@ -89,8 +89,9 @@ revised:
 `migrate_artifacts` descriptor. When a caller supplies it, the string is the artifact id byte for
 byte, and the key is `{WRITE_PREFIX}/{id}{file_extension}`. The frozen `id:` a producer seeds from a
 filename stem, and the `relationships[].to` values that name it, then name the same document in Git
-and in Arkeology, with no translation step (D28). An id outside D33's form is rejected and never
-repaired. A caller that supplies no `id` gets exactly the id it got before.
+and in Arkeology, with no translation step (brainstorming-2026-09-17-okf-v02-adoption D28). An id
+outside brainstorming-2026-09-17-okf-v02-adoption D33's form is rejected and never repaired. A
+caller that supplies no `id` gets exactly the id it got before.
 
 ## 1. Problem Statement
 
@@ -101,7 +102,7 @@ and Arkeology needs a lookup. In one producer's corpus, path-derived links were 
 times (ADR-017 `## Alternatives Considered`, "Identity and types"). AGENTS.md and the deterministic
 artifact ids ADR allow only the generated scheme. That ADR's accepted
 `## Revision — 2026-09-25 (accepted 2026-10-13)` amends this, and the code and AGENTS.md now have to
-follow (FR-73; D28).
+follow (FR-73; brainstorming-2026-09-17-okf-v02-adoption D28).
 
 **Out of scope, noted:** `file_extension` is only checked for a leading `.`, so it can contain `/`.
 That is a pre-existing nesting vector that applies equally to generated ids, and T87 does not widen
@@ -126,9 +127,9 @@ uses it for the *full* key, and the create response returns it as the full key. 
 two things is the problem ADR-017 `## Context`, "Forces", fixes for `status`. Shadowing the builtin
 follows the `type` precedent (`# noqa: A002`).
 
-Source: FR-01, FR-73, D28, D33
+Source: FR-01, FR-73, brainstorming-2026-09-17-okf-v02-adoption D28, D33
 
-### R2 — A supplied `id` is accepted only if it is a `str` that fully matches D33's pattern and contains no `..`
+### R2 — A supplied `id` is accepted only if it is a `str` that fully matches the id pattern and contains no `..`
 
 When `id` is supplied the system must accept it only if it is a `str` that fully matches
 `[A-Za-z0-9]([A-Za-z0-9._-]{0,126}[A-Za-z0-9])?` and contains no `..`. That means 1 to 128
@@ -138,10 +139,10 @@ excludes it.
 **Why:** ASCII and full-string matching. The match covers the whole string. A `$` anchor would
 accept a trailing newline. It uses no `IGNORECASE`, `\w`, `\d` or `str.isalnum()`, each of which
 admits non-ASCII characters (`IGNORECASE` admits the Kelvin sign U+212A for `[A-Za-z]`). `..` is
-rejected anywhere in the id, as D33 states. With no `/` allowed, it could never form a path segment
-anyway.
+rejected anywhere in the id, as brainstorming-2026-09-17-okf-v02-adoption D33 states. With no `/`
+allowed, it could never form a path segment anyway.
 
-Source: FR-01, FR-73, D28, D33
+Source: FR-01, FR-73, brainstorming-2026-09-17-okf-v02-adoption D28, D33
 
 ### R3 — An invalid supplied `id` returns one fixed `validation_error` message, before any storage call, failure-log append or embedding; only an omitted `id` means "generate"
 
@@ -157,25 +158,25 @@ that fails. Only an omitted `id` (`None`, or no descriptor key) means "generate"
 - Given an id that contains `/` or `..`, is longer than 128 characters, starts or ends with a
   non-alphanumeric character, or contains any character outside `[A-Za-z0-9._-]`, when it is
   created, then the call returns `validation_error` with the message above, and no storage call is
-  made (AC-76; D33).
+  made (AC-76; brainstorming-2026-09-17-okf-v02-adoption D33).
 
 **Why:** one fixed message that does not echo the value. The rule is short enough to state whole. A
 caller-sized string is not reflected back, and one exact text gives one assertion. In bulk results
 the entry's position already identifies the descriptor.
 
 **Why:** empty or non-string is rejected, not treated as absent. Treating `""` as "generate", or `5`
-as `"5"`, would be a repair, and D33 says ids are never repaired. On the MCP surface, FastMCP's
-argument validation rejects a non-string before the tool runs. In a bulk descriptor, which is an
-untyped dict, the validator rejects it.
+as `"5"`, would be a repair, and brainstorming-2026-09-17-okf-v02-adoption D33 says ids are never
+repaired. On the MCP surface, FastMCP's argument validation rejects a non-string before the tool
+runs. In a bulk descriptor, which is an untyped dict, the validator rejects it.
 
-Source: FR-01, FR-73, D28, D33
+Source: FR-01, FR-73, brainstorming-2026-09-17-okf-v02-adoption D28, D33
 
 ### R4 — A supplied `id` is never slugified, lowercased, trimmed, suffixed or stripped of an extension
 
 The system must never slugify, lowercase, trim or suffix a supplied id, and must never strip an
 extension from it.
 
-Source: FR-01, FR-73, D28, D33
+Source: FR-01, FR-73, brainstorming-2026-09-17-okf-v02-adoption D28, D33
 
 ## 3. Rules — Key
 
@@ -205,7 +206,7 @@ supplied id is shorter, so the S3 key and S3 Vectors key limits (1024), the filt
 `artifact_id` budget and the `$in` id chunking in `_search_helper.py` all face nothing longer than
 today. `check_metadata_budgets` still measures the assembled dicts.
 
-Source: FR-08, FR-73, D28, D32
+Source: FR-08, FR-73, brainstorming-2026-09-17-okf-v02-adoption D28, D32
 
 ### R6 — The bare id is resolved in one function in `artifact.py`, which the create path, the `create_artifacts` duplicate pre-flight and the `migrate_artifacts` existence probe all call
 
@@ -222,7 +223,7 @@ it, so the key that is probed or compared is always the key that is written. Thi
 - Given `migrate_artifacts` re-run over descriptors that carry `id`, then an entry whose supplied key
   already exists is reported under `skipped_existing` and never rewritten.
 
-Source: FR-08, FR-73, D28, D32
+Source: FR-08, FR-73, brainstorming-2026-09-17-okf-v02-adoption D28, D32
 
 ## 4. Rules — Collision
 
@@ -240,10 +241,10 @@ supplied-versus-generated lookup and no case-insensitive lookup.
   unchanged (FR-08, FR-13, C-05).
 - Given a stored generated id G, when a create supplies `id=G`, or a generated create lands on a key
   that a supplied id already holds, then it is rejected the same way.
-- Given `Spec-A` is stored, when `spec-a` is created, then it succeeds and two artifacts exist (D33;
-  FR-08).
+- Given `Spec-A` is stored, when `spec-a` is created, then it succeeds and two artifacts exist
+  (brainstorming-2026-09-17-okf-v02-adoption D33; FR-08).
 
-Source: FR-08, FR-13, C-05, D28, D51
+Source: FR-08, FR-13, C-05, brainstorming-2026-09-17-okf-v02-adoption D28, D51
 
 ## 5. Rules — Update
 
@@ -257,7 +258,7 @@ Source: FR-08, FR-13, C-05, D28, D51
 - Given an artifact created with a supplied id, when `update_artifact` retitles it by `artifact_id`,
   then the key is unchanged (FR-15, FR-75).
 
-Source: FR-75, D51
+Source: FR-75, brainstorming-2026-09-17-okf-v02-adoption D51
 
 ## 6. Rules — Unchanged by construction
 
@@ -283,18 +284,18 @@ No gate code changes, so the mutation Scope gains no code.
 
 **Why:** the probe marker cannot collide. `_PROBE_KEY_MARKER` is `_arkeology_`, and the orphan scan
 matches it as a prefix of the final segment, which is `{id}{ext}`. A supplied id's first character
-is alphanumeric (D33), so it never starts with `_`. T77 already rewords the marker comment to cover
-D33 ids.
+is alphanumeric (brainstorming-2026-09-17-okf-v02-adoption D33), so it never starts with `_`. T77
+already rewords the marker comment to cover brainstorming-2026-09-17-okf-v02-adoption D33 ids.
 
-Source: AGENTS.md Non-Negotiable Rules, D33
+Source: AGENTS.md Non-Negotiable Rules, brainstorming-2026-09-17-okf-v02-adoption D33
 
 **Code that parses id structure, re-verified 2026-10-13.** The brainstorming notes named a `/`
 split and the probe marker in `reconcile.py`. The full list is longer, and every entry is safe
-because D33 excludes `/`, `#`, `?` and `%`:
+because brainstorming-2026-09-17-okf-v02-adoption D33 excludes `/`, `#`, `?` and `%`:
 - `reconcile.py`, orphan scan: `rsplit("/", 1)[-1]`. The final segment is exactly `{id}{ext}`.
 - `reconcile.py`: `vk.split("#")[0]` on vector keys `{key}#{n}`, the numbered key
-  `p15-t92-numbered-vector-keys` R1 defines. Vector keys are built in `write.py`
-  `write_artifact_inner` and `reconcile.py`, and the split returns the key whatever follows the
+  `p15-t92-numbered-vector-keys` R1 defines. Vector keys are built in `write.py`'s
+  create and update paths and in `reconcile.py`, and the split returns the key whatever follows the
   `#`.
 - `arkeology-studio.html`, `artifactTarget`: splits on `#` and `?`, then `decodeURIComponent`.
 - `arkeology-studio.html`, the detail view's scope label: `split("/")`.
@@ -319,7 +320,8 @@ Source: plan.md `## Phase 15`, T87 done condition
 - Keep the `public` / `_inner` pattern with `try/except Exception`, and log to stderr only.
 
 **Ask First:**
-- Any validator rule beyond D33, for example rejecting an id that ends `.md`.
+- Any validator rule beyond brainstorming-2026-09-17-okf-v02-adoption D33, for example rejecting an
+  id that ends `.md`.
 - Adding `id` to the update tools.
 - Adding `file_extension` validation.
 
@@ -328,8 +330,8 @@ Source: plan.md `## Phase 15`, T87 done condition
 - Change `_scope.py`, any scope guard or `_PROBE_KEY_MARKER`.
 - Take over T88's work. The migration skill passes frontmatter `id:` as the descriptor `id`, runs
   the AC-81 manifest-wide duplicate check, and adds the resolver to `references.py`
-  `build_path_to_id_map`. The `migrating-to-arkeology` offline id snippet, `backfilling-references`
-  and `test_skill_artifact_id_drift.py` also belong to T88. T87 makes the server honour `id` end to
+  `build_path_to_id_map`. The `migrating-to-arkeology` offline id snippet and
+  `test_skill_artifact_id_drift.py` also belong to T88. T87 makes the server honour `id` end to
   end, which is what T88 builds on.
 - Edit the schema resource (T89), or README, SERVER-REFERENCE or CHANGELOG (T91).
 
@@ -374,8 +376,9 @@ Contract amendments.
 Make these before the tests, on top of T77, T78 and T79's amendments:
 
 - **`docs/contracts/data/s3.artifact.md`**:
-  - Add a `###` symbol for the id resolver, covering the D33 rule, the exact `ValueError` message,
-    and "absent means generate".
+  - Add a `###` symbol for the id resolver, covering the
+    brainstorming-2026-09-17-okf-v02-adoption D33 rule, the exact `ValueError` message, and "absent
+    means generate".
   - `### generate_artifact_id`: its output is the fallback bare id. "Equal output implies equal
     inputs" holds among generated ids only, because a supplied id may equal one.
   - `## Storage Shape`, Key: the bare id is the supplied `id` or the generated id.
@@ -394,9 +397,9 @@ Make these before the tests, on top of T77, T78 and T79's amendments:
 - **`docs/contracts/modules/arkeology.tools.migrate_artifacts.md`**: the existence probe uses the
   resolved key, including the descriptor `id`. Skip-never-overwrite is unchanged.
 
-The `s3.artifact` Compatibility Guarantees forbid dropping the hash suffix, which conflicts with D28.
-That is a contract that is out of date against an accepted ADR, not a contradiction to rule on, and
-the amendment above resolves it.
+The `s3.artifact` Compatibility Guarantees forbid dropping the hash suffix, which conflicts with
+brainstorming-2026-09-17-okf-v02-adoption D28. That is a contract that is out of date against an
+accepted ADR, not a contradiction to rule on, and the amendment above resolves it.
 
 ### Testing Approach
 
@@ -433,9 +436,9 @@ the amendment above resolves it.
    - Recreating supplied id X with a different title gives `validation_error`, with the original
      unchanged (FR-08, FR-13).
    - Supplied-equals-generated collisions are rejected in both directions (C-05).
-   - `Spec-A` and `spec-a` both succeed (D33).
+   - `Spec-A` and `spec-a` both succeed (brainstorming-2026-09-17-okf-v02-adoption D33).
    - Two tier-2 creates with the same type, title and day but different supplied ids give two
-     artifacts (D32).
+     artifacts (brainstorming-2026-09-17-okf-v02-adoption D32).
    - A retitle via `update_artifact` keeps a supplied-id key (FR-15, FR-75).
 3. `tests/unit/test_tools_write_artifacts.py`, then `tools/write_artifacts.py`.
    - Descriptor `id` is honoured.

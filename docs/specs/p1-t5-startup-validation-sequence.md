@@ -27,15 +27,22 @@ sources:
   - resource: docs/specs/p15-t92-numbered-vector-keys.md
     title: T92 — Numbered Vector Keys and Per-Artifact Vector Access by Key
     last_modified: 2026-11-12T13:11:40Z
+  - resource: .docs/reviews/architecture-review-2026-11-15-arkeology-phases-9-10-12.md
+    title: "Architecture review — Arkeology, plan phases 9, 10 and 12"
+relationships:
+  - to: p12-t52-annotation-availability-graceful
+    type: supersedes
 generated:
   by: "axians-architect/unknown"
   at: 2026-05-29T00:00:00Z
 revised:
   by: "axians-architect/claude-opus-5-5"
-  at: 2026-11-12T13:11:40Z
+  at: 2026-11-15T19:44:03Z
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
+  - by: "human:mlnrt"
+    at: 2026-11-15T11:12:39Z
 ---
 
 # T5 — Startup Validation Sequence
@@ -226,9 +233,11 @@ Source: p9-t30-write-artifacts
 
 ### R11 — Check 8: S3 object annotation availability
 
-Check 8 writes a throwaway probe object into `WRITE_PREFIX` and round-trips one annotation through all
-four operations (`PutObjectAnnotation`, `GetObjectAnnotation`, `ListObjectAnnotations`,
-`DeleteObjectAnnotation`), so a policy granting three of the four fails here rather than at first use.
+Check 8 writes a throwaway probe object into `WRITE_PREFIX` and round-trips one annotation through the
+three annotation operations the server performs (`PutObjectAnnotation`, `GetObjectAnnotation`,
+`DeleteObjectAnnotation`), so a policy granting only some of the three fails here rather than at
+first use. It makes no list call and so asks for no `ListObjectAnnotations` permission, which the
+server never uses.
 The probe object is deleted unconditionally, including when the probe itself failed. It runs last
 deliberately: it writes into `WRITE_PREFIX`, which check 2 has already proved readable and writable.
 
@@ -309,6 +318,8 @@ Source: NFR-03; adr-2026-05-29-aws-backend-selection; the calibration of 2026-11
 | `tests/unit/test_startup.py` | Create | All five failure paths + the all-pass path, using fakes |
 | `tests/unit/test_startup.py` | Modify (R12, written first) | The two index-mode rows in the test table; existing check-5 fixtures gain `indexMode="ENHANCED"` so they keep passing |
 | `src/arkeology/startup.py` | Modify (R12) | `_check_model_dimension` (check 5) adds the index-mode test after the dimension comparison, reusing check 4's `describe_index` result |
+| `tests/unit/test_startup.py` | Modify (R11, written first) | Check 8's per-action denial cases cover put, get and delete; drop the `list_object_annotations` case and the `s3:ListObjectAnnotations` expectation |
+| `src/arkeology/startup.py` | Modify (R11) | `_check_annotations` (check 8) drops its `list_object_annotations` call; its failure message, the module docstring and the success log name the three annotation actions |
 
 #### `startup.py` — Validation Sequence
 
