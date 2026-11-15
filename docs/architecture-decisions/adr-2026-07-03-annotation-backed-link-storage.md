@@ -36,6 +36,8 @@ revised:
 verified:
   - by: "human:mlnrt"
     at: 2026-10-07T08:09:33Z
+  - by: "axians-architect/claude-fable-5-2"
+    at: 2026-11-15T21:22:34Z
 ---
 
 # Annotation-Backed Durable Storage for Mutable Link Fields (commit_refs + references)

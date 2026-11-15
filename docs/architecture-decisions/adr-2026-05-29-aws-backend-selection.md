@@ -75,6 +75,8 @@ verified:
     at: 2026-10-07T08:09:33Z
   - by: "human:mlnrt"
     at: 2026-11-12T17:36:17Z
+  - by: "axians-architect/claude-fable-5-2"
+    at: 2026-11-15T21:22:34Z
 ---
 
 # AWS S3 + S3 Vectors + Bedrock as the Storage and Embedding Backend
