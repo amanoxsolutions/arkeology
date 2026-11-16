@@ -105,8 +105,8 @@ generated:
   by: "axians-architect/claude-opus-5.5"
   at: 2026-10-13T17:40:25Z
 revised:
-  by: "axians-architect/claude-opus-5-5"
-  at: 2026-11-15T20:05:47Z
+  by: "axians-architect/claude-sonnet-5-5"
+  at: 2026-11-16T10:34:57Z
 ---
 
 # T82 — Change Lifecycle `status` Without Re-Embedding
@@ -129,7 +129,8 @@ synthesis treats a moved `revised` as a source change
 every synthesis that cites it look stale. FR-68 needs a path that only touches the lifecycle key.
 ADR-017 `### 2. Lifecycle` names that path: an in-place object re-PUT that carries metadata and
 annotations forward, then a vector-metadata update, as `archive_artifact` already does.
-`link_metadata` cannot do it, because it writes annotations only.
+`add_artifact_links` (renamed from `link_metadata` by T84) cannot do it, because it writes
+annotations only.
 
 All five of this spec's user stories are P1: deprecate without re-embedding (R7, R8), provenance is
 not moved (R8), change back or clear (R1, R6, R7), foreign scope and bad input are refused (R2, R3),
@@ -297,7 +298,7 @@ Source: FR-69, FR-75; T81, operator decision 2026-10-13
 The shared cycle SHALL do four things to every annotation in the carried set that `annotations.py`
 defines: read it before the re-PUT, carry it across compare-and-swap attempts, restore it after the
 re-PUT under `if_match` on the new ETag, and record it in failure-log entries. Today the set is
-`commit_refs`, the link annotation (`references`, which becomes `links` after T84) and
+`commit_refs`, the link annotation (`links`, renamed from `references` by T84) and
 `revision_history`. `verified` joins it with T83.
 
 Each annotation keeps its own carry rule, as T80 and T84 define them:

@@ -136,8 +136,8 @@ generated:
   by: "axians-architect/claude-opus-5.5"
   at: 2026-10-13T17:23:06Z
 revised:
-  by: "axians-architect/claude-opus-5-5"
-  at: 2026-11-15T20:12:17Z
+  by: "axians-architect/claude-sonnet-5-5"
+  at: 2026-11-16T10:12:15Z
 ---
 
 # T84 — `sources` + `relationships` in One Structured Annotation; `link_metadata` → `add_artifact_links`
@@ -151,21 +151,6 @@ A source that points into Arkeology without a `last_modified` gets the cited art
 revision time when it is written. The synthesis delete/archive warning becomes a `type` prefilter
 plus one annotation read per own-scope synthesis, and `link_metadata` becomes `add_artifact_links`
 (brainstorming-2026-09-17-okf-v02-adoption D17, D18, D29, D40, D46).
-
-## Open Questions
-
-Item 1 is resolved; it is kept, with its number and status, in R24 ("Open Questions item 1").
-
-2. **Non-blocking — bare-id links on read surfaces.** Under AC-58, migrated content and fields
-   carry `arkeology://artifact/{bare id}`. Today the `arkeology://artifact/{id*}` resource, and
-   Studio through `read_artifact`, accept only full keys, and the studio link resolution ADR's
-   revision leaves this open. No plan task owns it. *Recommended:* T88 or T85 routes both surfaces
-   through this spec's resolver, with the reader's own scope as the carrier.
-3. **Non-blocking — upgrade order (T91).** An update or archive before T90 runs re-PUTs the
-   object, and that drops its legacy `references` annotation, which nothing reads. A failure-log
-   entry written before the upgrade keeps a `references` copy that replay ignores. *Recommended:*
-   T91's **Breaking** CHANGELOG entry says to run `reconcile_index` until the log is empty, then
-   the store migration, before any write on the new version.
 
 ## 1. Problem Statement
 

@@ -75,7 +75,7 @@ generated:
   at: 2026-10-13T18:19:14Z
 revised:
   by: "axians-architect/claude-sonnet-5-5"
-  at: 2026-11-15T16:04:49Z
+  at: 2026-11-16T10:12:15Z
 ---
 
 # T86 — Per-Source Freshness
@@ -89,17 +89,6 @@ source against its own baseline. A source is stale when its current `revised.at`
 affects the verdict. A source whose baseline is absent, or whose timestamp cannot be read, goes in
 a new `unchecked_sources` list with a reason. Every other source of that synthesis is still checked
 (FR-20, AC-18; brainstorming-2026-09-17-okf-v02-adoption D19, D20, D50).
-
-## Open Questions
-
-1. **Non-blocking — baselines for store-migrated syntheses (T90).** T90 converts legacy
-   `source_artifacts` into `sources` entries. If it writes them without `last_modified`, every
-   migrated synthesis reports every Arkeology source as `no_baseline`, and `all_fresh` stays
-   `false` until each synthesis is updated. *Recommended:* T90's spec fills `last_modified` on
-   each converted entry, and chooses between two values. The source's current effective time
-   follows FR-51's fill rule, but reads every migrated synthesis as fresh. The citing synthesis's
-   own effective time keeps visible any source change made after the synthesis was written, which
-   is what today's ULID check reports. T86 does not change either way.
 
 ## 1. Problem Statement
 
@@ -387,7 +376,7 @@ three string lists, and a (key, reason) pair in `unchecked_sources`.
 category needs a reason, so only its items are objects. Restructuring every list into a
 per-synthesis record of per-source verdicts would break every caller, and it would add nothing
 AC-18 needs. Sources are reported by resolved key, which is what `read_artifact` takes. A bare id
-in `arkeology://artifact/{id}` cannot be passed there (T84 Open Question 2). The bare-id and
+in `arkeology://artifact/{id}` cannot be passed there. The bare-id and
 full-key forms of one target collapse to one key, which is why the lists deduplicate. Timestamps
 are not echoed: a caller who wants them reads the source or the synthesis.
 

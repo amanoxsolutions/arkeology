@@ -69,8 +69,8 @@ generated:
   by: "axians-architect/claude-opus-5.5"
   at: 2026-10-13T18:07:52Z
 revised:
-  by: "axians-architect/claude-opus-5-5"
-  at: 2026-11-15T20:05:47Z
+  by: "axians-architect/claude-sonnet-5-5"
+  at: 2026-11-16T10:34:57Z
 ---
 
 # T85 — Cross-Scope Gate on `sources` and `relationships`, with the `{withheld: n}` Marker
@@ -99,8 +99,8 @@ independently. After T84 that promise fails in three places:
   `arkeology://artifact/{id}` (FR-52). Redacting only the field would therefore be decorative
   (brainstorming-2026-09-17-okf-v02-adoption D49).
 
-Not taken: bare-id links on read surfaces. T84's Open Question 2 is about following links, not
-redaction, and plan entry 85 does not include it.
+Not taken: bare-id links on read surfaces. They are about following links, not redaction, and
+plan entry 85 does not include them; T88 owns them (R28).
 
 The five user stories, kept below as labelled examples (Story 1 to Story 5), are all P1.
 
@@ -211,7 +211,8 @@ Source: brainstorming-2026-09-17-okf-v02-adoption D38, D47
 ### R7 — With no vector client, a foreign read withholds every target outside the reader's own scope
 
 When no vector client is available on a foreign read, the system must withhold every target outside
-the reader's own scope. Today's read skips the `references` filter when `vectors` is `None`. That
+the reader's own scope. Today's read skips the `relationships` filter (renamed from `references` by T84) when
+`vectors` is `None`. That
 fails open, and this rule closes it.
 
 Source: brainstorming-2026-09-17-okf-v02-adoption D38, D47
@@ -443,7 +444,8 @@ T85 lands after T84 and edits the code as T84 leaves it.
 Contract amendments. These go on top of T84's amendments, before any tests are written.
 
 - **`modules/arkeology.tools.read.md`**
-  - Replace the `references` filtering invariant with the redaction rule: both lists, the marker,
+  - Replace the `relationships` filtering invariant (renamed from `references` by T84) with the
+    redaction rule: both lists, the marker,
     and the frontmatter rewrite.
   - Add to **Errors**: `corrupt_metadata` for an unredactable frontmatter block on a foreign read,
     naming the block and never echoing it. Also add that `credential_error` can arise at the

@@ -2,9 +2,9 @@
 type: Spec
 id: p15-t79-provenance
 title: "T79 — Provenance: generated / revised; Drop date, author_role, timestamp"
-description: Replaces the date and author_role fields with OKF provenance. generated {by, at} is required on create, written once and carried forward by every update; revised {by, at} is absent until the first update and moves only on a content write. Both are stored as flat keys in S3 object metadata and vector metadata and returned as nested blocks. A generated tier-2 id anchors on the UTC day of generated.at. Timestamps are offset-aware ISO 8601, normalised to UTC with a Z suffix and compared as parsed datetimes. date, author_role and timestamp are rejected with a validation_error naming the replacement.
+description: Replaces the date and author_role fields with OKF provenance. generated {by, at} is required on create, written once and carried forward by every update; revised {by, at} is absent until the first update, unless an import carries one, and moves only on a content write. Both are stored as flat keys in S3 object metadata and vector metadata and returned as nested blocks. A generated tier-2 id anchors on the UTC day of generated.at. Timestamps are offset-aware ISO 8601, normalised to UTC with a Z suffix and compared as parsed datetimes. date, author_role and timestamp are rejected with a validation_error naming the replacement.
 tags: []
-status: draft
+status: stable
 okf_version: "0.2"
 sources:
   - id: adr
@@ -111,40 +111,24 @@ generated:
   by: "axians-architect/claude-opus-5.5"
   at: 2026-10-13T16:20:20Z
 revised:
-  by: "axians-architect/claude-opus-5-5"
-  at: 2026-11-15T19:58:25Z
+  by: "axians-architect/claude-sonnet-5-5"
+  at: 2026-11-16T10:01:01Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-11-16T10:34:57Z
 ---
 
 # T79 — Provenance: `generated` / `revised`; Drop `date`, `author_role`, `timestamp`
 
 ## TL;DR
 
-Every artifact records who first wrote it and when (`generated`) and, once it has been updated, who
-last revised it and when (`revised`): both are OKF `{by, at}` blocks supplied by the writer and kept
-in both stores. `generated` is written once at create and carried forward by every update, and
-`revised` moves only on an update, never on a link backfill, archive or reconciliation. `date` and
+Every artifact records who first wrote it and when (`generated`) and, once it has been updated
+(or imported with a revision of its own), who last revised it and when (`revised`): both are OKF
+`{by, at}` blocks supplied by the writer and kept in both stores. `generated` is written once at
+create and carried forward by every update, and `revised` moves only on an update, never on a link
+backfill, archive or reconciliation. `date` and
 `author_role` are removed and rejected, and a generated tier-2 id now anchors on the UTC day of
 `generated.at` (brainstorming-2026-09-17-okf-v02-adoption D9, D19, D32, D35).
-
-## Open Questions
-
-1. **Non-blocking — no task owns the `commit_refs` cap re-calibration.** ADR-017 `## Consequences`
-   requires re-running it when the filterable key mix changes. T76 shrank the mix, T79 adds about
-   160 bytes, and T81 adds lifecycle `status`, which completes the mix. *Recommended:* the plan's
-   T81 entry gains "re-run the calibration against the final key mix". The margin is 20 entries
-   against a measured 36, about 4 entries for T79's keys, so the cap is expected to hold.
-2. **Non-blocking — import fidelity of `revised`.** Following the plan, create writes no `revised`.
-   A producer document already revised in Git therefore imports with only `generated`, and its
-   frontmatter `revised` stays in the content. One false negative follows. Suppose a citing
-   document captured the source between the source's first authorship and its Git revision. At
-   import, the source's effective time is its `generated.at`, so the citing document reads as
-   fresh until the source's next update. *Recommended:* keep T79 as planned, and let T88, which
-   owns import fidelity, decide whether `create_artifact` should accept an optional `revised` for
-   migration.
-3. **Non-blocking — stale rationale in plan.md's T90 entry.** "so a later overwrite of a tier-2
-   artifact regenerates the key already stored" predates T78. An update re-derives nothing
-   (ADR-017 §9). The rule itself still holds, for AC-04's create collision. *Recommended:* reword
-   that clause when T90 is specced.
 
 ## 1. Problem Statement
 
@@ -272,14 +256,17 @@ percent-encoded a second time as an S3 header.
 
 Source: FR-09, C-01; brainstorming-2026-09-17-okf-v02-adoption D35
 
-### R8 — Create writes `generated_by` and `generated_at` to both stores, and no `revised_*`, `date` or `author_role` key
+### R8 — Create writes `generated_by` and `generated_at` to both stores, no `date` or `author_role` key, and no `revised_*` key unless an import supplies one
 
 When an artifact is created, the system must write `generated_by` and `generated_at` to S3 object
-metadata and to every vector's metadata as strings, and must write no `revised_*`, `date` or
-`author_role` key.
+metadata and to every vector's metadata as strings, and must write no `date` or `author_role` key.
+It must write no `revised_*` key, unless the create is an import that carries a `revised` of the
+producer's own (T88 R8).
 
-**Why:** Create writes no `revised`. The plan entry is explicit: absent until the first update. See
-Open Questions, item 2, for the import consequence.
+**Why:** `revised` is absent until the first update: the plan entry is explicit. An import is the one
+exception, because a producer document already revised in Git would otherwise arrive with only
+`generated`, and a citing document captured between the two times would read as fresh. No agent
+create can set `revised` (T88 R9).
 
 Source: FR-09, C-01; brainstorming-2026-09-17-okf-v02-adoption D35
 
@@ -491,12 +478,13 @@ Source: none attached — decided in this spec
 **Never:**
 - Read `date` or `author_role` as a fallback for missing provenance, or translate them anywhere,
   including reconcile (brainstorming-2026-09-17-okf-v02-adoption D42; T90 migrates).
-- Write `revised` on create, or move it on any path other than an update.
+- Write `revised` on a create other than an import's (T88 R8), or move it on any path other than
+  an update.
 - Remove `author_role` from `NON_FILTERABLE_METADATA_KEYS`, or change the index.
 - Remove the failure-log entry's own `timestamp` key. It is the entry's time, not the artifact field.
 - Build the revision-history annotation or append helper (T80), `verified` (T83), lifecycle change
   (T82), per-source freshness (T86) or supplied ids (T87).
-- Re-run the `commit_refs` cap calibration (Open Questions, item 1).
+- Re-run the `commit_refs` cap calibration (T81 R23 owns it).
 - Rewrite the schema resource beyond the provenance rows (T89), or edit README, SERVER-REFERENCE,
   CHANGELOG or AGENTS.md (T91).
 
@@ -639,3 +627,7 @@ mutation `only_mutate` scope is touched, so no mutation run is required.
 - **AC-72 hand-offs:** the verification leg of AC-72 belongs to T83, and the lifecycle-change leg of
   FR-69 to T82. Each plan entry already requires "no `revised` change". Each extends the AC-72
   composite test in TDD order item 3 above.
+- **Cap calibration:** T81 R23 re-runs the 20-entry `commit_refs` cap against the final filterable
+  key set, which includes T79's four provenance keys.
+- **Imported `revised`:** T88 R8 carries a producer's own `revised` into an import's create, and
+  T88 R9 rejects it on every other create.

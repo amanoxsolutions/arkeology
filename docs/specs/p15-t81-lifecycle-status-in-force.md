@@ -4,7 +4,7 @@ id: p15-t81-lifecycle-status-in-force
 title: T81 — OKF Lifecycle status and the In-Force Default View
 description: Ingests OKF document status (draft | stable | deprecated) on create and update into S3 object metadata and filterable vector metadata, and makes search, listing and synthesis preparation default to the in-force view — not deprecated and not archived, where an artifact with no status is in force — with a status filter, an exclude_drafts option and full lineage via archived="all" plus status="all". A supersedes edge never excludes anything. Studio gains a lifecycle facet, T76's temporary status rejection rows give way to value validation that still names archived, and the commit_refs vector cap is re-calibrated against real AWS with the final Phase 15 filterable key set.
 tags: []
-status: draft
+status: stable
 okf_version: "0.2"
 sources:
   - id: adr
@@ -120,7 +120,10 @@ generated:
   at: 2026-10-13T16:19:13Z
 revised:
   by: "axians-architect/claude-sonnet-5-5"
-  at: 2026-11-15T16:04:49Z
+  at: 2026-11-16T10:34:57Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-11-16T12:50:09Z
 ---
 
 # T81 — OKF Lifecycle `status` and the In-Force Default View
@@ -226,7 +229,7 @@ Source: FR-01, FR-09, FR-75; brainstorming-2026-09-17-okf-v02-adoption D22
 
 ### R6 — `archive_artifact` and the link-backfill tool carry `status` forward unchanged in both stores
 
-`archive_artifact` and the link-backfill tool (`link_metadata`, renamed `add_artifact_links` by T84)
+`archive_artifact` and the link-backfill tool (`add_artifact_links`, renamed from `link_metadata` by T84)
 must carry `status` forward unchanged in both stores. Their whole-dict copies already do this.
 
 Source: FR-01, FR-09, FR-75; brainstorming-2026-09-17-okf-v02-adoption D22
@@ -352,7 +355,7 @@ Source: FR-04, FR-67; brainstorming-2026-09-17-okf-v02-adoption D23–D25; statu
 
 The view must depend only on the candidate's own `status` and `archived`
 (brainstorming-2026-09-17-okf-v02-adoption D25). Building or applying it must not read link
-annotations, `relationships`, `references`, or any other artifact.
+annotations, `relationships` (renamed from `references` by T84), or any other artifact.
 
 **Example**
 
@@ -525,7 +528,8 @@ Source: none attached — stated in this spec
   that AWS rejects 20 entries, stop and report the measured boundary rather than lowering the cap.
 
 **Never:**
-- Read a `supersedes` edge, `relationships`, `references` or any annotation to decide what is in force
+- Read a `supersedes` edge, `relationships` (renamed from `references` by T84) or any annotation to
+  decide what is in force
   (brainstorming-2026-09-17-okf-v02-adoption D25).
 - Default a missing `status` to `stable` or any other value, in any store or response.
 - Use `$ne`, or rely on what `$nin` does for a missing key, in any filter.

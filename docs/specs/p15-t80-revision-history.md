@@ -4,7 +4,7 @@ id: p15-t80-revision-history
 title: "T80 — Revision-History Annotation + Shared Compare-and-Swap Append Helper"
 description: Every content write appends one {by, at} entry to the artifact's own revision_history annotation. The history is uncapped, carried across updates and archives, restorable by reconcile_index, returned by read_artifact, and returned by list_artifacts only on request. The task also builds the object-ETag compare-and-swap append helper that T83 reuses for verified, and states which races and crash windows that compare-and-swap leaves open.
 tags: []
-status: draft
+status: stable
 okf_version: "0.2"
 sources:
   - id: adr
@@ -91,8 +91,11 @@ generated:
   by: "axians-architect/claude-opus-5.5"
   at: 2026-10-13T16:40:30Z
 revised:
-  by: "axians-architect/claude-opus-5-5"
-  at: 2026-11-15T19:58:25Z
+  by: "axians-architect/claude-sonnet-5-5"
+  at: 2026-11-16T10:31:59Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-11-16T12:50:09Z
 ---
 
 # T80 — Revision-History Annotation + Shared Compare-and-Swap Append Helper
@@ -105,14 +108,6 @@ the history, and `list_artifacts` returns it only when the caller asks. The task
 annotation-append helper that T83 reuses for `verified`, and states plainly which races the
 object-ETag compare-and-swap underneath does not close (FR-72;
 brainstorming-2026-09-17-okf-v02-adoption D26, D30, D31, D34).
-
-## Open Questions
-
-2. **Non-blocking — hand-off to T90.** Artifacts written before Phase 15 have no history, so after
-   migration their first entry is their first update, not `generated`. ADR-017 states that the
-   first entry coincides with `generated`. Recommendation: T90 seeds `[generated]`, plus a `revised`
-   entry where it writes one, so that statement holds for every artifact. T80 reads an absent
-   history as `[]` either way.
 
 ## 1. Problem Statement
 
@@ -246,10 +241,10 @@ Neither appends.
 
 Source: FR-17, FR-54, FR-72; brainstorming-2026-09-17-okf-v02-adoption D30
 
-### R9 — `link_metadata` neither reads nor writes the history
+### R9 — `add_artifact_links` neither reads nor writes the history
 
-`link_metadata` (renamed `add_artifact_links` by T84) never re-PUTs the object. It must neither read
-nor write the history.
+`add_artifact_links` (renamed from `link_metadata` by T84) never re-PUTs the object. It must neither
+read nor write the history.
 
 Source: FR-17, FR-54, FR-72; brainstorming-2026-09-17-okf-v02-adoption D30
 

@@ -4,7 +4,7 @@ id: p15-t78-create-update-split
 title: T78 — Split Writing into create_artifact / update_artifact; Drop overwrite
 description: Replaces write_artifact and write_artifacts, and their overwrite flag, with create_artifact / create_artifacts (succeed only when the key is new, atomically) and update_artifact / update_artifacts (succeed only when it exists, address it by id, never move the key, guard against a concurrent delete with If-Match, and offer an opt-in if_match on last_edited_ulid). Removed names are rejected with a validation_error naming the replacement.
 tags: []
-status: draft
+status: stable
 okf_version: "0.2"
 sources:
   - id: adr
@@ -62,7 +62,10 @@ generated:
   at: 2026-10-13T13:02:46Z
 revised:
   by: "axians-architect/claude-sonnet-5-5"
-  at: 2026-11-15T16:04:49Z
+  at: 2026-11-16T09:47:17Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-11-16T10:34:57Z
 ---
 
 # T78 — Split Writing into `create_artifact` / `update_artifact`; Drop `overwrite`
@@ -178,9 +181,9 @@ Source: FR-75, AC-82, AC-83, brainstorming-2026-09-17-okf-v02-adoption D51
 
 ### R8 — An update replaces the mutable fields with exactly what the call supplies, with no partial patch
 
-An update replaces content, `title`, `description`, `visibility`, `tags`, `author_role`,
-`source_artifacts` and `references` with exactly what the call supplies. An omitted optional
-field takes its create default. There is no partial patch.
+An update replaces every field the call can supply, other than the immutables of R9 and
+`commit_refs` (R12), with exactly what the call supplies. An omitted optional field takes its
+create default. There is no partial patch.
 
 **Example**
 
@@ -236,11 +239,10 @@ When the stored `tier` cannot be read, the call returns `corrupt_metadata` and w
 
 Source: FR-55, FR-69, FR-75, AC-84, C-07, brainstorming-2026-09-17-okf-v02-adoption D50
 
-### R12 — Today's overwrite link-field semantics are kept unchanged
+### R12 — `commit_refs` is read forward and union-merged; every other link field is set to exactly what the call supplies
 
-Today's overwrite link-field semantics are kept unchanged. `commit_refs` is read forward from its
-annotation and union-merged with the supplied value. `references` is set to exactly the supplied
-list.
+`commit_refs` is read forward from its annotation and union-merged with the supplied value. Every
+other link field is set to exactly the supplied value.
 
 Source: FR-55, FR-69, FR-75, AC-84, C-07, brainstorming-2026-09-17-okf-v02-adoption D50
 
@@ -459,8 +461,8 @@ Amend these before the tests (plan.md `## Phase 15`, TDD rule):
     `partial_write`, `annotation_unavailable`, `credential_error` and `internal_error`, with
     `failure_logged` on every response after the object write landed, as for `create_artifact`.
     Add these invariants: the key never changes; immutables match; `date` and the archive marker
-    are carried forward; the `if_match` check window; `commit_refs` read forward and `references`
-    replaced.
+    are carried forward; the `if_match` check window; `commit_refs` read forward and every other
+    link field replaced.
   - Update the frontmatter `description`.
 - **`docs/contracts/modules/arkeology.tools.write_artifacts.md`**:
   - Rename `### write_artifacts` to `### create_artifacts` and drop `overwrite`, both batch and per
@@ -524,8 +526,8 @@ which runs after the conditional check, so it composes unchanged.
   - A stored archive marker of inactive stays inactive after the update.
   - The stored `date` is carried forward when it differs from today's date.
   - An unreadable stored `tier` returns `corrupt_metadata` and writes nothing.
-  - `commit_refs` is read forward and `references` replaced. Keep the existing overwrite tests,
-    retargeted.
+  - `commit_refs` is read forward and every other link field replaced. Keep the existing overwrite
+    tests, retargeted.
 - Update, `if_match`:
   - Another update since R gives `conflict` with the other writer's content kept, while the same
     update without `if_match` succeeds (AC-86).

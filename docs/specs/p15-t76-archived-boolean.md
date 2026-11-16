@@ -117,8 +117,8 @@ generated:
   by: "axians-architect/claude-opus-5.5"
   at: 2026-10-13T15:57:36Z
 revised:
-  by: "axians-architect/claude-opus-5-5"
-  at: 2026-11-15T19:58:25Z
+  by: "axians-architect/claude-sonnet-5-5"
+  at: 2026-11-16T10:34:57Z
 verified:
   - by: "human:mlnrt"
     at: 2026-11-15T11:12:39Z
@@ -522,7 +522,7 @@ Source: AC-80, brainstorming-2026-09-17-okf-v02-adoption D42
 - Read a legacy `status` key as a fallback for a missing `archived`, in any tool. This is the
   no-fallback-paths rule.
 - Translate, strip or rewrite a legacy `status` key in `archive_artifact`, `reconcile_index` or
-  `link_metadata` (brainstorming-2026-09-17-okf-v02-adoption D42). Whole-dict copy paths carry such
+  `add_artifact_links` (renamed from `link_metadata` by T84) (brainstorming-2026-09-17-okf-v02-adoption D42). Whole-dict copy paths carry such
   a key forward untouched until T90 removes it.
 - Add OKF lifecycle `status`, the in-force view, or a full-lineage option to `synthesise_artifacts`
   (T81).

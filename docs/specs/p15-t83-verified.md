@@ -93,7 +93,7 @@ generated:
   at: 2026-10-13T17:50:06Z
 revised:
   by: "axians-architect/claude-sonnet-5-5"
-  at: 2026-11-15T16:04:49Z
+  at: 2026-11-16T10:12:15Z
 ---
 
 # T83 — `verified` Annotation, `add_artifact_verification`, and the "Unverified Since Revised" Flag
@@ -106,18 +106,6 @@ append helper. It never re-PUTs the object, re-embeds, or moves `revised`, the r
 `last_edited_ulid`. `read_artifact` returns the list plus an advisory `unverified_since_revised`
 boolean, true only when the newest verification predates the latest revision; the tier never changes
 (FR-70, FR-71; brainstorming-2026-09-17-okf-v02-adoption D41, D44, D45, D46).
-
-## Open Questions
-
-1. **Non-blocking — hand-off to T88.** Producer documents carry a `verified:` list, and T88's plan
-   entry does not mention it. *Recommended:* T88 imports each entry by calling
-   `add_artifact_verification` with the entry's `at` after the create. As T79 open question 2 notes,
-   an import writes no `revised`, so an imported verification never raises the flag until the first
-   update — consistent with FR-71.
-2. **Non-blocking — B-14 wording.** B-14 derives `last_verified` from "the last entry" of the
-   annotation. Entries may be backdated out of order, so the projection must use the newest `at`, as
-   the read flag does. *Recommended:* the PM rewords B-14 to "the entry with the latest `at`" when it
-   is next touched.
 
 ## 1. Problem Statement
 

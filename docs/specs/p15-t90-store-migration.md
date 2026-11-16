@@ -155,7 +155,7 @@ generated:
   at: 2026-10-13T21:13:59Z
 revised:
   by: "axians-architect/claude-sonnet-5-5"
-  at: 2026-11-15T16:04:49Z
+  at: 2026-11-16T10:12:15Z
 ---
 
 # T90 — Store Migration Skill and Command
@@ -238,7 +238,7 @@ The system provides a skill, `migrating-arkeology-store`, that walks an Admin / 
 sequence:
 
 1. On the old version, run `reconcile_index` until its count of failure-log entries under this
-   write prefix is zero (T15 R12; T84 Open Questions item 3);
+   write prefix is zero (T15 R12);
 2. stop every server that writes this write prefix, on every team member's MCP client and every
    pipeline runner, whatever its version;
 3. install the new version;
@@ -629,7 +629,8 @@ Source: AC-04; brainstorming-2026-09-17-okf-v02-adoption D9, D32, D35; T79
 absent, the system seeds it with `[generated]`, followed by `revised` when one is written. A
 present, readable history is kept.
 
-**Why (History seeded):** This resolves T80 Open Questions item 2. ADR-017 states that the history's
+**Why (History seeded):** T80 reads an absent history as `[]` (T80 R3) and leaves the seeding
+to this task. ADR-017 states that the history's
 first and last entries coincide with `generated` and `revised`. Seeding keeps that true for
 migrated artifacts.
 
@@ -655,7 +656,7 @@ Source: brainstorming-2026-09-17-okf-v02-adoption D17, D18, D29; T84
 
 ### R20 — A converted source that resolves to a readable Arkeology key gets as `last_modified` the earlier of its own and the citing artifact's effective time; one that is missing, unreadable or has no derivable time gets none
 
-Source baselines (brainstorming-2026-09-17-okf-v02-adoption D19, D40; T86 Open Questions item 1):
+Source baselines (brainstorming-2026-09-17-okf-v02-adoption D19, D40; T86 R9):
 for each converted source that resolves to an Arkeology key the migrating server may read, the
 system sets `last_modified` to the earlier of the source's effective time and the citing artifact's
 own effective time. Effective time is `revised_at`, else `generated_at`, as migrated by this run for
@@ -671,8 +672,8 @@ Example (Story 4, freshness verdicts survive the migration):
   migrated and `check_synthesis_freshness` runs, then B is reported stale and A is not, as the
   pre-migration check reported (FR-20, brainstorming-2026-09-17-okf-v02-adoption D19).
 
-**Why (Baseline = earlier of source and citer):** This resolves T86 Open Questions item 1, refining its
-second option. When the source has not changed since the synthesis was written, its current
+**Why (Baseline = earlier of source and citer):** T86 compares each source against its
+`last_modified` (T86 R9) and leaves that value to this task. When the source has not changed since the synthesis was written, its current
 effective time is exactly the revision the synthesis observed, which is OKF §5.1's literal meaning.
 When the source changed later, the revision observed is unrecorded. The synthesis's own time is
 then earlier than the source's, so the source reports stale, as today's ULID check reports it.
@@ -681,7 +682,7 @@ declare every migrated synthesis fresh and hide real staleness.
 brainstorming-2026-09-17-okf-v02-adoption D40 is sound at import because resolving the source
 confirms the version. At store migration that confirmation does not exist.
 
-Source: FR-20; brainstorming-2026-09-17-okf-v02-adoption D19, D40; T86 Open Questions item 1
+Source: FR-20; brainstorming-2026-09-17-okf-v02-adoption D19, D40; T86 R9
 
 ### R21 — `commit_refs` is carried across the re-PUT, a legacy object-metadata copy is merged in and removed, and the vector copy is capped
 

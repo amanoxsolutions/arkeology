@@ -118,8 +118,8 @@ generated:
   by: "axians-architect/claude-opus-5.5"
   at: 2026-10-13T18:53:42Z
 revised:
-  by: "axians-architect/claude-opus-5-5"
-  at: 2026-11-15T20:35:38Z
+  by: "axians-architect/claude-sonnet-5-5"
+  at: 2026-11-16T10:12:15Z
 ---
 
 # T88 — Migration Skill for OKF v0.2 Frontmatter
@@ -487,7 +487,7 @@ Source: AC-80; brainstorming-2026-09-17-okf-v02-adoption D42
 **Resolved Questions item 1 — Bare-id links on read surfaces.** *Original question:* T88 is the
 first writer of `arkeology://artifact/<bare id>` into stored content (AC-58). The
 `arkeology://artifact/{id*}` resource and Studio expected a full key, so those links would not open.
-T84's Open Question 2 left this open, and T85 declined it. *Resolution (2026-10-13, Phase 15
+T84 left this open, and T85 declined it. *Resolution (2026-10-13, Phase 15
 coordinator):* plan.md's T88 entry now routes Studio's link click and the resource through T84's
 resolver (FR-48). This is specified under "Following bare-id links", Story 7 and Decision 10.
 
