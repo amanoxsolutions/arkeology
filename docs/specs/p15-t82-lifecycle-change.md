@@ -4,7 +4,7 @@ id: p15-t82-lifecycle-change
 title: T82 — Change Lifecycle status Without Re-Embedding
 description: Adds set_artifact_status, a small own-scope tool that sets, changes or clears an artifact's OKF lifecycle status by reusing archive_artifact's in-place re-PUT cycle, now moved into one shared module. The tool carries content, every other metadata key, every stored annotation and every embedding forward unchanged, so it makes no embedding call and never moves revised, last_edited_ulid or the revision history. The shared cycle carries the whole annotation set annotations.py defines, so T83's verified annotation survives archive and lifecycle changes without either tool changing.
 tags: []
-status: draft
+status: stable
 okf_version: "0.2"
 sources:
   - id: adr
@@ -107,6 +107,9 @@ generated:
 revised:
   by: "axians-architect/claude-sonnet-5-5"
   at: 2026-11-16T10:34:57Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-11-18T16:29:34Z
 ---
 
 # T82 — Change Lifecycle `status` Without Re-Embedding

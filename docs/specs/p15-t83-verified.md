@@ -4,7 +4,7 @@ id: p15-t83-verified
 title: "T83 — verified Annotation, add_artifact_verification, and the \"Unverified Since Revised\" Flag"
 description: Records verification events as {by, at} entries in the artifact's own verified annotation through a new own-scope tool, add_artifact_verification, built on T80's compare-and-swap append helper — no re-PUT, no re-embedding, no move of revised, revision_history or last_edited_ulid. Every re-PUT carries verified forward. read_artifact returns the list and an advisory unverified_since_revised boolean that never changes the tier. Listings and search stay out of scope (backlog B-14).
 tags: []
-status: draft
+status: stable
 okf_version: "0.2"
 sources:
   - id: adr
@@ -94,6 +94,9 @@ generated:
 revised:
   by: "axians-architect/claude-sonnet-5-5"
   at: 2026-11-16T10:12:15Z
+verified:
+  - by: "human:mlnrt"
+    at: 2026-11-18T16:29:34Z
 ---
 
 # T83 — `verified` Annotation, `add_artifact_verification`, and the "Unverified Since Revised" Flag
